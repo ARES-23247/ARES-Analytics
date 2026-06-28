@@ -18,7 +18,7 @@ data class OnboardingState(
     val robotId: String = "",
     val league: League = League.FTC,
     val nt4Host: String = "192.168.43.1",
-    val googleClientId: String = "292383002428-vruiakhk7ioaeidvrpd9hrq02nrd05me.apps.googleusercontent.com",
+    val googleClientId: String = "205869391101-7bhkcpseglmtv0n3ig8i17e1ntl47tdr.apps.googleusercontent.com",
     val isVerifyingJava: Boolean = false,
     val javaEnvValid: Boolean? = null,
     val javaEnvMsg: String = "",

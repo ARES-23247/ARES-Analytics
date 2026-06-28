@@ -48,7 +48,7 @@ fun OnboardingScreen(
     var seasonId by remember { mutableStateOf("") }
     var robotId by remember { mutableStateOf("") }
     var league by remember { mutableStateOf(League.FTC) }
-    var googleClientId by remember { mutableStateOf("292383002428-vruiakhk7ioaeidvrpd9hrq02nrd05me.apps.googleusercontent.com") }
+    var googleClientId by remember { mutableStateOf("205869391101-7bhkcpseglmtv0n3ig8i17e1ntl47tdr.apps.googleusercontent.com") }
     var nt4Host by remember { mutableStateOf("192.168.43.1") }
     var cloudRobots by remember { mutableStateOf<List<RobotProfile>>(emptyList()) }
     var isCloudLoading by remember { mutableStateOf(false) }
