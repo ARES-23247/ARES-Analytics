@@ -7,6 +7,7 @@ import com.ares.analytics.shared.ForensicsResponse
 import com.ares.analytics.ui.components.NavigationTarget
 import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.shared.League
+import com.ares.analytics.shared.AppWorkspaces
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +17,7 @@ import kotlinx.coroutines.launch
 
 data class MainState(
     val config: WorkspaceConfig? = null,
+    val workspaces: List<WorkspaceConfig> = emptyList(),
     val activeNav: NavigationTarget = NavigationTarget.DASHBOARD,
     val matches: List<MatchInfo> = emptyList(),
     val runsIndexReloadTrigger: Int = 0,
@@ -33,6 +35,10 @@ sealed class MainIntent {
     data class SetTerminalOpen(val isOpen: Boolean) : MainIntent()
     data class SetShowUpdateBanner(val show: Boolean) : MainIntent()
     data class SaveConfig(val config: WorkspaceConfig) : MainIntent()
+    data class SelectWorkspace(val id: String) : MainIntent()
+    data class DeleteWorkspace(val id: String) : MainIntent()
+    object AddNewWorkspace : MainIntent()
+    object CancelAddNewWorkspace : MainIntent()
 }
 
 class MainViewModel(
@@ -51,10 +57,11 @@ class MainViewModel(
         scope.launch {
             when (intent) {
                 is MainIntent.LoadConfig -> {
-                    val loaded = environmentService.loadConfig()
-                    _state.update { it.copy(config = loaded) }
-                    if (loaded != null) {
-                        loadMatchSchedule(loaded)
+                    val app = environmentService.loadWorkspaces()
+                    val active = app.workspaces.find { it.id == app.activeWorkspaceId } ?: app.workspaces.firstOrNull()
+                    _state.update { it.copy(config = active, workspaces = app.workspaces) }
+                    if (active != null) {
+                        loadMatchSchedule(active)
                     }
                 }
                 is MainIntent.SetActiveNav -> {
@@ -76,9 +83,57 @@ class MainViewModel(
                     _state.update { it.copy(showUpdateBanner = intent.show) }
                 }
                 is MainIntent.SaveConfig -> {
-                    environmentService.saveConfig(intent.config)
-                    _state.update { it.copy(config = intent.config) }
-                    loadMatchSchedule(intent.config)
+                    val configWithId = if (intent.config.id.isEmpty()) {
+                        intent.config.copy(id = "${intent.config.league}-${intent.config.teamId}-${intent.config.robotId}-${intent.config.seasonId}")
+                    } else {
+                        intent.config
+                    }
+                    val app = environmentService.loadWorkspaces()
+                    val newList = app.workspaces.filter { it.id != configWithId.id } + configWithId
+                    val newApp = com.ares.analytics.shared.AppWorkspaces(activeWorkspaceId = configWithId.id, workspaces = newList)
+                    environmentService.saveWorkspaces(newApp)
+
+                    _state.update { it.copy(config = configWithId, workspaces = newList) }
+                    loadMatchSchedule(configWithId)
+                }
+                is MainIntent.SelectWorkspace -> {
+                    val app = environmentService.loadWorkspaces()
+                    val target = app.workspaces.find { it.id == intent.id }
+                    if (target != null) {
+                        val newApp = app.copy(activeWorkspaceId = target.id)
+                        environmentService.saveWorkspaces(newApp)
+                        _state.update { it.copy(config = target, workspaces = app.workspaces) }
+                        loadMatchSchedule(target)
+                    }
+                }
+                is MainIntent.DeleteWorkspace -> {
+                    val app = environmentService.loadWorkspaces()
+                    val newList = app.workspaces.filter { it.id != intent.id }
+                    val newActiveId = if (app.activeWorkspaceId == intent.id) {
+                        newList.firstOrNull()?.id
+                    } else {
+                        app.activeWorkspaceId
+                    }
+                    val newApp = com.ares.analytics.shared.AppWorkspaces(activeWorkspaceId = newActiveId, workspaces = newList)
+                    environmentService.saveWorkspaces(newApp)
+
+                    val newActiveConfig = newList.find { it.id == newActiveId }
+                    _state.update { it.copy(config = newActiveConfig, workspaces = newList) }
+                    if (newActiveConfig != null) {
+                        loadMatchSchedule(newActiveConfig)
+                    } else {
+                        _state.update { it.copy(matches = emptyList()) }
+                    }
+                }
+                is MainIntent.AddNewWorkspace -> {
+                    _state.update { it.copy(config = null) }
+                }
+                is MainIntent.CancelAddNewWorkspace -> {
+                    val app = environmentService.loadWorkspaces()
+                    val active = app.workspaces.find { it.id == app.activeWorkspaceId } ?: app.workspaces.firstOrNull()
+                    if (active != null) {
+                        _state.update { it.copy(config = active) }
+                    }
                 }
             }
         }

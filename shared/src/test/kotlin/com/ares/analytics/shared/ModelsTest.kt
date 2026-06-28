@@ -28,6 +28,38 @@ class ModelsTest {
     }
 
     @Test
+    fun testAppWorkspacesSerialization() {
+        val config1 = WorkspaceConfig(
+            id = "ftc-1",
+            teamId = "23247",
+            seasonId = "2026",
+            robotId = "ares-ftc",
+            projectPath = "/home/user/ares-ftc",
+            league = League.FTC
+        )
+        val config2 = WorkspaceConfig(
+            id = "frc-1",
+            teamId = "23247",
+            seasonId = "2026",
+            robotId = "ares-frc",
+            projectPath = "/home/user/ares-frc",
+            league = League.FRC
+        )
+        val app = AppWorkspaces(
+            activeWorkspaceId = "ftc-1",
+            workspaces = listOf(config1, config2)
+        )
+
+        val json = Json.encodeToString(app)
+        val decoded = Json.decodeFromString<AppWorkspaces>(json)
+
+        assertEquals("ftc-1", decoded.activeWorkspaceId)
+        assertEquals(2, decoded.workspaces.size)
+        assertEquals("ares-frc", decoded.workspaces[1].robotId)
+        assertEquals(League.FRC, decoded.workspaces[1].league)
+    }
+
+    @Test
     fun testObstacleSerialization() {
         val circle: Obstacle = Obstacle.Circle(
             id = "c1",

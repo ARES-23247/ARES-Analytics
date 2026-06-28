@@ -8,6 +8,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class WorkspaceConfig(
+    val id: String = "",
     val teamId: String,
     val seasonId: String,
     val robotId: String,
@@ -23,6 +24,12 @@ data class WorkspaceConfig(
 enum class League {
     FTC, FRC
 }
+
+@Serializable
+data class AppWorkspaces(
+    val activeWorkspaceId: String?,
+    val workspaces: List<WorkspaceConfig>
+)
 
 // ────────────────────────────────────────────────────────────────────────────
 // Session & Telemetry

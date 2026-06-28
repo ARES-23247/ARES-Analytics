@@ -2,6 +2,7 @@ package com.ares.analytics.service
 
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
+import com.ares.analytics.shared.AppWorkspaces
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -9,25 +10,63 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 class EnvironmentService(
-    private val configPath: String = System.getProperty("user.home") + "/.ares-analytics/config.json"
+    private val configPath: String = System.getProperty("user.home") + "/.ares-analytics/config.json",
+    private val workspacesPath: String = System.getProperty("user.home") + "/.ares-analytics/workspaces.json"
 ) {
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
 
-    suspend fun loadConfig(): WorkspaceConfig? = withContext(Dispatchers.IO) {
-        val file = File(configPath)
-        if (!file.exists()) return@withContext null
-        try {
-            json.decodeFromString<WorkspaceConfig>(file.readText())
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
+    suspend fun loadWorkspaces(): AppWorkspaces = withContext(Dispatchers.IO) {
+        val file = File(workspacesPath)
+        val legacyFile = File(configPath)
+
+        if (file.exists()) {
+            try {
+                return@withContext json.decodeFromString<AppWorkspaces>(file.readText())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
+
+        if (legacyFile.exists()) {
+            try {
+                val legacyConfig = json.decodeFromString<WorkspaceConfig>(legacyFile.readText())
+                val migratedId = legacyConfig.id.ifEmpty { "${legacyConfig.league}-${legacyConfig.teamId}-${legacyConfig.robotId}-${legacyConfig.seasonId}" }
+                val migratedConfig = legacyConfig.copy(id = migratedId)
+                val migratedWorkspaces = AppWorkspaces(
+                    activeWorkspaceId = migratedId,
+                    workspaces = listOf(migratedConfig)
+                )
+                file.parentFile?.mkdirs()
+                file.writeText(json.encodeToString(migratedWorkspaces))
+                return@withContext migratedWorkspaces
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        AppWorkspaces(activeWorkspaceId = null, workspaces = emptyList())
     }
 
-    suspend fun saveConfig(config: WorkspaceConfig) = withContext(Dispatchers.IO) {
-        val file = File(configPath)
+    suspend fun saveWorkspaces(appWorkspaces: AppWorkspaces) = withContext(Dispatchers.IO) {
+        val file = File(workspacesPath)
         file.parentFile?.mkdirs()
-        file.writeText(json.encodeToString(config))
+        file.writeText(json.encodeToString(appWorkspaces))
+    }
+
+    suspend fun loadConfig(): WorkspaceConfig? {
+        val app = loadWorkspaces()
+        return app.workspaces.find { it.id == app.activeWorkspaceId } ?: app.workspaces.firstOrNull()
+    }
+
+    suspend fun saveConfig(config: WorkspaceConfig) {
+        val app = loadWorkspaces()
+        val configWithId = if (config.id.isEmpty()) {
+            config.copy(id = "${config.league}-${config.teamId}-${config.robotId}-${config.seasonId}")
+        } else {
+            config
+        }
+        val newList = app.workspaces.filter { it.id != configWithId.id } + configWithId
+        saveWorkspaces(AppWorkspaces(activeWorkspaceId = configWithId.id, workspaces = newList))
     }
 
     suspend fun verifyJavaEnvironment(): JavaEnvResult = withContext(Dispatchers.IO) {

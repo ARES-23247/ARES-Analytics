@@ -30,6 +30,7 @@ import javax.swing.JFileChooser
 @Composable
 fun OnboardingScreen(
     viewModel: OnboardingViewModel,
+    onCancel: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val state by viewModel.state.collectAsState()
@@ -359,18 +360,35 @@ fun OnboardingScreen(
 
                 Spacer(Modifier.height(8.dp))
 
-                // Submit button
-                Button(
-                    onClick = { viewModel.handleIntent(OnboardingIntent.SubmitConfig) },
+                // Row containing buttons
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, disabledContainerColor = AresBorder),
-                    enabled = !state.isSaving && state.javaEnvValid == true,
-                    shape = RoundedCornerShape(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    if (state.isSaving) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = AresBackground, strokeWidth = 2.dp)
-                    } else {
-                        Text("Initialize Workspace", color = AresBackground, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    if (onCancel != null) {
+                        OutlinedButton(
+                            onClick = onCancel,
+                            modifier = Modifier.weight(1f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AresTextPrimary)
+                        ) {
+                            Text("Cancel", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
+                    }
+
+                    Button(
+                        onClick = { viewModel.handleIntent(OnboardingIntent.SubmitConfig) },
+                        modifier = Modifier.weight(if (onCancel != null) 2f else 1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, disabledContainerColor = AresBorder),
+                        enabled = !state.isSaving && state.javaEnvValid == true,
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        if (state.isSaving) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = AresBackground, strokeWidth = 2.dp)
+                        } else {
+                            Text("Initialize Workspace", color = AresBackground, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        }
                     }
                 }
             }
