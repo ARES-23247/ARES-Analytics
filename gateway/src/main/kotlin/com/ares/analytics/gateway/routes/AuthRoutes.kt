@@ -83,15 +83,6 @@ fun Route.authRoutes() {
                     }
                     if (mentorsResponse.status == HttpStatusCode.OK) {
                         role = "ADMIN"
-                    } else {
-                        // Check software-leads membership
-                        val leadsResponse = httpClient.get("https://api.github.com/orgs/${req.targetOrg}/teams/software-leads/memberships/$username") {
-                            header(HttpHeaders.Authorization, "token ${req.githubToken}")
-                            header(HttpHeaders.Accept, "application/vnd.github.v3+json")
-                        }
-                        if (leadsResponse.status == HttpStatusCode.OK) {
-                            role = "EDITOR"
-                        }
                     }
                 }
 

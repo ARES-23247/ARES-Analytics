@@ -13,6 +13,7 @@ import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import com.ares.analytics.gateway.auth.FirebasePrincipal
 import java.util.concurrent.TimeUnit
 
 fun Route.archiveRoutes(
@@ -96,9 +97,13 @@ fun Route.archiveRoutes(
         }
 
         post("/api/team/robots/add") {
+            val principal = call.principal<FirebasePrincipal>() ?: return@post call.respond(HttpStatusCode.Unauthorized)
             val req = call.receive<AddRobotRequest>()
             try {
                 val db = customFirestore ?: FirestoreOptions.getDefaultInstance().service
+                if (!isUserAdmin(db, principal.uid)) {
+                    return@post call.respond(HttpStatusCode.Forbidden, "Only mentors and administrators can register robot profiles.")
+                }
                 val docRef = db.collection("teams").document(req.teamId).collection("robots").document(req.robot.robotId)
                 val robotMap = mapOf(
                     "league" to req.robot.league.name,
@@ -113,9 +118,13 @@ fun Route.archiveRoutes(
         }
 
         post("/api/team/robots/delete") {
+            val principal = call.principal<FirebasePrincipal>() ?: return@post call.respond(HttpStatusCode.Unauthorized)
             val req = call.receive<DeleteRobotRequest>()
             try {
                 val db = customFirestore ?: FirestoreOptions.getDefaultInstance().service
+                if (!isUserAdmin(db, principal.uid)) {
+                    return@post call.respond(HttpStatusCode.Forbidden, "Only mentors and administrators can delete robot profiles.")
+                }
                 val docRef = db.collection("teams").document(req.teamId).collection("robots").document(req.robotId)
                 docRef.delete().get()
                 call.respond(HttpStatusCode.OK, "Robot profile deleted successfully")
@@ -124,6 +133,13 @@ fun Route.archiveRoutes(
             }
         }
     }
+}
+
+private suspend fun isUserAdmin(db: Firestore, uid: String): Boolean {
+    val userDoc = db.collection("users").document(uid).get().get()
+    if (!userDoc.exists()) return false
+    val role = userDoc.getString("role")
+    return role == "ADMIN"
 }
 
 // ────────────────────────────────────────────────────────────────────────────
