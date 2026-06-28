@@ -36,7 +36,8 @@ class SysIdService(private val databaseService: DatabaseService) {
         // Identify direction change timestamps (sign of velocity changes)
         val directionChanges = mutableListOf<Long>()
         var lastSign = 0.0
-        for (v in velocities.sortedBy { it.timestampMs }) {
+        val sortedVelocities = velocities.sortedBy { it.timestampMs }
+        for (v in sortedVelocities) {
             val currentSign = sign(v.value)
             if (currentSign != 0.0 && currentSign != lastSign) {
                 directionChanges.add(v.timestampMs)
@@ -44,7 +45,10 @@ class SysIdService(private val databaseService: DatabaseService) {
             }
         }
 
-        for (v in velocities) {
+        val sortedAccels = accelerations.sortedBy { it.timestampMs }
+        var accelIdx = 0
+
+        for (v in sortedVelocities) {
             val t = v.timestampMs
 
             // Apply direction change cleansing: skip data points within ±50ms of a sign change
@@ -52,7 +56,15 @@ class SysIdService(private val databaseService: DatabaseService) {
             if (isNearDirectionChange) continue
 
             val volt = timeMap[t]?.value ?: continue
-            val accel = accelerations.minByOrNull { abs(it.timestampMs - t) }?.value ?: continue
+
+            // Move accelIdx forward to find nearest neighbor in O(N + M)
+            while (accelIdx < sortedAccels.size - 1 &&
+                abs(sortedAccels[accelIdx + 1].timestampMs - t) <= abs(sortedAccels[accelIdx].timestampMs - t)
+            ) {
+                accelIdx++
+            }
+            if (sortedAccels.isEmpty()) continue
+            val accel = sortedAccels[accelIdx].value
 
             alignedData.add(AlignedDataRow(t, volt, v.value, accel))
         }

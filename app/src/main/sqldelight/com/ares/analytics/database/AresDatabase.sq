@@ -36,10 +36,8 @@ CREATE TABLE telemetry_frames (
     session_id TEXT NOT NULL,
     key TEXT NOT NULL,
     value REAL NOT NULL,
-    PRIMARY KEY (timestamp_ms, session_id, key)
+    PRIMARY KEY (session_id, key, timestamp_ms)
 ) WITHOUT ROWID;
-
-CREATE INDEX idx_telemetry_session ON telemetry_frames(session_id);
 
 -- Session annotations table
 CREATE TABLE session_annotations (
@@ -72,10 +70,8 @@ CREATE TABLE console_messages (
     session_id TEXT NOT NULL,
     text TEXT NOT NULL,
     severity TEXT NOT NULL,
-    PRIMARY KEY (timestamp_ms, session_id, text)
+    PRIMARY KEY (session_id, timestamp_ms, text)
 ) WITHOUT ROWID;
-
-CREATE INDEX idx_console_session ON console_messages(session_id);
 
 -- Cached Topologies table
 CREATE TABLE cached_topologies (
