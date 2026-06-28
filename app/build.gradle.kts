@@ -79,9 +79,10 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "ARES-Analytics"
-            packageVersion = "1.0.1"
+            packageVersion = "1.0.2"
             description = "ARES Robotics Mission Control Suite"
             vendor = "ARES Robotics"
+            modules("java.sql", "java.naming")
 
             windows {
                 menuGroup = "ARES"
