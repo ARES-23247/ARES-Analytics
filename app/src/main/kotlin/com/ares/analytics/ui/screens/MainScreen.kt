@@ -345,7 +345,7 @@ fun MainScreen(services: ServiceRegistry) {
                                     )
                                 }
 
-                                Divider(color = AresBorder, modifier = Modifier.padding(vertical = 4.dp))
+                                HorizontalDivider(color = AresBorder, modifier = Modifier.padding(vertical = 4.dp))
 
                                 DropdownMenuItem(
                                     text = {

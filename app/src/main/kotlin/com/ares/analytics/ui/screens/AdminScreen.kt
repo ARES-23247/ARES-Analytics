@@ -109,7 +109,7 @@ fun AdminScreen(
             }
         }
 
-        Divider(color = AresBorder)
+        HorizontalDivider(color = AresBorder)
 
         if (token == null) {
             Box(
