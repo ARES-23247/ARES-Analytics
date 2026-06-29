@@ -5,7 +5,7 @@ WORKDIR /home/gradle/src
 RUN gradle :gateway:installDist --no-daemon
 
 # Stage 2: Runtime
-FROM gcr.io/distroless/java17-debian11
+FROM eclipse-temurin:17-jre-alpine
 COPY --from=build /home/gradle/src/gateway/build/install/gateway /app
 WORKDIR /app
 EXPOSE 8080
