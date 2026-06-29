@@ -118,16 +118,19 @@ class OAuthService(
 
         bootCallbackServer(callbackPort) { code ->
             try {
-                // Exchange code for Google ID token
+                val bodyParams = mutableListOf(
+                    "code" to code,
+                    "client_id" to (googleClientId ?: ""),
+                    "redirect_uri" to redirectUri,
+                    "grant_type" to "authorization_code"
+                )
+                if (!googleClientSecret.isNullOrBlank()) {
+                    bodyParams.add("client_secret" to googleClientSecret)
+                }
+
                 val response = httpClient.post("https://oauth2.googleapis.com/token") {
                     contentType(ContentType.Application.FormUrlEncoded)
-                    setBody(listOf(
-                        "code" to code,
-                        "client_id" to googleClientId,
-                        "client_secret" to (googleClientSecret ?: ""),
-                        "redirect_uri" to redirectUri,
-                        "grant_type" to "authorization_code"
-                    ).formUrlEncode())
+                    setBody(bodyParams.formUrlEncode())
                 }
 
                 if (response.status == HttpStatusCode.OK) {
@@ -199,6 +202,7 @@ class OAuthService(
     }
 
     fun logout() {
+        _authState.value = AuthState.Unauthenticated
         firebaseClientService.logout()
         stopServer()
     }
