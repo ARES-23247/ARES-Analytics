@@ -62,6 +62,9 @@ class ProfileViewModel(
         scope.launch {
             oauthService.authState.collectLatest { state ->
                 _state.update { it.copy(authState = state) }
+                if (state is AuthState.Authenticated) {
+                    onIntent(ProfileIntent.PerformDeltaSync(state.firebaseToken))
+                }
             }
         }
     }
