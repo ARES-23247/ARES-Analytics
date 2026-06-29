@@ -201,6 +201,11 @@ class ProcessManagerService {
     }
 
     fun killActiveBuild() {
+        try {
+            buildProcess?.descendants()?.forEach { it.destroyForcibly() }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         buildProcess?.destroyForcibly()
         buildProcess = null
         activeBuildJob?.cancel()
@@ -215,6 +220,11 @@ class ProcessManagerService {
     }
 
     fun killActiveSim() {
+        try {
+            simProcess?.descendants()?.forEach { it.destroyForcibly() }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         simProcess?.destroyForcibly()
         simProcess = null
         activeSimJob?.cancel()
