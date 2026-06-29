@@ -22,6 +22,7 @@ data class ProfileState(
     val syncStatus: String = "",
     val googleClientId: String = "",
     val firebaseApiKey: String = "",
+    val googleClientSecret: String = "",
     val eventCode: String = "",
     val toaApiKey: String = "",
     val tbaApiKey: String = "",
@@ -38,6 +39,7 @@ sealed class ProfileIntent {
     data class UpdateEventSettings(
         val googleClientId: String,
         val firebaseApiKey: String,
+        val googleClientSecret: String,
         val eventCode: String,
         val toaApiKey: String,
         val tbaApiKey: String,
@@ -78,6 +80,7 @@ class ProfileViewModel(
                             config = cfg,
                             googleClientId = cfg.googleClientId ?: "",
                             firebaseApiKey = cfg.firebaseApiKey ?: "",
+                            googleClientSecret = cfg.googleClientSecret ?: "",
                             eventCode = cfg.eventCode ?: "",
                             toaApiKey = cfg.toaApiKey ?: "",
                             tbaApiKey = cfg.tbaApiKey ?: ""
@@ -93,7 +96,9 @@ class ProfileViewModel(
                     val targetClientId = intent.clientId.takeIf { it.isNotBlank() }
                         ?: "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com"
 
-                    oauthService.startGoogleLogin(targetClientId)
+                    val targetClientSecret = _state.value.googleClientSecret.takeIf { it.isNotBlank() }
+
+                    oauthService.startGoogleLogin(targetClientId, targetClientSecret)
                 }
                 is ProfileIntent.LinkGitHub -> {
                     oauthService.startGithubLogin(intent.clientId.takeIf { it.isNotBlank() } ?: "mock-github-client-id")
@@ -118,6 +123,7 @@ class ProfileViewModel(
                     val newConfig = currentCfg.copy(
                         googleClientId = intent.googleClientId.takeIf { it.isNotBlank() },
                         firebaseApiKey = intent.firebaseApiKey.takeIf { it.isNotBlank() },
+                        googleClientSecret = intent.googleClientSecret.takeIf { it.isNotBlank() },
                         eventCode = intent.eventCode.takeIf { it.isNotBlank() },
                         toaApiKey = intent.toaApiKey.takeIf { it.isNotBlank() },
                         tbaApiKey = intent.tbaApiKey.takeIf { it.isNotBlank() }
@@ -130,6 +136,7 @@ class ProfileViewModel(
                             config = newConfig,
                             googleClientId = intent.googleClientId,
                             firebaseApiKey = intent.firebaseApiKey,
+                            googleClientSecret = intent.googleClientSecret,
                             eventCode = intent.eventCode,
                             toaApiKey = intent.toaApiKey,
                             tbaApiKey = intent.tbaApiKey

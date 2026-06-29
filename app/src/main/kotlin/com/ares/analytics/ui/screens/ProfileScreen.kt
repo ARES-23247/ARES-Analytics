@@ -38,6 +38,7 @@ fun ProfileScreen(
     // Optional credential overrides
     var googleClientId by remember(state.googleClientId) { mutableStateOf(state.googleClientId) }
     var firebaseApiKey by remember(state.firebaseApiKey) { mutableStateOf(state.firebaseApiKey) }
+    var googleClientSecret by remember(state.googleClientSecret) { mutableStateOf(state.googleClientSecret) }
     var showAdvanced by remember { mutableStateOf(false) }
 
     // Match integration overrides
@@ -61,7 +62,8 @@ fun ProfileScreen(
                         onClick = {
                             val updatedConfig = config.copy(
                                 googleClientId = googleClientId.takeIf { it.isNotBlank() },
-                                firebaseApiKey = firebaseApiKey.takeIf { it.isNotBlank() }
+                                firebaseApiKey = firebaseApiKey.takeIf { it.isNotBlank() },
+                                googleClientSecret = googleClientSecret.takeIf { it.isNotBlank() }
                             )
                             onConfigChanged(updatedConfig)
                             viewModel.onIntent(ProfileIntent.GoogleSignIn(googleClientId))
@@ -102,6 +104,15 @@ fun ProfileScreen(
                             value = firebaseApiKey,
                             onValueChange = { firebaseApiKey = it },
                             label = { Text("Firebase API Key") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
+                        )
+
+                        OutlinedTextField(
+                            value = googleClientSecret,
+                            onValueChange = { googleClientSecret = it },
+                            label = { Text("Google Client Secret") },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
@@ -209,6 +220,7 @@ fun ProfileScreen(
                     ProfileIntent.UpdateEventSettings(
                         googleClientId = googleClientId,
                         firebaseApiKey = firebaseApiKey,
+                        googleClientSecret = googleClientSecret,
                         eventCode = eventCode,
                         toaApiKey = toaApiKey,
                         tbaApiKey = tbaApiKey,
