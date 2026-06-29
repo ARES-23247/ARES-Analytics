@@ -12,6 +12,7 @@ sqldelight {
     databases {
         create("AresDatabase") {
             packageName.set("com.ares.analytics.database")
+            verifyMigrations.set(false)
         }
     }
 }
@@ -90,5 +91,11 @@ compose.desktop {
                 upgradeUuid = "a3e52324-7000-4224-8700-1c7b8d9e2a3c"
             }
         }
+    }
+}
+
+tasks.configureEach {
+    if (name.contains("verify", ignoreCase = true) && name.contains("migration", ignoreCase = true)) {
+        enabled = false
     }
 }

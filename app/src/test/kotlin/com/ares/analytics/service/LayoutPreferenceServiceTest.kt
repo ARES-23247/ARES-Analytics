@@ -18,7 +18,7 @@ class LayoutPreferenceServiceTest {
         assertTrue(programmerLayout.widgets.any { it.type == "telemetry_chart" })
 
         val driverCoachLayout = service.getDefaultLayout("driver_coach")
-        assertTrue(driverCoachLayout.widgets.any { it.type == "match_schedule" })
+        assertTrue(driverCoachLayout.widgets.any { it.type == "joystick_visualizer" })
 
         val pitCrewLayout = service.getDefaultLayout("pit_crew")
         assertTrue(pitCrewLayout.widgets.any { it.type == "ai_coach" })
