@@ -174,10 +174,14 @@ fun MainScreen(services: ServiceRegistry) {
     val primarySessionId = dashboardState.primarySessionId
     val compareSessionId = dashboardState.compareSessionId
 
-    // Start NT4 connection once config is resolved
-    LaunchedEffect(currentConfig) {
+    val isConnected by services.nt4ClientService.isConnected.collectAsState()
+    val adbConnected by services.processManagerService.adbConnected.collectAsState()
+    val isSimRunning by services.processManagerService.isSimRunning.collectAsState()
+
+    // Start NT4 connection once config is resolved or simulator status changes
+    LaunchedEffect(currentConfig, isSimRunning) {
         focusRequester.requestFocus()
-        val host = currentConfig.nt4Host ?: "192.168.43.1"
+        val host = if (isSimRunning) "127.0.0.1" else (currentConfig.nt4Host ?: "192.168.43.1")
         services.nt4ClientService.start(
             host = host,
             teamId = currentConfig.teamId,
@@ -187,10 +191,6 @@ fun MainScreen(services: ServiceRegistry) {
         services.phoenixDiagnosticsService.start(host = host)
         services.ftcDashboardService.start(host = host)
     }
-
-    val isConnected by services.nt4ClientService.isConnected.collectAsState()
-    val adbConnected by services.processManagerService.adbConnected.collectAsState()
-    val isSimRunning by services.processManagerService.isSimRunning.collectAsState()
 
     Box(
         modifier = Modifier

@@ -58,11 +58,11 @@ class LayoutPreferenceService(
         return when (profileName.lowercase().replace(" ", "_")) {
             "driver_coach" -> DashboardLayoutConfig(
                 listOf(
-                    WidgetConfig("telemetry_chart", "telemetry_chart", 0, 0, 2, 2),
-                    WidgetConfig("match_schedule", "match_schedule", 0, 2, 1, 1),
-                    WidgetConfig("alerts", "alerts", 1, 2, 1, 1),
-                    WidgetConfig("runs_index", "runs_index", 2, 0, 1, 1),
-                    WidgetConfig("ai_coach", "ai_coach", 2, 1, 1, 2)
+                    WidgetConfig("mecanum_visualizer", "mecanum_visualizer", 0, 0, 2, 2),
+                    WidgetConfig("joystick_visualizer", "joystick_visualizer", 0, 2, 2, 1),
+                    WidgetConfig("telemetry_chart", "telemetry_chart", 2, 0, 2, 2),
+                    WidgetConfig("alerts", "alerts", 2, 2, 1, 1),
+                    WidgetConfig("ai_coach", "ai_coach", 3, 2, 1, 1)
                 )
             )
             "programmer" -> DashboardLayoutConfig(
@@ -85,13 +85,11 @@ class LayoutPreferenceService(
             )
             else -> DashboardLayoutConfig( // Default standard layout
                 listOf(
-                    WidgetConfig("runs_index", "runs_index", 0, 0, 1, 1),
-                    WidgetConfig("alerts", "alerts", 0, 1, 1, 1),
-                    WidgetConfig("telemetry_chart", "telemetry_chart", 1, 0, 1, 2),
-                    WidgetConfig("match_schedule", "match_schedule", 1, 2, 1, 1),
-                    WidgetConfig("motor_health", "motor_health", 2, 0, 1, 1),
-                    WidgetConfig("vision_quality", "vision_quality", 2, 1, 1, 1),
-                    WidgetConfig("ai_coach", "ai_coach", 2, 2, 1, 1)
+                    WidgetConfig("runs_index", "runs_index", 0, 0, 2, 1),
+                    WidgetConfig("mecanum_visualizer", "mecanum_visualizer", 0, 1, 2, 1),
+                    WidgetConfig("joystick_visualizer", "joystick_visualizer", 0, 2, 2, 1),
+                    WidgetConfig("telemetry_chart", "telemetry_chart", 2, 0, 1, 2),
+                    WidgetConfig("alerts", "alerts", 2, 2, 1, 1)
                 )
             )
         }
