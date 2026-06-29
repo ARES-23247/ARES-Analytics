@@ -35,6 +35,8 @@ sealed class ProfileIntent {
     object SignOut : ProfileIntent()
     data class PerformDeltaSync(val firebaseToken: String) : ProfileIntent()
     data class UpdateEventSettings(
+        val googleClientId: String,
+        val firebaseApiKey: String,
         val eventCode: String,
         val toaApiKey: String,
         val tbaApiKey: String,
@@ -68,6 +70,8 @@ class ProfileViewModel(
                     _state.update {
                         it.copy(
                             config = cfg,
+                            googleClientId = cfg.googleClientId ?: "",
+                            firebaseApiKey = cfg.firebaseApiKey ?: "",
                             eventCode = cfg.eventCode ?: "",
                             toaApiKey = cfg.toaApiKey ?: "",
                             tbaApiKey = cfg.tbaApiKey ?: ""
@@ -75,10 +79,10 @@ class ProfileViewModel(
                     }
                 }
                 is ProfileIntent.GoogleSignIn -> {
-                    oauthService.startGoogleLogin(intent.clientId.takeIf { it.isNotEmpty() } ?: "mock")
+                    oauthService.startGoogleLogin(intent.clientId.takeIf { it.isNotBlank() } ?: "mock")
                 }
                 is ProfileIntent.LinkGitHub -> {
-                    oauthService.startGithubLogin(intent.clientId.takeIf { it.isNotEmpty() } ?: "mock-github-client-id")
+                    oauthService.startGithubLogin(intent.clientId.takeIf { it.isNotBlank() } ?: "mock-github-client-id")
                 }
                 is ProfileIntent.SignOut -> {
                     oauthService.logout()
@@ -98,11 +102,22 @@ class ProfileViewModel(
                 is ProfileIntent.UpdateEventSettings -> {
                     val currentCfg = _state.value.config ?: return@launch
                     val newConfig = currentCfg.copy(
-                        eventCode = intent.eventCode.takeIf { it.isNotEmpty() },
-                        toaApiKey = intent.toaApiKey.takeIf { it.isNotEmpty() },
-                        tbaApiKey = intent.tbaApiKey.takeIf { it.isNotEmpty() }
+                        googleClientId = intent.googleClientId.takeIf { it.isNotBlank() },
+                        firebaseApiKey = intent.firebaseApiKey.takeIf { it.isNotBlank() },
+                        eventCode = intent.eventCode.takeIf { it.isNotBlank() },
+                        toaApiKey = intent.toaApiKey.takeIf { it.isNotBlank() },
+                        tbaApiKey = intent.tbaApiKey.takeIf { it.isNotBlank() }
                     )
-                    _state.update { it.copy(config = newConfig, eventCode = intent.eventCode, toaApiKey = intent.toaApiKey, tbaApiKey = intent.tbaApiKey) }
+                    _state.update {
+                        it.copy(
+                            config = newConfig,
+                            googleClientId = intent.googleClientId,
+                            firebaseApiKey = intent.firebaseApiKey,
+                            eventCode = intent.eventCode,
+                            toaApiKey = intent.toaApiKey,
+                            tbaApiKey = intent.tbaApiKey
+                        )
+                    }
                     withContext(Dispatchers.IO) {
                         environmentService.saveConfig(newConfig)
                     }

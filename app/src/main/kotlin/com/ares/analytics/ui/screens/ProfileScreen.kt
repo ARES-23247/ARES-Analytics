@@ -31,8 +31,8 @@ fun ProfileScreen(
     }
 
     // Optional credential overrides
-    var googleClientId by remember { mutableStateOf("") }
-    var firebaseApiKey by remember { mutableStateOf("") }
+    var googleClientId by remember(state.googleClientId) { mutableStateOf(state.googleClientId) }
+    var firebaseApiKey by remember(state.firebaseApiKey) { mutableStateOf(state.firebaseApiKey) }
 
     // Match integration overrides
     var eventCode by remember(state.eventCode) { mutableStateOf(state.eventCode) }
@@ -71,6 +71,11 @@ fun ProfileScreen(
 
                     Button(
                         onClick = {
+                            val updatedConfig = config.copy(
+                                googleClientId = googleClientId.takeIf { it.isNotBlank() },
+                                firebaseApiKey = firebaseApiKey.takeIf { it.isNotBlank() }
+                            )
+                            onConfigChanged(updatedConfig)
                             viewModel.onIntent(ProfileIntent.GoogleSignIn(googleClientId))
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
@@ -178,6 +183,8 @@ fun ProfileScreen(
             onClick = {
                 viewModel.onIntent(
                     ProfileIntent.UpdateEventSettings(
+                        googleClientId = googleClientId,
+                        firebaseApiKey = firebaseApiKey,
                         eventCode = eventCode,
                         toaApiKey = toaApiKey,
                         tbaApiKey = tbaApiKey,

@@ -18,7 +18,8 @@ data class WorkspaceConfig(
     val eventCode: String? = null,
     val toaApiKey: String? = null,
     val tbaApiKey: String? = null,
-    val googleClientId: String? = null
+    val googleClientId: String? = null,
+    val firebaseApiKey: String? = null
 )
 
 @Serializable
