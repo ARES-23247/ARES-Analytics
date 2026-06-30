@@ -41,6 +41,7 @@ val availableWidgetsList = listOf(
     AvailableWidget("joystick_visualizer", "Gamepad Monitor", "Real-time controller sticks, triggers, and button deflections.", Icons.Default.Gamepad),
     AvailableWidget("mechanism_visualizer", "Linkage Animator", "Real-time 2D rendering of arm angles and slide height extensions.", Icons.Default.Build),
     AvailableWidget("mecanum_visualizer", "Mecanum Force Visualizer", "Real-time wheel spin velocities and traction force vectors.", Icons.Default.Settings),
+    AvailableWidget("field_viewer", "Field 2D Viewer", "Real-time 2D visualization of the robot's pose on the game field.", Icons.Default.Map),
     AvailableWidget("trends_card", "Battery Trends", "Multi-session battery voltage degradation trend lines and linear regression.", Icons.Default.TrendingDown),
     AvailableWidget("battery_health", "Battery Diagnostics", "Real-time battery voltage monitoring and brownout warnings.", Icons.Default.BatteryChargingFull),
     AvailableWidget("statistics_panel", "Signal Statistics", "Descriptive statistics, error forensics, and distribution histograms.", Icons.Default.Analytics)

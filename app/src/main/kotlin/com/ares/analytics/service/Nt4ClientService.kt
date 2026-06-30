@@ -68,8 +68,10 @@ open class Nt4ClientService(
 
             while (isActive) {
                 try {
-                    val url = "ws://$host:5810/nt/v4/client/ARES-Analytics"
+                    val url = "ws://$host:5810/nt/v4/websocket"
+                    println("[Nt4ClientService] Attempting to connect to $url")
                     client.webSocket(url) {
+                        println("[Nt4ClientService] Connected to $url successfully!")
                         _isConnected.value = true
                         webSocketSession = this
                         topicMap.clear()
@@ -118,11 +120,13 @@ open class Nt4ClientService(
                                 }
                             }
                         } finally {
+                            println("[Nt4ClientService] Connection to $url closed.")
                             webSocketSession = null
                             _isConnected.value = false
                         }
                     }
                 } catch (e: Exception) {
+                    println("[Nt4ClientService] Error connecting to ws://$host:5810/nt/v4/websocket: ${e.message}")
                     webSocketSession = null
                     _isConnected.value = false
                     // Backoff delay before reconnect
