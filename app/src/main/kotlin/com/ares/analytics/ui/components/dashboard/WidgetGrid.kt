@@ -63,25 +63,29 @@ fun WidgetGrid(
                 var offsetY by remember { mutableStateOf(0f) }
                 var isDragging by remember { mutableStateOf(false) }
 
+                var resizeWidthOffset by remember { mutableStateOf(0f) }
+                var resizeHeightOffset by remember { mutableStateOf(0f) }
+                var isResizing by remember { mutableStateOf(false) }
+
                 val builder = widgetBuilders[widget.type]
                 if (builder != null) {
-                    val w = colWidth * widget.colSpan + spacing * (widget.colSpan - 1)
-                    val h = rowHeight * widget.rowSpan + spacing * (widget.rowSpan - 1)
+                    val w = colWidth * widget.colSpan + spacing * (widget.colSpan - 1) + (resizeWidthOffset / density).dp
+                    val h = rowHeight * widget.rowSpan + spacing * (widget.rowSpan - 1) + (resizeHeightOffset / density).dp
                     val x = colWidth * widget.col + spacing * widget.col
                     val y = rowHeight * widget.row + spacing * widget.row
 
                     Box(
                         modifier = Modifier
                             .absoluteOffset(
-                                x = x + offsetX.dp,
-                                y = y + offsetY.dp
+                                x = x + (offsetX / density).dp,
+                                y = y + (offsetY / density).dp
                             )
                             .size(width = w, height = h)
                             .clip(RoundedCornerShape(12.dp))
                             .background(AresSurface)
                             .border(
-                                width = if (isDragging) 2.dp else 1.dp,
-                                color = if (isDragging) AresCyan else AresBorder,
+                                width = if (isDragging || isResizing) 2.dp else 1.dp,
+                                color = if (isDragging || isResizing) AresCyan else AresBorder,
                                 shape = RoundedCornerShape(12.dp)
                             )
                     ) {
@@ -107,6 +111,11 @@ fun WidgetGrid(
                                                 }
                                                 onLayoutChanged(resolveOverlaps(updated, widget.id))
                                             }
+                                        },
+                                        onDragCancel = {
+                                            isDragging = false
+                                            offsetX = 0f
+                                            offsetY = 0f
                                         },
                                         onDrag = { change, dragAmount ->
                                             change.consume()
@@ -147,14 +156,14 @@ fun WidgetGrid(
                                 .size(24.dp)
                                 .align(Alignment.BottomEnd)
                                 .pointerInput(Unit) {
-                                    var resizeOffsetX = 0f
-                                    var resizeOffsetY = 0f
                                     detectDragGestures(
+                                        onDragStart = { isResizing = true },
                                         onDragEnd = {
-                                            val deltaColSpan = ((resizeOffsetX / density) / 360f).roundToInt()
-                                            val deltaRowSpan = ((resizeOffsetY / density) / 240f).roundToInt()
-                                            resizeOffsetX = 0f
-                                            resizeOffsetY = 0f
+                                            isResizing = false
+                                            val deltaColSpan = ((resizeWidthOffset / density) / 360f).roundToInt()
+                                            val deltaRowSpan = ((resizeHeightOffset / density) / 240f).roundToInt()
+                                            resizeWidthOffset = 0f
+                                            resizeHeightOffset = 0f
                                             if (deltaColSpan != 0 || deltaRowSpan != 0) {
                                                 val newColSpan = (widget.colSpan + deltaColSpan).coerceIn(1, 6 - widget.col)
                                                 val newRowSpan = (widget.rowSpan + deltaRowSpan).coerceIn(1, 4)
@@ -164,10 +173,15 @@ fun WidgetGrid(
                                                 onLayoutChanged(resolveOverlaps(updated, widget.id))
                                             }
                                         },
+                                        onDragCancel = {
+                                            isResizing = false
+                                            resizeWidthOffset = 0f
+                                            resizeHeightOffset = 0f
+                                        },
                                         onDrag = { change, dragAmount ->
                                             change.consume()
-                                            resizeOffsetX += dragAmount.x
-                                            resizeOffsetY += dragAmount.y
+                                            resizeWidthOffset += dragAmount.x
+                                            resizeHeightOffset += dragAmount.y
                                         }
                                     )
                                 }
@@ -177,7 +191,7 @@ fun WidgetGrid(
                             Icon(
                                 Icons.Default.AspectRatio,
                                 contentDescription = "Resize",
-                                tint = AresTextTertiary,
+                                tint = if (isResizing) AresCyan else AresTextTertiary,
                                 modifier = Modifier.size(12.dp)
                             )
                         }
