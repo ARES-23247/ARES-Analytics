@@ -38,6 +38,8 @@ fun FieldViewerCard(
     var visionY by remember { mutableStateOf<Double?>(null) }
     var visionHeading by remember { mutableStateOf<Double?>(null) }
 
+    val visionPoses = remember { mutableStateMapOf<Int, Double>() }
+
     val isConnected by nt4ClientService.isConnected.collectAsState()
 
     LaunchedEffect(Unit) {
@@ -60,10 +62,13 @@ fun FieldViewerCard(
                     "Vision/Pose_X", "/Vision/Pose_X", "Vision/Pose/X", "/Vision/Pose/X" -> visionX = value
                     "Vision/Pose_Y", "/Vision/Pose_Y", "Vision/Pose/Y", "/Vision/Pose/Y" -> visionY = value
                     "Vision/Pose_Heading", "/Vision/Pose_Heading", "Vision/Pose/Heading", "/Vision/Pose/Heading" -> visionHeading = value
+                }
 
-                    "AdvantageScope/VisionPose/0", "/AdvantageScope/VisionPose/0" -> visionX = value
-                    "AdvantageScope/VisionPose/1", "/AdvantageScope/VisionPose/1" -> visionY = value
-                    "AdvantageScope/VisionPose/2", "/AdvantageScope/VisionPose/2" -> visionHeading = value
+                if (key.startsWith("AdvantageScope/VisionPose/") || key.startsWith("/AdvantageScope/VisionPose/")) {
+                    val idx = key.substringAfterLast("/").toIntOrNull()
+                    if (idx != null) {
+                        visionPoses[idx] = value
+                    }
                 }
             }
         }
@@ -75,9 +80,22 @@ fun FieldViewerCard(
         Waypoint(ekfX!!, ekfY!!, ekfHeading!!)
     } else null
 
-    val visionPose = if (visionX != null && visionY != null && visionHeading != null) {
-        Waypoint(visionX!!, visionY!!, visionHeading!!)
-    } else null
+    val activeVisionPoses = remember(visionPoses.size, visionX, visionY, visionHeading) {
+        val list = mutableListOf<Waypoint>()
+        val maxIndex = visionPoses.keys.maxOrNull() ?: -1
+        for (i in 0..maxIndex step 3) {
+            val vx = visionPoses[i]
+            val vy = visionPoses[i + 1]
+            val vh = visionPoses[i + 2]
+            if (vx != null && vy != null && vh != null) {
+                list.add(Waypoint(vx, vy, vh))
+            }
+        }
+        if (list.isEmpty() && visionX != null && visionY != null && visionHeading != null) {
+            list.add(Waypoint(visionX!!, visionY!!, visionHeading!!))
+        }
+        list
+    }
 
     Card(
         modifier = modifier
@@ -125,7 +143,7 @@ fun FieldViewerCard(
                     onWaypointsChanged = {},
                     projectPath = projectPath,
                     estimatedPose = estimatedPose,
-                    visionPose = visionPose,
+                    visionPoses = activeVisionPoses,
                     showPathControls = false,
                     showObstacleControls = false,
                     modifier = Modifier.fillMaxSize()

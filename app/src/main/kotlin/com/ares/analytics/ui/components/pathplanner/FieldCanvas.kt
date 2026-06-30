@@ -74,7 +74,7 @@ fun FieldCanvas(
     pointTowardsZones: List<PointTowardsZone> = emptyList(),
     globalConstraints: PathConstraints = PathConstraints(),
     estimatedPose: Waypoint? = null,
-    visionPose: Waypoint? = null,
+    visionPoses: List<Waypoint> = emptyList(),
     modifier: Modifier = Modifier
 ) {
     var localFieldImage by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -1161,14 +1161,14 @@ fun FieldCanvas(
                         }
                     }
 
-                    // 5d. Limelight Vision Robot Representation (Dotted Green Box)
-                    if (visionPose != null) {
-                        val robotOffset = getCanvasOffsetBase(visionPose, w, h, fieldWidthM, fieldHeightM, league)
+                    // 5d. Limelight Vision Robot Representations (Dotted Green Boxes for N cameras)
+                    visionPoses.forEach { pose ->
+                        val robotOffset = getCanvasOffsetBase(pose, w, h, fieldWidthM, fieldHeightM, league)
                         val robotSizeM = 0.45
                         val robotSizePx = ((robotSizeM / fieldWidthM) * w).toFloat()
                         
                         withTransform({
-                            rotate(degrees = -Math.toDegrees(visionPose.headingRad).toFloat(), pivot = robotOffset)
+                            rotate(degrees = -Math.toDegrees(pose.headingRad).toFloat(), pivot = robotOffset)
                         }) {
                             drawRect(
                                 color = AresGreen.copy(alpha = 0.15f),
