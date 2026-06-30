@@ -15,10 +15,19 @@ class LayoutPreferenceServiceTest {
 
         val programmerLayout = service.getDefaultLayout("programmer")
         assertTrue(programmerLayout.widgets.isNotEmpty())
-        assertTrue(programmerLayout.widgets.any { it.type == "telemetry_chart" })
+        val chart = programmerLayout.widgets.first { it.type == "telemetry_chart" }
+        assertEquals(0, chart.row)
+        assertEquals(0, chart.col)
+        assertEquals(6, chart.rowSpan)
+        assertEquals(9, chart.colSpan)
 
         val driverCoachLayout = service.getDefaultLayout("driver_coach")
         assertTrue(driverCoachLayout.widgets.any { it.type == "joystick_visualizer" })
+        val alerts = driverCoachLayout.widgets.first { it.type == "alerts" }
+        assertEquals(6, alerts.row)
+        assertEquals(6, alerts.col)
+        assertEquals(3, alerts.rowSpan)
+        assertEquals(3, alerts.colSpan)
 
         val pitCrewLayout = service.getDefaultLayout("pit_crew")
         assertTrue(pitCrewLayout.widgets.any { it.type == "ai_coach" })

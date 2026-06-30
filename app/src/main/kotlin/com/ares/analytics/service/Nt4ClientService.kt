@@ -30,7 +30,7 @@ open class Nt4ClientService(
     private var webSocketSession: DefaultClientWebSocketSession? = null
 
     // Topic ID to Topic Name mapping
-    private val topicMap = ConcurrentHashMap<Int, Nt4Topic>()
+    internal val topicMap = ConcurrentHashMap<Int, Nt4Topic>()
 
     fun getActiveTopics(): List<String> {
         return topicMap.values.map { it.name }.sorted()
@@ -93,13 +93,13 @@ open class Nt4ClientService(
                         """.trimIndent()
                         send(Frame.Text(announceInputsMsg))
 
-                        // 2. Subscribe to all topics
+                        // 2. Subscribe to all topics (using empty string to match all topics as a prefix)
                         val subMsg = """
                             [
                               {
                                 "method": "subscribe",
                                 "params": {
-                                  "topics": ["/"],
+                                  "topics": [""],
                                   "subuid": 1,
                                   "options": {
                                     "prefix": true,
@@ -219,7 +219,7 @@ open class Nt4ClientService(
         _currentSession.value = null
     }
 
-    private suspend fun handleIncomingText(
+    internal suspend fun handleIncomingText(
         text: String,
         teamId: String,
         seasonId: String,

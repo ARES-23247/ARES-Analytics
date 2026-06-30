@@ -39,8 +39,8 @@ fun WidgetGrid(
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current.density
-    val colWidth = 360.dp
-    val rowHeight = 240.dp
+    val colWidth = 120.dp
+    val rowHeight = 80.dp
     val spacing = 16.dp
 
     val maxRow = widgets.maxOfOrNull { it.row + it.rowSpan } ?: 0
@@ -99,13 +99,13 @@ fun WidgetGrid(
                                         onDragStart = { isDragging = true },
                                         onDragEnd = {
                                             isDragging = false
-                                            val deltaCol = ((offsetX / density) / 360f).roundToInt()
-                                            val deltaRow = ((offsetY / density) / 240f).roundToInt()
+                                            val deltaCol = ((offsetX / density) / 120f).roundToInt()
+                                            val deltaRow = ((offsetY / density) / 80f).roundToInt()
                                             offsetX = 0f
                                             offsetY = 0f
                                             if (deltaCol != 0 || deltaRow != 0) {
-                                                val newCol = (widget.col + deltaCol).coerceIn(0, 6 - widget.colSpan)
-                                                val newRow = (widget.row + deltaRow).coerceIn(0, 10)
+                                                val newCol = (widget.col + deltaCol).coerceIn(0, 18 - widget.colSpan)
+                                                val newRow = (widget.row + deltaRow).coerceIn(0, 30)
                                                 val updated = widgets.map {
                                                     if (it.id == widget.id) it.copy(col = newCol, row = newRow) else it
                                                 }
@@ -160,13 +160,13 @@ fun WidgetGrid(
                                         onDragStart = { isResizing = true },
                                         onDragEnd = {
                                             isResizing = false
-                                            val deltaColSpan = ((resizeWidthOffset / density) / 360f).roundToInt()
-                                            val deltaRowSpan = ((resizeHeightOffset / density) / 240f).roundToInt()
+                                            val deltaColSpan = ((resizeWidthOffset / density) / 120f).roundToInt()
+                                            val deltaRowSpan = ((resizeHeightOffset / density) / 80f).roundToInt()
                                             resizeWidthOffset = 0f
                                             resizeHeightOffset = 0f
                                             if (deltaColSpan != 0 || deltaRowSpan != 0) {
-                                                val newColSpan = (widget.colSpan + deltaColSpan).coerceIn(1, 6 - widget.col)
-                                                val newRowSpan = (widget.rowSpan + deltaRowSpan).coerceIn(1, 4)
+                                                val newColSpan = (widget.colSpan + deltaColSpan).coerceIn(1, 18 - widget.col)
+                                                val newRowSpan = (widget.rowSpan + deltaRowSpan).coerceIn(1, 12)
                                                 val updated = widgets.map {
                                                     if (it.id == widget.id) it.copy(colSpan = newColSpan, rowSpan = newRowSpan) else it
                                                 }

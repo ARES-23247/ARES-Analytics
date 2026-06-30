@@ -230,7 +230,7 @@ fun DashboardScreen(
                     MecanumVisualizer(nt4ClientService = services.nt4ClientService, modifier = mod)
                 },
                 "field_viewer" to { _, mod ->
-                    FieldViewerCard(services.nt4ClientService, currentConfig.league, mod)
+                    FieldViewerCard(services.nt4ClientService, currentConfig.league, currentConfig.projectPath, mod)
                 },
                 "trends_card" to { _, mod ->
                     TrendsCard(services.databaseService, mod)

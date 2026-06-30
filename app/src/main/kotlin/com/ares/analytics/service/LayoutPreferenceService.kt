@@ -58,38 +58,38 @@ class LayoutPreferenceService(
         return when (profileName.lowercase().replace(" ", "_")) {
             "driver_coach" -> DashboardLayoutConfig(
                 listOf(
-                    WidgetConfig("mecanum_visualizer", "mecanum_visualizer", 0, 0, 2, 2),
-                    WidgetConfig("joystick_visualizer", "joystick_visualizer", 0, 2, 2, 1),
-                    WidgetConfig("telemetry_chart", "telemetry_chart", 2, 0, 2, 2),
-                    WidgetConfig("alerts", "alerts", 2, 2, 1, 1),
-                    WidgetConfig("ai_coach", "ai_coach", 3, 2, 1, 1)
+                    WidgetConfig("mecanum_visualizer", "mecanum_visualizer", 0, 0, 6, 6),
+                    WidgetConfig("joystick_visualizer", "joystick_visualizer", 0, 6, 6, 3),
+                    WidgetConfig("telemetry_chart", "telemetry_chart", 6, 0, 6, 6),
+                    WidgetConfig("alerts", "alerts", 6, 6, 3, 3),
+                    WidgetConfig("ai_coach", "ai_coach", 9, 6, 3, 3)
                 )
             )
             "programmer" -> DashboardLayoutConfig(
                 listOf(
-                    WidgetConfig("telemetry_chart", "telemetry_chart", 0, 0, 2, 3),
-                    WidgetConfig("motor_health", "motor_health", 2, 0, 1, 1),
-                    WidgetConfig("vision_quality", "vision_quality", 2, 1, 1, 1),
-                    WidgetConfig("alerts", "alerts", 2, 2, 1, 1),
-                    WidgetConfig("console_viewer_0", "console_viewer", 3, 0, 1, 3)
+                    WidgetConfig("telemetry_chart", "telemetry_chart", 0, 0, 6, 9),
+                    WidgetConfig("motor_health", "motor_health", 6, 0, 3, 3),
+                    WidgetConfig("vision_quality", "vision_quality", 6, 3, 3, 3),
+                    WidgetConfig("alerts", "alerts", 6, 6, 3, 3),
+                    WidgetConfig("console_viewer_0", "console_viewer", 9, 0, 3, 9)
                 )
             )
             "pit_crew" -> DashboardLayoutConfig(
                 listOf(
-                    WidgetConfig("runs_index", "runs_index", 0, 0, 2, 1),
-                    WidgetConfig("alerts", "alerts", 0, 1, 1, 2),
-                    WidgetConfig("ai_coach", "ai_coach", 1, 1, 1, 2),
-                    WidgetConfig("motor_health", "motor_health", 2, 0, 1, 15),
-                    WidgetConfig("vision_quality", "vision_quality", 2, 1, 1, 15)
+                    WidgetConfig("runs_index", "runs_index", 0, 0, 6, 3),
+                    WidgetConfig("alerts", "alerts", 0, 3, 3, 6),
+                    WidgetConfig("ai_coach", "ai_coach", 3, 3, 3, 6),
+                    WidgetConfig("motor_health", "motor_health", 6, 0, 3, 5),
+                    WidgetConfig("vision_quality", "vision_quality", 6, 5, 3, 4)
                 )
             )
             else -> DashboardLayoutConfig( // Default standard layout
                 listOf(
-                    WidgetConfig("runs_index", "runs_index", 0, 0, 2, 1),
-                    WidgetConfig("mecanum_visualizer", "mecanum_visualizer", 0, 1, 2, 1),
-                    WidgetConfig("joystick_visualizer", "joystick_visualizer", 0, 2, 2, 1),
-                    WidgetConfig("telemetry_chart", "telemetry_chart", 2, 0, 1, 2),
-                    WidgetConfig("alerts", "alerts", 2, 2, 1, 1)
+                    WidgetConfig("runs_index", "runs_index", 0, 0, 6, 3),
+                    WidgetConfig("mecanum_visualizer", "mecanum_visualizer", 0, 3, 6, 3),
+                    WidgetConfig("joystick_visualizer", "joystick_visualizer", 0, 6, 6, 3),
+                    WidgetConfig("telemetry_chart", "telemetry_chart", 6, 0, 3, 6),
+                    WidgetConfig("alerts", "alerts", 6, 6, 3, 3)
                 )
             )
         }

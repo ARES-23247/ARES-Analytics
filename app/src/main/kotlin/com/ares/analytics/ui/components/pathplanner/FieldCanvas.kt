@@ -1097,6 +1097,36 @@ fun FieldCanvas(
                         }
                     }
 
+                    // 5b. Active Robot Representation (drawn at the latest point of actualPath)
+                    val activeRobotWp = actualPath.lastOrNull()
+                    if (activeRobotWp != null) {
+                        val robotOffset = getCanvasOffsetBase(activeRobotWp, w, h, fieldWidthM, fieldHeightM, league)
+                        val robotSizeM = 0.45
+                        val robotSizePx = ((robotSizeM / fieldWidthM) * w).toFloat()
+                        
+                        withTransform({
+                            rotate(degrees = -Math.toDegrees(activeRobotWp.headingRad).toFloat(), pivot = robotOffset)
+                        }) {
+                            drawRect(
+                                color = AresCyan.copy(alpha = 0.2f),
+                                topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
+                                size = Size(robotSizePx, robotSizePx)
+                            )
+                            drawRect(
+                                color = AresCyan,
+                                topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
+                                size = Size(robotSizePx, robotSizePx),
+                                style = Stroke(width = 2.dp.toPx())
+                            )
+                            drawLine(
+                                color = AresAmber,
+                                start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2),
+                                end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2),
+                                strokeWidth = 3.dp.toPx()
+                            )
+                        }
+                    }
+
                     // 6. Draw Waypoint Circles
                     waypoints.forEachIndexed { idx, wp ->
                         val offset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)

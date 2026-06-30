@@ -22,6 +22,7 @@ import kotlinx.coroutines.launch
 fun FieldViewerCard(
     nt4ClientService: Nt4ClientService,
     league: League,
+    projectPath: String? = null,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -94,6 +95,7 @@ fun FieldViewerCard(
                     waypoints = emptyList(),
                     actualPath = currentPose,
                     onWaypointsChanged = {},
+                    projectPath = projectPath,
                     showPathControls = false,
                     showObstacleControls = false,
                     modifier = Modifier.fillMaxSize()
