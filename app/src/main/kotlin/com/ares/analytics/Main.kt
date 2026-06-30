@@ -33,27 +33,30 @@ fun main() {
     }
 
     application {
-    val windowState = rememberWindowState(
-        width = 1440.dp,
-        height = 900.dp
-    )
-
-    Window(
-        onCloseRequest = ::exitApplication,
-        title = "ARES Analytics — Mission Control",
-        state = windowState
-    ) {
+        val windowState = rememberWindowState(
+            width = 1440.dp,
+            height = 900.dp
+        )
         val services = remember { ServiceRegistry() }
 
-        DisposableEffect(Unit) {
-            onDispose { services.dispose() }
-        }
-
-        AresTheme {
-            MainScreen(services = services)
+        Window(
+            onCloseRequest = {
+                try {
+                    services.dispose()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                exitApplication()
+                java.lang.System.exit(0)
+            },
+            title = "ARES Analytics — Mission Control",
+            state = windowState
+        ) {
+            AresTheme {
+                MainScreen(services = services)
+            }
         }
     }
-}
 }
 
 
