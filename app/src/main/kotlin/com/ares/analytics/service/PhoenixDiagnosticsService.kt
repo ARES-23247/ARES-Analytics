@@ -86,5 +86,6 @@ class PhoenixDiagnosticsService(
     fun dispose() {
         stop()
         serviceScope.cancel()
+        httpClient.close()
     }
 }

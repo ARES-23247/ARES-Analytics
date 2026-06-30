@@ -75,6 +75,15 @@ class ServiceRegistry {
         if (lazyFieldInitialized(::oauthService)) {
             oauthService.dispose()
         }
+        if (lazyFieldInitialized(::syncEngineService)) {
+            syncEngineService.close()
+        }
+        if (lazyFieldInitialized(::teamApiService)) {
+            teamApiService.close()
+        }
+        if (lazyFieldInitialized(::eventApiService)) {
+            eventApiService.close()
+        }
         if (lazyFieldInitialized(::firebaseClientService)) {
             firebaseClientService.close()
         }

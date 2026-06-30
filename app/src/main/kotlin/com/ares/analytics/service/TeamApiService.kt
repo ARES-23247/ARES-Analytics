@@ -77,4 +77,8 @@ class TeamApiService(
             false
         }
     }
+
+    fun close() {
+        httpClient.close()
+    }
 }

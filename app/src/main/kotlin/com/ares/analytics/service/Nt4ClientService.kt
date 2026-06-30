@@ -170,6 +170,7 @@ open class Nt4ClientService(
         CoroutineScope(Dispatchers.IO).launch {
             flushPendingFrames()
         }
+        client.close()
     }
 
     suspend fun publishFrame(frame: TelemetryFrame) {

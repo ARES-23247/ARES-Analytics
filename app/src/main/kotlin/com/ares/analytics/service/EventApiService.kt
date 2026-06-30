@@ -133,4 +133,8 @@ class EventApiService(
             emptyList()
         }
     }
+
+    fun close() {
+        httpClient.close()
+    }
 }

@@ -153,5 +153,9 @@ class SyncEngineService(
 
         response.body<ForensicsResponse>()
     }
+
+    fun close() {
+        httpClient.close()
+    }
 }
 

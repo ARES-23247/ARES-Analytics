@@ -104,5 +104,6 @@ class FtcDashboardService(
     fun dispose() {
         stop()
         serviceScope.cancel()
+        client.close()
     }
 }
