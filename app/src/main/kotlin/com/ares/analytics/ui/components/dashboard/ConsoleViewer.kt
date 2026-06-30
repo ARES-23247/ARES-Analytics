@@ -61,8 +61,12 @@ fun ConsoleViewer(
     LaunchedEffect(primarySessionId) {
         sessionLogs.clear()
         if (primarySessionId != null) {
-            val dbLogs = services.databaseService.getConsoleMessages(primarySessionId)
-            sessionLogs.addAll(dbLogs)
+            try {
+                val dbLogs = services.databaseService.getConsoleMessages(primarySessionId)
+                sessionLogs.addAll(dbLogs)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 

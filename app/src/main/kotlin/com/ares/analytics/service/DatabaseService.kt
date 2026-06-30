@@ -26,11 +26,95 @@ class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares
         
         driver = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}", properties)
         
-        // Try creating schema; ignore error if already created
-        try {
-            AresDatabase.Schema.create(driver)
-        } catch (e: Exception) {
-            // Already created or initialized
+        // Run schema creation statements one-by-one to self-heal legacy databases
+        val createStatements = listOf(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                session_id TEXT PRIMARY KEY NOT NULL,
+                team_id TEXT NOT NULL,
+                season_id TEXT NOT NULL,
+                robot_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                tags TEXT NOT NULL DEFAULT '[]',
+                match_number INTEGER,
+                alliance_color TEXT
+            );
+            """.trimIndent(),
+            """
+            CREATE TABLE IF NOT EXISTS session_summaries (
+                session_id TEXT PRIMARY KEY NOT NULL,
+                team_id TEXT NOT NULL,
+                season_id TEXT NOT NULL,
+                robot_id TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                min_battery_voltage REAL NOT NULL DEFAULT 0.0,
+                max_ekf_drift REAL NOT NULL DEFAULT 0.0,
+                avg_loop_time_ms REAL NOT NULL DEFAULT 0.0,
+                p95_loop_time_ms REAL NOT NULL DEFAULT 0.0,
+                motor_current_averages TEXT NOT NULL DEFAULT '{}',
+                vision_acceptance_rate REAL NOT NULL DEFAULT 0.0,
+                tags TEXT NOT NULL DEFAULT '[]',
+                match_number INTEGER,
+                alliance_color TEXT
+            );
+            """.trimIndent(),
+            """
+            CREATE TABLE IF NOT EXISTS telemetry_frames (
+                timestamp_ms INTEGER NOT NULL,
+                session_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value REAL NOT NULL,
+                PRIMARY KEY (session_id, key, timestamp_ms)
+            ) WITHOUT ROWID;
+            """.trimIndent(),
+            """
+            CREATE TABLE IF NOT EXISTS session_annotations (
+                annotation_id TEXT PRIMARY KEY NOT NULL,
+                session_id TEXT NOT NULL,
+                text TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                author_id TEXT
+            );
+            """.trimIndent(),
+            "CREATE INDEX IF NOT EXISTS idx_annotations_session ON session_annotations(session_id);",
+            """
+            CREATE TABLE IF NOT EXISTS alerts (
+                alert_id TEXT PRIMARY KEY NOT NULL,
+                session_id TEXT NOT NULL,
+                rule_key TEXT NOT NULL,
+                trigger_timestamp_ms INTEGER NOT NULL,
+                resolve_timestamp_ms INTEGER,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                peak_value REAL NOT NULL DEFAULT 0.0,
+                triaged INTEGER NOT NULL DEFAULT 0
+            );
+            """.trimIndent(),
+            "CREATE INDEX IF NOT EXISTS idx_alerts_session ON alerts(session_id);",
+            """
+            CREATE TABLE IF NOT EXISTS console_messages (
+                timestamp_ms INTEGER NOT NULL,
+                session_id TEXT NOT NULL,
+                text TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                PRIMARY KEY (session_id, timestamp_ms, text)
+            ) WITHOUT ROWID;
+            """.trimIndent(),
+            """
+            CREATE TABLE IF NOT EXISTS cached_topologies (
+                robot_id TEXT PRIMARY KEY NOT NULL,
+                topology_json TEXT NOT NULL
+            );
+            """.trimIndent()
+        )
+
+        for (statement in createStatements) {
+            try {
+                driver.execute(null, statement, 0)
+            } catch (e: Exception) {
+                println("[DatabaseService] Failed to execute statement: $statement. Error: ${e.message}")
+            }
         }
         
         database = AresDatabase(driver)
