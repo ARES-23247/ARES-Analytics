@@ -180,6 +180,7 @@ fun MainScreen(services: ServiceRegistry) {
 
     // Start NT4 connection once config is resolved or simulator status changes
     LaunchedEffect(currentConfig, isSimRunning) {
+        println("[MainScreen LaunchedEffect] RUNNING: config=$currentConfig (hash=${System.identityHashCode(currentConfig)}), isSimRunning=$isSimRunning")
         focusRequester.requestFocus()
         val host = withContext(Dispatchers.IO) {
             val isLocalSimOpen = try {
@@ -192,6 +193,7 @@ fun MainScreen(services: ServiceRegistry) {
             }
             if (isSimRunning || isLocalSimOpen) "127.0.0.1" else (currentConfig.nt4Host ?: "192.168.43.1")
         }
+        println("[MainScreen LaunchedEffect] Computed host=$host")
         services.nt4ClientService.start(
             host = host,
             teamId = currentConfig.teamId,
