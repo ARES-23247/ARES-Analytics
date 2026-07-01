@@ -3,21 +3,15 @@ package com.ares.analytics.ui.components.dashboard
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -30,12 +24,12 @@ import kotlinx.coroutines.launch
 fun JoystickVisualizer(
     currentFrame: ReplayFrame?,
     nt4ClientService: Nt4ClientService? = null,
+    services: com.ares.analytics.di.ServiceRegistry? = null,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
-    val focusRequester = remember { FocusRequester() }
 
-    // Active visualizer states
+    // Active visualizer states (what is shown on the UI)
     var lx by remember { mutableStateOf(0.0) }
     var ly by remember { mutableStateOf(0.0) }
     var rx by remember { mutableStateOf(0.0) }
@@ -51,28 +45,9 @@ fun JoystickVisualizer(
     var dpadLeft by remember { mutableStateOf(false) }
     var dpadRight by remember { mutableStateOf(false) }
 
-    // Keyboard driving states
-    var keyboardControlEnabled by remember { mutableStateOf(false) }
-    var isWPressed by remember { mutableStateOf(false) }
-    var isSPressed by remember { mutableStateOf(false) }
-    var isAPressed by remember { mutableStateOf(false) }
-    var isDPressed by remember { mutableStateOf(false) }
-    var isQPressed by remember { mutableStateOf(false) }
-    var isEPressed by remember { mutableStateOf(false) }
-    var isTransferring by remember { mutableStateOf(false) }
-
-    var isTeleopMode by remember { mutableStateOf(true) }
-    var isFieldCentric by remember { mutableStateOf(false) }
-    var isRedAlliance by remember { mutableStateOf(false) }
-    var isIntaking by remember { mutableStateOf(false) }
-    var isFlywheelOn by remember { mutableStateOf(false) }
-
-    // Repeat keys guards
-    var isSpacePressed by remember { mutableStateOf(false) }
-    var isCPressed by remember { mutableStateOf(false) }
-    var isRPressed by remember { mutableStateOf(false) }
-    var isShiftPressed by remember { mutableStateOf(false) }
-    var isFPressed by remember { mutableStateOf(false) }
+    // Keyboard drive state (gets from global services or dummy local state if null)
+    val keyboardState = services?.keyboardDriveState ?: remember { com.ares.analytics.di.KeyboardDriveState() }
+    val keyboardControlEnabled = keyboardState.enabled
 
     // 1. Receive data from telemetry logs or NetworkTables if Keyboard Drive is disabled
     if (currentFrame != null) {
@@ -117,52 +92,36 @@ fun JoystickVisualizer(
         }
     }
 
-    // Request focus when keyboard drive is activated
-    LaunchedEffect(keyboardControlEnabled) {
-        if (keyboardControlEnabled) {
-            focusRequester.requestFocus()
-        } else {
-            // Reset keys when disabled
-            isWPressed = false
-            isSPressed = false
-            isAPressed = false
-            isDPressed = false
-            isQPressed = false
-            isEPressed = false
-            isTransferring = false
-        }
-    }
-
     // 2. Headless Keyboard controller publishing loop (50Hz / 20ms)
     LaunchedEffect(keyboardControlEnabled) {
         if (keyboardControlEnabled && nt4ClientService != null) {
             var heartbeat = 0L
             while (true) {
-                val activeVx = if (isWPressed) 4.0 else if (isSPressed) -4.0 else 0.0
-                val activeVy = if (isAPressed) 4.0 else if (isDPressed) -4.0 else 0.0
-                val activeOmega = if (isQPressed) 4.0 else if (isEPressed) -4.0 else 0.0
+                val activeVx = if (keyboardState.isWPressed) 4.0 else if (keyboardState.isSPressed) -4.0 else 0.0
+                val activeVy = if (keyboardState.isAPressed) 4.0 else if (keyboardState.isDPressed) -4.0 else 0.0
+                val activeOmega = if (keyboardState.isQPressed) 4.0 else if (keyboardState.isEPressed) -4.0 else 0.0
 
                 nt4ClientService.publishInputDouble(1001, activeVx)
                 nt4ClientService.publishInputDouble(1002, activeVy)
                 nt4ClientService.publishInputDouble(1003, activeOmega)
-                nt4ClientService.publishInputBoolean(1004, isIntaking)
-                nt4ClientService.publishInputBoolean(1005, isFlywheelOn)
-                nt4ClientService.publishInputBoolean(1006, isTransferring)
-                nt4ClientService.publishInputBoolean(1007, isTeleopMode)
-                nt4ClientService.publishInputBoolean(1008, isFieldCentric)
-                nt4ClientService.publishInputBoolean(1009, isRedAlliance)
+                nt4ClientService.publishInputBoolean(1004, keyboardState.isIntaking)
+                nt4ClientService.publishInputBoolean(1005, keyboardState.isFlywheelOn)
+                nt4ClientService.publishInputBoolean(1006, keyboardState.isTransferring)
+                nt4ClientService.publishInputBoolean(1007, keyboardState.isTeleopMode)
+                nt4ClientService.publishInputBoolean(1008, keyboardState.isFieldCentric)
+                nt4ClientService.publishInputBoolean(1009, keyboardState.isRedAlliance)
                 nt4ClientService.publishInputLong(1010, heartbeat++)
 
                 // Reflect visual changes locally
-                lx = if (isAPressed) -1.0 else if (isDPressed) 1.0 else 0.0
-                ly = if (isWPressed) -1.0 else if (isSPressed) 1.0 else 0.0
-                rx = if (isQPressed) -1.0 else if (isEPressed) 1.0 else 0.0
-                lt = if (isIntaking) 1.0 else 0.0
-                rt = if (isTransferring) 1.0 else 0.0
-                btnA = isTeleopMode
-                btnB = isFieldCentric
-                btnX = isRedAlliance
-                btnY = isFlywheelOn
+                lx = if (keyboardState.isAPressed) -1.0 else if (keyboardState.isDPressed) 1.0 else 0.0
+                ly = if (keyboardState.isWPressed) -1.0 else if (keyboardState.isSPressed) 1.0 else 0.0
+                rx = if (keyboardState.isQPressed) -1.0 else if (keyboardState.isEPressed) 1.0 else 0.0
+                lt = if (keyboardState.isIntaking) 1.0 else 0.0
+                rt = if (keyboardState.isTransferring) 1.0 else 0.0
+                btnA = keyboardState.isTeleopMode
+                btnB = keyboardState.isFieldCentric
+                btnX = keyboardState.isRedAlliance
+                btnY = keyboardState.isFlywheelOn
 
                 kotlinx.coroutines.delay(20)
             }
@@ -178,70 +137,6 @@ fun JoystickVisualizer(
                 color = if (keyboardControlEnabled) AresGreen else AresBorder,
                 shape = RoundedCornerShape(12.dp)
             )
-            .focusRequester(focusRequester)
-            .focusable()
-            .clickable { focusRequester.requestFocus() }
-            .onKeyEvent { keyEvent ->
-                if (keyboardControlEnabled) {
-                    val isDown = keyEvent.type == KeyEventType.KeyDown
-                    val isUp = keyEvent.type == KeyEventType.KeyUp
-                    when (keyEvent.key) {
-                        Key.W -> { isWPressed = isDown; true }
-                        Key.S -> { isSPressed = isDown; true }
-                        Key.A -> { isAPressed = isDown; true }
-                        Key.D -> { isDPressed = isDown; true }
-                        Key.Q -> { isQPressed = isDown; true }
-                        Key.E -> { isEPressed = isDown; true }
-                        Key.Enter -> { isTransferring = isDown; true }
-                        Key.Spacebar -> {
-                            if (isDown && !isSpacePressed) {
-                                isSpacePressed = true
-                                isTeleopMode = !isTeleopMode
-                            } else if (isUp) {
-                                isSpacePressed = false
-                            }
-                            true
-                        }
-                        Key.C -> {
-                            if (isDown && !isCPressed) {
-                                isCPressed = true
-                                isFieldCentric = !isFieldCentric
-                            } else if (isUp) {
-                                isCPressed = false
-                            }
-                            true
-                        }
-                        Key.R -> {
-                            if (isDown && !isRPressed) {
-                                isRPressed = true
-                                isRedAlliance = !isRedAlliance
-                            } else if (isUp) {
-                                isRPressed = false
-                            }
-                            true
-                        }
-                        Key.ShiftLeft, Key.ShiftRight -> {
-                            if (isDown && !isShiftPressed) {
-                                isShiftPressed = true
-                                isIntaking = !isIntaking
-                            } else if (isUp) {
-                                isShiftPressed = false
-                            }
-                            true
-                        }
-                        Key.F -> {
-                            if (isDown && !isFPressed) {
-                                isFPressed = true
-                                isFlywheelOn = !isFlywheelOn
-                            } else if (isUp) {
-                                isFPressed = false
-                            }
-                            true
-                        }
-                        else -> false
-                    }
-                } else false
-            }
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -260,7 +155,7 @@ fun JoystickVisualizer(
 
             if (nt4ClientService != null) {
                 Button(
-                    onClick = { keyboardControlEnabled = !keyboardControlEnabled },
+                    onClick = { keyboardState.enabled = !keyboardState.enabled },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (keyboardControlEnabled) AresGreen else AresCyan
                     ),

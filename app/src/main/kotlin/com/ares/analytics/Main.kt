@@ -9,6 +9,10 @@ import androidx.compose.ui.window.rememberWindowState
 import com.ares.analytics.di.ServiceRegistry
 import com.ares.analytics.ui.theme.AresTheme
 import com.ares.analytics.ui.screens.MainScreen
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.Key
 
 fun main() {
     // Disable Java Assistive Technology check to prevent crash on Windows systems with screen readers active
@@ -80,7 +84,69 @@ fun main() {
                 java.lang.System.exit(0)
             },
             title = "ARES Analytics — Mission Control",
-            state = windowState
+            state = windowState,
+            onKeyEvent = { keyEvent ->
+                val state = services.keyboardDriveState
+                if (state.enabled) {
+                    val isDown = keyEvent.type == KeyEventType.KeyDown
+                    val isUp = keyEvent.type == KeyEventType.KeyUp
+                    when (keyEvent.key) {
+                        Key.W -> { state.isWPressed = isDown; true }
+                        Key.S -> { state.isSPressed = isDown; true }
+                        Key.A -> { state.isAPressed = isDown; true }
+                        Key.D -> { state.isDPressed = isDown; true }
+                        Key.Q -> { state.isQPressed = isDown; true }
+                        Key.E -> { state.isEPressed = isDown; true }
+                        Key.Enter -> { state.isTransferring = isDown; true }
+                        Key.Spacebar -> {
+                            if (isDown && !state.isSpacePressed) {
+                                state.isSpacePressed = true
+                                state.isTeleopMode = !state.isTeleopMode
+                            } else if (isUp) {
+                                state.isSpacePressed = false
+                            }
+                            true
+                        }
+                        Key.C -> {
+                            if (isDown && !state.isCPressed) {
+                                state.isCPressed = true
+                                state.isFieldCentric = !state.isFieldCentric
+                            } else if (isUp) {
+                                state.isCPressed = false
+                            }
+                            true
+                        }
+                        Key.R -> {
+                            if (isDown && !state.isRPressed) {
+                                state.isRPressed = true
+                                state.isRedAlliance = !state.isRedAlliance
+                            } else if (isUp) {
+                                state.isRPressed = false
+                            }
+                            true
+                        }
+                        Key.ShiftLeft, Key.ShiftRight -> {
+                            if (isDown && !state.isShiftPressed) {
+                                state.isShiftPressed = true
+                                state.isIntaking = !state.isIntaking
+                            } else if (isUp) {
+                                state.isShiftPressed = false
+                            }
+                            true
+                        }
+                        Key.F -> {
+                            if (isDown && !state.isFPressed) {
+                                state.isFPressed = true
+                                state.isFlywheelOn = !state.isFlywheelOn
+                            } else if (isUp) {
+                                state.isFPressed = false
+                            }
+                            true
+                        }
+                        else -> false
+                    }
+                } else false
+            }
         ) {
             AresTheme {
                 MainScreen(services = services)

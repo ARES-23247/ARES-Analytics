@@ -247,7 +247,7 @@ fun DashboardScreen(
                     SwerveModuleVisualizer(services.nt4ClientService, mod)
                 },
                 "joystick_visualizer" to { _, mod ->
-                    JoystickVisualizer(currentFrame = null, nt4ClientService = services.nt4ClientService, modifier = mod)
+                    JoystickVisualizer(currentFrame = null, nt4ClientService = services.nt4ClientService, services = services, modifier = mod)
                 },
                 "mechanism_visualizer" to { _, mod ->
                     MechanismVisualizer(currentFrame = null, nt4ClientService = services.nt4ClientService, modifier = mod)

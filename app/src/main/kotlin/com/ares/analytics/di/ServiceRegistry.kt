@@ -1,6 +1,8 @@
 package com.ares.analytics.di
 
 import com.ares.analytics.service.*
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 
 /**
  * Centralized service registry that lazy-initializes all application services
@@ -92,6 +94,9 @@ class ServiceRegistry {
         }
     }
 
+    // ── Global Keyboard Drive State ──────────────────────────────────────────
+    val keyboardDriveState by lazy { KeyboardDriveState() }
+
     /**
      * Checks if a lazy property has already been initialized (avoids
      * triggering initialization just to shut it down).
@@ -99,4 +104,27 @@ class ServiceRegistry {
     private fun lazyFieldInitialized(prop: kotlin.reflect.KProperty0<*>): Boolean {
         return (prop.getDelegate() as? Lazy<*>)?.isInitialized() == true
     }
+}
+
+class KeyboardDriveState {
+    var enabled by androidx.compose.runtime.mutableStateOf(false)
+    var isWPressed by androidx.compose.runtime.mutableStateOf(false)
+    var isSPressed by androidx.compose.runtime.mutableStateOf(false)
+    var isAPressed by androidx.compose.runtime.mutableStateOf(false)
+    var isDPressed by androidx.compose.runtime.mutableStateOf(false)
+    var isQPressed by androidx.compose.runtime.mutableStateOf(false)
+    var isEPressed by androidx.compose.runtime.mutableStateOf(false)
+    var isTransferring by androidx.compose.runtime.mutableStateOf(false)
+    var isTeleopMode by androidx.compose.runtime.mutableStateOf(true)
+    var isFieldCentric by androidx.compose.runtime.mutableStateOf(false)
+    var isRedAlliance by androidx.compose.runtime.mutableStateOf(false)
+    var isIntaking by androidx.compose.runtime.mutableStateOf(false)
+    var isFlywheelOn by androidx.compose.runtime.mutableStateOf(false)
+
+    // Repeat keys guards
+    var isSpacePressed = false
+    var isCPressed = false
+    var isRPressed = false
+    var isShiftPressed = false
+    var isFPressed = false
 }
