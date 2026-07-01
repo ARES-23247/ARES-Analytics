@@ -65,6 +65,8 @@ open class Nt4ClientService(
     private var clientJob: Job? = null
 
     fun start(host: String, teamId: String, seasonId: String, robotId: String) {
+        println("[Nt4ClientService] start() called with host=$host, teamId=$teamId, seasonId=$seasonId, robotId=$robotId")
+        Thread.dumpStack()
         clientJob?.cancel()
         clientJob = CoroutineScope(Dispatchers.IO).launch {
             // Launch periodic flush job in background
