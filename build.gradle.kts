@@ -31,6 +31,59 @@ tasks.register("killExisting") {
     doFirst {
         println("[ARES-Analytics] Checking for existing orphaned app, gateway, or simulator processes...")
         var killedCount = 0
+        
+        // 1. Clean by Port
+        val portsToClean = listOf(5810, 1735, 8080)
+        val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+        for (port in portsToClean) {
+            try {
+                if (isWindows) {
+                    val proc = ProcessBuilder("cmd.exe", "/c", "netstat -ano").start()
+                    val reader = java.io.BufferedReader(java.io.InputStreamReader(proc.inputStream))
+                    var line: String?
+                    val pids = mutableSetOf<Long>()
+                    while (reader.readLine().also { line = it } != null) {
+                        if (line!!.contains("LISTENING") && line!!.contains(":$port")) {
+                            val parts = line!!.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+                            if (parts.size >= 5) {
+                                val pidStr = parts[4]
+                                pidStr.toLongOrNull()?.let { pids.add(it) }
+                            }
+                        }
+                    }
+                    proc.waitFor()
+                    for (pid in pids) {
+                        if (pid != ProcessHandle.current().pid()) {
+                            ProcessHandle.of(pid).ifPresent { handle ->
+                                println("[ARES-Analytics] Killing process holding port $port (PID $pid)...")
+                                handle.destroyForcibly()
+                                killedCount++
+                            }
+                        }
+                    }
+                } else {
+                    val proc = ProcessBuilder("sh", "-c", "lsof -t -i :$port").start()
+                    val reader = java.io.BufferedReader(java.io.InputStreamReader(proc.inputStream))
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        line!!.trim().toLongOrNull()?.let { pid ->
+                            if (pid != ProcessHandle.current().pid()) {
+                                ProcessHandle.of(pid).ifPresent { handle ->
+                                    println("[ARES-Analytics] Killing process holding port $port (PID $pid)...")
+                                    handle.destroyForcibly()
+                                    killedCount++
+                                }
+                            }
+                        }
+                    }
+                    proc.waitFor()
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+
+        // 2. Clean by JPS (fallback/redundancy)
         try {
             val jpsProc = ProcessBuilder("jps", "-l").start()
             val reader = java.io.BufferedReader(java.io.InputStreamReader(jpsProc.inputStream))
@@ -59,6 +112,7 @@ tasks.register("killExisting") {
         } catch (e: Exception) {
             println("[ARES-Analytics] Failed to check via JPS: ${e.message}")
         }
+        
         if (killedCount > 0) {
             println("[ARES-Analytics] Successfully terminated $killedCount orphaned process(es).")
         } else {

@@ -102,6 +102,52 @@ class ProcessManagerService {
     }
 
     private fun killOrphanedSimulators() {
+        // 1. Clean by Port
+        val portsToClean = listOf(5810, 1735)
+        val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+        for (port in portsToClean) {
+            try {
+                if (isWindows) {
+                    val proc = ProcessBuilder("cmd.exe", "/c", "netstat -ano").start()
+                    val reader = BufferedReader(InputStreamReader(proc.inputStream))
+                    var line: String?
+                    val pids = mutableSetOf<Long>()
+                    while (reader.readLine().also { line = it } != null) {
+                        if (line!!.contains("LISTENING") && line!!.contains(":$port")) {
+                            val parts = line!!.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+                            if (parts.size >= 5) {
+                                val pidStr = parts[4]
+                                pidStr.toLongOrNull()?.let { pids.add(it) }
+                            }
+                        }
+                    }
+                    proc.waitFor()
+                    for (pid in pids) {
+                        if (pid != ProcessHandle.current().pid()) {
+                            ProcessHandle.of(pid).ifPresent { handle ->
+                                handle.destroyForcibly()
+                            }
+                        }
+                    }
+                } else {
+                    val proc = ProcessBuilder("sh", "-c", "lsof -t -i :$port").start()
+                    val reader = BufferedReader(InputStreamReader(proc.inputStream))
+                    var line: String?
+                    while (reader.readLine().also { line = it } != null) {
+                        line!!.trim().toLongOrNull()?.let { pid ->
+                            if (pid != ProcessHandle.current().pid()) {
+                                ProcessHandle.of(pid).ifPresent { it.destroyForcibly() }
+                            }
+                        }
+                    }
+                    proc.waitFor()
+                }
+            } catch (e: Exception) {
+                // Ignore
+            }
+        }
+
+        // 2. Clean by JPS (fallback/redundancy)
         try {
             val jpsProc = ProcessBuilder("jps", "-l").start()
             val reader = BufferedReader(InputStreamReader(jpsProc.inputStream))
