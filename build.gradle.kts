@@ -22,7 +22,9 @@ subprojects {
     // Skip the default sequential subproject run tasks when running from the root project
     tasks.matching { it.name == "run" }.configureEach {
         onlyIf {
-            !project.hasProperty("fromRootRun")
+            val taskNames = gradle.startParameter.taskNames
+            val isRootRun = taskNames.any { it == "run" || it == ":run" }
+            !isRootRun
         }
     }
 }
