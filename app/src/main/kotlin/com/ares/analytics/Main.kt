@@ -77,7 +77,7 @@ fun main() {
             onCloseRequest = {
                 try {
                     services.dispose()
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     e.printStackTrace()
                 }
                 exitApplication()

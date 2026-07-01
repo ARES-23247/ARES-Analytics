@@ -97,12 +97,12 @@ class ServiceRegistry {
     // ── Global Keyboard Drive State ──────────────────────────────────────────
     val keyboardDriveState by lazy { KeyboardDriveState() }
 
-    /**
-     * Checks if a lazy property has already been initialized (avoids
-     * triggering initialization just to shut it down).
-     */
     private fun lazyFieldInitialized(prop: kotlin.reflect.KProperty0<*>): Boolean {
-        return (prop.getDelegate() as? Lazy<*>)?.isInitialized() == true
+        return try {
+            (prop.getDelegate() as? Lazy<*>)?.isInitialized() == true
+        } catch (t: Throwable) {
+            true // Fallback to true so we dispose the service rather than leaking resources/jobs
+        }
     }
 }
 
