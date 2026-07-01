@@ -14,6 +14,36 @@ fun main() {
     // Disable Java Assistive Technology check to prevent crash on Windows systems with screen readers active
     System.setProperty("javax.accessibility.assistive_technologies", "")
 
+    // Single instance lock using file channel locking
+    val lockDir = java.io.File(System.getProperty("user.home") + "/.ares-analytics")
+    lockDir.mkdirs()
+    val lockFile = java.io.File(lockDir, "app.lock")
+    val randomAccessFile = java.io.RandomAccessFile(lockFile, "rw")
+    val fileChannel = randomAccessFile.channel
+    val lock = try {
+        fileChannel.tryLock()
+    } catch (e: Exception) {
+        null
+    }
+
+    if (lock == null) {
+        System.err.println("[ARES-Analytics] App is already running (failed to acquire app.lock). Exiting.")
+        try {
+            randomAccessFile.close()
+        } catch (e: Exception) {}
+        java.lang.System.exit(0)
+        return
+    }
+
+    // Keep the file resources open to hold the lock for the JVM lifetime
+    // We add a shutdown hook to release it cleanly, though the OS does this automatically on exit
+    Runtime.getRuntime().addShutdownHook(Thread {
+        try {
+            lock.release()
+            randomAccessFile.close()
+        } catch (e: Exception) {}
+    })
+
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
         try {
             val logDir = java.io.File(System.getProperty("user.home") + "/.ares-analytics/logs")
