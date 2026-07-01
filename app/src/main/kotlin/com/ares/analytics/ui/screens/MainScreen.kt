@@ -128,13 +128,6 @@ fun MainScreen(services: ServiceRegistry) {
         FieldEditorViewModel(scope = scope)
     }
 
-    val replayViewModel = remember {
-        ReplayViewModel(
-            databaseService = services.databaseService,
-            replayEngineService = services.replayEngineService,
-            scope = scope
-        )
-    }
 
     val sysIdViewModel = remember {
         SysIdViewModel(
@@ -481,13 +474,6 @@ fun MainScreen(services: ServiceRegistry) {
                             )
                             NavigationTarget.FIELD_EDITOR -> FieldEditorScreen(
                                 viewModel = fieldEditorViewModel,
-                                league = currentConfig.league,
-                                projectPath = currentConfig.projectPath
-                            )
-                            NavigationTarget.REPLAY -> ReplayScreen(
-                                viewModel = replayViewModel,
-                                services = services,
-                                sessionId = primarySessionId,
                                 league = currentConfig.league,
                                 projectPath = currentConfig.projectPath
                             )

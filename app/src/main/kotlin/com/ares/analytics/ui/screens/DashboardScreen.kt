@@ -286,13 +286,45 @@ fun DashboardScreen(
             )
         }
 
-        // Timeline Scrubber Bar (visible only during replay)
-        if (isReplayMode || state.primarySessionId != null) {
+        // Timeline Scrubber Bar
+        val isConnected by services.nt4ClientService.isConnected.collectAsState()
+        val isReplayActive by services.nt4ClientService.isReplayActive.collectAsState()
+
+        if (state.primarySessionId != null || isConnected) {
             ReplayTimelineScrubber(
                 replayEngine = replayEngine,
                 replayState = replayState,
-                progress = replayProgress,
+                progress = if (state.primarySessionId == null && !isReplayActive) 1.0 else replayProgress,
                 speed = replaySpeed,
+                isLiveConnection = state.primarySessionId == null,
+                isReplayActive = isReplayActive,
+                onSnapToRealtime = {
+                    scope.launch {
+                        services.nt4ClientService.isReplayActive.value = false
+                        replayEngine.stop()
+                    }
+                },
+                onScrubLive = { pct ->
+                    scope.launch {
+                        services.nt4ClientService.isReplayActive.value = true
+                        replayEngine.loadSession("live-telemetry")
+                        replayEngine.scrubTo(pct)
+                    }
+                },
+                onPauseLive = {
+                    scope.launch {
+                        services.nt4ClientService.isReplayActive.value = true
+                        replayEngine.loadSession("live-telemetry")
+                        replayEngine.pause()
+                    }
+                },
+                onPlayLive = {
+                    scope.launch {
+                        services.nt4ClientService.isReplayActive.value = true
+                        replayEngine.loadSession("live-telemetry")
+                        replayEngine.play()
+                    }
+                },
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -314,6 +346,12 @@ private fun ReplayTimelineScrubber(
     replayState: ReplayState,
     progress: Double,
     speed: Double,
+    isLiveConnection: Boolean,
+    isReplayActive: Boolean,
+    onSnapToRealtime: () -> Unit,
+    onScrubLive: (Double) -> Unit,
+    onPauseLive: () -> Unit,
+    onPlayLive: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -333,45 +371,84 @@ private fun ReplayTimelineScrubber(
             IconButton(
                 onClick = {
                     scope.launch {
-                        when (replayState) {
-                            ReplayState.PLAYING -> replayEngine.pause()
-                            ReplayState.PAUSED -> replayEngine.play()
-                            ReplayState.STOPPED -> replayEngine.play()
+                        if (isLiveConnection && !isReplayActive) {
+                            onPauseLive()
+                        } else {
+                            when (replayState) {
+                                ReplayState.PLAYING -> replayEngine.pause()
+                                ReplayState.PAUSED -> replayEngine.play()
+                                ReplayState.STOPPED -> replayEngine.play()
+                            }
                         }
                     }
                 },
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(
-                    imageVector = if (replayState == ReplayState.PLAYING) Icons.Default.Pause else Icons.Default.PlayArrow,
-                    contentDescription = if (replayState == ReplayState.PLAYING) "Pause" else "Play",
+                    imageVector = if (isLiveConnection && !isReplayActive) Icons.Default.Pause
+                                  else if (replayState == ReplayState.PLAYING) Icons.Default.Pause
+                                  else Icons.Default.PlayArrow,
+                    contentDescription = if (isLiveConnection && !isReplayActive) "Pause"
+                                         else if (replayState == ReplayState.PLAYING) "Pause"
+                                         else "Play",
                     tint = AresCyan,
                     modifier = Modifier.size(20.dp)
                 )
             }
 
-            // Stop
+            // Stop / Live TV
             IconButton(
-                onClick = { scope.launch { replayEngine.stop() } },
+                onClick = {
+                    if (isLiveConnection) {
+                        onSnapToRealtime()
+                    } else {
+                        scope.launch { replayEngine.stop() }
+                    }
+                },
                 modifier = Modifier.size(32.dp)
             ) {
-                Icon(Icons.Default.Stop, contentDescription = "Stop", tint = AresTextSecondary, modifier = Modifier.size(20.dp))
+                Icon(
+                    imageVector = if (isLiveConnection) Icons.Default.LiveTv else Icons.Default.Stop,
+                    contentDescription = if (isLiveConnection) "Realtime" else "Stop",
+                    tint = if (isLiveConnection && !isReplayActive) AresCyan else AresTextSecondary,
+                    modifier = Modifier.size(20.dp)
+                )
             }
 
             // Step backward
             IconButton(
-                onClick = { scope.launch { replayEngine.stepBackward() } },
+                onClick = {
+                    if (!isLiveConnection || isReplayActive) {
+                        scope.launch { replayEngine.stepBackward() }
+                    }
+                },
+                enabled = !isLiveConnection || isReplayActive,
                 modifier = Modifier.size(32.dp)
             ) {
-                Icon(Icons.Default.SkipPrevious, contentDescription = "Step Back", tint = AresTextSecondary, modifier = Modifier.size(18.dp))
+                Icon(
+                    imageVector = Icons.Default.SkipPrevious,
+                    contentDescription = "Step Back",
+                    tint = if (!isLiveConnection || isReplayActive) AresTextSecondary else AresBorder,
+                    modifier = Modifier.size(18.dp)
+                )
             }
 
             // Step forward
             IconButton(
-                onClick = { scope.launch { replayEngine.stepForward() } },
+                onClick = {
+                    if (!isLiveConnection || isReplayActive) {
+                        scope.launch { replayEngine.stepForward() }
+                    }
+                },
+                enabled = !isLiveConnection || isReplayActive,
                 modifier = Modifier.size(32.dp)
             ) {
-                Icon(Icons.Default.SkipNext, contentDescription = "Step Forward", tint = AresTextSecondary, modifier = Modifier.size(18.dp))
+                Icon(
+                    imageVector = Icons.Default.SkipNext,
+                    contentDescription = "Step Forward",
+                    tint = if (!isLiveConnection || isReplayActive) AresTextSecondary else AresBorder,
+                    modifier = Modifier.size(18.dp)
+                )
             }
 
             // Progress slider
@@ -386,7 +463,13 @@ private fun ReplayTimelineScrubber(
                 },
                 onValueChangeFinished = {
                     sliderDragging = false
-                    scope.launch { replayEngine.scrubTo(localSliderValue.toDouble()) }
+                    scope.launch {
+                        if (isLiveConnection && !isReplayActive) {
+                            onScrubLive(localSliderValue.toDouble())
+                        } else {
+                            replayEngine.scrubTo(localSliderValue.toDouble())
+                        }
+                    }
                 },
                 modifier = Modifier.weight(1f),
                 colors = SliderDefaults.colors(
@@ -396,13 +479,47 @@ private fun ReplayTimelineScrubber(
                 )
             )
 
-            // Time display
-            Text(
-                text = "${formatTime((progress * 100).toLong())}%",
-                color = AresTextSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
-            )
+            // Time / Live Status display
+            if (isLiveConnection && !isReplayActive) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .background(AresGreen, RoundedCornerShape(3.dp))
+                    )
+                    Text(
+                        text = "LIVE",
+                        color = AresGreen,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            } else {
+                Text(
+                    text = "${formatTime((progress * 100).toLong())}%",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            // Snap to Realtime button (shown only in Live Rewind mode)
+            if (isLiveConnection && isReplayActive) {
+                Button(
+                    onClick = onSnapToRealtime,
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                    shape = RoundedCornerShape(4.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Icon(Icons.Default.FlashOn, contentDescription = null, tint = AresBackground, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Snap to Realtime", color = AresBackground, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
 
             // Speed selector
             var speedExpanded by remember { mutableStateOf(false) }

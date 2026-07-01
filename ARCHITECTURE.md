@@ -299,28 +299,37 @@ The Dashboard is the single, unified interface for both **live telemetry** and *
 ### 6.1 Dashboard Modes
 | Mode | Trigger | Data Source | Timeline Scrubber |
 | :--- | :--- | :--- | :--- |
-| **Live** | NT4 connection active, no session selected | `Nt4ClientService.telemetryFlow` (real-time NT4 WebSocket frames) | Hidden |
-| **Replay** | User selects a recorded session from the Runs Index | `ReplayEngineService` → emits stored `TelemetryFrame` rows into the same `telemetryFlow` | Visible at bottom of dashboard |
+| **Live** | NT4 connection active, no session selected | `Nt4ClientService.telemetryFlow` (real-time NT4 WebSocket frames) | Visible (100% progress, green "LIVE" badge) |
+| **Live Rewind** | User scrubs or pauses a live stream | `ReplayEngineService` loaded with `"live-telemetry"` database session | Visible (allows scrubbing captured live history, shows "Snap to Realtime" button) |
+| **Replay** | User selects a recorded session from the Runs Index | `ReplayEngineService` → emits stored `TelemetryFrame` rows into the same `telemetryFlow` | Visible (allows full playback/seeking controls for historical logs) |
 
-Switching between modes is seamless: selecting a session transitions to replay mode; closing/deselecting returns to live mode (if an NT4 connection is active).
+Switching between modes is seamless: selecting a session transitions to replay mode; closing/deselecting or clicking "Snap to Realtime" returns to live mode.
 
-### 6.2 Replay Engine (`ReplayEngineService`)
-* **Session Loading:** `loadSession(sessionId)` reads all `TelemetryFrame` rows for the session from SQLite, builds a sorted timestamp index, and sets the playhead to the start.
+### 6.2 Live Telemetry Auto-Recording & Pruning
+To support the rewinding capability during live sessions:
+* **Background Recording:** All incoming live telemetry frames are automatically assigned the `"live-telemetry"` session ID and written to the SQLite database via a high-performance background spooling thread.
+* **Cache Pruning:** To prevent local database bloat, a pruning task automatically deletes any frames older than 5 minutes (300,000 ms) from the `"live-telemetry"` session during periodic database flushes.
+* **Session Lifecycle:** The `"live-telemetry"` session tables are fully cleared whenever a new host connection starts to ensure a clean state.
+
+### 6.3 Replay Engine (`ReplayEngineService`)
+* **Session Loading:** `loadSession(sessionId)` reads all `TelemetryFrame` rows for the session (historical log or `"live-telemetry"`) from SQLite, builds a sorted timestamp index, and sets the playhead to the start.
 * **Frame Emission:** `updateFrameAtPlayhead()` aggregates all key/value pairs up to the current playhead timestamp into a `ReplayFrame(timestampMs, values: Map<String, Double>)`. Each key/value pair is then emitted as an individual `TelemetryFrame` into the same `telemetryFlow` that live telemetry uses — ensuring all dashboard widgets (FieldViewerCard, TelemetryChartPanel, MecanumVisualizer, etc.) work identically in both modes with zero widget-level changes.
+* **Live Suspended State:** When the Replay Engine is active, the `Nt4ClientService` sets `isReplayActive = true`. This prevents live websocket incoming updates from emitting to `_telemetryFlow` (avoiding display flickering) while still spooling them to the database in the background.
 * **Playback Controls:** Play, Pause, Stop, Step Forward, Step Backward, Speed Scaling (`0.5x`, `1x`, `2x`, `4x`), and percentage-based Scrub.
 * **Timing:** The playback loop runs at 50fps (`delay(20)`), advancing the playhead by `deltaRealTime * speedMultiplier` each tick.
 * **Binary Search Seeking:** `scrubTo(percentage)` computes the target timestamp and uses `binarySearch` over the timestamp index for O(log n) seeking.
 
-### 6.3 Timeline Scrubber Bar
-When a session is selected for replay, a timeline bar appears at the bottom of the Dashboard:
+### 6.4 Timeline Scrubber Bar
+The timeline scrubber bar is visible at the bottom of the Dashboard whenever a connection is active or a session is loaded:
 * **Scrub Slider:** Draggable progress bar (0% → 100% of session duration)
 * **Play / Pause Button:** Toggles real-time playback
-* **Step Buttons:** Frame-by-frame forward/backward navigation
+* **Stop / Go Live Button:** In live mode, acts as a quick "Snap to Realtime" action. In historical replay mode, stops playback.
+* **Step Buttons:** Frame-by-frame forward/backward navigation (disabled during active live stream)
 * **Speed Selector:** `0.5×`, `1×`, `2×`, `4×` playback speed
-* **Time Labels:** Current playhead time / total session duration
-* **Mode Indicator:** Dashboard title changes from "Live" to "Replay: {session name}" to clearly indicate the active mode
+* **LIVE Badge:** A green pulsating indicator showing that the dashboard is displaying the live real-time edge.
+* **Snap to Realtime Button:** A cyan button with a lightning bolt icon that appears when the user is currently rewinding a live stream, allowing them to instantly return to real-time telemetry.
 
-### 6.4 Local Loopback Emulation
+### 6.5 Local Loopback Emulation
 * During active playback, the `ReplayEngineService` re-broadcasts decoded telemetry frames over a local UDP loopback port (`127.0.0.1:5802`) using Kotlin `DatagramSocket`. This allows auxiliary desktop debugging toolsets (e.g., AdvantageScope) to hook directly into the replay stream and display log animations simultaneously.
 
 ### 6.5 Dashboard Widgets in Both Modes

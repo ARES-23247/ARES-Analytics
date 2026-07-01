@@ -232,6 +232,14 @@ class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares
         queries.getTelemetryForKey(sessionId, key).executeAsList().map { it.toTelemetryFrame() }
     }
 
+    suspend fun deleteTelemetryFrames(sessionId: String) = withContext(Dispatchers.IO) {
+        queries.deleteTelemetryFrames(sessionId)
+    }
+
+    suspend fun pruneTelemetryFrames(sessionId: String, cutoffMs: Long) = withContext(Dispatchers.IO) {
+        queries.pruneTelemetryFrames(sessionId, cutoffMs)
+    }
+
     // ────────────────────────────────────────────────────────────────────────────
     // CRUD: Session Annotations
     // ────────────────────────────────────────────────────────────────────────────

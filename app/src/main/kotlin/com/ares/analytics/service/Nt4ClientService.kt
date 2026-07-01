@@ -20,6 +20,8 @@ open class Nt4ClientService(
     private val _isConnected = MutableStateFlow(false)
     open val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
 
+    val isReplayActive = MutableStateFlow(false)
+
     private val _telemetryFlow = MutableSharedFlow<TelemetryFrame>(replay = 100)
     open val telemetryFlow: SharedFlow<TelemetryFrame> = _telemetryFlow.asSharedFlow()
 
@@ -58,6 +60,11 @@ open class Nt4ClientService(
         if (framesToInsert.isNotEmpty()) {
             try {
                 databaseService.insertTelemetryFrames(framesToInsert)
+                val maxTimestamp = framesToInsert.filter { it.sessionId == "live-telemetry" }.maxOfOrNull { it.timestampMs }
+                if (maxTimestamp != null) {
+                    val cutoff = maxTimestamp - 300_000
+                    databaseService.pruneTelemetryFrames("live-telemetry", cutoff)
+                }
             } catch (e: java.lang.Exception) {
                 e.printStackTrace()
             }
@@ -71,6 +78,11 @@ open class Nt4ClientService(
         Thread.dumpStack()
         clientJob?.cancel()
         clientJob = CoroutineScope(Dispatchers.IO).launch {
+            try {
+                databaseService.deleteTelemetryFrames("live-telemetry")
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             // Launch periodic flush job in background
             launch {
                 while (isActive) {
@@ -270,12 +282,12 @@ open class Nt4ClientService(
         val finalFrame = if (session != null) {
             frame.copy(sessionId = session.sessionId)
         } else {
-            frame
+            frame.copy(sessionId = "live-telemetry")
         }
-        if (session != null) {
-            pendingFrames.add(finalFrame)
+        pendingFrames.add(finalFrame)
+        if (!isReplayActive.value) {
+            _telemetryFlow.emit(finalFrame)
         }
-        _telemetryFlow.emit(finalFrame)
     }
 
     suspend fun startRecordingSession(
@@ -499,12 +511,12 @@ open class Nt4ClientService(
                     value = doubleValue
                 )
                 frames.add(frame)
-                _telemetryFlow.emit(frame)
+                if (!isReplayActive.value) {
+                    _telemetryFlow.emit(frame)
+                }
             }
             
-            if (session != null) {
-                pendingFrames.addAll(frames)
-            }
+            pendingFrames.addAll(frames)
             return
         }
 
@@ -529,13 +541,10 @@ open class Nt4ClientService(
             value = doubleValue
         )
 
-        // Write to DB if recording
-        if (session != null) {
-            pendingFrames.add(frame)
+        pendingFrames.add(frame)
+        if (!isReplayActive.value) {
+            _telemetryFlow.emit(frame)
         }
-
-        // Emit to flow
-        _telemetryFlow.emit(frame)
     }
 
     private fun parseMsgPackValue(bytes: ByteArray, offset: Int, typeId: Int): Pair<JsonElement, Int> {

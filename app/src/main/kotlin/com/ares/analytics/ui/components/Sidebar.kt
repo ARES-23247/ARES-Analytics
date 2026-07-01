@@ -31,7 +31,6 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     DASHBOARD("Dashboard", Icons.Default.Speed),
     PATH_PLANNER("Path Planner", Icons.Default.Route),
     FIELD_EDITOR("Field Editor", Icons.Default.Layers),
-    REPLAY("Log Replay", Icons.Default.PlayCircle),
     SYSID("SysId", Icons.Default.Analytics),
     TUNING("Tuning", Icons.Default.Tune),
     TRIAGE("Pit Triage", Icons.Default.Build),

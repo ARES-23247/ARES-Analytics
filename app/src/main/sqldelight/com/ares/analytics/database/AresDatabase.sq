@@ -137,6 +137,9 @@ SELECT * FROM telemetry_frames WHERE session_id = ? AND key = ? ORDER BY timesta
 deleteTelemetryFrames:
 DELETE FROM telemetry_frames WHERE session_id = ?;
 
+pruneTelemetryFrames:
+DELETE FROM telemetry_frames WHERE session_id = ? AND timestamp_ms < ?;
+
 -- Session Annotations queries
 insertAnnotation:
 INSERT OR REPLACE INTO session_annotations (annotation_id, session_id, text, created_at, author_id) VALUES (?, ?, ?, ?, ?);

@@ -52,6 +52,11 @@ enum class EditorMode {
     SELECT, ADD_WAYPOINT, DRAW_POLYGON, DRAW_CIRCLE, DRAW_RECTANGLE, PLACE_GAME_PIECE, ERASER
 }
 
+private data class PointTowardsZoneRenderData(
+    val target: Waypoint,
+    val splinePoints: List<Waypoint>
+)
+
 @Composable
 fun FieldCanvas(
     league: League,
@@ -80,6 +85,87 @@ fun FieldCanvas(
     var localFieldImage by remember { mutableStateOf<ImageBitmap?>(null) }
     var localFieldImageConfig by remember { mutableStateOf(FieldImageConfig()) }
     var isDraggingHeading by remember { mutableStateOf(false) }
+
+    // Precomputed Cache Data Structures for zero-allocation rendering performance
+    class PathCacheHolder {
+        var splinePoints: List<Waypoint> = emptyList()
+        var actualPoints: List<Waypoint> = emptyList()
+        var constraintSplines: List<List<Waypoint>> = emptyList()
+        var w: Float = 0f
+        var h: Float = 0f
+        var splinePath: Path? = null
+        var actualPath: Path? = null
+        var constraintPaths: List<Path> = emptyList()
+    }
+    
+    val pathCache = remember { PathCacheHolder() }
+
+    val splinePoints = remember(waypoints) {
+        if (waypoints.size < 2) {
+            emptyList<Waypoint>()
+        } else {
+            val list = ArrayList<Waypoint>((waypoints.size - 1) * 30 + 1)
+            val density = 30
+            for (i in 0 until waypoints.size - 1) {
+                val p0 = waypoints[maxOf(0, i - 1)]
+                val p1 = waypoints[i]
+                val p2 = waypoints[i + 1]
+                val p3 = waypoints[minOf(waypoints.size - 1, i + 2)]
+
+                for (j in 1..density) {
+                    val t = j.toDouble() / density
+                    val px = catmullRom(p0.x, p1.x, p2.x, p3.x, t)
+                    val py = catmullRom(p0.y, p1.y, p2.y, p3.y, t)
+                    list.add(Waypoint(px, py))
+                }
+            }
+            list
+        }
+    }
+
+    val eventMarkerPoints = remember(eventMarkers, waypoints) {
+        if (waypoints.size < 2) emptyList<Waypoint>()
+        else eventMarkers.map { getPositionOnSpline(it.waypointRelativePos, waypoints) }
+    }
+
+    val rotationTargetPoints = remember(rotationTargets, waypoints) {
+        if (waypoints.size < 2) emptyList<Waypoint>()
+        else rotationTargets.map { getPositionOnSpline(it.waypointRelativePos, waypoints) }
+    }
+
+    val constraintZoneSplines = remember(constraintZones, waypoints) {
+        if (waypoints.size < 2) emptyList<List<Waypoint>>()
+        else constraintZones.map { zone ->
+            val minPos = zone.minWaypointRelativePos
+            val maxPos = zone.maxWaypointRelativePos
+            val steps = ((maxPos - minPos) * 20).toInt().coerceIn(2, 100)
+            val pathPoints = ArrayList<Waypoint>(steps + 1)
+            for (step in 0..steps) {
+                val pos = minPos + (maxPos - minPos) * (step.toDouble() / steps)
+                pathPoints.add(getPositionOnSpline(pos, waypoints))
+            }
+            pathPoints
+        }
+    }
+
+    val pointTowardsZoneRenderData = remember(pointTowardsZones, waypoints) {
+        if (waypoints.size < 2) emptyList<PointTowardsZoneRenderData>()
+        else pointTowardsZones.map { zone ->
+            val minPos = zone.minWaypointRelativePos
+            val maxPos = zone.maxWaypointRelativePos
+            val numLines = 5
+            val splinePoints = ArrayList<Waypoint>(numLines)
+            for (k in 0 until numLines) {
+                val t = if (numLines > 1) k.toDouble() / (numLines - 1) else 0.5
+                val pos = minPos + (maxPos - minPos) * t
+                splinePoints.add(getPositionOnSpline(pos, waypoints))
+            }
+            PointTowardsZoneRenderData(
+                target = Waypoint(zone.fieldPosition.x, zone.fieldPosition.y),
+                splinePoints = splinePoints
+            )
+        }
+    }
 
     val activeImage = fieldImage ?: localFieldImage
     val activeConfig = fieldImageConfig ?: localFieldImageConfig
@@ -723,498 +809,511 @@ fun FieldCanvas(
                 val h = size.height
 
                 // Render elements wrapped in pan & zoom matrix transform
-                withTransform({
-                    translate(panOffset.x, panOffset.y)
-                    scale(zoomScale, zoomScale, pivot = Offset.Zero)
-                }) {
-                    // 1. Draw Field Boundary (Custom Image or fallback solid color)
-                    activeImage?.let { img ->
-                        val cropL = (activeConfig.cropLeft * img.width).toInt().coerceIn(0, img.width)
-                        val cropR = (activeConfig.cropRight * img.width).toInt().coerceIn(cropL, img.width)
-                        val cropT = (activeConfig.cropTop * img.height).toInt().coerceIn(0, img.height)
-                        val cropB = (activeConfig.cropBottom * img.height).toInt().coerceIn(cropT, img.height)
-                        val srcW = maxOf(1, cropR - cropL)
-                        val srcH = maxOf(1, cropB - cropT)
+                drawContext.canvas.save()
+                drawContext.transform.translate(panOffset.x, panOffset.y)
+                drawContext.transform.scale(zoomScale, zoomScale, pivot = Offset.Zero)
 
-                        withTransform({
-                            rotate(activeConfig.rotationDegrees.toFloat(), pivot = Offset(w / 2f, h / 2f))
-                        }) {
-                            drawImage(
-                                image = img,
-                                srcOffset = androidx.compose.ui.unit.IntOffset(cropL, cropT),
-                                srcSize = androidx.compose.ui.unit.IntSize(srcW, srcH),
-                                dstOffset = androidx.compose.ui.unit.IntOffset(0, 0),
-                                dstSize = androidx.compose.ui.unit.IntSize(w.toInt(), h.toInt())
-                            )
-                        }
-                    } ?: run {
-                        drawRect(color = AresSurfaceElevated, size = size)
-                    }
+                // 1. Draw Field Boundary (Custom Image or fallback solid color)
+                activeImage?.let { img ->
+                    val cropL = (activeConfig.cropLeft * img.width).toInt().coerceIn(0, img.width)
+                    val cropR = (activeConfig.cropRight * img.width).toInt().coerceIn(cropL, img.width)
+                    val cropT = (activeConfig.cropTop * img.height).toInt().coerceIn(0, img.height)
+                    val cropB = (activeConfig.cropBottom * img.height).toInt().coerceIn(cropT, img.height)
+                    val srcW = maxOf(1, cropR - cropL)
+                    val srcH = maxOf(1, cropB - cropT)
 
-                    if (showHeatmap) {
-                        HeatmapOverlay.drawHeatmap(
-                            drawScope = this,
-                            actualPath = actualPath,
-                            fieldWidthM = fieldWidthM,
-                            fieldHeightM = fieldHeightM,
-                            league = league
+                    if (activeConfig.rotationDegrees != 0.0) {
+                        drawContext.canvas.save()
+                        drawContext.transform.rotate(activeConfig.rotationDegrees.toFloat(), Offset(w / 2f, h / 2f))
+                        drawImage(
+                            image = img,
+                            srcOffset = androidx.compose.ui.unit.IntOffset(cropL, cropT),
+                            srcSize = androidx.compose.ui.unit.IntSize(srcW, srcH),
+                            dstOffset = androidx.compose.ui.unit.IntOffset(0, 0),
+                            dstSize = androidx.compose.ui.unit.IntSize(w.toInt(), h.toInt())
+                        )
+                        drawContext.canvas.restore()
+                    } else {
+                        drawImage(
+                            image = img,
+                            srcOffset = androidx.compose.ui.unit.IntOffset(cropL, cropT),
+                            srcSize = androidx.compose.ui.unit.IntSize(srcW, srcH),
+                            dstOffset = androidx.compose.ui.unit.IntOffset(0, 0),
+                            dstSize = androidx.compose.ui.unit.IntSize(w.toInt(), h.toInt())
                         )
                     }
-                    
-                    val stepM = if (league == League.FTC) 0.6 else 1.0
-                    var curX = if (league == League.FTC) -fieldWidthM/2 else 0.0
-                    while (curX <= fieldWidthM/2) {
-                        val wp = Waypoint(curX, 0.0)
-                        val offset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
-                        drawLine(color = AresBorder, start = Offset(offset.x, 0f), end = Offset(offset.x, h), strokeWidth = 1f)
-                        curX += stepM
-                    }
-                    var curY = if (league == League.FTC) -fieldHeightM/2 else 0.0
-                    while (curY <= fieldHeightM/2) {
-                        val wp = Waypoint(0.0, curY)
-                        val offset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
-                        drawLine(color = AresBorder, start = Offset(0f, offset.y), end = Offset(w, offset.y), strokeWidth = 1f)
-                        curY += stepM
-                    }
+                } ?: run {
+                    drawRect(color = AresSurfaceElevated, size = size)
+                }
 
-                    // Field Outline
-                    drawRect(color = AresBorderFocused, style = Stroke(width = 3f))
+                if (showHeatmap) {
+                    HeatmapOverlay.drawHeatmap(
+                        drawScope = this,
+                        actualPath = actualPath,
+                        fieldWidthM = fieldWidthM,
+                        fieldHeightM = fieldHeightM,
+                        league = league
+                    )
+                }
+                
+                val stepM = if (league == League.FTC) 0.6 else 1.0
+                var curX = if (league == League.FTC) -fieldWidthM/2 else 0.0
+                while (curX <= fieldWidthM/2) {
+                    val wp = Waypoint(curX, 0.0)
+                    val offset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
+                    drawLine(color = AresBorder, start = Offset(offset.x, 0f), end = Offset(offset.x, h), strokeWidth = 1f)
+                    curX += stepM
+                }
+                var curY = if (league == League.FTC) -fieldHeightM/2 else 0.0
+                while (curY <= fieldHeightM/2) {
+                    val wp = Waypoint(0.0, curY)
+                    val offset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
+                    drawLine(color = AresBorder, start = Offset(0f, offset.y), end = Offset(w, offset.y), strokeWidth = 1f)
+                    curY += stepM
+                }
 
-                    // 2. Render Custom Obstacles
-                    activeObstacles.forEach { obs ->
-                        when (obs) {
-                            is Obstacle.Circle -> {
-                                val centerWp = Waypoint(obs.centerX, obs.centerY)
-                                val centerOffset = getCanvasOffsetBase(centerWp, w, h, fieldWidthM, fieldHeightM, league)
-                                val radiusPx = (obs.radius / fieldWidthM) * w
-                                drawCircle(color = AresRed.copy(alpha = 0.3f), radius = radiusPx.toFloat(), center = centerOffset)
-                                drawCircle(color = AresRed, radius = radiusPx.toFloat(), center = centerOffset, style = Stroke(width = 2f))
-                            }
-                            is Obstacle.Rectangle -> {
-                                val centerWp = Waypoint(obs.centerX, obs.centerY)
-                                val centerOffset = getCanvasOffsetBase(centerWp, w, h, fieldWidthM, fieldHeightM, league)
-                                val rw = (obs.width / fieldWidthM) * w
-                                val rh = (obs.height / fieldHeightM) * h
-                                withTransform({
-                                    rotate(obs.rotation.toFloat(), pivot = centerOffset)
-                                }) {
-                                    val rectOffset = Offset((centerOffset.x - rw / 2).toFloat(), (centerOffset.y - rh / 2).toFloat())
-                                    drawRect(color = AresRed.copy(alpha = 0.3f), topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()))
-                                    drawRect(color = AresRed, topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()), style = Stroke(width = 2f))
+                // Field Outline
+                drawRect(color = AresBorderFocused, style = Stroke(width = 3f))
+
+                // 2. Render Custom Obstacles
+                activeObstacles.forEach { obs ->
+                    when (obs) {
+                        is Obstacle.Circle -> {
+                            val centerWp = Waypoint(obs.centerX, obs.centerY)
+                            val centerOffset = getCanvasOffsetBase(centerWp, w, h, fieldWidthM, fieldHeightM, league)
+                            val radiusPx = (obs.radius / fieldWidthM) * w
+                            drawCircle(color = AresRed.copy(alpha = 0.3f), radius = radiusPx.toFloat(), center = centerOffset)
+                            drawCircle(color = AresRed, radius = radiusPx.toFloat(), center = centerOffset, style = Stroke(width = 2f))
+                        }
+                        is Obstacle.Rectangle -> {
+                            val centerWp = Waypoint(obs.centerX, obs.centerY)
+                            val centerOffset = getCanvasOffsetBase(centerWp, w, h, fieldWidthM, fieldHeightM, league)
+                            val rw = (obs.width / fieldWidthM) * w
+                            val rh = (obs.height / fieldHeightM) * h
+                            drawContext.canvas.save()
+                            drawContext.transform.rotate(obs.rotation.toFloat(), pivot = centerOffset)
+                            val rectOffset = Offset((centerOffset.x - rw / 2).toFloat(), (centerOffset.y - rh / 2).toFloat())
+                            drawRect(color = AresRed.copy(alpha = 0.3f), topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()))
+                            drawRect(color = AresRed, topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()), style = Stroke(width = 2f))
+                            drawContext.canvas.restore()
+                        }
+                        is Obstacle.Polygon -> {
+                            if (obs.vertices.isNotEmpty()) {
+                                val path = Path()
+                                val start = getCanvasOffsetBase(Waypoint(obs.vertices.first().x, obs.vertices.first().y), w, h, fieldWidthM, fieldHeightM, league)
+                                path.moveTo(start.x, start.y)
+                                obs.vertices.drop(1).forEach { pt ->
+                                    val offset = getCanvasOffsetBase(Waypoint(pt.x, pt.y), w, h, fieldWidthM, fieldHeightM, league)
+                                    path.lineTo(offset.x, offset.y)
                                 }
-                            }
-                            is Obstacle.Polygon -> {
-                                if (obs.vertices.isNotEmpty()) {
-                                    val path = Path()
-                                    val start = getCanvasOffsetBase(Waypoint(obs.vertices.first().x, obs.vertices.first().y), w, h, fieldWidthM, fieldHeightM, league)
-                                    path.moveTo(start.x, start.y)
-                                    obs.vertices.drop(1).forEach { pt ->
-                                        val offset = getCanvasOffsetBase(Waypoint(pt.x, pt.y), w, h, fieldWidthM, fieldHeightM, league)
-                                        path.lineTo(offset.x, offset.y)
-                                    }
-                                    path.close()
-                                    drawPath(path = path, color = AresRed.copy(alpha = 0.3f))
-                                    drawPath(path = path, color = AresRed, style = Stroke(width = 2f))
-                                }
+                                path.close()
+                                drawPath(path = path, color = AresRed.copy(alpha = 0.3f))
+                                drawPath(path = path, color = AresRed, style = Stroke(width = 2f))
                             }
                         }
-                    }
-
-                    // 2.5 Render Placed Game Pieces
-                    activeGamePieces.forEach { gp ->
-                        val gpOffset = getCanvasOffsetBase(Waypoint(gp.x, gp.y), w, h, fieldWidthM, fieldHeightM, league)
-                        when (gp.type) {
-                            "Note", "High Note" -> {
-                                val outerRadiusPx = (0.175 / fieldWidthM) * w
-                                val innerRadiusPx = (0.07 / fieldWidthM) * w
-                                drawCircle(color = AresAmber.copy(alpha = 0.4f), radius = outerRadiusPx.toFloat(), center = gpOffset)
-                                drawCircle(color = AresAmber, radius = outerRadiusPx.toFloat(), center = gpOffset, style = Stroke(width = 3f))
-                                drawCircle(color = AresBackground, radius = innerRadiusPx.toFloat(), center = gpOffset)
-                                drawCircle(color = AresAmber, radius = innerRadiusPx.toFloat(), center = gpOffset, style = Stroke(width = 1.5f))
-                            }
-                            "Sample (Yellow)" -> {
-                                val rw = (0.15 / fieldWidthM) * w
-                                val rh = (0.05 / fieldHeightM) * h
-                                val rectOffset = Offset((gpOffset.x - rw/2).toFloat(), (gpOffset.y - rh/2).toFloat())
-                                drawRect(color = Color.Yellow.copy(alpha = 0.6f), topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()))
-                                drawRect(color = Color.Yellow, topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()), style = Stroke(width = 2f))
-                            }
-                            "Sample (Red)" -> {
-                                val rw = (0.15 / fieldWidthM) * w
-                                val rh = (0.05 / fieldHeightM) * h
-                                val rectOffset = Offset((gpOffset.x - rw/2).toFloat(), (gpOffset.y - rh/2).toFloat())
-                                drawRect(color = AresRed.copy(alpha = 0.6f), topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()))
-                                drawRect(color = AresRed, topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()), style = Stroke(width = 2f))
-                            }
-                            "Sample (Blue)" -> {
-                                val rw = (0.15 / fieldWidthM) * w
-                                val rh = (0.05 / fieldHeightM) * h
-                                val rectOffset = Offset((gpOffset.x - rw/2).toFloat(), (gpOffset.y - rh/2).toFloat())
-                                drawRect(color = AresCyan.copy(alpha = 0.6f), topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()))
-                                drawRect(color = AresCyan, topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()), style = Stroke(width = 2f))
-                            }
-                            else -> {
-                                val sizePx = (0.12 / fieldWidthM) * w
-                                val path = Path().apply {
-                                    moveTo(gpOffset.x, (gpOffset.y - sizePx).toFloat())
-                                    lineTo((gpOffset.x + sizePx).toFloat(), gpOffset.y)
-                                    lineTo(gpOffset.x, (gpOffset.y + sizePx).toFloat())
-                                    lineTo((gpOffset.x - sizePx).toFloat(), gpOffset.y)
-                                    close()
-                                }
-                                drawPath(path = path, color = Color(0xFF9C27B0).copy(alpha = 0.6f))
-                                drawPath(path = path, color = Color(0xFF9C27B0), style = Stroke(width = 2f))
-                            }
-                        }
-                    }
-
-                    // Render current active drawing polygon points
-                    if (currentPolygonPoints.isNotEmpty()) {
-                        val path = Path()
-                        val start = getCanvasOffsetBase(Waypoint(currentPolygonPoints.first().x, currentPolygonPoints.first().y), w, h, fieldWidthM, fieldHeightM, league)
-                        path.moveTo(start.x, start.y)
-                        currentPolygonPoints.drop(1).forEach { pt ->
-                            val offset = getCanvasOffsetBase(Waypoint(pt.x, pt.y), w, h, fieldWidthM, fieldHeightM, league)
-                            path.lineTo(offset.x, offset.y)
-                        }
-                        drawPath(path = path, color = AresRed.copy(alpha = 0.15f))
-                        drawPath(path = path, color = AresRed, style = Stroke(width = 1.5f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f))))
-                    }
-
-                    // 3. Planned Spline Path (Cyan)
-                    if (waypoints.size >= 2) {
-                        val splinePath = Path()
-                        val firstOffset = getCanvasOffsetBase(waypoints.first(), w, h, fieldWidthM, fieldHeightM, league)
-                        splinePath.moveTo(firstOffset.x, firstOffset.y)
-
-                        val density = 30
-                        for (i in 0 until waypoints.size - 1) {
-                            val p0 = waypoints[maxOf(0, i - 1)]
-                            val p1 = waypoints[i]
-                            val p2 = waypoints[i + 1]
-                            val p3 = waypoints[minOf(waypoints.size - 1, i + 2)]
-
-                            for (j in 1..density) {
-                                val t = j.toDouble() / density
-                                val px = catmullRom(p0.x, p1.x, p2.x, p3.x, t)
-                                val py = catmullRom(p0.y, p1.y, p2.y, p3.y, t)
-                                val offset = getCanvasOffsetBase(Waypoint(px, py), w, h, fieldWidthM, fieldHeightM, league)
-                                splinePath.lineTo(offset.x, offset.y)
-                            }
-                        }
-                        drawPath(path = splinePath, color = AresPathPlanned, style = Stroke(width = 4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))))
-                    }
-
-                    // 3.5 Render Event Markers on Spline
-                    if (waypoints.size >= 2) {
-                        currentEventMarkers.forEach { marker ->
-                            val markerWp = getPositionOnSpline(marker.waypointRelativePos, waypoints)
-                            val markerOffset = getCanvasOffsetBase(markerWp, w, h, fieldWidthM, fieldHeightM, league)
-                            
-                            // Visual glow / outer ring
-                            drawCircle(
-                                color = Color(0xFF9C27B0).copy(alpha = 0.4f),
-                                radius = 8.dp.toPx(),
-                                center = markerOffset
-                            )
-                            // Solid center dot
-                            drawCircle(
-                                color = Color(0xFF9C27B0),
-                                radius = 5.dp.toPx(),
-                                center = markerOffset
-                            )
-                            // Inner core
-                            drawCircle(
-                                color = Color.White,
-                                radius = 2.dp.toPx(),
-                                center = markerOffset
-                            )
-                        }
-                    }
-
-                    // 3.6 Render Constraint Zones on Spline
-                    if (waypoints.size >= 2) {
-                        currentConstraintZones.forEach { zone ->
-                            val zonePath = Path()
-                            val minPos = zone.minWaypointRelativePos
-                            val maxPos = zone.maxWaypointRelativePos
-                            
-                            val startWp = getPositionOnSpline(minPos, waypoints)
-                            val startOffset = getCanvasOffsetBase(startWp, w, h, fieldWidthM, fieldHeightM, league)
-                            zonePath.moveTo(startOffset.x, startOffset.y)
-                            
-                            val steps = ((maxPos - minPos) * 20).toInt().coerceIn(2, 100)
-                            for (step in 1..steps) {
-                                val pos = minPos + (maxPos - minPos) * (step.toDouble() / steps)
-                                val wp = getPositionOnSpline(pos, waypoints)
-                                val offset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
-                                zonePath.lineTo(offset.x, offset.y)
-                            }
-                            
-                            // Highlight the path with a thick orange-red dotted line
-                            drawPath(
-                                path = zonePath,
-                                color = AresRed.copy(alpha = 0.4f),
-                                style = Stroke(
-                                    width = 8.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f))
-                                )
-                            )
-                        }
-                    }
-
-                    // 3.7 Render Point Towards (Aiming) Zones
-                    if (waypoints.size >= 2) {
-                        currentPointTowardsZones.forEach { zone ->
-                            val targetOffset = getCanvasOffsetBase(
-                                Waypoint(zone.fieldPosition.x, zone.fieldPosition.y),
-                                w, h, fieldWidthM, fieldHeightM, league
-                            )
-                            
-                            // Draw aiming target icon
-                            drawCircle(
-                                color = AresCyan.copy(alpha = 0.3f),
-                                radius = 12.dp.toPx(),
-                                center = targetOffset
-                            )
-                            drawCircle(
-                                color = AresCyan,
-                                radius = 6.dp.toPx(),
-                                center = targetOffset,
-                                style = Stroke(width = 2.dp.toPx())
-                            )
-                            drawLine(
-                                color = AresCyan,
-                                start = Offset(targetOffset.x - 10.dp.toPx(), targetOffset.y),
-                                end = Offset(targetOffset.x + 10.dp.toPx(), targetOffset.y),
-                                strokeWidth = 1.5.dp.toPx()
-                            )
-                            drawLine(
-                                color = AresCyan,
-                                start = Offset(targetOffset.x, targetOffset.y - 10.dp.toPx()),
-                                end = Offset(targetOffset.x, targetOffset.y + 10.dp.toPx()),
-                                strokeWidth = 1.5.dp.toPx()
-                            )
-                            
-                            // Draw dashed lines from spline points inside the zone to the target
-                            val minPos = zone.minWaypointRelativePos
-                            val maxPos = zone.maxWaypointRelativePos
-                            val numLines = 5
-                            for (k in 0 until numLines) {
-                                val t = if (numLines > 1) k.toDouble() / (numLines - 1) else 0.5
-                                val pos = minPos + (maxPos - minPos) * t
-                                val wp = getPositionOnSpline(pos, waypoints)
-                                val splineOffset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
-                                
-                                drawLine(
-                                    color = AresCyan.copy(alpha = 0.3f),
-                                    start = splineOffset,
-                                    end = targetOffset,
-                                    strokeWidth = 1.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f))
-                                )
-                            }
-                        }
-                    }
-
-                    // 3.8 Render Holonomic Rotation Targets
-                    if (waypoints.size >= 2) {
-                        currentRotationTargets.forEach { target ->
-                            val targetWp = getPositionOnSpline(target.waypointRelativePos, waypoints)
-                            val offset = getCanvasOffsetBase(targetWp, w, h, fieldWidthM, fieldHeightM, league)
-                            
-                            // Draw an oriented robot rectangular box representing holonomic rotation
-                            val rectSize = 24.dp.toPx()
-                            withTransform({
-                                rotate(degrees = -target.rotationDegrees.toFloat(), pivot = offset)
-                            }) {
-                                // Shaded box
-                                drawRect(
-                                    color = AresAmber.copy(alpha = 0.25f),
-                                    topLeft = Offset(offset.x - rectSize/2, offset.y - rectSize/2),
-                                    size = Size(rectSize, rectSize)
-                                )
-                                // Box border
-                                drawRect(
-                                    color = AresAmber,
-                                    topLeft = Offset(offset.x - rectSize/2, offset.y - rectSize/2),
-                                    size = Size(rectSize, rectSize),
-                                    style = Stroke(width = 1.5.dp.toPx())
-                                )
-                                // Cyan front bumper highlight line to show robot orientation direction
-                                drawLine(
-                                    color = AresCyan,
-                                    start = Offset(offset.x + rectSize/2, offset.y - rectSize/2),
-                                    end = Offset(offset.x + rectSize/2, offset.y + rectSize/2),
-                                    strokeWidth = 2.dp.toPx()
-                                )
-                            }
-                            
-                            // Draw center rotation indicator dot
-                            drawCircle(
-                                color = AresAmber,
-                                radius = 4.dp.toPx(),
-                                center = offset
-                            )
-                        }
-                    }
-
-                    // 4. Actual Path (Gold)
-                    if (actualPath.size >= 2) {
-                        val path = Path()
-                        val firstOffset = getCanvasOffsetBase(actualPath.first(), w, h, fieldWidthM, fieldHeightM, league)
-                        path.moveTo(firstOffset.x, firstOffset.y)
-                        actualPath.drop(1).forEach { wp ->
-                            val offset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
-                            path.lineTo(offset.x, offset.y)
-                        }
-                        drawPath(path = path, color = AresPathActual, style = Stroke(width = 3f))
-
-                        // 5. Draw Path Deviation Vectors (Planned vs Actual)
-                        if (waypoints.size >= 2) {
-                            actualPath.chunked(maxOf(1, actualPath.size / 20)).forEach { actualPoint ->
-                                val actualWp = actualPoint.firstOrNull() ?: return@forEach
-                                val actualOffset = getCanvasOffsetBase(actualWp, w, h, fieldWidthM, fieldHeightM, league)
-                                
-                                // Find closest planned point
-                                var closestWp = waypoints.first()
-                                var minDistance = Double.MAX_VALUE
-                                waypoints.forEach { plannedWp ->
-                                    val dist = sqrt((actualWp.x - plannedWp.x).pow(2) + (actualWp.y - plannedWp.y).pow(2))
-                                    if (dist < minDistance) {
-                                        minDistance = dist
-                                        closestWp = plannedWp
-                                    }
-                                }
-
-                                val plannedOffset = getCanvasOffsetBase(closestWp, w, h, fieldWidthM, fieldHeightM, league)
-                                val deviationM = minDistance
-                                val deviationColor = when {
-                                    deviationM < 0.02 -> AresGreen // <2cm
-                                    deviationM < 0.05 -> AresAmber // <5cm
-                                    else -> AresRed               // >5cm
-                                }
-                                drawLine(color = deviationColor, start = actualOffset, end = plannedOffset, strokeWidth = 1.5f)
-                            }
-                        }
-                    }
-
-                    // 5b. Active Robot Representation (drawn at the latest point of actualPath)
-                    val activeRobotWp = actualPath.lastOrNull()
-                    if (activeRobotWp != null) {
-                        val robotOffset = getCanvasOffsetBase(activeRobotWp, w, h, fieldWidthM, fieldHeightM, league)
-                        val robotSizeM = 0.45
-                        val robotSizePx = ((robotSizeM / fieldWidthM) * w).toFloat()
-                        
-                        withTransform({
-                            rotate(degrees = -Math.toDegrees(activeRobotWp.headingRad).toFloat(), pivot = robotOffset)
-                        }) {
-                            drawRect(
-                                color = AresCyan.copy(alpha = 0.2f),
-                                topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
-                                size = Size(robotSizePx, robotSizePx)
-                            )
-                            drawRect(
-                                color = AresCyan,
-                                topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
-                                size = Size(robotSizePx, robotSizePx),
-                                style = Stroke(width = 2.dp.toPx())
-                            )
-                            drawLine(
-                                color = AresAmber,
-                                start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2),
-                                end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2),
-                                strokeWidth = 3.dp.toPx()
-                            )
-                        }
-                    }
-
-                    // 5c. EKF Estimated Robot Representation (Dashed Amber Box)
-                    if (estimatedPose != null) {
-                        val robotOffset = getCanvasOffsetBase(estimatedPose, w, h, fieldWidthM, fieldHeightM, league)
-                        val robotSizeM = 0.45
-                        val robotSizePx = ((robotSizeM / fieldWidthM) * w).toFloat()
-                        
-                        withTransform({
-                            rotate(degrees = -Math.toDegrees(estimatedPose.headingRad).toFloat(), pivot = robotOffset)
-                        }) {
-                            drawRect(
-                                color = AresAmber.copy(alpha = 0.15f),
-                                topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
-                                size = Size(robotSizePx, robotSizePx)
-                            )
-                            drawRect(
-                                color = AresAmber,
-                                topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
-                                size = Size(robotSizePx, robotSizePx),
-                                style = Stroke(
-                                    width = 1.5.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
-                                )
-                            )
-                            drawLine(
-                                color = AresAmber,
-                                start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2),
-                                end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2),
-                                strokeWidth = 2.dp.toPx()
-                            )
-                        }
-                    }
-
-                    // 5d. Limelight Vision Robot Representations (Dotted Green Boxes for N cameras)
-                    visionPoses.forEach { pose ->
-                        val robotOffset = getCanvasOffsetBase(pose, w, h, fieldWidthM, fieldHeightM, league)
-                        val robotSizeM = 0.45
-                        val robotSizePx = ((robotSizeM / fieldWidthM) * w).toFloat()
-                        
-                        withTransform({
-                            rotate(degrees = -Math.toDegrees(pose.headingRad).toFloat(), pivot = robotOffset)
-                        }) {
-                            drawRect(
-                                color = AresGreen.copy(alpha = 0.15f),
-                                topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
-                                size = Size(robotSizePx, robotSizePx)
-                            )
-                            drawRect(
-                                color = AresGreen,
-                                topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
-                                size = Size(robotSizePx, robotSizePx),
-                                style = Stroke(
-                                    width = 1.5.dp.toPx(),
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
-                                )
-                            )
-                            drawLine(
-                                color = AresGreen,
-                                start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2),
-                                end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2),
-                                strokeWidth = 2.dp.toPx()
-                            )
-                        }
-                    }
-
-                    // 6. Draw Waypoint Circles
-                    waypoints.forEachIndexed { idx, wp ->
-                        val offset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
-                        val isSelected = idx == selectedWaypointIndex
-                        val color = if (isSelected) AresCyan else AresTextPrimary
-
-                        drawCircle(color = color, radius = 8.dp.toPx(), center = offset)
-                        drawCircle(color = AresBackground, radius = 4.dp.toPx(), center = offset)
-
-                        val arrowLength = 30.dp.toPx()
-                        val arrowEnd = Offset(
-                            x = offset.x + arrowLength * cos(wp.headingRad).toFloat(),
-                            y = offset.y - arrowLength * sin(wp.headingRad).toFloat()
-                        )
-                        drawLine(color = color.copy(alpha = 0.8f), start = offset, end = arrowEnd, strokeWidth = 2.dp.toPx())
-
-                        // Draw heading handle dot
-                        val handleColor = if (isSelected && isDraggingHeading) AresCyan else AresAmber
-                        drawCircle(color = handleColor, radius = 6.dp.toPx(), center = arrowEnd)
-                        drawCircle(color = AresBackground, radius = 3.dp.toPx(), center = arrowEnd)
                     }
                 }
+
+                // 2.5 Render Placed Game Pieces
+                activeGamePieces.forEach { gp ->
+                    val gpOffset = getCanvasOffsetBase(Waypoint(gp.x, gp.y), w, h, fieldWidthM, fieldHeightM, league)
+                    when (gp.type) {
+                        "Note", "High Note" -> {
+                            val outerRadiusPx = (0.175 / fieldWidthM) * w
+                            val innerRadiusPx = (0.07 / fieldWidthM) * w
+                            drawCircle(color = AresAmber.copy(alpha = 0.4f), radius = outerRadiusPx.toFloat(), center = gpOffset)
+                            drawCircle(color = AresAmber, radius = outerRadiusPx.toFloat(), center = gpOffset, style = Stroke(width = 3f))
+                            drawCircle(color = AresBackground, radius = innerRadiusPx.toFloat(), center = gpOffset)
+                            drawCircle(color = AresAmber, radius = innerRadiusPx.toFloat(), center = gpOffset, style = Stroke(width = 1.5f))
+                        }
+                        "Sample (Yellow)" -> {
+                            val rw = (0.15 / fieldWidthM) * w
+                            val rh = (0.05 / fieldHeightM) * h
+                            val rectOffset = Offset((gpOffset.x - rw/2).toFloat(), (gpOffset.y - rh/2).toFloat())
+                            drawRect(color = Color.Yellow.copy(alpha = 0.6f), topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()))
+                            drawRect(color = Color.Yellow, topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()), style = Stroke(width = 2f))
+                        }
+                        "Sample (Red)" -> {
+                            val rw = (0.15 / fieldWidthM) * w
+                            val rh = (0.05 / fieldHeightM) * h
+                            val rectOffset = Offset((gpOffset.x - rw/2).toFloat(), (gpOffset.y - rh/2).toFloat())
+                            drawRect(color = AresRed.copy(alpha = 0.6f), topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()))
+                            drawRect(color = AresRed, topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()), style = Stroke(width = 2f))
+                        }
+                        "Sample (Blue)" -> {
+                            val rw = (0.15 / fieldWidthM) * w
+                            val rh = (0.05 / fieldHeightM) * h
+                            val rectOffset = Offset((gpOffset.x - rw/2).toFloat(), (gpOffset.y - rh/2).toFloat())
+                            drawRect(color = AresCyan.copy(alpha = 0.6f), topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()))
+                            drawRect(color = AresCyan, topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()), style = Stroke(width = 2f))
+                        }
+                        else -> {
+                            val sizePx = (0.12 / fieldWidthM) * w
+                            val path = Path().apply {
+                                moveTo(gpOffset.x, (gpOffset.y - sizePx).toFloat())
+                                lineTo((gpOffset.x + sizePx).toFloat(), gpOffset.y)
+                                lineTo(gpOffset.x, (gpOffset.y + sizePx).toFloat())
+                                lineTo((gpOffset.x - sizePx).toFloat(), gpOffset.y)
+                                close()
+                            }
+                            drawPath(path = path, color = Color(0xFF9C27B0).copy(alpha = 0.6f))
+                            drawPath(path = path, color = Color(0xFF9C27B0), style = Stroke(width = 2f))
+                        }
+                    }
+                }
+
+                // Render current active drawing polygon points
+                if (currentPolygonPoints.isNotEmpty()) {
+                    val path = Path()
+                    val start = getCanvasOffsetBase(Waypoint(currentPolygonPoints.first().x, currentPolygonPoints.first().y), w, h, fieldWidthM, fieldHeightM, league)
+                    path.moveTo(start.x, start.y)
+                    currentPolygonPoints.drop(1).forEach { pt ->
+                        val offset = getCanvasOffsetBase(Waypoint(pt.x, pt.y), w, h, fieldWidthM, fieldHeightM, league)
+                        path.lineTo(offset.x, offset.y)
+                    }
+                    drawPath(path = path, color = AresRed.copy(alpha = 0.15f))
+                    drawPath(path = path, color = AresRed, style = Stroke(width = 1.5f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f))))
+                }
+
+                // 3. Planned Spline Path (Cyan) - Cached
+                val splinePath = if (pathCache.splinePath != null && pathCache.splinePoints === splinePoints && pathCache.w == w && pathCache.h == h) {
+                    pathCache.splinePath!!
+                } else {
+                    val path = Path()
+                    if (splinePoints.isNotEmpty()) {
+                        val firstOffset = getCanvasOffsetBase(splinePoints.first(), w, h, fieldWidthM, fieldHeightM, league)
+                        path.moveTo(firstOffset.x, firstOffset.y)
+                        for (i in 1 until splinePoints.size) {
+                            val offset = getCanvasOffsetBase(splinePoints[i], w, h, fieldWidthM, fieldHeightM, league)
+                            path.lineTo(offset.x, offset.y)
+                        }
+                    }
+                    pathCache.splinePoints = splinePoints
+                    pathCache.w = w
+                    pathCache.h = h
+                    pathCache.splinePath = path
+                    path
+                }
+                if (waypoints.size >= 2) {
+                    drawPath(path = splinePath, color = AresPathPlanned, style = Stroke(width = 4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))))
+                }
+
+                // 3.5 Render Event Markers on Spline
+                if (waypoints.size >= 2) {
+                    eventMarkerPoints.forEach { markerOffsetWp ->
+                        val markerOffset = getCanvasOffsetBase(markerOffsetWp, w, h, fieldWidthM, fieldHeightM, league)
+                        
+                        // Visual glow / outer ring
+                        drawCircle(
+                            color = Color(0xFF9C27B0).copy(alpha = 0.4f),
+                            radius = 8.dp.toPx(),
+                            center = markerOffset
+                        )
+                        // Solid center dot
+                        drawCircle(
+                            color = Color(0xFF9C27B0),
+                            radius = 5.dp.toPx(),
+                            center = markerOffset
+                        )
+                        // Inner core
+                        drawCircle(
+                            color = Color.White,
+                            radius = 2.dp.toPx(),
+                            center = markerOffset
+                        )
+                    }
+                }
+
+                // 3.6 Render Constraint Zones on Spline - Cached
+                val constraintPaths = if (pathCache.constraintPaths.isNotEmpty() && pathCache.constraintSplines == constraintZoneSplines && pathCache.w == w && pathCache.h == h) {
+                    pathCache.constraintPaths
+                } else {
+                    val paths = constraintZoneSplines.map { zonePoints ->
+                        val path = Path()
+                        if (zonePoints.isNotEmpty()) {
+                            val firstOffset = getCanvasOffsetBase(zonePoints.first(), w, h, fieldWidthM, fieldHeightM, league)
+                            path.moveTo(firstOffset.x, firstOffset.y)
+                            for (i in 1 until zonePoints.size) {
+                                val offset = getCanvasOffsetBase(zonePoints[i], w, h, fieldWidthM, fieldHeightM, league)
+                                path.lineTo(offset.x, offset.y)
+                            }
+                        }
+                        path
+                    }
+                    pathCache.constraintSplines = constraintZoneSplines
+                    pathCache.w = w
+                    pathCache.h = h
+                    pathCache.constraintPaths = paths
+                    paths
+                }
+                if (waypoints.size >= 2) {
+                    constraintPaths.forEach { zonePath ->
+                        drawPath(
+                            path = zonePath,
+                            color = AresRed.copy(alpha = 0.4f),
+                            style = Stroke(
+                                width = 8.dp.toPx(),
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 8f))
+                            )
+                        )
+                    }
+                }
+
+                // 3.7 Render Point Towards (Aiming) Zones
+                if (waypoints.size >= 2) {
+                    pointTowardsZoneRenderData.forEach { data ->
+                        val targetOffset = getCanvasOffsetBase(data.target, w, h, fieldWidthM, fieldHeightM, league)
+                        
+                        // Draw aiming target icon
+                        drawCircle(
+                            color = AresCyan.copy(alpha = 0.3f),
+                            radius = 12.dp.toPx(),
+                            center = targetOffset
+                        )
+                        drawCircle(
+                            color = AresCyan,
+                            radius = 6.dp.toPx(),
+                            center = targetOffset,
+                            style = Stroke(width = 2.dp.toPx())
+                        )
+                        drawLine(
+                            color = AresCyan,
+                            start = Offset(targetOffset.x - 10.dp.toPx(), targetOffset.y),
+                            end = Offset(targetOffset.x + 10.dp.toPx(), targetOffset.y),
+                            strokeWidth = 1.5.dp.toPx()
+                        )
+                        drawLine(
+                            color = AresCyan,
+                            start = Offset(targetOffset.x, targetOffset.y - 10.dp.toPx()),
+                            end = Offset(targetOffset.x, targetOffset.y + 10.dp.toPx()),
+                            strokeWidth = 1.5.dp.toPx()
+                        )
+                        
+                        // Draw dashed lines from spline points inside the zone to the target
+                        data.splinePoints.forEach { wp ->
+                            val splineOffset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
+                            drawLine(
+                                color = AresCyan.copy(alpha = 0.3f),
+                                start = splineOffset,
+                                end = targetOffset,
+                                strokeWidth = 1.dp.toPx(),
+                                pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f))
+                            )
+                        }
+                    }
+                }
+
+                // 3.8 Render Holonomic Rotation Targets
+                if (waypoints.size >= 2) {
+                    rotationTargetPoints.forEachIndexed { idx, targetWp ->
+                        val target = rotationTargets[idx]
+                        val offset = getCanvasOffsetBase(targetWp, w, h, fieldWidthM, fieldHeightM, league)
+                        
+                        // Draw an oriented robot rectangular box representing holonomic rotation
+                        val rectSize = 24.dp.toPx()
+                        drawContext.canvas.save()
+                        drawContext.transform.rotate(degrees = -target.rotationDegrees.toFloat(), pivot = offset)
+                        
+                        // Shaded box
+                        drawRect(
+                            color = AresAmber.copy(alpha = 0.25f),
+                            topLeft = Offset(offset.x - rectSize/2, offset.y - rectSize/2),
+                            size = Size(rectSize, rectSize)
+                        )
+                        // Box border
+                        drawRect(
+                            color = AresAmber,
+                            topLeft = Offset(offset.x - rectSize/2, offset.y - rectSize/2),
+                            size = Size(rectSize, rectSize),
+                            style = Stroke(width = 1.5.dp.toPx())
+                        )
+                        // Cyan front bumper highlight line to show robot orientation direction
+                        drawLine(
+                            color = AresCyan,
+                            start = Offset(offset.x + rectSize/2, offset.y - rectSize/2),
+                            end = Offset(offset.x + rectSize/2, offset.y + rectSize/2),
+                            strokeWidth = 2.dp.toPx()
+                        )
+                        drawContext.canvas.restore()
+                        
+                        // Draw center rotation indicator dot
+                        drawCircle(
+                            color = AresAmber,
+                            radius = 4.dp.toPx(),
+                            center = offset
+                        )
+                    }
+                }
+
+                // 4. Actual Path (Gold) - Cached
+                val actualPathObj = if (pathCache.actualPath != null &&
+                    pathCache.actualPoints.size == actualPath.size &&
+                    pathCache.actualPoints.firstOrNull() == actualPath.firstOrNull() &&
+                    pathCache.actualPoints.lastOrNull() == actualPath.lastOrNull() &&
+                    pathCache.w == w && pathCache.h == h) {
+                    pathCache.actualPath!!
+                } else {
+                    val path = Path()
+                    if (actualPath.isNotEmpty()) {
+                        val firstOffset = getCanvasOffsetBase(actualPath.first(), w, h, fieldWidthM, fieldHeightM, league)
+                        path.moveTo(firstOffset.x, firstOffset.y)
+                        for (i in 1 until actualPath.size) {
+                            val offset = getCanvasOffsetBase(actualPath[i], w, h, fieldWidthM, fieldHeightM, league)
+                            path.lineTo(offset.x, offset.y)
+                        }
+                    }
+                    pathCache.actualPoints = actualPath
+                    pathCache.w = w
+                    pathCache.h = h
+                    pathCache.actualPath = path
+                    path
+                }
+                if (actualPath.size >= 2) {
+                    drawPath(path = actualPathObj, color = AresPathActual, style = Stroke(width = 3f))
+
+                    // 5. Draw Path Deviation Vectors (Planned vs Actual)
+                    if (waypoints.size >= 2) {
+                        actualPath.chunked(maxOf(1, actualPath.size / 20)).forEach { actualPoint ->
+                            val actualWp = actualPoint.firstOrNull() ?: return@forEach
+                            val actualOffset = getCanvasOffsetBase(actualWp, w, h, fieldWidthM, fieldHeightM, league)
+                            
+                            // Find closest planned point
+                            var closestWp = waypoints.first()
+                            var minDistance = Double.MAX_VALUE
+                            waypoints.forEach { plannedWp ->
+                                val dist = sqrt((actualWp.x - plannedWp.x).pow(2) + (actualWp.y - plannedWp.y).pow(2))
+                                if (dist < minDistance) {
+                                    minDistance = dist
+                                    closestWp = plannedWp
+                                }
+                            }
+
+                            val plannedOffset = getCanvasOffsetBase(closestWp, w, h, fieldWidthM, fieldHeightM, league)
+                            val deviationM = minDistance
+                            val deviationColor = when {
+                                deviationM < 0.02 -> AresGreen // <2cm
+                                deviationM < 0.05 -> AresAmber // <5cm
+                                else -> AresRed               // >5cm
+                            }
+                            drawLine(color = deviationColor, start = actualOffset, end = plannedOffset, strokeWidth = 1.5f)
+                        }
+                    }
+                }
+
+                // 5b. Active Robot Representation (drawn at the latest point of actualPath)
+                val activeRobotWp = actualPath.lastOrNull()
+                if (activeRobotWp != null) {
+                    val robotOffset = getCanvasOffsetBase(activeRobotWp, w, h, fieldWidthM, fieldHeightM, league)
+                    val robotSizeM = 0.45
+                    val robotSizePx = ((robotSizeM / fieldWidthM) * w).toFloat()
+                    
+                    drawContext.canvas.save()
+                    drawContext.transform.rotate(degrees = -Math.toDegrees(activeRobotWp.headingRad).toFloat(), pivot = robotOffset)
+                    drawRect(
+                        color = AresCyan.copy(alpha = 0.2f),
+                        topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
+                        size = Size(robotSizePx, robotSizePx)
+                    )
+                    drawRect(
+                        color = AresCyan,
+                        topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
+                        size = Size(robotSizePx, robotSizePx),
+                        style = Stroke(width = 2.dp.toPx())
+                    )
+                    drawLine(
+                        color = AresAmber,
+                        start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2),
+                        end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2),
+                        strokeWidth = 3.dp.toPx()
+                    )
+                    drawContext.canvas.restore()
+                }
+
+                // 5c. EKF Estimated Robot Representation (Dashed Amber Box)
+                if (estimatedPose != null) {
+                    val robotOffset = getCanvasOffsetBase(estimatedPose, w, h, fieldWidthM, fieldHeightM, league)
+                    val robotSizeM = 0.45
+                    val robotSizePx = ((robotSizeM / fieldWidthM) * w).toFloat()
+                    
+                    drawContext.canvas.save()
+                    drawContext.transform.rotate(degrees = -Math.toDegrees(estimatedPose.headingRad).toFloat(), pivot = robotOffset)
+                    drawRect(
+                        color = AresAmber.copy(alpha = 0.15f),
+                        topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
+                        size = Size(robotSizePx, robotSizePx)
+                    )
+                    drawRect(
+                        color = AresAmber,
+                        topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
+                        size = Size(robotSizePx, robotSizePx),
+                        style = Stroke(
+                            width = 1.5.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
+                        )
+                    )
+                    drawLine(
+                        color = AresAmber,
+                        start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2),
+                        end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2),
+                        strokeWidth = 2.dp.toPx()
+                    )
+                    drawContext.canvas.restore()
+                }
+
+                // 5d. Limelight Vision Robot Representations (Dotted Green Boxes for N cameras)
+                visionPoses.forEach { pose ->
+                    val robotOffset = getCanvasOffsetBase(pose, w, h, fieldWidthM, fieldHeightM, league)
+                    val robotSizeM = 0.45
+                    val robotSizePx = ((robotSizeM / fieldWidthM) * w).toFloat()
+                    
+                    drawContext.canvas.save()
+                    drawContext.transform.rotate(degrees = -Math.toDegrees(pose.headingRad).toFloat(), pivot = robotOffset)
+                    drawRect(
+                        color = AresGreen.copy(alpha = 0.15f),
+                        topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
+                        size = Size(robotSizePx, robotSizePx)
+                    )
+                    drawRect(
+                        color = AresGreen,
+                        topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2),
+                        size = Size(robotSizePx, robotSizePx),
+                        style = Stroke(
+                            width = 1.5.dp.toPx(),
+                            pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
+                        )
+                    )
+                    drawLine(
+                        color = AresGreen,
+                        start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2),
+                        end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2),
+                        strokeWidth = 2.dp.toPx()
+                    )
+                    drawContext.canvas.restore()
+                }
+
+                // 6. Draw Waypoint Circles
+                waypoints.forEachIndexed { idx, wp ->
+                    val offset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
+                    val isSelected = idx == selectedWaypointIndex
+                    val color = if (isSelected) AresCyan else AresTextPrimary
+
+                    drawCircle(color = color, radius = 8.dp.toPx(), center = offset)
+                    drawCircle(color = AresBackground, radius = 4.dp.toPx(), center = offset)
+
+                    val arrowLength = 30.dp.toPx()
+                    val arrowEnd = Offset(
+                        x = offset.x + arrowLength * cos(wp.headingRad).toFloat(),
+                        y = offset.y - arrowLength * sin(wp.headingRad).toFloat()
+                    )
+                    drawLine(color = color.copy(alpha = 0.8f), start = offset, end = arrowEnd, strokeWidth = 2.dp.toPx())
+
+                    // Draw heading handle dot
+                    val handleColor = if (isSelected && isDraggingHeading) AresCyan else AresAmber
+                    drawCircle(color = handleColor, radius = 6.dp.toPx(), center = arrowEnd)
+                    drawCircle(color = AresBackground, radius = 3.dp.toPx(), center = arrowEnd)
+                }
+
+                drawContext.canvas.restore()
             }
 
             // Floating Export Panel (Bottom Right)
