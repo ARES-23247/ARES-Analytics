@@ -322,37 +322,47 @@ open class Nt4ClientService(
     ) {
         try {
             var offset = 0
-            while (offset + 13 <= bytes.size) {
-                val pubuid = ((bytes[offset].toInt() and 0xFF) shl 24) or
-                             ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
-                             ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
-                             (bytes[offset + 3].toInt() and 0xFF)
+            while (offset < bytes.size) {
+                val marker = bytes[offset].toInt() and 0xFF
+                val (arrayLen, arrayHeaderSize) = getArrayLengthAndHeader(marker, bytes, offset)
 
-                val timestampUs = ((bytes[offset + 4].toLong() and 0xFF) shl 56) or
-                                  ((bytes[offset + 5].toLong() and 0xFF) shl 48) or
-                                  ((bytes[offset + 6].toLong() and 0xFF) shl 40) or
-                                  ((bytes[offset + 7].toLong() and 0xFF) shl 32) or
-                                  ((bytes[offset + 8].toLong() and 0xFF) shl 24) or
-                                  ((bytes[offset + 9].toLong() and 0xFF) shl 16) or
-                                  ((bytes[offset + 10].toLong() and 0xFF) shl 8) or
-                                  (bytes[offset + 11].toLong() and 0xFF)
-
-                val typeId = bytes[offset + 12].toInt() and 0xFF
-                val timestampMs = timestampUs / 1000
-
-                val ntTopic = topicMap[pubuid]
-                if (ntTopic == null) {
-                    val valueLength = getMsgPackValueLength(bytes, offset + 13)
-                    offset += 13 + valueLength
+                // Each NT4 message is an array of 4 elements: [topicId, timestampUs, typeId, value]
+                if (arrayLen != 4) {
+                    val size = getMsgPackValueLength(bytes, offset)
+                    if (size == 0) break
+                    offset += size
                     continue
                 }
 
-                val valueOffset = offset + 13
-                val (valueElement, bytesRead) = parseMsgPackValue(bytes, valueOffset, typeId)
-                
-                offset += 13 + bytesRead
+                var currentOffset = offset + arrayHeaderSize
 
-                dispatchValue(ntTopic, valueElement, timestampMs, teamId, seasonId, robotId)
+                // 1. Topic ID
+                val (topicIdJson, topicIdSize) = parseMsgPackValue(bytes, currentOffset, 2)
+                val topicId = topicIdJson.jsonPrimitive.intOrNull ?: -1
+                currentOffset += topicIdSize
+
+                // 2. Timestamp (us)
+                val (timestampJson, timestampSize) = parseMsgPackValue(bytes, currentOffset, 2)
+                val timestampUs = timestampJson.jsonPrimitive.longOrNull ?: 0L
+                currentOffset += timestampSize
+
+                // 3. Type ID
+                val (typeIdJson, typeIdSize) = parseMsgPackValue(bytes, currentOffset, 2)
+                val typeId = typeIdJson.jsonPrimitive.intOrNull ?: 0
+                currentOffset += typeIdSize
+
+                // 4. Value
+                val (valueElement, valueSize) = parseMsgPackValue(bytes, currentOffset, typeId)
+                currentOffset += valueSize
+
+                val timestampMs = timestampUs / 1000
+                val ntTopic = topicMap[topicId]
+
+                if (ntTopic != null) {
+                    dispatchValue(ntTopic, valueElement, timestampMs, teamId, seasonId, robotId)
+                }
+
+                offset = currentOffset
             }
         } catch (e: Exception) {
             // Ignore malformed frames
@@ -432,19 +442,23 @@ open class Nt4ClientService(
             val session = _currentSession.value
             val sessionId = session?.sessionId ?: "live-telemetry"
             val frames = mutableListOf<TelemetryFrame>()
+            
             for (idx in 0 until valueElement.size) {
                 val doubleValue = valueElement[idx].jsonPrimitive.doubleOrNull ?: 0.0
                 val frame = TelemetryFrame(
                     timestampMs = timestampMs,
                     sessionId = sessionId,
-                    key = "${normalizedName}/$idx",
+                    key = "$normalizedName/$idx",
                     value = doubleValue
                 )
                 frames.add(frame)
-                _telemetryFlow.emit(frame)
+                _telemetryFlow.tryEmit(frame)
             }
+            
             if (session != null) {
-                pendingFrames.addAll(frames)
+                CoroutineScope(Dispatchers.IO).launch {
+                    databaseService.insertTelemetryFrames(frames)
+                }
             }
             return
         }
@@ -502,43 +516,55 @@ open class Nt4ClientService(
             return Pair(JsonPrimitive(0.0), 1)
         }
 
-        // Integer Type
-        if (typeId == 6 || typeId == 7) {
+        // Integer Type (NT4 Type = 2)
+        if (typeId == 2) {
             return when (marker) {
-                0xd3 -> { // int64
-                    if (offset + 8 < bytes.size) {
-                        val value = readInt64(bytes, offset + 1)
-                        Pair(JsonPrimitive(value), 9)
-                    } else Pair(JsonPrimitive(0), 1)
-                }
-                0xcf -> { // uint64
-                    if (offset + 8 < bytes.size) {
-                        val value = readInt64(bytes, offset + 1)
-                        Pair(JsonPrimitive(value), 9)
-                    } else Pair(JsonPrimitive(0), 1)
-                }
-                0xd2 -> { // int32
-                    if (offset + 4 < bytes.size) {
-                        val value = readInt32(bytes, offset + 1)
-                        Pair(JsonPrimitive(value), 5)
-                    } else Pair(JsonPrimitive(0), 1)
-                }
-                0xce -> { // uint32
-                    if (offset + 4 < bytes.size) {
-                        val value = readInt32(bytes, offset + 1)
-                        Pair(JsonPrimitive(value), 5)
-                    } else Pair(JsonPrimitive(0), 1)
-                }
-                0xd1 -> { // int16
-                    if (offset + 2 < bytes.size) {
-                        val value = readInt16(bytes, offset + 1)
-                        Pair(JsonPrimitive(value), 3)
+                0xcc -> { // uint8
+                    if (offset + 1 < bytes.size) {
+                        val value = bytes[offset + 1].toInt() and 0xFF
+                        Pair(JsonPrimitive(value), 2)
                     } else Pair(JsonPrimitive(0), 1)
                 }
                 0xcd -> { // uint16
                     if (offset + 2 < bytes.size) {
-                        val value = readInt16(bytes, offset + 1)
-                        Pair(JsonPrimitive(value), 3)
+                        val bits = readInt16(bytes, offset + 1)
+                        Pair(JsonPrimitive(bits), 3)
+                    } else Pair(JsonPrimitive(0), 1)
+                }
+                0xce -> { // uint32
+                    if (offset + 4 < bytes.size) {
+                        val bits = readInt32(bytes, offset + 1)
+                        Pair(JsonPrimitive(bits.toLong() and 0xFFFFFFFFL), 5)
+                    } else Pair(JsonPrimitive(0), 1)
+                }
+                0xcf -> { // uint64
+                    if (offset + 8 < bytes.size) {
+                        val bits = readInt64(bytes, offset + 1)
+                        Pair(JsonPrimitive(bits), 9)
+                    } else Pair(JsonPrimitive(0), 1)
+                }
+                0xd0 -> { // int8
+                    if (offset + 1 < bytes.size) {
+                        val value = bytes[offset + 1].toInt()
+                        Pair(JsonPrimitive(value), 2)
+                    } else Pair(JsonPrimitive(0), 1)
+                }
+                0xd1 -> { // int16
+                    if (offset + 2 < bytes.size) {
+                        val bits = readInt16(bytes, offset + 1).toShort()
+                        Pair(JsonPrimitive(bits), 3)
+                    } else Pair(JsonPrimitive(0), 1)
+                }
+                0xd2 -> { // int32
+                    if (offset + 4 < bytes.size) {
+                        val bits = readInt32(bytes, offset + 1)
+                        Pair(JsonPrimitive(bits), 5)
+                    } else Pair(JsonPrimitive(0), 1)
+                }
+                0xd3 -> { // int64
+                    if (offset + 8 < bytes.size) {
+                        val bits = readInt64(bytes, offset + 1)
+                        Pair(JsonPrimitive(bits), 9)
                     } else Pair(JsonPrimitive(0), 1)
                 }
                 else -> {
@@ -553,9 +579,19 @@ open class Nt4ClientService(
                 }
             }
         }
+        
+        // Float Type (NT4 Type = 3)
+        if (typeId == 3) {
+            if (marker == 0xca && offset + 4 < bytes.size) {
+                val bits = readInt32(bytes, offset + 1)
+                val value = java.lang.Float.intBitsToFloat(bits).toDouble()
+                return Pair(JsonPrimitive(value), 5)
+            }
+            return Pair(JsonPrimitive(0.0), 1)
+        }
 
-        // String Type
-        if (typeId == 2) {
+        // String Type (NT4 Type = 4)
+        if (typeId == 4) {
             val (len, headerSize) = getStringLengthAndHeader(marker, bytes, offset)
             if (offset + headerSize + len <= bytes.size) {
                 val strValue = String(bytes, offset + headerSize, len, Charsets.UTF_8)
@@ -564,17 +600,18 @@ open class Nt4ClientService(
             return Pair(JsonPrimitive(""), headerSize)
         }
 
-        // Arrays (Boolean Array, Double Array, String Array, etc.)
-        if (typeId == 3 || typeId == 4 || typeId == 5 || typeId == 8) {
+        // Arrays (Boolean Array = 16, Double Array = 17, Integer Array = 18, Float Array = 19, String Array = 20)
+        if (typeId in 16..20) {
             val (arrayLen, headerSize) = getArrayLengthAndHeader(marker, bytes, offset)
             var currentOffset = offset + headerSize
             val jsonArray = buildJsonArray {
                 for (i in 0 until arrayLen) {
                     val elemTypeId = when (typeId) {
-                        3 -> 0 // boolean
-                        4 -> 1 // double
-                        5 -> 2 // string
-                        8 -> 7 // integer
+                        16 -> 0 // boolean
+                        17 -> 1 // double
+                        18 -> 2 // integer
+                        19 -> 3 // float
+                        20 -> 4 // string
                         else -> 1
                     }
                     val (elem, size) = parseMsgPackValue(bytes, currentOffset, elemTypeId)
