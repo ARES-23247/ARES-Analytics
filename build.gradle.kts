@@ -13,7 +13,7 @@ subprojects {
     group = rootProject.group
     version = rootProject.version
 
-    tasks.matching { it.name == "run" }.configureEach {
+    tasks.matching { it.name == "run" || it.name == "clean" }.configureEach {
         dependsOn(":killExisting")
     }
 }

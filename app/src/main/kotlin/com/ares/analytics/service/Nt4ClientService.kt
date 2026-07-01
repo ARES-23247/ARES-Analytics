@@ -39,6 +39,7 @@ open class Nt4ClientService(
 
     // Topic ID to Topic Name mapping
     internal val topicMap = ConcurrentHashMap<Int, Nt4Topic>()
+    private val discoveredKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
 
     fun getActiveTopics(): List<String> {
         return topicMap.values.map { it.name.removePrefix("/") }.sorted()
@@ -385,6 +386,10 @@ open class Nt4ClientService(
         // Normalize key: strip leading '/' for consistent matching everywhere
         val normalizedName = ntTopic.name.removePrefix("/")
 
+        if (discoveredKeys.add(normalizedName)) {
+            println("[Nt4ClientService] Discovered telemetry key: $normalizedName (type=${ntTopic.type})")
+        }
+
         // Skip input topics that the dashboard publishes — they echo back from the
         // simulator and cause 50Hz recomposition storms across all widgets
         if (normalizedName.startsWith("ARES/Input/")) return
@@ -457,7 +462,7 @@ open class Nt4ClientService(
                     value = doubleValue
                 )
                 frames.add(frame)
-                _telemetryFlow.tryEmit(frame)
+                _telemetryFlow.emit(frame)
             }
             
             if (session != null) {
