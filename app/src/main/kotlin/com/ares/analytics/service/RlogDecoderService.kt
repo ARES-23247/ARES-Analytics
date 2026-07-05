@@ -7,10 +7,10 @@ import java.nio.ByteOrder
 
 class RlogDecoderService {
 
-    fun parseRlog(
+    suspend fun parseRlog(
         file: File,
         sessionId: String,
-        outFrames: MutableList<TelemetryFrame>
+        batcher: FrameBatcher
     ) {
         val bytes = file.readBytes()
         if (bytes.size < 2) return
@@ -81,27 +81,27 @@ class RlogDecoderService {
                                     "boolean" -> {
                                         val v = bytes[offset].toInt() != 0
                                         offset += 1
-                                        outFrames.add(TelemetryFrame(timestampMs, sessionId, keyName, if (v) 1.0 else 0.0))
+                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, if (v) 1.0 else 0.0))
                                     }
                                     "int", "int64" -> {
                                         val v = buffer.getLong(offset)
                                         offset += 8
-                                        outFrames.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
+                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
                                     }
                                     "float" -> {
                                         val v = buffer.getFloat(offset)
                                         offset += 4
-                                        outFrames.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
+                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
                                     }
                                     "double" -> {
                                         val v = buffer.getDouble(offset)
                                         offset += 8
-                                        outFrames.add(TelemetryFrame(timestampMs, sessionId, keyName, v))
+                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v))
                                     }
                                     "boolean[]" -> {
                                         for (i in 0 until valueLength) {
                                             val v = bytes[offset + i].toInt() != 0
-                                            outFrames.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", if (v) 1.0 else 0.0))
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", if (v) 1.0 else 0.0))
                                         }
                                         offset += valueLength
                                     }
@@ -110,7 +110,7 @@ class RlogDecoderService {
                                         for (i in 0 until count) {
                                             val v = buffer.getLong(offset)
                                             offset += 8
-                                            outFrames.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
                                         }
                                     }
                                     "float[]" -> {
@@ -118,7 +118,7 @@ class RlogDecoderService {
                                         for (i in 0 until count) {
                                             val v = buffer.getFloat(offset)
                                             offset += 4
-                                            outFrames.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
                                         }
                                     }
                                     "double[]" -> {
@@ -126,7 +126,7 @@ class RlogDecoderService {
                                         for (i in 0 until count) {
                                             val v = buffer.getDouble(offset)
                                             offset += 8
-                                            outFrames.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v))
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v))
                                         }
                                     }
                                     else -> {
@@ -139,27 +139,27 @@ class RlogDecoderService {
                                 offset += 1
                                 when (valueType) {
                                     0 -> { // null -> default 0.0
-                                        outFrames.add(TelemetryFrame(timestampMs, sessionId, keyName, 0.0))
+                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, 0.0))
                                     }
                                     1 -> { // Boolean
                                         val v = bytes[offset].toInt() != 0
                                         offset += 1
-                                        outFrames.add(TelemetryFrame(timestampMs, sessionId, keyName, if (v) 1.0 else 0.0))
+                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, if (v) 1.0 else 0.0))
                                     }
                                     9 -> { // Byte
                                         val v = bytes[offset].toInt() and 0xFF
                                         offset += 1
-                                        outFrames.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
+                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
                                     }
                                     3 -> { // Integer
                                         val v = buffer.getInt(offset)
                                         offset += 4
-                                        outFrames.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
+                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
                                     }
                                     5 -> { // Double
                                         val v = buffer.getDouble(offset)
                                         offset += 8
-                                        outFrames.add(TelemetryFrame(timestampMs, sessionId, keyName, v))
+                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v))
                                     }
                                     7 -> { // String
                                         val strLen = buffer.getShort(offset).toInt() and 0xFFFF
@@ -172,7 +172,7 @@ class RlogDecoderService {
                                         for (i in 0 until arrLen) {
                                             val v = bytes[offset].toInt() != 0
                                             offset += 1
-                                            outFrames.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", if (v) 1.0 else 0.0))
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", if (v) 1.0 else 0.0))
                                         }
                                     }
                                     10 -> { // ByteArray
@@ -181,7 +181,7 @@ class RlogDecoderService {
                                         for (i in 0 until arrLen) {
                                             val v = bytes[offset].toInt() and 0xFF
                                             offset += 1
-                                            outFrames.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
                                         }
                                     }
                                     4 -> { // IntegerArray
@@ -190,7 +190,7 @@ class RlogDecoderService {
                                         for (i in 0 until arrLen) {
                                             val v = buffer.getInt(offset)
                                             offset += 4
-                                            outFrames.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
                                         }
                                     }
                                     6 -> { // DoubleArray
@@ -199,7 +199,7 @@ class RlogDecoderService {
                                         for (i in 0 until arrLen) {
                                             val v = buffer.getDouble(offset)
                                             offset += 8
-                                            outFrames.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v))
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v))
                                         }
                                     }
                                     8 -> { // StringArray

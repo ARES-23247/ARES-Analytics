@@ -23,7 +23,7 @@ class ParquetExporterService(private val databaseService: DatabaseService) {
         val absolutePath = destinationFile.absolutePath.replace("\\", "/")
         
         databaseService.executeRaw("""
-            COPY (SELECT * FROM telemetry_frames WHERE session_id = '$sessionId' ORDER BY timestamp_ms ASC)
+            COPY (SELECT * FROM telemetry_frames WHERE session_id = '$sessionId')
             TO '$absolutePath' (FORMAT PARQUET, COMPRESSION SNAPPY)
         """.trimIndent())
     }

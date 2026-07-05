@@ -16,6 +16,7 @@ import java.sql.Statement
 class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb") {
     
     private val conn: Connection
+    private val ephemeralConn: Connection
     private val dbMutex = Mutex()
     
     init {
@@ -39,7 +40,10 @@ class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares
             st.execute("LOAD parquet;")
         }
         
-        createSchemaSync()
+        ephemeralConn = DriverManager.getConnection("jdbc:duckdb:")
+        
+        createSchemaSync(conn)
+        createSchemaSync(ephemeralConn)
         
         if (isFirstRun && File(oldDbPath).exists()) {
             try {
@@ -64,8 +68,8 @@ class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares
         dbMutex.withLock { block() }
     }
     
-    private fun createSchemaSync() {
-        conn.createStatement().use { st ->
+    private fun createSchemaSync(targetConn: Connection) {
+        targetConn.createStatement().use { st ->
             st.execute("""
                 CREATE TABLE IF NOT EXISTS sessions (
                     session_id VARCHAR PRIMARY KEY,
@@ -256,9 +260,12 @@ class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares
     }
 
     suspend fun insertTelemetryFrames(frames: List<TelemetryFrame>) = withDbLock {
-        conn.autoCommit = false
+        if (frames.isEmpty()) return@withDbLock
+        val targetConn = if (frames.first().sessionId == "live-telemetry") ephemeralConn else conn
+        
+        targetConn.autoCommit = false
         try {
-            conn.prepareStatement("INSERT OR REPLACE INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value) VALUES (?, ?, ?, ?, ?)").use { ps ->
+            targetConn.prepareStatement("INSERT OR REPLACE INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value) VALUES (?, ?, ?, ?, ?)").use { ps ->
                 frames.chunked(10000).forEach { chunk ->
                     for (frame in chunk) {
                         ps.setLong(1, frame.timestampMs)
@@ -275,18 +282,37 @@ class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares
                     ps.executeBatch()
                 }
             }
-            conn.commit()
+            targetConn.commit()
         } catch (e: Exception) {
-            conn.rollback()
+            targetConn.rollback()
             throw e
         } finally {
-            conn.autoCommit = true
+            targetConn.autoCommit = true
+        }
+    }
+
+    /**
+     * Returns the (min, max) timestamp range for a given session's telemetry frames,
+     * or null if no frames exist. Used after DuckDB native CSV import to compute
+     * session duration without holding frames in application memory.
+     */
+    suspend fun getSessionTimestampRange(sessionId: String): Pair<Long, Long>? = withDbLock {
+        conn.prepareStatement("SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM telemetry_frames WHERE session_id = ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeQuery().use { rs ->
+                if (rs.next()) {
+                    val min = rs.getLong(1)
+                    val max = rs.getLong(2)
+                    if (rs.wasNull()) null else Pair(min, max)
+                } else null
+            }
         }
     }
 
     suspend fun getTelemetryRange(sessionId: String, startMs: Long, endMs: Long): List<TelemetryFrame> = withDbLock {
+        val targetConn = if (sessionId == "live-telemetry") ephemeralConn else conn
         val list = mutableListOf<TelemetryFrame>()
-        conn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_ms ASC").use { ps ->
+        targetConn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_ms ASC").use { ps ->
             ps.setString(1, sessionId)
             ps.setLong(2, startMs)
             ps.setLong(3, endMs)
@@ -298,8 +324,9 @@ class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares
     }
 
     suspend fun getTelemetryRangeBatched(sessionId: String, startMs: Long, endMs: Long, limit: Long, offset: Long): List<TelemetryFrame> = withDbLock {
+        val targetConn = if (sessionId == "live-telemetry") ephemeralConn else conn
         val list = mutableListOf<TelemetryFrame>()
-        conn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_ms ASC LIMIT ? OFFSET ?").use { ps ->
+        targetConn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_ms ASC LIMIT ? OFFSET ?").use { ps ->
             ps.setString(1, sessionId)
             ps.setLong(2, startMs)
             ps.setLong(3, endMs)
@@ -571,6 +598,52 @@ class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares
             text = getString("text"),
             severity = getString("severity")
         )
+    }
+
+    suspend fun getTelemetryDensity(sessionId: String, buckets: Int = 100): List<Float> = withDbLock {
+        val activeConn = if (sessionId == "live-telemetry") ephemeralConn else conn
+        
+        var minTime = 0L
+        var maxTime = 0L
+        activeConn.createStatement().use { st ->
+            st.executeQuery("SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM telemetry_frames WHERE session_id = '$sessionId'").use { rs ->
+                if (rs.next()) {
+                    minTime = rs.getLong(1)
+                    maxTime = rs.getLong(2)
+                }
+            }
+        }
+        
+        if (minTime == maxTime || maxTime == 0L) {
+            return@withDbLock List(buckets) { 0f }
+        }
+        
+        val duration = maxTime - minTime
+        val bucketSize = duration.toDouble() / buckets
+        
+        val bucketCounts = LongArray(buckets)
+        activeConn.createStatement().use { st ->
+            val query = """
+                SELECT CAST((timestamp_ms - $minTime) / $bucketSize AS INTEGER) as bucket_idx, COUNT(*) as cnt 
+                FROM telemetry_frames 
+                WHERE session_id = '$sessionId' 
+                GROUP BY bucket_idx
+            """.trimIndent()
+            st.executeQuery(query).use { rs ->
+                while (rs.next()) {
+                    val idx = rs.getInt(1).coerceIn(0, buckets - 1)
+                    val cnt = rs.getLong(2)
+                    bucketCounts[idx] += cnt
+                }
+            }
+        }
+        
+        val maxCount = bucketCounts.maxOrNull() ?: 1L
+        if (maxCount == 0L) {
+             return@withDbLock List(buckets) { 0f }
+        }
+        
+        bucketCounts.map { it.toFloat() / maxCount }
     }
 
     fun close() {

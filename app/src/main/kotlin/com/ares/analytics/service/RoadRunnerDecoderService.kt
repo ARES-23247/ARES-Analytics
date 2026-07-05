@@ -1,8 +1,6 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.TelemetryFrame
-import java.io.ByteArrayInputStream
-import java.io.DataInputStream
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -19,10 +17,10 @@ class RoadRunnerDecoderService {
     class ArraySchema(val elementSchema: RRSchema) : RRSchema
     class StructSchema(val fields: List<Pair<String, RRSchema>>) : RRSchema
 
-    fun parseRoadRunnerLog(
+    suspend fun parseRoadRunnerLog(
         file: File,
         sessionId: String,
-        outFrames: MutableList<TelemetryFrame>
+        batcher: FrameBatcher
     ) {
         val bytes = file.readBytes()
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
@@ -148,13 +146,13 @@ class RoadRunnerDecoderService {
         var firstRRTimestamp: Long? = null
         var lastTimestampMs = 0L
 
-        fun flatten(prefix: String, value: Any, timestampMs: Long) {
+        suspend fun flatten(prefix: String, value: Any, timestampMs: Long) {
             when (value) {
                 is Boolean -> {
-                    outFrames.add(TelemetryFrame(timestampMs, sessionId, prefix, if (value) 1.0 else 0.0))
+                    batcher.add(TelemetryFrame(timestampMs, sessionId, prefix, if (value) 1.0 else 0.0))
                 }
                 is Number -> {
-                    outFrames.add(TelemetryFrame(timestampMs, sessionId, prefix, value.toDouble()))
+                    batcher.add(TelemetryFrame(timestampMs, sessionId, prefix, value.toDouble()))
                 }
                 is Map<*, *> -> {
                     val x = value["x"] as? Number
@@ -162,9 +160,9 @@ class RoadRunnerDecoderService {
                     val heading = value["heading"] as? Number
                     if (x != null && y != null && heading != null) {
                         // Pose2d: convert inches to meters
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "$prefix/x", x.toDouble() * 0.0254))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "$prefix/y", y.toDouble() * 0.0254))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "$prefix/heading", heading.toDouble()))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "$prefix/x", x.toDouble() * 0.0254))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "$prefix/y", y.toDouble() * 0.0254))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "$prefix/heading", heading.toDouble()))
                     } else {
                         for ((k, v) in value) {
                             if (k is String && v != null) {

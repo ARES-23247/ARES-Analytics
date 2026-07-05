@@ -15,10 +15,10 @@ class DSLogDecoderService(private val databaseService: DatabaseService) {
         REV, CTRE, NONE
     }
 
-    fun parseDsLog(
+    suspend fun parseDsLog(
         dslogFile: File,
         sessionId: String,
-        outFrames: MutableList<TelemetryFrame>
+        batcher: FrameBatcher
     ) {
         if (!dslogFile.exists()) return
 
@@ -74,20 +74,20 @@ class DSLogDecoderService(private val databaseService: DatabaseService) {
                         val wifiDb = wifiDbByte * 0.5
                         val wifiMb = wifiMbShort.toDouble() / 256.0
 
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/TripTimeMS", tripTimeMs))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/PacketLoss", packetLoss))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/BatteryVoltage", batteryVolts))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/CPUUtilization", cpuUtilization))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/Brownout", if (brownout) 1.0 else 0.0))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/Watchdog", if (watchdog) 1.0 else 0.0))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/DSTeleop", if (dsTeleop) 1.0 else 0.0))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/DSDisabled", if (dsDisabled) 1.0 else 0.0))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/RobotTeleop", if (robotTeleop) 1.0 else 0.0))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/RobotAuto", if (robotAuto) 1.0 else 0.0))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/RobotDisabled", if (robotDisabled) 1.0 else 0.0))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/CANUtilization", canUtilization))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/WifiDb", wifiDb))
-                        outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/WifiMb", wifiMb))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/TripTimeMS", tripTimeMs))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/PacketLoss", packetLoss))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/BatteryVoltage", batteryVolts))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/CPUUtilization", cpuUtilization))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/Brownout", if (brownout) 1.0 else 0.0))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/Watchdog", if (watchdog) 1.0 else 0.0))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/DSTeleop", if (dsTeleop) 1.0 else 0.0))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/DSDisabled", if (dsDisabled) 1.0 else 0.0))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/RobotTeleop", if (robotTeleop) 1.0 else 0.0))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/RobotAuto", if (robotAuto) 1.0 else 0.0))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/Status/RobotDisabled", if (robotDisabled) 1.0 else 0.0))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/CANUtilization", canUtilization))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/WifiDb", wifiDb))
+                        batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/WifiMb", wifiMb))
 
                         // Power Distribution Header (4 bytes)
                         val pdHeader = ByteArray(4)
@@ -130,7 +130,7 @@ class DSLogDecoderService(private val databaseService: DatabaseService) {
                             dis.readUnsignedByte() // skip last byte
 
                             for (i in currents.indices) {
-                                outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/PowerDistributionCurrents[$i]", currents[i]))
+                                batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/PowerDistributionCurrents[$i]", currents[i]))
                             }
                         } else if (pdType == PowerDistributionType.CTRE) {
                             dis.readUnsignedByte() // skip CAN ID
@@ -161,7 +161,7 @@ class DSLogDecoderService(private val databaseService: DatabaseService) {
                             dis.skipBytes(3) // skip extra metadata bytes (25 total CTRE payload size minus 1 CAN ID minus 21 currents)
 
                             for (i in currents.indices) {
-                                outFrames.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/PowerDistributionCurrents[$i]", currents[i]))
+                                batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/PowerDistributionCurrents[$i]", currents[i]))
                             }
                         }
 
@@ -176,15 +176,14 @@ class DSLogDecoderService(private val databaseService: DatabaseService) {
         // Try parsing matching .dsevents file if it exists
         val eventsFile = File(dslogFile.parentFile, dslogFile.nameWithoutExtension + ".dsevents")
         if (eventsFile.exists()) {
-            parseDsEvents(eventsFile, sessionId, startTimeMs, outFrames)
+            parseDsEvents(eventsFile, sessionId, startTimeMs)
         }
     }
 
     private fun parseDsEvents(
         dseventsFile: File,
         sessionId: String,
-        startTimeMs: Double,
-        outFrames: MutableList<TelemetryFrame>
+        startTimeMs: Double
     ) {
         FileInputStream(dseventsFile).use { fis ->
             DataInputStream(fis).use { dis ->

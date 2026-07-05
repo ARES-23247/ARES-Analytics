@@ -130,7 +130,7 @@ The system maintains two distinct data tiers with clear separation of concerns:
 
 | Tier | Storage | Contents | Lifecycle | Purpose |
 | :--- | :--- | :--- | :--- | :--- |
-| **Local Telemetry Frames** | SQLite (WAL mode) | Individual `TelemetryFrame(timestampMs, sessionId, key, value)` records captured from the live NT4 stream | Retained locally until the linked log file is confirmed synced to cloud; then eligible for automatic purge | **Instant replay** — scrub through a session the moment it ends without waiting for file import |
+| **Local Telemetry Frames** | DuckDB (via JDBC) | Individual `TelemetryFrame(timestampMs, sessionId, key, value)` records captured from the live NT4 stream or imported from canonical log files via `FrameBatcher` streaming inserts | Retained locally until the linked log file is confirmed synced to cloud; then eligible for automatic purge | **Instant replay** — scrub through a session the moment it ends without waiting for file import |
 | **Canonical Log Files** | Disk → Cloud (GCS) | Robot/simulator-produced log files: `.wpilog` (WPILib DataLogManager), ARES `.csv` (ARESDataLogger), `.hoot` (CTRE Phoenix 6) | Permanent — the authoritative record of every session | **Cloud backup & re-import** — can regenerate local frames on any machine at any time |
 
 #### Session–Log File Linkage
@@ -181,15 +181,18 @@ This creates a direct mapping: `sessionId` → `logFilePath`, enabling the cloud
 
 ### 3.4 Post-Run Log Archival & Multi-Client Sync
 1. Upon run termination, the user imports raw metrics (FRC `.wpilog` binary arrays or FTC text traces), or the application auto-locates the log file via the `ARES/Session/LogFilePath` linkage.
-2. The application parses the structures using Kotlin I/O streams, flattens relational lines, and exports a compressed Apache Parquet columnar data file locally using the Apache Parquet Java SDK.
-3. **The Edge-First Extraction Loop:** Before running cloud communications, the application runs single-pass mathematical parsing routines over the raw log array using Kotlin coroutines, calculating high-level performance signatures and writing the indices to a local `session_summaries` table.
-4. **Cloud Archival Handshake:**
+2. **Streaming Log Import via `FrameBatcher`:** All log parsers (`parseWpiLog`, `parseJsonlLog`, `parseRlog`, `parseRoadRunnerLog`, `parseDsLog`, `parseRevlog`) stream decoded telemetry through a `FrameBatcher` instance. The batcher accumulates frames in a bounded buffer (default 5,000) and auto-flushes to the DuckDB database when the buffer fills. This guarantees constant heap usage regardless of log file size and eliminates the `MutableList<TelemetryFrame>` accumulation pattern that previously caused GC death spirals on large files.
+3. **DuckDB Native CSV Import:** For `.csv` log files, `LogParserService.parseCsvLogNative()` bypasses all Kotlin-side string parsing entirely. It issues a single DuckDB SQL statement combining `read_csv_auto()` with `UNPIVOT` to convert the wide-format CSV directly into the long-format `telemetry_frames` table in a single pass. This is approximately 10–50× faster than the previous line-by-line Kotlin CSV parser. A streaming fallback (`parseCsvLogStreaming`) exists for multi-file imports where per-file key prefixing (`/LogN/`) is required.
+4. **Session Duration Tracking:** The `FrameBatcher` tracks `minTimestamp` and `maxTimestamp` incrementally across all frames added to it. After parsing completes and the final `flush()` call drains the buffer, the session duration is computed as `maxTimestamp - minTimestamp` without requiring a second pass over the data. For the DuckDB native CSV import path (which bypasses the batcher), `DatabaseService.getSessionTimestampRange()` queries `MIN/MAX(timestamp_ms)` directly from the database.
+5. The application exports a compressed Apache Parquet columnar data file locally using the Apache Parquet Java SDK. The Parquet export queries DuckDB directly and does not sort rows in-memory.
+6. **The Edge-First Extraction Loop:** Before running cloud communications, the application runs single-pass mathematical parsing routines over the raw log array using Kotlin coroutines, calculating high-level performance signatures and writing the indices to a local `session_summaries` table.
+7. **Cloud Archival Handshake:**
    * The app authenticates against the Ktor gateway via a Firebase ID token, passing the pre-computed summary JSON payload.
    * The Ktor gateway writes the pre-computed summary map directly to Firestore under the team's account node.
    * The gateway returns a secure GCS Pre-Signed URL.
-   * The application performs a raw chunked HTTP PUT request (Ktor HTTP client) to stream the **canonical log file** (`.wpilog`, `.csv`, or `.hoot`) straight to Google Cloud Storage. Raw telemetry frames from SQLite are **never** uploaded — only the compact, canonical log file.
-5. **Local Frame Cleanup:** Once the log file upload is confirmed (HTTP 200 from GCS), local `TelemetryFrame` rows for that session are eligible for automatic purge. The cleanup runs on a background coroutine, freeing SQLite storage while the canonical log file remains safely in the cloud.
-6. **Multi-Client Desktop Delta Sync Engine:** On boot or project switch, the client sends an array of its known `session_id` keys to the Ktor gateway. The gateway matches the list against Firestore, extracts missing documents, and down-syncs a compressed JSON array containing the missing records. To reconstruct telemetry frames, the client downloads the canonical log file from GCS and re-imports it via `LogParserService` / `HootDecoderService`.
+   * The application performs a raw chunked HTTP PUT request (Ktor HTTP client) to stream the **canonical log file** (`.wpilog`, `.csv`, or `.hoot`) straight to Google Cloud Storage. Raw telemetry frames from DuckDB are **never** uploaded — only the compact, canonical log file.
+8. **Local Frame Cleanup:** Once the log file upload is confirmed (HTTP 200 from GCS), local `TelemetryFrame` rows for that session are eligible for automatic purge. The cleanup runs on a background coroutine, freeing DuckDB storage while the canonical log file remains safely in the cloud.
+9. **Multi-Client Desktop Delta Sync Engine:** On boot or project switch, the client sends an array of its known `session_id` keys to the Ktor gateway. The gateway matches the list against Firestore, extracts missing documents, and down-syncs a compressed JSON array containing the missing records. To reconstruct telemetry frames, the client downloads the canonical log file from GCS and re-imports it via `LogParserService` / `HootDecoderService`.
 
 ### 3.5 Session Annotations & Tagging
 * Sessions support free-form text annotations (notes, observations, experiment descriptions) stored in a `session_annotations` SQLite table.
@@ -205,13 +208,37 @@ This creates a direct mapping: `sessionId` → `logFilePath`, enabling the cloud
 * **Live Logcat Streaming:** A parallel `adb logcat` process streams Android runtime logs into a dedicated tab within the terminal drawer, filtered by the `TeamCode` process ID. This runs alongside NT4 telemetry to provide full-stack debugging visibility.
 
 ### 3.7 CTRE Phoenix 6 Hoot Log Ingestion & Post-Processing
-* **Hoot log decoding:** The application decodes CTRE `.hoot` logs into the SQLite database. It auto-discovers AdvantageScope's downloaded `owlet` CLI binaries (checking AppData directories on Windows, Library/Application Support on macOS, `.config` or `.ctre` folders on Linux) and spawns it in a background process (`owlet hootPath tempCsvPath -f csv`).
-* **Low-memory parsing:** The output CSV is parsed line-by-line using a `BufferedReader` and written to the SQLite database in transaction batches of 5000 telemetry frames to keep heap allocations constant.
+* **Hoot log decoding:** The application decodes CTRE `.hoot` logs into the DuckDB database. It auto-discovers AdvantageScope's downloaded `owlet` CLI binaries (checking AppData directories on Windows, Library/Application Support on macOS, `.config` or `.ctre` folders on Linux) and spawns it in a background process (`owlet hootPath tempCsvPath -f csv`).
+* **Low-memory parsing:** The output CSV is parsed line-by-line using a `BufferedReader` and written to the DuckDB database in transaction batches of 5000 telemetry frames to keep heap allocations constant.
 * **Post-processing diagnostic sweeps:** Once ingestion completes, a diagnostic pipeline is automatically executed:
   1. **OLS Characterization (SysId):** Solves ordinary least squares ($V = kS \cdot \text{sgn}(v) + kV \cdot v + kA \cdot a$) across motor voltage, velocity, and acceleration values. If acceleration is not logged, it is approximated as the numerical derivative of velocity ($\Delta v / \Delta t$). Gains and $R^2$ are saved as session annotations.
   2. **PID/Backlash Audit:** Computes tracking error ($e = r - y$) for matched setpoint/actual signal pairs and applies a Fast Fourier Transform (FFT) to isolate dominant frequencies indicating PID tuning hunting or mechanical backlash oscillations.
   3. **Stall & Thermal Check:** Calculates thermal load ($\int I_{\text{stator}}^2 \cdot R \cdot dt$) for drive motors (assuming $R = 0.05\,\Omega$). It also checks for high stator currents ($>40\,\text{A}$) paired with zero velocity ($<0.1\,\text{rps}$) lasting $\ge 500\,\text{ms}$ to flag mechanical stalls.
   4. **CAN Jitter Analysis:** Measures the standard deviation of frame-to-frame timestamp deltas for periodic messages. High standard deviation ($>8\,\text{ms}$) signals potential CAN bus loading or frame drops.
+
+### 3.8 FrameBatcher Streaming Architecture
+All log decoders (`LogParserService`, `DSLogDecoderService`, `RlogDecoderService`, `RoadRunnerDecoderService`, `RevlogDecoderService`) use a shared `FrameBatcher` utility class to stream decoded telemetry into the DuckDB database with bounded heap usage.
+
+```
+┌──────────────────┐     batcher.add(frame)     ┌─────────────────┐     flush() every 5K     ┌──────────┐
+│  Binary Decoder  │ ──────────────────────────► │  FrameBatcher   │ ──────────────────────► │  DuckDB  │
+│  (WPI/RLOG/RR/   │     suspend fun add()       │                 │     insertTelemetry    │          │
+│   DS/REVLOG)     │                             │  buffer[5000]   │     Frames(batch)      │          │
+│                  │                             │  min/maxTs      │                        │          │
+└──────────────────┘                             └─────────────────┘                        └──────────┘
+
+┌──────────────────┐     DuckDB SQL (single pass) ┌──────────┐
+│  CSV Log File    │ ─────────────────────────────►│  DuckDB  │
+│                  │  read_csv_auto() + UNPIVOT    │          │
+└──────────────────┘  (bypasses Kotlin entirely)   └──────────┘
+```
+
+**Design invariants:**
+* **Constant heap:** The `FrameBatcher` buffer holds at most `batchSize` (default 5,000) `TelemetryFrame` objects at any time. Once the buffer fills, `flush()` writes the batch to DuckDB via `DatabaseService.insertTelemetryFrames()` and clears the buffer.
+* **Incremental timestamp tracking:** `minTimestamp` and `maxTimestamp` are updated on every `add()` call, eliminating any need for a second-pass scan to compute session duration.
+* **Key transformation:** An optional `keyTransform` lambda (e.g. `{ key -> "/Log$index/$key" }`) is applied during `add()` for multi-file imports that need per-file key prefixing.
+* **Suspend-safe:** All decoder `parse*()` methods are `suspend` functions, allowing the `FrameBatcher.add()` and `flush()` calls to execute within the parent coroutine scope on `Dispatchers.IO`.
+* **CSV fast path:** `.csv` files bypass the `FrameBatcher` entirely. DuckDB's native `read_csv_auto()` reader paired with SQL `UNPIVOT` converts wide-format CSV to long-format `telemetry_frames` rows in a single SQL statement, achieving 10–50× speedup over Kotlin-side parsing.
 
 ---
 

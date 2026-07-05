@@ -1,6 +1,5 @@
 package com.ares.analytics.service
 
-import com.ares.analytics.shared.TelemetryFrame
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -9,10 +8,10 @@ class RevlogDecoderService(
     private val databaseService: DatabaseService
 ) {
 
-    fun parseRevlog(
+    suspend fun parseRevlog(
         file: File,
         sessionId: String,
-        outFrames: MutableList<TelemetryFrame>,
+        batcher: FrameBatcher,
         logParserService: LogParserService
     ) {
         val tempWpiLog = File(System.getProperty("java.io.tmpdir"), "revlog_" + UUID.randomUUID().toString() + ".wpilog")
@@ -28,7 +27,7 @@ class RevlogDecoderService(
             
             if (finished && process.exitValue() == 0 && tempWpiLog.exists() && tempWpiLog.length() > 0) {
                 // Successfully converted to WPILOG! Now parse the converted WPILOG file.
-                logParserService.parseWpiLog(tempWpiLog, sessionId, outFrames)
+                logParserService.parseWpiLog(tempWpiLog, sessionId, batcher)
             } else {
                 // If npx failed or wasn't installed, fallback to check if revlog-converter is globally on PATH
                 val pbFallback = ProcessBuilder(
@@ -40,7 +39,7 @@ class RevlogDecoderService(
                 val finishedFallback = processFallback.waitFor(30, TimeUnit.SECONDS)
                 
                 if (finishedFallback && processFallback.exitValue() == 0 && tempWpiLog.exists() && tempWpiLog.length() > 0) {
-                    logParserService.parseWpiLog(tempWpiLog, sessionId, outFrames)
+                    logParserService.parseWpiLog(tempWpiLog, sessionId, batcher)
                 } else {
                     System.err.println("REVLOG conversion failed. Make sure Node.js and @rev-robotics/revlog-converter are available.")
                 }
