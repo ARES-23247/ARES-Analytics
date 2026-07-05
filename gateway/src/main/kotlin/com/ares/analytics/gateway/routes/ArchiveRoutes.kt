@@ -30,13 +30,6 @@ fun Route.archiveRoutes(
 
             try {
                 val db = customFirestore ?: FirestoreOptions.getDefaultInstance().service
-                
-                // Verify teamId against user's githubOrgs
-                val userDoc = db.collection("users").document(principal.uid).get().get()
-                val githubOrgs = (userDoc.get("githubOrgs") as? List<*>)?.map { it.toString() } ?: emptyList()
-                if (!githubOrgs.contains(req.summary.teamId)) {
-                    return@post call.respond(HttpStatusCode.Forbidden, "User is not a member of the requested team")
-                }
 
                 // 1. Save summary metadata to Firestore
                 val docRef = db.collection("summaries").document(req.sessionId)
@@ -65,13 +58,6 @@ fun Route.archiveRoutes(
 
             try {
                 val db = customFirestore ?: FirestoreOptions.getDefaultInstance().service
-                
-                // Verify teamId against user's githubOrgs
-                val userDoc = db.collection("users").document(principal.uid).get().get()
-                val githubOrgs = (userDoc.get("githubOrgs") as? List<*>)?.map { it.toString() } ?: emptyList()
-                if (!githubOrgs.contains(req.teamId)) {
-                    return@post call.respond(HttpStatusCode.Forbidden, "User is not a member of the requested team")
-                }
 
                 // Query all summaries matching teamId and seasonId
                 val querySnapshot = db.collection("summaries")
@@ -102,16 +88,9 @@ fun Route.archiveRoutes(
             try {
                 val db = customFirestore ?: FirestoreOptions.getDefaultInstance().service
 
-                // Only admins/coaches can delete cloud sessions
+                // Only admins/coaches can delete cloud sessions (role from ARESWEB Firestore)
                 if (!isUserAdmin(db, principal.uid)) {
                     return@post call.respond(HttpStatusCode.Forbidden, "Only admins and coaches can delete cloud sessions")
-                }
-
-                // Verify the user belongs to the team
-                val userDoc = db.collection("users").document(principal.uid).get().get()
-                val githubOrgs = (userDoc.get("githubOrgs") as? List<*>)?.map { it.toString() } ?: emptyList()
-                if (!githubOrgs.contains(req.teamId)) {
-                    return@post call.respond(HttpStatusCode.Forbidden, "User is not a member of the requested team")
                 }
 
                 // 1. Delete Firestore summary document
@@ -190,6 +169,10 @@ fun Route.archiveRoutes(
     }
 }
 
+/**
+ * Checks if the authenticated user has admin/coach privileges.
+ * Reads the 'role' field from the ARESWEB Firestore users collection.
+ */
 private suspend fun isUserAdmin(db: Firestore, uid: String): Boolean {
     val userDoc = db.collection("users").document(uid).get().get()
     if (!userDoc.exists()) return false
