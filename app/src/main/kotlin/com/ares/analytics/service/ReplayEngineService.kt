@@ -41,6 +41,15 @@ class ReplayEngineService(private val databaseService: DatabaseService) {
     private val _telemetryDensity = MutableStateFlow<List<Float>>(emptyList())
     val telemetryDensity: StateFlow<List<Float>> = _telemetryDensity.asStateFlow()
 
+    private val _sessionActions = MutableStateFlow<List<com.ares.analytics.shared.RobotActionRecord>>(emptyList())
+    val sessionActions: StateFlow<List<com.ares.analytics.shared.RobotActionRecord>> = _sessionActions.asStateFlow()
+
+    private val _sessionStartTimestampMs = MutableStateFlow(0L)
+    val sessionStartTimestampMs: StateFlow<Long> = _sessionStartTimestampMs.asStateFlow()
+
+    private val _sessionDurationMs = MutableStateFlow(0L)
+    val sessionDurationMs: StateFlow<Long> = _sessionDurationMs.asStateFlow()
+
     // Replay telemetry flow — emits individual TelemetryFrame objects for dashboard widget consumption
     private val _replayTelemetryFlow = MutableSharedFlow<TelemetryFrame>(
         replay = 100,
@@ -64,7 +73,10 @@ class ReplayEngineService(private val databaseService: DatabaseService) {
     suspend fun loadSession(sessionId: String) = withContext(Dispatchers.IO) {
         stop()
         allFrames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
-        if (allFrames.isEmpty()) {
+        val allActions = databaseService.getActionsForSession(sessionId)
+        _sessionActions.value = allActions
+
+        if (allFrames.isEmpty() && allActions.isEmpty()) {
             timestamps = emptyList()
             startTimestampMs = 0
             endTimestampMs = 0
@@ -74,13 +86,24 @@ class ReplayEngineService(private val databaseService: DatabaseService) {
             return@withContext
         }
 
-        timestamps = allFrames.map { it.timestampMs }.distinct().sorted()
+        val framesTimestamps = allFrames.map { it.timestampMs }
+        val actionsTimestamps = allActions.map { it.timestampMs }
+        
+        timestamps = (framesTimestamps + actionsTimestamps).distinct().sorted()
+        
         startTimestampMs = timestamps.first()
         endTimestampMs = timestamps.last()
         currentPlayheadMs = startTimestampMs
         _progress.value = 0.0
+        
+        _sessionStartTimestampMs.value = startTimestampMs
+        _sessionDurationMs.value = endTimestampMs - startTimestampMs
 
-        _telemetryDensity.value = databaseService.getTelemetryDensity(sessionId, buckets = 100)
+        if (allFrames.isNotEmpty()) {
+            _telemetryDensity.value = databaseService.getTelemetryDensity(sessionId, buckets = 100)
+        } else {
+            _telemetryDensity.value = emptyList()
+        }
 
         updateFrameAtPlayhead()
     }

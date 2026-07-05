@@ -425,21 +425,39 @@ private fun ReplayTimelineScrubber(
             var sliderDragging by remember { mutableStateOf(false) }
             var localSliderValue by remember { mutableStateOf(0f) }
             val density by replayEngine.telemetryDensity.collectAsState()
+            val actions by replayEngine.sessionActions.collectAsState()
+            val sessionStart by replayEngine.sessionStartTimestampMs.collectAsState()
+            val sessionDuration by replayEngine.sessionDurationMs.collectAsState()
 
             Box(modifier = Modifier.weight(1f).height(32.dp)) {
                 // Histogram Canvas
-                if (density.isNotEmpty()) {
+                if (density.isNotEmpty() || actions.isNotEmpty()) {
                     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
-                        val barWidth = size.width / density.size
-                        density.forEachIndexed { i, value ->
-                            val barHeight = size.height * value
-                            val x = i * barWidth
-                            val y = size.height - barHeight
-                            drawRect(
-                                color = modeColor.copy(alpha = 0.3f),
-                                topLeft = androidx.compose.ui.geometry.Offset(x, y),
-                                size = androidx.compose.ui.geometry.Size(barWidth * 0.8f, barHeight)
-                            )
+                        if (density.isNotEmpty()) {
+                            val barWidth = size.width / density.size
+                            density.forEachIndexed { i, value ->
+                                val barHeight = size.height * value
+                                val x = i * barWidth
+                                val y = size.height - barHeight
+                                drawRect(
+                                    color = modeColor.copy(alpha = 0.3f),
+                                    topLeft = androidx.compose.ui.geometry.Offset(x, y),
+                                    size = androidx.compose.ui.geometry.Size(barWidth * 0.8f, barHeight)
+                                )
+                            }
+                        }
+
+                        // Draw action markers
+                        if (actions.isNotEmpty() && sessionDuration > 0) {
+                            actions.forEach { action ->
+                                val proportion = (action.timestampMs - sessionStart).toDouble() / sessionDuration.toDouble()
+                                val x = (proportion * size.width).toFloat()
+                                drawCircle(
+                                    color = androidx.compose.ui.graphics.Color(0xFF00E5FF), // Cyan marker
+                                    radius = 3f,
+                                    center = androidx.compose.ui.geometry.Offset(x, size.height / 2f)
+                                )
+                            }
                         }
                     }
                 }
