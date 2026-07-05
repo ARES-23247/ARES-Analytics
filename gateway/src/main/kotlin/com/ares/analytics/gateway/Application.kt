@@ -18,6 +18,11 @@ import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.http.*
+import io.ktor.server.plugins.ratelimit.*
+import io.ktor.server.plugins.requestvalidation.*
+import kotlin.time.Duration.Companion.seconds
+import com.ares.analytics.shared.ForensicsRequest
+import com.ares.analytics.shared.UploadUrlRequest
 import kotlinx.serialization.json.Json
 
 fun main() {
@@ -61,6 +66,9 @@ fun main() {
         }
 
         install(StatusPages) {
+            exception<RequestValidationException> { call, cause ->
+                call.respondText(text = "400: Bad Request: ${cause.reasons.joinToString()}", status = HttpStatusCode.BadRequest)
+            }
             exception<Throwable> { call, cause ->
                 call.respondText(
                     text = "500: Internal Server Error: ${cause.message}",
@@ -71,6 +79,24 @@ fun main() {
 
         install(Authentication) {
             firebase("firebase")
+        }
+
+        install(RateLimit) {
+            register(RateLimitName("forensics")) {
+                rateLimiter(limit = 5, refillPeriod = 60.seconds)
+            }
+        }
+
+        install(RequestValidation) {
+            validate<UploadUrlRequest> { req ->
+                if (req.summary.tags.size > 100) ValidationResult.Invalid("Payload too large: too many tags")
+                else ValidationResult.Valid
+            }
+            validate<ForensicsRequest> { req ->
+                if (req.alerts.size > 2000) ValidationResult.Invalid("Payload too large: max alerts exceeded")
+                else if (req.topology != null && req.topology!!.nodes.size > 500) ValidationResult.Invalid("Payload too large: max topology nodes exceeded")
+                else ValidationResult.Valid
+            }
         }
 
         routing {

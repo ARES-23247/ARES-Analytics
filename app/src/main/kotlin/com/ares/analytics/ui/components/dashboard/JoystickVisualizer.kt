@@ -25,6 +25,7 @@ fun JoystickVisualizer(
     currentFrame: ReplayFrame?,
     nt4ClientService: Nt4ClientService? = null,
     services: com.ares.analytics.di.ServiceRegistry? = null,
+    onOpenKeybindings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val keyboardState = services?.keyboardDriveState ?: remember { com.ares.analytics.di.KeyboardDriveState() }
@@ -80,34 +81,37 @@ fun JoystickVisualizer(
                 style = MaterialTheme.typography.titleMedium
             )
 
-            if (nt4ClientService != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
-                    onClick = { keyboardState.enabled = !keyboardState.enabled },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = if (keyboardControlEnabled) AresGreen else AresCyan
-                    ),
+                    onClick = onOpenKeybindings,
+                    colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated),
                     shape = RoundedCornerShape(6.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    Text(
-                        if (keyboardControlEnabled) "⌨️ Keyboard Active" else "🔌 Enable Keyboard Drive",
-                        color = AresBackground,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Text("🎮 View Mappings", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+
+                if (nt4ClientService != null) {
+                    Button(
+                        onClick = { keyboardState.enabled = !keyboardState.enabled },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (keyboardControlEnabled) AresGreen else AresCyan
+                        ),
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            if (keyboardControlEnabled) "⌨️ Keyboard Active" else "🔌 Enable Keyboard Drive",
+                            color = AresBackground,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }
 
-        if (keyboardControlEnabled) {
-            Text(
-                "WASD = Drive | QE = Steer | Shift = Intake | F = Flywheel | Enter = Shoot | Space = Mode | C = FieldCentric",
-                color = AresGreen,
-                fontSize = 9.5.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-        }
+
 
         Row(
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -161,6 +165,12 @@ fun SingleGamepadVisualizer(
     var dpadDown by remember { mutableStateOf(false) }
     var dpadLeft by remember { mutableStateOf(false) }
     var dpadRight by remember { mutableStateOf(false) }
+    var lb by remember { mutableStateOf(false) }
+    var rb by remember { mutableStateOf(false) }
+    var btnStart by remember { mutableStateOf(false) }
+    var btnBack by remember { mutableStateOf(false) }
+    var btnLS by remember { mutableStateOf(false) }
+    var btnRS by remember { mutableStateOf(false) }
 
     if (currentFrame != null) {
         lx = currentFrame.values["$gamepadId/LeftStick_X"] ?: 0.0
@@ -177,6 +187,12 @@ fun SingleGamepadVisualizer(
         dpadDown = (currentFrame.values["$gamepadId/DpadDown"] ?: 0.0) > 0.5
         dpadLeft = (currentFrame.values["$gamepadId/DpadLeft"] ?: 0.0) > 0.5
         dpadRight = (currentFrame.values["$gamepadId/DpadRight"] ?: 0.0) > 0.5
+        lb = (currentFrame.values["$gamepadId/LeftBumper"] ?: 0.0) > 0.5
+        rb = (currentFrame.values["$gamepadId/RightBumper"] ?: 0.0) > 0.5
+        btnStart = (currentFrame.values["$gamepadId/Start"] ?: currentFrame.values["$gamepadId/Options"] ?: 0.0) > 0.5
+        btnBack = (currentFrame.values["$gamepadId/Back"] ?: currentFrame.values["$gamepadId/Share"] ?: 0.0) > 0.5
+        btnLS = (currentFrame.values["$gamepadId/LeftStickButton"] ?: 0.0) > 0.5
+        btnRS = (currentFrame.values["$gamepadId/RightStickButton"] ?: 0.0) > 0.5
     } else if (nt4ClientService != null && !keyboardControlEnabled) {
         LaunchedEffect(Unit) {
             scope.launch {
@@ -198,6 +214,12 @@ fun SingleGamepadVisualizer(
                         "$gamepadId/DpadDown" -> dpadDown = value > 0.5
                         "$gamepadId/DpadLeft" -> dpadLeft = value > 0.5
                         "$gamepadId/DpadRight" -> dpadRight = value > 0.5
+                        "$gamepadId/LeftBumper" -> lb = value > 0.5
+                        "$gamepadId/RightBumper" -> rb = value > 0.5
+                        "$gamepadId/Start", "$gamepadId/Options" -> btnStart = value > 0.5
+                        "$gamepadId/Back", "$gamepadId/Share" -> btnBack = value > 0.5
+                        "$gamepadId/LeftStickButton" -> btnLS = value > 0.5
+                        "$gamepadId/RightStickButton" -> btnRS = value > 0.5
                     }
                 }
             }
@@ -261,12 +283,14 @@ fun SingleGamepadVisualizer(
                 val rightStickCenter = Offset(cx + 45f * scale, cy + 15f * scale)
 
                 drawCircle(color = AresSurface, radius = stickRadius, center = leftStickCenter)
+                if (btnLS) drawCircle(color = AresCyan.copy(alpha = 0.3f), radius = stickRadius, center = leftStickCenter)
                 drawCircle(color = AresBorder, radius = stickRadius, center = leftStickCenter, style = Stroke(width = 1.5f * scale))
                 val lNodeX = leftStickCenter.x + (lx * stickRadius * 0.7).toFloat()
                 val lNodeY = leftStickCenter.y + (ly * stickRadius * 0.7).toFloat()
                 drawCircle(color = if (keyboardControlEnabled) AresGreen else AresCyan, radius = 12f * scale, center = Offset(lNodeX, lNodeY))
 
                 drawCircle(color = AresSurface, radius = stickRadius, center = rightStickCenter)
+                if (btnRS) drawCircle(color = AresCyan.copy(alpha = 0.3f), radius = stickRadius, center = rightStickCenter)
                 drawCircle(color = AresBorder, radius = stickRadius, center = rightStickCenter, style = Stroke(width = 1.5f * scale))
                 val rNodeX = rightStickCenter.x + (rx * stickRadius * 0.7).toFloat()
                 val rNodeY = rightStickCenter.y + (ry * stickRadius * 0.7).toFloat()
@@ -295,12 +319,40 @@ fun SingleGamepadVisualizer(
 
                 val triggerW = 60f * scale
                 val triggerH = 14f * scale
-                drawRect(color = AresSurface, topLeft = Offset(cx - 120f * scale, cy - bodyH / 2f - 20f * scale), size = Size(triggerW, triggerH))
-                drawRect(color = if (keyboardControlEnabled) AresGreen else AresCyan, topLeft = Offset(cx - 120f * scale, cy - bodyH / 2f - 20f * scale), size = Size(triggerW * lt.toFloat(), triggerH))
-                drawRect(color = AresBorder, topLeft = Offset(cx - 120f * scale, cy - bodyH / 2f - 20f * scale), size = Size(triggerW, triggerH), style = Stroke(width = 1.5f * scale))
-                drawRect(color = AresSurface, topLeft = Offset(cx + 60f * scale, cy - bodyH / 2f - 20f * scale), size = Size(triggerW, triggerH))
-                drawRect(color = if (keyboardControlEnabled) AresGreen else AresCyan, topLeft = Offset(cx + 60f * scale, cy - bodyH / 2f - 20f * scale), size = Size(triggerW * rt.toFloat(), triggerH))
-                drawRect(color = AresBorder, topLeft = Offset(cx + 60f * scale, cy - bodyH / 2f - 20f * scale), size = Size(triggerW, triggerH), style = Stroke(width = 1.5f * scale))
+                // Triggers
+                drawRect(color = AresSurface, topLeft = Offset(cx - 120f * scale, cy - bodyH / 2f - 22f * scale), size = Size(triggerW, triggerH))
+                drawRect(color = if (keyboardControlEnabled) AresGreen else AresCyan, topLeft = Offset(cx - 120f * scale, cy - bodyH / 2f - 22f * scale), size = Size(triggerW * lt.toFloat(), triggerH))
+                drawRect(color = AresBorder, topLeft = Offset(cx - 120f * scale, cy - bodyH / 2f - 22f * scale), size = Size(triggerW, triggerH), style = Stroke(width = 1.5f * scale))
+                
+                drawRect(color = AresSurface, topLeft = Offset(cx + 60f * scale, cy - bodyH / 2f - 22f * scale), size = Size(triggerW, triggerH))
+                drawRect(color = if (keyboardControlEnabled) AresGreen else AresCyan, topLeft = Offset(cx + 60f * scale, cy - bodyH / 2f - 22f * scale), size = Size(triggerW * rt.toFloat(), triggerH))
+                drawRect(color = AresBorder, topLeft = Offset(cx + 60f * scale, cy - bodyH / 2f - 22f * scale), size = Size(triggerW, triggerH), style = Stroke(width = 1.5f * scale))
+
+                // Bumpers
+                val bumperW = 60f * scale
+                val bumperH = 10f * scale
+                drawRect(color = if (lb) AresCyan else AresSurface, topLeft = Offset(cx - 120f * scale, cy - bodyH / 2f - 4f * scale), size = Size(bumperW, bumperH))
+                drawRect(color = AresBorder, topLeft = Offset(cx - 120f * scale, cy - bodyH / 2f - 4f * scale), size = Size(bumperW, bumperH), style = Stroke(width = 1.5f * scale))
+
+                drawRect(color = if (rb) AresCyan else AresSurface, topLeft = Offset(cx + 60f * scale, cy - bodyH / 2f - 4f * scale), size = Size(bumperW, bumperH))
+                drawRect(color = AresBorder, topLeft = Offset(cx + 60f * scale, cy - bodyH / 2f - 4f * scale), size = Size(bumperW, bumperH), style = Stroke(width = 1.5f * scale))
+
+                // Start / Back / Touchpad
+                val centerBtnW = 20f * scale
+                val centerBtnH = 12f * scale
+                // Back / Share
+                drawRoundRect(color = if (btnBack) AresCyan else AresSurface, topLeft = Offset(cx - 40f * scale, cy - 30f * scale), size = Size(centerBtnW, centerBtnH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale))
+                drawRoundRect(color = AresBorder, topLeft = Offset(cx - 40f * scale, cy - 30f * scale), size = Size(centerBtnW, centerBtnH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale), style = Stroke(width = 1.5f * scale))
+                
+                // Start / Options
+                drawRoundRect(color = if (btnStart) AresCyan else AresSurface, topLeft = Offset(cx + 20f * scale, cy - 30f * scale), size = Size(centerBtnW, centerBtnH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale))
+                drawRoundRect(color = AresBorder, topLeft = Offset(cx + 20f * scale, cy - 30f * scale), size = Size(centerBtnW, centerBtnH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale), style = Stroke(width = 1.5f * scale))
+
+                // Touchpad
+                val touchPadW = 80f * scale
+                val touchPadH = 50f * scale
+                drawRoundRect(color = AresSurface, topLeft = Offset(cx - touchPadW / 2f, cy - touchPadH / 2f - 50f * scale), size = Size(touchPadW, touchPadH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale))
+                drawRoundRect(color = AresBorder, topLeft = Offset(cx - touchPadW / 2f, cy - touchPadH / 2f - 50f * scale), size = Size(touchPadW, touchPadH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale), style = Stroke(width = 1.5f * scale))
             }
         }
         Row(

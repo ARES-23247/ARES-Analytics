@@ -93,7 +93,7 @@ class TeamRobotsIntegrationTest {
         val mockUserGetFuture = mock(ApiFuture::class.java) as ApiFuture<DocumentSnapshot>
         val mockUserDocSnapshot = mock(DocumentSnapshot::class.java)
 
-        `when`(mockFirestore.collection("authorized_users")).thenReturn(mockUsersCol)
+        `when`(mockFirestore.collection("users")).thenReturn(mockUsersCol)
         `when`(mockUsersCol.document("uid")).thenReturn(mockUserDocRef)
         `when`(mockUserDocRef.get()).thenReturn(mockUserGetFuture)
         `when`(mockUserGetFuture.get()).thenReturn(mockUserDocSnapshot)

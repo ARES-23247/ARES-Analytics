@@ -44,7 +44,7 @@ fun ControllerBindingsSidebar(
         Column(
             modifier = Modifier
                 .fillMaxHeight()
-                .width(600.dp) // Wider to accommodate the controller graphic
+                .width(1200.dp) // Increased from 900dp for larger view
                 .background(AresSurfaceElevated)
                 .border(1.dp, AresBorder, RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
                 .padding(16.dp)
@@ -167,7 +167,7 @@ fun ControllerVisualizer(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(400.dp)
+                .height(800.dp) // Increased from 600dp
                 .background(AresBackground, RoundedCornerShape(12.dp))
                 .border(1.dp, AresBorder, RoundedCornerShape(12.dp))
                 .padding(16.dp),
@@ -178,7 +178,7 @@ fun ControllerVisualizer(
             Image(
                 painter = painterResource(resourceName),
                 contentDescription = "Controller Graphic",
-                modifier = Modifier.fillMaxSize(0.8f),
+                modifier = Modifier.fillMaxSize(0.9f), // Increased from 0.8f
                 contentScale = ContentScale.Fit
             )
             
@@ -229,31 +229,34 @@ fun BindingTag(binding: ControllerBinding) {
 }
 
 // Approximate offsets (X, Y) from the center of the controller image
-private fun getButtonOffset(button: String, league: League): Pair<Dp, Dp>? {
+private fun getButtonOffset(button: String, league: League, scale: Float = 1.3f): Pair<Dp, Dp>? {
     val isXbox = league == League.FRC
     
-    return when (button.lowercase()) {
-        "a", "cross" -> Pair(120.dp, 40.dp)
-        "b", "circle" -> Pair(160.dp, 0.dp)
-        "x", "square" -> Pair(80.dp, 0.dp)
-        "y", "triangle" -> Pair(120.dp, -40.dp)
+    val baseOffset = when (button.lowercase()) {
+        "a", "cross" -> Pair(180.dp, 60.dp)
+        "b", "circle" -> Pair(240.dp, 0.dp)
+        "x", "square" -> Pair(120.dp, 0.dp)
+        "y", "triangle" -> Pair(180.dp, (-60).dp)
         
-        "dpadup" -> Pair(if (isXbox) (-60).dp else (-120).dp, if (isXbox) 60.dp else (-40).dp)
-        "dpaddown" -> Pair(if (isXbox) (-60).dp else (-120).dp, if (isXbox) 120.dp else 40.dp)
-        "dpadleft" -> Pair(if (isXbox) (-90).dp else (-160).dp, if (isXbox) 90.dp else 0.dp)
-        "dpadright" -> Pair(if (isXbox) (-30).dp else (-80).dp, if (isXbox) 90.dp else 0.dp)
+        "dpadup" -> Pair(if (isXbox) (-90).dp else (-180).dp, if (isXbox) 90.dp else (-60).dp)
+        "dpaddown" -> Pair(if (isXbox) (-90).dp else (-180).dp, if (isXbox) 180.dp else 60.dp)
+        "dpadleft" -> Pair(if (isXbox) (-135).dp else (-240).dp, if (isXbox) 135.dp else 0.dp)
+        "dpadright" -> Pair(if (isXbox) (-45).dp else (-120).dp, if (isXbox) 135.dp else 0.dp)
         
-        "left_bumper", "leftbumper" -> Pair((-120).dp, (-140).dp)
-        "right_bumper", "rightbumper" -> Pair(120.dp, (-140).dp)
-        "left_trigger", "lefttrigger" -> Pair((-120).dp, (-180).dp)
-        "right_trigger", "righttrigger" -> Pair(120.dp, (-180).dp)
+        "left_bumper", "leftbumper" -> Pair((-180).dp, (-210).dp)
+        "right_bumper", "rightbumper" -> Pair(180.dp, (-210).dp)
+        "left_trigger", "lefttrigger" -> Pair((-180).dp, (-270).dp)
+        "right_trigger", "righttrigger" -> Pair(180.dp, (-270).dp)
         
-        "start", "options" -> Pair(40.dp, (-60).dp)
-        "back", "share" -> Pair((-40).dp, (-60).dp)
+        "start", "options" -> Pair(60.dp, (-90).dp)
+        "back", "share" -> Pair((-60).dp, (-90).dp)
+        "touchpad" -> Pair(0.dp, (-110).dp)
         
-        "left_stick_button", "leftstick", "leftstickx", "leftsticky" -> Pair(if (isXbox) (-120).dp else (-60).dp, if (isXbox) (-40).dp else 60.dp)
-        "right_stick_button", "rightstick", "rightstickx", "rightsticky" -> Pair(if (isXbox) 60.dp else 60.dp, 60.dp)
+        "left_stick_button", "leftstick", "leftstickx", "leftsticky" -> Pair(if (isXbox) (-180).dp else (-90).dp, if (isXbox) (-60).dp else 90.dp)
+        "right_stick_button", "rightstick", "rightstickx", "rightsticky" -> Pair(if (isXbox) 90.dp else 90.dp, 90.dp)
         
         else -> null
     }
+    
+    return baseOffset?.let { Pair(it.first * scale, it.second * scale) }
 }

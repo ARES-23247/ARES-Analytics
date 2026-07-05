@@ -32,7 +32,7 @@ class ServiceRegistry {
 
     // ── Tier 1: Depend on Tier 0 ─────────────────────────────────────────────
     val nt4ClientService by lazy { Nt4ClientService(databaseService) }
-    val logParserService by lazy { LogParserService(databaseService) }
+    val logParserService by lazy { LogParserService(databaseService, summaryEngineService) }
     val summaryEngineService by lazy { SummaryEngineService(databaseService) }
     val parquetExporterService by lazy { ParquetExporterService(databaseService) }
     val replayEngineService by lazy { ReplayEngineService(databaseService) }
@@ -46,7 +46,7 @@ class ServiceRegistry {
     val hootDecoderService by lazy { HootDecoderService(databaseService, summaryEngineService, sysIdService) }
     val driverAnalysisService by lazy { DriverAnalysisService(databaseService, sysIdService) }
     val teamApiService by lazy { TeamApiService(firebaseClientService) }
-    val syncEngineService by lazy { SyncEngineService(databaseService, parquetExporterService, firebaseClientService, environmentService, teamApiService) }
+    val syncEngineService by lazy { SyncEngineService(databaseService, parquetExporterService, firebaseClientService, environmentService, teamApiService, summaryEngineService) }
     val phoenixDiagnosticsService by lazy { PhoenixDiagnosticsService(nt4ClientService) }
     val ftcDashboardService by lazy { FtcDashboardService(nt4ClientService) }
 
@@ -113,7 +113,7 @@ class ServiceRegistry {
 
 class KeyboardDriveState {
     var enabled by androidx.compose.runtime.mutableStateOf(true)
-    var isWPressed by androidx.compose.runtime.mutableStateOf(true)
+    var isWPressed by androidx.compose.runtime.mutableStateOf(false)
     var isSPressed by androidx.compose.runtime.mutableStateOf(false)
     var isAPressed by androidx.compose.runtime.mutableStateOf(false)
     var isDPressed by androidx.compose.runtime.mutableStateOf(false)

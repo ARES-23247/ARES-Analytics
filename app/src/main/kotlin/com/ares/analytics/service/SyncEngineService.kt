@@ -20,6 +20,7 @@ class SyncEngineService(
     private val firebaseClientService: FirebaseClientService,
     private val environmentService: EnvironmentService,
     private val teamApiService: TeamApiService,
+    private val summaryEngineService: SummaryEngineService,
     private val gatewayUrl: String = "https://ares-analytics-gateway-staging-205869391101.us-central1.run.app", // default cloud run address
     private val httpClient: HttpClient = HttpClient {
         install(ContentNegotiation) {
@@ -41,7 +42,14 @@ class SyncEngineService(
      */
     suspend fun uploadSession(sessionId: String, authToken: String? = null) = withContext(Dispatchers.IO) {
         val summary = databaseService.getSessionSummary(sessionId)
-            ?: throw IllegalArgumentException("Session summary not found for $sessionId")
+            ?: run {
+                // Auto-generate summary for sessions imported before summary generation was added
+                val session = databaseService.getSessions().find { it.sessionId == sessionId }
+                    ?: throw IllegalArgumentException("Session not found for $sessionId")
+                val generated = summaryEngineService.generateSummary(session)
+                databaseService.insertSessionSummary(generated)
+                generated
+            }
 
         val token = getActiveToken(authToken)
 
@@ -175,6 +183,30 @@ class SyncEngineService(
         }
 
         response.body<ForensicsResponse>()
+    }
+
+    /**
+     * Deletes a cloud session via the gateway (admin-only) and removes it locally.
+     */
+    suspend fun deleteCloudSession(sessionId: String, teamId: String, authToken: String? = null) = withContext(Dispatchers.IO) {
+        val token = getActiveToken(authToken)
+
+        val response = httpClient.post("$gatewayUrl/api/archive/delete") {
+            contentType(ContentType.Application.Json)
+            header(HttpHeaders.Authorization, "Bearer $token")
+            setBody(DeleteSessionRequest(sessionId = sessionId, teamId = teamId))
+        }
+
+        if (response.status == HttpStatusCode.Forbidden) {
+            throw SecurityException(response.bodyAsText())
+        }
+
+        if (!response.status.isSuccess()) {
+            throw Exception("Failed to delete cloud session: ${response.bodyAsText()}")
+        }
+
+        // Also remove from local database
+        databaseService.deleteSession(sessionId)
     }
 
     fun close() {

@@ -52,9 +52,9 @@ fun PoseViewerCard(
                 val value = frame.value
                 lastUpdateMs = System.currentTimeMillis()
                 when (key) {
-                    "AdvantageKit/RealOutputs/ARES/EstimatedPose/0" -> robotX = value
-                    "AdvantageKit/RealOutputs/ARES/EstimatedPose/1" -> robotY = value
-                    "AdvantageKit/RealOutputs/ARES/EstimatedPose/2" -> robotHeading = value
+                    "ARES/EstimatedPose/0" -> robotX = value
+                    "ARES/EstimatedPose/1" -> robotY = value
+                    "ARES/EstimatedPose/2" -> robotHeading = value
                     "Drive/Pose_X" -> robotX = value
                     "Drive/Pose_Y" -> robotY = value
                     "Drive/Pose_Heading", "Drive/Drive_Heading" -> robotHeading = value
@@ -221,3 +221,4 @@ private fun PoseValueCard(
         }
     }
 }
+

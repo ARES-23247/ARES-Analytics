@@ -46,19 +46,19 @@ fun SwerveModuleVisualizer(
                 val key = frame.key
                 val value = frame.value
                 when {
-                    key.startsWith("AdvantageKit/RealOutputs/Swerve/ModuleSpeedsTarget/") -> {
+                    key.startsWith("Swerve/ModuleSpeedsTarget/") -> {
                         val idx = key.substringAfterLast("/").toIntOrNull()
                         if (idx != null && idx in 0..3) speedsTarget[idx] = value
                     }
-                    key.startsWith("AdvantageKit/RealOutputs/Swerve/ModuleAnglesTarget/") -> {
+                    key.startsWith("Swerve/ModuleAnglesTarget/") -> {
                         val idx = key.substringAfterLast("/").toIntOrNull()
                         if (idx != null && idx in 0..3) anglesTarget[idx] = value
                     }
-                    key.startsWith("AdvantageKit/RealOutputs/Swerve/ModuleSpeedsActual/") -> {
+                    key.startsWith("Swerve/ModuleSpeedsActual/") -> {
                         val idx = key.substringAfterLast("/").toIntOrNull()
                         if (idx != null && idx in 0..3) speedsActual[idx] = value
                     }
-                    key.startsWith("AdvantageKit/RealOutputs/Swerve/ModuleAnglesActual/") -> {
+                    key.startsWith("Swerve/ModuleAnglesActual/") -> {
                         val idx = key.substringAfterLast("/").toIntOrNull()
                         if (idx != null && idx in 0..3) anglesActual[idx] = value
                     }
@@ -228,3 +228,4 @@ private fun ModuleCard(
         }
     }
 }
+

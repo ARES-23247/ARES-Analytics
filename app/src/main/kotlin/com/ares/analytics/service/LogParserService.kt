@@ -11,7 +11,10 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.util.UUID
 
-class LogParserService(private val databaseService: DatabaseService) {
+class LogParserService(
+    private val databaseService: DatabaseService,
+    private val summaryEngineService: SummaryEngineService
+) {
 
     suspend fun parseLogFile(
         file: File,
@@ -90,16 +93,22 @@ class LogParserService(private val databaseService: DatabaseService) {
         databaseService.insertTelemetryFrames(frames)
 
         // Update session with actual duration if frames exist
-        if (frames.isNotEmpty()) {
+        val finalSession = if (frames.isNotEmpty()) {
             val minTime = frames.minOf { it.timestampMs }
             val maxTime = frames.maxOf { it.timestampMs }
             val duration = maxTime - minTime
-            val finalSession = session.copy(durationMs = duration)
-            databaseService.insertSession(finalSession)
-            finalSession
+            val s = session.copy(durationMs = duration)
+            databaseService.insertSession(s)
+            s
         } else {
             session
         }
+
+        // Generate and store session summary
+        val summary = summaryEngineService.generateSummary(finalSession)
+        databaseService.insertSessionSummary(summary)
+
+        return@withContext finalSession
     }
 
     suspend fun parseLogFiles(

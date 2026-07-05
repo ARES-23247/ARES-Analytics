@@ -59,6 +59,7 @@ data class CloudState(
     val isFetchingRobotLogs: Boolean = false,
     val isUploadingRobotLog: String? = null,
     val isDownloadingCloudLog: String? = null,
+    val isDeletingCloudLog: String? = null,
     val errorMessage: String? = null,
     val isAuthenticated: Boolean = false
 )
@@ -70,6 +71,7 @@ sealed class CloudIntent {
     data class UploadRobotRun(val runId: String, val teamId: String, val seasonId: String, val robotId: String) : CloudIntent()
     data class DeleteRobotRun(val runId: String) : CloudIntent()
     data class DownloadCloudLog(val sessionId: String) : CloudIntent()
+    data class DeleteCloudLog(val sessionId: String, val teamId: String) : CloudIntent()
     object ClearError : CloudIntent()
 }
 
@@ -139,9 +141,12 @@ class CloudViewModel(
                             
                             for (file in run.files) {
                                 try {
-                                    val fileBytes = httpClient.get("http://${getRobotIp()}:5002/api/download?file=${file.name}").readBytes()
-                                    val tempFile = File.createTempFile("robot_log_", "_${file.name}")
-                                    tempFile.writeBytes(fileBytes)
+                                    val tempFile = withContext(Dispatchers.IO) {
+                                        val fileBytes = httpClient.get("http://${getRobotIp()}:5002/api/download?file=${file.name}").readBytes()
+                                        val f = File.createTempFile("robot_log_", "_${file.name}")
+                                        f.writeBytes(fileBytes)
+                                        f
+                                    }
                                     downloadedFiles.add(tempFile)
                                 } catch (e: Exception) {
                                     errors.add("${file.name}: ${e.message}")
@@ -170,7 +175,7 @@ class CloudViewModel(
                                 // Refresh UI
                                 fetchRobotLogs()
                                 val summaries = databaseService.getAllSessionSummaries().sortedByDescending { it.createdAt }
-                                _state.update { it.copy(cloudLogs = summaries) }
+                                _state.update { it.copy(cloudLogs = summaries, isUploadingRobotLog = null) }
                             }
                             
                             if (errors.isNotEmpty()) {
@@ -188,9 +193,11 @@ class CloudViewModel(
                     try {
                         val run = _state.value.robotRuns.find { it.runId == intent.runId }
                         if (run != null) {
-                            for (file in run.files) {
-                                httpClient.post("http://${getRobotIp()}:5002/api/delete") {
-                                    parameter("file", file.name)
+                            withContext(Dispatchers.IO) {
+                                for (file in run.files) {
+                                    httpClient.post("http://${getRobotIp()}:5002/api/delete") {
+                                        parameter("file", file.name)
+                                    }
                                 }
                             }
                             fetchRobotLogs()
@@ -237,6 +244,20 @@ class CloudViewModel(
                         _state.update { it.copy(isDownloadingCloudLog = null) }
                     }
                 }
+                is CloudIntent.DeleteCloudLog -> {
+                    _state.update { it.copy(isDeletingCloudLog = intent.sessionId, errorMessage = null) }
+                    try {
+                        syncEngineService.deleteCloudSession(intent.sessionId, intent.teamId)
+                        // Refresh cloud logs list
+                        val summaries = databaseService.getAllSessionSummaries().sortedByDescending { it.createdAt }
+                        _state.update { it.copy(cloudLogs = summaries, isDeletingCloudLog = null) }
+                    } catch (e: SecurityException) {
+                        _state.update { it.copy(isDeletingCloudLog = null, errorMessage = "Permission denied: Only admins and coaches can delete cloud sessions") }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        _state.update { it.copy(isDeletingCloudLog = null, errorMessage = e.message ?: "Delete failed") }
+                    }
+                }
                 is CloudIntent.ClearError -> {
                     _state.update { it.copy(errorMessage = null) }
                 }
@@ -247,7 +268,9 @@ class CloudViewModel(
     private suspend fun fetchRobotLogs() {
         _state.update { it.copy(isFetchingRobotLogs = true, errorMessage = null) }
         try {
-            val logs: List<RobotLogFileInfo> = httpClient.get("http://${getRobotIp()}:5002/api/logs").body()
+            val logs: List<RobotLogFileInfo> = withContext(Dispatchers.IO) {
+                httpClient.get("http://${getRobotIp()}:5002/api/logs").body()
+            }
             
             val runs = logs.groupBy { 
                 val nameWithoutExt = it.name.substringBeforeLast(".")

@@ -210,6 +210,12 @@ data class SyncResponse(
     val missingSummaries: List<SessionSummary>
 )
 
+@Serializable
+data class DeleteSessionRequest(
+    val sessionId: String,
+    val teamId: String
+)
+
 // ────────────────────────────────────────────────────────────────────────────
 // AI Diagnostics
 // ────────────────────────────────────────────────────────────────────────────

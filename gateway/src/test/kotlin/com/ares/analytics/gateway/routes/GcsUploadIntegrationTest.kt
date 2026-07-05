@@ -5,6 +5,7 @@ import com.ares.analytics.shared.*
 import com.google.api.core.ApiFuture
 import com.google.cloud.firestore.CollectionReference
 import com.google.cloud.firestore.DocumentReference
+import com.google.cloud.firestore.DocumentSnapshot
 import com.google.cloud.firestore.Firestore
 import com.google.cloud.firestore.WriteResult
 import com.google.cloud.storage.BlobInfo
@@ -46,6 +47,17 @@ class GcsUploadIntegrationTest {
         `when`(mockCollection.document(anyString())).thenReturn(mockDoc)
         `when`(mockDoc.set(any())).thenReturn(mockFuture)
         `when`(mockFuture.get()).thenReturn(mock(WriteResult::class.java))
+
+        val mockUserCollection = mock(CollectionReference::class.java)
+        val mockUserDocRef = mock(DocumentReference::class.java)
+        val mockUserFuture = mock(ApiFuture::class.java) as ApiFuture<DocumentSnapshot>
+        val mockUserDoc = mock(DocumentSnapshot::class.java)
+
+        `when`(mockFirestore.collection("users")).thenReturn(mockUserCollection)
+        `when`(mockUserCollection.document("uid")).thenReturn(mockUserDocRef)
+        `when`(mockUserDocRef.get()).thenReturn(mockUserFuture)
+        `when`(mockUserFuture.get()).thenReturn(mockUserDoc)
+        `when`(mockUserDoc.get("githubOrgs")).thenReturn(listOf("9999"))
 
         val mockUrl = URL("http://localhost/gcs-mock-upload")
         

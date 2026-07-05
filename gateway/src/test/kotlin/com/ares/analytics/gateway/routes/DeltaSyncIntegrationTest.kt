@@ -6,6 +6,8 @@ import com.google.api.core.ApiFuture
 import com.google.cloud.firestore.CollectionReference
 import com.google.cloud.firestore.Firestore
 import com.google.cloud.firestore.Query
+import com.google.cloud.firestore.DocumentReference
+import com.google.cloud.firestore.DocumentSnapshot
 import com.google.cloud.firestore.QueryDocumentSnapshot
 import com.google.cloud.firestore.QuerySnapshot
 import io.ktor.client.request.*
@@ -40,6 +42,17 @@ class DeltaSyncIntegrationTest {
         `when`(mockQuery1.whereEqualTo("seasonId", "2026")).thenReturn(mockQuery2)
         `when`(mockQuery2.get()).thenReturn(mockFuture)
         `when`(mockFuture.get()).thenReturn(mockQuerySnapshot)
+
+        val mockUserCollection = mock(CollectionReference::class.java)
+        val mockUserDocRef = mock(DocumentReference::class.java)
+        val mockUserFuture = mock(ApiFuture::class.java) as ApiFuture<DocumentSnapshot>
+        val mockUserDoc = mock(DocumentSnapshot::class.java)
+
+        `when`(mockFirestore.collection("users")).thenReturn(mockUserCollection)
+        `when`(mockUserCollection.document("uid")).thenReturn(mockUserDocRef)
+        `when`(mockUserDocRef.get()).thenReturn(mockUserFuture)
+        `when`(mockUserFuture.get()).thenReturn(mockUserDoc)
+        `when`(mockUserDoc.get("githubOrgs")).thenReturn(listOf("9999"))
 
         val summary1 = SessionSummary(
             sessionId = "session-1",

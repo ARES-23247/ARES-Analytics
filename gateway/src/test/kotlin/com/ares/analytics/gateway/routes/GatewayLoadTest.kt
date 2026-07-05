@@ -38,6 +38,18 @@ class GatewayLoadTest {
         org.mockito.Mockito.`when`(mockFuture.get()).thenReturn(mockQuerySnapshot)
         org.mockito.Mockito.`when`(mockQuerySnapshot.documents).thenReturn(emptyList())
 
+        val mockUserCollection = mock(com.google.cloud.firestore.CollectionReference::class.java)
+        val mockUserDocRef = mock(com.google.cloud.firestore.DocumentReference::class.java)
+        @Suppress("UNCHECKED_CAST")
+        val mockUserFuture = mock(com.google.api.core.ApiFuture::class.java) as com.google.api.core.ApiFuture<com.google.cloud.firestore.DocumentSnapshot>
+        val mockUserDoc = mock(com.google.cloud.firestore.DocumentSnapshot::class.java)
+
+        org.mockito.Mockito.`when`(mockFirestore.collection("users")).thenReturn(mockUserCollection)
+        org.mockito.Mockito.`when`(mockUserCollection.document("uid")).thenReturn(mockUserDocRef)
+        org.mockito.Mockito.`when`(mockUserDocRef.get()).thenReturn(mockUserFuture)
+        org.mockito.Mockito.`when`(mockUserFuture.get()).thenReturn(mockUserDoc)
+        org.mockito.Mockito.`when`(mockUserDoc.get("githubOrgs")).thenReturn(listOf("9999"))
+
         application {
             install(ContentNegotiation) {
                 json(Json {

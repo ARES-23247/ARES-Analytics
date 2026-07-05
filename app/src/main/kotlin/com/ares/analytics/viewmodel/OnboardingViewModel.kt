@@ -27,7 +27,10 @@ data class OnboardingState(
     val isSaving: Boolean = false,
     val saveSuccess: Boolean = false,
     val errorMessage: String? = null,
-    val simulatorCommand: String = ""
+    val simulatorCommand: String = "",
+    val cloudRobots: List<com.ares.analytics.shared.RobotProfile> = emptyList(),
+    val isCloudLoading: Boolean = false,
+    val selectedOptionText: String = "Select Robot Profile..."
 )
 
 sealed class OnboardingIntent {
@@ -43,6 +46,8 @@ sealed class OnboardingIntent {
         val googleClientSecret: String,
         val simulatorCommand: String
     ) : OnboardingIntent()
+    data class UpdateSelectedOptionText(val text: String) : OnboardingIntent()
+    data class FetchCloudRobots(val token: String) : OnboardingIntent()
     object DetectLeague : OnboardingIntent()
     object VerifyJava : OnboardingIntent()
     object SubmitConfig : OnboardingIntent()
@@ -78,6 +83,25 @@ class OnboardingViewModel(
                             googleClientSecret = intent.googleClientSecret,
                             simulatorCommand = intent.simulatorCommand
                         )
+                    }
+                }
+                is OnboardingIntent.UpdateSelectedOptionText -> {
+                    _state.update { it.copy(selectedOptionText = intent.text) }
+                }
+                is OnboardingIntent.FetchCloudRobots -> {
+                    val currentTeamId = _state.value.teamId
+                    if (currentTeamId.isNotEmpty() && intent.token.isNotEmpty()) {
+                        _state.update { it.copy(isCloudLoading = true) }
+                        scope.launch {
+                            try {
+                                val robots = teamApiService.fetchTeamRobots(currentTeamId, intent.token)
+                                _state.update { it.copy(cloudRobots = robots, isCloudLoading = false) }
+                            } catch (e: Exception) {
+                                _state.update { it.copy(cloudRobots = emptyList(), isCloudLoading = false) }
+                            }
+                        }
+                    } else {
+                        _state.update { it.copy(cloudRobots = emptyList()) }
                     }
                 }
                 is OnboardingIntent.DetectLeague -> {

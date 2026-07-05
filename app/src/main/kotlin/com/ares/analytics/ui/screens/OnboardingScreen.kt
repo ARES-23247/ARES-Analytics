@@ -40,23 +40,20 @@ fun OnboardingScreen(
     val state by viewModel.state.collectAsState()
     val authState by oauthService.authState.collectAsState()
 
-    var projectPath by remember { mutableStateOf("") }
-    var teamId by remember { mutableStateOf("") }
-    var seasonId by remember { mutableStateOf("") }
-    var robotId by remember { mutableStateOf("") }
-    var robotName by remember { mutableStateOf("") }
-    var league by remember { mutableStateOf(League.FTC) }
-    var googleClientId by remember { mutableStateOf("205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com") }
-    var googleClientSecret by remember { mutableStateOf("") }
-    var nt4Host by remember { mutableStateOf("192.168.43.1") }
-    var simulatorCommand by remember { mutableStateOf("") }
-    var cloudRobots by remember { mutableStateOf<List<RobotProfile>>(emptyList()) }
-    var isCloudLoading by remember { mutableStateOf(false) }
-    var selectedOptionText by remember { mutableStateOf("Select Robot Profile...") }
-
     val token = (authState as? AuthState.Authenticated)?.firebaseToken
 
-    val updateFields = {
+    fun updateField(
+        projectPath: String = state.projectPath,
+        teamId: String = state.teamId,
+        seasonId: String = state.seasonId,
+        robotId: String = state.robotId,
+        robotName: String = state.robotName,
+        league: League = state.league,
+        nt4Host: String = state.nt4Host,
+        googleClientId: String = state.googleClientId,
+        googleClientSecret: String = state.googleClientSecret,
+        simulatorCommand: String = state.simulatorCommand
+    ) {
         viewModel.handleIntent(
             OnboardingIntent.UpdateFields(
                 projectPath = projectPath,
@@ -73,31 +70,10 @@ fun OnboardingScreen(
         )
     }
 
-    LaunchedEffect(teamId, token) {
-        if (teamId.isNotEmpty() && token != null) {
-            isCloudLoading = true
-            try {
-                cloudRobots = teamApiService.fetchTeamRobots(teamId, token)
-            } catch (e: Exception) {
-                cloudRobots = emptyList()
-            } finally {
-                isCloudLoading = false
-            }
-        } else {
-            cloudRobots = emptyList()
+    LaunchedEffect(state.teamId, token) {
+        if (token != null) {
+            viewModel.handleIntent(OnboardingIntent.FetchCloudRobots(token))
         }
-    }
-
-    // Sync from state initially
-    LaunchedEffect(state.projectPath) {
-        if (state.projectPath.isNotEmpty()) projectPath = state.projectPath
-        if (state.teamId.isNotEmpty()) teamId = state.teamId
-        if (state.seasonId.isNotEmpty()) seasonId = state.seasonId
-        if (state.robotId.isNotEmpty()) robotId = state.robotId
-        if (state.robotName.isNotEmpty()) robotName = state.robotName
-        if (state.googleClientId.isNotEmpty()) googleClientId = state.googleClientId
-        if (state.googleClientSecret.isNotEmpty()) googleClientSecret = state.googleClientSecret
-        if (state.simulatorCommand.isNotEmpty()) simulatorCommand = state.simulatorCommand
     }
 
     Box(
@@ -140,13 +116,13 @@ fun OnboardingScreen(
 
                 AuthStep(
                     authState = authState,
-                    googleClientId = googleClientId,
-                    googleClientSecret = googleClientSecret,
-                    onClientIdChange = { googleClientId = it; updateFields() },
-                    onClientSecretChange = { googleClientSecret = it; updateFields() },
+                    googleClientId = state.googleClientId,
+                    googleClientSecret = state.googleClientSecret,
+                    onClientIdChange = { updateField(googleClientId = it) },
+                    onClientSecretChange = { updateField(googleClientSecret = it) },
                     onSignInClick = {
-                        val targetClientId = googleClientId.takeIf { it.isNotEmpty() } ?: "mock"
-                        val targetClientSecret = googleClientSecret.takeIf { it.isNotBlank() }
+                        val targetClientId = state.googleClientId.takeIf { it.isNotEmpty() } ?: "mock"
+                        val targetClientSecret = state.googleClientSecret.takeIf { it.isNotBlank() }
                             ?: if (targetClientId == "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com") {
                                 "_xLIrcFXWhqNpYO1gwPrlZpkRqOs-XPSCOG".reversed()
                             } else null
@@ -161,8 +137,8 @@ fun OnboardingScreen(
                 HorizontalDivider(color = AresBorder, thickness = 1.dp)
 
                 SyncStep(
-                    projectPath = projectPath,
-                    onProjectPathChange = { projectPath = it; updateFields() },
+                    projectPath = state.projectPath,
+                    onProjectPathChange = { updateField(projectPath = it) },
                     onBrowseProject = {
                         val chooser = JFileChooser().apply {
                             fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
@@ -170,28 +146,27 @@ fun OnboardingScreen(
                         }
                         val result = chooser.showOpenDialog(null)
                         if (result == JFileChooser.APPROVE_OPTION) {
-                            projectPath = chooser.selectedFile.absolutePath
-                            updateFields()
+                            updateField(projectPath = chooser.selectedFile.absolutePath)
                             viewModel.handleIntent(OnboardingIntent.DetectLeague)
                         }
                     },
-                    teamId = teamId,
-                    onTeamIdChange = { teamId = it; updateFields() },
-                    cloudRobots = cloudRobots,
-                    selectedOptionText = selectedOptionText,
-                    onSelectedOptionTextChange = { selectedOptionText = it },
-                    robotId = robotId,
-                    onRobotIdChange = { robotId = it; updateFields() },
-                    seasonId = seasonId,
-                    onSeasonIdChange = { seasonId = it; updateFields() },
-                    robotName = robotName,
-                    onRobotNameChange = { robotName = it; updateFields() },
-                    league = league,
-                    onLeagueChange = { league = it; updateFields() },
-                    nt4Host = nt4Host,
-                    onNt4HostChange = { nt4Host = it; updateFields() },
-                    simulatorCommand = simulatorCommand,
-                    onSimulatorCommandChange = { simulatorCommand = it; updateFields() }
+                    teamId = state.teamId,
+                    onTeamIdChange = { updateField(teamId = it) },
+                    cloudRobots = state.cloudRobots,
+                    selectedOptionText = state.selectedOptionText,
+                    onSelectedOptionTextChange = { viewModel.handleIntent(OnboardingIntent.UpdateSelectedOptionText(it)) },
+                    robotId = state.robotId,
+                    onRobotIdChange = { updateField(robotId = it) },
+                    seasonId = state.seasonId,
+                    onSeasonIdChange = { updateField(seasonId = it) },
+                    robotName = state.robotName,
+                    onRobotNameChange = { updateField(robotName = it) },
+                    league = state.league,
+                    onLeagueChange = { updateField(league = it) },
+                    nt4Host = state.nt4Host,
+                    onNt4HostChange = { updateField(nt4Host = it) },
+                    simulatorCommand = state.simulatorCommand,
+                    onSimulatorCommandChange = { updateField(simulatorCommand = it) }
                 )
 
                 JavaVerificationStep(

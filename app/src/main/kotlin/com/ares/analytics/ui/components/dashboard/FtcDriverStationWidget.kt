@@ -170,7 +170,7 @@ fun FtcDriverStationWidget(
             }
         }
         
-        // Listen to telemetry lines which arrive as ARES/DriverStation/Telemetry/0, 1, 2...
+        // Listen to telemetry lines which arrive as .../Telemetry/0, 1, 2...
         launch {
             nt4Client.telemetryFlow.filter { it.key.startsWith("ARES/DriverStation/Telemetry") }.collect { frame ->
                 frame.stringValue?.let { line ->
@@ -445,3 +445,4 @@ fun FtcDriverStationWidget(
         }
     }
 }
+

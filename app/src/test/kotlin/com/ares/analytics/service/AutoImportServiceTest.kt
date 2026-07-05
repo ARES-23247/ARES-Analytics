@@ -15,8 +15,8 @@ class AutoImportServiceTest {
     fun testLocalLogsAutoImport() = runBlocking {
         val tempDb = File.createTempFile("auto_import_db", ".db").apply { deleteOnExit() }
         val databaseService = DatabaseService(tempDb.absolutePath)
-        val logParserService = LogParserService(databaseService)
         val summaryEngineService = SummaryEngineService(databaseService)
+        val logParserService = LogParserService(databaseService, summaryEngineService)
         val sysIdService = SysIdService(databaseService)
         val hootDecoderService = HootDecoderService(databaseService, summaryEngineService, sysIdService)
         

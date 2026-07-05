@@ -540,7 +540,8 @@ fun MainScreen(services: ServiceRegistry) {
                                     }
                                 },
                                 reloadTrigger = runsIndexReloadTrigger,
-                                onImportSuccess = { mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload) }
+                                onImportSuccess = { mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload) },
+                                onOpenKeybindings = { mainViewModel.onIntent(MainIntent.SetKeybindingsOpen(true)) }
                             )
                             NavigationTarget.PATH_PLANNER -> PathPlannerScreen(
                                 viewModel = pathPlannerViewModel,

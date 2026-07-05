@@ -25,21 +25,31 @@ fun Route.archiveRoutes(
 
     authenticate("firebase") {
         post("/api/archive/upload-url") {
+            val principal = call.principal<FirebasePrincipal>() ?: return@post call.respond(HttpStatusCode.Unauthorized)
             val req = call.receive<UploadUrlRequest>()
 
             try {
-                // 1. Save summary metadata to Firestore
                 val db = customFirestore ?: FirestoreOptions.getDefaultInstance().service
+                
+                // Verify teamId against user's githubOrgs
+                val userDoc = db.collection("users").document(principal.uid).get().get()
+                val githubOrgs = (userDoc.get("githubOrgs") as? List<*>)?.map { it.toString() } ?: emptyList()
+                if (!githubOrgs.contains(req.summary.teamId)) {
+                    return@post call.respond(HttpStatusCode.Forbidden, "User is not a member of the requested team")
+                }
+
+                // 1. Save summary metadata to Firestore
                 val docRef = db.collection("summaries").document(req.sessionId)
                 docRef.set(req.summary.toMap()).get()
 
                 // 2. Generate pre-signed GCS URL
-                val blobInfo = BlobInfo.newBuilder(bucketName, "telemetry/${req.sessionId}.parquet").build()
+                val blobInfo = BlobInfo.newBuilder(bucketName, "${req.summary.teamId}/telemetry/${req.sessionId}.parquet").build()
                 val uploadUrl = storage.signUrl(
                     blobInfo,
                     15,
                     TimeUnit.MINUTES,
-                    Storage.SignUrlOption.httpMethod(HttpMethod.PUT)
+                    Storage.SignUrlOption.httpMethod(HttpMethod.PUT),
+                    Storage.SignUrlOption.withV4Signature()
                 )
 
                 val expiresAt = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(15)
@@ -50,11 +60,20 @@ fun Route.archiveRoutes(
         }
 
         post("/api/archive/sync") {
+            val principal = call.principal<FirebasePrincipal>() ?: return@post call.respond(HttpStatusCode.Unauthorized)
             val req = call.receive<SyncRequest>()
 
             try {
-                // Query all summaries matching teamId and seasonId
                 val db = customFirestore ?: FirestoreOptions.getDefaultInstance().service
+                
+                // Verify teamId against user's githubOrgs
+                val userDoc = db.collection("users").document(principal.uid).get().get()
+                val githubOrgs = (userDoc.get("githubOrgs") as? List<*>)?.map { it.toString() } ?: emptyList()
+                if (!githubOrgs.contains(req.teamId)) {
+                    return@post call.respond(HttpStatusCode.Forbidden, "User is not a member of the requested team")
+                }
+
+                // Query all summaries matching teamId and seasonId
                 val querySnapshot = db.collection("summaries")
                     .whereEqualTo("teamId", req.teamId)
                     .whereEqualTo("seasonId", req.seasonId)
@@ -73,6 +92,42 @@ fun Route.archiveRoutes(
                 call.respond(SyncResponse(missingSummaries))
             } catch (e: Exception) {
                 call.respond(HttpStatusCode.InternalServerError, "Sync processing error: ${e.message}")
+            }
+        }
+
+        post("/api/archive/delete") {
+            val principal = call.principal<FirebasePrincipal>() ?: return@post call.respond(HttpStatusCode.Unauthorized)
+            val req = call.receive<DeleteSessionRequest>()
+
+            try {
+                val db = customFirestore ?: FirestoreOptions.getDefaultInstance().service
+
+                // Only admins/coaches can delete cloud sessions
+                if (!isUserAdmin(db, principal.uid)) {
+                    return@post call.respond(HttpStatusCode.Forbidden, "Only admins and coaches can delete cloud sessions")
+                }
+
+                // Verify the user belongs to the team
+                val userDoc = db.collection("users").document(principal.uid).get().get()
+                val githubOrgs = (userDoc.get("githubOrgs") as? List<*>)?.map { it.toString() } ?: emptyList()
+                if (!githubOrgs.contains(req.teamId)) {
+                    return@post call.respond(HttpStatusCode.Forbidden, "User is not a member of the requested team")
+                }
+
+                // 1. Delete Firestore summary document
+                db.collection("summaries").document(req.sessionId).delete().get()
+
+                // 2. Delete GCS parquet blob (best-effort, may not exist)
+                try {
+                    val blobId = com.google.cloud.storage.BlobId.of(bucketName, "${req.teamId}/telemetry/${req.sessionId}.parquet")
+                    storage.delete(blobId)
+                } catch (_: Exception) {
+                    // Blob may not exist if upload failed — that's fine
+                }
+
+                call.respond(HttpStatusCode.OK, "Session deleted")
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.InternalServerError, "Failed to delete session: ${e.message}")
             }
         }
 
@@ -136,7 +191,7 @@ fun Route.archiveRoutes(
 }
 
 private suspend fun isUserAdmin(db: Firestore, uid: String): Boolean {
-    val userDoc = db.collection("authorized_users").document(uid).get().get()
+    val userDoc = db.collection("users").document(uid).get().get()
     if (!userDoc.exists()) return false
     val role = userDoc.getString("role")?.lowercase()
     return role == "admin" || role == "coach"

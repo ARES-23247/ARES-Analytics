@@ -12,7 +12,8 @@ class LogParserServiceTest {
     fun testParseJsonlLog() = runTest {
         val tempDb = File.createTempFile("log_jsonl_db", ".db").apply { deleteOnExit() }
         val databaseService = DatabaseService(tempDb.absolutePath)
-        val logParser = LogParserService(databaseService)
+        val summaryEngineService = SummaryEngineService(databaseService)
+        val logParser = LogParserService(databaseService, summaryEngineService)
 
         val tempFile = File.createTempFile("log_test", ".jsonl")
         tempFile.deleteOnExit()
@@ -50,7 +51,8 @@ class LogParserServiceTest {
     fun testParseCsvLog() = runTest {
         val tempDb = File.createTempFile("log_csv_db", ".db").apply { deleteOnExit() }
         val databaseService = DatabaseService(tempDb.absolutePath)
-        val logParser = LogParserService(databaseService)
+        val summaryEngineService = SummaryEngineService(databaseService)
+        val logParser = LogParserService(databaseService, summaryEngineService)
 
         val tempFile = File.createTempFile("log_test", ".csv")
         tempFile.deleteOnExit()

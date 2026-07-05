@@ -20,6 +20,8 @@ dependencies {
     implementation("io.ktor:ktor-server-cors:3.0.3")
     implementation("io.ktor:ktor-server-status-pages:3.0.3")
     implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.3")
+    implementation("io.ktor:ktor-server-rate-limit:3.0.3")
+    implementation("io.ktor:ktor-server-request-validation:3.0.3")
 
     // Ktor HTTP client (for GitHub API, Vertex AI)
     implementation("io.ktor:ktor-client-cio:3.0.3")

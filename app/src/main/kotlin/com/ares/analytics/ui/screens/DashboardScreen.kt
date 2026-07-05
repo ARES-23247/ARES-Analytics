@@ -33,7 +33,8 @@ fun DashboardScreen(
     onForensicsCompleted: (ForensicsResponse) -> Unit,
     onSelectMatch: (MatchInfo, String) -> Unit,
     reloadTrigger: Int,
-    onImportSuccess: () -> Unit
+    onImportSuccess: () -> Unit,
+    onOpenKeybindings: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -140,7 +141,13 @@ fun DashboardScreen(
                     SwerveModuleVisualizer(services.nt4ClientService, mod)
                 },
                 "joystick_visualizer" to { _, mod ->
-                    JoystickVisualizer(currentFrame = null, nt4ClientService = services.nt4ClientService, services = services, modifier = mod)
+                    JoystickVisualizer(
+                        currentFrame = null, 
+                        nt4ClientService = services.nt4ClientService, 
+                        services = services, 
+                        onOpenKeybindings = onOpenKeybindings,
+                        modifier = mod
+                    )
                 },
                 "mechanism_visualizer" to { _, mod ->
                     MechanismVisualizer(currentFrame = null, nt4ClientService = services.nt4ClientService, modifier = mod)

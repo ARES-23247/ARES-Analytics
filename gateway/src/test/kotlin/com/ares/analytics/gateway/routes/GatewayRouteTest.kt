@@ -11,6 +11,8 @@ import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.testing.*
+import io.ktor.server.plugins.ratelimit.*
+import kotlin.time.Duration.Companion.seconds
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -42,6 +44,11 @@ class GatewayRouteTest {
             }
             install(Authentication) {
                 firebase("firebase")
+            }
+            install(RateLimit) {
+                register(RateLimitName("forensics")) {
+                    rateLimiter(limit = 5, refillPeriod = 60.seconds)
+                }
             }
             routing {
                 diagnosticsRoutes()

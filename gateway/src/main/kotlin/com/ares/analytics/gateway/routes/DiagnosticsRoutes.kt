@@ -11,6 +11,7 @@ import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.server.plugins.ratelimit.*
 import kotlinx.serialization.json.Json
 
 fun Route.diagnosticsRoutes() {
@@ -18,8 +19,9 @@ fun Route.diagnosticsRoutes() {
     val location = System.getenv("GOOGLE_CLOUD_LOCATION") ?: "us-central1"
 
     authenticate("firebase") {
-        post("/api/diagnostics/forensics") {
-            val req = call.receive<ForensicsRequest>()
+        rateLimit(RateLimitName("forensics")) {
+            post("/api/diagnostics/forensics") {
+                val req = call.receive<ForensicsRequest>()
 
             try {
                 // Initialize Vertex AI client
@@ -54,13 +56,15 @@ fun Route.diagnosticsRoutes() {
 
                     val response = model.generateContent(prompt)
                     val jsonResponse = ResponseHandler.getText(response) ?: "{}"
+                    val sanitizedJson = jsonResponse.replace(Regex("```(?:json)?\\n?(.*?)\\n?```", RegexOption.DOT_MATCHES_ALL), "$1").trim()
 
                     // Parse to verify compliance and return to client
-                    val parsed = Json.decodeFromString<ForensicsResponse>(jsonResponse)
+                    val parsed = Json.decodeFromString<ForensicsResponse>(sanitizedJson)
                     call.respond(parsed)
                 }
             } catch (e: Exception) {
                 call.respond(HttpStatusCode.InternalServerError, "AI diagnostics failed: ${e.message}")
+            }
             }
         }
     }

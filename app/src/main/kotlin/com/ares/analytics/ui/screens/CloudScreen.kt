@@ -167,7 +167,9 @@ fun CloudScreen(
                                 CloudLogRow(
                                     summary = summary,
                                     isDownloading = state.isDownloadingCloudLog == summary.sessionId,
-                                    onDownload = { viewModel.onIntent(CloudIntent.DownloadCloudLog(summary.sessionId)) }
+                                    isDeleting = state.isDeletingCloudLog == summary.sessionId,
+                                    onDownload = { viewModel.onIntent(CloudIntent.DownloadCloudLog(summary.sessionId)) },
+                                    onDelete = { viewModel.onIntent(CloudIntent.DeleteCloudLog(summary.sessionId, summary.teamId)) }
                                 )
                             }
                         }
@@ -229,7 +231,9 @@ fun RobotRunRow(
 fun CloudLogRow(
     summary: SessionSummary,
     isDownloading: Boolean,
-    onDownload: () -> Unit
+    isDeleting: Boolean,
+    onDownload: () -> Unit,
+    onDelete: () -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -249,17 +253,29 @@ fun CloudLogRow(
             )
         }
         
-        Button(
-            onClick = onDownload,
-            enabled = !isDownloading,
-            colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated)
-        ) {
-            if (isDownloading) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AresCyan, strokeWidth = 2.dp)
-            } else {
-                Icon(Icons.Default.CloudDownload, contentDescription = null, tint = AresCyan, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Load Local", color = AresCyan)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            IconButton(
+                onClick = onDelete,
+                enabled = !isDeleting && !isDownloading
+            ) {
+                if (isDeleting) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AresRed, strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete from cloud", tint = AresRed)
+                }
+            }
+            Button(
+                onClick = onDownload,
+                enabled = !isDownloading && !isDeleting,
+                colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated)
+            ) {
+                if (isDownloading) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AresCyan, strokeWidth = 2.dp)
+                } else {
+                    Icon(Icons.Default.CloudDownload, contentDescription = null, tint = AresCyan, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Load Local", color = AresCyan)
+                }
             }
         }
     }
