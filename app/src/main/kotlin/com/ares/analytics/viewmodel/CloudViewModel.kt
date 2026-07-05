@@ -187,15 +187,16 @@ class CloudViewModel(
                                     logUpload("      -> Raw archival failed: ${rawEx.message}")
                                 }
 
-                                logUpload("3/5: Parsing local Parquet schema...")
-                                // 3. Parse into local SQLite
+                                val totalSizeKb = downloadedFiles.sumOf { it.length() } / 1024
+                                logUpload("3/5: Parsing ${downloadedFiles.size} log files (${totalSizeKb} KB) into DuckDB...")
+                                // 3. Parse into DuckDB
                                 val session = logParserService.parseLogFiles(
                                     files = downloadedFiles,
                                     teamId = intent.teamId,
                                     seasonId = intent.seasonId,
                                     robotId = intent.robotId
                                 )
-                                logUpload("      -> Parsed session: ${session.sessionId}")
+                                logUpload("      -> Parsed session: ${session.sessionId} (${session.durationMs?.let { "${it / 1000}s" } ?: "unknown"} duration)")
 
                                 logUpload("4/5: Pushing DuckDB Parquet blob to Cloud & syncing...")
                                 // 4. Upload Parquet to GCS + delta sync

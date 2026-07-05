@@ -7,6 +7,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.duckdb.DuckDBAppender
+import org.duckdb.DuckDBConnection
 import java.io.File
 import java.sql.Connection
 import java.sql.DriverManager
@@ -263,6 +265,48 @@ class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares
         if (frames.isEmpty()) return@withDbLock
         val targetConn = if (frames.first().sessionId == "live-telemetry") ephemeralConn else conn
         
+        if (targetConn === conn) {
+            // Use DuckDB Appender for persistent storage — bypasses SQL parser entirely
+            insertTelemetryFramesAppender(frames)
+        } else {
+            // Ephemeral connection (live telemetry) uses JDBC batch for INSERT OR REPLACE
+            insertTelemetryFramesJdbc(targetConn, frames)
+        }
+    }
+
+    /**
+     * High-performance bulk insert using DuckDB's native Appender API.
+     * Bypasses SQL parsing and writes directly to columnar storage.
+     * ~10-100x faster than JDBC PreparedStatement batch for bulk imports.
+     *
+     * IMPORTANT: Must be called under withDbLock or from a single-writer context.
+     * Does not support INSERT OR REPLACE — assumes no duplicate keys (safe for imports).
+     */
+    private fun insertTelemetryFramesAppender(frames: List<TelemetryFrame>) {
+        val duckConn = conn.unwrap(DuckDBConnection::class.java)
+        val appender = duckConn.createAppender(DuckDBConnection.DEFAULT_SCHEMA, "telemetry_frames")
+        try {
+            for (frame in frames) {
+                appender.beginRow()
+                appender.append(frame.timestampMs)
+                appender.append(frame.sessionId)
+                appender.append(frame.key)
+                appender.append(frame.value)
+                // DuckDB Appender doesn't support null — use empty string as sentinel
+                appender.append(frame.stringValue ?: "")
+                appender.endRow()
+            }
+            appender.flush()
+        } finally {
+            appender.close()
+        }
+    }
+
+    /**
+     * JDBC PreparedStatement batch insert with INSERT OR REPLACE.
+     * Used for live-telemetry on the ephemeral connection where deduplication matters.
+     */
+    private fun insertTelemetryFramesJdbc(targetConn: Connection, frames: List<TelemetryFrame>) {
         targetConn.autoCommit = false
         try {
             targetConn.prepareStatement("INSERT OR REPLACE INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value) VALUES (?, ?, ?, ?, ?)").use { ps ->

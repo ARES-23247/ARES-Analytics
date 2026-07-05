@@ -15,7 +15,7 @@ import com.ares.analytics.shared.TelemetryFrame
  */
 class FrameBatcher(
     private val databaseService: DatabaseService,
-    private val batchSize: Int = 5000,
+    private val batchSize: Int = 50_000,
     private val keyTransform: ((String) -> String)? = null
 ) {
     private val buffer = mutableListOf<TelemetryFrame>()
