@@ -65,7 +65,20 @@ class LogParserService(
             }
             lowerName.endsWith(".jsonl") -> {
                 if (lowerName.startsWith("action_log_")) {
-                    parseActionLogJsonl(file, sessionId)
+                    val actionMeta = parseActionLogJsonl(file, sessionId)
+                    // Enrich the session with metadata extracted from the action log envelope
+                    if (actionMeta != null) {
+                        val enrichedSession = session.copy(
+                            durationMs = actionMeta.durationMs,
+                            matchNumber = matchNumber ?: actionMeta.matchNumber,
+                            allianceColor = allianceColor ?: actionMeta.alliance,
+                            tags = tags + "action-log"
+                        )
+                        databaseService.insertSession(enrichedSession)
+                        val summary = summaryEngineService.generateSummary(enrichedSession)
+                        databaseService.insertSessionSummary(summary)
+                        return@withContext enrichedSession
+                    }
                 } else {
                     parseJsonlLog(file, sessionId, batcher)
                 }
@@ -454,6 +467,15 @@ class LogParserService(
     }
 
     /**
+     * Metadata extracted from an action log file's envelope fields.
+     */
+    private data class ActionLogMetadata(
+        val durationMs: Long,
+        val matchNumber: Int,
+        val alliance: String
+    )
+
+    /**
      * Parses action_log JSONL files produced by ARESLib's ActionLogger.
      * Each line is a JSON envelope containing:
      *   - run_id, robot_id, match_number, alliance (top-level metadata)
@@ -461,9 +483,15 @@ class LogParserService(
      *   - payload (nested JSON object with action-specific fields + timestampMs)
      *
      * Actions are batched and bulk-inserted into the robot_actions table.
+     * Returns metadata extracted from the log for session enrichment, or null if the file is empty.
      */
-    private suspend fun parseActionLogJsonl(file: File, sessionId: String) {
+    private suspend fun parseActionLogJsonl(file: File, sessionId: String): ActionLogMetadata? {
         val actions = mutableListOf<RobotActionRecord>()
+        var minTimestamp = Long.MAX_VALUE
+        var maxTimestamp = Long.MIN_VALUE
+        var firstMatchNumber = 0
+        var firstAlliance = "UNKNOWN"
+        var isFirstLine = true
 
         BufferedReader(FileReader(file)).use { reader ->
             var line: String? = reader.readLine()
@@ -479,11 +507,21 @@ class LogParserService(
                         val alliance = obj["alliance"]?.jsonPrimitive?.contentOrNull ?: "UNKNOWN"
                         val actionType = obj["type"]?.jsonPrimitive?.contentOrNull ?: "Unknown"
 
+                        // Capture envelope metadata from the first line
+                        if (isFirstLine) {
+                            firstMatchNumber = matchNumber
+                            firstAlliance = alliance
+                            isFirstLine = false
+                        }
+
                         val payload = obj["payload"]?.jsonObject
                         val timestampMs = payload?.get("timestampMs")?.jsonPrimitive?.longOrNull ?: 0L
                         val payloadJson = payload?.toString() ?: "{}"
 
                         if (timestampMs > 0L) {
+                            if (timestampMs < minTimestamp) minTimestamp = timestampMs
+                            if (timestampMs > maxTimestamp) maxTimestamp = timestampMs
+
                             actions.add(RobotActionRecord(
                                 timestampMs = timestampMs,
                                 sessionId = sessionId,
@@ -503,9 +541,15 @@ class LogParserService(
             }
         }
 
-        if (actions.isNotEmpty()) {
-            databaseService.insertRobotActionsBulk(actions)
-        }
+        if (actions.isEmpty()) return null
+
+        databaseService.insertRobotActionsBulk(actions)
+
+        return ActionLogMetadata(
+            durationMs = if (maxTimestamp > minTimestamp) maxTimestamp - minTimestamp else 0L,
+            matchNumber = firstMatchNumber,
+            alliance = firstAlliance
+        )
     }
 
     private fun readVariableInt(buffer: ByteBuffer, size: Int): Int {
