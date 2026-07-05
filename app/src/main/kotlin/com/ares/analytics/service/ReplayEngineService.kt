@@ -11,6 +11,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonObject
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
@@ -211,6 +216,38 @@ class ReplayEngineService(private val databaseService: DatabaseService) {
         for (frame in allFrames) {
             if (frame.timestampMs > targetTimestamp) break
             valuesMap[frame.key] = frame.value
+        }
+
+        // Synthesize telemetry from actions to drive dashboard widgets for action-only logs
+        val jsonParser = Json { ignoreUnknownKeys = true }
+        for (action in _sessionActions.value) {
+            if (action.timestampMs > targetTimestamp) break
+            try {
+                val payloadObj = jsonParser.parseToJsonElement(action.payloadJson).let {
+                    if (it is JsonObject) it else null
+                } ?: continue
+                
+                if (action.actionType == "PoseUpdate") {
+                    val x = payloadObj["xMeters"]?.let { if (it is JsonPrimitive) it.doubleOrNull else null }
+                    val y = payloadObj["yMeters"]?.let { if (it is JsonPrimitive) it.doubleOrNull else null }
+                    val heading = payloadObj["headingRadians"]?.let { if (it is JsonPrimitive) it.doubleOrNull else null }
+                    
+                    if (x != null) {
+                        valuesMap["ARES/EstimatedPose/0"] = x
+                        valuesMap["Drive/Odom_X"] = x
+                    }
+                    if (y != null) {
+                        valuesMap["ARES/EstimatedPose/1"] = y
+                        valuesMap["Drive/Odom_Y"] = y
+                    }
+                    if (heading != null) {
+                        valuesMap["ARES/EstimatedPose/2"] = heading
+                        valuesMap["Drive/Odom_Heading"] = heading
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore parsing errors for individual actions
+            }
         }
 
         val frame = ReplayFrame(targetTimestamp, valuesMap)
