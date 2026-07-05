@@ -19,6 +19,7 @@ import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.client.statement.readBytes
@@ -37,10 +38,6 @@ data class RobotLogFileInfo(
     val isActive: Boolean? = false
 )
 
-@Serializable
-data class DownloadUrlResponse(
-    val downloadUrl: String
-)
 
 data class RobotRun(
     val runId: String,
@@ -58,10 +55,10 @@ data class CloudState(
     val isSyncing: Boolean = false,
     val isFetchingRobotLogs: Boolean = false,
     val isUploadingRobotLog: String? = null,
-    val isDownloadingCloudLog: String? = null,
     val isDeletingCloudLog: String? = null,
     val errorMessage: String? = null,
-    val isAuthenticated: Boolean = false
+    val isAuthenticated: Boolean = false,
+    val uploadLogs: List<String> = emptyList()
 )
 
 sealed class CloudIntent {
@@ -70,7 +67,6 @@ sealed class CloudIntent {
     data class PerformDeltaSync(val teamId: String, val seasonId: String) : CloudIntent()
     data class UploadRobotRun(val runId: String, val teamId: String, val seasonId: String, val robotId: String) : CloudIntent()
     data class DeleteRobotRun(val runId: String) : CloudIntent()
-    data class DownloadCloudLog(val sessionId: String) : CloudIntent()
     data class DeleteCloudLog(val sessionId: String, val teamId: String) : CloudIntent()
     object ClearError : CloudIntent()
 }
@@ -90,6 +86,11 @@ class CloudViewModel(
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
         }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 30 * 60 * 1000L
+            connectTimeoutMillis = 60 * 1000L
+            socketTimeoutMillis = 30 * 60 * 1000L
+        }
     }
 
     init {
@@ -107,6 +108,10 @@ class CloudViewModel(
         val ip = nt4ClientService.serverIp
         if (ip.isBlank() || ip == "0.0.0.0") return "127.0.0.1"
         return ip
+    }
+
+    private fun logUpload(message: String) {
+        _state.update { it.copy(uploadLogs = it.uploadLogs + message) }
     }
 
     fun onIntent(intent: CloudIntent) {
@@ -132,13 +137,14 @@ class CloudViewModel(
                     }
                 }
                 is CloudIntent.UploadRobotRun -> {
-                    _state.update { it.copy(isUploadingRobotLog = intent.runId, errorMessage = null) }
+                    _state.update { it.copy(isUploadingRobotLog = intent.runId, errorMessage = null, uploadLogs = listOf("Starting upload for run ${intent.runId}...")) }
                     try {
                         val run = _state.value.robotRuns.find { it.runId == intent.runId }
                         if (run != null) {
                             val errors = mutableListOf<String>()
                             val downloadedFiles = mutableListOf<File>()
                             
+                            logUpload("1/5: Downloading ${run.files.size} raw files from robot at ${getRobotIp()}...")
                             // 1. Download all raw files from robot
                             for (file in run.files) {
                                 try {
@@ -152,12 +158,15 @@ class CloudViewModel(
                                         f
                                     }
                                     downloadedFiles.add(tempFile)
+                                    logUpload("      -> Downloaded ${file.name} (${tempFile.length() / 1024} KB)")
                                 } catch (e: Exception) {
                                     errors.add("${file.name}: ${e.message}")
+                                    logUpload("      -> Error downloading ${file.name}: ${e.message}")
                                 }
                             }
                             
                             if (errors.isEmpty() && downloadedFiles.isNotEmpty()) {
+                                logUpload("2/5: Uploading raw files to GCS bucket...")
                                 // 2. Upload raw files to GCS (archival — preserves originals)
                                 val runTimestamp = run.runId.let { id ->
                                     // Convert "20260704_201500" to "2026-07-04_20-15-00"
@@ -171,12 +180,14 @@ class CloudViewModel(
                                     rawGcsPath = syncEngineService.uploadRawFiles(
                                         teamId = intent.teamId,
                                         runTimestamp = runTimestamp,
-                                        files = downloadedFiles
+                                        files = downloadedFiles.filter { !it.name.endsWith(".csv", ignoreCase = true) }
                                     )
                                 } catch (rawEx: Exception) {
                                     errors.add("Raw file archival failed: ${rawEx.message}")
+                                    logUpload("      -> Raw archival failed: ${rawEx.message}")
                                 }
 
+                                logUpload("3/5: Parsing local Parquet schema...")
                                 // 3. Parse into local SQLite
                                 val session = logParserService.parseLogFiles(
                                     files = downloadedFiles,
@@ -184,18 +195,23 @@ class CloudViewModel(
                                     seasonId = intent.seasonId,
                                     robotId = intent.robotId
                                 )
+                                logUpload("      -> Parsed session: ${session.sessionId}")
 
+                                logUpload("4/5: Pushing DuckDB Parquet blob to Cloud & syncing...")
                                 // 4. Upload Parquet to GCS + delta sync
                                 try {
                                     syncEngineService.uploadSession(session.sessionId)
                                     syncEngineService.performDeltaSync(intent.teamId, intent.seasonId)
+                                    logUpload("      -> Cloud sync completed successfully.")
                                 } catch (syncEx: Exception) {
                                     errors.add("Imported locally but cloud sync failed: ${syncEx.message}")
+                                    logUpload("      -> Cloud sync failed: ${syncEx.message}")
                                 }
                                 
                                 // 5. Delete temp files on desktop
                                 downloadedFiles.forEach { it.delete() }
                                 
+                                logUpload("5/5: Deleting remote files from Robot...")
                                 // 6. Delete files from robot after confirmed GCS upload
                                 if (rawGcsPath != null && errors.isEmpty()) {
                                     try {
@@ -213,18 +229,22 @@ class CloudViewModel(
                                 }
                                 
                                 // Refresh UI
+                                logUpload("Upload finished! Refreshing UI...")
                                 fetchRobotLogs()
                                 val summaries = databaseService.getAllSessionSummaries().sortedByDescending { it.createdAt }
                                 _state.update { it.copy(cloudLogs = summaries, isUploadingRobotLog = null) }
+                            } else {
+                                logUpload("Upload encountered errors. Aborting.")
+                                _state.update { it.copy(errorMessage = "Upload errors:\n" + errors.joinToString("\n"), isUploadingRobotLog = null) }
                             }
-                            
-                            if (errors.isNotEmpty()) {
-                                _state.update { it.copy(errorMessage = "Upload issues:\n" + errors.joinToString("\n")) }
-                            }
+                        } else {
+                            logUpload("Run not found in local state.")
+                            _state.update { it.copy(isUploadingRobotLog = null) }
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
-                        _state.update { it.copy(errorMessage = e.message ?: "Upload request failed") }
+                        logUpload("CRITICAL FATAL: ${e.message}")
+                        _state.update { it.copy(errorMessage = e.message ?: "Upload failed", isUploadingRobotLog = null) }
                     } finally {
                         _state.update { it.copy(isUploadingRobotLog = null) }
                     }
@@ -247,43 +267,7 @@ class CloudViewModel(
                         _state.update { it.copy(errorMessage = e.message ?: "Delete request failed") }
                     }
                 }
-                is CloudIntent.DownloadCloudLog -> {
-                    _state.update { it.copy(isDownloadingCloudLog = intent.sessionId, errorMessage = null) }
-                    try {
-                        withContext(Dispatchers.IO) {
-                            val token = firebaseClientService.getFirebaseToken() ?: "mock-token:dev-user@aresrobotics.org:dev-user@aresrobotics.org:ARES Dev User"
-                            val gatewayUrl = "https://ares-analytics-gateway-staging-205869391101.us-central1.run.app"
-                            
-                            val urlResponse = httpClient.get("$gatewayUrl/api/archive/download-url?sessionId=${intent.sessionId}") {
-                                header(HttpHeaders.Authorization, "Bearer $token")
-                            }
 
-                            if (!urlResponse.status.isSuccess()) {
-                                throw Exception("Failed to request download URL: ${urlResponse.status}")
-                            }
-
-                            val downloadUrl = urlResponse.body<DownloadUrlResponse>().downloadUrl
-                            val fileBytes = httpClient.get(downloadUrl).readBytes()
-
-                            val tempFile = File.createTempFile("cloud_log_${intent.sessionId}_", ".jsonl")
-                            tempFile.writeBytes(fileBytes)
-
-                            val summary = databaseService.getSessionSummary(intent.sessionId)
-                            logParserService.parseLogFile(
-                                file = tempFile,
-                                teamId = summary?.teamId ?: "unknown",
-                                seasonId = summary?.seasonId ?: "unknown",
-                                robotId = summary?.robotId ?: "unknown"
-                            )
-                            tempFile.delete()
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                        _state.update { it.copy(errorMessage = e.message ?: "Download failed") }
-                    } finally {
-                        _state.update { it.copy(isDownloadingCloudLog = null) }
-                    }
-                }
                 is CloudIntent.DeleteCloudLog -> {
                     _state.update { it.copy(isDeletingCloudLog = intent.sessionId, errorMessage = null) }
                     try {

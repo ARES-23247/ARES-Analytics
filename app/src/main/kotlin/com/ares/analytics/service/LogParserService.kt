@@ -319,8 +319,13 @@ class LogParserService(
 
                 for ((key, value) in obj) {
                     if (key == "timestampMs" || key == "time" || key == "timestamp") continue
-                    val doubleVal = value.jsonPrimitive.doubleOrNull ?: continue
-                    outFrames.add(TelemetryFrame(timestampMs, sessionId, key, doubleVal))
+                    val doubleVal = value.jsonPrimitive.doubleOrNull
+                    if (doubleVal != null) {
+                        outFrames.add(TelemetryFrame(timestampMs, sessionId, key, doubleVal))
+                    } else if (value.jsonPrimitive.isString || value.jsonPrimitive.booleanOrNull != null) {
+                        val strVal = value.jsonPrimitive.content
+                        outFrames.add(TelemetryFrame(timestampMs, sessionId, key, 0.0, strVal))
+                    }
                 }
             } catch (e: Exception) {
                 // Ignore bad lines
@@ -344,9 +349,14 @@ class LogParserService(
             val timestampMs = tokens[timeIndex].toLongOrNull() ?: continue
             for (j in tokens.indices) {
                 if (j == timeIndex) continue
-                val value = tokens[j].toDoubleOrNull() ?: continue
+                val strValue = tokens[j]
                 val key = headers[j]
-                outFrames.add(TelemetryFrame(timestampMs, sessionId, key, value))
+                val doubleVal = strValue.toDoubleOrNull()
+                if (doubleVal != null) {
+                    outFrames.add(TelemetryFrame(timestampMs, sessionId, key, doubleVal))
+                } else if (strValue.isNotEmpty()) {
+                    outFrames.add(TelemetryFrame(timestampMs, sessionId, key, 0.0, strValue))
+                }
             }
         }
     }

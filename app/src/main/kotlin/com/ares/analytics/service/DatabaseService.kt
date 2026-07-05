@@ -1,358 +1,591 @@
 package com.ares.analytics.service
 
-import com.ares.analytics.database.AresDatabase
 import com.ares.analytics.shared.*
-import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.util.Properties
+import java.sql.Connection
+import java.sql.DriverManager
+import java.sql.ResultSet
+import java.sql.Statement
 
-class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.db") {
+class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb") {
     
-    private val driver: JdbcSqliteDriver
-    private val database: AresDatabase
-    private val queries get() = database.aresDatabaseQueries
-
+    private val conn: Connection
+    private val dbMutex = Mutex()
+    
     init {
+        Class.forName("org.duckdb.DuckDBDriver")
+        
+        val oldDbPath = System.getProperty("user.home") + "/.ares-analytics/telemetry.db"
+        val isFirstRun = !File(dbPath).exists()
+        
         val dbFile = File(dbPath)
         dbFile.parentFile?.mkdirs()
         
-        val properties = Properties().apply {
-            setProperty("journal_mode", "WAL")
+        if (dbFile.exists() && dbFile.length() == 0L) {
+            dbFile.delete()
         }
         
-        driver = JdbcSqliteDriver("jdbc:sqlite:${dbFile.absolutePath}", properties)
+        conn = DriverManager.getConnection("jdbc:duckdb:${dbFile.absolutePath}")
         
+        // Ensure parquet extension is loaded for export
+        conn.createStatement().use { st ->
+            st.execute("INSTALL parquet;")
+            st.execute("LOAD parquet;")
+        }
+        
+        createSchemaSync()
+        
+        if (isFirstRun && File(oldDbPath).exists()) {
+            try {
+                conn.createStatement().use { st ->
+                    st.execute("ATTACH '$oldDbPath' AS sqlite (TYPE SQLITE)")
+                    st.execute("INSERT OR IGNORE INTO sessions SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color FROM sqlite.sessions")
+                    st.execute("INSERT OR IGNORE INTO session_summaries SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, min_battery_voltage, max_ekf_drift, avg_loop_time_ms, p95_loop_time_ms, motor_current_averages, vision_acceptance_rate, avg_cross_track_error, avg_battery_resistance, max_motor_temps, avg_vision_latency_ms, tags, match_number, alliance_color FROM sqlite.session_summaries")
+                    st.execute("INSERT OR IGNORE INTO telemetry_frames SELECT timestamp_ms, session_id, key, value FROM sqlite.telemetry_frames")
+                    st.execute("INSERT OR IGNORE INTO session_annotations SELECT annotation_id, session_id, text, created_at, author_id FROM sqlite.session_annotations")
+                    st.execute("INSERT OR IGNORE INTO alerts SELECT alert_id, session_id, rule_key, trigger_timestamp_ms, resolve_timestamp_ms, duration_ms, peak_value, triaged FROM sqlite.alerts")
+                    st.execute("INSERT OR IGNORE INTO cached_topologies SELECT robot_id, topology_json FROM sqlite.cached_topologies")
+                    st.execute("INSERT OR IGNORE INTO console_messages SELECT timestamp_ms, session_id, text, severity FROM sqlite.console_messages")
+                    st.execute("DETACH sqlite")
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+    
+    private suspend fun <T> withDbLock(block: suspend () -> T): T = withContext(Dispatchers.IO) {
+        dbMutex.withLock { block() }
+    }
+    
+    private fun createSchemaSync() {
+        conn.createStatement().use { st ->
+            st.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    session_id VARCHAR PRIMARY KEY,
+                    team_id VARCHAR NOT NULL,
+                    season_id VARCHAR NOT NULL,
+                    robot_id VARCHAR NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    duration_ms BIGINT NOT NULL DEFAULT 0,
+                    tags VARCHAR NOT NULL DEFAULT '[]',
+                    match_number BIGINT,
+                    alliance_color VARCHAR
+                );
+                
+                CREATE TABLE IF NOT EXISTS session_summaries (
+                    session_id VARCHAR PRIMARY KEY,
+                    team_id VARCHAR NOT NULL,
+                    season_id VARCHAR NOT NULL,
+                    robot_id VARCHAR NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    duration_ms BIGINT NOT NULL DEFAULT 0,
+                    min_battery_voltage DOUBLE NOT NULL DEFAULT 0.0,
+                    max_ekf_drift DOUBLE NOT NULL DEFAULT 0.0,
+                    avg_loop_time_ms DOUBLE NOT NULL DEFAULT 0.0,
+                    p95_loop_time_ms DOUBLE NOT NULL DEFAULT 0.0,
+                    motor_current_averages VARCHAR NOT NULL DEFAULT '{}',
+                    vision_acceptance_rate DOUBLE NOT NULL DEFAULT 0.0,
+                    avg_cross_track_error DOUBLE NOT NULL DEFAULT 0.0,
+                    avg_battery_resistance DOUBLE NOT NULL DEFAULT 0.0,
+                    max_motor_temps VARCHAR NOT NULL DEFAULT '{}',
+                    avg_vision_latency_ms DOUBLE NOT NULL DEFAULT 0.0,
+                    tags VARCHAR NOT NULL DEFAULT '[]',
+                    match_number BIGINT,
+                    alliance_color VARCHAR
+                );
+                
+                CREATE TABLE IF NOT EXISTS telemetry_frames (
+                    timestamp_ms BIGINT NOT NULL,
+                    session_id VARCHAR NOT NULL,
+                    key VARCHAR NOT NULL,
+                    value DOUBLE NOT NULL,
+                    string_value VARCHAR,
+                    PRIMARY KEY (session_id, key, timestamp_ms)
+                );
+                
+                CREATE TABLE IF NOT EXISTS session_annotations (
+                    annotation_id VARCHAR PRIMARY KEY,
+                    session_id VARCHAR NOT NULL,
+                    text VARCHAR NOT NULL,
+                    created_at BIGINT NOT NULL,
+                    author_id VARCHAR
+                );
+                
+                CREATE TABLE IF NOT EXISTS alerts (
+                    alert_id VARCHAR PRIMARY KEY,
+                    session_id VARCHAR NOT NULL,
+                    rule_key VARCHAR NOT NULL,
+                    trigger_timestamp_ms BIGINT NOT NULL,
+                    resolve_timestamp_ms BIGINT,
+                    duration_ms BIGINT NOT NULL DEFAULT 0,
+                    peak_value DOUBLE NOT NULL DEFAULT 0.0,
+                    triaged BIGINT NOT NULL DEFAULT 0
+                );
+                
+                CREATE TABLE IF NOT EXISTS console_messages (
+                    timestamp_ms BIGINT NOT NULL,
+                    session_id VARCHAR NOT NULL,
+                    text VARCHAR NOT NULL,
+                    severity VARCHAR NOT NULL,
+                    PRIMARY KEY (session_id, timestamp_ms, text)
+                );
+                
+                CREATE TABLE IF NOT EXISTS cached_topologies (
+                    robot_id VARCHAR PRIMARY KEY,
+                    topology_json VARCHAR NOT NULL
+                );
+            """.trimIndent())
+            
+            try {
+                st.execute("ALTER TABLE telemetry_frames ADD COLUMN string_value VARCHAR;")
+            } catch (e: Exception) {
+                // Ignore if it already exists
+            }
+        }
+    }
+    
+    suspend fun executeRaw(sql: String) = withDbLock {
+        conn.createStatement().use { it.execute(sql) }
+    }
+
+    suspend fun insertSession(session: Session) = withDbLock {
+        conn.prepareStatement(
+            "INSERT OR REPLACE INTO sessions (session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).use { ps ->
+            ps.setString(1, session.sessionId)
+            ps.setString(2, session.teamId)
+            ps.setString(3, session.seasonId)
+            ps.setString(4, session.robotId)
+            ps.setLong(5, session.createdAt)
+            ps.setLong(6, session.durationMs)
+            ps.setString(7, Json.encodeToString(session.tags))
+            if (session.matchNumber != null) ps.setLong(8, session.matchNumber!!.toLong()) else ps.setNull(8, java.sql.Types.BIGINT)
+            ps.setString(9, session.allianceColor)
+            ps.executeUpdate()
+        }
+    }
+
+    suspend fun getSessions(): List<Session> = withDbLock {
+        val list = mutableListOf<Session>()
+        conn.createStatement().use { st ->
+            st.executeQuery("SELECT * FROM sessions ORDER BY created_at DESC").use { rs ->
+                while (rs.next()) list.add(rs.toSession())
+            }
+        }
+        list
+    }
+
+    suspend fun deleteSession(sessionId: String) = withDbLock {
+        conn.prepareStatement("DELETE FROM sessions WHERE session_id = ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeUpdate()
+        }
+        conn.prepareStatement("DELETE FROM session_summaries WHERE session_id = ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeUpdate()
+        }
+        conn.prepareStatement("DELETE FROM telemetry_frames WHERE session_id = ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeUpdate()
+        }
+        conn.prepareStatement("DELETE FROM session_annotations WHERE session_id = ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeUpdate()
+        }
+        conn.prepareStatement("DELETE FROM alerts WHERE session_id = ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeUpdate()
+        }
+        conn.prepareStatement("DELETE FROM console_messages WHERE session_id = ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeUpdate()
+        }
+    }
+
+    suspend fun insertSessionSummary(summary: SessionSummary) = withDbLock {
+        conn.prepareStatement(
+            "INSERT OR REPLACE INTO session_summaries (session_id, team_id, season_id, robot_id, created_at, duration_ms, min_battery_voltage, max_ekf_drift, avg_loop_time_ms, p95_loop_time_ms, motor_current_averages, vision_acceptance_rate, avg_cross_track_error, avg_battery_resistance, max_motor_temps, avg_vision_latency_ms, tags, match_number, alliance_color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).use { ps ->
+            ps.setString(1, summary.sessionId)
+            ps.setString(2, summary.teamId)
+            ps.setString(3, summary.seasonId)
+            ps.setString(4, summary.robotId)
+            ps.setLong(5, summary.createdAt)
+            ps.setLong(6, summary.durationMs)
+            ps.setDouble(7, summary.minBatteryVoltage)
+            ps.setDouble(8, summary.maxEkfDrift)
+            ps.setDouble(9, summary.avgLoopTimeMs)
+            ps.setDouble(10, summary.p95LoopTimeMs)
+            ps.setString(11, Json.encodeToString(summary.motorCurrentAverages))
+            ps.setDouble(12, summary.visionAcceptanceRate)
+            ps.setDouble(13, summary.avgCrossTrackError)
+            ps.setDouble(14, summary.avgBatteryResistance)
+            ps.setString(15, Json.encodeToString(summary.maxMotorTemps))
+            ps.setDouble(16, summary.avgVisionLatencyMs)
+            ps.setString(17, Json.encodeToString(summary.tags))
+            if (summary.matchNumber != null) ps.setLong(18, summary.matchNumber!!.toLong()) else ps.setNull(18, java.sql.Types.BIGINT)
+            ps.setString(19, summary.allianceColor)
+            ps.executeUpdate()
+        }
+    }
+
+    suspend fun getSessionSummary(sessionId: String): SessionSummary? = withDbLock {
+        conn.prepareStatement("SELECT * FROM session_summaries WHERE session_id = ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeQuery().use { rs ->
+                if (rs.next()) rs.toSessionSummary() else null
+            }
+        }
+    }
+
+    suspend fun getAllSessionSummaries(): List<SessionSummary> = withDbLock {
+        val list = mutableListOf<SessionSummary>()
+        conn.createStatement().use { st ->
+            st.executeQuery("SELECT * FROM session_summaries ORDER BY created_at DESC").use { rs ->
+                while (rs.next()) list.add(rs.toSessionSummary())
+            }
+        }
+        list
+    }
+
+    suspend fun insertTelemetryFrames(frames: List<TelemetryFrame>) = withDbLock {
+        conn.autoCommit = false
         try {
-            AresDatabase.Schema.create(driver)
+            conn.prepareStatement("INSERT OR REPLACE INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value) VALUES (?, ?, ?, ?, ?)").use { ps ->
+                frames.chunked(10000).forEach { chunk ->
+                    for (frame in chunk) {
+                        ps.setLong(1, frame.timestampMs)
+                        ps.setString(2, frame.sessionId)
+                        ps.setString(3, frame.key)
+                        ps.setDouble(4, frame.value)
+                        if (frame.stringValue != null) {
+                            ps.setString(5, frame.stringValue)
+                        } else {
+                            ps.setNull(5, java.sql.Types.VARCHAR)
+                        }
+                        ps.addBatch()
+                    }
+                    ps.executeBatch()
+                }
+            }
+            conn.commit()
         } catch (e: Exception) {
-            println("[DatabaseService] Schema.create error (safe to ignore if tables exist): ${e.message}")
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
         }
+    }
+
+    suspend fun getTelemetryRange(sessionId: String, startMs: Long, endMs: Long): List<TelemetryFrame> = withDbLock {
+        val list = mutableListOf<TelemetryFrame>()
+        conn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_ms ASC").use { ps ->
+            ps.setString(1, sessionId)
+            ps.setLong(2, startMs)
+            ps.setLong(3, endMs)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) list.add(rs.toTelemetryFrame())
+            }
+        }
+        list
+    }
+
+    suspend fun getTelemetryRangeBatched(sessionId: String, startMs: Long, endMs: Long, limit: Long, offset: Long): List<TelemetryFrame> = withDbLock {
+        val list = mutableListOf<TelemetryFrame>()
+        conn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_ms ASC LIMIT ? OFFSET ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.setLong(2, startMs)
+            ps.setLong(3, endMs)
+            ps.setLong(4, limit)
+            ps.setLong(5, offset)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) list.add(rs.toTelemetryFrame())
+            }
+        }
+        list
+    }
+
+    suspend fun countTelemetryFrames(sessionId: String): Long = withDbLock {
+        conn.prepareStatement("SELECT COUNT(*) FROM telemetry_frames WHERE session_id = ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeQuery().use { rs ->
+                if (rs.next()) rs.getLong(1) else 0L
+            }
+        }
+    }
+
+    suspend fun getTelemetryForKey(sessionId: String, key: String): List<TelemetryFrame> = withDbLock {
+        val list = mutableListOf<TelemetryFrame>()
+        conn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND key = ? ORDER BY timestamp_ms ASC").use { ps ->
+            ps.setString(1, sessionId)
+            ps.setString(2, key)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) list.add(rs.toTelemetryFrame())
+            }
+        }
+        list
+    }
+
+    suspend fun deleteTelemetryFrames(sessionId: String) = withDbLock {
+        conn.prepareStatement("DELETE FROM telemetry_frames WHERE session_id = ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeUpdate()
+        }
+    }
+
+    suspend fun pruneTelemetryFrames(sessionId: String, cutoffMs: Long) = withDbLock {
+        conn.prepareStatement("DELETE FROM telemetry_frames WHERE session_id = ? AND timestamp_ms < ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.setLong(2, cutoffMs)
+            ps.executeUpdate()
+        }
+    }
+
+    suspend fun insertAnnotation(annotation: SessionAnnotation) = withDbLock {
+        conn.prepareStatement("INSERT OR REPLACE INTO session_annotations (annotation_id, session_id, text, created_at, author_id) VALUES (?, ?, ?, ?, ?)").use { ps ->
+            ps.setString(1, annotation.annotationId)
+            ps.setString(2, annotation.sessionId)
+            ps.setString(3, annotation.text)
+            ps.setLong(4, annotation.createdAt)
+            ps.setString(5, annotation.authorId)
+            ps.executeUpdate()
+        }
+    }
+
+    suspend fun getAnnotations(sessionId: String): List<SessionAnnotation> = withDbLock {
+        val list = mutableListOf<SessionAnnotation>()
+        conn.prepareStatement("SELECT * FROM session_annotations WHERE session_id = ? ORDER BY created_at ASC").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) list.add(rs.toSessionAnnotation())
+            }
+        }
+        list
+    }
+
+    suspend fun updateSessionTags(sessionId: String, tags: List<String>) = withDbLock {
+        conn.prepareStatement("UPDATE sessions SET tags = ? WHERE session_id = ?").use { ps ->
+            ps.setString(1, Json.encodeToString(tags))
+            ps.setString(2, sessionId)
+            ps.executeUpdate()
+        }
+        conn.prepareStatement("UPDATE session_summaries SET tags = ? WHERE session_id = ?").use { ps ->
+            ps.setString(1, Json.encodeToString(tags))
+            ps.setString(2, sessionId)
+            ps.executeUpdate()
+        }
+    }
+
+    suspend fun updateSessionMatchDetails(sessionId: String, matchNumber: Int?, allianceColor: String?) = withDbLock {
+        conn.prepareStatement("UPDATE sessions SET match_number = ?, alliance_color = ? WHERE session_id = ?").use { ps ->
+            if (matchNumber != null) ps.setLong(1, matchNumber.toLong()) else ps.setNull(1, java.sql.Types.BIGINT)
+            ps.setString(2, allianceColor)
+            ps.setString(3, sessionId)
+            ps.executeUpdate()
+        }
+        conn.prepareStatement("UPDATE session_summaries SET match_number = ?, alliance_color = ? WHERE session_id = ?").use { ps ->
+            if (matchNumber != null) ps.setLong(1, matchNumber.toLong()) else ps.setNull(1, java.sql.Types.BIGINT)
+            ps.setString(2, allianceColor)
+            ps.setString(3, sessionId)
+            ps.executeUpdate()
+        }
+    }
+
+    suspend fun associateSessionWithMatch(sessionId: String, matchNumber: Int, allianceColor: String, opponentTeams: List<String>) = withDbLock {
+        updateSessionMatchDetails(sessionId, matchNumber, allianceColor)
+    }
+
+    suspend fun updateSessionLogFilePath(sessionId: String, logFilePath: String) = withDbLock {
+        // Log file path no longer supported on DuckDB Session schema
+    }
+
+    suspend fun insertAlert(alert: AlertRecord) = withDbLock {
+        conn.prepareStatement("INSERT OR REPLACE INTO alerts (alert_id, session_id, rule_key, trigger_timestamp_ms, resolve_timestamp_ms, duration_ms, peak_value, triaged) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").use { ps ->
+            ps.setString(1, alert.alertId)
+            ps.setString(2, alert.sessionId)
+            ps.setString(3, alert.ruleKey)
+            ps.setLong(4, alert.triggerTimestampMs)
+            if (alert.resolveTimestampMs != null) ps.setLong(5, alert.resolveTimestampMs!!) else ps.setNull(5, java.sql.Types.BIGINT)
+            ps.setLong(6, alert.durationMs)
+            ps.setDouble(7, alert.peakValue)
+            ps.setLong(8, if (alert.triaged) 1L else 0L)
+            ps.executeUpdate()
+        }
+    }
+
+    suspend fun getAlerts(sessionId: String): List<AlertRecord> = withDbLock {
+        val list = mutableListOf<AlertRecord>()
+        conn.prepareStatement("SELECT * FROM alerts WHERE session_id = ? ORDER BY trigger_timestamp_ms ASC").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) list.add(rs.toAlertRecord())
+            }
+        }
+        list
+    }
+
+    suspend fun insertTopology(topology: HardwareTopology) = withDbLock {
+        conn.prepareStatement("INSERT OR REPLACE INTO cached_topologies (robot_id, topology_json) VALUES (?, ?)").use { ps ->
+            ps.setString(1, topology.robotId)
+            ps.setString(2, Json.encodeToString(topology))
+            ps.executeUpdate()
+        }
+    }
+
+    suspend fun getTopology(robotId: String): HardwareTopology? = withDbLock {
+        conn.prepareStatement("SELECT topology_json FROM cached_topologies WHERE robot_id = ?").use { ps ->
+            ps.setString(1, robotId)
+            ps.executeQuery().use { rs ->
+                if (rs.next()) Json.decodeFromString(rs.getString("topology_json")) else null
+            }
+        }
+    }
+
+    suspend fun insertConsoleMessages(messages: List<ConsoleMessage>, sessionId: String) = withDbLock {
+        conn.autoCommit = false
+        try {
+            conn.prepareStatement("INSERT OR REPLACE INTO console_messages (timestamp_ms, session_id, text, severity) VALUES (?, ?, ?, ?)").use { ps ->
+                for (msg in messages) {
+                    ps.setLong(1, msg.timestampMs)
+                    ps.setString(2, sessionId)
+                    ps.setString(3, msg.text)
+                    ps.setString(4, msg.severity)
+                    ps.addBatch()
+                }
+                ps.executeBatch()
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = true
+        }
+    }
+
+    suspend fun getConsoleMessages(sessionId: String): List<ConsoleMessage> = withDbLock {
+        val list = mutableListOf<ConsoleMessage>()
+        conn.prepareStatement("SELECT * FROM console_messages WHERE session_id = ? ORDER BY timestamp_ms ASC").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) list.add(rs.toConsoleMessage())
+            }
+        }
+        list
+    }
+
+    // --- ResultSet Mappers ---
+
+    private fun ResultSet.toSession(): Session {
+        val matchNum = getLong("match_number")
+        val matchNumFinal = if (wasNull()) null else matchNum.toInt()
         
-        database = AresDatabase(driver)
+        return Session(
+            sessionId = getString("session_id"),
+            teamId = getString("team_id"),
+            seasonId = getString("season_id"),
+            robotId = getString("robot_id"),
+            createdAt = getLong("created_at"),
+            durationMs = getLong("duration_ms"),
+            tags = Json.decodeFromString(getString("tags") ?: "[]"),
+            matchNumber = matchNumFinal,
+            allianceColor = getString("alliance_color")
+        )
+    }
+
+    private fun ResultSet.toSessionSummary(): SessionSummary {
+        val matchNum = getLong("match_number")
+        val matchNumFinal = if (wasNull()) null else matchNum.toInt()
+        
+        return SessionSummary(
+            sessionId = getString("session_id"),
+            teamId = getString("team_id"),
+            seasonId = getString("season_id"),
+            robotId = getString("robot_id"),
+            createdAt = getLong("created_at"),
+            durationMs = getLong("duration_ms"),
+            minBatteryVoltage = getDouble("min_battery_voltage"),
+            maxEkfDrift = getDouble("max_ekf_drift"),
+            avgLoopTimeMs = getDouble("avg_loop_time_ms"),
+            p95LoopTimeMs = getDouble("p95_loop_time_ms"),
+            motorCurrentAverages = Json.decodeFromString(getString("motor_current_averages") ?: "{}"),
+            visionAcceptanceRate = getDouble("vision_acceptance_rate"),
+            avgCrossTrackError = getDouble("avg_cross_track_error"),
+            avgBatteryResistance = getDouble("avg_battery_resistance"),
+            maxMotorTemps = Json.decodeFromString(getString("max_motor_temps") ?: "{}"),
+            avgVisionLatencyMs = getDouble("avg_vision_latency_ms"),
+            tags = Json.decodeFromString(getString("tags") ?: "[]"),
+            matchNumber = matchNumFinal,
+            allianceColor = getString("alliance_color")
+        )
+    }
+
+    private fun ResultSet.toTelemetryFrame(): TelemetryFrame {
+        val sVal = getString("string_value")
+        val sValFinal = if (wasNull()) null else sVal
+        return TelemetryFrame(
+            timestampMs = getLong("timestamp_ms"),
+            sessionId = getString("session_id"),
+            key = getString("key"),
+            value = getDouble("value"),
+            stringValue = sValFinal
+        )
+    }
+
+    private fun ResultSet.toSessionAnnotation(): SessionAnnotation {
+        return SessionAnnotation(
+            annotationId = getString("annotation_id"),
+            sessionId = getString("session_id"),
+            text = getString("text"),
+            createdAt = getLong("created_at"),
+            authorId = getString("author_id")
+        )
+    }
+
+    private fun ResultSet.toAlertRecord(): AlertRecord {
+        val rTime = getLong("resolve_timestamp_ms")
+        val rTimeFinal = if (wasNull()) null else rTime
+        
+        return AlertRecord(
+            alertId = getString("alert_id"),
+            sessionId = getString("session_id"),
+            ruleKey = getString("rule_key"),
+            triggerTimestampMs = getLong("trigger_timestamp_ms"),
+            resolveTimestampMs = rTimeFinal,
+            durationMs = getLong("duration_ms"),
+            peakValue = getDouble("peak_value"),
+            triaged = getLong("triaged") != 0L
+        )
+    }
+
+    private fun ResultSet.toConsoleMessage(): ConsoleMessage {
+        return ConsoleMessage(
+            timestampMs = getLong("timestamp_ms"),
+            text = getString("text"),
+            severity = getString("severity")
+        )
     }
 
     fun close() {
-        try {
-            driver.close()
-        } catch (e: Exception) {
-            e.printStackTrace()
+        if (!conn.isClosed) {
+            conn.close()
         }
     }
 
-    // ────────────────────────────────────────────────────────────────────────────
-    // CRUD: Sessions
-    // ────────────────────────────────────────────────────────────────────────────
-
-    suspend fun insertSession(session: Session) = withContext(Dispatchers.IO) {
-        queries.insertSession(
-            session_id = session.sessionId,
-            team_id = session.teamId,
-            season_id = session.seasonId,
-            robot_id = session.robotId,
-            created_at = session.createdAt,
-            duration_ms = session.durationMs,
-            tags = Json.encodeToString(session.tags),
-            match_number = session.matchNumber?.toLong(),
-            alliance_color = session.allianceColor
-        )
-    }
-
-    suspend fun getSessions(): List<Session> = withContext(Dispatchers.IO) {
-        queries.getSessions().executeAsList().map { it.toSession() }
-    }
-
-    suspend fun deleteSession(sessionId: String) = withContext(Dispatchers.IO) {
-        queries.transaction {
-            queries.deleteSession(sessionId)
-            queries.deleteSessionSummary(sessionId)
-            queries.deleteTelemetryFrames(sessionId)
-            queries.deleteAnnotations(sessionId)
-            queries.deleteAlerts(sessionId)
-            queries.deleteConsoleMessages(sessionId)
-        }
-    }
-
-    // ────────────────────────────────────────────────────────────────────────────
-    // CRUD: Session Summaries
-    // ────────────────────────────────────────────────────────────────────────────
-
-    suspend fun insertSessionSummary(summary: SessionSummary) = withContext(Dispatchers.IO) {
-        queries.insertSessionSummary(
-            session_id = summary.sessionId,
-            team_id = summary.teamId,
-            season_id = summary.seasonId,
-            robot_id = summary.robotId,
-            created_at = summary.createdAt,
-            duration_ms = summary.durationMs,
-            min_battery_voltage = summary.minBatteryVoltage,
-            max_ekf_drift = summary.maxEkfDrift,
-            avg_loop_time_ms = summary.avgLoopTimeMs,
-            p95_loop_time_ms = summary.p95LoopTimeMs,
-            motor_current_averages = Json.encodeToString(summary.motorCurrentAverages),
-            vision_acceptance_rate = summary.visionAcceptanceRate,
-            avg_cross_track_error = summary.avgCrossTrackError,
-            avg_battery_resistance = summary.avgBatteryResistance,
-            max_motor_temps = Json.encodeToString(summary.maxMotorTemps),
-            avg_vision_latency_ms = summary.avgVisionLatencyMs,
-            tags = Json.encodeToString(summary.tags),
-            match_number = summary.matchNumber?.toLong(),
-            alliance_color = summary.allianceColor
-        )
-    }
-
-    suspend fun getSessionSummary(sessionId: String): SessionSummary? = withContext(Dispatchers.IO) {
-        queries.getSessionSummary(sessionId).executeAsOneOrNull()?.toSessionSummary()
-    }
-
-    suspend fun getAllSessionSummaries(): List<SessionSummary> = withContext(Dispatchers.IO) {
-        queries.getAllSessionSummaries().executeAsList().map { it.toSessionSummary() }
-    }
-
-    // ────────────────────────────────────────────────────────────────────────────
-    // CRUD: Telemetry Frames
-    // ────────────────────────────────────────────────────────────────────────────
-
-    suspend fun insertTelemetryFrames(frames: List<TelemetryFrame>) = withContext(Dispatchers.IO) {
-        if (frames.isEmpty()) return@withContext
-        queries.transaction {
-            for (frame in frames) {
-                queries.insertTelemetryFrame(
-                    timestamp_ms = frame.timestampMs,
-                    session_id = frame.sessionId,
-                    key = frame.key,
-                    value_ = frame.value
-                )
-            }
-        }
-    }
-
-    suspend fun getTelemetryRange(sessionId: String, startMs: Long, endMs: Long): List<TelemetryFrame> = withContext(Dispatchers.IO) {
-        queries.getTelemetryRange(sessionId, startMs, endMs).executeAsList().map { it.toTelemetryFrame() }
-    }
-
-    suspend fun getTelemetryRangeBatched(sessionId: String, startMs: Long, endMs: Long, limit: Long, offset: Long): List<TelemetryFrame> = withContext(Dispatchers.IO) {
-        queries.getTelemetryRangeBatched(sessionId, startMs, endMs, limit, offset).executeAsList().map { it.toTelemetryFrame() }
-    }
-
-    suspend fun countTelemetryFrames(sessionId: String): Long = withContext(Dispatchers.IO) {
-        queries.countTelemetryFrames(sessionId).executeAsOne()
-    }
-
-    suspend fun getTelemetryForKey(sessionId: String, key: String): List<TelemetryFrame> = withContext(Dispatchers.IO) {
-        queries.getTelemetryForKey(sessionId, key).executeAsList().map { it.toTelemetryFrame() }
-    }
-
-    suspend fun deleteTelemetryFrames(sessionId: String) = withContext(Dispatchers.IO) {
-        queries.deleteTelemetryFrames(sessionId)
-    }
-
-    suspend fun pruneTelemetryFrames(sessionId: String, cutoffMs: Long) = withContext(Dispatchers.IO) {
-        queries.pruneTelemetryFrames(sessionId, cutoffMs)
-    }
-
-    // ────────────────────────────────────────────────────────────────────────────
-    // CRUD: Session Annotations
-    // ────────────────────────────────────────────────────────────────────────────
-
-    suspend fun insertAnnotation(annotation: SessionAnnotation) = withContext(Dispatchers.IO) {
-        queries.insertAnnotation(
-            annotation_id = annotation.annotationId,
-            session_id = annotation.sessionId,
-            text = annotation.text,
-            created_at = annotation.createdAt,
-            author_id = annotation.authorId
-        )
-    }
-
-    suspend fun getAnnotations(sessionId: String): List<SessionAnnotation> = withContext(Dispatchers.IO) {
-        queries.getAnnotations(sessionId).executeAsList().map { it.toSessionAnnotation() }
-    }
-
-    suspend fun updateSessionTags(sessionId: String, tags: List<String>) = withContext(Dispatchers.IO) {
-        val tagsJson = Json.encodeToString(tags)
-        queries.transaction {
-            queries.updateSessionTags(tagsJson, sessionId)
-            queries.updateSessionSummaryTags(tagsJson, sessionId)
-        }
-    }
-
-    suspend fun updateSessionMatchDetails(sessionId: String, matchNumber: Int?, allianceColor: String?) = withContext(Dispatchers.IO) {
-        val matchLong = matchNumber?.toLong()
-        queries.transaction {
-            queries.updateSessionMatchDetails(matchLong, allianceColor, sessionId)
-            queries.updateSessionSummaryMatchDetails(matchLong, allianceColor, sessionId)
-        }
-    }
-
-    suspend fun associateSessionWithMatch(sessionId: String, matchNumber: Int, allianceColor: String, opponentTeams: List<String>) = withContext(Dispatchers.IO) {
-        queries.transaction {
-            var currentTags = emptyList<String>()
-            val session = queries.getSessions().executeAsList().firstOrNull { it.session_id == sessionId }
-            if (session != null) {
-                currentTags = Json.decodeFromString<List<String>>(session.tags)
-            }
-            
-            val newTags = currentTags.filter { 
-                !it.startsWith("match-") && !it.startsWith("alliance-") && !it.startsWith("vs-") 
-            }.toMutableList()
-            
-            newTags.add("match-$matchNumber")
-            newTags.add("alliance-$allianceColor")
-            opponentTeams.forEach { opp ->
-                newTags.add("vs-$opp")
-            }
-            val tagsJson = Json.encodeToString(newTags)
-            val matchLong = matchNumber.toLong()
-            
-            queries.updateSessionTags(tagsJson, sessionId)
-            queries.updateSessionMatchDetails(matchLong, allianceColor, sessionId)
-            queries.updateSessionSummaryTags(tagsJson, sessionId)
-            queries.updateSessionSummaryMatchDetails(matchLong, allianceColor, sessionId)
-        }
-    }
-
-    suspend fun updateSessionLogFilePath(sessionId: String, logFilePath: String) = withContext(Dispatchers.IO) {
-        queries.updateSessionLogFilePath(logFilePath, sessionId)
-    }
-
-    // ────────────────────────────────────────────────────────────────────────────
-    // CRUD: Alerts
-    // ────────────────────────────────────────────────────────────────────────────
-
-    suspend fun insertAlert(alert: AlertRecord) = withContext(Dispatchers.IO) {
-        queries.insertAlert(
-            alert_id = alert.alertId,
-            session_id = alert.sessionId,
-            rule_key = alert.ruleKey,
-            trigger_timestamp_ms = alert.triggerTimestampMs,
-            resolve_timestamp_ms = alert.resolveTimestampMs,
-            duration_ms = alert.durationMs,
-            peak_value = alert.peakValue,
-            triaged = if (alert.triaged) 1 else 0
-        )
-    }
-
-    suspend fun getAlerts(sessionId: String): List<AlertRecord> = withContext(Dispatchers.IO) {
-        queries.getAlerts(sessionId).executeAsList().map { it.toAlertRecord() }
-    }
-
-    // ────────────────────────────────────────────────────────────────────────────
-    // CRUD: Cached Topologies
-    // ────────────────────────────────────────────────────────────────────────────
-
-    suspend fun insertTopology(topology: HardwareTopology) = withContext(Dispatchers.IO) {
-        queries.insertTopology(
-            robot_id = topology.robotId,
-            topology_json = Json.encodeToString(topology)
-        )
-    }
-
-    suspend fun getTopology(robotId: String): HardwareTopology? = withContext(Dispatchers.IO) {
-        val json = queries.getTopology(robotId).executeAsOneOrNull()
-        if (json != null) {
-            Json.decodeFromString<HardwareTopology>(json)
-        } else null
-    }
-
-    // ────────────────────────────────────────────────────────────────────────────
-    // Helper Mappings
-    // ────────────────────────────────────────────────────────────────────────────
-
-    private fun com.ares.analytics.database.Sessions.toSession(): Session {
-        return Session(
-            sessionId = session_id,
-            teamId = team_id,
-            seasonId = season_id,
-            robotId = robot_id,
-            createdAt = created_at,
-            durationMs = duration_ms,
-            tags = Json.decodeFromString<List<String>>(tags),
-            matchNumber = match_number?.toInt(),
-            allianceColor = alliance_color
-        )
-    }
-
-    private fun com.ares.analytics.database.Session_summaries.toSessionSummary(): SessionSummary {
-        return SessionSummary(
-            sessionId = session_id,
-            teamId = team_id,
-            seasonId = season_id,
-            robotId = robot_id,
-            createdAt = created_at,
-            durationMs = duration_ms,
-            minBatteryVoltage = min_battery_voltage,
-            maxEkfDrift = max_ekf_drift,
-            avgLoopTimeMs = avg_loop_time_ms,
-            p95LoopTimeMs = p95_loop_time_ms,
-            motorCurrentAverages = Json.decodeFromString<Map<String, Double>>(motor_current_averages),
-            visionAcceptanceRate = vision_acceptance_rate,
-            avgCrossTrackError = avg_cross_track_error,
-            avgBatteryResistance = avg_battery_resistance,
-            maxMotorTemps = Json.decodeFromString<Map<String, Double>>(max_motor_temps),
-            avgVisionLatencyMs = avg_vision_latency_ms,
-            tags = Json.decodeFromString<List<String>>(tags),
-            matchNumber = match_number?.toInt(),
-            allianceColor = alliance_color
-        )
-    }
-
-    private fun com.ares.analytics.database.Telemetry_frames.toTelemetryFrame(): TelemetryFrame {
-        return TelemetryFrame(
-            timestampMs = timestamp_ms,
-            sessionId = session_id,
-            key = key,
-            value = value_
-        )
-    }
-
-    private fun com.ares.analytics.database.Session_annotations.toSessionAnnotation(): SessionAnnotation {
-        return SessionAnnotation(
-            annotationId = annotation_id,
-            sessionId = session_id,
-            text = text,
-            createdAt = created_at,
-            authorId = author_id
-        )
-    }
-
-    private fun com.ares.analytics.database.Alerts.toAlertRecord(): AlertRecord {
-        return AlertRecord(
-            alertId = alert_id,
-            sessionId = session_id,
-            ruleKey = rule_key,
-            triggerTimestampMs = trigger_timestamp_ms,
-            resolveTimestampMs = resolve_timestamp_ms,
-            durationMs = duration_ms,
-            peakValue = peak_value,
-            triaged = triaged == 1L
-        )
-    }
-
-    suspend fun insertConsoleMessages(messages: List<ConsoleMessage>, sessionId: String) = withContext(Dispatchers.IO) {
-        if (messages.isEmpty()) return@withContext
-        queries.transaction {
-            for (msg in messages) {
-                queries.insertConsoleMessage(
-                    timestamp_ms = msg.timestampMs,
-                    session_id = sessionId,
-                    text = msg.text,
-                    severity = msg.severity
-                )
-            }
-        }
-    }
-
-    suspend fun getConsoleMessages(sessionId: String): List<ConsoleMessage> = withContext(Dispatchers.IO) {
-        queries.getConsoleMessages(sessionId).executeAsList().map {
-            ConsoleMessage(
-                timestampMs = it.timestamp_ms,
-                text = it.text,
-                severity = it.severity
-            )
+    suspend fun importParquet(file: File) = withDbLock {
+        val absolutePath = file.absolutePath.replace("\\", "/")
+        conn.createStatement().use { st ->
+            st.execute("""
+                INSERT OR REPLACE INTO telemetry_frames 
+                SELECT * FROM read_parquet('$absolutePath')
+            """.trimIndent())
         }
     }
 }

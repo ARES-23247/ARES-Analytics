@@ -99,7 +99,8 @@ data class SessionSummary(
     val tags: List<String> = emptyList(),
     val matchNumber: Int? = null,
     val allianceColor: String? = null,
-    val rawGcsPath: String? = null
+    val rawGcsPath: String? = null,
+    val fileSizeBytes: Long = 0L
 )
 
 @Serializable
@@ -196,6 +197,12 @@ data class UploadUrlRequest(
 @Serializable
 data class UploadUrlResponse(
     val uploadUrl: String,
+    val expiresAt: Long
+)
+
+@Serializable
+data class DownloadUrlResponse(
+    val downloadUrl: String,
     val expiresAt: Long
 )
 

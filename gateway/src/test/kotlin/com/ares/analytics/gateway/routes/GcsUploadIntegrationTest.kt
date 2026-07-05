@@ -53,7 +53,7 @@ class GcsUploadIntegrationTest {
         val mockUserFuture = mock(ApiFuture::class.java) as ApiFuture<DocumentSnapshot>
         val mockUserDoc = mock(DocumentSnapshot::class.java)
 
-        `when`(mockFirestore.collection("users")).thenReturn(mockUserCollection)
+        `when`(mockFirestore.collection("authorized_users")).thenReturn(mockUserCollection)
         `when`(mockUserCollection.document("uid")).thenReturn(mockUserDocRef)
         `when`(mockUserDocRef.get()).thenReturn(mockUserFuture)
         `when`(mockUserFuture.get()).thenReturn(mockUserDoc)
@@ -64,8 +64,9 @@ class GcsUploadIntegrationTest {
         // Mock storage.signUrl(blobInfo, duration, unit, options)
         `when`(mockStorage.signUrl(
             any(BlobInfo::class.java),
-            anyLong(),
+            org.mockito.ArgumentMatchers.anyLong(),
             any(TimeUnit::class.java),
+            any(Storage.SignUrlOption::class.java),
             any(Storage.SignUrlOption::class.java)
         )).thenReturn(mockUrl)
 
@@ -104,7 +105,9 @@ class GcsUploadIntegrationTest {
             visionAcceptanceRate = 0.95,
             tags = listOf("test"),
             matchNumber = 1,
-            allianceColor = "blue"
+            allianceColor = "blue",
+            rawGcsPath = null,
+            fileSizeBytes = 0L
         )
 
         val uploadReq = UploadUrlRequest(
@@ -122,6 +125,10 @@ class GcsUploadIntegrationTest {
             header(HttpHeaders.Authorization, "Bearer mock-token:uid:email:name")
             contentType(ContentType.Application.Json)
             setBody(reqJson)
+        }
+        
+        if (response.status != HttpStatusCode.OK) {
+            println("Upload failed: ${response.bodyAsText()}")
         }
 
         assertEquals(HttpStatusCode.OK, response.status)

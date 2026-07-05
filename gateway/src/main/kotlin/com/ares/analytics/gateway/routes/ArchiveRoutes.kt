@@ -110,6 +110,28 @@ fun Route.archiveRoutes(
             }
         }
 
+        get("/api/archive/download-url") {
+            val principal = call.principal<FirebasePrincipal>() ?: return@get call.respond(HttpStatusCode.Unauthorized)
+            val sessionId = call.request.queryParameters["sessionId"] ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing sessionId")
+            val teamId = call.request.queryParameters["teamId"] ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing teamId")
+
+            try {
+                val blobInfo = BlobInfo.newBuilder(bucketName, "${teamId}/telemetry/${sessionId}.parquet").build()
+                val downloadUrl = storage.signUrl(
+                    blobInfo,
+                    1,
+                    TimeUnit.HOURS,
+                    Storage.SignUrlOption.httpMethod(HttpMethod.GET),
+                    Storage.SignUrlOption.withV4Signature()
+                )
+
+                val expiresAt = System.currentTimeMillis() + TimeUnit.HOURS.toMillis(1)
+                call.respond(DownloadUrlResponse(downloadUrl.toString(), expiresAt))
+            } catch (e: Exception) {
+                call.respond(HttpStatusCode.InternalServerError, "Failed to provision download: ${e.message}")
+            }
+        }
+
         get("/api/team/{teamId}/robots") {
             val teamId = call.parameters["teamId"] ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing teamId")
             try {
@@ -200,10 +222,34 @@ fun Route.archiveRoutes(
  * Reads the 'role' field from the ARESWEB Firestore users collection.
  */
 private suspend fun isUserAdmin(db: Firestore, uid: String): Boolean {
+    // 1. Try ARESWEB 'authorized_users' collection
+    val authUserDoc = db.collection("authorized_users").document(uid).get().get()
+    if (authUserDoc.exists()) {
+        val role = authUserDoc.getString("role")?.lowercase()
+        if (role == "admin" || role == "coach") {
+            return true
+        }
+    }
+
+    // 2. Try ARESWEB 'user_profiles' collection
+    val areswebDoc = db.collection("user_profiles").document(uid).get().get()
+    if (areswebDoc.exists()) {
+        val memberType = areswebDoc.getString("memberType")?.lowercase()
+        if (memberType == "admin" || memberType == "coach") {
+            return true
+        }
+    }
+
+    // 3. Try old/local 'users' collection fallback
     val userDoc = db.collection("users").document(uid).get().get()
-    if (!userDoc.exists()) return false
-    val role = userDoc.getString("role")?.lowercase()
-    return role == "admin" || role == "coach"
+    if (userDoc.exists()) {
+        val role = userDoc.getString("role")?.lowercase()
+        if (role == "admin" || role == "coach") {
+            return true
+        }
+    }
+
+    return false
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -227,7 +273,8 @@ private fun SessionSummary.toMap(): Map<String, Any?> {
         "tags" to tags,
         "matchNumber" to matchNumber,
         "allianceColor" to allianceColor,
-        "rawGcsPath" to rawGcsPath
+        "rawGcsPath" to rawGcsPath,
+        "fileSizeBytes" to fileSizeBytes
     )
 }
 
@@ -253,6 +300,7 @@ private fun Map<String, Any?>.toSessionSummary(): SessionSummary {
         tags = (get("tags") as? List<*>)?.map { it.toString() } ?: emptyList(),
         matchNumber = (get("matchNumber") as? Number)?.toInt(),
         allianceColor = get("allianceColor") as? String,
-        rawGcsPath = get("rawGcsPath") as? String
+        rawGcsPath = get("rawGcsPath") as? String,
+        fileSizeBytes = (get("fileSizeBytes") as? Number)?.toLong() ?: 0L
     )
 }

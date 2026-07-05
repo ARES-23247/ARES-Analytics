@@ -5,17 +5,8 @@ plugins {
     kotlin("plugin.serialization")
     id("org.jetbrains.compose")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("app.cash.sqldelight")
 }
 
-sqldelight {
-    databases {
-        create("AresDatabase") {
-            packageName.set("com.ares.analytics.database")
-            verifyMigrations.set(false)
-        }
-    }
-}
 
 dependencies {
     // Compose Desktop
@@ -25,10 +16,12 @@ dependencies {
 
     // Shared module
     implementation(project(":shared"))
+    
+    // Robot Core Math & Physics (Local Publish)
+    implementation("com.areslib:core:1.0-SNAPSHOT")
 
-    // Database — SQLite via SQLDelight & JDBC
-    implementation("app.cash.sqldelight:sqlite-driver:2.0.2")
-    implementation("org.xerial:sqlite-jdbc:3.46.1.0")
+    // Database — DuckDB via JDBC
+    implementation("org.duckdb:duckdb_jdbc:1.1.3")
 
     // Networking — Ktor client
     implementation("io.ktor:ktor-client-cio:3.0.3")
@@ -48,14 +41,6 @@ dependencies {
     implementation("org.ejml:ejml-simple:0.43.1")
     implementation("org.apache.commons:commons-math3:3.6.1")
 
-    // Parquet export
-    implementation("org.apache.parquet:parquet-avro:1.14.4")
-    implementation("org.apache.hadoop:hadoop-common:3.4.1") {
-        // Exclude heavyweight transitive deps not needed for local Parquet writing
-        exclude(group = "org.apache.curator")
-        exclude(group = "org.apache.zookeeper")
-        exclude(group = "org.apache.kerby")
-    }
 
     // Firebase client
     implementation("com.google.firebase:firebase-admin:9.4.2")
@@ -94,8 +79,3 @@ compose.desktop {
     }
 }
 
-tasks.configureEach {
-    if (name.contains("verify", ignoreCase = true) && name.contains("migration", ignoreCase = true)) {
-        enabled = false
-    }
-}

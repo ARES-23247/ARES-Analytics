@@ -4,6 +4,7 @@ import com.ares.analytics.shared.*
 import io.ktor.client.*
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.*
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.*
@@ -25,6 +26,11 @@ class SyncEngineService(
     private val httpClient: HttpClient = HttpClient {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
+        }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 30 * 60 * 1000L // 30 minutes for large uploads
+            connectTimeoutMillis = 60 * 1000L // 60 seconds connection
+            socketTimeoutMillis = 30 * 60 * 1000L // 30 minutes read/write
         }
     }
 ) {
@@ -59,6 +65,8 @@ class SyncEngineService(
         val tempFile = File(tempDir, "$sessionId.parquet")
         parquetExporterService.exportSessionToParquet(sessionId, tempFile)
 
+        val updatedSummary = summary.copy(fileSizeBytes = tempFile.length())
+
         try {
             // 2. Request pre-signed GCS upload URL from Ktor Gateway
             val uploadReq = UploadUrlRequest(
@@ -67,7 +75,7 @@ class SyncEngineService(
                 robotId = summary.robotId,
                 sessionId = sessionId,
                 createdAt = summary.createdAt,
-                summary = summary
+                summary = updatedSummary
             )
 
             val urlResponse = httpClient.post("$gatewayUrl/api/archive/upload-url") {
@@ -194,7 +202,7 @@ class SyncEngineService(
 
         val syncResponse = response.body<SyncResponse>()
 
-        // 3. Store missing summaries locally
+        // 3. Store missing summaries locally and download parquet
         for (summary in syncResponse.missingSummaries) {
             databaseService.insertSessionSummary(summary)
             // Save mock local session reference so they show up in index
@@ -210,6 +218,24 @@ class SyncEngineService(
                 allianceColor = summary.allianceColor
             )
             databaseService.insertSession(session)
+
+            // Download and import Parquet file
+            try {
+                val urlResponse = httpClient.get("$gatewayUrl/api/archive/download-url?sessionId=${summary.sessionId}&teamId=${summary.teamId}") {
+                    header(HttpHeaders.Authorization, "Bearer $token")
+                }
+                if (urlResponse.status.isSuccess()) {
+                    val downloadUrl = urlResponse.body<DownloadUrlResponse>().downloadUrl
+                    val fileBytes = httpClient.get(downloadUrl).readBytes()
+                    val tempFile = File.createTempFile("cloud_sync_${summary.sessionId}_", ".parquet")
+                    tempFile.writeBytes(fileBytes)
+                    
+                    databaseService.importParquet(tempFile)
+                    tempFile.delete()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 

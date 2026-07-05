@@ -107,16 +107,9 @@ class AutoImportService(
                         session.sessionId
                     }
 
-                    // Move to imported folder
-                    val dest = File(importedDir, file.name)
-                    if (file.renameTo(dest)) {
-                        _importNotifications.emit("[AUTO-IMPORT] Successfully imported ${file.name} (Session ID: ${sessionId.take(8)}...)")
-                    } else {
-                        // If rename fails, copy and delete
-                        file.copyTo(dest, overwrite = true)
-                        file.delete()
-                        _importNotifications.emit("[AUTO-IMPORT] Successfully imported ${file.name} (Session ID: ${sessionId.take(8)}...)")
-                    }
+                    // Delete the local raw log after successful import to save disk space
+                    file.delete()
+                    _importNotifications.emit("[AUTO-IMPORT] Successfully imported ${file.name} (Session ID: ${sessionId.take(8)}...)")
                     
                     // Trigger UI reload
                     onImportSuccessCallback?.invoke()
@@ -165,9 +158,8 @@ class AutoImportService(
                                 session.sessionId
                             }
 
-                            // Keep copy in local logs/imported/ directory
-                            val permanentDest = File(localDestDir, filename)
-                            tempLocalFile.renameTo(permanentDest)
+                            // Delete the temporary local file since it's now in the database
+                            tempLocalFile.delete()
 
                             // Delete from robot to save disk space
                             deleteFileFromFtcRobot(adbPath, remotePath)
@@ -222,9 +214,8 @@ class AutoImportService(
                                 session.sessionId
                             }
 
-                            // Keep copy in local logs/imported/ directory
-                            val permanentDest = File(localDestDir, filename)
-                            tempLocalFile.renameTo(permanentDest)
+                            // Delete the temporary local file since it's now in the database
+                            tempLocalFile.delete()
 
                             // Delete from RoboRIO to save space
                             deleteFileFromFrcRobot(host, remotePath)

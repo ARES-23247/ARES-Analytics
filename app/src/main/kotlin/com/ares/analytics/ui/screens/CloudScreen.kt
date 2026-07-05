@@ -3,6 +3,7 @@ package com.ares.analytics.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -166,12 +167,37 @@ fun CloudScreen(
                             items(state.cloudLogs, key = { it.sessionId }) { summary ->
                                 CloudLogRow(
                                     summary = summary,
-                                    isDownloading = state.isDownloadingCloudLog == summary.sessionId,
                                     isDeleting = state.isDeletingCloudLog == summary.sessionId,
-                                    onDownload = { viewModel.onIntent(CloudIntent.DownloadCloudLog(summary.sessionId)) },
                                     onDelete = { viewModel.onIntent(CloudIntent.DeleteCloudLog(summary.sessionId, summary.teamId)) }
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Console Output
+        if (state.uploadLogs.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(150.dp)
+                    .background(AresBackground, RoundedCornerShape(8.dp))
+                    .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
+                    .padding(8.dp)
+            ) {
+                Text("Upload Console", color = AresCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp))
+                val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+                LaunchedEffect(state.uploadLogs.size) {
+                    if (state.uploadLogs.isNotEmpty()) {
+                        lazyListState.animateScrollToItem(state.uploadLogs.size - 1)
+                    }
+                }
+                SelectionContainer {
+                    LazyColumn(state = lazyListState, modifier = Modifier.fillMaxSize()) {
+                        items(state.uploadLogs) { log ->
+                            Text(log, color = AresTextSecondary, fontSize = 11.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                         }
                     }
                 }
@@ -230,9 +256,7 @@ fun RobotRunRow(
 @Composable
 fun CloudLogRow(
     summary: SessionSummary,
-    isDownloading: Boolean,
     isDeleting: Boolean,
-    onDownload: () -> Unit,
     onDelete: () -> Unit
 ) {
     Row(
@@ -245,9 +269,15 @@ fun CloudLogRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column {
-            Text("Session: ${summary.sessionId.takeLast(8)}", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+            val formatter = java.text.SimpleDateFormat("yyyyMMdd_HHmmss")
+            val runName = formatter.format(java.util.Date(summary.createdAt))
+            Text("Run: $runName (Cloud: ${summary.sessionId.takeLast(8)})", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+            
+            val sizeStr = if (summary.fileSizeBytes > 0) " | Size: ${summary.fileSizeBytes / 1024} KB" else ""
+            val dateStr = java.text.SimpleDateFormat("MMM dd, HH:mm").format(java.util.Date(summary.createdAt))
+            
             Text(
-                "Match: ${summary.matchNumber ?: "None"} | Date: ${java.util.Date(summary.createdAt)}",
+                "Match: ${summary.matchNumber ?: "None"}$sizeStr | $dateStr",
                 color = AresTextSecondary,
                 fontSize = 12.sp
             )
@@ -256,25 +286,12 @@ fun CloudLogRow(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             IconButton(
                 onClick = onDelete,
-                enabled = !isDeleting && !isDownloading
+                enabled = !isDeleting
             ) {
                 if (isDeleting) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AresRed, strokeWidth = 2.dp)
                 } else {
                     Icon(Icons.Default.Delete, contentDescription = "Delete from cloud", tint = AresRed)
-                }
-            }
-            Button(
-                onClick = onDownload,
-                enabled = !isDownloading && !isDeleting,
-                colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated)
-            ) {
-                if (isDownloading) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AresCyan, strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Default.CloudDownload, contentDescription = null, tint = AresCyan, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Load Local", color = AresCyan)
                 }
             }
         }

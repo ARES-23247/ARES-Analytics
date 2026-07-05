@@ -138,6 +138,9 @@ fun MecanumVisualizer(
                     WheelData("BR", Offset(cx + robotW / 2f, cy + robotH / 2f), Math.toRadians(45.0), velocities[3], currents[3])
                 )
 
+                val maxAbsSpeed = wheels.maxOfOrNull { Math.abs(it.speed) }?.toFloat() ?: 0f
+                val speedScale = if (maxAbsSpeed > 2.0f) Math.max(maxAbsSpeed, 100f) else 1.0f
+
                 for (w in wheels) {
                     val center = w.center
                     val wWidth = 32f
@@ -180,9 +183,10 @@ fun MecanumVisualizer(
                     }
 
                     // Draw spin vector arrow (along wheel axis, vertically)
-                    if (Math.abs(w.speed) > 0.05) {
+                    val normalizedSpeed = (w.speed / speedScale).toFloat()
+                    if (Math.abs(normalizedSpeed) > 0.05f) {
                         val maxArrowLen = 40f
-                        val arrowLen = (w.speed * 30f).toFloat().coerceIn(-maxArrowLen, maxArrowLen)
+                        val arrowLen = normalizedSpeed * maxArrowLen
                         val spinEnd = Offset(center.x, center.y - arrowLen)
 
                         drawLine(
@@ -203,7 +207,7 @@ fun MecanumVisualizer(
                             else -> 0.0
                         }
 
-                        val forceLen = Math.abs(w.speed * 30f).toFloat().coerceIn(10f, maxArrowLen)
+                        val forceLen = Math.abs(normalizedSpeed * maxArrowLen)
                         val forceEnd = Offset(
                             center.x + forceLen * cos(forceAngle).toFloat(),
                             center.y + forceLen * sin(forceAngle).toFloat()
@@ -236,7 +240,8 @@ fun MecanumVisualizer(
                 var netForceX = 0f
                 var netForceY = 0f
                 for (w in wheels) {
-                    if (Math.abs(w.speed) > 0.05) {
+                    val normalizedSpeed = (w.speed / speedScale).toFloat()
+                    if (Math.abs(normalizedSpeed) > 0.05f) {
                         val forceAngle = when (w.name) {
                             "FL" -> if (w.speed >= 0) Math.toRadians(-45.0) else Math.toRadians(135.0)
                             "FR" -> if (w.speed >= 0) Math.toRadians(-135.0) else Math.toRadians(45.0)
@@ -244,16 +249,16 @@ fun MecanumVisualizer(
                             "BR" -> if (w.speed >= 0) Math.toRadians(-45.0) else Math.toRadians(135.0)
                             else -> 0.0
                         }
-                        val forceLen = Math.abs(w.speed).toFloat()
+                        val forceLen = Math.abs(normalizedSpeed)
                         netForceX += forceLen * cos(forceAngle).toFloat()
                         netForceY += forceLen * sin(forceAngle).toFloat()
                     }
                 }
 
                 val netMagnitude = Math.sqrt((netForceX * netForceX + netForceY * netForceY).toDouble()).toFloat()
-                if (netMagnitude > 0.1f) {
-                    val scaleFactor = 30f // scale for visualization
-                    val arrowLen = (netMagnitude * scaleFactor).coerceAtMost(100f) // max length for the net arrow
+                if (netMagnitude > 0.05f) {
+                    val maxNetArrowLen = 100f
+                    val arrowLen = (netMagnitude * maxNetArrowLen).coerceAtMost(maxNetArrowLen)
                     val netAngle = Math.atan2(netForceY.toDouble(), netForceX.toDouble())
                     
                     val netStart = Offset(cx, cy)

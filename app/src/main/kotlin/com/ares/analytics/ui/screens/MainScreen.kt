@@ -580,6 +580,7 @@ fun MainScreen(services: ServiceRegistry) {
                                     mainViewModel.onIntent(MainIntent.SaveConfig(newConfig))
                                 }
                             )
+                            NavigationTarget.REPLAY -> ReplayScreen()
                             NavigationTarget.ADMIN -> AdminScreen(
                                 teamApiService = services.teamApiService,
                                 oauthService = services.oauthService,
