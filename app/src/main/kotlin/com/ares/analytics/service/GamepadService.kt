@@ -1,6 +1,5 @@
 package com.ares.analytics.service
 
-import com.studiohartman.jamepad.ControllerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -11,9 +10,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import org.lwjgl.glfw.GLFW.*
 
 data class GamepadState(
     val connected: Boolean = false,
+    val name: String = "",
     val leftStickX: Float = 0f,
     val leftStickY: Float = 0f,
     val rightStickX: Float = 0f,
@@ -32,8 +33,14 @@ data class GamepadState(
     val dpadRight: Boolean = false
 )
 
+/**
+ * Gamepad input service using LWJGL/GLFW instead of Jamepad/SDL.
+ * GLFW bundles platform natives cleanly via Maven classifier JARs,
+ * eliminating the org/libsdl/SDL ClassNotFoundError.
+ *
+ * Joystick polling in GLFW does NOT require a window context.
+ */
 class GamepadService {
-    private val controllerManager = ControllerManager(2)
     private var isInitialized = false
 
     private val _gamepad1State = MutableStateFlow(GamepadState())
@@ -48,79 +55,118 @@ class GamepadService {
     fun start() {
         if (!isInitialized) {
             try {
-                controllerManager.initSDLGamepad()
+                if (!glfwInit()) {
+                    println("[GamepadService] Failed to initialize GLFW. Gamepad support disabled.")
+                    return
+                }
                 isInitialized = true
+                println("[GamepadService] GLFW initialized successfully.")
             } catch (e: Throwable) {
-                println("[GamepadService] SDL gamepad init failed (native library missing?): ${e.message}")
+                println("[GamepadService] GLFW init failed: ${e.message}")
                 return
             }
         }
 
-        if (pollingJob?.isActive == true || !isInitialized) return
+        if (pollingJob?.isActive == true) return
 
         pollingJob = scope.launch {
-            while (isActive) {
-                controllerManager.update()
-
-                val state1 = controllerManager.getState(0)
-                if (state1.isConnected) {
-                    _gamepad1State.update {
-                        GamepadState(
-                            connected = true,
-                            leftStickX = state1.leftStickX,
-                            leftStickY = state1.leftStickY,
-                            rightStickX = state1.rightStickX,
-                            rightStickY = state1.rightStickY,
-                            leftTrigger = state1.leftTrigger,
-                            rightTrigger = state1.rightTrigger,
-                            a = state1.a,
-                            b = state1.b,
-                            x = state1.x,
-                            y = state1.y,
-                            leftBumper = state1.lb,
-                            rightBumper = state1.rb,
-                            dpadUp = state1.dpadUp,
-                            dpadDown = state1.dpadDown,
-                            dpadLeft = state1.dpadLeft,
-                            dpadRight = state1.dpadRight
-                        )
+            val gamepadState = org.lwjgl.glfw.GLFWGamepadState.malloc()
+            try {
+                while (isActive) {
+                    try {
+                        pollJoystick(GLFW_JOYSTICK_1, gamepadState, _gamepad1State)
+                        pollJoystick(GLFW_JOYSTICK_2, gamepadState, _gamepad2State)
+                    } catch (e: Exception) {
+                        // Swallow transient GLFW errors
                     }
-                } else {
-                    if (_gamepad1State.value.connected) {
-                        _gamepad1State.update { GamepadState(connected = false) }
-                    }
+                    delay(20) // 50 Hz polling rate
                 }
+            } finally {
+                gamepadState.free()
+            }
+        }
+    }
 
-                val state2 = controllerManager.getState(1)
-                if (state2.isConnected) {
-                    _gamepad2State.update {
-                        GamepadState(
-                            connected = true,
-                            leftStickX = state2.leftStickX,
-                            leftStickY = state2.leftStickY,
-                            rightStickX = state2.rightStickX,
-                            rightStickY = state2.rightStickY,
-                            leftTrigger = state2.leftTrigger,
-                            rightTrigger = state2.rightTrigger,
-                            a = state2.a,
-                            b = state2.b,
-                            x = state2.x,
-                            y = state2.y,
-                            leftBumper = state2.lb,
-                            rightBumper = state2.rb,
-                            dpadUp = state2.dpadUp,
-                            dpadDown = state2.dpadDown,
-                            dpadLeft = state2.dpadLeft,
-                            dpadRight = state2.dpadRight
-                        )
-                    }
-                } else {
-                    if (_gamepad2State.value.connected) {
-                        _gamepad2State.update { GamepadState(connected = false) }
-                    }
-                }
+    private fun pollJoystick(
+        joystickId: Int,
+        gamepadState: org.lwjgl.glfw.GLFWGamepadState,
+        stateFlow: MutableStateFlow<GamepadState>
+    ) {
+        if (!glfwJoystickPresent(joystickId)) {
+            if (stateFlow.value.connected) {
+                stateFlow.update { GamepadState(connected = false) }
+            }
+            return
+        }
 
-                delay(20) // 50 Hz polling rate
+        val name = glfwGetJoystickName(joystickId) ?: "Unknown Gamepad"
+
+        if (glfwJoystickIsGamepad(joystickId) && glfwGetGamepadState(joystickId, gamepadState)) {
+            // Standardized gamepad API (Xbox/XInput mapping)
+            val lx = gamepadState.axes(GLFW_GAMEPAD_AXIS_LEFT_X)
+            val ly = gamepadState.axes(GLFW_GAMEPAD_AXIS_LEFT_Y)
+            val rx = gamepadState.axes(GLFW_GAMEPAD_AXIS_RIGHT_X)
+            val ry = gamepadState.axes(GLFW_GAMEPAD_AXIS_RIGHT_Y)
+            val lt = gamepadState.axes(GLFW_GAMEPAD_AXIS_LEFT_TRIGGER)
+            val rt = gamepadState.axes(GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER)
+
+            stateFlow.update {
+                GamepadState(
+                    connected = true,
+                    name = name,
+                    leftStickX = applyDeadzone(lx),
+                    leftStickY = applyDeadzone(ly),
+                    rightStickX = applyDeadzone(rx),
+                    rightStickY = applyDeadzone(ry),
+                    leftTrigger = normalizeTrigger(lt),
+                    rightTrigger = normalizeTrigger(rt),
+                    a = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_A) == GLFW_PRESS.toByte(),
+                    b = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_B) == GLFW_PRESS.toByte(),
+                    x = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_X) == GLFW_PRESS.toByte(),
+                    y = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_Y) == GLFW_PRESS.toByte(),
+                    leftBumper = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER) == GLFW_PRESS.toByte(),
+                    rightBumper = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER) == GLFW_PRESS.toByte(),
+                    dpadUp = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_DPAD_UP) == GLFW_PRESS.toByte(),
+                    dpadDown = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_DPAD_DOWN) == GLFW_PRESS.toByte(),
+                    dpadLeft = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_DPAD_LEFT) == GLFW_PRESS.toByte(),
+                    dpadRight = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_DPAD_RIGHT) == GLFW_PRESS.toByte()
+                )
+            }
+        } else {
+            // Fallback: raw joystick axes/buttons (DirectInput, Bluetooth, etc.)
+            val axes = glfwGetJoystickAxes(joystickId)
+            val buttons = glfwGetJoystickButtons(joystickId)
+
+            val lx = if (axes != null && axes.capacity() > 0) axes[0] else 0f
+            val ly = if (axes != null && axes.capacity() > 1) axes[1] else 0f
+            val rx = if (axes != null && axes.capacity() > 2) axes[2] else 0f
+            val ry = if (axes != null && axes.capacity() > 3) axes[3] else 0f
+            val lt = if (axes != null && axes.capacity() > 4) axes[4] else -1f
+            val rt = if (axes != null && axes.capacity() > 5) axes[5] else -1f
+
+            val cap = buttons?.capacity() ?: 0
+
+            stateFlow.update {
+                GamepadState(
+                    connected = true,
+                    name = name,
+                    leftStickX = applyDeadzone(lx),
+                    leftStickY = applyDeadzone(ly),
+                    rightStickX = applyDeadzone(rx),
+                    rightStickY = applyDeadzone(ry),
+                    leftTrigger = normalizeTrigger(lt),
+                    rightTrigger = normalizeTrigger(rt),
+                    a = cap > 0 && buttons!![0] == GLFW_PRESS.toByte(),
+                    b = cap > 1 && buttons!![1] == GLFW_PRESS.toByte(),
+                    x = cap > 2 && buttons!![2] == GLFW_PRESS.toByte(),
+                    y = cap > 3 && buttons!![3] == GLFW_PRESS.toByte(),
+                    leftBumper = cap > 4 && buttons!![4] == GLFW_PRESS.toByte(),
+                    rightBumper = cap > 5 && buttons!![5] == GLFW_PRESS.toByte(),
+                    dpadUp = cap > 10 && buttons!![10] == GLFW_PRESS.toByte(),
+                    dpadDown = cap > 12 && buttons!![12] == GLFW_PRESS.toByte(),
+                    dpadLeft = cap > 13 && buttons!![13] == GLFW_PRESS.toByte(),
+                    dpadRight = cap > 11 && buttons!![11] == GLFW_PRESS.toByte()
+                )
             }
         }
     }
@@ -133,8 +179,22 @@ class GamepadService {
     fun dispose() {
         stop()
         if (isInitialized) {
-            controllerManager.quitSDLGamepad()
+            // Don't call glfwTerminate() — other parts of the app may use GLFW
             isInitialized = false
+        }
+    }
+
+    companion object {
+        private const val DEADZONE = 0.08f
+
+        /** Apply a circular deadzone to stick axes */
+        private fun applyDeadzone(value: Float): Float {
+            return if (kotlin.math.abs(value) < DEADZONE) 0f else value
+        }
+
+        /** GLFW triggers range from -1.0 (released) to 1.0 (pressed). Normalize to 0.0..1.0 */
+        private fun normalizeTrigger(raw: Float): Float {
+            return ((raw + 1f) / 2f).coerceIn(0f, 1f)
         }
     }
 }

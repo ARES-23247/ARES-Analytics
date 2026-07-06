@@ -57,8 +57,13 @@ dependencies {
     // Compression
     implementation("org.tukaani:xz:1.10")
 
-    // Gamepad Support
-    implementation("com.github.williamahartman:Jamepad:1.4.0")
+    // Gamepad Support (LWJGL / GLFW — no external SDL dependency)
+    val lwjglVersion = "3.3.4"
+    val lwjglNatives = "natives-windows"
+    implementation("org.lwjgl:lwjgl:$lwjglVersion")
+    implementation("org.lwjgl:lwjgl-glfw:$lwjglVersion")
+    runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")
+    runtimeOnly("org.lwjgl:lwjgl-glfw:$lwjglVersion:$lwjglNatives")
 }
 
 compose.desktop {
