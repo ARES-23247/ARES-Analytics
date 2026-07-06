@@ -97,10 +97,18 @@ class ServiceRegistry {
         if (lazyFieldInitialized(::databaseService)) {
             databaseService.close()
         }
+        if (lazyFieldInitialized(::gamepadService)) {
+            gamepadService.dispose()
+        }
     }
 
     // ── Global Keyboard Drive State ──────────────────────────────────────────
     val keyboardDriveState by lazy { KeyboardDriveState() }
+
+    // ── Gamepad Service ──────────────────────────────────────────────────────
+    val gamepadService by lazy { 
+        GamepadService().apply { start() } 
+    }
 
     private fun lazyFieldInitialized(prop: kotlin.reflect.KProperty0<*>): Boolean {
         return try {
@@ -113,23 +121,30 @@ class ServiceRegistry {
 
 class KeyboardDriveState {
     var enabled by androidx.compose.runtime.mutableStateOf(true)
+    
+    // Left Stick (W/A/S/D)
     var isWPressed by androidx.compose.runtime.mutableStateOf(false)
     var isSPressed by androidx.compose.runtime.mutableStateOf(false)
     var isAPressed by androidx.compose.runtime.mutableStateOf(false)
     var isDPressed by androidx.compose.runtime.mutableStateOf(false)
+    
+    // Right Stick (Arrow Keys)
+    var isUpPressed by androidx.compose.runtime.mutableStateOf(false)
+    var isDownPressed by androidx.compose.runtime.mutableStateOf(false)
+    var isLeftPressed by androidx.compose.runtime.mutableStateOf(false)
+    var isRightPressed by androidx.compose.runtime.mutableStateOf(false)
+    
+    // Face Buttons (J, L, U, I)
+    var isJPressed by androidx.compose.runtime.mutableStateOf(false)
+    var isLPressed by androidx.compose.runtime.mutableStateOf(false)
+    var isUPressed by androidx.compose.runtime.mutableStateOf(false)
+    var isIPressed by androidx.compose.runtime.mutableStateOf(false)
+    
+    // Bumpers (Q, E)
     var isQPressed by androidx.compose.runtime.mutableStateOf(false)
     var isEPressed by androidx.compose.runtime.mutableStateOf(false)
-    var isTransferring by androidx.compose.runtime.mutableStateOf(false)
-    var isTeleopMode by androidx.compose.runtime.mutableStateOf(true)
-    var isFieldCentric by androidx.compose.runtime.mutableStateOf(false)
-    var isRedAlliance by androidx.compose.runtime.mutableStateOf(false)
-    var isIntaking by androidx.compose.runtime.mutableStateOf(false)
-    var isFlywheelOn by androidx.compose.runtime.mutableStateOf(false)
-
-    // Repeat keys guards
-    var isSpacePressed = false
-    var isCPressed = false
-    var isRPressed = false
-    var isShiftPressed = false
-    var isFPressed = false
+    
+    // Triggers (Space, Shift)
+    var isSpacePressed by androidx.compose.runtime.mutableStateOf(false)
+    var isShiftPressed by androidx.compose.runtime.mutableStateOf(false)
 }

@@ -27,10 +27,23 @@ fun WaypointCard(
     onChanged: (Waypoint) -> Unit,
     onDelete: () -> Unit
 ) {
-    var xText by remember(wp.x) { mutableStateOf(String.format("%.3f", wp.x)) }
-    var yText by remember(wp.y) { mutableStateOf(String.format("%.3f", wp.y)) }
+    var xText by remember { mutableStateOf(String.format("%.3f", wp.x)) }
+    var yText by remember { mutableStateOf(String.format("%.3f", wp.y)) }
     val headingDeg = Math.toDegrees(wp.headingRad)
-    var headingText by remember(wp.headingRad) { mutableStateOf(String.format("%.1f", headingDeg)) }
+    var headingText by remember { mutableStateOf(String.format("%.1f", headingDeg)) }
+
+    LaunchedEffect(wp.x) {
+        if (xText.toDoubleOrNull() != wp.x) xText = String.format("%.3f", wp.x)
+    }
+    LaunchedEffect(wp.y) {
+        if (yText.toDoubleOrNull() != wp.y) yText = String.format("%.3f", wp.y)
+    }
+    LaunchedEffect(headingDeg) {
+        val parsed = headingText.toDoubleOrNull()
+        if (parsed == null || kotlin.math.abs(parsed - headingDeg) > 0.1) {
+            headingText = String.format("%.1f", headingDeg)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -114,8 +127,17 @@ fun EventMarkerCard(
     onChanged: (PathPlannerEventMarker) -> Unit,
     onDelete: () -> Unit
 ) {
-    var nameText by remember(marker.name) { mutableStateOf(marker.name) }
-    var posSliderVal by remember(marker.waypointRelativePos) { mutableStateOf(marker.waypointRelativePos.toFloat()) }
+    var nameText by remember { mutableStateOf(marker.name) }
+    var posSliderVal by remember { mutableStateOf(marker.waypointRelativePos.toFloat()) }
+
+    LaunchedEffect(marker.name) {
+        if (nameText != marker.name) nameText = marker.name
+    }
+    LaunchedEffect(marker.waypointRelativePos) {
+        if (kotlin.math.abs(posSliderVal - marker.waypointRelativePos.toFloat()) > 0.01f) {
+            posSliderVal = marker.waypointRelativePos.toFloat()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -181,8 +203,20 @@ fun RotationTargetCard(
     onChanged: (RotationTarget) -> Unit,
     onDelete: () -> Unit
 ) {
-    var degText by remember(target.rotationDegrees) { mutableStateOf(String.format("%.1f", target.rotationDegrees)) }
-    var posSliderVal by remember(target.waypointRelativePos) { mutableStateOf(target.waypointRelativePos.toFloat()) }
+    var degText by remember { mutableStateOf(String.format("%.1f", target.rotationDegrees)) }
+    var posSliderVal by remember { mutableStateOf(target.waypointRelativePos.toFloat()) }
+
+    LaunchedEffect(target.rotationDegrees) {
+        val parsed = degText.toDoubleOrNull()
+        if (parsed == null || kotlin.math.abs(parsed - target.rotationDegrees) > 0.1) {
+            degText = String.format("%.1f", target.rotationDegrees)
+        }
+    }
+    LaunchedEffect(target.waypointRelativePos) {
+        if (kotlin.math.abs(posSliderVal - target.waypointRelativePos.toFloat()) > 0.01f) {
+            posSliderVal = target.waypointRelativePos.toFloat()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -247,12 +281,28 @@ fun ConstraintsZoneCard(
     onChanged: (ConstraintsZone) -> Unit,
     onDelete: () -> Unit
 ) {
-    var nameText by remember(zone.name) { mutableStateOf(zone.name) }
-    var minPosSliderVal by remember(zone.minWaypointRelativePos) { mutableStateOf(zone.minWaypointRelativePos.toFloat()) }
-    var maxPosSliderVal by remember(zone.maxWaypointRelativePos) { mutableStateOf(zone.maxWaypointRelativePos.toFloat()) }
+    var nameText by remember { mutableStateOf(zone.name) }
+    var minPosSliderVal by remember { mutableStateOf(zone.minWaypointRelativePos.toFloat()) }
+    var maxPosSliderVal by remember { mutableStateOf(zone.maxWaypointRelativePos.toFloat()) }
 
-    var velText by remember(zone.constraints.maxVelocity) { mutableStateOf(String.format("%.2f", zone.constraints.maxVelocity)) }
-    var accText by remember(zone.constraints.maxAcceleration) { mutableStateOf(String.format("%.2f", zone.constraints.maxAcceleration)) }
+    var velText by remember { mutableStateOf(String.format("%.2f", zone.constraints.maxVelocity)) }
+    var accText by remember { mutableStateOf(String.format("%.2f", zone.constraints.maxAcceleration)) }
+
+    LaunchedEffect(zone.name) { if (nameText != zone.name) nameText = zone.name }
+    LaunchedEffect(zone.minWaypointRelativePos) { if (kotlin.math.abs(minPosSliderVal - zone.minWaypointRelativePos.toFloat()) > 0.01f) minPosSliderVal = zone.minWaypointRelativePos.toFloat() }
+    LaunchedEffect(zone.maxWaypointRelativePos) { if (kotlin.math.abs(maxPosSliderVal - zone.maxWaypointRelativePos.toFloat()) > 0.01f) maxPosSliderVal = zone.maxWaypointRelativePos.toFloat() }
+    LaunchedEffect(zone.constraints.maxVelocity) {
+        val parsed = velText.toDoubleOrNull()
+        if (parsed == null || kotlin.math.abs(parsed - zone.constraints.maxVelocity) > 0.01) {
+            velText = String.format("%.2f", zone.constraints.maxVelocity)
+        }
+    }
+    LaunchedEffect(zone.constraints.maxAcceleration) {
+        val parsed = accText.toDoubleOrNull()
+        if (parsed == null || kotlin.math.abs(parsed - zone.constraints.maxAcceleration) > 0.01) {
+            accText = String.format("%.2f", zone.constraints.maxAcceleration)
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -363,13 +413,27 @@ fun PointTowardsZoneCard(
     onChanged: (PointTowardsZone) -> Unit,
     onDelete: () -> Unit
 ) {
-    var nameText by remember(zone.name) { mutableStateOf(zone.name) }
-    var minPosSliderVal by remember(zone.minWaypointRelativePos) { mutableStateOf(zone.minWaypointRelativePos.toFloat()) }
-    var maxPosSliderVal by remember(zone.maxWaypointRelativePos) { mutableStateOf(zone.maxWaypointRelativePos.toFloat()) }
+    var nameText by remember { mutableStateOf(zone.name) }
+    var minPosSliderVal by remember { mutableStateOf(zone.minWaypointRelativePos.toFloat()) }
+    var maxPosSliderVal by remember { mutableStateOf(zone.maxWaypointRelativePos.toFloat()) }
 
-    var targetXText by remember(zone.fieldPosition.x) { mutableStateOf(String.format("%.3f", zone.fieldPosition.x)) }
-    var targetYText by remember(zone.fieldPosition.y) { mutableStateOf(String.format("%.3f", zone.fieldPosition.y)) }
-    var offsetText by remember(zone.rotationOffset) { mutableStateOf(String.format("%.1f", zone.rotationOffset)) }
+    var targetXText by remember { mutableStateOf(String.format("%.3f", zone.fieldPosition.x)) }
+    var targetYText by remember { mutableStateOf(String.format("%.3f", zone.fieldPosition.y)) }
+    var offsetText by remember { mutableStateOf(String.format("%.1f", zone.rotationOffset)) }
+
+    LaunchedEffect(zone.name) { if (nameText != zone.name) nameText = zone.name }
+    LaunchedEffect(zone.minWaypointRelativePos) { if (kotlin.math.abs(minPosSliderVal - zone.minWaypointRelativePos.toFloat()) > 0.01f) minPosSliderVal = zone.minWaypointRelativePos.toFloat() }
+    LaunchedEffect(zone.maxWaypointRelativePos) { if (kotlin.math.abs(maxPosSliderVal - zone.maxWaypointRelativePos.toFloat()) > 0.01f) maxPosSliderVal = zone.maxWaypointRelativePos.toFloat() }
+    LaunchedEffect(zone.fieldPosition.x) {
+        if (targetXText.toDoubleOrNull() != zone.fieldPosition.x) targetXText = String.format("%.3f", zone.fieldPosition.x)
+    }
+    LaunchedEffect(zone.fieldPosition.y) {
+        if (targetYText.toDoubleOrNull() != zone.fieldPosition.y) targetYText = String.format("%.3f", zone.fieldPosition.y)
+    }
+    LaunchedEffect(zone.rotationOffset) {
+        val parsed = offsetText.toDoubleOrNull()
+        if (parsed == null || kotlin.math.abs(parsed - zone.rotationOffset) > 0.1) offsetText = String.format("%.1f", zone.rotationOffset)
+    }
 
     Column(
         modifier = Modifier

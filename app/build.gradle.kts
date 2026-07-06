@@ -56,6 +56,9 @@ dependencies {
     
     // Compression
     implementation("org.tukaani:xz:1.10")
+
+    // Gamepad Support
+    implementation("com.github.williamahartman:Jamepad:1.4.0")
 }
 
 compose.desktop {

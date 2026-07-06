@@ -161,26 +161,19 @@ class LogParserService(
 
         val sessionId = UUID.randomUUID().toString()
         val createdAt = files.first().lastModified()
-        val session = Session(
-            sessionId = sessionId,
-            teamId = teamId,
-            seasonId = seasonId,
-            robotId = robotId,
-            createdAt = createdAt,
-            matchNumber = matchNumber,
-            allianceColor = allianceColor,
-            tags = tags
-        )
+        
+        var currentMatchNumber = matchNumber
+        var currentAlliance = allianceColor
+        var currentTags = tags
 
         // Use a single batcher across all files; track min/max timestamps globally
         var globalMinTimestamp = Long.MAX_VALUE
         var globalMaxTimestamp = Long.MIN_VALUE
 
         files.forEachIndexed { index, file ->
-            // Create a batcher with key transformation to prefix /LogN/
+            // Create a batcher without prefixing keys, so action logs and csv logs merge seamlessly
             val batcher = FrameBatcher(databaseService, keyTransform = { key ->
-                val cleanKey = key.removePrefix("/")
-                "/Log$index/$cleanKey"
+                key.removePrefix("/")
             })
 
             val lowerName = file.name.lowercase()
@@ -201,10 +194,23 @@ class LogParserService(
                         tempWpiFile.delete()
                     }
                 }
-                lowerName.endsWith(".jsonl") -> parseJsonlLog(file, sessionId, batcher)
+                lowerName.endsWith(".jsonl") -> {
+                    if (lowerName.startsWith("action_log_")) {
+                        val actionMeta = parseActionLogJsonl(file, sessionId)
+                        if (actionMeta != null) {
+                            currentMatchNumber = currentMatchNumber ?: actionMeta.matchNumber
+                            currentAlliance = currentAlliance ?: actionMeta.alliance
+                            if (!currentTags.contains("action-log")) {
+                                currentTags = currentTags + "action-log"
+                            }
+                        }
+                    } else {
+                        parseJsonlLog(file, sessionId, batcher)
+                    }
+                }
                 lowerName.endsWith(".csv") -> {
                     // For multi-file CSV imports, fall back to streaming parser
-                    // since DuckDB native import can't apply the /LogN/ key prefix
+                    // since DuckDB native import is not used here
                     parseCsvLogStreaming(file, sessionId, batcher)
                 }
                 lowerName.endsWith(".dslog") || lowerName.endsWith(".dsevents") -> {
@@ -229,18 +235,34 @@ class LogParserService(
             }
         }
 
+        val baseSession = Session(
+            sessionId = sessionId,
+            teamId = teamId,
+            seasonId = seasonId,
+            robotId = robotId,
+            createdAt = createdAt,
+            matchNumber = currentMatchNumber,
+            allianceColor = currentAlliance,
+            tags = currentTags
+        )
+
         // Save session and telemetry
-        databaseService.insertSession(session)
+        databaseService.insertSession(baseSession)
 
         // Update session with actual duration if frames exist
-        if (globalMinTimestamp != Long.MAX_VALUE) {
+        val finalSession = if (globalMinTimestamp != Long.MAX_VALUE) {
             val duration = globalMaxTimestamp - globalMinTimestamp
-            val finalSession = session.copy(durationMs = duration)
-            databaseService.insertSession(finalSession)
-            finalSession
+            val s = baseSession.copy(durationMs = duration)
+            databaseService.insertSession(s)
+            s
         } else {
-            session
+            baseSession
         }
+        
+        val summary = summaryEngineService.generateSummary(finalSession)
+        databaseService.insertSessionSummary(summary)
+        
+        return@withContext finalSession
     }
 
     /**
@@ -273,8 +295,15 @@ class LogParserService(
                 CAST("$escapedTimeCol" AS BIGINT) AS timestamp_ms,
                 '$escapedSessionId' AS session_id,
                 key,
-                TRY_CAST(value AS DOUBLE) AS value,
-                CASE WHEN TRY_CAST(value AS DOUBLE) IS NULL THEN CAST(value AS VARCHAR) END AS string_value
+                CASE 
+                    WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0
+                    WHEN LOWER(CAST(value AS VARCHAR)) = 'false' THEN 0.0
+                    ELSE TRY_CAST(value AS DOUBLE) 
+                END AS value,
+                CASE 
+                    WHEN LOWER(CAST(value AS VARCHAR)) IN ('true', 'false') THEN NULL
+                    WHEN TRY_CAST(value AS DOUBLE) IS NULL THEN CAST(value AS VARCHAR) 
+                END AS string_value
             FROM (
                 SELECT * FROM read_csv_auto('$absolutePath', header=true, ignore_errors=true)
             ) UNPIVOT (
@@ -313,6 +342,10 @@ class LogParserService(
                                 val doubleVal = strValue.toDoubleOrNull()
                                 if (doubleVal != null) {
                                     batcher.add(TelemetryFrame(timestampMs, sessionId, key, doubleVal))
+                                } else if (strValue.equals("true", ignoreCase = true)) {
+                                    batcher.add(TelemetryFrame(timestampMs, sessionId, key, 1.0))
+                                } else if (strValue.equals("false", ignoreCase = true)) {
+                                    batcher.add(TelemetryFrame(timestampMs, sessionId, key, 0.0))
                                 } else if (strValue.isNotEmpty()) {
                                     batcher.add(TelemetryFrame(timestampMs, sessionId, key, 0.0, strValue))
                                 }

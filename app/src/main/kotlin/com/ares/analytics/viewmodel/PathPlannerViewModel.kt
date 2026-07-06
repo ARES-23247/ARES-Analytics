@@ -36,7 +36,10 @@ data class PathPlannerState(
     val estimatedDuration: Double = 0.0,
     val selectedWaypointIndex: Int? = null,
     val toolMode: String = "Select",
-    val viewRotation: Float = 0f
+    val viewRotation: Float = 0f,
+    val trajectory: Trajectory? = null,
+    val isPlaying: Boolean = false,
+    val playbackTime: Double = 0.0
 )
 
 sealed class PathPlannerIntent {
@@ -58,6 +61,11 @@ sealed class PathPlannerIntent {
     data class UpdateUseDefaultConstraints(val useDefault: Boolean) : PathPlannerIntent()
     data class UpdateViewRotation(val viewRotation: Float) : PathPlannerIntent()
     
+    // Playback
+    object TogglePlayback : PathPlannerIntent()
+    data class SeekPlayback(val timeSeconds: Double) : PathPlannerIntent()
+    object StopPlayback : PathPlannerIntent()
+    
     // Event Markers
     data class AddEventMarker(val marker: PathPlannerEventMarker) : PathPlannerIntent()
     data class UpdateEventMarker(val index: Int, val marker: PathPlannerEventMarker) : PathPlannerIntent()
@@ -67,6 +75,7 @@ sealed class PathPlannerIntent {
     // Rotation Targets
     data class AddRotationTarget(val target: RotationTarget) : PathPlannerIntent()
     data class UpdateRotationTarget(val index: Int, val target: RotationTarget) : PathPlannerIntent()
+    data class UpdateRotationTargets(val targets: List<RotationTarget>) : PathPlannerIntent()
     data class DeleteRotationTarget(val index: Int) : PathPlannerIntent()
     
     // Point Towards Zones
@@ -86,16 +95,19 @@ class PathPlannerViewModel(
     private val _state = MutableStateFlow(PathPlannerState())
     val state: StateFlow<PathPlannerState> = _state.asStateFlow()
 
+    private var playbackJob: kotlinx.coroutines.Job? = null
+
     private fun recalculateDuration() {
         val s = _state.value
-        val duration = TrajectoryEstimator.estimateDuration(
+        val trajectory = TrajectoryEstimator.generateTrajectory(
             waypoints = s.waypoints,
             globalConstraints = s.globalConstraints,
             constraintZones = s.constraintZones,
+            rotationTargets = s.rotationTargets,
             idealStartingState = s.idealStartingState,
             goalEndState = s.goalEndState
         )
-        _state.update { it.copy(estimatedDuration = duration) }
+        _state.update { it.copy(trajectory = trajectory, estimatedDuration = trajectory.durationSeconds) }
     }
 
     fun onIntent(intent: PathPlannerIntent) {
@@ -231,12 +243,14 @@ class PathPlannerViewModel(
                                     useDefaultConstraints = s.useDefaultConstraints
                                 )
 
-                                val json = Json { prettyPrint = true }
+                                val json = Json { 
+                                    prettyPrint = true
+                                    encodeDefaults = true
+                                }
                                 val serialized = json.encodeToString(pathFile)
 
                                 val relativeDir = if (league == League.FTC) {
-                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
-                                    else "src/main/assets/pathplanner/paths"
+                                    "TeamCode/src/main/assets/pathplanner/paths"
                                 } else {
                                     "src/main/deploy/pathplanner/paths"
                                 }
@@ -398,7 +412,11 @@ class PathPlannerViewModel(
                     }
                     _state.update { it.copy(rotationTargets = updated) }
                 }
-                is PathPlannerIntent.DeleteRotationTarget -> {
+                is PathPlannerIntent.UpdateRotationTargets -> {
+                    _state.update { it.copy(rotationTargets = intent.targets) }
+                    recalculateDuration()
+                }
+            is PathPlannerIntent.DeleteRotationTarget -> {
                     val updated = _state.value.rotationTargets.toMutableList().apply {
                         removeAt(intent.index)
                     }
@@ -442,6 +460,45 @@ class PathPlannerViewModel(
                     }
                     _state.update { it.copy(constraintZones = updated) }
                     recalculateDuration()
+                }
+
+                // Playback
+                is PathPlannerIntent.TogglePlayback -> {
+                    val currentlyPlaying = _state.value.isPlaying
+                    if (currentlyPlaying) {
+                        _state.update { it.copy(isPlaying = false) }
+                        playbackJob?.cancel()
+                    } else {
+                        // If we are at the end, reset to 0
+                        if (_state.value.playbackTime >= _state.value.estimatedDuration) {
+                            _state.update { it.copy(playbackTime = 0.0) }
+                        }
+                        _state.update { it.copy(isPlaying = true) }
+                        playbackJob = scope.launch {
+                            var lastTime = System.currentTimeMillis()
+                            while (_state.value.isPlaying) {
+                                kotlinx.coroutines.delay(16) // ~60fps
+                                val now = System.currentTimeMillis()
+                                val dt = (now - lastTime) / 1000.0
+                                lastTime = now
+
+                                val nextTime = _state.value.playbackTime + dt
+                                if (nextTime >= _state.value.estimatedDuration) {
+                                    _state.update { it.copy(playbackTime = _state.value.estimatedDuration, isPlaying = false) }
+                                    break
+                                } else {
+                                    _state.update { it.copy(playbackTime = nextTime) }
+                                }
+                            }
+                        }
+                    }
+                }
+                is PathPlannerIntent.SeekPlayback -> {
+                    _state.update { it.copy(playbackTime = intent.timeSeconds.coerceIn(0.0, _state.value.estimatedDuration)) }
+                }
+                is PathPlannerIntent.StopPlayback -> {
+                    _state.update { it.copy(isPlaying = false, playbackTime = 0.0) }
+                    playbackJob?.cancel()
                 }
             }
         }

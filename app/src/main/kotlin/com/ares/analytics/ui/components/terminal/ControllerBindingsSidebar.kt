@@ -144,6 +144,8 @@ fun ControllerBindingsSidebar(
                             bindings = gamepad2Bindings
                         )
                     }
+
+                    KeyboardBindingsList()
                 }
             }
         }
@@ -259,4 +261,63 @@ private fun getButtonOffset(button: String, league: League, scale: Float = 1.3f)
     }
     
     return baseOffset?.let { Pair(it.first * scale, it.second * scale) }
+}
+
+@Composable
+fun KeyboardBindingsList() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(AresSurfaceElevated, RoundedCornerShape(12.dp))
+            .border(1.dp, AresBorder, RoundedCornerShape(12.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Text(
+            text = "Simulator Keyboard Bindings",
+            fontWeight = FontWeight.Bold,
+            color = AresCyan,
+            fontSize = 18.sp
+        )
+
+        val keys = listOf(
+            "Left Stick" to "W / A / S / D",
+            "Right Stick" to "Arrow Keys",
+            "A / Cross" to "J",
+            "B / Circle" to "L",
+            "X / Square" to "U",
+            "Y / Triangle" to "I",
+            "Left Bumper" to "Q",
+            "Right Bumper" to "E",
+            "Left Trigger" to "Space",
+            "Right Trigger" to "Shift"
+        )
+
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            keys.forEach { (action, key) ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = action,
+                        color = AresTextSecondary,
+                        fontSize = 14.sp
+                    )
+                    Text(
+                        text = key,
+                        color = AresTextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        modifier = Modifier
+                            .background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+                HorizontalDivider(color = AresBorder.copy(alpha = 0.5f))
+            }
+        }
+    }
 }

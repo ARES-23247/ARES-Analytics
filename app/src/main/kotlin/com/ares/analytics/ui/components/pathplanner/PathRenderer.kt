@@ -245,6 +245,7 @@ fun DrawScope.drawActualPathAndDeviations(
 fun DrawScope.drawRobotRepresentations(
     actualPath: List<Waypoint>,
     estimatedPose: Waypoint?,
+    playbackPose: Waypoint?,
     visionPoses: List<Waypoint>,
     w: Float,
     h: Float,
@@ -262,6 +263,13 @@ fun DrawScope.drawRobotRepresentations(
         drawRect(color = AresCyan.copy(alpha = 0.2f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
         drawRect(color = AresCyan, topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx), style = Stroke(width = 2.dp.toPx()))
         drawLine(color = AresAmber, start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2), end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2), strokeWidth = 3.dp.toPx())
+        val arrowPath = Path().apply {
+            moveTo(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 4)
+            lineTo(robotOffset.x + robotSizePx / 2 + robotSizePx / 4, robotOffset.y)
+            lineTo(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 4)
+            close()
+        }
+        drawPath(path = arrowPath, color = AresAmber)
         drawContext.canvas.restore()
     }
 
@@ -274,6 +282,32 @@ fun DrawScope.drawRobotRepresentations(
         drawRect(color = AresAmber.copy(alpha = 0.15f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
         drawRect(color = AresAmber, topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx), style = Stroke(width = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)))
         drawLine(color = AresAmber, start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2), end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2), strokeWidth = 2.dp.toPx())
+        val arrowPath = Path().apply {
+            moveTo(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 4)
+            lineTo(robotOffset.x + robotSizePx / 2 + robotSizePx / 4, robotOffset.y)
+            lineTo(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 4)
+            close()
+        }
+        drawPath(path = arrowPath, color = AresAmber)
+        drawContext.canvas.restore()
+    }
+
+    if (playbackPose != null) {
+        val robotOffset = getCanvasOffsetBase(playbackPose, w, h, fieldWidthM, fieldHeightM, league)
+        val robotSizePx = ((0.45 / fieldWidthM) * w).toFloat()
+        
+        drawContext.canvas.save()
+        drawContext.transform.rotate(degrees = -Math.toDegrees(playbackPose.headingRad).toFloat(), pivot = robotOffset)
+        drawRect(color = AresCyan.copy(alpha = 0.3f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
+        drawRect(color = AresCyan, topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx), style = Stroke(width = 2.dp.toPx()))
+        drawLine(color = AresCyan, start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2), end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2), strokeWidth = 3.dp.toPx())
+        val arrowPath = Path().apply {
+            moveTo(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 4)
+            lineTo(robotOffset.x + robotSizePx / 2 + robotSizePx / 4, robotOffset.y)
+            lineTo(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 4)
+            close()
+        }
+        drawPath(path = arrowPath, color = AresCyan)
         drawContext.canvas.restore()
     }
 
@@ -286,6 +320,13 @@ fun DrawScope.drawRobotRepresentations(
         drawRect(color = AresGreen.copy(alpha = 0.15f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
         drawRect(color = AresGreen, topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx), style = Stroke(width = 1.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)))
         drawLine(color = AresGreen, start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2), end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2), strokeWidth = 2.dp.toPx())
+        val arrowPath = Path().apply {
+            moveTo(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 4)
+            lineTo(robotOffset.x + robotSizePx / 2 + robotSizePx / 4, robotOffset.y)
+            lineTo(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 4)
+            close()
+        }
+        drawPath(path = arrowPath, color = AresGreen)
         drawContext.canvas.restore()
     }
 }

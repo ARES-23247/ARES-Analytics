@@ -135,12 +135,13 @@ fun FieldCanvasToolbar(
             if (showObstacleControls && editorMode == EditorMode.PLACE_GAME_PIECE) {
                 Box(modifier = Modifier.height(24.dp).width(1.dp).background(AresBorder))
                 if (league == League.FTC) {
-                    listOf("Sample (Yellow)", "Sample (Red)", "Sample (Blue)", "Specimen").forEach { type ->
+                    listOf("Sample (Yellow)", "Sample (Red)", "Sample (Blue)", "Specimen", "Decode (Ball)").forEach { type ->
                         val isSel = activeGamePieceType == type
                         val color = when (type) {
                             "Sample (Yellow)" -> Color.Yellow
                             "Sample (Red)" -> AresRed
                             "Sample (Blue)" -> AresCyan
+                            "Decode (Ball)" -> Color.White
                             else -> Color.Magenta
                         }
                         TextButton(

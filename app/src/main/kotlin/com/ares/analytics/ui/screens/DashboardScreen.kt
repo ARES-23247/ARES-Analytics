@@ -140,6 +140,9 @@ fun DashboardScreen(
                 "swerve_animator" to { _, mod ->
                     SwerveModuleVisualizer(services.nt4ClientService, mod)
                 },
+                "session_summary" to { _, mod ->
+                    SessionSummaryCard(services.databaseService, state.primarySessionId, mod)
+                },
                 "joystick_visualizer" to { _, mod ->
                     JoystickVisualizer(
                         currentFrame = null, 

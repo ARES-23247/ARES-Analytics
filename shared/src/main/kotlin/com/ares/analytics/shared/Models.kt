@@ -419,3 +419,22 @@ data class ControllerBinding(
     val sourceFile: String,
     val lineNumber: Int
 )
+
+// ────────────────────────────────────────────────────────────────────────────
+// Trajectory Playback
+// ────────────────────────────────────────────────────────────────────────────
+
+@Serializable
+data class TrajectoryState(
+    val timeSeconds: Double,
+    val x: Double,
+    val y: Double,
+    val headingRad: Double,
+    val velocity: Double
+)
+
+@Serializable
+data class Trajectory(
+    val durationSeconds: Double,
+    val states: List<TrajectoryState>
+)

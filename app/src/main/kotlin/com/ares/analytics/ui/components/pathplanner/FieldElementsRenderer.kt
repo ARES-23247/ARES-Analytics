@@ -208,6 +208,11 @@ fun DrawScope.drawGamePieces(
                 drawRect(color = AresCyan.copy(alpha = 0.6f), topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()))
                 drawRect(color = AresCyan, topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()), style = Stroke(width = 2f))
             }
+            "Decode (Ball)" -> {
+                val radiusPx = (0.0635 / fieldWidthM) * w
+                drawCircle(color = Color(0xFF9C27B0).copy(alpha = 0.6f), radius = radiusPx.toFloat(), center = gpOffset)
+                drawCircle(color = Color(0xFF9C27B0), radius = radiusPx.toFloat(), center = gpOffset, style = Stroke(width = 2f))
+            }
             else -> {
                 val sizePx = (0.12 / fieldWidthM) * w
                 val path = Path().apply {

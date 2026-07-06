@@ -95,54 +95,18 @@ fun main() {
                         Key.S -> { state.isSPressed = isDown; true }
                         Key.A -> { state.isAPressed = isDown; true }
                         Key.D -> { state.isDPressed = isDown; true }
+                        Key.DirectionUp -> { state.isUpPressed = isDown; true }
+                        Key.DirectionDown -> { state.isDownPressed = isDown; true }
+                        Key.DirectionLeft -> { state.isLeftPressed = isDown; true }
+                        Key.DirectionRight -> { state.isRightPressed = isDown; true }
+                        Key.J -> { state.isJPressed = isDown; true }
+                        Key.L -> { state.isLPressed = isDown; true }
+                        Key.U -> { state.isUPressed = isDown; true }
+                        Key.I -> { state.isIPressed = isDown; true }
                         Key.Q -> { state.isQPressed = isDown; true }
                         Key.E -> { state.isEPressed = isDown; true }
-                        Key.Enter -> { state.isTransferring = isDown; true }
-                        Key.Spacebar -> {
-                            if (isDown && !state.isSpacePressed) {
-                                state.isSpacePressed = true
-                                state.isTeleopMode = !state.isTeleopMode
-                            } else if (isUp) {
-                                state.isSpacePressed = false
-                            }
-                            true
-                        }
-                        Key.C -> {
-                            if (isDown && !state.isCPressed) {
-                                state.isCPressed = true
-                                state.isFieldCentric = !state.isFieldCentric
-                            } else if (isUp) {
-                                state.isCPressed = false
-                            }
-                            true
-                        }
-                        Key.R -> {
-                            if (isDown && !state.isRPressed) {
-                                state.isRPressed = true
-                                state.isRedAlliance = !state.isRedAlliance
-                            } else if (isUp) {
-                                state.isRPressed = false
-                            }
-                            true
-                        }
-                        Key.ShiftLeft, Key.ShiftRight -> {
-                            if (isDown && !state.isShiftPressed) {
-                                state.isShiftPressed = true
-                                state.isIntaking = !state.isIntaking
-                            } else if (isUp) {
-                                state.isShiftPressed = false
-                            }
-                            true
-                        }
-                        Key.F -> {
-                            if (isDown && !state.isFPressed) {
-                                state.isFPressed = true
-                                state.isFlywheelOn = !state.isFlywheelOn
-                            } else if (isUp) {
-                                state.isFPressed = false
-                            }
-                            true
-                        }
+                        Key.Spacebar -> { state.isSpacePressed = isDown; true }
+                        Key.ShiftLeft, Key.ShiftRight -> { state.isShiftPressed = isDown; true }
                         else -> false
                     }
                 } else false

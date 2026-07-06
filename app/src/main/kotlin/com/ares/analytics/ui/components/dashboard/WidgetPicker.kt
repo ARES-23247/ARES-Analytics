@@ -52,7 +52,8 @@ val availableWidgetsList = listOf(
     AvailableWidget("state_tracker", "Subsystem State Tracker", "Current state machine states for active subsystems.", Icons.Default.AccountTree),
     AvailableWidget("system_health", "System Health Monitor", "Control loop frequency, CPU usage, and memory profiling.", Icons.Default.Memory),
     AvailableWidget("imu_visualizer", "IMU Visualizer", "Robot orientation via roll, pitch, and yaw 3D attitude indicators.", Icons.Default.CompassCalibration),
-    AvailableWidget("power_distribution", "Power Distribution", "Instantaneous current draw per PDP/PDH channel.", Icons.Default.ElectricBolt)
+    AvailableWidget("power_distribution", "Power Distribution", "Instantaneous current draw per PDP/PDH channel.", Icons.Default.ElectricBolt),
+    AvailableWidget("session_summary", "Session Aggregate Stats", "Displays calculated aggregate data for a run like average motor currents.", Icons.Default.Assessment)
 )
 
 @Composable

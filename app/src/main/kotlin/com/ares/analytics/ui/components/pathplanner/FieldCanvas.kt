@@ -56,20 +56,24 @@ fun FieldCanvas(
     eventMarkers: List<PathPlannerEventMarker> = emptyList(),
     onEventMarkersChanged: ((List<PathPlannerEventMarker>) -> Unit)? = null,
     rotationTargets: List<RotationTarget> = emptyList(),
+    onRotationTargetsChanged: ((List<RotationTarget>) -> Unit)? = null,
     constraintZones: List<ConstraintsZone> = emptyList(),
     pointTowardsZones: List<PointTowardsZone> = emptyList(),
     globalConstraints: PathConstraints = PathConstraints(),
     estimatedPose: Waypoint? = null,
+    playbackPose: Waypoint? = null,
     visionPoses: List<Waypoint> = emptyList(),
     onItemSelected: ((String?, String?) -> Unit)? = null,
     onItemDoubleTapped: ((String, String) -> Unit)? = null,
     initialViewRotation: Float = 0f,
     onViewRotationChanged: ((Float) -> Unit)? = null,
+    showToolbar: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var localFieldImage by remember { mutableStateOf<ImageBitmap?>(null) }
     var localFieldImageConfig by remember { mutableStateOf(FieldImageConfig()) }
     var isDraggingHeading by remember { mutableStateOf(false) }
+    var isDraggingRotation by remember { mutableStateOf(false) }
     val textMeasurer = rememberTextMeasurer()
     val pathCache = remember { PathCacheHolder() }
 
@@ -170,7 +174,9 @@ fun FieldCanvas(
         else { localObstacles.clear(); localObstacles.addAll(newObstacles) }
         if (!projectPath.isNullOrEmpty()) {
             try {
-                val targetDir = File(projectPath, if (league == League.FTC) "src/main/assets/paths" else "src/main/deploy/paths")
+                val targetDir = File(projectPath, if (league == League.FTC) {
+                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths" else "src/main/assets/paths"
+                } else "src/main/deploy/paths")
                 targetDir.mkdirs()
                 File(targetDir, "obstacles.json").writeText(Json { prettyPrint = true }.encodeToString(newObstacles))
             } catch (e: Exception) { e.printStackTrace() }
@@ -182,7 +188,9 @@ fun FieldCanvas(
         else { localGamePieces.clear(); localGamePieces.addAll(newPieces) }
         if (!projectPath.isNullOrEmpty()) {
             try {
-                val targetDir = File(projectPath, if (league == League.FTC) "src/main/assets/paths" else "src/main/deploy/paths")
+                val targetDir = File(projectPath, if (league == League.FTC) {
+                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths" else "src/main/assets/paths"
+                } else "src/main/deploy/paths")
                 targetDir.mkdirs()
                 File(targetDir, "game_pieces.json").writeText(Json { prettyPrint = true }.encodeToString(newPieces))
             } catch (e: Exception) { e.printStackTrace() }
@@ -194,7 +202,9 @@ fun FieldCanvas(
         else { localAprilTags.clear(); localAprilTags.addAll(newTags) }
         if (!projectPath.isNullOrEmpty()) {
             try {
-                val targetDir = File(projectPath, if (league == League.FTC) "src/main/assets/paths" else "src/main/deploy/paths")
+                val targetDir = File(projectPath, if (league == League.FTC) {
+                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths" else "src/main/assets/paths"
+                } else "src/main/deploy/paths")
                 targetDir.mkdirs()
                 File(targetDir, "apriltags.json").writeText(Json { prettyPrint = true }.encodeToString(newTags))
             } catch (e: Exception) { e.printStackTrace() }
@@ -212,7 +222,9 @@ fun FieldCanvas(
     LaunchedEffect(projectPath) {
         if (!projectPath.isNullOrEmpty()) {
             try {
-                val relDir = if (league == League.FTC) "src/main/assets/paths" else "src/main/deploy/paths"
+                val relDir = if (league == League.FTC) {
+                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths" else "src/main/assets/paths"
+                } else "src/main/deploy/paths"
                 val fObs = File(File(projectPath, relDir), "obstacles.json")
                 if (fObs.exists()) updateObstacles(Json.decodeFromString(fObs.readText()))
                 val fGp = File(File(projectPath, relDir), "game_pieces.json")
@@ -220,7 +232,9 @@ fun FieldCanvas(
                 val fAt = File(File(projectPath, relDir), "apriltags.json")
                 if (fAt.exists()) updateAprilTags(Json.decodeFromString(fAt.readText()))
                 
-                val imgDir = if (league == League.FTC) "src/main/assets" else "src/main/deploy"
+                val imgDir = if (league == League.FTC) {
+                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets" else "src/main/assets"
+                } else "src/main/deploy"
                 val imgFile = File(File(projectPath, imgDir), "field_image.png")
                 localFieldImage = if (imgFile.exists()) imgFile.inputStream().use { loadImageBitmap(it) } else null
                 
@@ -231,29 +245,31 @@ fun FieldCanvas(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        FieldCanvasToolbar(
-            showPathControls = showPathControls,
-            showObstacleControls = showObstacleControls,
-            league = league,
-            editorMode = editorMode,
-            onEditorModeChanged = { editorMode = it },
-            activeGamePieceType = activeGamePieceType,
-            onActiveGamePieceTypeChanged = { activeGamePieceType = it },
-            currentPolygonPoints = currentPolygonPoints,
-            onCurrentPolygonPointsCleared = { currentPolygonPoints.clear() },
-            activeObstacles = activeObstacles,
-            updateObstacles = updateObstacles,
-            zoomScale = zoomScale,
-            onZoomScaleChanged = { zoomScale = it },
-            onResetZoomPan = { zoomScale = 1f; panOffset = Offset.Zero },
-            showHeatmap = showHeatmap,
-            onShowHeatmapChanged = { showHeatmap = it },
-            viewRotation = viewRotation,
-            onViewRotationChanged = { 
-                viewRotation = it
-                onViewRotationChanged?.invoke(it)
-            }
-        )
+        if (showToolbar) {
+            FieldCanvasToolbar(
+                showPathControls = showPathControls,
+                showObstacleControls = showObstacleControls,
+                league = league,
+                editorMode = editorMode,
+                onEditorModeChanged = { editorMode = it },
+                activeGamePieceType = activeGamePieceType,
+                onActiveGamePieceTypeChanged = { activeGamePieceType = it },
+                currentPolygonPoints = currentPolygonPoints,
+                onCurrentPolygonPointsCleared = { currentPolygonPoints.clear() },
+                activeObstacles = activeObstacles,
+                updateObstacles = updateObstacles,
+                zoomScale = zoomScale,
+                onZoomScaleChanged = { zoomScale = it },
+                onResetZoomPan = { zoomScale = 1f; panOffset = Offset.Zero },
+                showHeatmap = showHeatmap,
+                onShowHeatmapChanged = { showHeatmap = it },
+                viewRotation = viewRotation,
+                onViewRotationChanged = { 
+                    viewRotation = it
+                    onViewRotationChanged?.invoke(it)
+                }
+            )
+        }
 
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             Canvas(
@@ -287,18 +303,30 @@ fun FieldCanvas(
                                     val pos = change.position
                                     if (isDraggingHeading) {
                                         val wp = currentWaypoints[selectedWaypointIndex]
-                                        val wpOffset = getTransformedCanvasOffset(wp, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
-                                        val dx = pos.x - wpOffset.x
-                                        val dy = pos.y - wpOffset.y
-                                        val rawAngle = kotlin.math.atan2(-dy.toDouble(), dx.toDouble())
-                                        val angle = if (isShiftPressed) snap(rawAngle * 180.0 / Math.PI) * Math.PI / 180.0 else rawAngle
-                                        
-                                        val posMeters = getRobotCoordFromScreen(pos, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
-                                        val mag = sqrt((posMeters.x - wp.x).pow(2) + (posMeters.y - wp.y).pow(2))
-                                        
+                                        val posMeters = getRobotCoordFromScreen(change.position, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
+                                        val dx = posMeters.x - wp.x
+                                        val dy = posMeters.y - wp.y
+                                        val angle = kotlin.math.atan2(dy, dx)
+                                        val mag = kotlin.math.sqrt(dx * dx + dy * dy)
                                         onWaypointsChanged(currentWaypoints.toMutableList().apply { set(selectedWaypointIndex, wp.copy(headingRad = angle, tangentMagnitude = if (isShiftPressed) snap(mag) else mag)) })
+                                    } else if (isDraggingRotation && onRotationTargetsChanged != null) {
+                                        val wp = currentWaypoints[selectedWaypointIndex]
+                                        val posMeters = getRobotCoordFromScreen(change.position, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
+                                        val angle = kotlin.math.atan2(posMeters.y - wp.y, posMeters.x - wp.x)
+                                        val degrees = Math.toDegrees(angle)
+                                        
+                                        val existingIdx = rotationTargets.indexOfFirst { kotlin.math.abs(it.waypointRelativePos - selectedWaypointIndex) < 1e-3 }
+                                        if (existingIdx != -1) {
+                                            val newList = rotationTargets.toMutableList()
+                                            newList[existingIdx] = newList[existingIdx].copy(rotationDegrees = if (isShiftPressed) snap(degrees).toDouble() else degrees)
+                                            onRotationTargetsChanged(newList)
+                                        } else {
+                                            val newList = rotationTargets.toMutableList()
+                                            newList.add(RotationTarget(waypointRelativePos = selectedWaypointIndex.toDouble(), rotationDegrees = if (isShiftPressed) snap(degrees).toDouble() else degrees))
+                                            onRotationTargetsChanged(newList)
+                                        }
                                     } else {
-                                        val wp = getRobotCoordFromScreen(pos, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
+                                        val wp = getRobotCoordFromScreen(change.position, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
                                         onWaypointsChanged(currentWaypoints.toMutableList().apply { set(selectedWaypointIndex, Waypoint(snap(wp.x), snap(wp.y), this[selectedWaypointIndex].headingRad)) })
                                     }
                                 } else if (selectedObstacleId != null && showObstacleControls) {
@@ -363,12 +391,25 @@ fun FieldCanvas(
                                 val w = size.width.toFloat(); val h = size.height.toFloat()
                                 when (editorMode) {
                                     EditorMode.SELECT -> {
-                                        var hitIdx = -1; var hitHeading = false
+                                        var hitIdx = -1; var hitHeading = false; var hitRotation = false
                                         for (i in currentWaypoints.indices) {
                                             val wp = currentWaypoints[i]
+                                            val wpOffset = getTransformedCanvasOffset(wp, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
                                             val handleOffset = getTransformedCanvasOffset(Waypoint(wp.x + wp.tangentMagnitude * cos(wp.headingRad), wp.y + wp.tangentMagnitude * sin(wp.headingRad)), w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
                                             if (sqrt((offset.x - handleOffset.x).pow(2) + (offset.y - handleOffset.y).pow(2)) < 15.dp.toPx()) {
                                                 hitIdx = i; hitHeading = true; break
+                                            }
+                                            
+                                            // Check rotation handle hit
+                                            val targetAngleRad = rotationTargets.find { kotlin.math.abs(it.waypointRelativePos - i) < 1e-3 }?.rotationDegrees?.let { Math.toRadians(-it) }
+                                                ?: wp.headingRad
+                                            
+                                            val rotationHandleLenPx = 30.dp.toPx()
+                                            val rotHandleX = wpOffset.x + rotationHandleLenPx * cos(targetAngleRad).toFloat()
+                                            val rotHandleY = wpOffset.y + rotationHandleLenPx * sin(targetAngleRad).toFloat()
+                                            
+                                            if (sqrt((offset.x - rotHandleX).pow(2) + (offset.y - rotHandleY).pow(2)) < 20.dp.toPx()) {
+                                                hitIdx = i; hitRotation = true; break
                                             }
                                         }
                                         if (hitIdx == -1) {
@@ -381,6 +422,7 @@ fun FieldCanvas(
                                         
                                         selectedWaypointIndex = hitIdx; selectedEventMarkerIndex = hitEventIdx
                                         isDraggingHeading = hitIdx != -1 && hitHeading
+                                        isDraggingRotation = hitIdx != -1 && hitRotation
                                         
                                         if (hitIdx == -1 && hitEventIdx == -1) {
                                             val clickCoord = getRobotCoordFromScreen(offset, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
@@ -429,7 +471,7 @@ fun FieldCanvas(
                                     }
                                     EditorMode.PLACE_GAME_PIECE -> {
                                         val newWp = getRobotCoordFromScreen(offset, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
-                                        val typeLabel = if (league == League.FTC) when (activeGamePieceType) { "Sample (Yellow)" -> "Yellow Sample"; "Sample (Red)" -> "Red Sample"; "Sample (Blue)" -> "Blue Sample"; else -> "Specimen" } else "Note"
+                                        val typeLabel = if (league == League.FTC) when (activeGamePieceType) { "Sample (Yellow)" -> "Yellow Sample"; "Sample (Red)" -> "Red Sample"; "Sample (Blue)" -> "Blue Sample"; "Decode (Ball)" -> "Decode Ball"; else -> "Specimen" } else "Note"
                                         updateGamePieces(currentActiveGamePieces + GamePiece("piece_${System.currentTimeMillis()}", "$typeLabel ${currentActiveGamePieces.size + 1}", newWp.x, newWp.y, activeGamePieceType))
                                     }
                                     EditorMode.PLACE_APRILTAG -> {
@@ -527,7 +569,7 @@ fun FieldCanvas(
                 drawHolonomicRotationTargets(waypoints, currentRotationTargets, rotationTargetPoints, w, h, fieldWidthM, fieldHeightM, league)
 
                 drawActualPathAndDeviations(pathCache, actualPath, waypoints, w, h, fieldWidthM, fieldHeightM, league)
-                drawRobotRepresentations(actualPath, estimatedPose, visionPoses, w, h, fieldWidthM, fieldHeightM, league)
+                drawRobotRepresentations(actualPath, estimatedPose, playbackPose, visionPoses, w, h, fieldWidthM, fieldHeightM, league)
                 drawWaypoints(waypoints, selectedWaypointIndex, isDraggingHeading, w, h, fieldWidthM, fieldHeightM, league)
 
                 drawContext.canvas.restore()

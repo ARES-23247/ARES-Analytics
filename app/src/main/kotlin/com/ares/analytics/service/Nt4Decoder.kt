@@ -7,129 +7,87 @@ object Nt4Decoder {
         if (offset >= bytes.size) return Pair(JsonNull, 0)
         val marker = bytes[offset].toInt() and 0xFF
 
-        // Boolean Type
-        if (typeId == 0) {
-            return when (marker) {
-                0xc2 -> Pair(JsonPrimitive(false), 1)
-                0xc3 -> Pair(JsonPrimitive(true), 1)
-                else -> Pair(JsonPrimitive(false), 1)
+        when {
+            // Booleans
+            marker == 0xc2 -> return Pair(JsonPrimitive(false), 1)
+            marker == 0xc3 -> return Pair(JsonPrimitive(true), 1)
+            
+            // Positive/Negative FixInt
+            marker in 0x00..0x7f -> return Pair(JsonPrimitive(marker), 1)
+            marker in 0xe0..0xff -> return Pair(JsonPrimitive(marker - 256), 1)
+            
+            // int8, uint8
+            marker == 0xcc || marker == 0xd0 -> {
+                if (offset + 1 < bytes.size) {
+                    val value = if (marker == 0xcc) bytes[offset + 1].toInt() and 0xFF else bytes[offset + 1].toInt()
+                    return Pair(JsonPrimitive(value), 2)
+                }
             }
-        }
-
-        // Double Type
-        if (typeId == 1) {
-            if (marker == 0xcb && offset + 8 < bytes.size) {
-                val bits = readInt64(bytes, offset + 1)
-                val value = java.lang.Double.longBitsToDouble(bits)
-                return Pair(JsonPrimitive(value), 9)
+            
+            // int16, uint16
+            marker == 0xcd || marker == 0xd1 -> {
+                if (offset + 2 < bytes.size) {
+                    val value = readInt16(bytes, offset + 1)
+                    val out = if (marker == 0xcd) value else value.toShort().toInt()
+                    return Pair(JsonPrimitive(out), 3)
+                }
             }
-            return Pair(JsonPrimitive(0.0), 1)
-        }
-
-        // Integer Type (NT4 Type = 2)
-        if (typeId == 2) {
-            return when (marker) {
-                0xcc -> { // uint8
-                    if (offset + 1 < bytes.size) {
-                        val value = bytes[offset + 1].toInt() and 0xFF
-                        Pair(JsonPrimitive(value), 2)
-                    } else Pair(JsonPrimitive(0), 1)
+            
+            // int32, uint32
+            marker == 0xce || marker == 0xd2 -> {
+                if (offset + 4 < bytes.size) {
+                    val value = readInt32(bytes, offset + 1)
+                    val out = if (marker == 0xce) (value.toLong() and 0xFFFFFFFFL) else value.toLong()
+                    return Pair(JsonPrimitive(out), 5)
                 }
-                0xcd -> { // uint16
-                    if (offset + 2 < bytes.size) {
-                        val bits = readInt16(bytes, offset + 1)
-                        Pair(JsonPrimitive(bits), 3)
-                    } else Pair(JsonPrimitive(0), 1)
+            }
+            
+            // int64, uint64
+            marker == 0xcf || marker == 0xd3 -> {
+                if (offset + 8 < bytes.size) {
+                    val value = readInt64(bytes, offset + 1)
+                    return Pair(JsonPrimitive(value), 9)
                 }
-                0xce -> { // uint32
-                    if (offset + 4 < bytes.size) {
-                        val bits = readInt32(bytes, offset + 1)
-                        Pair(JsonPrimitive(bits.toLong() and 0xFFFFFFFFL), 5)
-                    } else Pair(JsonPrimitive(0), 1)
+            }
+            
+            // float32
+            marker == 0xca -> {
+                if (offset + 4 < bytes.size) {
+                    val bits = readInt32(bytes, offset + 1)
+                    return Pair(JsonPrimitive(java.lang.Float.intBitsToFloat(bits).toDouble()), 5)
                 }
-                0xcf -> { // uint64
-                    if (offset + 8 < bytes.size) {
-                        val bits = readInt64(bytes, offset + 1)
-                        Pair(JsonPrimitive(bits), 9)
-                    } else Pair(JsonPrimitive(0), 1)
+            }
+            
+            // float64
+            marker == 0xcb -> {
+                if (offset + 8 < bytes.size) {
+                    val bits = readInt64(bytes, offset + 1)
+                    return Pair(JsonPrimitive(java.lang.Double.longBitsToDouble(bits)), 9)
                 }
-                0xd0 -> { // int8
-                    if (offset + 1 < bytes.size) {
-                        val value = bytes[offset + 1].toInt()
-                        Pair(JsonPrimitive(value), 2)
-                    } else Pair(JsonPrimitive(0), 1)
+            }
+            
+            // Strings
+            marker in 0xa0..0xbf || marker == 0xd9 || marker == 0xda || marker == 0xdb -> {
+                val (len, headerSize) = getStringLengthAndHeader(marker, bytes, offset)
+                if (offset + headerSize + len <= bytes.size) {
+                    val strValue = String(bytes, offset + headerSize, len, Charsets.UTF_8)
+                    return Pair(JsonPrimitive(strValue), headerSize + len)
                 }
-                0xd1 -> { // int16
-                    if (offset + 2 < bytes.size) {
-                        val bits = readInt16(bytes, offset + 1).toShort()
-                        Pair(JsonPrimitive(bits), 3)
-                    } else Pair(JsonPrimitive(0), 1)
-                }
-                0xd2 -> { // int32
-                    if (offset + 4 < bytes.size) {
-                        val bits = readInt32(bytes, offset + 1)
-                        Pair(JsonPrimitive(bits), 5)
-                    } else Pair(JsonPrimitive(0), 1)
-                }
-                0xd3 -> { // int64
-                    if (offset + 8 < bytes.size) {
-                        val bits = readInt64(bytes, offset + 1)
-                        Pair(JsonPrimitive(bits), 9)
-                    } else Pair(JsonPrimitive(0), 1)
-                }
-                else -> {
-                    if (marker in 0x00..0x7f) {
-                        Pair(JsonPrimitive(marker), 1)
-                    } else if (marker in 0xe0..0xff) {
-                        val value = (marker - 256)
-                        Pair(JsonPrimitive(value), 1)
-                    } else {
-                        Pair(JsonPrimitive(0), 1)
+            }
+            
+            // Arrays
+            marker in 0x90..0x9f || marker == 0xdc || marker == 0xdd -> {
+                val (arrayLen, headerSize) = getArrayLengthAndHeader(marker, bytes, offset)
+                var currentOffset = offset + headerSize
+                val jsonArray = buildJsonArray {
+                    for (i in 0 until arrayLen) {
+                        val (elem, size) = parseMsgPackValue(bytes, currentOffset, -1)
+                        add(elem)
+                        currentOffset += size
                     }
                 }
+                return Pair(jsonArray, currentOffset - offset)
             }
-        }
-        
-        // Float Type (NT4 Type = 3)
-        if (typeId == 3) {
-            if (marker == 0xca && offset + 4 < bytes.size) {
-                val bits = readInt32(bytes, offset + 1)
-                val value = java.lang.Float.intBitsToFloat(bits).toDouble()
-                return Pair(JsonPrimitive(value), 5)
-            }
-            return Pair(JsonPrimitive(0.0), 1)
-        }
-
-        // String Type (NT4 Type = 4)
-        if (typeId == 4) {
-            val (len, headerSize) = getStringLengthAndHeader(marker, bytes, offset)
-            if (offset + headerSize + len <= bytes.size) {
-                val strValue = String(bytes, offset + headerSize, len, Charsets.UTF_8)
-                return Pair(JsonPrimitive(strValue), headerSize + len)
-            }
-            return Pair(JsonPrimitive(""), headerSize)
-        }
-
-        // Arrays (Boolean Array = 16, Double Array = 17, Integer Array = 18, Float Array = 19, String Array = 20)
-        if (typeId in 16..20) {
-            val (arrayLen, headerSize) = getArrayLengthAndHeader(marker, bytes, offset)
-            var currentOffset = offset + headerSize
-            val jsonArray = buildJsonArray {
-                for (i in 0 until arrayLen) {
-                    val elemTypeId = when (typeId) {
-                        16 -> 0 // boolean
-                        17 -> 1 // double
-                        18 -> 2 // integer
-                        19 -> 3 // float
-                        20 -> 4 // string
-                        else -> 1
-                    }
-                    val (elem, size) = parseMsgPackValue(bytes, currentOffset, elemTypeId)
-                    add(elem)
-                    currentOffset += size
-                }
-            }
-            return Pair(jsonArray, currentOffset - offset)
         }
 
         val size = getMsgPackValueLength(bytes, offset)

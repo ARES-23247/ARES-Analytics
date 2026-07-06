@@ -30,6 +30,17 @@ fun PathPlannerScreen(
         viewModel.onIntent(PathPlannerIntent.FetchAvailablePaths(projectPath, league))
     }
 
+    val playbackPose = remember(state.trajectory, state.playbackTime) {
+        val traj = state.trajectory
+        if (traj != null && traj.states.isNotEmpty()) {
+            val idx = traj.states.indexOfFirst { it.timeSeconds >= state.playbackTime }
+            val stateAtTime = if (idx == -1) traj.states.last() else traj.states[idx]
+            Waypoint(stateAtTime.x, stateAtTime.y, stateAtTime.headingRad)
+        } else {
+            null
+        }
+    }
+
     Row(
         modifier = Modifier.fillMaxSize(),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -54,6 +65,7 @@ fun PathPlannerScreen(
                 projectPath = projectPath,
                 showPathControls = false,
                 showObstacleControls = false,
+                playbackPose = playbackPose,
                 aprilTags = null,
                 onAprilTagsChanged = null,
                 eventMarkers = state.eventMarkers,
@@ -65,6 +77,9 @@ fun PathPlannerScreen(
                     viewModel.onIntent(PathPlannerIntent.UpdateViewRotation(newRot))
                 },
                 rotationTargets = state.rotationTargets,
+                onRotationTargetsChanged = {
+                    viewModel.onIntent(PathPlannerIntent.UpdateRotationTargets(it))
+                },
                 constraintZones = state.constraintZones,
                 pointTowardsZones = state.pointTowardsZones,
                 globalConstraints = state.globalConstraints

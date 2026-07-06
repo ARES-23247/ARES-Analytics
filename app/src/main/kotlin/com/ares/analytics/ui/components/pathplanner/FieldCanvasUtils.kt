@@ -44,8 +44,8 @@ fun getCanvasOffsetBase(
     league: League
 ): Offset {
     return if (league == League.FTC) {
-        val x = (wp.x / fieldW + 0.5) * canvasW
-        val y = (-wp.y / fieldH + 0.5) * canvasH
+        val x = (-wp.y / fieldW + 0.5) * canvasW
+        val y = (-wp.x / fieldH + 0.5) * canvasH
         Offset(x.toFloat(), y.toFloat())
     } else {
         val x = (wp.x / fieldW) * canvasW
@@ -63,8 +63,8 @@ fun getRobotCoordBase(
     league: League
 ): Waypoint {
     return if (league == League.FTC) {
-        val rx = (offset.x / canvasW - 0.5) * fieldW
-        val ry = -(offset.y / canvasH - 0.5) * fieldH
+        val rx = -(offset.y / canvasH - 0.5) * fieldH
+        val ry = -(offset.x / canvasW - 0.5) * fieldW
         Waypoint(rx, ry)
     } else {
         val rx = (offset.x / canvasW) * fieldW
