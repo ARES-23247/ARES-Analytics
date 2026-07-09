@@ -2,6 +2,8 @@ package com.ares.analytics.ui.components.pathplanner
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
@@ -618,24 +620,25 @@ fun FieldCanvas(
             DropdownMenu(
                 expanded = contextMenuExpanded,
                 onDismissRequest = { contextMenuExpanded = false },
-                offset = contextMenuOffset
+                offset = contextMenuOffset,
+                modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder, RoundedCornerShape(4.dp))
             ) {
                 if (contextTargetType == "Waypoint" && contextTargetIndex in waypoints.indices) {
-                    DropdownMenuItem(onClick = { contextMenuExpanded = false }) { Text("Edit Waypoint...") }
+                    DropdownMenuItem(onClick = { contextMenuExpanded = false }) { Text("Edit Waypoint...", color = AresTextPrimary) }
                     DropdownMenuItem(onClick = {
                         onWaypointsChanged(waypoints.toMutableList().apply { removeAt(contextTargetIndex) })
                         contextMenuExpanded = false; selectedWaypointIndex = -1
-                    }) { Text("Delete Waypoint") }
+                    }) { Text("Delete Waypoint", color = AresRed) }
                 } else if (contextTargetType == "Obstacle" && contextTargetId != null) {
                     DropdownMenuItem(onClick = {
                         updateObstacles(currentActiveObstacles.filter { it.id != contextTargetId })
                         contextMenuExpanded = false; selectedObstacleId = null
-                    }) { Text("Delete Obstacle") }
+                    }) { Text("Delete Obstacle", color = AresRed) }
                 } else if (contextTargetType == "AprilTag" && contextTargetId != null) {
                     DropdownMenuItem(onClick = {
                         updateAprilTags(currentActiveAprilTags.filter { it.id != contextTargetId })
                         contextMenuExpanded = false; selectedAprilTagId = null
-                    }) { Text("Delete AprilTag") }
+                    }) { Text("Delete AprilTag", color = AresRed) }
                 } else if (contextTargetType == "GamePiece" && contextTargetId != null) {
                     val gp = currentActiveGamePieces.find { it.id == contextTargetId }
                     if (gp != null) {
@@ -643,19 +646,19 @@ fun FieldCanvas(
                             val nextType = if (gp.type == "Sample") "Specimen" else "Sample"
                             updateGamePieces(currentActiveGamePieces.map { if (it.id == contextTargetId) it.copy(type = nextType) else it })
                             contextMenuExpanded = false
-                        }) { Text("Toggle Type: ${if (gp.type == "Sample") "Specimen" else "Sample"}") }
+                        }) { Text("Toggle Type: ${if (gp.type == "Sample") "Specimen" else "Sample"}", color = AresTextPrimary) }
                     }
                     DropdownMenuItem(onClick = {
                         updateGamePieces(currentActiveGamePieces.filter { it.id != contextTargetId })
                         contextMenuExpanded = false; selectedGamePieceId = null
-                    }) { Text("Delete Game Piece") }
+                    }) { Text("Delete Game Piece", color = AresRed) }
                 } else if (contextTargetType == "EventMarker" && contextTargetIndex in currentEventMarkers.indices) {
                     DropdownMenuItem(onClick = {
                         onEventMarkersChanged?.invoke(currentEventMarkers.toMutableList().apply { removeAt(contextTargetIndex) })
                         contextMenuExpanded = false; selectedEventMarkerIndex = -1
-                    }) { Text("Delete Event Marker") }
+                    }) { Text("Delete Event Marker", color = AresRed) }
                 } else {
-                    DropdownMenuItem(onClick = { contextMenuExpanded = false }) { Text("Cancel") }
+                    DropdownMenuItem(onClick = { contextMenuExpanded = false }) { Text("Cancel", color = AresTextSecondary) }
                 }
             }
 
