@@ -4,8 +4,8 @@ import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.service.FirebaseClientService
 import com.ares.analytics.service.SyncEngineService
 import com.ares.analytics.service.Nt4ClientService
-import com.ares.analytics.shared.SessionSummary
 import com.ares.analytics.service.LogParserService
+import com.ares.analytics.shared.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,7 +22,6 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.*
 import io.ktor.http.*
-import io.ktor.client.statement.readBytes
 import io.ktor.client.statement.bodyAsText
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
@@ -38,7 +37,6 @@ data class RobotLogFileInfo(
     val isActive: Boolean? = false
 )
 
-
 data class RobotRun(
     val runId: String,
     val files: List<RobotLogFileInfo>,
@@ -49,7 +47,14 @@ data class RobotRun(
     val isActive: Boolean = false
 )
 
+data class SessionSyncInfo(
+    val summary: SessionSummary,
+    val isLocal: Boolean,
+    val isRemote: Boolean
+)
+
 data class CloudState(
+    val sessions: List<SessionSyncInfo> = emptyList(),
     val cloudLogs: List<SessionSummary> = emptyList(),
     val robotRuns: List<RobotRun> = emptyList(),
     val isSyncing: Boolean = false,
@@ -69,6 +74,12 @@ sealed class CloudIntent {
     data class DeleteRobotRun(val runId: String) : CloudIntent()
     data class DeleteCloudLog(val sessionId: String, val teamId: String) : CloudIntent()
     object ClearError : CloudIntent()
+
+    // Database / Cloud Sync Manager Intents
+    data class UploadSession(val sessionId: String) : CloudIntent()
+    data class DownloadSession(val summary: SessionSummary) : CloudIntent()
+    data class DeleteSessionLocal(val sessionId: String) : CloudIntent()
+    data class DeleteSessionRemote(val sessionId: String, val teamId: String) : CloudIntent()
 }
 
 class CloudViewModel(
@@ -119,8 +130,46 @@ class CloudViewModel(
             when (intent) {
                 is CloudIntent.RefreshCloudLogs -> {
                     checkAuth()
-                    val summaries = databaseService.getAllSessionSummaries().sortedByDescending { it.createdAt }
-                    _state.update { it.copy(cloudLogs = summaries) }
+                    _state.update { it.copy(isSyncing = true, errorMessage = null) }
+                    try {
+                        val localSessions = databaseService.getSessions()
+                        val localSummariesMap = databaseService.getAllSessionSummaries().associateBy { it.sessionId }
+                        val remoteSummaries = syncEngineService.getRemoteSummaries()
+
+                        val allSessionIds = (localSessions.map { it.sessionId } + remoteSummaries.map { it.sessionId }).toSet()
+
+                        val sessionsList = allSessionIds.map { id ->
+                            val localSession = localSessions.find { it.sessionId == id }
+                            val remoteSummary = remoteSummaries.find { it.sessionId == id }
+                            val localSummary = localSummariesMap[id]
+
+                            val summary = remoteSummary
+                                ?: localSummary
+                                ?: SessionSummary(
+                                    sessionId = id,
+                                    teamId = localSession?.teamId ?: "unknown",
+                                    seasonId = localSession?.seasonId ?: "unknown",
+                                    robotId = localSession?.robotId ?: "unknown",
+                                    createdAt = localSession?.createdAt ?: System.currentTimeMillis(),
+                                    durationMs = localSession?.durationMs ?: 0L,
+                                    tags = localSession?.tags ?: emptyList(),
+                                    matchNumber = localSession?.matchNumber,
+                                    allianceColor = localSession?.allianceColor,
+                                    fileSizeBytes = 0L
+                                )
+
+                            SessionSyncInfo(
+                                summary = summary,
+                                isLocal = localSession != null,
+                                isRemote = remoteSummary != null
+                            )
+                        }.sortedByDescending { it.summary.createdAt }
+
+                        _state.update { it.copy(sessions = sessionsList, cloudLogs = remoteSummaries, isSyncing = false) }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Failed to load database state") }
+                    }
                 }
                 is CloudIntent.RefreshRobotLogs -> {
                     fetchRobotLogs()
@@ -129,8 +178,7 @@ class CloudViewModel(
                     _state.update { it.copy(isSyncing = true, errorMessage = null) }
                     try {
                         syncEngineService.performDeltaSync(intent.teamId, intent.seasonId)
-                        val summaries = databaseService.getAllSessionSummaries().sortedByDescending { it.createdAt }
-                        _state.update { it.copy(cloudLogs = summaries, isSyncing = false) }
+                        onIntent(CloudIntent.RefreshCloudLogs)
                     } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Sync failed") }
@@ -143,14 +191,12 @@ class CloudViewModel(
                         if (run != null) {
                             val errors = mutableListOf<String>()
                             val downloadedFiles = mutableListOf<File>()
-                            
+
                             logUpload("1/5: Downloading ${run.files.size} raw files from robot at ${getRobotIp()}...")
-                            // 1. Download all raw files from robot
                             for (file in run.files) {
                                 try {
                                     val tempFile = withContext(Dispatchers.IO) {
-                                        val fileBytes = httpClient.get("http://${getRobotIp()}:5002/api/download?file=${file.name}").readBytes()
-                                        // Preserve original filename for GCS path
+                                        val fileBytes = httpClient.get("http://${getRobotIp()}:5002/api/download?file=${file.name}").body<ByteArray>()
                                         val tempDir = File(System.getProperty("java.io.tmpdir"), "ares-raw-upload")
                                         tempDir.mkdirs()
                                         val f = File(tempDir, file.name)
@@ -164,13 +210,12 @@ class CloudViewModel(
                                     logUpload("      -> Error downloading ${file.name}: ${e.message}")
                                 }
                             }
-                            
+
                             if (errors.isEmpty() && downloadedFiles.isNotEmpty()) {
                                 logUpload("2/5: Skipping raw file archival (database sync only)...")
-                                
+
                                 val totalSizeKb = downloadedFiles.sumOf { it.length() } / 1024
                                 logUpload("3/5: Parsing ${downloadedFiles.size} log files (${totalSizeKb} KB) into DuckDB...")
-                                // 3. Parse into DuckDB
                                 val session = logParserService.parseLogFiles(
                                     files = downloadedFiles,
                                     teamId = intent.teamId,
@@ -178,9 +223,8 @@ class CloudViewModel(
                                     robotId = intent.robotId
                                 )
                                 logUpload("      -> Parsed session: ${session.sessionId} (${session.durationMs?.let { "${it / 1000}s" } ?: "unknown"} duration)")
- 
+
                                 logUpload("4/5: Pushing DuckDB Parquet blob to Cloud & syncing...")
-                                // 4. Upload Parquet to GCS + delta sync
                                 try {
                                     syncEngineService.uploadSession(session.sessionId)
                                     syncEngineService.performDeltaSync(intent.teamId, intent.seasonId)
@@ -189,10 +233,9 @@ class CloudViewModel(
                                     errors.add("Imported locally but cloud sync failed: ${syncEx.message}")
                                     logUpload("      -> Cloud sync failed: ${syncEx.message}")
                                 }
-                                
-                                // 5. Delete temp files on desktop
+
                                 downloadedFiles.forEach { it.delete() }
-                                
+
                                 logUpload("5/5: Deleting remote files from Robot...")
                                 if (errors.isEmpty()) {
                                     try {
@@ -204,16 +247,13 @@ class CloudViewModel(
                                             }
                                         }
                                     } catch (deleteEx: Exception) {
-                                        // Non-fatal: files uploaded but robot cleanup failed
                                         errors.add("Uploaded successfully but robot cleanup failed: ${deleteEx.message}")
                                     }
                                 }
-                                
-                                // Refresh UI
+
                                 logUpload("Upload finished! Refreshing UI...")
                                 fetchRobotLogs()
-                                val summaries = databaseService.getAllSessionSummaries().sortedByDescending { it.createdAt }
-                                _state.update { it.copy(cloudLogs = summaries, isUploadingRobotLog = null) }
+                                onIntent(CloudIntent.RefreshCloudLogs)
                             } else {
                                 logUpload("Upload encountered errors. Aborting.")
                                 _state.update { it.copy(errorMessage = "Upload errors:\n" + errors.joinToString("\n"), isUploadingRobotLog = null) }
@@ -253,14 +293,52 @@ class CloudViewModel(
                     _state.update { it.copy(isDeletingCloudLog = intent.sessionId, errorMessage = null) }
                     try {
                         syncEngineService.deleteCloudSession(intent.sessionId, intent.teamId)
-                        // Refresh cloud logs list
-                        val summaries = databaseService.getAllSessionSummaries().sortedByDescending { it.createdAt }
-                        _state.update { it.copy(cloudLogs = summaries, isDeletingCloudLog = null) }
+                        onIntent(CloudIntent.RefreshCloudLogs)
                     } catch (e: SecurityException) {
-                        _state.update { it.copy(isDeletingCloudLog = null, errorMessage = "Permission denied: Only admins and coaches can delete cloud sessions") }
+                        _state.update { it.copy(isDeletingCloudLog = null, errorMessage = "Permission denied") }
                     } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(isDeletingCloudLog = null, errorMessage = e.message ?: "Delete failed") }
+                    }
+                }
+                is CloudIntent.UploadSession -> {
+                    _state.update { it.copy(isSyncing = true, errorMessage = null) }
+                    try {
+                        syncEngineService.uploadSession(intent.sessionId)
+                        onIntent(CloudIntent.RefreshCloudLogs)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Upload failed") }
+                    }
+                }
+                is CloudIntent.DownloadSession -> {
+                    _state.update { it.copy(isSyncing = true, errorMessage = null) }
+                    try {
+                        syncEngineService.downloadSession(intent.summary)
+                        onIntent(CloudIntent.RefreshCloudLogs)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Download failed") }
+                    }
+                }
+                is CloudIntent.DeleteSessionLocal -> {
+                    _state.update { it.copy(isSyncing = true, errorMessage = null) }
+                    try {
+                        databaseService.deleteSession(intent.sessionId)
+                        onIntent(CloudIntent.RefreshCloudLogs)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Local delete failed") }
+                    }
+                }
+                is CloudIntent.DeleteSessionRemote -> {
+                    _state.update { it.copy(isSyncing = true, errorMessage = null) }
+                    try {
+                        syncEngineService.deleteCloudSession(intent.sessionId, intent.teamId)
+                        onIntent(CloudIntent.RefreshCloudLogs)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Remote delete failed") }
                     }
                 }
                 is CloudIntent.ClearError -> {
@@ -276,8 +354,8 @@ class CloudViewModel(
             val logs: List<RobotLogFileInfo> = withContext(Dispatchers.IO) {
                 httpClient.get("http://${getRobotIp()}:5002/api/logs").body()
             }
-            
-            val runs = logs.groupBy { 
+
+            val runs = logs.groupBy {
                 val nameWithoutExt = it.name.substringBeforeLast(".")
                 if (nameWithoutExt.length > 15 && nameWithoutExt.takeLast(15).matches(Regex("\\d{8}_\\d{6}"))) {
                     nameWithoutExt.takeLast(15)
@@ -295,7 +373,7 @@ class CloudViewModel(
                     isActive = files.any { it.isActive == true }
                 )
             }.sortedByDescending { it.lastModifiedMs }
-            
+
             _state.update { it.copy(robotRuns = runs, isFetchingRobotLogs = false) }
         } catch (e: Exception) {
             e.printStackTrace()

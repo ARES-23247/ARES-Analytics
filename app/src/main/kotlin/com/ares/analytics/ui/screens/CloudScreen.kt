@@ -58,7 +58,7 @@ fun CloudScreen(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AresGreen, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Authenticated with Firebase", color = AresTextSecondary, fontSize = 12.sp)
+                        Text("Authenticated with Google", color = AresTextSecondary, fontSize = 12.sp)
                     }
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -68,7 +68,7 @@ fun CloudScreen(
                     }
                 }
             }
-            
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = { viewModel.onIntent(CloudIntent.RefreshRobotLogs) },
@@ -78,9 +78,12 @@ fun CloudScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Refresh Robot", color = AresCyan)
                 }
-                
+
                 Button(
-                    onClick = { viewModel.onIntent(CloudIntent.PerformDeltaSync(teamId, seasonId)) },
+                    onClick = { 
+                        viewModel.onIntent(CloudIntent.RefreshCloudLogs)
+                        viewModel.onIntent(CloudIntent.PerformDeltaSync(teamId, seasonId)) 
+                    },
                     enabled = !state.isSyncing,
                     colors = ButtonDefaults.buttonColors(containerColor = AresCyan, disabledContainerColor = AresSurfaceElevated)
                 ) {
@@ -152,12 +155,12 @@ fun CloudScreen(
                     }
                 }
             }
-            
-            // Right Pane: Cloud Logs
+
+            // Right Pane: Database & Google Drive Sync
             Column(
-                modifier = Modifier.weight(1f).fillMaxHeight()
+                modifier = Modifier.weight(1.2f).fillMaxHeight()
             ) {
-                Text("Cloud Logs (Remote)", color = AresTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
+                Text("Database & Google Drive Sync", color = AresTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 8.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -165,15 +168,17 @@ fun CloudScreen(
                         .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
                         .padding(8.dp)
                 ) {
-                    if (state.cloudLogs.isEmpty()) {
-                        Text("No cloud sessions found.", color = AresTextSecondary, modifier = Modifier.align(Alignment.Center))
+                    if (state.sessions.isEmpty()) {
+                        Text("No sessions found in local DuckDB or Google Drive.", color = AresTextSecondary, modifier = Modifier.align(Alignment.Center))
                     } else {
                         LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(state.cloudLogs, key = { it.sessionId }) { summary ->
-                                CloudLogRow(
-                                    summary = summary,
-                                    isDeleting = state.isDeletingCloudLog == summary.sessionId,
-                                    onDelete = { viewModel.onIntent(CloudIntent.DeleteCloudLog(summary.sessionId, summary.teamId)) }
+                            items(state.sessions, key = { it.summary.sessionId }) { sessionInfo ->
+                                SessionSyncRow(
+                                    info = sessionInfo,
+                                    onUpload = { viewModel.onIntent(CloudIntent.UploadSession(sessionInfo.summary.sessionId)) },
+                                    onDownload = { viewModel.onIntent(CloudIntent.DownloadSession(sessionInfo.summary)) },
+                                    onDeleteLocal = { viewModel.onIntent(CloudIntent.DeleteSessionLocal(sessionInfo.summary.sessionId)) },
+                                    onDeleteRemote = { viewModel.onIntent(CloudIntent.DeleteSessionRemote(sessionInfo.summary.sessionId, sessionInfo.summary.teamId)) }
                                 )
                             }
                         }
@@ -198,7 +203,7 @@ fun CloudScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("Upload Console", color = AresCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp))
-                    
+
                     IconButton(
                         onClick = {
                             val textToCopy = state.uploadLogs.joinToString("\n")
@@ -219,14 +224,14 @@ fun CloudScreen(
                         )
                     }
                 }
-                
+
                 val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
                 LaunchedEffect(state.uploadLogs.size) {
                     if (state.uploadLogs.isNotEmpty()) {
                         lazyListState.animateScrollToItem(state.uploadLogs.size - 1)
                     }
                 }
-                
+
                 LazyColumn(state = lazyListState, modifier = Modifier.fillMaxSize()) {
                     items(state.uploadLogs) { log ->
                         SelectionContainer {
@@ -264,7 +269,7 @@ fun RobotRunRow(
                 fontSize = 12.sp
             )
         }
-        
+
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             IconButton(onClick = onDelete, enabled = !isUploading && !run.isActive) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete", tint = AresRed)
@@ -287,11 +292,14 @@ fun RobotRunRow(
 }
 
 @Composable
-fun CloudLogRow(
-    summary: SessionSummary,
-    isDeleting: Boolean,
-    onDelete: () -> Unit
+fun SessionSyncRow(
+    info: com.ares.analytics.viewmodel.SessionSyncInfo,
+    onUpload: () -> Unit,
+    onDownload: () -> Unit,
+    onDeleteLocal: () -> Unit,
+    onDeleteRemote: () -> Unit
 ) {
+    val summary = info.summary
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -301,30 +309,96 @@ fun CloudLogRow(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             val formatter = java.text.SimpleDateFormat("yyyyMMdd_HHmmss")
-            val runName = formatter.format(java.util.Date(summary.createdAt))
-            Text("Run: $runName (Cloud: ${summary.sessionId.takeLast(8)})", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-            
+            val runName = try {
+                formatter.format(java.util.Date(summary.createdAt))
+            } catch (e: Exception) {
+                "Unknown Date"
+            }
+            Text("Session: $runName", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+
             val sizeStr = if (summary.fileSizeBytes > 0) " | Size: ${summary.fileSizeBytes / 1024} KB" else ""
-            val dateStr = java.text.SimpleDateFormat("MMM dd, HH:mm").format(java.util.Date(summary.createdAt))
-            
+            val dateStr = try {
+                java.text.SimpleDateFormat("MMM dd, HH:mm").format(java.util.Date(summary.createdAt))
+            } catch (e: Exception) {
+                "unknown"
+            }
+
             Text(
                 "Match: ${summary.matchNumber ?: "None"}$sizeStr | $dateStr",
                 color = AresTextSecondary,
-                fontSize = 12.sp
+                fontSize = 11.sp
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+            val badgeColor = when {
+                info.isLocal && info.isRemote -> AresGreen
+                info.isLocal -> AresCyan
+                else -> AresAmber
+            }
+            val badgeText = when {
+                info.isLocal && info.isRemote -> "Synced"
+                info.isLocal -> "Local Only (DuckDB)"
+                else -> "Cloud Only (Drive)"
+            }
+            Text(
+                text = badgeText,
+                color = badgeColor,
+                fontWeight = FontWeight.Bold,
+                fontSize = 10.sp,
+                modifier = Modifier
+                    .background(badgeColor.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
             )
         }
-        
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            IconButton(
-                onClick = onDelete,
-                enabled = !isDeleting
-            ) {
-                if (isDeleting) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AresRed, strokeWidth = 2.dp)
-                } else {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete from cloud", tint = AresRed)
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (!info.isLocal && info.isRemote) {
+                Button(
+                    onClick = onDownload,
+                    colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Text("Import", color = AresCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+                IconButton(onClick = onDeleteRemote, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete Cloud", tint = AresRed, modifier = Modifier.size(16.dp))
+                }
+            }
+
+            if (info.isLocal && !info.isRemote) {
+                Button(
+                    onClick = onUpload,
+                    colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Text("Upload", color = AresCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+                IconButton(onClick = onDeleteLocal, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete Local", tint = AresRed, modifier = Modifier.size(16.dp))
+                }
+            }
+
+            if (info.isLocal && info.isRemote) {
+                TextButton(
+                    onClick = onDeleteLocal,
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Text("Del Local", color = AresRed, fontSize = 10.sp)
+                }
+                TextButton(
+                    onClick = onDeleteRemote,
+                    contentPadding = PaddingValues(horizontal = 4.dp),
+                    modifier = Modifier.height(28.dp)
+                ) {
+                    Text("Del Cloud", color = AresRed, fontSize = 10.sp)
                 }
             }
         }

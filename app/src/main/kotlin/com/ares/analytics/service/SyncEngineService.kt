@@ -122,25 +122,59 @@ class SyncEngineService(
     }
 
     /**
+     * Gets all session summaries recorded in the Google Drive index.json file.
+     */
+    suspend fun getRemoteSummaries(): List<SessionSummary> = withContext(Dispatchers.IO) {
+        try {
+            val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
+            val indexFileId = googleDriveService.findFile("index.json", rootFolderId) ?: return@withContext emptyList()
+            val indexBytes = googleDriveService.readFile(indexFileId)
+            Json { ignoreUnknownKeys = true }.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    /**
+     * Downloads a single session's Parquet file from Google Drive and imports it into DuckDB.
+     */
+    suspend fun downloadSession(summary: SessionSummary) = withContext(Dispatchers.IO) {
+        val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
+        val sessionsFolderId = googleDriveService.findOrCreateFolder("sessions", rootFolderId)
+        val parquetFileName = "${summary.sessionId}.parquet"
+        val parquetFileId = googleDriveService.findFile(parquetFileName, sessionsFolderId)
+            ?: throw Exception("Session Parquet file not found on Google Drive: $parquetFileName")
+
+        val fileBytes = googleDriveService.readFile(parquetFileId)
+        val tempFile = File.createTempFile("cloud_sync_${summary.sessionId}_", ".parquet")
+        tempFile.writeBytes(fileBytes)
+
+        try {
+            databaseService.importParquet(tempFile)
+            databaseService.insertSessionSummary(summary)
+            val session = Session(
+                sessionId = summary.sessionId,
+                teamId = summary.teamId,
+                seasonId = summary.seasonId,
+                robotId = summary.robotId,
+                createdAt = summary.createdAt,
+                durationMs = summary.durationMs,
+                tags = summary.tags,
+                matchNumber = summary.matchNumber,
+                allianceColor = summary.allianceColor
+            )
+            databaseService.insertSession(session)
+        } finally {
+            tempFile.delete()
+        }
+    }
+
+    /**
      * Syncs local sessions with Google Drive repository.
      */
     suspend fun performDeltaSync(teamId: String, seasonId: String, authToken: String? = null) = withContext(Dispatchers.IO) {
-        // 1. Locate root and sessions folders
-        val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
-        val sessionsFolderId = googleDriveService.findOrCreateFolder("sessions", rootFolderId)
-
-        // 2. Read the index.json file
-        val indexFileId = googleDriveService.findFile("index.json", rootFolderId)
-        val remoteSummaries = if (indexFileId != null) {
-            val indexBytes = googleDriveService.readFile(indexFileId)
-            try {
-                Json { ignoreUnknownKeys = true }.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
-            } catch (e: Exception) {
-                emptyList()
-            }
-        } else {
-            emptyList()
-        }
+        val remoteSummaries = getRemoteSummaries()
 
         // 3. Filter for active team/season summaries that we do not have locally
         val localSummaries = databaseService.getAllSessionSummaries()
@@ -152,36 +186,10 @@ class SyncEngineService(
 
         // 4. Download missing parquets and insert summaries
         for (summary in missingSummaries) {
-            val parquetFileName = "${summary.sessionId}.parquet"
-            val parquetFileId = googleDriveService.findFile(parquetFileName, sessionsFolderId)
-            if (parquetFileId != null) {
-                try {
-                    // Download and write to temp file
-                    val fileBytes = googleDriveService.readFile(parquetFileId)
-                    val tempFile = File.createTempFile("cloud_sync_${summary.sessionId}_", ".parquet")
-                    tempFile.writeBytes(fileBytes)
-
-                    // Import to local DuckDB database
-                    databaseService.importParquet(tempFile)
-                    tempFile.delete()
-
-                    // Insert summary and session reference
-                    databaseService.insertSessionSummary(summary)
-                    val session = Session(
-                        sessionId = summary.sessionId,
-                        teamId = summary.teamId,
-                        seasonId = summary.seasonId,
-                        robotId = summary.robotId,
-                        createdAt = summary.createdAt,
-                        durationMs = summary.durationMs,
-                        tags = summary.tags,
-                        matchNumber = summary.matchNumber,
-                        allianceColor = summary.allianceColor
-                    )
-                    databaseService.insertSession(session)
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+            try {
+                downloadSession(summary)
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
