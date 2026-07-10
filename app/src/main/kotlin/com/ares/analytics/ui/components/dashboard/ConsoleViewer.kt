@@ -223,6 +223,30 @@ fun ConsoleViewer(
                         modifier = Modifier.size(18.dp)
                     )
                 }
+
+                // Copy All Logs button
+                IconButton(
+                    onClick = {
+                        val textToCopy = filteredMessages.joinToString("\n") { msg ->
+                            val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault()).format(Date(msg.timestampMs))
+                            "[$time] [${msg.severity}] ${msg.text}"
+                        }
+                        try {
+                            val selection = java.awt.datatransfer.StringSelection(textToCopy)
+                            java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, selection)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ContentCopy,
+                        contentDescription = "Copy All Logs",
+                        tint = AresTextSecondary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
 
@@ -343,13 +367,13 @@ fun ConsoleViewer(
                     )
                 }
             } else {
-                SelectionContainer {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        items(filteredMessages) { msg ->
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(filteredMessages) { msg ->
+                        SelectionContainer {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

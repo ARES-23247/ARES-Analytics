@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -191,16 +192,44 @@ fun CloudScreen(
                     .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
                     .padding(8.dp)
             ) {
-                Text("Upload Console", color = AresCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Upload Console", color = AresCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp))
+                    
+                    IconButton(
+                        onClick = {
+                            val textToCopy = state.uploadLogs.joinToString("\n")
+                            try {
+                                val selection = java.awt.datatransfer.StringSelection(textToCopy)
+                                java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, selection)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy Upload Logs",
+                            tint = AresTextSecondary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+                
                 val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
                 LaunchedEffect(state.uploadLogs.size) {
                     if (state.uploadLogs.isNotEmpty()) {
                         lazyListState.animateScrollToItem(state.uploadLogs.size - 1)
                     }
                 }
-                SelectionContainer {
-                    LazyColumn(state = lazyListState, modifier = Modifier.fillMaxSize()) {
-                        items(state.uploadLogs) { log ->
+                
+                LazyColumn(state = lazyListState, modifier = Modifier.fillMaxSize()) {
+                    items(state.uploadLogs) { log ->
+                        SelectionContainer {
                             Text(log, color = AresTextSecondary, fontSize = 11.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
                         }
                     }
