@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -54,6 +55,7 @@ sealed class FieldEditorIntent {
     data class SetGamePieces(val gamePieces: List<GamePiece>) : FieldEditorIntent()
     data class SetAprilTags(val tags: List<AprilTagPlacement>) : FieldEditorIntent()
     data class SetFieldWaypoints(val waypoints: List<FieldWaypoint>) : FieldEditorIntent()
+    data class ImportFmap(val fmapContent: String, val projectPath: String?, val league: League) : FieldEditorIntent()
 }
 
 class FieldEditorViewModel(
@@ -381,7 +383,66 @@ class FieldEditorViewModel(
                 is FieldEditorIntent.SetFieldWaypoints -> {
                     _state.update { it.copy(fieldWaypoints = intent.waypoints) }
                 }
+                is FieldEditorIntent.ImportFmap -> {
+                    val projectPath = intent.projectPath
+                    val league = intent.league
+                    val fmapContent = intent.fmapContent
+                    if (!projectPath.isNullOrEmpty()) {
+                        try {
+                            val fmap = Json.decodeFromString<LimelightFmap>(fmapContent)
+                            val placements = fmap.fiducials.mapNotNull { fiducial ->
+                                val transform = fiducial.transform
+                                if (transform.size >= 16) {
+                                    val tx = transform[3]
+                                    val ty = transform[7]
+                                    val tz = transform[11]
+                                    val yawRad = kotlin.math.atan2(transform[4], transform[0])
+                                    val yawDeg = Math.toDegrees(yawRad)
+                                    AprilTagPlacement(
+                                        id = "apriltag_${fiducial.id}",
+                                        tagId = fiducial.id,
+                                        x = tx,
+                                        y = ty,
+                                        z = tz,
+                                        yawDegrees = yawDeg
+                                    )
+                                } else null
+                            }
+                            _state.update { it.copy(aprilTags = placements) }
+
+                            withContext(Dispatchers.IO) {
+                                val relativeDir = if (league == League.FTC) {
+                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths"
+                                    else "src/main/assets/paths"
+                                } else {
+                                    "src/main/deploy/paths"
+                                }
+                                val targetDir = File(projectPath, relativeDir)
+                                targetDir.mkdirs()
+                                val targetFile = File(targetDir, "apriltags.json")
+                                val jsonFormat = Json { prettyPrint = true }
+                                targetFile.writeText(jsonFormat.encodeToString(placements))
+                            }
+                            _state.update { it.copy(saveStatus = "Imported and saved AprilTags successfully!") }
+                        } catch (e: Exception) {
+                            _state.update { it.copy(saveStatus = "Failed to parse fmap: ${e.message}") }
+                        }
+                    }
+                }
             }
         }
     }
 }
+
+@Serializable
+private data class LimelightFiducial(
+    val id: Int = 0,
+    val family: String? = null,
+    val size: Double = 0.0,
+    val transform: List<Double> = emptyList()
+)
+
+@Serializable
+private data class LimelightFmap(
+    val fiducials: List<LimelightFiducial> = emptyList()
+)

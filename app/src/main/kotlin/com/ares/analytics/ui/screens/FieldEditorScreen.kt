@@ -444,14 +444,17 @@ fun FieldEditorScreen(
                     }
                 }
 
-                // Placed AprilTags Section
-                if (state.aprilTags.isNotEmpty()) {
-                    HorizontalDivider(color = AresBorder)
+                // AprilTags Section
+                HorizontalDivider(color = AresBorder)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Row(
                         modifier = Modifier
-                            .fillMaxWidth()
                             .clickable { aprilTagsCollapsed = !aprilTagsCollapsed }
-                            .padding(vertical = 4.dp),
+                            .weight(1f),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -462,28 +465,54 @@ fun FieldEditorScreen(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = "Placed AprilTags (${state.aprilTags.size})",
+                            text = "AprilTags (${state.aprilTags.size})",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             color = AresTextPrimary
                         )
                     }
-                    if (!aprilTagsCollapsed) {
-                        state.aprilTags.forEachIndexed { index, at ->
-                            key(at.id) {
-                                AprilTagRow(
-                                    index = index,
-                                    at = at,
-                                    onUpdate = { i, updated ->
-                                        viewModel.onIntent(FieldEditorIntent.UpdateAprilTag(i, updated))
-                                        viewModel.onIntent(FieldEditorIntent.SaveAprilTags(projectPath, league))
-                                    },
-                                    onDelete = { i ->
-                                        viewModel.onIntent(FieldEditorIntent.DeleteAprilTag(i))
-                                        viewModel.onIntent(FieldEditorIntent.SaveAprilTags(projectPath, league))
+
+                    if (!projectPath.isNullOrEmpty()) {
+                        Button(
+                            onClick = {
+                                SwingUtilities.invokeLater {
+                                    val chooser = JFileChooser().apply {
+                                        dialogTitle = "Select Limelight .fmap File"
+                                        fileFilter = FileNameExtensionFilter("AprilTag Map (.fmap)", "fmap")
                                     }
-                                )
-                            }
+                                    val result = chooser.showOpenDialog(null)
+                                    if (result == JFileChooser.APPROVE_OPTION) {
+                                        val selectedFile = chooser.selectedFile
+                                        val fmapContent = selectedFile.readText()
+                                        viewModel.onIntent(FieldEditorIntent.ImportFmap(fmapContent, projectPath, league))
+                                    }
+                                }
+                            },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.height(28.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated)
+                        ) {
+                            Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(14.dp), tint = AresTextPrimary)
+                            Spacer(Modifier.width(4.dp))
+                            Text("Import .fmap", fontSize = 11.sp, color = AresTextPrimary)
+                        }
+                    }
+                }
+                if (!aprilTagsCollapsed && state.aprilTags.isNotEmpty()) {
+                    state.aprilTags.forEachIndexed { index, at ->
+                        key(at.id) {
+                            AprilTagRow(
+                                index = index,
+                                at = at,
+                                onUpdate = { i, updated ->
+                                    viewModel.onIntent(FieldEditorIntent.UpdateAprilTag(i, updated))
+                                    viewModel.onIntent(FieldEditorIntent.SaveAprilTags(projectPath, league))
+                                },
+                                onDelete = { i ->
+                                    viewModel.onIntent(FieldEditorIntent.DeleteAprilTag(i))
+                                    viewModel.onIntent(FieldEditorIntent.SaveAprilTags(projectPath, league))
+                                }
+                            )
                         }
                     }
                 }
