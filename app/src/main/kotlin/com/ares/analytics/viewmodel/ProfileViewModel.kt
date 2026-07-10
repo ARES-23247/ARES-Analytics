@@ -26,6 +26,11 @@ data class ProfileState(
     val eventCode: String = "",
     val toaApiKey: String = "",
     val tbaApiKey: String = "",
+    val aiMode: String = "STUDIO",
+    val geminiApiKey: String = "",
+    val vertexServiceAccountPath: String = "",
+    val vertexProjectId: String = "",
+    val vertexLocation: String = "us-central1",
     val isLoading: Boolean = false,
     val errorMessage: String? = null
 )
@@ -43,6 +48,11 @@ sealed class ProfileIntent {
         val eventCode: String,
         val toaApiKey: String,
         val tbaApiKey: String,
+        val aiMode: String,
+        val geminiApiKey: String,
+        val vertexServiceAccountPath: String,
+        val vertexProjectId: String,
+        val vertexLocation: String,
         val onConfigChanged: (WorkspaceConfig) -> Unit
     ) : ProfileIntent()
     object ClearSyncStatus : ProfileIntent()
@@ -86,7 +96,12 @@ class ProfileViewModel(
                             googleClientSecret = cfg.googleClientSecret ?: "",
                             eventCode = cfg.eventCode ?: "",
                             toaApiKey = cfg.toaApiKey ?: "",
-                            tbaApiKey = cfg.tbaApiKey ?: ""
+                            tbaApiKey = cfg.tbaApiKey ?: "",
+                            aiMode = cfg.aiMode ?: "STUDIO",
+                            geminiApiKey = cfg.geminiApiKey ?: "",
+                            vertexServiceAccountPath = cfg.vertexServiceAccountPath ?: "",
+                            vertexProjectId = cfg.vertexProjectId ?: "",
+                            vertexLocation = cfg.vertexLocation ?: "us-central1"
                         )
                     }
                 }
@@ -134,7 +149,12 @@ class ProfileViewModel(
                         googleClientSecret = intent.googleClientSecret.takeIf { it.isNotBlank() },
                         eventCode = intent.eventCode.takeIf { it.isNotBlank() },
                         toaApiKey = intent.toaApiKey.takeIf { it.isNotBlank() },
-                        tbaApiKey = intent.tbaApiKey.takeIf { it.isNotBlank() }
+                        tbaApiKey = intent.tbaApiKey.takeIf { it.isNotBlank() },
+                        aiMode = intent.aiMode.takeIf { it.isNotBlank() },
+                        geminiApiKey = intent.geminiApiKey.takeIf { it.isNotBlank() },
+                        vertexServiceAccountPath = intent.vertexServiceAccountPath.takeIf { it.isNotBlank() },
+                        vertexProjectId = intent.vertexProjectId.takeIf { it.isNotBlank() },
+                        vertexLocation = intent.vertexLocation.takeIf { it.isNotBlank() }
                     )
                     firebaseClientService.apiKey = intent.firebaseApiKey.takeIf { it.isNotBlank() }
                         ?: "AIzaSyB4cU7pgHpqoxtqtQalIE4HqZoz3X7bJH0"
@@ -147,7 +167,12 @@ class ProfileViewModel(
                             googleClientSecret = intent.googleClientSecret,
                             eventCode = intent.eventCode,
                             toaApiKey = intent.toaApiKey,
-                            tbaApiKey = intent.tbaApiKey
+                            tbaApiKey = intent.tbaApiKey,
+                            aiMode = intent.aiMode,
+                            geminiApiKey = intent.geminiApiKey,
+                            vertexServiceAccountPath = intent.vertexServiceAccountPath,
+                            vertexProjectId = intent.vertexProjectId,
+                            vertexLocation = intent.vertexLocation
                         )
                     }
                     withContext(Dispatchers.IO) {

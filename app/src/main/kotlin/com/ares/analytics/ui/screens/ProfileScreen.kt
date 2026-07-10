@@ -46,17 +46,25 @@ fun ProfileScreen(
     var toaApiKey by remember(state.toaApiKey) { mutableStateOf(state.toaApiKey) }
     var tbaApiKey by remember(state.tbaApiKey) { mutableStateOf(state.tbaApiKey) }
 
+    // AI Diagnostics overrides
+    var aiMode by remember(state.aiMode) { mutableStateOf(state.aiMode) }
+    var geminiApiKey by remember(state.geminiApiKey) { mutableStateOf(state.geminiApiKey) }
+    var vertexServiceAccountPath by remember(state.vertexServiceAccountPath) { mutableStateOf(state.vertexServiceAccountPath) }
+    var vertexProjectId by remember(state.vertexProjectId) { mutableStateOf(state.vertexProjectId) }
+    var vertexLocation by remember(state.vertexLocation) { mutableStateOf(state.vertexLocation) }
+
     Column(
         modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)).background(AresSurface).border(1.dp, AresBorder, RoundedCornerShape(12.dp)).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Text("Profile & Cloud Sync", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = AresTextPrimary)
+        Text("Note: GCS raw file uploads are disabled. Telemetry Parquet database blobs sync directly via Google Drive.", color = AresTextSecondary, fontSize = 11.sp)
         HorizontalDivider(color = AresBorder)
 
         when (val auth = state.authState) {
             is AuthState.Unauthenticated -> {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Sign in with your Google account to enable real-time cloud synchronization.", color = AresTextSecondary, fontSize = 12.sp)
+                    Text("Sign in with your Google account to enable real-time Google Drive synchronization.", color = AresTextSecondary, fontSize = 12.sp)
 
                     Button(
                         onClick = {
@@ -148,7 +156,7 @@ fun ProfileScreen(
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = AresCyan)
                         ) {
-                            Text("Delta Sync", color = AresBackground, fontWeight = FontWeight.Bold)
+                            Text("Sync with Google Drive", color = AresBackground, fontWeight = FontWeight.Bold)
                         }
 
                         Button(
@@ -181,7 +189,7 @@ fun ProfileScreen(
             }
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(4.dp))
         HorizontalDivider(color = AresBorder)
         Text("Event Integration Settings", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = AresTextPrimary)
 
@@ -214,6 +222,64 @@ fun ProfileScreen(
             )
         }
 
+        Spacer(Modifier.height(4.dp))
+        HorizontalDivider(color = AresBorder)
+        Text("AI Diagnostics Settings", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = AresTextPrimary)
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { aiMode = "STUDIO" }) {
+                RadioButton(selected = aiMode == "STUDIO", onClick = { aiMode = "STUDIO" }, colors = RadioButtonDefaults.colors(selectedColor = AresCyan))
+                Spacer(Modifier.width(4.dp))
+                Text("Google AI Studio (API Key)", color = AresTextPrimary, fontSize = 13.sp)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { aiMode = "VERTEX" }) {
+                RadioButton(selected = aiMode == "VERTEX", onClick = { aiMode = "VERTEX" }, colors = RadioButtonDefaults.colors(selectedColor = AresCyan))
+                Spacer(Modifier.width(4.dp))
+                Text("GCP Vertex AI (Service Account)", color = AresTextPrimary, fontSize = 13.sp)
+            }
+        }
+
+        if (aiMode == "STUDIO") {
+            OutlinedTextField(
+                value = geminiApiKey,
+                onValueChange = { geminiApiKey = it },
+                label = { Text("Gemini API Key") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
+            )
+        } else {
+            OutlinedTextField(
+                value = vertexServiceAccountPath,
+                onValueChange = { vertexServiceAccountPath = it },
+                label = { Text("GCP Service Account JSON File Path") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
+            )
+            OutlinedTextField(
+                value = vertexProjectId,
+                onValueChange = { vertexProjectId = it },
+                label = { Text("GCP Project ID") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
+            )
+            OutlinedTextField(
+                value = vertexLocation,
+                onValueChange = { vertexLocation = it },
+                label = { Text("GCP Region (e.g. us-central1)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
+            )
+        }
+
         Button(
             onClick = {
                 viewModel.onIntent(
@@ -224,6 +290,11 @@ fun ProfileScreen(
                         eventCode = eventCode,
                         toaApiKey = toaApiKey,
                         tbaApiKey = tbaApiKey,
+                        aiMode = aiMode,
+                        geminiApiKey = geminiApiKey,
+                        vertexServiceAccountPath = vertexServiceAccountPath,
+                        vertexProjectId = vertexProjectId,
+                        vertexLocation = vertexLocation,
                         onConfigChanged = onConfigChanged
                     )
                 )

@@ -43,7 +43,10 @@ data class SavedAuth(
     val refreshToken: String,
     val uid: String,
     val email: String,
-    val displayName: String
+    val displayName: String,
+    val googleAccessToken: String? = null,
+    val googleRefreshToken: String? = null,
+    val googleTokenExpiresAt: Long? = null
 )
 
 sealed class FirebaseAuthState {
@@ -133,7 +136,14 @@ class FirebaseClientService {
         }
     }
 
-    suspend fun signInWithGoogleToken(googleIdToken: String, email: String, name: String) {
+    suspend fun signInWithGoogleToken(
+        googleIdToken: String,
+        email: String,
+        name: String,
+        googleAccessToken: String? = null,
+        googleRefreshToken: String? = null,
+        googleTokenExpiresAt: Long? = null
+    ) {
         _authState.value = FirebaseAuthState.Authenticating
         if (isDevMode()) {
             // Local dev fallback
@@ -177,7 +187,10 @@ class FirebaseClientService {
                         refreshToken = data.refreshToken,
                         uid = data.localId,
                         email = data.email ?: email,
-                        displayName = data.displayName ?: name
+                        displayName = data.displayName ?: name,
+                        googleAccessToken = googleAccessToken,
+                        googleRefreshToken = googleRefreshToken,
+                        googleTokenExpiresAt = googleTokenExpiresAt
                     )
                     authFile.parentFile?.mkdirs()
                     authFile.writeText(Json.encodeToString(savedAuth))
@@ -190,6 +203,24 @@ class FirebaseClientService {
             }
         } catch (e: Exception) {
             _authState.value = FirebaseAuthState.Error("Network error during Firebase Sign-In: ${e.message}")
+        }
+    }
+
+    fun getSavedAuth(): SavedAuth? {
+        if (!authFile.exists()) return null
+        return try {
+            Json { ignoreUnknownKeys = true }.decodeFromString<SavedAuth>(authFile.readText())
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun saveAuth(auth: SavedAuth) {
+        try {
+            authFile.parentFile?.mkdirs()
+            authFile.writeText(Json.encodeToString(auth))
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 

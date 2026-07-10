@@ -22,7 +22,12 @@ data class WorkspaceConfig(
     val googleClientId: String? = null,
     val firebaseApiKey: String? = null,
     val googleClientSecret: String? = null,
-    val simulatorCommand: String? = null
+    val simulatorCommand: String? = null,
+    val aiMode: String? = "STUDIO",
+    val geminiApiKey: String? = null,
+    val vertexServiceAccountPath: String? = null,
+    val vertexProjectId: String? = null,
+    val vertexLocation: String? = "us-central1"
 )
 
 @Serializable

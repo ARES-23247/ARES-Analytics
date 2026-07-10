@@ -14,6 +14,7 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -59,7 +60,8 @@ sealed class AuthState {
 data class GoogleTokenResponse(
     val access_token: String,
     val id_token: String,
-    val expires_in: Int
+    val expires_in: Int,
+    val refresh_token: String? = null
 )
 
 @Serializable
@@ -135,7 +137,9 @@ class OAuthService(
                 "client_id=$googleClientId" +
                 "&redirect_uri=${URLEncoder.encode(redirectUri, "UTF-8")}" +
                 "&response_type=code" +
-                "&scope=${URLEncoder.encode("openid email profile", "UTF-8")}" +
+                "&scope=${URLEncoder.encode("openid email profile https://www.googleapis.com/auth/drive.file", "UTF-8")}" +
+                "&access_type=offline" +
+                "&prompt=consent" +
                 "&code_challenge=$codeChallenge" +
                 "&code_challenge_method=S256"
 
@@ -159,11 +163,15 @@ class OAuthService(
 
                 if (response.status == HttpStatusCode.OK) {
                     val tokenData = response.body<GoogleTokenResponse>()
+                    val expiresAt = System.currentTimeMillis() + (tokenData.expires_in * 1000L)
                     // Sign in to Firebase with the obtained Google ID Token
                     firebaseClientService.signInWithGoogleToken(
                         googleIdToken = tokenData.id_token,
                         email = "user@aresrobotics.org", // Firebase signInWithIdp will return actual email
-                        name = "Google User"
+                        name = "Google User",
+                        googleAccessToken = tokenData.access_token,
+                        googleRefreshToken = tokenData.refresh_token,
+                        googleTokenExpiresAt = expiresAt
                     )
                 } else {
                     val errorText = response.bodyAsText()
@@ -176,6 +184,51 @@ class OAuthService(
         }
 
         launchBrowser(loginUrl)
+    }
+
+    suspend fun refreshGoogleAccessToken(clientId: String, clientSecret: String?): String? = withContext(Dispatchers.IO) {
+        val saved = firebaseClientService.getSavedAuth() ?: return@withContext null
+        val refreshToken = saved.googleRefreshToken ?: return@withContext saved.googleAccessToken
+
+        // If not expired yet (with a 2 minute buffer), reuse current access token
+        val expiresAt = saved.googleTokenExpiresAt ?: 0
+        if (System.currentTimeMillis() < expiresAt - 120_000 && !saved.googleAccessToken.isNullOrBlank()) {
+            return@withContext saved.googleAccessToken
+        }
+
+        try {
+            val bodyParams = mutableListOf(
+                "client_id" to clientId,
+                "refresh_token" to refreshToken,
+                "grant_type" to "refresh_token"
+            )
+            if (!clientSecret.isNullOrBlank()) {
+                bodyParams.add("client_secret" to clientSecret)
+            }
+
+            val response = httpClient.post("https://oauth2.googleapis.com/token") {
+                contentType(ContentType.Application.FormUrlEncoded)
+                setBody(bodyParams.formUrlEncode())
+            }
+
+            if (response.status == HttpStatusCode.OK) {
+                val data = response.body<GoogleTokenResponse>()
+                val newExpiresAt = System.currentTimeMillis() + (data.expires_in * 1000L)
+                val updatedAuth = saved.copy(
+                    googleAccessToken = data.access_token,
+                    googleTokenExpiresAt = newExpiresAt,
+                    googleRefreshToken = data.refresh_token ?: refreshToken // reuse if new one not sent
+                )
+                firebaseClientService.saveAuth(updatedAuth)
+                return@withContext data.access_token
+            } else {
+                println("Failed to refresh Google access token: ${response.bodyAsText()}")
+                null
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
     }
 
     fun startGithubLogin(githubClientId: String?, githubClientSecret: String? = null) {
