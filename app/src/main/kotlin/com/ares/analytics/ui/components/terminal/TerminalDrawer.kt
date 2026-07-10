@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -135,6 +136,28 @@ fun TerminalDrawer(
                         Icon(imageVector = Icons.Default.Cancel, contentDescription = "Kill Process", tint = AresError)
                     }
 
+                    // Copy All Logs button
+                    IconButton(
+                        onClick = {
+                            val logLines = if (activeTab == 0) buildLog else logcatLog
+                            val textToCopy = logLines.joinToString("\n")
+                            try {
+                                val selection = java.awt.datatransfer.StringSelection(textToCopy)
+                                java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, selection)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ContentCopy,
+                            contentDescription = "Copy All Logs",
+                            tint = AresTextSecondary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
                     IconButton(onClick = onClose) {
                         Icon(imageVector = Icons.Default.Close, contentDescription = "Close Terminal", tint = AresTextSecondary)
                     }
@@ -157,11 +180,13 @@ fun TerminalDrawer(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(buildLog) { line ->
-                            Text(
-                                text = parseAnsi(line),
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp
-                            )
+                            SelectionContainer {
+                                Text(
+                                    text = parseAnsi(line),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp
+                                )
+                            }
                         }
                     }
                 } else {
@@ -170,11 +195,13 @@ fun TerminalDrawer(
                         modifier = Modifier.fillMaxSize()
                     ) {
                         items(logcatLog) { line ->
-                            Text(
-                                text = parseAnsi(line),
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp
-                            )
+                            SelectionContainer {
+                                Text(
+                                    text = parseAnsi(line),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp
+                                )
+                            }
                         }
                     }
                 }
