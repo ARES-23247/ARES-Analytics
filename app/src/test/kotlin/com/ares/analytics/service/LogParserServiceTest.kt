@@ -40,7 +40,7 @@ class LogParserServiceTest {
         assertTrue(session.tags.contains("jsonl-test"))
 
         // Query telemetry from database
-        val frames = databaseService.getTelemetryRange(session.sessionId, 0L, Long.MAX_VALUE)
+        val frames = databaseService.getTelemetryRange(session.sessionId, 0L, Long.MAX_VALUE).filter { !it.key.startsWith("Diagnostics/") }
         assertEquals(6, frames.size) // 3 timestamps * 2 keys each
         val firstVoltage = frames.first { it.timestampMs == 1000L && it.key == "voltage" }
         assertEquals(12.5, firstVoltage.value)
@@ -80,7 +80,7 @@ class LogParserServiceTest {
         assertEquals(40L, session.durationMs) // 2040 - 2000 = 40ms
 
         // Query telemetry from database
-        val frames = databaseService.getTelemetryRange(session.sessionId, 0L, Long.MAX_VALUE)
+        val frames = databaseService.getTelemetryRange(session.sessionId, 0L, Long.MAX_VALUE).filter { !it.key.startsWith("Diagnostics/") }
         assertEquals(6, frames.size)
         val firstVoltage = frames.first { it.timestampMs == 2000L && it.key == "voltage" }
         assertEquals(11.5, firstVoltage.value)

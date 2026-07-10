@@ -564,6 +564,9 @@ fun MainScreen(services: ServiceRegistry) {
                                 projectPath = currentConfig.projectPath ?: "",
                                 sessionId = primarySessionId
                             )
+                            NavigationTarget.RUN_HISTORY -> RunHistoryScreen(
+                                databaseService = services.databaseService
+                            )
                             NavigationTarget.TRIAGE -> TriageScreen(
                                 viewModel = triageViewModel,
                                 league = currentConfig.league,

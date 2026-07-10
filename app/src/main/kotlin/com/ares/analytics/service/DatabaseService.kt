@@ -469,6 +469,17 @@ class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares
         list
     }
 
+    suspend fun getDiagnosticsTelemetry(sessionId: String): List<TelemetryFrame> = withDbLock {
+        val list = mutableListOf<TelemetryFrame>()
+        conn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND key LIKE 'Diagnostics/%'").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) list.add(rs.toTelemetryFrame())
+            }
+        }
+        list
+    }
+
     suspend fun deleteTelemetryFrames(sessionId: String) = withDbLock {
         conn.prepareStatement("DELETE FROM telemetry_frames WHERE session_id = ?").use { ps ->
             ps.setString(1, sessionId)

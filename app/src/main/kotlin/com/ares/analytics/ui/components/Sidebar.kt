@@ -34,6 +34,7 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     PATH_PLANNER("Path Planner", Icons.Default.Route),
     FIELD_EDITOR("Field Editor", Icons.Default.Layers),
     SYSID("SysId", Icons.Default.Analytics),
+    RUN_HISTORY("Run History", Icons.Default.TableChart),
     TUNING("Tuning", Icons.Default.Tune),
     TRIAGE("Pit Triage", Icons.Default.Build),
     PROFILE("Profile", Icons.Default.Person),
