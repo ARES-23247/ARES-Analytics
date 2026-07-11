@@ -15,7 +15,7 @@ import java.sql.DriverManager
 import java.sql.ResultSet
 import java.sql.Statement
 
-class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb") {
+class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb") {
     
     private val conn: Connection
     private val ephemeralConn: Connection
@@ -170,6 +170,33 @@ class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares
     
     suspend fun executeRaw(sql: String) = withDbLock {
         conn.createStatement().use { it.execute(sql) }
+    }
+    
+    suspend fun executeQueryRaw(sql: String): QueryResult = withDbLock {
+        conn.createStatement().use { st ->
+            val hasResultSet = st.execute(sql)
+            if (hasResultSet) {
+                st.resultSet.use { rs ->
+                    val meta = rs.metaData
+                    val colCount = meta.columnCount
+                    val columns = (1..colCount).map { meta.getColumnName(it) }
+                    val rows = mutableListOf<List<String>>()
+                    while (rs.next()) {
+                        val row = (1..colCount).map {
+                            rs.getObject(it)?.toString() ?: "NULL"
+                        }
+                        rows.add(row)
+                    }
+                    QueryResult(columns, rows)
+                }
+            } else {
+                val updateCount = st.updateCount
+                QueryResult(
+                    columns = listOf("Status"),
+                    rows = listOf(listOf("Command completed successfully. Affected rows: $updateCount"))
+                )
+            }
+        }
     }
 
     suspend fun insertSession(session: Session) = withDbLock {
@@ -823,3 +850,8 @@ class DatabaseService(dbPath: String = System.getProperty("user.home") + "/.ares
         }
     }
 }
+
+data class QueryResult(
+    val columns: List<String>,
+    val rows: List<List<String>>
+)

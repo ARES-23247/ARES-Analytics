@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -132,6 +133,11 @@ fun RunHistoryScreen(databaseService: DatabaseService) {
             .sorted()
     }
 
+    val allMotorNames = remember(motorNames, summaries) {
+        val currentMotors = summaries.values.flatMap { it.motorCurrentAverages.keys }
+        (motorNames + currentMotors).distinct().sorted()
+    }
+
     // Core spreadsheet row definitions
     val baseRowDefinitions = remember {
         listOf(
@@ -182,21 +188,38 @@ fun RunHistoryScreen(databaseService: DatabaseService) {
         )
     }
 
+    // Dynamic Motor Current Draw Comparison Rows
+    val currentDrawRowDefinitions = remember(allMotorNames) {
+        allMotorNames.map { motor ->
+            RowDefinition(
+                label = "Motor [$motor] Avg Current",
+                category = "Motor Current Draw",
+                getValue = { _, summary, _ ->
+                    summary?.motorCurrentAverages?.get(motor)?.let { String.format("%.2f A", it) } ?: "N/A"
+                },
+                getNumericValue = { _, summary, _ ->
+                    summary?.motorCurrentAverages?.get(motor)
+                }
+            )
+        }
+    }
+
     // Dynamic Motor Subsystems Rows definition
-    val motorRowDefinitions = remember(motorNames) {
-        motorNames.flatMap { motor ->
+    val motorRowDefinitions = remember(allMotorNames) {
+        allMotorNames.flatMap { motor ->
             listOf(
                 RowDefinition("Motor [$motor] kS", "Subsystem Motors ($motor)", { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kS"]?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kS"] }),
                 RowDefinition("Motor [$motor] kV", "Subsystem Motors ($motor)", { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kV"]?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kV"] }),
                 RowDefinition("Motor [$motor] kA", "Subsystem Motors ($motor)", { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kA"]?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kA"] }),
                 RowDefinition("Motor [$motor] kG (Gravity)", "Subsystem Motors ($motor)", { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kG"]?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kG"] }),
-                RowDefinition("Motor [$motor] ADRC b0", "Subsystem Motors ($motor)", { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/ADRC_b0"]?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/ADRC_b0"] })
+                RowDefinition("Motor [$motor] ADRC b0", "Subsystem Motors ($motor)", { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/ADRC_b0"]?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/ADRC_b0"] }),
+                RowDefinition("Motor [$motor] Avg Current", "Subsystem Motors ($motor)", { _, summary, _ -> summary?.motorCurrentAverages?.get(motor)?.let { String.format("%.2f A", it) } ?: "N/A" }, { _, summary, _ -> summary?.motorCurrentAverages?.get(motor) })
             )
         }
     }
 
-    val allRows = remember(baseRowDefinitions, motorRowDefinitions) {
-        baseRowDefinitions + motorRowDefinitions
+    val allRows = remember(baseRowDefinitions, currentDrawRowDefinitions, motorRowDefinitions) {
+        baseRowDefinitions + currentDrawRowDefinitions + motorRowDefinitions
     }
 
     val groupedRows = remember(allRows) {
@@ -292,7 +315,7 @@ fun RunHistoryScreen(databaseService: DatabaseService) {
                                 ) {
                                     Text(rowDef.label, color = AresTextPrimary, fontSize = 12.sp, maxLines = 1)
                                     Icon(
-                                        imageVector = Icons.Default.ShowChart,
+                                        imageVector = Icons.AutoMirrored.Filled.ShowChart,
                                         contentDescription = "Graph row",
                                         tint = AresTextTertiary,
                                         modifier = Modifier.size(14.dp)

@@ -66,7 +66,7 @@ class DriverAnalysisService(
         if (!root.exists() || !root.isDirectory) return@withContext false
         
         val targetFile = root.walkTopDown()
-            .filter { it.name == "Constants.kt" || it.name == "RobotConfig.java" || it.name == "Constants.java" }
+            .filter { it.name == "Constants.kt" || it.name == "RobotConfig.java" || it.name == "Constants.java" || it.name == "TunerConstants.kt" || it.name == "TunerConstants.java" }
             .firstOrNull() ?: return@withContext false
             
         val isKotlin = targetFile.name.endsWith(".kt")

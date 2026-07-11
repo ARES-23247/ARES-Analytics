@@ -50,7 +50,7 @@ fun TuningScreen(
 
         if (state.constants.isEmpty()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("No tunable constants found in project workspace. (Scans Constants.kt/RobotConfig.java)", color = AresTextTertiary, fontSize = 12.sp)
+                Text("No tunable constants found in project workspace. (Scans TunerConstants.kt/Constants.kt/RobotConfig.java)", color = AresTextTertiary, fontSize = 12.sp)
             }
         } else {
             LazyColumn(

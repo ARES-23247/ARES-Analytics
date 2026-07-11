@@ -567,6 +567,9 @@ fun MainScreen(services: ServiceRegistry) {
                             NavigationTarget.RUN_HISTORY -> RunHistoryScreen(
                                 databaseService = services.databaseService
                             )
+                            NavigationTarget.DATABASE_VIEWER -> DatabaseViewerScreen(
+                                databaseService = services.databaseService
+                            )
                             NavigationTarget.TRIAGE -> TriageScreen(
                                 viewModel = triageViewModel,
                                 league = currentConfig.league,
