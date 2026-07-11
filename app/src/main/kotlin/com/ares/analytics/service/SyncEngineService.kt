@@ -137,6 +137,41 @@ class SyncEngineService(
     }
 
     /**
+     * Gets all registered robot profiles recorded in the Google Drive robots.json file.
+     */
+    suspend fun getRemoteRobotProfiles(): List<RobotProfile> = withContext(Dispatchers.IO) {
+        try {
+            val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
+            val fileId = googleDriveService.findFile("robots.json", rootFolderId) ?: return@withContext emptyList()
+            val bytes = googleDriveService.readFile(fileId)
+            Json { ignoreUnknownKeys = true }.decodeFromString<List<RobotProfile>>(String(bytes, Charsets.UTF_8))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    /**
+     * Saves the registered robot profiles list to the Google Drive robots.json file.
+     */
+    suspend fun saveRemoteRobotProfiles(profiles: List<RobotProfile>): Unit = withContext(Dispatchers.IO) {
+        try {
+            val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
+            val fileId = googleDriveService.findFile("robots.json", rootFolderId)
+            val bytes = Json.encodeToString<List<RobotProfile>>(profiles).toByteArray(Charsets.UTF_8)
+            googleDriveService.writeFile(
+                name = "robots.json",
+                bytes = bytes,
+                parentId = rootFolderId,
+                mimeType = "application/json",
+                fileId = fileId
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
      * Downloads a single session's Parquet file from Google Drive and imports it into DuckDB.
      */
     suspend fun downloadSession(summary: SessionSummary) = withContext(Dispatchers.IO) {

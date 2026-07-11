@@ -22,7 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.AuthState
 import com.ares.analytics.service.OAuthService
-import com.ares.analytics.service.TeamApiService
+import com.ares.analytics.service.SyncEngineService
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.RobotProfile
 import com.ares.analytics.shared.WorkspaceConfig
@@ -31,7 +31,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun AdminScreen(
-    teamApiService: TeamApiService,
+    syncEngineService: SyncEngineService,
     oauthService: OAuthService,
     config: WorkspaceConfig,
     modifier: Modifier = Modifier
@@ -44,39 +44,39 @@ fun AdminScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showAddDialog by remember { mutableStateOf(false) }
 
-    val token = (authState as? AuthState.Authenticated)?.firebaseToken
+    val isAuthenticated = authState is AuthState.Authenticated
 
     fun refreshRobots() {
-        if (token == null) return
+        if (!isAuthenticated) return
         scope.launch {
             isLoading = true
             errorMessage = null
             try {
-                var profiles = teamApiService.fetchTeamRobots(config.teamId, token)
+                var profiles = syncEngineService.getRemoteRobotProfiles()
                 
+                // If local active robot is missing from the list, register it automatically
                 if (profiles.none { it.robotId == config.robotId }) {
                     val localRobot = RobotProfile(
                         robotId = config.robotId,
                         league = config.league,
                         seasonId = config.seasonId,
-                        name = "${config.robotId} (Team ${config.teamId})"
+                        name = config.robotName.takeIf { it.isNotBlank() } ?: "${config.robotId} (Local Active)"
                     )
-                    val success = teamApiService.addRobotProfile(config.teamId, localRobot, token)
-                    if (success) {
-                        profiles = teamApiService.fetchTeamRobots(config.teamId, token)
-                    }
+                    val updated = profiles + localRobot
+                    syncEngineService.saveRemoteRobotProfiles(updated)
+                    profiles = updated
                 }
                 
                 robotProfiles = profiles
             } catch (e: Exception) {
-                errorMessage = "Failed to load robots: ${e.message}"
+                errorMessage = "Failed to load robot registry from Google Drive: ${e.message}"
             } finally {
                 isLoading = false
             }
         }
     }
 
-    LaunchedEffect(token) {
+    LaunchedEffect(isAuthenticated) {
         refreshRobots()
     }
 
@@ -107,7 +107,7 @@ fun AdminScreen(
                 )
             }
 
-            if (token != null) {
+            if (isAuthenticated) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     IconButton(onClick = { refreshRobots() }) {
                         Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh", tint = AresTextSecondary)
@@ -126,23 +126,24 @@ fun AdminScreen(
 
         HorizontalDivider(color = AresBorder)
 
-        if (token == null) {
+        if (!isAuthenticated) {
             Box(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(24.dp)
                 ) {
                     Text(
-                        "Authentication Required",
+                        "Google Drive Roster Required",
                         fontWeight = FontWeight.Bold,
                         color = AresTextSecondary,
                         fontSize = 16.sp
                     )
                     Text(
-                        "Please sign in with Google on the Profile screen to manage your team's robot registry in the cloud.",
+                        "Please sign in with Google on the Profile screen to access the team's shared robot registry in Google Drive.",
                         color = AresTextTertiary,
                         fontSize = 12.sp,
                         modifier = Modifier.width(360.dp),
@@ -151,6 +152,33 @@ fun AdminScreen(
                 }
             }
             return
+        }
+
+        // Active Local Robot card
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(AresBackground, RoundedCornerShape(8.dp))
+                .border(1.dp, AresCyan.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column {
+                Text("Active Local Workspace Robot", color = AresCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(2.dp))
+                Text(config.robotName.takeIf { it.isNotBlank() } ?: config.robotId, color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("ID: ${config.robotId} • League: ${config.league.name} • Season: ${config.seasonId}", color = AresTextSecondary, fontSize = 11.sp)
+            }
+            Text(
+                "ACTIVE",
+                color = AresGreen,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .background(AresGreen.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            )
         }
 
         when {
@@ -166,110 +194,79 @@ fun AdminScreen(
             }
             robotProfiles.isEmpty() -> {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            "No robots registered for Team ${config.teamId} yet.",
-                            color = AresTextTertiary,
-                            fontSize = 12.sp
-                        )
-                        Button(
-                            onClick = {
-                                scope.launch {
-                                    try {
-                                        val localRobot = RobotProfile(
-                                            robotId = config.robotId,
-                                            league = config.league,
-                                            seasonId = config.seasonId,
-                                            name = "${config.robotId} (Team ${config.teamId})"
-                                        )
-                                        val success = teamApiService.addRobotProfile(config.teamId, localRobot, token!!)
-                                        if (success) {
-                                            refreshRobots()
-                                        } else {
-                                            errorMessage = "Failed to sync local robot to cloud. Backend might be down."
-                                        }
-                                    } catch (e: SecurityException) {
-                                        errorMessage = e.message
-                                    } catch (e: Exception) {
-                                        errorMessage = "Error syncing local robot: ${e.message}"
-                                    }
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan)
-                        ) {
-                            Icon(imageVector = Icons.Default.Refresh, contentDescription = null, tint = AresBackground)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Sync Local Robot to Cloud", color = AresBackground, fontWeight = FontWeight.Bold)
-                        }
-                    }
+                    Text(
+                        "No robots registered on Google Drive yet.",
+                        color = AresTextTertiary,
+                        fontSize = 12.sp
+                    )
                 }
             }
             else -> {
-            LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(robotProfiles) { robot ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(AresSurfaceElevated)
-                            .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
-                            .padding(14.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                val badgeBg = if (robot.league == League.FTC) AresGold else AresCyan
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(robotProfiles) { robot ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(AresSurfaceElevated)
+                                .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
+                                .padding(14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    val badgeBg = if (robot.league == League.FTC) AresGold else AresCyan
+                                    Text(
+                                        text = robot.league.name,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AresBackground,
+                                        modifier = Modifier
+                                            .background(badgeBg, RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                    Text(
+                                        text = robot.name,
+                                        fontWeight = FontWeight.Bold,
+                                        color = AresTextPrimary,
+                                        fontSize = 14.sp
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
                                 Text(
-                                    text = robot.league.name,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = AresBackground,
-                                    modifier = Modifier
-                                        .background(badgeBg, RoundedCornerShape(4.dp))
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
-                                Text(
-                                    text = robot.name,
-                                    fontWeight = FontWeight.Bold,
-                                    color = AresTextPrimary,
-                                    fontSize = 14.sp
+                                    text = "ID: ${robot.robotId} • Season ID: ${robot.seasonId}",
+                                    fontSize = 11.sp,
+                                    color = AresTextSecondary
                                 )
                             }
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "ID: ${robot.robotId} • Season ID: ${robot.seasonId}",
-                                fontSize = 11.sp,
-                                color = AresTextSecondary
-                            )
-                        }
 
-                        IconButton(
-                            onClick = {
-                                scope.launch {
-                                    val success = teamApiService.deleteRobotProfile(config.teamId, robot.robotId, token)
-                                    if (success) refreshRobots()
-                                    else errorMessage = "Failed to delete robot from cloud roster."
+                            // Do not allow deleting the local active robot from here
+                            if (robot.robotId != config.robotId) {
+                                IconButton(
+                                    onClick = {
+                                        scope.launch {
+                                            val updated = robotProfiles.filter { it.robotId != robot.robotId }
+                                            syncEngineService.saveRemoteRobotProfiles(updated)
+                                            robotProfiles = updated
+                                        }
+                                    }
+                                ) {
+                                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = AresError)
                                 }
                             }
-                        ) {
-                            Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = AresError)
                         }
                     }
                 }
             }
         }
     }
-}
 
     if (showAddDialog) {
         var robotId by remember { mutableStateOf("") }
@@ -283,12 +280,12 @@ fun AdminScreen(
             title = { Text("Register Team Robot Profile", color = AresTextPrimary, fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("This robot will be shared with all team members when they onboard the app.", color = AresTextSecondary, fontSize = 11.sp)
+                    Text("This robot profile will be synced to Google Drive and shared with all team members.", color = AresTextSecondary, fontSize = 11.sp)
                     
                     OutlinedTextField(
                         value = robotId,
                         onValueChange = { robotId = it.filter { c -> c.isLetterOrDigit() || c == '-' } },
-                        label = { Text("Robot Unique ID (e.g. ares-2026)") },
+                        label = { Text("Robot Unique ID (e.g. robot-a)") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
@@ -343,20 +340,19 @@ fun AdminScreen(
                             dialogError = "All fields are required."
                             return@Button
                         }
+                        if (robotProfiles.any { it.robotId == robotId }) {
+                            dialogError = "A robot with this ID is already registered."
+                            return@Button
+                        }
                         scope.launch {
                             try {
                                 val newRobot = RobotProfile(robotId, league, seasonId, name)
-                                val success = teamApiService.addRobotProfile(config.teamId, newRobot, token)
-                                if (success) {
-                                    showAddDialog = false
-                                    refreshRobots()
-                                } else {
-                                    dialogError = "Cloud operation failed. Check your network or credentials."
-                                }
-                            } catch (e: SecurityException) {
-                                dialogError = e.message
+                                val updated = robotProfiles + newRobot
+                                syncEngineService.saveRemoteRobotProfiles(updated)
+                                robotProfiles = updated
+                                showAddDialog = false
                             } catch (e: Exception) {
-                                dialogError = "Error: ${e.message}"
+                                dialogError = "Error registering profile: ${e.message}"
                             }
                         }
                     },

@@ -5,6 +5,7 @@ import com.ares.analytics.service.EnvironmentService
 import com.ares.analytics.service.FirebaseClientService
 import com.ares.analytics.service.OAuthService
 import com.ares.analytics.service.SyncEngineService
+import com.ares.analytics.shared.RobotProfile
 import com.ares.analytics.shared.WorkspaceConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,7 @@ import kotlinx.coroutines.withContext
 data class ProfileState(
     val authState: AuthState = AuthState.Unauthenticated,
     val config: WorkspaceConfig? = null,
+    val robotProfiles: List<RobotProfile> = emptyList(),
     val syncStatus: String = "",
     val googleClientId: String = "",
     val firebaseApiKey: String = "",
@@ -76,6 +78,12 @@ class ProfileViewModel(
                 _state.update { it.copy(authState = state) }
                 if (state is AuthState.Authenticated) {
                     onIntent(ProfileIntent.PerformDeltaSync(state.firebaseToken))
+                    try {
+                        val remoteProfiles = syncEngineService.getRemoteRobotProfiles()
+                        _state.update { it.copy(robotProfiles = remoteProfiles) }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
                 }
             }
         }
@@ -86,13 +94,19 @@ class ProfileViewModel(
             when (intent) {
                 is ProfileIntent.LoadConfig -> {
                     val cfg = intent.config
-                    // Dynamically bind current Firebase API key override
                     firebaseClientService.apiKey = cfg.firebaseApiKey.takeIf { !it.isNullOrBlank() }
                         ?: "AIzaSyB4cU7pgHpqoxtqtQalIE4HqZoz3X7bJH0"
+
+                    val remoteProfiles = try {
+                        syncEngineService.getRemoteRobotProfiles()
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
 
                     _state.update {
                         it.copy(
                             config = cfg,
+                            robotProfiles = remoteProfiles,
                             googleClientId = cfg.googleClientId ?: "",
                             firebaseApiKey = cfg.firebaseApiKey ?: "",
                             googleClientSecret = cfg.googleClientSecret ?: "",
@@ -109,7 +123,6 @@ class ProfileViewModel(
                     }
                 }
                 is ProfileIntent.GoogleSignIn -> {
-                    // Update FirebaseClientService configuration context
                     val currentApiKey = _state.value.firebaseApiKey.takeIf { it.isNotBlank() }
                         ?: "AIzaSyB4cU7pgHpqoxtqtQalIE4HqZoz3X7bJH0"
                     firebaseClientService.apiKey = currentApiKey

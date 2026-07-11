@@ -586,7 +586,7 @@ fun MainScreen(services: ServiceRegistry) {
                             )
                             NavigationTarget.REPLAY -> ReplayScreen()
                             NavigationTarget.ADMIN -> AdminScreen(
-                                teamApiService = services.teamApiService,
+                                syncEngineService = services.syncEngineService,
                                 oauthService = services.oauthService,
                                 config = currentConfig
                             )
