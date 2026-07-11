@@ -458,13 +458,39 @@ fun MainScreen(services: ServiceRegistry) {
                                     DropdownMenu(
                                         expanded = dashState.profileExpanded,
                                         onDismissRequest = { dashboardViewModel.onIntent(DashboardIntent.SetProfileExpanded(false)) },
-                                        modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
+                                        modifier = Modifier.width(200.dp).background(AresSurfaceElevated).border(1.dp, AresBorder)
                                     ) {
+                                        val defaults = listOf("Standard", "Driver Coach", "Programmer", "Pit Crew", "Match Review", "Pit Diagnostics", "Driver Practice")
                                         dashState.availableProfiles.forEach { profile ->
+                                            val isCustom = defaults.none { it.equals(profile, ignoreCase = true) }
                                             DropdownMenuItem(
-                                                text = { Text(profile, color = AresTextPrimary) },
+                                                text = {
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Text(profile, color = AresTextPrimary)
+                                                        if (isCustom) {
+                                                            IconButton(
+                                                                onClick = {
+                                                                    dashboardViewModel.onIntent(DashboardIntent.DeleteLayout(profile))
+                                                                },
+                                                                modifier = Modifier.size(24.dp)
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Delete,
+                                                                    contentDescription = "Delete Layout",
+                                                                    tint = AresRed,
+                                                                    modifier = Modifier.size(16.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                },
                                                 onClick = {
                                                     dashboardViewModel.onIntent(DashboardIntent.ChangeProfile(profile))
+                                                    dashboardViewModel.onIntent(DashboardIntent.SetProfileExpanded(false))
                                                 }
                                             )
                                         }

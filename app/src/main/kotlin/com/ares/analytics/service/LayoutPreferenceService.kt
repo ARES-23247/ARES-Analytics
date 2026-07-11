@@ -118,4 +118,13 @@ class LayoutPreferenceService(
         val saved = getSavedLayouts()
         return (defaults + saved).distinct()
     }
+
+    suspend fun deleteLayout(profileName: String): Boolean = withContext(Dispatchers.IO) {
+        val file = getFileForProfile(profileName)
+        if (file.exists()) {
+            file.delete()
+        } else {
+            false
+        }
+    }
 }

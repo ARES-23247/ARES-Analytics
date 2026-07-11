@@ -44,6 +44,7 @@ sealed class DashboardIntent {
     data class ImportLogFiles(val files: List<File>, val teamId: String, val seasonId: String, val robotId: String) : DashboardIntent()
     object ClearImportSuccess : DashboardIntent()
     data class SaveLayoutAs(val profileName: String) : DashboardIntent()
+    data class DeleteLayout(val profileName: String) : DashboardIntent()
 }
 
 class DashboardViewModel(
@@ -213,6 +214,16 @@ class DashboardViewModel(
                         }
                         refreshAvailableProfiles()
                     }
+                }
+                is DashboardIntent.DeleteLayout -> {
+                    val currentProfile = _state.value.currentRoleProfile
+                    withContext(Dispatchers.IO) {
+                        layoutPreferenceService.deleteLayout(intent.profileName)
+                    }
+                    if (currentProfile == intent.profileName) {
+                        onIntent(DashboardIntent.ChangeProfile("Standard"))
+                    }
+                    refreshAvailableProfiles()
                 }
             }
         }

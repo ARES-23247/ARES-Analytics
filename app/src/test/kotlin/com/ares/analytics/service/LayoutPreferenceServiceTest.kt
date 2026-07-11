@@ -73,4 +73,21 @@ class LayoutPreferenceServiceTest {
         File(tempDir, "custom_team_layout.json").delete()
         tempDir.delete()
     }
+
+    @Test
+    fun testDeleteLayout() = runTest {
+        val tempDir = File(System.getProperty("java.io.tmpdir"), "ares_layout_test_delete")
+        tempDir.mkdirs()
+        val service = LayoutPreferenceService(tempDir.absolutePath)
+
+        val config = DashboardLayoutConfig(emptyList())
+        service.saveLayout("Temp Delete Profile", config)
+        assertTrue(service.getSavedLayouts().contains("Temp Delete Profile"))
+
+        val deleted = service.deleteLayout("Temp Delete Profile")
+        assertTrue(deleted)
+        assertTrue(!service.getSavedLayouts().contains("Temp Delete Profile"))
+
+        tempDir.delete()
+    }
 }
