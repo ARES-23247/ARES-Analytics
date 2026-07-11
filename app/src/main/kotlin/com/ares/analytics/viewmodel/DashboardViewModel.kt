@@ -64,7 +64,9 @@ class DashboardViewModel(
         // Collect alerts
         scope.launch {
             alertEngineService.alerts.collectLatest { list ->
-                _state.update { it.copy(alerts = list) }
+                if (_state.value.sessionMode != SessionMode.HISTORICAL_REPLAY) {
+                    _state.update { it.copy(alerts = list) }
+                }
             }
         }
         // Collect connection state
@@ -94,6 +96,15 @@ class DashboardViewModel(
                 is DashboardIntent.SelectPrimarySession -> {
                     val newMode = if (intent.sessionId == null) SessionMode.LIVE_STREAMING else SessionMode.HISTORICAL_REPLAY
                     
+                    if (intent.sessionId != null) {
+                        scope.launch {
+                            val historicalAlerts = databaseService.getAlerts(intent.sessionId)
+                            _state.update { it.copy(alerts = historicalAlerts) }
+                        }
+                    } else {
+                        _state.update { it.copy(alerts = alertEngineService.alerts.value) }
+                    }
+
                     when {
                         newMode == SessionMode.HISTORICAL_REPLAY && _state.value.sessionMode == SessionMode.LIVE_STREAMING -> {
                             // Going into replay, save the current live layout profile

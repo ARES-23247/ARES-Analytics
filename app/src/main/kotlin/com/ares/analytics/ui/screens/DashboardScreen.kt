@@ -23,6 +23,8 @@ import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.DashboardIntent
 import com.ares.analytics.viewmodel.DashboardViewModel
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 @Composable
 fun DashboardScreen(
@@ -46,6 +48,26 @@ fun DashboardScreen(
     val replayProgress by replayEngine.progress.collectAsState()
     val replaySpeed by replayEngine.speed.collectAsState()
     val isReplayMode = state.primarySessionId != null && replayState != ReplayState.STOPPED
+
+    val undismissedAlerts = remember { mutableStateListOf<AlertRecord>() }
+    val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
+
+    LaunchedEffect(state.alerts) {
+        state.alerts.forEach { alert ->
+            val isCritical = alert.ruleKey.contains("brownout", ignoreCase = true) ||
+                             alert.ruleKey.contains("comms", ignoreCase = true) ||
+                             alert.ruleKey.contains("can", ignoreCase = true) ||
+                             alert.ruleKey.contains("battery", ignoreCase = true)
+            
+            if (isCritical && undismissedAlerts.none { it.alertId == alert.alertId }) {
+                undismissedAlerts.add(alert)
+            }
+        }
+    }
+
+    LaunchedEffect(state.primarySessionId) {
+        undismissedAlerts.clear()
+    }
 
     // Load replay session when primarySessionId changes
     LaunchedEffect(state.primarySessionId) {
@@ -71,10 +93,11 @@ fun DashboardScreen(
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
 
 
 
@@ -229,6 +252,7 @@ fun DashboardScreen(
                 isReplayActive = isReplayActive,
                 sessionMode = state.sessionMode,
                 sessionId = state.primarySessionId,
+                alerts = state.alerts,
                 onSnapToRealtime = {
                     scope.launch {
                         services.nt4ClientService.isReplayActive.value = false
@@ -274,6 +298,68 @@ fun DashboardScreen(
             }
         )
     }
+
+    // Floating notifications / popout warning alerts
+    Column(
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .padding(16.dp)
+            .width(320.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        undismissedAlerts.forEach { alert ->
+            Card(
+                colors = CardDefaults.cardColors(containerColor = AresError.copy(alpha = 0.95f)),
+                shape = RoundedCornerShape(8.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = AresBackground,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = when {
+                                alert.ruleKey.contains("brownout", ignoreCase = true) -> "CRITICAL BROWNOUT"
+                                alert.ruleKey.contains("comms", ignoreCase = true) -> "COMMS / PACKET LOSS"
+                                alert.ruleKey.contains("can", ignoreCase = true) -> "CANBUS HARDWARE ERROR"
+                                alert.ruleKey.contains("battery", ignoreCase = true) -> "LOW BATTERY ALERT"
+                                else -> alert.ruleKey.uppercase()
+                            },
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AresBackground
+                        )
+                        Text(
+                            text = "Peak: ${String.format("%.2f", alert.peakValue)} | Triggered: ${timeFormat.format(java.util.Date(alert.triggerTimestampMs))}",
+                            fontSize = 10.sp,
+                            color = AresBackground.copy(alpha = 0.8f)
+                        )
+                    }
+                    IconButton(
+                        onClick = { undismissedAlerts.remove(alert) },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Dismiss",
+                            tint = AresBackground,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+    }
 }
 
 @Composable
@@ -286,6 +372,7 @@ private fun ReplayTimelineScrubber(
     isReplayActive: Boolean,
     sessionMode: SessionMode,
     sessionId: String?,
+    alerts: List<AlertRecord>,
     onSnapToRealtime: () -> Unit,
     onScrubLive: (Double) -> Unit,
     onPauseLive: () -> Unit,
@@ -438,7 +525,7 @@ private fun ReplayTimelineScrubber(
 
             Box(modifier = Modifier.weight(1f).height(32.dp)) {
                 // Histogram Canvas
-                if (density.isNotEmpty() || actions.isNotEmpty()) {
+                if (density.isNotEmpty() || actions.isNotEmpty() || alerts.isNotEmpty()) {
                     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
                         if (density.isNotEmpty()) {
                             val barWidth = size.width / density.size
@@ -464,6 +551,35 @@ private fun ReplayTimelineScrubber(
                                     radius = 3f,
                                     center = androidx.compose.ui.geometry.Offset(x, size.height / 2f)
                                 )
+                            }
+                        }
+
+                        // Draw alert markers (Red Flags)
+                        if (alerts.isNotEmpty() && sessionDuration > 0) {
+                            alerts.forEach { alert ->
+                                val proportion = (alert.triggerTimestampMs - sessionStart).toDouble() / sessionDuration.toDouble()
+                                if (proportion in 0.0..1.0) {
+                                    val x = (proportion * size.width).toFloat()
+                                    // Vertical flag line
+                                    drawLine(
+                                        color = androidx.compose.ui.graphics.Color(0xFFFF5252).copy(alpha = 0.7f),
+                                        start = androidx.compose.ui.geometry.Offset(x, 6f),
+                                        end = androidx.compose.ui.geometry.Offset(x, size.height),
+                                        strokeWidth = 2f
+                                    )
+                                    // Downward pointing triangle flag at the top
+                                    val path = androidx.compose.ui.graphics.Path().apply {
+                                        moveTo(x, 0f)
+                                        lineTo(x - 4f, 0f)
+                                        lineTo(x, 6f)
+                                        lineTo(x + 4f, 0f)
+                                        close()
+                                    }
+                                    drawPath(
+                                        path = path,
+                                        color = androidx.compose.ui.graphics.Color(0xFFFF5252)
+                                    )
+                                }
                             }
                         }
                     }
