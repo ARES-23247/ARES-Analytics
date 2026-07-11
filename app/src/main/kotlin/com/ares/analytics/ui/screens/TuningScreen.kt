@@ -95,9 +95,7 @@ fun TuningScreen(
                                             .replace("MOTOR_", "")
                                             .replace("VISION_", "")
                                             .replace("HEADING_", "")
-                                            .split("_")
-                                            .joinToString(" ") { it.lowercase().replaceFirstChar { char -> char.uppercase() } }
-                                        Text(displayName, fontSize = 12.sp, color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
+                                        Text(displayName, fontSize = 12.sp, color = AresTextPrimary, fontWeight = FontWeight.Bold)
                                         Text(const.filePath.split(java.io.File.separator).last(), fontSize = 9.sp, color = AresTextTertiary)
                                     }
 
