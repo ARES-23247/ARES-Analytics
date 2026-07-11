@@ -34,7 +34,7 @@ fun TuningScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Constants Tuning Board", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = AresTextPrimary)
-        Divider(color = AresBorder)
+        HorizontalDivider(color = AresBorder)
 
         if (state.saveStatus.isNotEmpty()) {
             Text(state.saveStatus, color = AresGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
