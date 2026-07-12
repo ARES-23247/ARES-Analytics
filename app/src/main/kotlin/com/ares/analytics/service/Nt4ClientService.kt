@@ -120,7 +120,7 @@ open class Nt4ClientService(
                 }
 
                 val clientName = "ARES-Analytics-${System.currentTimeMillis()}"
-                val path = "/nt/$clientName"
+                val path = "/nt/v4/websocket"
                 val url = "ws://$activeHost:5810$path"
                 this@Nt4ClientService.serverIp = activeHost
                 try {
