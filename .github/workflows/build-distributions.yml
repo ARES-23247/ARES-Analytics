@@ -37,6 +37,7 @@ jobs:
       - name: Publish ARESLib-Kotlin locally
         run: |
           cd ARESLib-Kotlin
+          chmod +x ./gradlew
           ./gradlew publishToMavenLocal
         shell: bash
 
@@ -52,6 +53,7 @@ jobs:
       - name: Build native package
         run: |
           cd ARES-Analytics
+          chmod +x ./gradlew
           ./gradlew ${{ matrix.task }}
         shell: bash
 
