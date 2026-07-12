@@ -6,11 +6,10 @@ if (!currentVersion.startsWith("17") && !currentVersion.startsWith("21") && !cur
     val standardJdk17 = java.io.File("C:/Program Files/Java/jdk-17")
     val androidStudioJdk = java.io.File("C:/Program Files/Android/Android Studio/jbr")
     
-    var detectedJdk: java.io.File? = null
-    if (standardJdk17.exists()) {
-        detectedJdk = standardJdk17
-    } else if (androidStudioJdk.exists()) {
-        detectedJdk = androidStudioJdk
+    val detectedJdk = when {
+        standardJdk17.exists() -> standardJdk17
+        androidStudioJdk.exists() -> androidStudioJdk
+        else -> null
     }
     
     if (detectedJdk != null) {
