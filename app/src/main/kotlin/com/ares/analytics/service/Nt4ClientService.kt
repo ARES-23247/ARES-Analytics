@@ -120,7 +120,7 @@ open class Nt4ClientService(
                 }
 
                 val clientName = "ARES-Analytics-${System.currentTimeMillis()}"
-                val path = "/nt/v4/websocket"
+                val path = "/nt/$clientName"
                 val url = "ws://$activeHost:5810$path"
                 this@Nt4ClientService.serverIp = activeHost
                 try {
@@ -131,7 +131,7 @@ open class Nt4ClientService(
                         port = 5810,
                         path = path,
                         request = {
-                            header("Sec-WebSocket-Protocol", "networktables.first.wpi.edu")
+                            header("Sec-WebSocket-Protocol", "v4.1.networktables.first.wpi.edu")
                         }
                     ) {
                         println("[Nt4ClientService] Connected to $url successfully!")
