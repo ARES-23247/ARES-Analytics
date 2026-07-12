@@ -149,12 +149,14 @@ fun RunHistoryScreen(
         diagnosticsMap.values.flatMap { it.keys }
             .filter { it.startsWith("Diagnostics/SysId/Motors/") }
             .map { it.split("/")[3] }
+            .map { canonicalizeMotorName(it) }
             .distinct()
             .sorted()
     }
 
     val allMotorNames = remember(motorNames, summaries) {
         val currentMotors = summaries.values.flatMap { it.motorCurrentAverages.keys }
+            .map { canonicalizeMotorName(it) }
         (motorNames + currentMotors).distinct().sorted()
     }
 
@@ -215,10 +217,10 @@ fun RunHistoryScreen(
                 label = "Motor [$motor] Avg Current",
                 category = "Motor Current Draw",
                 getValue = { _, summary, _ ->
-                    summary?.motorCurrentAverages?.get(motor)?.let { String.format("%.2f A", it) } ?: "N/A"
+                    getMotorCurrentAverage(summary, motor)?.let { String.format("%.2f A", it) } ?: "N/A"
                 },
                 getNumericValue = { _, summary, _ ->
-                    summary?.motorCurrentAverages?.get(motor)
+                    getMotorCurrentAverage(summary, motor)
                 }
             )
         }
@@ -228,12 +230,11 @@ fun RunHistoryScreen(
     val motorRowDefinitions = remember(allMotorNames) {
         allMotorNames.flatMap { motor ->
             listOf(
-                RowDefinition("Motor [$motor] kS", "Subsystem Motors ($motor)", { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kS"]?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kS"] }),
-                RowDefinition("Motor [$motor] kV", "Subsystem Motors ($motor)", { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kV"]?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kV"] }),
-                RowDefinition("Motor [$motor] kA", "Subsystem Motors ($motor)", { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kA"]?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kA"] }),
-                RowDefinition("Motor [$motor] kG (Gravity)", "Subsystem Motors ($motor)", { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kG"]?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/kG"] }),
-                RowDefinition("Motor [$motor] ADRC b0", "Subsystem Motors ($motor)", { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/ADRC_b0"]?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> diag["Diagnostics/SysId/Motors/$motor/ADRC_b0"] }),
-                RowDefinition("Motor [$motor] Avg Current", "Subsystem Motors ($motor)", { _, summary, _ -> summary?.motorCurrentAverages?.get(motor)?.let { String.format("%.2f A", it) } ?: "N/A" }, { _, summary, _ -> summary?.motorCurrentAverages?.get(motor) })
+                RowDefinition("Motor [$motor] kS", "Subsystem Motors ($motor)", { _, _, diag -> getDiagnosticValue(diag, motor, "kS")?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> getDiagnosticValue(diag, motor, "kS") }),
+                RowDefinition("Motor [$motor] kV", "Subsystem Motors ($motor)", { _, _, diag -> getDiagnosticValue(diag, motor, "kV")?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> getDiagnosticValue(diag, motor, "kV") }),
+                RowDefinition("Motor [$motor] kA", "Subsystem Motors ($motor)", { _, _, diag -> getDiagnosticValue(diag, motor, "kA")?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> getDiagnosticValue(diag, motor, "kA") }),
+                RowDefinition("Motor [$motor] kG (Gravity)", "Subsystem Motors ($motor)", { _, _, diag -> getDiagnosticValue(diag, motor, "kG")?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> getDiagnosticValue(diag, motor, "kG") }),
+                RowDefinition("Motor [$motor] ADRC b0", "Subsystem Motors ($motor)", { _, _, diag -> getDiagnosticValue(diag, motor, "ADRC_b0")?.let { String.format("%.3f", it) } ?: "N/A" }, { _, _, diag -> getDiagnosticValue(diag, motor, "ADRC_b0") })
             )
         }
     }
@@ -805,4 +806,45 @@ fun RowGraphDialog(
             }
         }
     }
+}
+
+private fun canonicalizeMotorName(name: String): String {
+    return when (name.lowercase()) {
+        "bl" -> "rl"
+        "br" -> "rr"
+        "lf" -> "fl"
+        "rf" -> "fr"
+        else -> name
+    }
+}
+
+private fun getDiagnosticValue(diag: Map<String, Double>, canonicalMotor: String, param: String): Double? {
+    val namesToCheck = when (canonicalMotor) {
+        "rl" -> listOf("rl", "bl")
+        "rr" -> listOf("rr", "br")
+        "fl" -> listOf("fl", "lf")
+        "fr" -> listOf("fr", "rf")
+        else -> listOf(canonicalMotor)
+    }
+    for (name in namesToCheck) {
+        val value = diag["Diagnostics/SysId/Motors/$name/$param"]
+        if (value != null) return value
+    }
+    return null
+}
+
+private fun getMotorCurrentAverage(summary: com.ares.analytics.shared.SessionSummary?, canonicalMotor: String): Double? {
+    if (summary == null) return null
+    val namesToCheck = when (canonicalMotor) {
+        "rl" -> listOf("rl", "bl")
+        "rr" -> listOf("rr", "br")
+        "fl" -> listOf("fl", "lf")
+        "fr" -> listOf("fr", "rf")
+        else -> listOf(canonicalMotor)
+    }
+    for (name in namesToCheck) {
+        val value = summary.motorCurrentAverages[name]
+        if (value != null) return value
+    }
+    return null
 }
