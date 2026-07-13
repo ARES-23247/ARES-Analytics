@@ -165,13 +165,13 @@ open class Nt4ClientService(
                         """.trimIndent()
                         send(Frame.Text(announceInputsMsg))
 
-                        // 2. Subscribe to all topics (using empty string to match all topics as a prefix)
+                        // 2. Subscribe to all topics (using "/" to match all topics as a prefix)
                         val subMsg = """
                             [
                               {
                                 "method": "subscribe",
                                 "params": {
-                                  "topics": [""],
+                                  "topics": ["/"],
                                   "subuid": 1,
                                   "options": {
                                     "prefix": true,
@@ -422,54 +422,78 @@ open class Nt4ClientService(
             
             if (outerArrayLen < 0) return
             
-            var currentOffset = offset + outerHeaderSize
+            val isFlatUpdate = if (outerArrayLen == 4) {
+                val firstElemOffset = offset + outerHeaderSize
+                if (firstElemOffset < bytes.size) {
+                    val firstElemMarker = bytes[firstElemOffset].toInt() and 0xFF
+                    val isFirstElemArray = firstElemMarker in 0x90..0x9f || firstElemMarker == 0xdc || firstElemMarker == 0xdd
+                    !isFirstElemArray
+                } else false
+            } else false
             
-            for (i in 0 until outerArrayLen) {
-                if (currentOffset >= bytes.size) break
-                
-                val innerMarker = bytes[currentOffset].toInt() and 0xFF
-                val (innerArrayLen, innerHeaderSize) = Nt4Decoder.getArrayLengthAndHeader(innerMarker, bytes, currentOffset)
-                
-                if (innerArrayLen != 4) {
-                    val size = Nt4Decoder.getMsgPackValueLength(bytes, currentOffset)
-                    if (size == 0) break
-                    currentOffset += size
-                    continue
+            if (isFlatUpdate) {
+                parseAndDispatchUpdate(bytes, offset, outerHeaderSize, teamId, seasonId, robotId)
+            } else {
+                var currentOffset = offset + outerHeaderSize
+                for (i in 0 until outerArrayLen) {
+                    if (currentOffset >= bytes.size) break
+                    
+                    val innerMarker = bytes[currentOffset].toInt() and 0xFF
+                    val (innerArrayLen, innerHeaderSize) = Nt4Decoder.getArrayLengthAndHeader(innerMarker, bytes, currentOffset)
+                    
+                    if (innerArrayLen != 4) {
+                        val size = Nt4Decoder.getMsgPackValueLength(bytes, currentOffset)
+                        if (size == 0) break
+                        currentOffset += size
+                        continue
+                    }
+                    
+                    val nextOffset = parseAndDispatchUpdate(bytes, currentOffset, innerHeaderSize, teamId, seasonId, robotId)
+                    currentOffset = nextOffset
                 }
-                
-                var elementOffset = currentOffset + innerHeaderSize
-                
-                // 1. Topic ID
-                val (topicIdJson, topicIdSize) = Nt4Decoder.parseMsgPackValue(bytes, elementOffset, 2)
-                val topicId = topicIdJson.jsonPrimitive.intOrNull ?: -1
-                elementOffset += topicIdSize
-                
-                // 2. Timestamp (us)
-                val (timestampJson, timestampSize) = Nt4Decoder.parseMsgPackValue(bytes, elementOffset, 2)
-                val timestampUs = timestampJson.jsonPrimitive.longOrNull ?: 0L
-                elementOffset += timestampSize
-                
-                // 3. Type ID
-                val (typeIdJson, typeIdSize) = Nt4Decoder.parseMsgPackValue(bytes, elementOffset, 2)
-                val typeId = typeIdJson.jsonPrimitive.intOrNull ?: 0
-                elementOffset += typeIdSize
-                
-                // 4. Value
-                val (valueElement, valueSize) = Nt4Decoder.parseMsgPackValue(bytes, elementOffset, typeId)
-                elementOffset += valueSize
-                
-                val timestampMs = timestampUs / 1000
-                val ntTopic = topicMap[topicId]
-                if (ntTopic != null) {
-                    dispatchValue(ntTopic, valueElement, timestampMs, teamId, seasonId, robotId)
-                }
-                
-                currentOffset = elementOffset
             }
         } catch (e: Exception) {
             println("[Nt4ClientService] Error handling incoming binary: ${e.message}")
             e.printStackTrace()
         }
+    }
+
+    private suspend fun parseAndDispatchUpdate(
+        bytes: ByteArray,
+        offset: Int,
+        headerSize: Int,
+        teamId: String,
+        seasonId: String,
+        robotId: String
+    ): Int {
+        var elementOffset = offset + headerSize
+        
+        // 1. Topic ID
+        val (topicIdJson, topicIdSize) = Nt4Decoder.parseMsgPackValue(bytes, elementOffset, 2)
+        val topicId = topicIdJson.jsonPrimitive.intOrNull ?: -1
+        elementOffset += topicIdSize
+        
+        // 2. Timestamp (us)
+        val (timestampJson, timestampSize) = Nt4Decoder.parseMsgPackValue(bytes, elementOffset, 2)
+        val timestampUs = timestampJson.jsonPrimitive.longOrNull ?: 0L
+        elementOffset += timestampSize
+        
+        // 3. Type ID
+        val (typeIdJson, typeIdSize) = Nt4Decoder.parseMsgPackValue(bytes, elementOffset, 2)
+        val typeId = typeIdJson.jsonPrimitive.intOrNull ?: 0
+        elementOffset += typeIdSize
+        
+        // 4. Value
+        val (valueElement, valueSize) = Nt4Decoder.parseMsgPackValue(bytes, elementOffset, typeId)
+        elementOffset += valueSize
+        
+        val timestampMs = timestampUs / 1000
+        val ntTopic = topicMap[topicId]
+        if (ntTopic != null) {
+            dispatchValue(ntTopic, valueElement, timestampMs, teamId, seasonId, robotId)
+        }
+        
+        return elementOffset
     }
 
     private suspend fun dispatchValue(
