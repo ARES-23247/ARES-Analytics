@@ -25,6 +25,7 @@ dependencies {
 
     // Networking — Ktor client
     implementation("io.ktor:ktor-client-cio:3.0.3")
+    implementation("io.ktor:ktor-client-java:3.0.3")
     implementation("io.ktor:ktor-client-websockets:3.0.3")
     implementation("io.ktor:ktor-client-content-negotiation:3.0.3")
     implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.3")

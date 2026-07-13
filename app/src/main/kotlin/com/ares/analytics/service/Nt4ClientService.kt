@@ -13,9 +13,11 @@ import kotlinx.serialization.json.*
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
+import io.ktor.client.engine.java.Java
+
 open class Nt4ClientService(
     private val databaseService: DatabaseService,
-    private val client: HttpClient = HttpClient { install(WebSockets) }
+    private val client: HttpClient = HttpClient(Java) { install(WebSockets) }
 ) {
     var serverIp: String = "127.0.0.1"
 
@@ -165,13 +167,13 @@ open class Nt4ClientService(
                         """.trimIndent()
                         send(Frame.Text(announceInputsMsg))
 
-                        // 2. Subscribe to all topics (using "/" to match all topics as a prefix)
+                        // 2. Subscribe to all topics using explicit category prefixes (prevents empty/slash prefix matching bugs in NT4Server)
                         val subMsg = """
                             [
                               {
                                 "method": "subscribe",
                                 "params": {
-                                  "topics": ["/"],
+                                  "topics": ["/Drive", "/Robot", "/Superstructure", "/Vision", "/Gamepad1", "/Gamepad2", "/Hardware", "/Diagnostics", "/SysId", "/Path"],
                                   "subuid": 1,
                                   "options": {
                                     "prefix": true,
