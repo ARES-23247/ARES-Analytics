@@ -18,8 +18,8 @@ import io.ktor.client.engine.okhttp.OkHttp
 open class Nt4ClientService(
     private val databaseService: DatabaseService
 ) {
-    /** CIO engine for localhost (native coroutines, zero bridging overhead) */
-    private val localClient: HttpClient = HttpClient { install(WebSockets) }
+    /** OkHttp engine for localhost (clean WebSocket frames, no RSV bit crashes) */
+    private val localClient: HttpClient = HttpClient(OkHttp) { install(WebSockets) }
     /** OkHttp engine for remote robot connections (clean WebSocket frames, no RSV bit crashes) */
     private val remoteClient: HttpClient = HttpClient(OkHttp) { install(WebSockets) }
 
