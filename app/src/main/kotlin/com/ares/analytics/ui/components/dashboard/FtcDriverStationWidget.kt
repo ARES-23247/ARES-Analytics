@@ -142,6 +142,22 @@ fun FtcDriverStationWidget(
     // Listen to NT4 topics
     LaunchedEffect(nt4Client) {
         launch {
+            // Robust polling for static lists that might miss the SharedFlow replay window
+            while (true) {
+                if (teleOps.isEmpty()) {
+                    nt4Client.latestValues["ARES/DriverStation/TeleOpList"]?.stringValue?.let {
+                        try { teleOps = Json.decodeFromString(it) } catch(e: Exception) {}
+                    }
+                }
+                if (autos.isEmpty()) {
+                    nt4Client.latestValues["ARES/DriverStation/AutonomousList"]?.stringValue?.let {
+                        try { autos = Json.decodeFromString(it) } catch(e: Exception) {}
+                    }
+                }
+                kotlinx.coroutines.delay(1000)
+            }
+        }
+        launch {
             nt4Client.telemetryFlow.collect { frame ->
                 when (frame.key) {
                     "ARES/DriverStation/TeleOpList" -> {
