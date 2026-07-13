@@ -38,6 +38,22 @@ fun JoystickVisualizer(
     LaunchedEffect(keyboardControlEnabled) {
         if (keyboardControlEnabled && nt4ClientService != null) {
             var heartbeat = 0L
+            var lastVx: Double? = null
+            var lastVy: Double? = null
+            var lastOmega: Double? = null
+            var lastQ: Boolean? = null
+            var lastE: Boolean? = null
+            var lastShift: Boolean? = null
+            var lastA: Boolean? = null
+            var lastB: Boolean? = null
+            var lastX: Boolean? = null
+            var lastY: Boolean? = null
+            
+            // Publish static configurations once
+            nt4ClientService.publishInputBoolean(1007, true) // isTeleopMode
+            nt4ClientService.publishInputBoolean(1008, false) // isFieldCentric
+            nt4ClientService.publishInputBoolean(1009, false) // isRedAlliance
+
             while (true) {
                 val g1 = gamepad1StateFlow?.value
 
@@ -74,21 +90,20 @@ fun JoystickVisualizer(
                 val xPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.x else keyboardState.isUPressed
                 val yPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.y else keyboardState.isIPressed
 
-                nt4ClientService.publishInputDouble(1001, vx)
-                nt4ClientService.publishInputDouble(1002, vy)
-                nt4ClientService.publishInputDouble(1003, omega)
-                nt4ClientService.publishInputBoolean(1004, qPressed)
-                nt4ClientService.publishInputBoolean(1005, ePressed)
-                nt4ClientService.publishInputBoolean(1006, shiftPressed)
-                nt4ClientService.publishInputBoolean(1007, true) // isTeleopMode
-                nt4ClientService.publishInputBoolean(1008, false) // isFieldCentric
-                nt4ClientService.publishInputBoolean(1009, false) // isRedAlliance
-                nt4ClientService.publishInputLong(1010, heartbeat++)
+                if (vx != lastVx) { nt4ClientService.publishInputDouble(1001, vx); lastVx = vx }
+                if (vy != lastVy) { nt4ClientService.publishInputDouble(1002, vy); lastVy = vy }
+                if (omega != lastOmega) { nt4ClientService.publishInputDouble(1003, omega); lastOmega = omega }
                 
-                nt4ClientService.publishInputBoolean(1016, aPressed)
-                nt4ClientService.publishInputBoolean(1017, bPressed)
-                nt4ClientService.publishInputBoolean(1018, xPressed)
-                nt4ClientService.publishInputBoolean(1019, yPressed)
+                if (qPressed != lastQ) { nt4ClientService.publishInputBoolean(1004, qPressed); lastQ = qPressed }
+                if (ePressed != lastE) { nt4ClientService.publishInputBoolean(1005, ePressed); lastE = ePressed }
+                if (shiftPressed != lastShift) { nt4ClientService.publishInputBoolean(1006, shiftPressed); lastShift = shiftPressed }
+                
+                if (aPressed != lastA) { nt4ClientService.publishInputBoolean(1016, aPressed); lastA = aPressed }
+                if (bPressed != lastB) { nt4ClientService.publishInputBoolean(1017, bPressed); lastB = bPressed }
+                if (xPressed != lastX) { nt4ClientService.publishInputBoolean(1018, xPressed); lastX = xPressed }
+                if (yPressed != lastY) { nt4ClientService.publishInputBoolean(1019, yPressed); lastY = yPressed }
+
+                nt4ClientService.publishInputLong(1010, heartbeat++)
 
                 kotlinx.coroutines.delay(20)
             }

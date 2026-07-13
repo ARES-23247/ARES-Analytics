@@ -178,13 +178,13 @@ open class Nt4ClientService(
                         """.trimIndent()
                         send(Frame.Text(announceInputsMsg))
 
-                        // 2. Subscribe to all topics (using empty string to match all topics as a prefix)
+                        // 2. Subscribe to all topics (using explicit prefixes to support both WPILib and Sim)
                         val subMsg = """
                             [
                               {
                                 "method": "subscribe",
                                 "params": {
-                                  "topics": [""],
+                                  "topics": ["/", "ARES"],
                                   "subuid": 1,
                                   "options": {
                                     "prefix": true,
