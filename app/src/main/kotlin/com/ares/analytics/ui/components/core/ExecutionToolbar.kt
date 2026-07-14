@@ -18,6 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
 
 enum class TargetSelection(val label: String) {
     LIVE_ROBOT("Live Robot"),
@@ -172,6 +174,63 @@ fun ExecutionToolbar(
                     imageVector = Icons.Default.DesktopWindows,
                     contentDescription = "Launch Simulator",
                     tint = simIconTint,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(4.dp))
+        VerticalDivider(modifier = Modifier.height(20.dp), color = AresBorder.copy(alpha = 0.5f))
+        Spacer(modifier = Modifier.width(4.dp))
+
+        // Target IP input and CLI Driver Launch
+        var targetIp by remember(targetSelection) { 
+            mutableStateOf(if (targetSelection == TargetSelection.LIVE_ROBOT) "192.168.43.1" else "127.0.0.1") 
+        }
+
+        BasicTextField(
+            value = targetIp,
+            onValueChange = { targetIp = it },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary, fontSize = 12.sp),
+            cursorBrush = SolidColor(AresCyan),
+            modifier = Modifier
+                .width(90.dp)
+                .height(26.dp)
+                .background(AresSurface, RoundedCornerShape(4.dp))
+                .border(1.dp, AresBorder.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
+            decorationBox = { innerTextField ->
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    innerTextField()
+                }
+            }
+        )
+
+        TooltipBox(
+            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+            tooltip = { PlainTooltip { Text("Launch Interactive CLI Driver Shell") } },
+            state = rememberTooltipState()
+        ) {
+            IconButton(
+                onClick = {
+                    val ip = targetIp.trim()
+                    val argsStr = if (ip == "127.0.0.1") "" else " --args=\"$ip\""
+                    val command = """cd /d c:\Users\david\dev\robotics\ftc\ARESLib-Kotlin && .\gradlew.bat :simulator:runFakeController --console=plain""" + argsStr
+                    try {
+                        ProcessBuilder("cmd.exe", "/c", "start", "cmd.exe", "/k", command).start()
+                    } catch (e: Exception) {
+                        System.err.println("Failed to launch CLI: ${e.message}")
+                    }
+                },
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Keyboard,
+                    contentDescription = "Launch CLI Driver",
+                    tint = AresCyan,
                     modifier = Modifier.size(18.dp)
                 )
             }

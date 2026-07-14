@@ -430,52 +430,7 @@ fun FtcDriverStationWidget(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
 
-        // Remote CLI Launcher Row
-        var targetIp by remember { mutableStateOf("127.0.0.1") }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedTextField(
-                value = targetIp,
-                onValueChange = { targetIp = it },
-                label = { Text("Target IP", color = AresTextSecondary, fontSize = 11.sp) },
-                modifier = Modifier.weight(1f).height(52.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = AresTextPrimary,
-                    unfocusedTextColor = AresTextPrimary,
-                    focusedBorderColor = AresCyan,
-                    unfocusedBorderColor = AresBorder,
-                    focusedContainerColor = AresSurfaceElevated,
-                    unfocusedContainerColor = AresSurfaceElevated
-                ),
-                singleLine = true
-            )
-            Button(
-                onClick = {
-                    scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                        try {
-                            val ip = targetIp.trim()
-                            val argsStr = if (ip == "127.0.0.1") "" else " --args=\"$ip\""
-                            val command = """cd /d c:\Users\david\dev\robotics\ftc\ARESLib-Kotlin && .\gradlew.bat :simulator:runFakeController --console=plain""" + argsStr
-                            println("Launching Remote CLI Terminal: $command")
-                            ProcessBuilder("cmd.exe", "/c", "start", "cmd.exe", "/k", command).start()
-                        } catch (e: Exception) {
-                            System.err.println("Failed to launch CLI terminal: ${e.message}")
-                        }
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = AresCyan,
-                ),
-                modifier = Modifier.height(42.dp)
-            ) {
-                Text("LAUNCH CLI", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-            }
-        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
