@@ -43,7 +43,7 @@ fun SystemHealthCard(
                     key.contains("looptime") || key.contains("loop_time") -> {
                         loopTimeMs = value as? Double
                     }
-                    key.contains("batteryvoltage") || key.contains("battery_voltage") || key.contains("battery") -> {
+                    key.contains("batteryvoltage") || key.contains("battery_voltage") -> {
                         batteryVoltage = value as? Double
                     }
                     key.contains("brownoutcount") || key.contains("brownout_count") -> {
