@@ -29,24 +29,28 @@ fun SystemHealthCard(
     val scope = rememberCoroutineScope()
     
     var loopTimeMs by remember { mutableStateOf<Double?>(null) }
-    var cpuUsage by remember { mutableStateOf<Double?>(null) }
-    var ramUsage by remember { mutableStateOf<Double?>(null) }
+    var batteryVoltage by remember { mutableStateOf<Double?>(null) }
+    var brownoutCount by remember { mutableStateOf<Int?>(null) }
+    var loopOverruns by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(Unit) {
         scope.launch {
             nt4ClientService.telemetryFlow.collect { frame ->
                 val key = frame.key.lowercase()
-                val value = frame.value as? Double ?: return@collect
+                val value = frame.value
                 
                 when {
                     key.contains("looptime") || key.contains("loop_time") -> {
-                        loopTimeMs = value
+                        loopTimeMs = value as? Double
                     }
-                    key.contains("cpu") -> {
-                        cpuUsage = value
+                    key.contains("batteryvoltage") || key.contains("battery_voltage") || key.contains("battery") -> {
+                        batteryVoltage = value as? Double
                     }
-                    key.contains("ram") || key.contains("memory") -> {
-                        ramUsage = value
+                    key.contains("brownoutcount") || key.contains("brownout_count") -> {
+                        brownoutCount = (value as? Double)?.toInt() ?: (value as? Int)
+                    }
+                    key.contains("loopoverruns") || key.contains("loop_overruns") -> {
+                        loopOverruns = (value as? Double)?.toInt() ?: (value as? Int)
                     }
                 }
             }
@@ -102,26 +106,47 @@ fun SystemHealthCard(
                     )
                 }
                 
-                // CPU
+                // Overruns
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("CPU USAGE", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    val cpuColor = if (cpuUsage != null && cpuUsage!! > 85.0) AresError else AresTextPrimary
+                    Text("OVERRUNS", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    val overrunVal = loopOverruns ?: 0
+                    val overrunColor = if (overrunVal > 0) AresGold else AresGreen
                     Text(
-                        text = cpuUsage?.let { String.format("%.1f %%", it) } ?: "--",
-                        color = cpuColor,
+                        text = overrunVal.toString(),
+                        color = overrunColor,
                         fontSize = 20.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
                     )
                 }
 
-                // RAM
+                // Battery Voltage
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("RAM USAGE", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    val ramColor = if (ramUsage != null && ramUsage!! > 85.0) AresGold else AresTextPrimary
+                    Text("BATTERY", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    val voltage = batteryVoltage
+                    val batteryColor = when {
+                        voltage == null -> AresTextPrimary
+                        voltage < 11.5 -> AresError
+                        voltage < 12.2 -> AresGold
+                        else -> AresGreen
+                    }
                     Text(
-                        text = ramUsage?.let { String.format("%.1f %%", it) } ?: "--",
-                        color = ramColor,
+                        text = voltage?.let { String.format("%.2f V", it) } ?: "--",
+                        color = batteryColor,
+                        fontSize = 20.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                // Brownouts
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("BROWNOUTS", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    val brownoutVal = brownoutCount ?: 0
+                    val brownoutColor = if (brownoutVal > 0) AresError else AresTextPrimary
+                    Text(
+                        text = brownoutVal.toString(),
+                        color = brownoutColor,
                         fontSize = 20.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold
