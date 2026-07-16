@@ -104,7 +104,12 @@ class EnvironmentService(
                 .redirectErrorStream(true)
                 .start()
             val output = process.inputStream.bufferedReader().use { it.readText() }
-            val exitCode = process.waitFor()
+            val finished = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                return@withContext JavaEnvResult(false, "Java verification timed out.")
+            }
+            val exitCode = process.exitValue()
             if (exitCode == 0) {
                 JavaEnvResult(true, "Java executable valid. Output:\n$output")
             } else {

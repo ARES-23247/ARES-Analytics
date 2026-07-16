@@ -84,3 +84,28 @@ data class PathPlannerFile(
     val reversed: Boolean = false,
     val useDefaultConstraints: Boolean = true
 )
+
+@Serializable
+data class AutoCommandNode(
+    val type: String,
+    val data: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())
+)
+
+@Serializable
+data class AutoFile(
+    val version: String = "1.0",
+    val startingPose: AutoStartingPose? = null,
+    val command: AutoCommandNode
+)
+
+@Serializable
+data class AutoStartingPose(
+    val position: AutoPosition,
+    val rotation: Double
+)
+
+@Serializable
+data class AutoPosition(
+    val x: Double,
+    val y: Double
+)

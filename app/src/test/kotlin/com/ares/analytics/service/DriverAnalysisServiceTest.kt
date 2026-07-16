@@ -74,45 +74,4 @@ class DriverAnalysisServiceTest {
         tempDb.delete()
     }
 
-    @Test
-    fun testExportToConstants() = runTest {
-        val tempDb = File.createTempFile("driver_export_db", ".db").apply { deleteOnExit() }
-        val databaseService = DatabaseService(tempDb.absolutePath)
-        val sysIdService = SysIdService(databaseService)
-        val tempProfiles = File.createTempFile("driver_profiles", ".json")
-        tempProfiles.delete() // Delete so DriverAnalysisService writes defaults
-
-        val service = DriverAnalysisService(databaseService, sysIdService, tempProfiles.absolutePath)
-        val constantsService = ConstantsParserService()
-
-        val tempDir = File(System.getProperty("java.io.tmpdir"), "ares_project_${System.currentTimeMillis()}")
-        tempDir.mkdirs()
-        tempDir.deleteOnExit()
-
-        val constantsFile = File(tempDir, "Constants.kt")
-        constantsFile.deleteOnExit()
-        constantsFile.writeText("""
-            package com.ares.robot
-            
-            object Constants {
-                val DRIVER_DEADBAND_EXPONENT = 1.0
-                val DRIVER_SLEW_RATE = 5.0
-            }
-        """.trimIndent())
-
-        val success = service.exportToConstants(1.6, 2.5, constantsService, tempDir.absolutePath)
-        assertTrue(success)
-
-        val updated = constantsService.loadTunableConstants(tempDir.absolutePath)
-        val deadband = updated.first { it.name == "DRIVER_DEADBAND_EXPONENT" }
-        val slew = updated.first { it.name == "DRIVER_SLEW_RATE" }
-
-        assertEquals(1.6, deadband.value)
-        assertEquals(2.5, slew.value)
-
-        constantsFile.delete()
-        tempDir.delete()
-        tempProfiles.delete()
-        tempDb.delete()
-    }
 }

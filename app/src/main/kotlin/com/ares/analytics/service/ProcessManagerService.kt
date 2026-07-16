@@ -46,8 +46,11 @@ class ProcessManagerService {
                     val pb = ProcessBuilder("adb", "devices")
                     val proc = pb.start()
                     val output = proc.inputStream.bufferedReader().readText()
-                    proc.waitFor()
-                    val isConnected = output.contains("192.168.43.1:5555") || output.contains("device\n") || output.contains("device\r")
+                    val monitorFinished = proc.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+                    if (!monitorFinished) {
+                        proc.destroyForcibly()
+                    }
+                    val isConnected = monitorFinished && (output.contains("192.168.43.1:5555") || output.contains("device\n") || output.contains("device\r"))
                     _adbConnected.value = isConnected
                 } catch (e: Exception) {
                     _adbConnected.value = false
@@ -272,8 +275,13 @@ class ProcessManagerService {
         val adb = resolveAdbPath()
         val connectPb = ProcessBuilder(adb, "connect", "192.168.43.1:5555")
         val connectProc = connectPb.start()
-        val connectExit = connectProc.waitFor()
-        if (connectExit != 0) {
+        val finished = connectProc.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
+        if (!finished) {
+            connectProc.destroyForcibly()
+            _buildOutput.emit("[SYSTEM] Warning: adb connect timed out. Attempting install anyway.")
+        }
+        val connectExit = if (finished) connectProc.exitValue() else -1
+        if (connectExit != 0 && finished) {
             _buildOutput.emit("[SYSTEM] Warning: adb connect returned non-zero exit code $connectExit. Attempting install anyway.")
         }
 
@@ -292,7 +300,12 @@ class ProcessManagerService {
             }
         }
 
-        val installExit = installProc.waitFor()
+        val installFinished = installProc.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)
+        if (!installFinished) {
+            installProc.destroyForcibly()
+            _buildOutput.emit("[SYSTEM] Error: ADB Deploy timed out.")
+        }
+        val installExit = if (installFinished) installProc.exitValue() else -1
         _buildOutput.emit("[SYSTEM] ADB Deploy finished with exit code $installExit")
 
         // Auto restart logcat on successful deploy

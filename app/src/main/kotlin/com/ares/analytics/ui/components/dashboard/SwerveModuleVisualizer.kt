@@ -152,8 +152,9 @@ private fun ModuleCard(
             // Draw target vector line (dashed gold)
             val targetRad = if (Math.abs(angleTarget) > 2 * Math.PI) Math.toRadians(angleTarget) else angleTarget
             val targetLength = r * (speedTarget / 4.0).coerceIn(0.0, 1.0).toFloat()
-            val tx = cx + targetLength * cos(-targetRad).toFloat()
-            val ty = cy + targetLength * sin(-targetRad).toFloat()
+            val targetSteer = -targetRad - Math.PI / 2.0
+            val tx = cx + targetLength * cos(targetSteer).toFloat()
+            val ty = cy + targetLength * sin(targetSteer).toFloat()
             val dashEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
             drawLine(
                 color = AresGold,
@@ -167,8 +168,9 @@ private fun ModuleCard(
             // Draw actual vector line (solid cyan)
             val actualRad = if (Math.abs(angleActual) > 2 * Math.PI) Math.toRadians(angleActual) else angleActual
             val actualLength = r * (speedActual / 4.0).coerceIn(0.0, 1.0).toFloat()
-            val ax = cx + actualLength * cos(-actualRad).toFloat()
-            val ay = cy + actualLength * sin(-actualRad).toFloat()
+            val actualSteer = -actualRad - Math.PI / 2.0
+            val ax = cx + actualLength * cos(actualSteer).toFloat()
+            val ay = cy + actualLength * sin(actualSteer).toFloat()
             drawLine(
                 color = AresCyan,
                 start = Offset(cx, cy),

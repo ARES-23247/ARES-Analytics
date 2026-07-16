@@ -185,12 +185,15 @@ fun MainScreen(services: ServiceRegistry) {
 
     val isBuildRunning by services.processManagerService.isBuildRunning.collectAsState()
     var targetSelection by remember { mutableStateOf(TargetSelection.LIVE_ROBOT) }
+    var liveRobotIp by remember(currentConfig.nt4Host) {
+        mutableStateOf(currentConfig.nt4Host ?: "192.168.43.1")
+    }
 
     val isLiveRobotOnline by services.targetScannerService.isLiveRobotOnline.collectAsState()
     val isLocalSimOnline by services.targetScannerService.isLocalSimOnline.collectAsState()
 
-    LaunchedEffect(currentConfig.nt4Host) {
-        services.targetScannerService.startScanning(currentConfig.nt4Host ?: "192.168.43.1")
+    LaunchedEffect(liveRobotIp) {
+        services.targetScannerService.startScanning(liveRobotIp)
     }
 
     // Auto-switch based on Most Recently Booted
@@ -213,13 +216,13 @@ fun MainScreen(services: ServiceRegistry) {
     }
 
     // Start NT4 connection once config is resolved or target/simulator status changes
-    LaunchedEffect(currentConfig, targetSelection, isSimRunning) {
-        println("[MainScreen LaunchedEffect] RUNNING: config=$currentConfig (hash=${System.identityHashCode(currentConfig)}), targetSelection=$targetSelection, isSimRunning=$isSimRunning")
+    LaunchedEffect(currentConfig, targetSelection, liveRobotIp, isSimRunning) {
+        println("[MainScreen LaunchedEffect] RUNNING: config=$currentConfig (hash=${System.identityHashCode(currentConfig)}), targetSelection=$targetSelection, liveRobotIp=$liveRobotIp, isSimRunning=$isSimRunning")
         focusRequester.requestFocus()
         val host = if (targetSelection == TargetSelection.LOCAL_SIM || isSimRunning) {
             "127.0.0.1"
         } else {
-            currentConfig.nt4Host ?: "192.168.43.1"
+            liveRobotIp
         }
         println("[MainScreen LaunchedEffect] Computed host=$host")
         services.nt4ClientService.start(
@@ -414,11 +417,17 @@ fun MainScreen(services: ServiceRegistry) {
 
                         ExecutionToolbar(
                             targetSelection = targetSelection,
+                            targetIp = if (targetSelection == TargetSelection.LOCAL_SIM || isSimRunning) "127.0.0.1" else liveRobotIp,
                             isLiveRobotOnline = isLiveRobotOnline,
                             isLocalSimOnline = isLocalSimOnline,
                             isBuildRunning = isBuildRunning,
                             isSimRunning = isSimRunning,
                             onTargetChanged = { targetSelection = it },
+                            onTargetIpChanged = { ip ->
+                                if (targetSelection == TargetSelection.LIVE_ROBOT) {
+                                    liveRobotIp = ip
+                                }
+                            },
                             onRunBuild = {
                                 services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
                                 mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))

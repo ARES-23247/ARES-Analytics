@@ -116,21 +116,6 @@ open class Nt4ClientService(
 
             while (isActive) {
                 var activeHost = host
-                if (activeHost != "127.0.0.1") {
-                    val isLocalSimOpen = try {
-                        java.net.Socket().use { socket ->
-                            socket.connect(java.net.InetSocketAddress("127.0.0.1", 5810), 200)
-                            true
-                        }
-                    } catch (_: Exception) {
-                        false
-                    }
-                    if (isLocalSimOpen) {
-                        println("[Nt4ClientService] Local simulator detected on port 5810. Overriding connection host to 127.0.0.1")
-                        activeHost = "127.0.0.1"
-                    }
-                }
-
                 val clientName = "ARES-Analytics-${System.currentTimeMillis()}"
                 val path = "/nt/$clientName"
                 val url = "ws://$activeHost:5810$path"

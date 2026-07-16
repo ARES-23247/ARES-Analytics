@@ -103,7 +103,13 @@ class HootDecoderService(
         )
         
         val process = pb.start()
-        val exitCode = process.waitFor()
+        val finished = process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)
+        if (!finished) {
+            process.destroyForcibly()
+            tempCsv.delete()
+            throw IllegalStateException("owlet CLI timed out converting hoot log.")
+        }
+        val exitCode = process.exitValue()
         if (exitCode != 0) {
             tempCsv.delete()
             throw IllegalStateException("owlet CLI failed to convert hoot log. Exit code: $exitCode")

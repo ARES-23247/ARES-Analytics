@@ -2,7 +2,6 @@ package com.ares.analytics.service
 
 import com.ares.analytics.shared.SessionAnnotation
 import com.ares.analytics.shared.TelemetryFrame
-import kotlinx.coroutines.runBlocking
 import java.io.DataInputStream
 import java.io.EOFException
 import java.io.File
@@ -183,7 +182,7 @@ class DSLogDecoderService(private val databaseService: DatabaseService) {
         }
     }
 
-    private fun parseDsEvents(
+    private suspend fun parseDsEvents(
         dseventsFile: File,
         sessionId: String,
         startTimeMs: Double
@@ -235,9 +234,7 @@ class DSLogDecoderService(private val databaseService: DatabaseService) {
                             createdAt = eventTimeMs.toLong(),
                             authorId = "Driver Station"
                         )
-                        runBlocking {
-                            databaseService.insertAnnotation(annotation)
-                        }
+                        databaseService.insertAnnotation(annotation)
                     }
                 } catch (e: EOFException) {
                     // Normal end of file

@@ -24,6 +24,9 @@ class RevlogDecoderService(
             pb.redirectErrorStream(true)
             val process = pb.start()
             val finished = process.waitFor(30, TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+            }
             
             if (finished && process.exitValue() == 0 && tempWpiLog.exists() && tempWpiLog.length() > 0) {
                 // Successfully converted to WPILOG! Now parse the converted WPILOG file.
@@ -37,6 +40,9 @@ class RevlogDecoderService(
                 pbFallback.redirectErrorStream(true)
                 val processFallback = pbFallback.start()
                 val finishedFallback = processFallback.waitFor(30, TimeUnit.SECONDS)
+                if (!finishedFallback) {
+                    processFallback.destroyForcibly()
+                }
                 
                 if (finishedFallback && processFallback.exitValue() == 0 && tempWpiLog.exists() && tempWpiLog.length() > 0) {
                     logParserService.parseWpiLog(tempWpiLog, sessionId, batcher)

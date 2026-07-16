@@ -53,7 +53,7 @@ fun FieldViewerCard(
     var showVisionPoses by remember { mutableStateOf(true) }
     var layersMenuExpanded by remember { mutableStateOf(false) }
 
-    val activeVisionPoses = remember(state.visionPoses.size, state.visionX, state.visionY, state.visionHeading, state.visionHasTarget) {
+    val activeVisionPoses = remember(state.visionPoses, state.visionX, state.visionY, state.visionHeading, state.visionHasTarget) {
         val list = mutableListOf<Waypoint>()
         if (state.visionHasTarget) {
             val maxIndex = state.visionPoses.keys.maxOrNull() ?: -1

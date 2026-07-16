@@ -39,7 +39,13 @@ data class PathPlannerState(
     val viewRotation: Float = 0f,
     val trajectory: Trajectory? = null,
     val isPlaying: Boolean = false,
-    val playbackTime: Double = 0.0
+    val playbackTime: Double = 0.0,
+    
+    // Auto Editor specific state
+    val activeEditorMode: String = "Path", // "Path" or "Auto"
+    val availableAutos: List<String> = emptyList(),
+    val autoStartingPose: AutoStartingPose? = null,
+    val currentAutoCommands: List<AutoCommandNode> = emptyList()
 )
 
 sealed class PathPlannerIntent {
@@ -47,7 +53,9 @@ sealed class PathPlannerIntent {
     data class FetchAvailablePaths(val projectPath: String?, val league: League) : PathPlannerIntent()
     data class SavePath(val projectPath: String?, val league: League) : PathPlannerIntent()
     data class CreateNewPath(val name: String = "new_path") : PathPlannerIntent()
+    data class CreateNewAuto(val name: String = "new_auto") : PathPlannerIntent()
     data class UpdatePathName(val name: String) : PathPlannerIntent()
+    data class UpdateEditorMode(val mode: String) : PathPlannerIntent()
     data class UpdateWaypoints(val newWaypoints: List<Waypoint>) : PathPlannerIntent()
     data class UpdateWaypoint(val index: Int, val waypoint: Waypoint) : PathPlannerIntent()
     data class AddWaypoint(val waypoint: Waypoint) : PathPlannerIntent()
@@ -87,6 +95,14 @@ sealed class PathPlannerIntent {
     data class AddConstraintZone(val zone: ConstraintsZone) : PathPlannerIntent()
     data class UpdateConstraintZone(val index: Int, val zone: ConstraintsZone) : PathPlannerIntent()
     data class DeleteConstraintZone(val index: Int) : PathPlannerIntent()
+    
+    // Auto Editor
+    data class LoadAuto(val projectPath: String?, val league: League) : PathPlannerIntent()
+    data class SaveAuto(val projectPath: String?, val league: League) : PathPlannerIntent()
+    data class UpdateAutoStartingPose(val pose: AutoStartingPose?) : PathPlannerIntent()
+    data class AddAutoCommand(val node: AutoCommandNode, val projectPath: String?, val league: League) : PathPlannerIntent()
+    data class RemoveAutoCommand(val index: Int, val projectPath: String?, val league: League) : PathPlannerIntent()
+    data class UpdateAutoCommand(val index: Int, val node: AutoCommandNode, val projectPath: String?, val league: League) : PathPlannerIntent()
 }
 
 class PathPlannerViewModel(
@@ -108,6 +124,86 @@ class PathPlannerViewModel(
             goalEndState = s.goalEndState
         )
         _state.update { it.copy(trajectory = trajectory, estimatedDuration = trajectory.durationSeconds) }
+    }
+
+    private fun loadPathTrajectory(pathName: String, projectPath: String, league: League): Trajectory? {
+        try {
+            val relativeDir = if (league == League.FTC) {
+                if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
+                else "src/main/assets/pathplanner/paths"
+            } else {
+                "src/main/deploy/pathplanner/paths"
+            }
+            val targetDir = File(projectPath, relativeDir)
+            val file = File(targetDir, "$pathName.path")
+            if (!file.exists()) return null
+            val json = Json { ignoreUnknownKeys = true }
+            val pathFile = json.decodeFromString<PathPlannerFile>(file.readText())
+            val loadedWps = pathFile.waypoints.map { pwp ->
+                val next = pwp.nextControl
+                val prev = pwp.prevControl
+                val heading = when {
+                    next != null -> kotlin.math.atan2(next.y - pwp.anchor.y, next.x - pwp.anchor.x)
+                    prev != null -> kotlin.math.atan2(pwp.anchor.y - prev.y, pwp.anchor.x - prev.x)
+                    else -> 0.0
+                }
+                Waypoint(pwp.anchor.x, pwp.anchor.y, heading)
+            }
+            return TrajectoryEstimator.generateTrajectory(
+                waypoints = loadedWps,
+                globalConstraints = pathFile.globalConstraints,
+                constraintZones = pathFile.constraintZones,
+                rotationTargets = pathFile.rotationTargets,
+                idealStartingState = pathFile.idealStartingState,
+                goalEndState = pathFile.goalEndState
+            )
+        } catch (e: Exception) {
+            return null
+        }
+    }
+
+    private fun recalculateAutoTrajectory(projectPath: String?, league: League) {
+        if (projectPath == null) return
+        scope.launch(Dispatchers.IO) {
+            val s = _state.value
+            val root = s.currentAutoCommands.firstOrNull() ?: return@launch
+            
+            // Extract all path names in order
+            val pathNames = mutableListOf<String>()
+            fun extractPaths(node: AutoCommandNode) {
+                if (node.type == "path") {
+                    val pathName = node.data["pathName"]?.let { 
+                        if (it is kotlinx.serialization.json.JsonPrimitive && it.isString) it.content else null 
+                    }
+                    if (pathName != null && pathName.isNotEmpty()) {
+                        pathNames.add(pathName)
+                    }
+                }
+                val commandsArray = node.data["commands"] as? kotlinx.serialization.json.JsonArray
+                commandsArray?.forEach { jsonElement ->
+                    try {
+                        val childNode = Json { ignoreUnknownKeys = true }.decodeFromJsonElement(AutoCommandNode.serializer(), jsonElement)
+                        extractPaths(childNode)
+                    } catch (e: Exception) {}
+                }
+            }
+            extractPaths(root)
+
+            var totalTime = 0.0
+            val combinedStates = mutableListOf<TrajectoryState>()
+            for (pathName in pathNames) {
+                val traj = loadPathTrajectory(pathName, projectPath, league)
+                if (traj != null && traj.states.isNotEmpty()) {
+                    for (state in traj.states) {
+                        combinedStates.add(state.copy(timeSeconds = state.timeSeconds + totalTime))
+                    }
+                    totalTime += traj.durationSeconds
+                }
+            }
+            
+            val autoTrajectory = if (combinedStates.isNotEmpty()) Trajectory(totalTime, combinedStates) else null
+            _state.update { it.copy(trajectory = autoTrajectory, estimatedDuration = totalTime) }
+        }
     }
 
     fun onIntent(intent: PathPlannerIntent) {
@@ -191,17 +287,25 @@ class PathPlannerViewModel(
                         withContext(Dispatchers.IO) {
                             try {
                                 val relativeDir = if (league == League.FTC) {
-                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
-                                    else "src/main/assets/pathplanner/paths"
+                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner"
+                                    else "src/main/assets/pathplanner"
                                 } else {
-                                    "src/main/deploy/pathplanner/paths"
+                                    "src/main/deploy/pathplanner"
                                 }
-                                val targetDir = File(projectPath, relativeDir)
-                                if (targetDir.exists() && targetDir.isDirectory) {
-                                    val files = targetDir.listFiles { _, name -> name.endsWith(".path") }
-                                    val paths = files?.map { it.nameWithoutExtension }?.sorted() ?: emptyList()
-                                    _state.update { it.copy(availablePaths = paths) }
-                                }
+                                val pathDir = File(projectPath, "$relativeDir/paths")
+                                val autoDir = File(projectPath, "$relativeDir/autos")
+                                
+                                val paths = if (pathDir.exists() && pathDir.isDirectory) {
+                                    pathDir.listFiles { _, name -> name.endsWith(".path") }
+                                        ?.map { it.nameWithoutExtension }?.sorted() ?: emptyList()
+                                } else emptyList()
+                                
+                                val autos = if (autoDir.exists() && autoDir.isDirectory) {
+                                    autoDir.listFiles { _, name -> name.endsWith(".auto") }
+                                        ?.map { it.nameWithoutExtension }?.sorted() ?: emptyList()
+                                } else emptyList()
+                                
+                                _state.update { it.copy(availablePaths = paths, availableAutos = autos) }
                             } catch (e: Exception) {
                                 // Ignore failure to fetch paths
                             }
@@ -502,7 +606,146 @@ class PathPlannerViewModel(
                 }
                 is PathPlannerIntent.StopPlayback -> {
                     _state.update { it.copy(isPlaying = false, playbackTime = 0.0) }
-                    playbackJob?.cancel()
+                }
+                
+                // Auto Editor
+                is PathPlannerIntent.UpdateEditorMode -> {
+                    _state.update { it.copy(activeEditorMode = intent.mode) }
+                }
+                is PathPlannerIntent.CreateNewAuto -> {
+                    _state.update {
+                        it.copy(
+                            pathName = intent.name,
+                            autoStartingPose = null,
+                            currentAutoCommands = listOf(AutoCommandNode("sequential")),
+                            saveStatus = "New auto initialized"
+                        )
+                    }
+                }
+                is PathPlannerIntent.LoadAuto -> {
+                    val projectPath = intent.projectPath
+                    val league = intent.league
+                    val autoName = _state.value.pathName
+                    if (!projectPath.isNullOrEmpty()) {
+                        withContext(Dispatchers.IO) {
+                            try {
+                                val relativeDir = if (league == League.FTC) {
+                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/autos"
+                                    else "src/main/assets/pathplanner/autos"
+                                } else {
+                                    "src/main/deploy/pathplanner/autos"
+                                }
+                                val file = File(projectPath, "$relativeDir/$autoName.auto")
+                                if (file.exists()) {
+                                    val jsonString = file.readText()
+                                    val format = Json { ignoreUnknownKeys = true }
+                                    val autoFile = format.decodeFromString<AutoFile>(jsonString)
+                                    _state.update {
+                                        it.copy(
+                                            autoStartingPose = autoFile.startingPose,
+                                            currentAutoCommands = listOf(autoFile.command),
+                                            saveStatus = "Loaded $autoName.auto successfully!"
+                                        )
+                                    }
+                                    _state.update { it.copy(saveStatus = "New auto (file not found on disk)") }
+                                    recalculateAutoTrajectory(projectPath, league)
+                                }
+                            } catch (e: Exception) {
+                                _state.update { it.copy(saveStatus = "Load auto failed: ${e.message}") }
+                            }
+                        }
+                        recalculateAutoTrajectory(projectPath, league)
+                    }
+                }
+                is PathPlannerIntent.SaveAuto -> {
+                    val projectPath = intent.projectPath
+                    val league = intent.league
+                    val s = _state.value
+                    if (!projectPath.isNullOrEmpty()) {
+                        withContext(Dispatchers.IO) {
+                            try {
+                                val autoFile = AutoFile(
+                                    startingPose = s.autoStartingPose,
+                                    command = s.currentAutoCommands.firstOrNull() ?: AutoCommandNode("sequential")
+                                )
+                                val format = Json { prettyPrint = true }
+                                val jsonString = format.encodeToString(autoFile)
+                                
+                                val relativeDir = if (league == League.FTC) {
+                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/autos"
+                                    else "src/main/assets/pathplanner/autos"
+                                } else {
+                                    "src/main/deploy/pathplanner/autos"
+                                }
+                                val targetDir = File(projectPath, relativeDir)
+                                if (!targetDir.exists()) targetDir.mkdirs()
+                                
+                                val file = File(targetDir, "${s.pathName}.auto")
+                                file.writeText(jsonString)
+                                _state.update { it.copy(saveStatus = "Saved ${s.pathName}.auto at ${System.currentTimeMillis()}") }
+                            } catch (e: Exception) {
+                                _state.update { it.copy(saveStatus = "Save failed: ${e.message}") }
+                            }
+                        }
+                    }
+                }
+                is PathPlannerIntent.UpdateAutoStartingPose -> {
+                    _state.update { it.copy(autoStartingPose = intent.pose) }
+                }
+                is PathPlannerIntent.AddAutoCommand -> {
+                    val root = _state.value.currentAutoCommands.firstOrNull() ?: AutoCommandNode("sequential")
+                    // Simple append to the sequential root for now
+                    val newCommands = root.data["commands"]?.let {
+                        val array = it as kotlinx.serialization.json.JsonArray
+                        kotlinx.serialization.json.JsonArray(array.toMutableList().apply { 
+                            val dataFormat = Json { ignoreUnknownKeys = true }
+                            add(dataFormat.encodeToJsonElement(AutoCommandNode.serializer(), intent.node)) 
+                        })
+                    } ?: kotlinx.serialization.json.JsonArray(listOf(
+                        Json { ignoreUnknownKeys = true }.encodeToJsonElement(AutoCommandNode.serializer(), intent.node)
+                    ))
+                    
+                    val newRoot = root.copy(
+                        data = kotlinx.serialization.json.JsonObject(
+                            root.data.toMutableMap().apply { put("commands", newCommands) }
+                        )
+                    )
+                    _state.update { it.copy(currentAutoCommands = listOf(newRoot)) }
+                    recalculateAutoTrajectory(intent.projectPath, intent.league)
+                }
+                is PathPlannerIntent.RemoveAutoCommand -> {
+                    val root = _state.value.currentAutoCommands.firstOrNull() ?: return@launch
+                    val commandsArray = root.data["commands"] as? kotlinx.serialization.json.JsonArray
+                    if (commandsArray != null && intent.index in 0 until commandsArray.size) {
+                        val newCommands = kotlinx.serialization.json.JsonArray(
+                            commandsArray.toMutableList().apply { removeAt(intent.index) }
+                        )
+                        val newRoot = root.copy(
+                            data = kotlinx.serialization.json.JsonObject(
+                                root.data.toMutableMap().apply { put("commands", newCommands) }
+                            )
+                        )
+                        _state.update { it.copy(currentAutoCommands = listOf(newRoot)) }
+                        recalculateAutoTrajectory(intent.projectPath, intent.league)
+                    }
+                }
+                is PathPlannerIntent.UpdateAutoCommand -> {
+                    val root = _state.value.currentAutoCommands.firstOrNull() ?: return@launch
+                    val commandsArray = root.data["commands"] as? kotlinx.serialization.json.JsonArray
+                    if (commandsArray != null && intent.index in 0 until commandsArray.size) {
+                        val newCommands = kotlinx.serialization.json.JsonArray(
+                            commandsArray.toMutableList().apply { 
+                                set(intent.index, Json { ignoreUnknownKeys = true }.encodeToJsonElement(AutoCommandNode.serializer(), intent.node))
+                            }
+                        )
+                        val newRoot = root.copy(
+                            data = kotlinx.serialization.json.JsonObject(
+                                root.data.toMutableMap().apply { put("commands", newCommands) }
+                            )
+                        )
+                        _state.update { it.copy(currentAutoCommands = listOf(newRoot)) }
+                        recalculateAutoTrajectory(intent.projectPath, intent.league)
+                    }
                 }
             }
         }

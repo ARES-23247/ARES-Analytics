@@ -22,8 +22,12 @@ fun PathPlannerScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
-    LaunchedEffect(state.pathName, projectPath) {
-        viewModel.onIntent(PathPlannerIntent.LoadPath(projectPath, league))
+    LaunchedEffect(state.pathName, projectPath, state.activeEditorMode) {
+        if (state.activeEditorMode == "Path") {
+            viewModel.onIntent(PathPlannerIntent.LoadPath(projectPath, league))
+        } else {
+            viewModel.onIntent(PathPlannerIntent.LoadAuto(projectPath, league))
+        }
     }
 
     LaunchedEffect(projectPath, state.saveStatus) {
@@ -41,49 +45,80 @@ fun PathPlannerScreen(
         }
     }
 
-    Row(
-        modifier = Modifier.fillMaxSize(),
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        WaypointEditorPanel(
-            state = state,
-            projectPath = projectPath,
-            league = league,
-            onIntent = { viewModel.onIntent(it) }
-        )
-
-        Box(
-            modifier = Modifier.weight(1f).fillMaxHeight().border(1.dp, AresBorder, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp))
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.Center
         ) {
-            FieldCanvas(
-                league = league,
-                waypoints = state.waypoints,
-                actualPath = emptyList(),
-                onWaypointsChanged = {
-                    viewModel.onIntent(PathPlannerIntent.UpdateWaypoints(it))
-                },
-                projectPath = projectPath,
-                showPathControls = false,
-                showObstacleControls = false,
-                playbackPose = playbackPose,
-                aprilTags = null,
-                onAprilTagsChanged = null,
-                eventMarkers = state.eventMarkers,
-                onEventMarkersChanged = {
-                    viewModel.onIntent(PathPlannerIntent.UpdateEventMarkers(it))
-                },
-                initialViewRotation = state.viewRotation,
-                onViewRotationChanged = { newRot ->
-                    viewModel.onIntent(PathPlannerIntent.UpdateViewRotation(newRot))
-                },
-                rotationTargets = state.rotationTargets,
-                onRotationTargetsChanged = {
-                    viewModel.onIntent(PathPlannerIntent.UpdateRotationTargets(it))
-                },
-                constraintZones = state.constraintZones,
-                pointTowardsZones = state.pointTowardsZones,
-                globalConstraints = state.globalConstraints
-            )
+            val modes = listOf("Path", "Auto")
+            modes.forEach { mode ->
+                val selected = state.activeEditorMode == mode
+                Button(
+                    onClick = { viewModel.onIntent(PathPlannerIntent.UpdateEditorMode(mode)) },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (selected) AresCyan else AresSurfaceElevated,
+                        contentColor = if (selected) AresBackground else AresTextPrimary
+                    ),
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                ) {
+                    Text(mode)
+                }
+            }
+        }
+
+        Row(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            if (state.activeEditorMode == "Path") {
+                WaypointEditorPanel(
+                    state = state,
+                    projectPath = projectPath,
+                    league = league,
+                    onIntent = { viewModel.onIntent(it) }
+                )
+            } else {
+                AutoEditorPanel(
+                    state = state,
+                    projectPath = projectPath,
+                    league = league,
+                    onIntent = { viewModel.onIntent(it) }
+                )
+            }
+
+            Box(
+                modifier = Modifier.weight(1f).fillMaxHeight().border(1.dp, AresBorder, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp))
+            ) {
+                FieldCanvas(
+                    league = league,
+                    waypoints = if (state.activeEditorMode == "Path") state.waypoints else emptyList(),
+                    actualPath = if (state.activeEditorMode == "Auto") state.trajectory?.states?.map { Waypoint(it.x, it.y, it.headingRad) } ?: emptyList() else emptyList(),
+                    onWaypointsChanged = {
+                        viewModel.onIntent(PathPlannerIntent.UpdateWaypoints(it))
+                    },
+                    projectPath = projectPath,
+                    showPathControls = false,
+                    showObstacleControls = false,
+                    playbackPose = playbackPose,
+                    aprilTags = null,
+                    onAprilTagsChanged = null,
+                    eventMarkers = state.eventMarkers,
+                    onEventMarkersChanged = {
+                        viewModel.onIntent(PathPlannerIntent.UpdateEventMarkers(it))
+                    },
+                    initialViewRotation = state.viewRotation,
+                    onViewRotationChanged = { newRot ->
+                        viewModel.onIntent(PathPlannerIntent.UpdateViewRotation(newRot))
+                    },
+                    rotationTargets = state.rotationTargets,
+                    onRotationTargetsChanged = {
+                        viewModel.onIntent(PathPlannerIntent.UpdateRotationTargets(it))
+                    },
+                    constraintZones = state.constraintZones,
+                    pointTowardsZones = state.pointTowardsZones,
+                    globalConstraints = state.globalConstraints
+                )
+            }
         }
     }
 }

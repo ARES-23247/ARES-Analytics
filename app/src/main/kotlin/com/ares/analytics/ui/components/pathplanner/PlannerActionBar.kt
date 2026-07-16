@@ -13,6 +13,7 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlannerActionBar(
+    mode: String = "Path",
     pathName: String,
     availablePaths: List<String>,
     saveStatus: String,
@@ -28,7 +29,7 @@ fun PlannerActionBar(
     onStopPlayback: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Path Name", fontSize = 11.sp, color = AresTextSecondary, fontWeight = FontWeight.Bold)
+        Text("$mode Name", fontSize = 11.sp, color = AresTextSecondary, fontWeight = FontWeight.Bold)
         var expanded by remember { mutableStateOf(false) }
         ExposedDropdownMenuBox(
             expanded = expanded,
@@ -68,14 +69,14 @@ fun PlannerActionBar(
                 border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
                 modifier = Modifier.weight(1f)
             ) {
-                Text("New Path", fontWeight = FontWeight.Bold)
+                Text("New $mode", fontWeight = FontWeight.Bold)
             }
             Button(
                 onClick = onSavePath,
                 colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
                 modifier = Modifier.weight(1f)
             ) {
-                Text("Save Path", color = AresBackground, fontWeight = FontWeight.Bold)
+                Text("Save $mode", color = AresBackground, fontWeight = FontWeight.Bold)
             }
         }
         if (saveStatus.isNotEmpty()) {

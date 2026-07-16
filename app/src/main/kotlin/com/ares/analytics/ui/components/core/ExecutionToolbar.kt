@@ -30,11 +30,13 @@ enum class TargetSelection(val label: String) {
 @Composable
 fun ExecutionToolbar(
     targetSelection: TargetSelection,
+    targetIp: String,
     isLiveRobotOnline: Boolean,
     isLocalSimOnline: Boolean,
     isBuildRunning: Boolean,
     isSimRunning: Boolean,
     onTargetChanged: (TargetSelection) -> Unit,
+    onTargetIpChanged: (String) -> Unit,
     onRunBuild: () -> Unit,
     onRunSim: () -> Unit,
     onStopAll: () -> Unit,
@@ -184,13 +186,9 @@ fun ExecutionToolbar(
         Spacer(modifier = Modifier.width(4.dp))
 
         // Target IP input and CLI Driver Launch
-        var targetIp by remember(targetSelection) { 
-            mutableStateOf(if (targetSelection == TargetSelection.LIVE_ROBOT) "192.168.43.1" else "127.0.0.1") 
-        }
-
         BasicTextField(
             value = targetIp,
-            onValueChange = { targetIp = it },
+            onValueChange = onTargetIpChanged,
             singleLine = true,
             textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary, fontSize = 12.sp),
             cursorBrush = SolidColor(AresCyan),

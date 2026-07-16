@@ -122,9 +122,10 @@ fun SwerveVisualizer(
                     val maxArrowLen = 60f
                     val arrowLen = (velocity * 12f).toFloat().coerceIn(-maxArrowLen, maxArrowLen)
                     
-                    // Steer vector line
-                    val endX = center.x + arrowLen * cos(-angleRad).toFloat()
-                    val endY = center.y + arrowLen * sin(-angleRad).toFloat()
+                    // Steer vector line (adjusted by -90 degrees to align with CCW field coordinates)
+                    val steerAngle = -angleRad - Math.PI / 2.0
+                    val endX = center.x + arrowLen * cos(steerAngle).toFloat()
+                    val endY = center.y + arrowLen * sin(steerAngle).toFloat()
 
                     drawLine(
                         color = AresCyan,
@@ -137,11 +138,10 @@ fun SwerveVisualizer(
                     // Draw small arrowhead
                     if (Math.abs(arrowLen) > 5f) {
                         val headSize = 10f
-                        val arrowAngle = -angleRad
-                        val leftWingX = endX - headSize * cos(arrowAngle - Math.PI / 6).toFloat()
-                        val leftWingY = endY - headSize * sin(arrowAngle - Math.PI / 6).toFloat()
-                        val rightWingX = endX - headSize * cos(arrowAngle + Math.PI / 6).toFloat()
-                        val rightWingY = endY - headSize * sin(arrowAngle + Math.PI / 6).toFloat()
+                        val leftWingX = endX - headSize * cos(steerAngle - Math.PI / 6.0).toFloat()
+                        val leftWingY = endY - headSize * sin(steerAngle - Math.PI / 6.0).toFloat()
+                        val rightWingX = endX - headSize * cos(steerAngle + Math.PI / 6.0).toFloat()
+                        val rightWingY = endY - headSize * sin(steerAngle + Math.PI / 6.0).toFloat()
 
                         drawLine(color = AresCyan, start = Offset(endX, endY), end = Offset(leftWingX, leftWingY), strokeWidth = 3f)
                         drawLine(color = AresCyan, start = Offset(endX, endY), end = Offset(rightWingX, rightWingY), strokeWidth = 3f)
