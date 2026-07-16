@@ -229,13 +229,10 @@ class SysIdViewModel(
                     val deltaXOffsetMm = dxMeters * 1000.0
                     val deltaYOffsetMm = dyMeters * 1000.0
                     
-                    val currentX = nt4ClientService.latestValues["Tuning/pinpointXOffsetMm"]?.value ?: 0.0
-                    val currentY = nt4ClientService.latestValues["Tuning/pinpointYOffsetMm"]?.value ?: 0.0
-                    
                     _state.update {
                         it.copy(
-                            recommendedPinpointXOffsetMm = currentX + deltaXOffsetMm,
-                            recommendedPinpointYOffsetMm = currentY + deltaYOffsetMm,
+                            recommendedPinpointXOffsetMm = deltaXOffsetMm,
+                            recommendedPinpointYOffsetMm = deltaYOffsetMm,
                             errorMessage = null
                         )
                     }
