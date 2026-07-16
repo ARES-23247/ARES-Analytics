@@ -111,6 +111,8 @@ fun TelemetryChartPanel(
     // In-memory data store for live plotting: key -> ArrayDeque of points (circular buffer)
     val telemetryData = remember { ConcurrentHashMap<String, ArrayDeque<TelemetryPoint>>() }
     var lastUpdateTick by remember { mutableStateOf(0L) }
+    var serverTimeOffset by remember { mutableStateOf(0L) }
+    var hasReceivedData by remember { mutableStateOf(false) }
     var liveTime by remember { mutableStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(selectedKeys.toList(), selectedWindowSec) {
@@ -137,7 +139,7 @@ fun TelemetryChartPanel(
     // Live clock ticker to keep the chart scrolling smoothly even when stationary
     LaunchedEffect(Unit) {
         while (true) {
-            liveTime = System.currentTimeMillis()
+            liveTime = System.currentTimeMillis() + serverTimeOffset
             kotlinx.coroutines.delay(100)
         }
     }
@@ -166,7 +168,15 @@ fun TelemetryChartPanel(
             if (selectedKeys.contains(frame.key)) {
                 val queue = telemetryData.getOrPut(frame.key) { ArrayDeque() }
                 val now = frame.timestampMs
-                val cutoff = now - (selectedWindowSec * 1000)
+                
+                val offset = now - System.currentTimeMillis()
+                if (!hasReceivedData || kotlin.math.abs(serverTimeOffset - offset) > 100) {
+                    serverTimeOffset = offset
+                    hasReceivedData = true
+                }
+
+                val maxWindowSec = timeWindows.maxOrNull() ?: 120
+                val cutoff = now - (maxWindowSec * 1000)
                 
                 queue.add(TelemetryPoint(frame.timestampMs, frame.value))
                 while (queue.size > 1 && queue[1].timestampMs < cutoff) {
@@ -569,16 +579,23 @@ fun TelemetryChartPanel(
 
                             var isFirst = true
 
-                            // 1. Prepend virtual point at minX if the first point is older than minX
-                            val firstPt = points.first()
-                            if (firstPt.timestampMs < minX) {
-                                val py = getPy(firstPt.value)
+                            // Find the first point that is visible (>= minX)
+                            var visibleStartIndex = points.indexOfFirst { it.timestampMs >= minX }
+                            if (visibleStartIndex == -1) visibleStartIndex = points.size
+
+                            // Include one point before minX to connect the line correctly off-screen
+                            val startIndex = kotlin.math.max(0, visibleStartIndex - 1)
+
+                            // 1. Prepend virtual point at minX if the point before minX exists
+                            if (startIndex < visibleStartIndex && points[startIndex].timestampMs < minX) {
+                                val py = getPy(points[startIndex].value)
                                 path.moveTo(0f, py)
                                 isFirst = false
                             }
 
-                            // 2. Draw all points inside or after minX
-                            points.forEach { pt ->
+                            // 2. Draw points starting from startIndex
+                            for (i in startIndex until points.size) {
+                                val pt = points[i]
                                 val xPct = (pt.timestampMs - minX).toFloat() / (maxX - minX)
                                 val px = xPct * width
                                 val py = getPy(pt.value)

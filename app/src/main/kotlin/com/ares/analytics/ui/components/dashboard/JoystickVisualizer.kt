@@ -52,7 +52,7 @@ fun JoystickVisualizer(
             // Publish static configurations once
             nt4ClientService.publishInputBoolean(1007, true) // isTeleopMode
             nt4ClientService.publishInputBoolean(1008, false) // isFieldCentric
-            nt4ClientService.publishInputBoolean(1009, false) // isRedAlliance
+            nt4ClientService.publishInputBoolean(1009, true) // isRedAlliance
 
             while (true) {
                 val g1 = gamepad1StateFlow?.value
