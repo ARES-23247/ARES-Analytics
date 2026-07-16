@@ -56,12 +56,18 @@ fun PoseViewerCard(
                 val value = frame.value
                 lastUpdateMs = System.currentTimeMillis()
                 when (key) {
-                    "ARES/EstimatedPose/0" -> trueX = value
-                    "ARES/EstimatedPose/1" -> trueY = value
-                    "ARES/EstimatedPose/2" -> trueHeading = value
-                    "Drive/Pose_X" -> ekfX = value
-                    "Drive/Pose_Y" -> ekfY = value
-                    "Drive/Pose_Heading", "Drive/Drive_Heading" -> ekfHeading = value
+                    "ARES/EstimatedPose/0", "Drive/Pose_X" -> {
+                        trueX = value
+                        if (key == "Drive/Pose_X") ekfX = value
+                    }
+                    "ARES/EstimatedPose/1", "Drive/Pose_Y" -> {
+                        trueY = value
+                        if (key == "Drive/Pose_Y") ekfY = value
+                    }
+                    "ARES/EstimatedPose/2", "Drive/Pose_Heading", "Drive/Drive_Heading" -> {
+                        trueHeading = value
+                        if (key != "ARES/EstimatedPose/2") ekfHeading = value
+                    }
 
                     "Drive/Odom_X", "pinpoint_x", "pinpoint/x" -> pinpointX = value
                     "Drive/Odom_Y", "pinpoint_y", "pinpoint/y" -> pinpointY = value

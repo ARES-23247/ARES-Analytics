@@ -224,6 +224,15 @@ fun DashboardScreen(
                 },
                 "tuning_card" to { _, mod ->
                     TuningCard(services.nt4ClientService, mod)
+                },
+                "ekf_telemetry" to { _, mod ->
+                    EKFTelemetryCard(services.nt4ClientService, mod)
+                },
+                "path_tuning" to { _, mod ->
+                    PathTuningVisualizer(services.nt4ClientService, mod)
+                },
+                "brownout_protection" to { _, mod ->
+                    BrownoutProtectionCard(services.nt4ClientService, mod)
                 }
             )
 

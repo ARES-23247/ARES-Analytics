@@ -77,12 +77,9 @@ class FieldViewerViewModel(
                 _state.update { currentState ->
                     var newState = currentState
                     when (key) {
-                        "ARES/EstimatedPose/0" -> newState = newState.copy(trueX = value)
-                        "ARES/EstimatedPose/1" -> newState = newState.copy(trueY = value)
-                        "ARES/EstimatedPose/2" -> newState = newState.copy(trueHeading = value)
-                        "Drive/Pose_X" -> newState = newState.copy(ekfX = value)
-                        "Drive/Pose_Y" -> newState = newState.copy(ekfY = value)
-                        "Drive/Pose_Heading", "Drive/Drive_Heading" -> newState = newState.copy(ekfHeading = value)
+                        "ARES/EstimatedPose/0", "Drive/Pose_X" -> newState = newState.copy(trueX = value, ekfX = if (key == "Drive/Pose_X") value else newState.ekfX)
+                        "ARES/EstimatedPose/1", "Drive/Pose_Y" -> newState = newState.copy(trueY = value, ekfY = if (key == "Drive/Pose_Y") value else newState.ekfY)
+                        "ARES/EstimatedPose/2", "Drive/Pose_Heading", "Drive/Drive_Heading" -> newState = newState.copy(trueHeading = value, ekfHeading = if (key != "ARES/EstimatedPose/2") value else newState.ekfHeading)
                         "Drive/Odom_X", "pinpoint_x", "pinpoint/x" -> newState = newState.copy(odomX = value)
                         "Drive/Odom_Y", "pinpoint_y", "pinpoint/y" -> newState = newState.copy(odomY = value)
                         "Drive/Odom_Heading", "pinpoint_heading", "pinpoint/heading" -> newState = newState.copy(odomHeading = value)

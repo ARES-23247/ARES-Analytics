@@ -53,8 +53,10 @@ val availableWidgetsList = listOf(
     AvailableWidget("system_health", "System Health Monitor", "Control loop frequency, CPU usage, and memory profiling.", Icons.Default.Memory),
     AvailableWidget("imu_visualizer", "IMU Visualizer", "Robot orientation via roll, pitch, and yaw 3D attitude indicators.", Icons.Default.CompassCalibration),
     AvailableWidget("power_distribution", "Power Distribution", "Instantaneous current draw per PDP/PDH channel.", Icons.Default.ElectricBolt),
-    AvailableWidget("session_summary", "Session Aggregate Stats", "Displays calculated aggregate data for a run like average motor currents.", Icons.Default.Assessment),
-    AvailableWidget("tuning_card", "Live Tuning Card", "Live variable tuning over NT4.", Icons.Default.Tune)
+    AvailableWidget("tuning_card", "Live Tuning Card", "Live variable tuning over NT4.", Icons.Default.Tune),
+    AvailableWidget("ekf_telemetry", "EKF Diagnostics", "Real-time line charts of EKF position drift and covariance.", Icons.Default.ShowChart),
+    AvailableWidget("path_tuning", "Path Tuning Visualizer", "Line chart tracking cross-track and along-track path follower errors.", Icons.Default.Timeline),
+    AvailableWidget("brownout_protection", "Brownout Protection", "Real-time battery sag scaling, state of charge, and brownout warnings.", Icons.Default.BatteryAlert)
 )
 
 @Composable
