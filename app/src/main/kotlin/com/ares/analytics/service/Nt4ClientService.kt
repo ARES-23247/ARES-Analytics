@@ -655,6 +655,17 @@ open class Nt4ClientService(
             }
             id
         }
+        
+        val cleanKey = key.removePrefix("/")
+        val frame = TelemetryFrame(
+            timestampMs = System.currentTimeMillis(),
+            sessionId = _currentSession.value?.sessionId ?: "live-telemetry",
+            key = cleanKey,
+            value = value
+        )
+        latestValues[cleanKey] = frame
+        _telemetryFlow.emit(frame)
+        
         publishInputDouble(pubuid, value)
     }
 
