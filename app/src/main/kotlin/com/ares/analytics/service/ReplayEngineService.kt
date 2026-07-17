@@ -31,6 +31,8 @@ data class ReplayFrame(
 
 class ReplayEngineService(private val databaseService: DatabaseService) {
 
+    private val jsonParser = Json { ignoreUnknownKeys = true }
+
     private val _state = MutableStateFlow(ReplayState.STOPPED)
     val state: StateFlow<ReplayState> = _state.asStateFlow()
 
@@ -232,7 +234,7 @@ class ReplayEngineService(private val databaseService: DatabaseService) {
         }
 
         // Incrementally aggregate actions
-        val jsonParser = Json { ignoreUnknownKeys = true }
+
         val actionsList = _sessionActions.value
         while (lastActionIndex < actionsList.size) {
             val action = actionsList[lastActionIndex]

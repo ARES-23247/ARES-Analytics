@@ -127,18 +127,20 @@ fun TelemetryChartPanel(
         // Initialize newly added keys with their historical values
         keysList.forEach { key ->
             val queue = telemetryData.getOrPut(key) { ArrayDeque() }
-            if (queue.isEmpty()) {
-                val history = nt4ClientService.telemetryHistory[key]
-                if (history != null) {
-                    synchronized(history) {
-                        history.forEach { frame ->
-                            queue.add(TelemetryPoint(frame.timestampMs, frame.value))
+            synchronized(queue) {
+                if (queue.isEmpty()) {
+                    val history = nt4ClientService.telemetryHistory[key]
+                    if (history != null) {
+                        synchronized(history) {
+                            history.forEach { frame ->
+                                queue.add(TelemetryPoint(frame.timestampMs, frame.value))
+                            }
                         }
-                    }
-                } else {
-                    val latest = nt4ClientService.latestValues[key]
-                    if (latest != null) {
-                        queue.add(TelemetryPoint(latest.timestampMs, latest.value))
+                    } else {
+                        val latest = nt4ClientService.latestValues[key]
+                        if (latest != null) {
+                            queue.add(TelemetryPoint(latest.timestampMs, latest.value))
+                        }
                     }
                 }
             }
@@ -187,9 +189,11 @@ fun TelemetryChartPanel(
                 val maxWindowSec = timeWindows.maxOrNull() ?: 120
                 val cutoff = now - (maxWindowSec * 1000)
                 
-                queue.add(TelemetryPoint(frame.timestampMs, frame.value))
-                while (queue.size > 1 && queue[1].timestampMs < cutoff) {
-                    queue.removeFirst()
+                synchronized(queue) {
+                    queue.add(TelemetryPoint(frame.timestampMs, frame.value))
+                    while (queue.size > 1 && queue[1].timestampMs < cutoff) {
+                        queue.removeFirst()
+                    }
                 }
                 lastUpdateTick = frame.timestampMs
             }
@@ -525,7 +529,8 @@ fun TelemetryChartPanel(
                     var hasData = false
  
                     selectedKeys.forEach { key ->
-                        val points = telemetryData[key] ?: emptyList()
+                        val deque = telemetryData[key]
+                        val points = if (deque != null) synchronized(deque) { deque.toList() } else emptyList()
                         val detectedUnit = UnitConversion.detectUnitFromKey(key)
                         val targetUnit = targetUnits[key] ?: detectedUnit
                         if (points.isNotEmpty()) {
@@ -565,7 +570,8 @@ fun TelemetryChartPanel(
  
                     // 4. Plot each active channel
                     selectedKeys.forEachIndexed { channelIdx, key ->
-                        val points = telemetryData[key] ?: emptyList()
+                        val deque = telemetryData[key]
+                        val points = if (deque != null) synchronized(deque) { deque.toList() } else emptyList()
                         val detectedUnit = UnitConversion.detectUnitFromKey(key)
                         val targetUnit = targetUnits[key] ?: detectedUnit
                         if (points.isNotEmpty()) {

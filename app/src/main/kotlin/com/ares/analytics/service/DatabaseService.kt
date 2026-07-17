@@ -198,6 +198,46 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
             }
         }
     }
+    
+    /**
+     * Execute a parameterized SQL query and return results as [QueryResult].
+     * Use this for queries with user-provided values to prevent SQL injection.
+     */
+    suspend fun executeQueryWithParams(sql: String, params: List<Any>): QueryResult = withDbLock {
+        conn.prepareStatement(sql).use { ps ->
+            params.forEachIndexed { index, param ->
+                when (param) {
+                    is String -> ps.setString(index + 1, param)
+                    is Long -> ps.setLong(index + 1, param)
+                    is Int -> ps.setInt(index + 1, param)
+                    is Double -> ps.setDouble(index + 1, param)
+                    else -> ps.setObject(index + 1, param)
+                }
+            }
+            val hasResultSet = ps.execute()
+            if (hasResultSet) {
+                ps.resultSet.use { rs ->
+                    val meta = rs.metaData
+                    val colCount = meta.columnCount
+                    val columns = (1..colCount).map { meta.getColumnName(it) }
+                    val rows = mutableListOf<List<String>>()
+                    while (rs.next()) {
+                        val row = (1..colCount).map {
+                            rs.getObject(it)?.toString() ?: "NULL"
+                        }
+                        rows.add(row)
+                    }
+                    QueryResult(columns, rows)
+                }
+            } else {
+                val updateCount = ps.updateCount
+                QueryResult(
+                    columns = listOf("Status"),
+                    rows = listOf(listOf("Command completed successfully. Affected rows: $updateCount"))
+                )
+            }
+        }
+    }
 
     suspend fun insertSession(session: Session) = withDbLock {
         conn.prepareStatement(

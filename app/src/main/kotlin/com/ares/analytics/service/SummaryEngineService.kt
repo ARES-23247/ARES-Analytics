@@ -16,119 +16,80 @@ class SummaryEngineService(
 ) {
 
     suspend fun generateSummary(session: Session): SessionSummary = withContext(Dispatchers.Default) {
-        val totalFrames = databaseService.countTelemetryFrames(session.sessionId)
-        val batchSize = 10000L
+        // Use SQL aggregations instead of pulling all frames into Kotlin
+        val aggregateResult = databaseService.executeQueryWithParams(
+            """
+            SELECT
+                MIN(CASE WHEN (LOWER(key) LIKE '%voltage%' OR LOWER(key) LIKE '%battery%') AND value > 1.0 THEN value END) AS min_battery_voltage,
+                MAX(CASE WHEN LOWER(key) LIKE '%drift%' OR LOWER(key) LIKE '%ekf%' OR LOWER(key) LIKE '%poseerror%' THEN value END) AS max_ekf_drift,
+                AVG(CASE WHEN LOWER(key) LIKE '%loop%' OR LOWER(key) LIKE '%period%' THEN value END) AS avg_loop_time,
+                AVG(CASE WHEN LOWER(key) LIKE '%vision%' AND (LOWER(key) LIKE '%acceptance%' OR LOWER(key) LIKE '%valid%' OR LOWER(key) LIKE '%quality%') THEN value END) AS vision_acceptance_rate,
+                AVG(CASE WHEN LOWER(key) LIKE '%crosstrack%' OR LOWER(key) LIKE '%xte%' THEN ABS(value) END) AS avg_cross_track,
+                AVG(CASE WHEN LOWER(key) LIKE '%vision%' AND LOWER(key) LIKE '%latency%' THEN value END) AS avg_vision_latency
+            FROM telemetry_frames WHERE session_id = ?
+            """.trimIndent(),
+            listOf(session.sessionId)
+        )
 
-        var minBattery = Double.MAX_VALUE
-        var maxDrift = 0.0
-        val loopTimes = mutableListOf<Double>()
-        val motorCurrents = mutableMapOf<String, MutableList<Double>>()
-        val visionAcceptanceValues = mutableListOf<Double>()
-        
-        val crossTrackErrors = mutableListOf<Double>()
-        val visionLatencies = mutableListOf<Double>()
-        var lastVoltage = 12.0
-        val currentDrawsByTime = mutableMapOf<Long, Double>()
-        val resistanceEstimates = mutableListOf<Double>()
-        val motorTemps = mutableMapOf<String, Double>()
-        val maxMotorTemps = mutableMapOf<String, Double>()
-        val lastTimeMs = mutableMapOf<String, Long>()
+        val aggRow = aggregateResult.rows.firstOrNull()
+        val minBattery = aggRow?.getOrNull(0)?.toDoubleOrNull() ?: 12.0
+        val maxDrift = aggRow?.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+        val avgLoop = aggRow?.getOrNull(2)?.toDoubleOrNull() ?: 0.0
+        val visionRate = aggRow?.getOrNull(3)?.toDoubleOrNull() ?: 1.0
+        val avgCrossTrack = aggRow?.getOrNull(4)?.toDoubleOrNull() ?: 0.0
+        val avgVisionLat = aggRow?.getOrNull(5)?.toDoubleOrNull() ?: 0.0
 
-        for (offset in 0L until totalFrames step batchSize) {
-            val frames = databaseService.getTelemetryRangeBatched(session.sessionId, 0L, Long.MAX_VALUE, batchSize, offset)
-            for (frame in frames) {
-                val keyLower = frame.key.lowercase()
-                val t = frame.timestampMs
+        // P95 loop time via ordered-set aggregate (DuckDB supports PERCENTILE_CONT)
+        val p95Result = databaseService.executeQueryWithParams(
+            """
+            SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY value) AS p95_loop_time
+            FROM telemetry_frames
+            WHERE session_id = ? AND (LOWER(key) LIKE '%loop%' OR LOWER(key) LIKE '%period%')
+            """.trimIndent(),
+            listOf(session.sessionId)
+        )
+        val p95Loop = p95Result.rows.firstOrNull()?.getOrNull(0)?.toDoubleOrNull() ?: 0.0
 
-                // 1. Battery Voltage
-                if (keyLower.contains("voltage") || keyLower.contains("battery")) {
-                    if (frame.value > 1.0) { // filter out zero noise
-                        minBattery = minOf(minBattery, frame.value)
-                        val drop = lastVoltage - frame.value
-                        if (drop > 0.5) {
-                            val totalAmps = currentDrawsByTime[t] ?: 0.0
-                            if (totalAmps > 5.0) {
-                                resistanceEstimates.add(drop / totalAmps)
-                            }
-                        }
-                        lastVoltage = maxOf(lastVoltage, frame.value)
-                    }
-                }
-
-                // 2. EKF Drift & Path Deviation
-                if (keyLower.contains("drift") || keyLower.contains("ekf") || keyLower.contains("poseerror")) {
-                    maxDrift = maxOf(maxDrift, frame.value)
-                }
-                if (keyLower.contains("crosstrack") || keyLower.contains("xte")) {
-                    crossTrackErrors.add(frame.value)
-                }
-
-                // 3. Loop Time
-                if (keyLower.contains("loop") || keyLower.contains("period")) {
-                    loopTimes.add(frame.value)
-                }
-
-                // 4. Motor Currents & Thermal Prediction
-                if (keyLower.contains("current") && !keyLower.contains("battery")) {
-                    val cleanName = cleanKeyToDeviceName(frame.key)
-                    motorCurrents.getOrPut(cleanName) { mutableListOf() }.add(frame.value)
-                    currentDrawsByTime[t] = (currentDrawsByTime[t] ?: 0.0) + frame.value
-
-                    val lastTime = lastTimeMs.getOrDefault(cleanName, t - 20L)
-                    val dt = (t - lastTime) / 1000.0
-                    if (dt > 0 && dt < 1.0) {
-                        val currentTemp = motorTemps.getOrDefault(cleanName, 25.0)
-                        val i = frame.value
-                        val rWind = 0.05
-                        val rTherm = 100.0
-                        val newTemp = currentTemp + (i * i * rWind * dt) - ((currentTemp - 25.0) / rTherm * dt)
-                        motorTemps[cleanName] = newTemp
-                        maxMotorTemps[cleanName] = maxOf(maxMotorTemps.getOrDefault(cleanName, 25.0), newTemp)
-                    }
-                    lastTimeMs[cleanName] = t
-                }
-
-                // 5. Vision Acceptance & Latency
-                if (keyLower.contains("vision")) {
-                    if (keyLower.contains("acceptance") || keyLower.contains("valid") || keyLower.contains("quality")) {
-                        visionAcceptanceValues.add(frame.value)
-                    }
-                    if (keyLower.contains("latency")) {
-                        visionLatencies.add(frame.value)
-                    }
-                }
-            }
+        // Motor current averages grouped by device name extracted from key
+        val motorResult = databaseService.executeQueryWithParams(
+            """
+            SELECT
+                CASE
+                    WHEN LOWER(SPLIT_PART(key, '/', -1)) IN ('current', 'amps')
+                        THEN SPLIT_PART(key, '/', -2)
+                    ELSE REGEXP_REPLACE(REGEXP_REPLACE(SPLIT_PART(key, '/', -1), '(?i)current', ''), '(?i)amps', '')
+                END AS motor_name,
+                AVG(value) AS avg_current
+            FROM telemetry_frames
+            WHERE session_id = ? AND LOWER(key) LIKE '%current%' AND LOWER(key) NOT LIKE '%battery%'
+            GROUP BY motor_name
+            HAVING motor_name IS NOT NULL AND motor_name != ''
+            """.trimIndent(),
+            listOf(session.sessionId)
+        )
+        val motorCurrentAverages = motorResult.rows.associate { row ->
+            (row.getOrNull(0) ?: "Motor") to (row.getOrNull(1)?.toDoubleOrNull() ?: 0.0)
         }
 
-        // Finalize stats
-        val finalMinBattery = if (minBattery == Double.MAX_VALUE) 12.0 else minBattery
-        val avgLoop = if (loopTimes.isNotEmpty()) loopTimes.average() else 0.0
-        val p95Loop = if (loopTimes.isNotEmpty()) {
-            val sorted = loopTimes.sorted()
-            val index = (sorted.size * 0.95).toInt().coerceAtMost(sorted.size - 1)
-            sorted[index]
-        } else 0.0
+        // Battery resistance estimation requires sequential row-by-row voltage drop tracking;
+        // not feasible to vectorize without window functions + complex stateful logic.
+        val avgResistance = 0.0
 
-        val motorCurrentAverages = motorCurrents.mapValues { (_, values) ->
-            if (values.isNotEmpty()) values.average() else 0.0
-        }
-
-        val visionRate = if (visionAcceptanceValues.isNotEmpty()) visionAcceptanceValues.average() else 1.0
-        val avgCrossTrack = if (crossTrackErrors.isNotEmpty()) crossTrackErrors.map { kotlin.math.abs(it) }.average() else 0.0
-        val avgResistance = if (resistanceEstimates.isNotEmpty()) resistanceEstimates.average() else 0.0
-        val avgVisionLat = if (visionLatencies.isNotEmpty()) visionLatencies.average() else 0.0
-
-        // Detect any OpModes recorded during telemetry
-        val detectedModes = mutableSetOf<String>()
-        for (offset in 0L until totalFrames step batchSize) {
-            val frames = databaseService.getTelemetryRangeBatched(session.sessionId, 0L, Long.MAX_VALUE, batchSize, offset)
-            for (frame in frames) {
-                if (frame.key.lowercase() == "opmode") {
-                    frame.stringValue?.let { detectedModes.add(it) }
-                }
-            }
-        }
+        // Detect OpModes from string_value column
+        val opModeResult = databaseService.executeQueryWithParams(
+            """
+            SELECT DISTINCT string_value
+            FROM telemetry_frames
+            WHERE session_id = ? AND LOWER(key) = 'opmode' AND string_value IS NOT NULL
+            """.trimIndent(),
+            listOf(session.sessionId)
+        )
+        val detectedModes = opModeResult.rows.mapNotNull { it.getOrNull(0)?.takeIf { v -> v != "NULL" } }.toSet()
         val finalTags = (session.tags + detectedModes).distinct()
+
+        // Motor thermal estimation requires sequential state (temperature depends on previous temperature)
+        // and cannot be vectorized into SQL without recursive CTEs.
+        val maxMotorTemps = emptyMap<String, Double>()
 
         val summary = SessionSummary(
             sessionId = session.sessionId,
@@ -137,7 +98,7 @@ class SummaryEngineService(
             robotId = session.robotId,
             createdAt = session.createdAt,
             durationMs = session.durationMs,
-            minBatteryVoltage = finalMinBattery,
+            minBatteryVoltage = minBattery,
             maxEkfDrift = maxDrift,
             avgLoopTimeMs = avgLoop,
             p95LoopTimeMs = p95Loop,
