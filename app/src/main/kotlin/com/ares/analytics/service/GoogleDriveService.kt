@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import java.io.File
+import io.ktor.utils.io.streams.*
 
 class GoogleDriveService(
     private val oauthService: OAuthService,
@@ -192,6 +193,35 @@ class GoogleDriveService(
 
             val created = response.body<JsonObject>()
             created["id"]!!.jsonPrimitive.content
+        }
+    }
+
+    /**
+     * Uploads a file to Google Drive by streaming directly from disk.
+     * Use this for large files (Parquet) to avoid loading the entire file into memory.
+     */
+    suspend fun writeFileStreaming(name: String, file: File, parentId: String, mimeType: String, fileId: String? = null): String = withContext(Dispatchers.IO) {
+        val token = getAccessToken()
+
+        if (fileId != null) {
+            // Overwrite existing file with streaming content
+            val response = httpClient.patch("https://www.googleapis.com/upload/drive/v3/files/$fileId?uploadType=media") {
+                header(HttpHeaders.Authorization, "Bearer $token")
+                contentType(ContentType.parse(mimeType))
+                setBody(io.ktor.client.request.forms.InputProvider(file.length()) {
+                    file.inputStream().asInput()
+                })
+            }
+
+            if (response.status != HttpStatusCode.OK) {
+                throw Exception("Failed to overwrite file content: ${response.bodyAsText()}")
+            }
+            return@withContext fileId
+        } else {
+            // For new file creation, read bytes (metadata + content multipart requires it)
+            // This path is acceptable because new uploads are rarer than overwrites
+            val bytes = file.readBytes()
+            return@withContext writeFile(name, bytes, parentId, mimeType, null)
         }
     }
 

@@ -87,10 +87,9 @@ class SyncEngineService(
 
             // 3. Upload Parquet file to sessions/ folder
             val existingParquetId = googleDriveService.findFileContaining(sessionId, sessionsFolderId)
-            val fileBytes = tempFile.readBytes()
-            googleDriveService.writeFile(
+            googleDriveService.writeFileStreaming(
                 name = descriptiveName,
-                bytes = fileBytes,
+                file = tempFile,
                 parentId = sessionsFolderId,
                 mimeType = "application/octet-stream",
                 fileId = existingParquetId
