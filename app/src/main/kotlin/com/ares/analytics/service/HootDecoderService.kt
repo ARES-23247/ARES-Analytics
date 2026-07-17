@@ -156,7 +156,7 @@ class HootDecoderService(
         val absolutePath = csvFile.absolutePath.replace("\\", "/")
 
         // 1. Read header to detect time column and extract key names
-        val reader = BufferedReader(FileReader(csvFile))
+        val reader = csvFile.bufferedReader(Charsets.UTF_8)
         val headerLine: String
         val headers: List<String>
         val keysSet: Set<String>
@@ -243,7 +243,7 @@ class HootDecoderService(
         headers: List<String>,
         scale: Double
     ) {
-        val reader = BufferedReader(FileReader(csvFile))
+        val reader = csvFile.bufferedReader(Charsets.UTF_8)
         try {
             reader.readLine() // skip header
             val batch = mutableListOf<TelemetryFrame>()

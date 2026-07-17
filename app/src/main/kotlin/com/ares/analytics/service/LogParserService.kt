@@ -276,7 +276,7 @@ class LogParserService(
         val absolutePath = file.absolutePath.replace("\\", "/")
 
         // Detect the timestamp column name from the header
-        val headerLine = BufferedReader(FileReader(file)).use { it.readLine() }
+        val headerLine = file.bufferedReader(Charsets.UTF_8).use { it.readLine() }
             ?: return
         val headers = headerLine.split(",").map { it.trim() }
         val timeColumnName = headers.firstOrNull {
@@ -321,7 +321,7 @@ class LogParserService(
      * [FrameBatcher] to maintain bounded memory usage.
      */
     private suspend fun parseCsvLogStreaming(file: File, sessionId: String, batcher: FrameBatcher) {
-        BufferedReader(FileReader(file)).use { reader ->
+        file.bufferedReader(Charsets.UTF_8).use { reader ->
             val headerLine = reader.readLine() ?: return
             val headers = headerLine.split(",").map { it.trim() }
             val timeIndex = headers.indexOfFirst {
@@ -473,7 +473,7 @@ class LogParserService(
     }
 
     private suspend fun parseJsonlLog(file: File, sessionId: String, batcher: FrameBatcher) {
-        BufferedReader(FileReader(file)).use { reader ->
+        file.bufferedReader(Charsets.UTF_8).use { reader ->
             var line: String? = reader.readLine()
             while (line != null) {
                 val trimmed = line.trim()
@@ -533,7 +533,7 @@ class LogParserService(
         var firstAlliance = "UNKNOWN"
         var isFirstLine = true
 
-        BufferedReader(FileReader(file)).use { reader ->
+        file.bufferedReader(Charsets.UTF_8).use { reader ->
             var line: String? = reader.readLine()
             while (line != null) {
                 val trimmed = line.trim()

@@ -240,6 +240,8 @@ class AutoImportService(
         try {
             val pb = ProcessBuilder(adbPath, "shell", "ls", directory)
             val proc = pb.start()
+            proc.errorStream.close()
+            proc.outputStream.close()
             val output = proc.inputStream.bufferedReader().use { it.readText() }
             val finished = proc.waitFor(10, TimeUnit.SECONDS)
             if (!finished) {
@@ -258,6 +260,9 @@ class AutoImportService(
         try {
             val pb = ProcessBuilder(adbPath, "pull", remotePath, localFile.absolutePath)
             val proc = pb.start()
+            proc.inputStream.close()
+            proc.errorStream.close()
+            proc.outputStream.close()
             val finished = proc.waitFor(60, TimeUnit.SECONDS)
             if (!finished) {
                 proc.destroyForcibly()
@@ -273,6 +278,9 @@ class AutoImportService(
         try {
             val pb = ProcessBuilder(adbPath, "shell", "rm", remotePath)
             val proc = pb.start()
+            proc.inputStream.close()
+            proc.errorStream.close()
+            proc.outputStream.close()
             val finished = proc.waitFor(10, TimeUnit.SECONDS)
             if (!finished) {
                 proc.destroyForcibly()
@@ -288,6 +296,8 @@ class AutoImportService(
         try {
             val pb = ProcessBuilder(adbPath, "shell", "lsof", remotePath)
             val proc = pb.start()
+            proc.errorStream.close()
+            proc.outputStream.close()
             val output = proc.inputStream.bufferedReader().use { it.readText() }
             proc.waitFor(10, TimeUnit.SECONDS)
             output.contains(remotePath) || output.isNotBlank()
@@ -310,6 +320,8 @@ class AutoImportService(
                 "ls $directory"
             )
             val proc = pb.start()
+            proc.errorStream.close()
+            proc.outputStream.close()
             val output = proc.inputStream.bufferedReader().use { it.readText() }
             val finished = proc.waitFor(10, TimeUnit.SECONDS)
             if (!finished) {
@@ -336,6 +348,9 @@ class AutoImportService(
                 localFile.absolutePath
             )
             val proc = pb.start()
+            proc.inputStream.close()
+            proc.errorStream.close()
+            proc.outputStream.close()
             val finished = proc.waitFor(60, TimeUnit.SECONDS)
             if (!finished) {
                 proc.destroyForcibly()
@@ -359,6 +374,9 @@ class AutoImportService(
                 "rm $remotePath"
             )
             val proc = pb.start()
+            proc.inputStream.close()
+            proc.errorStream.close()
+            proc.outputStream.close()
             val finished = proc.waitFor(10, TimeUnit.SECONDS)
             if (!finished) {
                 proc.destroyForcibly()
@@ -382,6 +400,9 @@ class AutoImportService(
                 "fuser $remotePath"
             )
             val proc = pb.start()
+            proc.inputStream.close()
+            proc.errorStream.close()
+            proc.outputStream.close()
             proc.waitFor(10, TimeUnit.SECONDS)
             proc.exitValue() == 0 // fuser returns 0 if any process is using the file
         } catch (e: Exception) {
@@ -398,6 +419,9 @@ class AutoImportService(
                 ProcessBuilder("ping", "-c", "1", "-W", "1", host)
             }
             val proc = pb.start()
+            proc.inputStream.close()
+            proc.errorStream.close()
+            proc.outputStream.close()
             val finished = proc.waitFor(2, TimeUnit.SECONDS)
             finished && proc.exitValue() == 0
         } catch (e: Exception) {
@@ -419,6 +443,9 @@ class AutoImportService(
     private fun findAdbPath(): String {
         try {
             val proc = ProcessBuilder("adb", "--version").start()
+            proc.inputStream.close()
+            proc.errorStream.close()
+            proc.outputStream.close()
             proc.waitFor(2, TimeUnit.SECONDS)
             return "adb"
         } catch (e: Exception) {

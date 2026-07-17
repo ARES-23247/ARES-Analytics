@@ -220,13 +220,16 @@ fun DrawScope.drawActualPathAndDeviations(
         drawPath(path = actualPathObj, color = AresPathActual, style = Stroke(width = 3f))
 
         if (waypoints.size >= 2) {
-            actualPath.chunked(maxOf(1, actualPath.size / 20)).forEach { actualPoint ->
-                val actualWp = actualPoint.firstOrNull() ?: return@forEach
+            val step = maxOf(1, actualPath.size / 20)
+            for (i in 0 until actualPath.size step step) {
+                val actualWp = actualPath[i]
                 val actualOffset = getCanvasOffsetBase(actualWp, w, h, fieldWidthM, fieldHeightM, league)
                 
                 var closestWp = waypoints.first()
                 var minDistance = Double.MAX_VALUE
-                waypoints.forEach { plannedWp ->
+                val wpSize = waypoints.size
+                for (j in 0 until wpSize) {
+                    val plannedWp = waypoints[j]
                     val dist = sqrt((actualWp.x - plannedWp.x).pow(2) + (actualWp.y - plannedWp.y).pow(2))
                     if (dist < minDistance) {
                         minDistance = dist

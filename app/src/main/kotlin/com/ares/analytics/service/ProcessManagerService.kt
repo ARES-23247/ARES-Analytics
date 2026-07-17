@@ -45,7 +45,9 @@ class ProcessManagerService {
                 try {
                     val pb = ProcessBuilder("adb", "devices")
                     val proc = pb.start()
-                    val output = proc.inputStream.bufferedReader().readText()
+                    val output = proc.inputStream.bufferedReader().use { it.readText() }
+                    proc.errorStream.close()
+                    proc.outputStream.close()
                     val monitorFinished = proc.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
                     if (!monitorFinished) {
                         proc.destroyForcibly()
@@ -118,15 +120,18 @@ class ProcessManagerService {
             try {
                 if (isWindows) {
                     val proc = ProcessBuilder("cmd.exe", "/c", "netstat -ano").start()
-                    val reader = BufferedReader(InputStreamReader(proc.inputStream))
-                    var line: String?
+                    proc.errorStream.close()
+                    proc.outputStream.close()
                     val pids = mutableSetOf<Long>()
-                    while (reader.readLine().also { line = it } != null) {
-                        if (line!!.contains("LISTENING") && line!!.contains(":$port")) {
-                            val parts = line!!.split("\\s+".toRegex()).filter { it.isNotEmpty() }
-                            if (parts.size >= 5) {
-                                val pidStr = parts[4]
-                                pidStr.toLongOrNull()?.let { pids.add(it) }
+                    proc.inputStream.bufferedReader().use { reader ->
+                        var line: String?
+                        while (reader.readLine().also { line = it } != null) {
+                            if (line!!.contains("LISTENING") && line!!.contains(":$port")) {
+                                val parts = line!!.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+                                if (parts.size >= 5) {
+                                    val pidStr = parts[4]
+                                    pidStr.toLongOrNull()?.let { pids.add(it) }
+                                }
                             }
                         }
                     }
@@ -140,12 +145,15 @@ class ProcessManagerService {
                     }
                 } else {
                     val proc = ProcessBuilder("sh", "-c", "lsof -t -i :$port").start()
-                    val reader = BufferedReader(InputStreamReader(proc.inputStream))
-                    var line: String?
-                    while (reader.readLine().also { line = it } != null) {
-                        line!!.trim().toLongOrNull()?.let { pid ->
-                            if (pid != ProcessHandle.current().pid()) {
-                                ProcessHandle.of(pid).ifPresent { it.destroyForcibly() }
+                    proc.errorStream.close()
+                    proc.outputStream.close()
+                    proc.inputStream.bufferedReader().use { reader ->
+                        var line: String?
+                        while (reader.readLine().also { line = it } != null) {
+                            line!!.trim().toLongOrNull()?.let { pid ->
+                                if (pid != ProcessHandle.current().pid()) {
+                                    ProcessHandle.of(pid).ifPresent { it.destroyForcibly() }
+                                }
                             }
                         }
                     }
@@ -159,18 +167,21 @@ class ProcessManagerService {
         // 2. Clean by JPS (fallback/redundancy)
         try {
             val jpsProc = ProcessBuilder("jps", "-l").start()
-            val reader = BufferedReader(InputStreamReader(jpsProc.inputStream))
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                val parts = line!!.split("\\s+".toRegex()).filter { it.isNotEmpty() }
-                if (parts.size >= 2) {
-                    val pidString = parts[0]
-                    val mainClass = parts[1]
-                    if (mainClass.contains("com.areslib.sim") || mainClass.contains("DesktopSimLauncher")) {
-                        val pid = pidString.toLongOrNull()
-                        if (pid != null && pid != ProcessHandle.current().pid()) {
-                            ProcessHandle.of(pid).ifPresent { handle ->
-                                handle.destroyForcibly()
+            jpsProc.errorStream.close()
+            jpsProc.outputStream.close()
+            jpsProc.inputStream.bufferedReader().use { reader ->
+                var line: String?
+                while (reader.readLine().also { line = it } != null) {
+                    val parts = line!!.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+                    if (parts.size >= 2) {
+                        val pidString = parts[0]
+                        val mainClass = parts[1]
+                        if (mainClass.contains("com.areslib.sim") || mainClass.contains("DesktopSimLauncher")) {
+                            val pid = pidString.toLongOrNull()
+                            if (pid != null && pid != ProcessHandle.current().pid()) {
+                                ProcessHandle.of(pid).ifPresent { handle ->
+                                    handle.destroyForcibly()
+                                }
                             }
                         }
                     }
@@ -275,6 +286,9 @@ class ProcessManagerService {
         val adb = resolveAdbPath()
         val connectPb = ProcessBuilder(adb, "connect", "192.168.43.1:5555")
         val connectProc = connectPb.start()
+        connectProc.inputStream.close()
+        connectProc.errorStream.close()
+        connectProc.outputStream.close()
         val finished = connectProc.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
         if (!finished) {
             connectProc.destroyForcibly()
@@ -292,8 +306,10 @@ class ProcessManagerService {
         }
         val installPb = ProcessBuilder(adb, "install", "-r", apkPath.absolutePath)
         val installProc = installPb.start()
+        installProc.errorStream.close()
+        installProc.outputStream.close()
 
-        BufferedReader(InputStreamReader(installProc.inputStream)).use { reader ->
+        installProc.inputStream.bufferedReader().use { reader ->
             var line: String?
             while (reader.readLine().also { line = it } != null) {
                 _buildOutput.emit("[ADB] $line")
