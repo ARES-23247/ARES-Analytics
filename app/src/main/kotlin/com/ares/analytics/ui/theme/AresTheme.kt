@@ -45,7 +45,18 @@ private val AresShapes = Shapes(
 )
 
 @Composable
-fun AresTheme(content: @Composable () -> Unit) {
+fun AresTheme(
+    colorblindMode: Boolean = false,
+    highContrastMode: Boolean = false,
+    touchOptimizedMode: Boolean = false,
+    content: @Composable () -> Unit
+) {
+    androidx.compose.runtime.SideEffect {
+        AresThemeSettings.colorblindMode = colorblindMode
+        AresThemeSettings.highContrastMode = highContrastMode
+        AresThemeSettings.touchOptimizedMode = touchOptimizedMode
+    }
+
     MaterialTheme(
         colorScheme = AresColorScheme,
         typography = AresTypography,

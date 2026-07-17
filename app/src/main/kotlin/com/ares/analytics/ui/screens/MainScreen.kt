@@ -97,6 +97,14 @@ fun MainScreen(services: ServiceRegistry) {
 
     val currentConfig = config
 
+    LaunchedEffect(currentConfig?.colorblindMode, currentConfig?.highContrastMode, currentConfig?.touchOptimizedMode) {
+        if (currentConfig != null) {
+            AresThemeSettings.colorblindMode = currentConfig.colorblindMode
+            AresThemeSettings.highContrastMode = currentConfig.highContrastMode
+            AresThemeSettings.touchOptimizedMode = currentConfig.touchOptimizedMode
+        }
+    }
+
     if (currentConfig == null) {
         val onboardingViewModel = remember {
             OnboardingViewModel(services.environmentService, services.teamApiService, scope) { loaded ->

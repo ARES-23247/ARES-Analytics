@@ -1,84 +1,171 @@
 package com.ares.analytics.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 
-// ── Primary Palette ──────────────────────────────────────────────────────────
-/** Deep obsidian background — near-black with a cool blue undertone */
-val AresBackground = Color(0xFF0D0F14)
-/** Elevated surface — slightly lighter for cards and panels */
-val AresSurface = Color(0xFF161A22)
-/** Higher elevation surface — for modals and floating elements */
-val AresSurfaceElevated = Color(0xFF1E2330)
+// ── Theme State Holder ───────────────────────────────────────────────────────
+object AresThemeSettings {
+    var colorblindMode by mutableStateOf(false)
+    var highContrastMode by mutableStateOf(false)
+    var touchOptimizedMode by mutableStateOf(false)
 
-// ── ARES Brand ───────────────────────────────────────────────────────────────
-/** ARES signature red — vibrant, used sparingly for brand accents */
-val AresRed = Color(0xFFE53935)
-/** Darker red for pressed/active states */
-val AresRedDark = Color(0xFFB71C1C)
-/** Red with transparency for glows and overlays */
-val AresRedGlow = Color(0x40E53935)
+    val currentColors: AresColorPalette
+        get() = getAresColors(colorblindMode, highContrastMode)
+}
 
-// ── Accent Colors ────────────────────────────────────────────────────────────
-/** Cyan accent — primary interactive color */
-val AresCyan = Color(0xFF00E5FF)
-/** Darker cyan for hover/pressed states */
-val AresCyanDark = Color(0xFF00B8D4)
-/** Cyan with transparency for subtle highlights */
-val AresCyanGlow = Color(0x3000E5FF)
+// ── Dynamic Color Lookups ───────────────────────────────────────────────────
+val AresBackground: Color get() = AresThemeSettings.currentColors.background
+val AresSurface: Color get() = AresThemeSettings.currentColors.surface
+val AresSurfaceElevated: Color get() = AresThemeSettings.currentColors.surfaceElevated
 
-/** Gold highlight — used for warnings, important metrics */
-val AresGold = Color(0xFFFFD54F)
-/** Amber warning state */
-val AresAmber = Color(0xFFFFA726)
+val AresRed: Color get() = AresThemeSettings.currentColors.red
+val AresRedDark: Color get() = AresThemeSettings.currentColors.redDark
+val AresRedGlow: Color get() = AresThemeSettings.currentColors.redGlow
 
-/** Success green — healthy status indicators */
-val AresGreen = Color(0xFF66BB6A)
-/** Error red — distinct from brand red, used for error states */
-val AresError = Color(0xFFFF5252)
+val AresCyan: Color get() = AresThemeSettings.currentColors.cyan
+val AresCyanDark: Color get() = AresThemeSettings.currentColors.cyanDark
+val AresCyanGlow: Color get() = AresThemeSettings.currentColors.cyanGlow
 
-// ── Text Hierarchy ───────────────────────────────────────────────────────────
-/** Primary text — high contrast marble white */
-val AresTextPrimary = Color(0xFFE8ECF4)
-/** Secondary text — medium contrast for labels and descriptions */
-val AresTextSecondary = Color(0xFF9CA3B4)
-/** Tertiary text — low contrast for hints and disabled states */
-val AresTextTertiary = Color(0xFF5A6174)
+val AresGold: Color get() = AresThemeSettings.currentColors.gold
+val AresAmber: Color get() = AresThemeSettings.currentColors.amber
 
-// ── Borders & Dividers ───────────────────────────────────────────────────────
-/** Subtle border for cards and panels */
-val AresBorder = Color(0xFF6B7B98)
-/** Brighter border for focused/hovered elements */
-val AresBorderFocused = Color(0xFF8B9BB8)
+val AresGreen: Color get() = AresThemeSettings.currentColors.green
+val AresError: Color get() = AresThemeSettings.currentColors.error
 
-// ── Glassmorphism ────────────────────────────────────────────────────────────
-/** Translucent glass surface for overlay panels */
-val AresGlass = Color(0x1AFFFFFF)
-/** Glass border — subtle white edge */
-val AresGlassBorder = Color(0x20FFFFFF)
+val AresTextPrimary: Color get() = AresThemeSettings.currentColors.textPrimary
+val AresTextSecondary: Color get() = AresThemeSettings.currentColors.textSecondary
+val AresTextTertiary: Color get() = AresThemeSettings.currentColors.textTertiary
 
-// ── Alert State Colors ───────────────────────────────────────────────────────
-/** Active alert — flashing red */
-val AresAlertActive = AresError
-/** Latched alert — static amber (recovered but unacknowledged) */
-val AresAlertLatched = AresAmber
-/** Triaged alert — dimmed (acknowledged by pit crew) */
-val AresAlertTriaged = Color(0xFF5A6174)
-// ── Session Mode Colors ──────────────────────────────────────────────────────
-val ModeLive = AresRed
-val ModeLiveGlow = AresRedGlow
-val ModeRewind = AresAmber
-val ModeRewindGlow = Color(0x40FFA726)
-val ModeReplay = AresCyan
-val ModeReplayGlow = AresCyanGlow
+val AresBorder: Color get() = AresThemeSettings.currentColors.border
+val AresBorderFocused: Color get() = AresThemeSettings.currentColors.borderFocused
 
-// ── Trajectory Overlay Colors ────────────────────────────────────────────────
-/** Planned path — cyan dashed line */
-val AresPathPlanned = AresCyan
-/** Actual driven path — gold solid line */
-val AresPathActual = AresGold
-/** Deviation < 2cm — acceptable */
-val AresDeviationLow = AresGreen
-/** Deviation 2-5cm — caution */
-val AresDeviationMedium = AresAmber
-/** Deviation > 5cm — critical */
-val AresDeviationHigh = AresError
+val AresGlass: Color get() = AresThemeSettings.currentColors.glass
+val AresGlassBorder: Color get() = AresThemeSettings.currentColors.glassBorder
+
+val AresAlertActive: Color get() = AresThemeSettings.currentColors.alertActive
+val AresAlertLatched: Color get() = AresThemeSettings.currentColors.alertLatched
+val AresAlertTriaged: Color get() = AresThemeSettings.currentColors.alertTriaged
+
+val ModeLive: Color get() = AresThemeSettings.currentColors.modeLive
+val ModeLiveGlow: Color get() = AresThemeSettings.currentColors.modeLiveGlow
+val ModeRewind: Color get() = AresThemeSettings.currentColors.modeRewind
+val ModeRewindGlow: Color get() = AresThemeSettings.currentColors.modeRewindGlow
+val ModeReplay: Color get() = AresThemeSettings.currentColors.modeReplay
+val ModeReplayGlow: Color get() = AresThemeSettings.currentColors.modeReplayGlow
+
+val AresPathPlanned: Color get() = AresThemeSettings.currentColors.pathPlanned
+val AresPathActual: Color get() = AresThemeSettings.currentColors.pathActual
+val AresDeviationLow: Color get() = AresThemeSettings.currentColors.deviationLow
+val AresDeviationMedium: Color get() = AresThemeSettings.currentColors.deviationMedium
+val AresDeviationHigh: Color get() = AresThemeSettings.currentColors.deviationHigh
+
+// ── Color Palette Generator ──────────────────────────────────────────────────
+data class AresColorPalette(
+    val background: Color,
+    val surface: Color,
+    val surfaceElevated: Color,
+    val red: Color,
+    val redDark: Color,
+    val redGlow: Color,
+    val cyan: Color,
+    val cyanDark: Color,
+    val cyanGlow: Color,
+    val gold: Color,
+    val amber: Color,
+    val green: Color,
+    val error: Color,
+    val textPrimary: Color,
+    val textSecondary: Color,
+    val textTertiary: Color,
+    val border: Color,
+    val borderFocused: Color,
+    val glass: Color,
+    val glassBorder: Color,
+    val alertActive: Color,
+    val alertLatched: Color,
+    val alertTriaged: Color,
+    val modeLive: Color,
+    val modeLiveGlow: Color,
+    val modeRewind: Color,
+    val modeRewindGlow: Color,
+    val modeReplay: Color,
+    val modeReplayGlow: Color,
+    val pathPlanned: Color,
+    val pathActual: Color,
+    val deviationLow: Color,
+    val deviationMedium: Color,
+    val deviationHigh: Color
+)
+
+fun getAresColors(colorblind: Boolean, highContrast: Boolean): AresColorPalette {
+    val textPrimary = Color(0xFFE8ECF4)
+    val textSecondary = if (highContrast) Color(0xFFF3F5F9) else Color(0xFF9CA3B4)
+    val textTertiary = if (highContrast) Color(0xFFCAD0DE) else Color(0xFF5A6174)
+
+    val green = if (colorblind) Color(0xFF2979FF) else Color(0xFF66BB6A)
+    val error = if (colorblind) Color(0xFFFF6D00) else Color(0xFFFF5252)
+    
+    val gold = Color(0xFFFFD54F)
+    val amber = Color(0xFFFFA726)
+
+    val deviationLow = green
+    val deviationMedium = amber
+    val deviationHigh = error
+
+    val red = if (colorblind) Color(0xFFFF6D00) else Color(0xFFE53935)
+    val redDark = if (colorblind) Color(0xFFE65100) else Color(0xFFB71C1C)
+    val redGlow = if (colorblind) Color(0x40FF6D00) else Color(0x40E53935)
+
+    val cyan = Color(0xFF00E5FF)
+    val cyanDark = Color(0xFF00B8D4)
+    val cyanGlow = Color(0x3000E5FF)
+
+    val background = Color(0xFF0D0F14)
+    val surface = Color(0xFF161A22)
+    val surfaceElevated = Color(0xFF1E2330)
+
+    val border = if (highContrast) Color(0xFF8B9BB8) else Color(0xFF6B7B98)
+    val borderFocused = if (highContrast) Color(0xFFBACCDD) else Color(0xFF8B9BB8)
+
+    val glass = Color(0x1AFFFFFF)
+    val glassBorder = Color(0x20FFFFFF)
+
+    return AresColorPalette(
+        background = background,
+        surface = surface,
+        surfaceElevated = surfaceElevated,
+        red = red,
+        redDark = redDark,
+        redGlow = redGlow,
+        cyan = cyan,
+        cyanDark = cyanDark,
+        cyanGlow = cyanGlow,
+        gold = gold,
+        amber = amber,
+        green = green,
+        error = error,
+        textPrimary = textPrimary,
+        textSecondary = textSecondary,
+        textTertiary = textTertiary,
+        border = border,
+        borderFocused = borderFocused,
+        glass = glass,
+        glassBorder = glassBorder,
+        alertActive = error,
+        alertLatched = amber,
+        alertTriaged = textTertiary,
+        modeLive = red,
+        modeLiveGlow = redGlow,
+        modeRewind = amber,
+        modeRewindGlow = Color(0x40FFA726),
+        modeReplay = cyan,
+        modeReplayGlow = cyanGlow,
+        pathPlanned = cyan,
+        pathActual = gold,
+        deviationLow = deviationLow,
+        deviationMedium = deviationMedium,
+        deviationHigh = deviationHigh
+    )
+}

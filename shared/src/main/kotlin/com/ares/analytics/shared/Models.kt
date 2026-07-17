@@ -28,7 +28,10 @@ data class WorkspaceConfig(
     val geminiModel: String? = "gemini-1.5-flash",
     val vertexServiceAccountPath: String? = null,
     val vertexProjectId: String? = null,
-    val vertexLocation: String? = "us-central1"
+    val vertexLocation: String? = "us-central1",
+    val colorblindMode: Boolean = false,
+    val highContrastMode: Boolean = false,
+    val touchOptimizedMode: Boolean = false
 )
 
 @Serializable

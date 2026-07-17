@@ -49,6 +49,9 @@ fun ProfileScreen(
     var league by remember(config.league) { mutableStateOf(config.league) }
     var seasonId by remember(config.seasonId) { mutableStateOf(config.seasonId) }
     var robotMenuExpanded by remember { mutableStateOf(false) }
+    var colorblindMode by remember(config.colorblindMode) { mutableStateOf(config.colorblindMode) }
+    var highContrastMode by remember(config.highContrastMode) { mutableStateOf(config.highContrastMode) }
+    var touchOptimizedMode by remember(config.touchOptimizedMode) { mutableStateOf(config.touchOptimizedMode) }
 
     // Optional credential overrides
     var googleClientId by remember(state.googleClientId) { mutableStateOf(state.googleClientId) }
@@ -450,6 +453,70 @@ fun ProfileScreen(
             }
         }
 
+        // 4b. Accessibility & Usability Options
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, AresBorder)
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.Settings, contentDescription = null, tint = AresCyan, modifier = Modifier.size(20.dp))
+                    Text("Accessibility & Usability Options", fontWeight = FontWeight.Bold, color = AresTextPrimary, fontSize = 15.sp)
+                }
+                Text("Optimize the mission control interface for different environments and readability requirements.", color = AresTextSecondary, fontSize = 11.sp)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Colorblind-Friendly Palette", color = AresTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Remaps success and failure states (red/green) to deuteranopia-safe cobalt blue and vermilion orange.", color = AresTextSecondary, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = colorblindMode,
+                        onCheckedChange = { colorblindMode = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = AresCyan, checkedTrackColor = AresCyanGlow)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Enhanced High Contrast", color = AresTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Boosts contrast of secondary text, tertiary text, and borders to pass strict WCAG AAA guidelines.", color = AresTextSecondary, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = highContrastMode,
+                        onCheckedChange = { highContrastMode = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = AresCyan, checkedTrackColor = AresCyanGlow)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Touch Target Optimization", color = AresTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Increases minimum touch target sizes of interactive elements for field operations under high-pressure scenarios.", color = AresTextSecondary, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = touchOptimizedMode,
+                        onCheckedChange = { touchOptimizedMode = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = AresCyan, checkedTrackColor = AresCyanGlow)
+                    )
+                }
+            }
+        }
+
         // Save Button Footer
         Button(
             onClick = {
@@ -470,7 +537,10 @@ fun ProfileScreen(
                     geminiModel = geminiModel.takeIf { it.isNotBlank() },
                     vertexServiceAccountPath = vertexServiceAccountPath.takeIf { it.isNotBlank() },
                     vertexProjectId = vertexProjectId.takeIf { it.isNotBlank() },
-                    vertexLocation = vertexLocation.takeIf { it.isNotBlank() }
+                    vertexLocation = vertexLocation.takeIf { it.isNotBlank() },
+                    colorblindMode = colorblindMode,
+                    highContrastMode = highContrastMode,
+                    touchOptimizedMode = touchOptimizedMode
                 )
                 viewModel.onIntent(
                     ProfileIntent.UpdateEventSettings(
@@ -493,9 +563,9 @@ fun ProfileScreen(
                 onConfigChanged(newConfig)
             },
             colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
-            modifier = Modifier.fillMaxWidth().height(48.dp)
+            modifier = Modifier.fillMaxWidth().height(if (touchOptimizedMode) 56.dp else 48.dp)
         ) {
-            Text("Save Profile & Settings", color = AresBackground, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("Save Profile & Settings", color = AresBackground, fontWeight = FontWeight.Bold, fontSize = if (touchOptimizedMode) 18.sp else 16.sp)
         }
     }
 }
