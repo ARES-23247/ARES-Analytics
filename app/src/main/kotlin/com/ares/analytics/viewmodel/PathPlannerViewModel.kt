@@ -423,7 +423,16 @@ class PathPlannerViewModel(
                                     System.err.println("WARN: Failed to generate companion auto file: ${e.message}")
                                 }
 
-                                _state.update { it.copy(saveStatus = "Saved to ${targetFile.name}!") }
+                                if (league == League.FTC) {
+                                    val pushed = pushFileToRobot(targetFile, "/sdcard/FIRST/paths", "${s.pathName}.path")
+                                    if (pushed) {
+                                        _state.update { it.copy(saveStatus = "Saved locally & pushed to robot!") }
+                                    } else {
+                                        _state.update { it.copy(saveStatus = "Saved locally (robot push failed/no connection)") }
+                                    }
+                                } else {
+                                    _state.update { it.copy(saveStatus = "Saved to ${targetFile.name}!") }
+                                }
                             } catch (e: Exception) {
                                 _state.update { it.copy(saveStatus = "Save failed: ${e.message}") }
                             }
@@ -682,7 +691,17 @@ class PathPlannerViewModel(
                                 
                                 val file = File(targetDir, "${s.pathName}.auto")
                                 file.writeText(jsonString)
-                                _state.update { it.copy(saveStatus = "Saved ${s.pathName}.auto at ${System.currentTimeMillis()}") }
+                                
+                                if (league == League.FTC) {
+                                    val pushed = pushFileToRobot(file, "/sdcard/FIRST/autos", "${s.pathName}.auto")
+                                    if (pushed) {
+                                        _state.update { it.copy(saveStatus = "Saved locally & pushed to robot!") }
+                                    } else {
+                                        _state.update { it.copy(saveStatus = "Saved locally (robot push failed/no connection)") }
+                                    }
+                                } else {
+                                    _state.update { it.copy(saveStatus = "Saved successfully at ${System.currentTimeMillis()}") }
+                                }
                             } catch (e: Exception) {
                                 _state.update { it.copy(saveStatus = "Save failed: ${e.message}") }
                             }
@@ -748,6 +767,60 @@ class PathPlannerViewModel(
                     }
                 }
             }
+        }
+    }
+
+    private fun findAdbPath(): String {
+        try {
+            val proc = ProcessBuilder("adb", "--version").start()
+            proc.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
+            return "adb"
+        } catch (e: Exception) {
+            // Ignore and fall through
+        }
+
+        val androidHome = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
+        if (!androidHome.isNullOrEmpty()) {
+            val exe = if (System.getProperty("os.name").contains("win", ignoreCase = true)) {
+                File(androidHome, "platform-tools/adb.exe")
+            } else {
+                File(androidHome, "platform-tools/adb")
+            }
+            if (exe.exists() && exe.canExecute()) {
+                return exe.absolutePath
+            }
+        }
+
+        val userHome = System.getProperty("user.home")
+        val defaultPaths = listOf(
+            File(userHome, "AppData/Local/Android/Sdk/platform-tools/adb.exe"),
+            File(userHome, "Library/Android/sdk/platform-tools/adb"),
+            File("/usr/bin/adb"),
+            File("/usr/local/bin/adb")
+        )
+        for (file in defaultPaths) {
+            if (file.exists() && file.canExecute()) {
+                return file.absolutePath
+            }
+        }
+
+        return "adb"
+    }
+
+    private fun pushFileToRobot(localFile: File, remoteDir: String, remoteFileName: String): Boolean {
+        try {
+            val adb = findAdbPath()
+            // Connect to the robot
+            ProcessBuilder(adb, "connect", "192.168.43.1:5555").start().waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
+            // Ensure directory exists on robot
+            ProcessBuilder(adb, "shell", "mkdir", "-p", remoteDir).start().waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
+            // Push file
+            val proc = ProcessBuilder(adb, "push", localFile.absolutePath, "$remoteDir/$remoteFileName").start()
+            val finished = proc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)
+            return finished && proc.exitValue() == 0
+        } catch (e: Exception) {
+            System.err.println("Failed to push file via ADB: ${e.message}")
+            return false
         }
     }
 }
