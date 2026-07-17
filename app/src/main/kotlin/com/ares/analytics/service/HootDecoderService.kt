@@ -153,87 +153,130 @@ class HootDecoderService(
         csvFile: File,
         sessionId: String
     ): Triple<Long, Long, Set<String>> = withContext(Dispatchers.IO) {
-        var firstTime = 0L
-        var lastTime = 0L
-        val keysSet = mutableSetOf<String>()
+        val absolutePath = csvFile.absolutePath.replace("\\", "/")
 
+        // 1. Read header to detect time column and extract key names
         val reader = BufferedReader(FileReader(csvFile))
+        val headerLine: String
+        val headers: List<String>
+        val keysSet: Set<String>
+        val scale: Double
         try {
-            val headerLine = reader.readLine() ?: throw IllegalArgumentException("Empty CSV file.")
-            val headers = headerLine.split(",").map { it.trim().replace("\"", "") }
+            headerLine = reader.readLine() ?: throw IllegalArgumentException("Empty CSV file.")
+            headers = headerLine.split(",").map { it.trim().replace("\"", "") }
             if (headers.isEmpty() || !headers[0].lowercase().contains("time")) {
                 throw IllegalArgumentException("Invalid CSV header format: first column must be timestamp")
             }
+            keysSet = headers.drop(1).toSet()
 
-            headers.drop(1).forEach { keysSet.add(it) }
-
+            // 2. Auto-detect timestamp scale by reading first two data lines
             val firstLine = reader.readLine() ?: return@withContext Triple(0L, 0L, emptySet<String>())
             val secondLine = reader.readLine()
 
             val parts1 = firstLine.split(",")
             val t1 = parts1[0].toDoubleOrNull() ?: 0.0
 
-            var scale = 1.0
-            if (secondLine != null) {
-                val parts2 = secondLine.split(",")
-                val t2 = parts2[0].toDoubleOrNull() ?: 0.0
-                val dt = abs(t2 - t1)
-                scale = when {
-                    dt > 1000.0 -> 0.001 // micro to ms
-                    dt < 1.0 -> 1000.0   // seconds to ms
-                    else -> 1.0          // ms
-                }
-            }
-
-            val minTime = (t1 * scale).toLong()
-            firstTime = minTime
-            lastTime = minTime
-
-            val batch = mutableListOf<TelemetryFrame>()
-            
-            suspend fun processParts(parts: List<String>) {
-                val rawTime = parts[0].toDoubleOrNull() ?: return
-                val timeMs = (rawTime * scale).toLong()
-                lastTime = timeMs
-
-                for (i in 1 until minOf(parts.size, headers.size)) {
-                    val valueStr = parts[i].trim()
-                    if (valueStr.isNotEmpty()) {
-                        val value = valueStr.toDoubleOrNull()
-                        if (value != null) {
-                            batch.add(TelemetryFrame(timeMs, sessionId, headers[i], value))
-                        }
+            scale = when {
+                secondLine != null -> {
+                    val parts2 = secondLine.split(",")
+                    val t2 = parts2[0].toDoubleOrNull() ?: 0.0
+                    val dt = abs(t2 - t1)
+                    when {
+                        dt > 1000.0 -> 0.001  // microseconds → ms
+                        dt < 1.0 -> 1000.0    // seconds → ms
+                        else -> 1.0           // already ms
                     }
                 }
-
-                if (batch.size >= 5000) {
-                    databaseService.insertTelemetryFrames(batch)
-                    batch.clear()
-                }
+                else -> 1.0
             }
+        } finally {
+            reader.close()
+        }
 
-            processParts(parts1)
-            if (secondLine != null) {
-                processParts(secondLine.split(","))
-            }
+        val escapedSessionId = sessionId.replace("'", "''")
+        val escapedTimeCol = headers[0].replace("'", "''").replace("\"", "\"\"")
 
+        // 3. DuckDB native UNPIVOT import — single SQL pass, no Kotlin-side string parsing
+        try {
+            databaseService.executeRaw("""
+                INSERT INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value)
+                SELECT
+                    CAST(CAST("$escapedTimeCol" AS DOUBLE) * $scale AS BIGINT) AS timestamp_ms,
+                    '$escapedSessionId' AS session_id,
+                    key,
+                    COALESCE(
+                        CASE
+                            WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0
+                            WHEN LOWER(CAST(value AS VARCHAR)) = 'false' THEN 0.0
+                            ELSE TRY_CAST(value AS DOUBLE)
+                        END,
+                        0.0
+                    ) AS value,
+                    CASE
+                        WHEN LOWER(CAST(value AS VARCHAR)) IN ('true', 'false') THEN NULL
+                        WHEN TRY_CAST(value AS DOUBLE) IS NULL THEN CAST(value AS VARCHAR)
+                    END AS string_value
+                FROM (
+                    SELECT * FROM read_csv_auto('$absolutePath', header=true, ignore_errors=true, all_varchar=true)
+                ) UNPIVOT (
+                    value FOR key IN (* EXCLUDE ("$escapedTimeCol"))
+                )
+                WHERE value IS NOT NULL AND CAST(value AS VARCHAR) != ''
+            """.trimIndent())
+        } catch (e: Exception) {
+            // Fallback: re-parse with original streaming approach if UNPIVOT fails
+            parseAndInsertTelemetryFallback(csvFile, sessionId, headers, scale)
+        }
+
+        // 4. Query time range from imported data
+        val range = databaseService.getSessionTimestampRange(sessionId)
+        val firstTime = range?.first ?: 0L
+        val lastTime = range?.second ?: 0L
+
+        Triple(firstTime, lastTime, keysSet)
+    }
+
+    /** Fallback streaming parser for CSV files that DuckDB cannot natively import. */
+    private suspend fun parseAndInsertTelemetryFallback(
+        csvFile: File,
+        sessionId: String,
+        headers: List<String>,
+        scale: Double
+    ) {
+        val reader = BufferedReader(FileReader(csvFile))
+        try {
+            reader.readLine() // skip header
+            val batch = mutableListOf<TelemetryFrame>()
             var line: String? = reader.readLine()
             while (line != null) {
                 val parts = line.split(",")
                 if (parts.isNotEmpty()) {
-                    processParts(parts)
+                    val rawTime = parts[0].toDoubleOrNull()
+                    if (rawTime != null) {
+                        val timeMs = (rawTime * scale).toLong()
+                        for (i in 1 until minOf(parts.size, headers.size)) {
+                            val valueStr = parts[i].trim()
+                            if (valueStr.isNotEmpty()) {
+                                val value = valueStr.toDoubleOrNull()
+                                if (value != null) {
+                                    batch.add(TelemetryFrame(timeMs, sessionId, headers[i], value))
+                                }
+                            }
+                        }
+                        if (batch.size >= 5000) {
+                            databaseService.insertTelemetryFrames(batch)
+                            batch.clear()
+                        }
+                    }
                 }
                 line = reader.readLine()
             }
-
             if (batch.isNotEmpty()) {
                 databaseService.insertTelemetryFrames(batch)
             }
         } finally {
             reader.close()
         }
-
-        Triple(firstTime, lastTime, keysSet)
     }
 
     private suspend fun runDiagnostics(

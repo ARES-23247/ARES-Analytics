@@ -23,6 +23,8 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.*
 import io.ktor.http.*
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.utils.io.jvm.javaio.copyTo
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -201,11 +203,14 @@ class CloudViewModel(
                             for (file in run.files) {
                                 try {
                                     val tempFile = withContext(Dispatchers.IO) {
-                                        val fileBytes = httpClient.get("http://${getRobotIp()}:5002/api/download?file=${file.name}").body<ByteArray>()
                                         val tempDir = File(System.getProperty("java.io.tmpdir"), "ares-raw-upload")
                                         tempDir.mkdirs()
                                         val f = File(tempDir, file.name)
-                                        f.writeBytes(fileBytes)
+                                        val response = httpClient.get("http://${getRobotIp()}:5002/api/download?file=${file.name}")
+                                        val channel = response.bodyAsChannel()
+                                        java.io.FileOutputStream(f).use { outputStream ->
+                                            channel.copyTo(outputStream)
+                                        }
                                         f
                                     }
                                     downloadedFiles.add(tempFile)
@@ -288,11 +293,14 @@ class CloudViewModel(
                             for (file in run.files) {
                                 try {
                                     val tempFile = withContext(Dispatchers.IO) {
-                                        val fileBytes = httpClient.get("http://${getRobotIp()}:5002/api/download?file=${file.name}").body<ByteArray>()
                                         val tempDir = File(System.getProperty("java.io.tmpdir"), "ares-raw-upload")
                                         tempDir.mkdirs()
                                         val f = File(tempDir, file.name)
-                                        f.writeBytes(fileBytes)
+                                        val response = httpClient.get("http://${getRobotIp()}:5002/api/download?file=${file.name}")
+                                        val channel = response.bodyAsChannel()
+                                        java.io.FileOutputStream(f).use { outputStream ->
+                                            channel.copyTo(outputStream)
+                                        }
                                         f
                                     }
                                     downloadedFiles.add(tempFile)

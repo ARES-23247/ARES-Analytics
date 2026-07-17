@@ -13,6 +13,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import java.io.File
 import io.ktor.utils.io.streams.*
+import io.ktor.utils.io.jvm.javaio.copyTo
 
 class GoogleDriveService(
     private val oauthService: OAuthService,
@@ -144,6 +145,27 @@ class GoogleDriveService(
         }
 
         response.readRawBytes()
+    }
+
+    /**
+     * Downloads a file from Google Drive by streaming directly to disk.
+     * Use this for large files (Parquet) to avoid loading the entire file into memory.
+     */
+    suspend fun readFileStreaming(fileId: String, destination: File): Unit = withContext(Dispatchers.IO) {
+        val token = getAccessToken()
+        val response = httpClient.get("https://www.googleapis.com/drive/v3/files/$fileId") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            parameter("alt", "media")
+        }
+
+        if (response.status != HttpStatusCode.OK) {
+            throw Exception("Failed to download file: ${response.bodyAsText()}")
+        }
+
+        val channel = response.bodyAsChannel()
+        java.io.FileOutputStream(destination).use { outputStream ->
+            channel.copyTo(outputStream)
+        }
     }
 
     suspend fun writeFile(name: String, bytes: ByteArray, parentId: String, mimeType: String, fileId: String? = null): String = withContext(Dispatchers.IO) {
