@@ -32,7 +32,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import com.areslib.control.assist.SysIdMechanism
 import com.areslib.control.assist.SysIdRoutine
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TuningScreen(
     viewModel: TuningViewModel,
@@ -118,29 +123,58 @@ fun TuningScreen(
                                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                                     ) {
                                         val descAndRange = getConstantDescriptionAndRange(constKey)
-                                        @OptIn(ExperimentalMaterial3Api::class)
-                                        TooltipBox(
-                                            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                                            tooltip = {
-                                                PlainTooltip(
-                                                    containerColor = AresSurfaceElevated,
-                                                    contentColor = AresTextPrimary
-                                                ) {
-                                                    Column(modifier = Modifier.padding(4.dp)) {
-                                                        Text(descAndRange.first, fontSize = 11.sp, fontWeight = FontWeight.Normal)
-                                                        Spacer(modifier = Modifier.height(2.dp))
-                                                        Text("Typical Range: ${descAndRange.second}", fontSize = 10.sp, color = AresCyan, fontWeight = FontWeight.SemiBold)
+                                        val tooltipState = rememberTooltipState(isPersistent = true)
+                                        val scope = rememberCoroutineScope()
+
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .pointerInput(Unit) {
+                                                    awaitPointerEventScope {
+                                                        while (true) {
+                                                            val event = awaitPointerEvent()
+                                                            when (event.type) {
+                                                                PointerEventType.Enter -> {
+                                                                    scope.launch { tooltipState.show() }
+                                                                }
+                                                                PointerEventType.Exit -> {
+                                                                    tooltipState.dismiss()
+                                                                }
+                                                            }
+                                                        }
                                                     }
                                                 }
-                                            },
-                                            state = rememberTooltipState()
                                         ) {
-                                            Column(
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .clickable(onClick = {}) // trigger hover/focus highlight
+                                            @OptIn(ExperimentalMaterial3Api::class)
+                                            TooltipBox(
+                                                positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                                                tooltip = {
+                                                    PlainTooltip(
+                                                        containerColor = AresSurfaceElevated,
+                                                        contentColor = AresTextPrimary
+                                                    ) {
+                                                        Column(modifier = Modifier.padding(4.dp)) {
+                                                            Text(displayName, fontSize = 12.sp, color = AresCyan, fontWeight = FontWeight.Bold)
+                                                            Spacer(modifier = Modifier.height(4.dp))
+                                                            Text(descAndRange.first, fontSize = 11.sp, fontWeight = FontWeight.Normal)
+                                                            Spacer(modifier = Modifier.height(2.dp))
+                                                            Text("Typical Range: ${descAndRange.second}", fontSize = 10.sp, color = AresCyan, fontWeight = FontWeight.SemiBold)
+                                                        }
+                                                    }
+                                                },
+                                                state = tooltipState
                                             ) {
-                                                Text(displayName, fontSize = 12.sp, color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
+                                                Text(
+                                                    text = displayName,
+                                                    fontSize = 12.sp,
+                                                    color = AresTextPrimary,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clickable(onClick = {})
+                                                )
                                             }
                                         }
 
@@ -179,10 +213,10 @@ fun TuningScreen(
                                                     viewModel.onIntent(TuningIntent.SaveConstant(constKey, newVal))
                                                 }
                                             },
-                                            modifier = Modifier.height(32.dp),
+                                            modifier = Modifier.width(60.dp).height(32.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
                                             shape = RoundedCornerShape(6.dp),
-                                            contentPadding = PaddingValues(horizontal = 10.dp)
+                                            contentPadding = PaddingValues(0.dp)
                                         ) {
                                             Text("Save", color = AresBackground, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
