@@ -833,6 +833,14 @@ fun FieldCanvas(
                 when {
                     contextTargetType == "Waypoint" && contextTargetIndex in waypoints.indices -> {
                         DropdownMenuItem(onClick = { contextMenuExpanded = false }) { Text("Edit Waypoint...", color = AresTextPrimary) }
+                        if (waypoints[contextTargetIndex].rotationDeg != null) {
+                            DropdownMenuItem(onClick = {
+                                onWaypointsChanged(waypoints.toMutableList().apply {
+                                    set(contextTargetIndex, this[contextTargetIndex].copy(rotationDeg = null))
+                                })
+                                contextMenuExpanded = false
+                            }) { Text("Clear Rotation", color = AresTextPrimary) }
+                        }
                         DropdownMenuItem(onClick = {
                             onWaypointsChanged(waypoints.toMutableList().apply { removeAt(contextTargetIndex) })
                             contextMenuExpanded = false; selectedWaypointIndex = -1
