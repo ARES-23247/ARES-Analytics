@@ -103,6 +103,7 @@ sealed class PathPlannerIntent {
     data class UpdateAutoStartingPose(val pose: AutoStartingPose?) : PathPlannerIntent()
     data class AddAutoCommand(val node: AutoCommandNode, val projectPath: String?, val league: League) : PathPlannerIntent()
     data class RemoveAutoCommand(val index: Int, val projectPath: String?, val league: League) : PathPlannerIntent()
+    data class MoveAutoCommand(val fromIndex: Int, val direction: Int, val projectPath: String?, val league: League) : PathPlannerIntent()
     data class UpdateAutoCommand(val index: Int, val node: AutoCommandNode, val projectPath: String?, val league: League) : PathPlannerIntent()
 }
 
@@ -779,6 +780,26 @@ class PathPlannerViewModel(
                         )
                         _state.update { it.copy(currentAutoCommands = listOf(newRoot)) }
                         recalculateAutoTrajectory(intent.projectPath, intent.league)
+                    }
+                }
+                is PathPlannerIntent.MoveAutoCommand -> {
+                    val root = _state.value.currentAutoCommands.firstOrNull() ?: return@launch
+                    val commandsArray = root.data["commands"] as? kotlinx.serialization.json.JsonArray
+                    if (commandsArray != null) {
+                        val toIndex = intent.fromIndex + intent.direction
+                        if (toIndex in 0 until commandsArray.size && intent.fromIndex in 0 until commandsArray.size) {
+                            val mutableList = commandsArray.toMutableList()
+                            val item = mutableList.removeAt(intent.fromIndex)
+                            mutableList.add(toIndex, item)
+                            val newCommands = kotlinx.serialization.json.JsonArray(mutableList)
+                            val newRoot = root.copy(
+                                data = kotlinx.serialization.json.JsonObject(
+                                    root.data.toMutableMap().apply { put("commands", newCommands) }
+                                )
+                            )
+                            _state.update { it.copy(currentAutoCommands = listOf(newRoot)) }
+                            recalculateAutoTrajectory(intent.projectPath, intent.league)
+                        }
                     }
                 }
                 is PathPlannerIntent.UpdateAutoCommand -> {

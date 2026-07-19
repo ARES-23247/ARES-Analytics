@@ -10,6 +10,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -167,6 +168,8 @@ fun WaypointCard(
     }
 }
 
+private data class MarkerParseResult(val action: String, val bVal: Boolean? = null, val dVal: Double? = null, val sVal: String? = null)
+
 @Composable
 fun EventMarkerCard(
     idx: Int,
@@ -179,57 +182,67 @@ fun EventMarkerCard(
     var dropdownExpanded by remember { mutableStateOf(false) }
 
     // Parse current marker.name into structured state
-    val (initialAction, initialBool, initialDouble) = remember(marker.name) {
+    val parsed = remember(marker.name) {
         when {
             marker.name.startsWith("SetIntakeActive(") -> {
                 val v = marker.name.removePrefix("SetIntakeActive(").removeSuffix(")").toBoolean()
-                Triple("Set Intake Active", v, null)
+                MarkerParseResult("Set Intake Active", bVal = v)
             }
             marker.name.startsWith("SetFlywheelActive(") -> {
                 val v = marker.name.removePrefix("SetFlywheelActive(").removeSuffix(")").toBoolean()
-                Triple("Set Flywheel Active", v, null)
+                MarkerParseResult("Set Flywheel Active", bVal = v)
             }
             marker.name.startsWith("SetTransferActive(") -> {
                 val v = marker.name.removePrefix("SetTransferActive(").removeSuffix(")").toBoolean()
-                Triple("Set Transfer Active", v, null)
+                MarkerParseResult("Set Transfer Active", bVal = v)
             }
             marker.name.startsWith("SetFlywheelTargetRPM(") -> {
                 val v = marker.name.removePrefix("SetFlywheelTargetRPM(").removeSuffix(")").toDoubleOrNull() ?: 0.0
-                Triple("Set Flywheel Target RPM", null, v)
+                MarkerParseResult("Set Flywheel Target RPM", dVal = v)
             }
-            else -> Triple("Custom Command", null, null)
+            marker.name.startsWith("SetIndicatorColor_") -> {
+                val v = marker.name.removePrefix("SetIndicatorColor_")
+                MarkerParseResult("Set Indicator Color", sVal = v)
+            }
+            else -> MarkerParseResult("Custom Command")
         }
     }
 
-    var selectedAction by remember { mutableStateOf(initialAction) }
-    var boolValue by remember { mutableStateOf(initialBool ?: true) }
-    var doubleValue by remember { mutableStateOf(initialDouble ?: 2000.0) }
-    var customName by remember { mutableStateOf(if (initialAction == "Custom Command") marker.name else "") }
+    var selectedAction by remember { mutableStateOf(parsed.action) }
+    var boolValue by remember { mutableStateOf(parsed.bVal ?: true) }
+    var doubleValue by remember { mutableStateOf(parsed.dVal ?: 2000.0) }
+    var stringValue by remember { mutableStateOf(parsed.sVal ?: "OFF") }
+    var customName by remember { mutableStateOf(if (parsed.action == "Custom Command") marker.name else "") }
 
     LaunchedEffect(marker.name) {
-        val (act, b, d) = when {
+        val p = when {
             marker.name.startsWith("SetIntakeActive(") -> {
                 val v = marker.name.removePrefix("SetIntakeActive(").removeSuffix(")").toBoolean()
-                Triple("Set Intake Active", v, null)
+                MarkerParseResult("Set Intake Active", bVal = v)
             }
             marker.name.startsWith("SetFlywheelActive(") -> {
                 val v = marker.name.removePrefix("SetFlywheelActive(").removeSuffix(")").toBoolean()
-                Triple("Set Flywheel Active", v, null)
+                MarkerParseResult("Set Flywheel Active", bVal = v)
             }
             marker.name.startsWith("SetTransferActive(") -> {
                 val v = marker.name.removePrefix("SetTransferActive(").removeSuffix(")").toBoolean()
-                Triple("Set Transfer Active", v, null)
+                MarkerParseResult("Set Transfer Active", bVal = v)
             }
             marker.name.startsWith("SetFlywheelTargetRPM(") -> {
                 val v = marker.name.removePrefix("SetFlywheelTargetRPM(").removeSuffix(")").toDoubleOrNull() ?: 0.0
-                Triple("Set Flywheel Target RPM", null, v)
+                MarkerParseResult("Set Flywheel Target RPM", dVal = v)
             }
-            else -> Triple("Custom Command", null, null)
+            marker.name.startsWith("SetIndicatorColor_") -> {
+                val v = marker.name.removePrefix("SetIndicatorColor_")
+                MarkerParseResult("Set Indicator Color", sVal = v)
+            }
+            else -> MarkerParseResult("Custom Command")
         }
-        selectedAction = act
-        if (b != null) boolValue = b
-        if (d != null) doubleValue = d
-        if (act == "Custom Command") customName = marker.name
+        selectedAction = p.action
+        if (p.bVal != null) boolValue = p.bVal
+        if (p.dVal != null) doubleValue = p.dVal
+        if (p.sVal != null) stringValue = p.sVal
+        if (p.action == "Custom Command") customName = marker.name
     }
 
     LaunchedEffect(marker.waypointRelativePos) {
@@ -239,12 +252,13 @@ fun EventMarkerCard(
     }
 
     // Helper to format name and trigger change
-    fun updateMarkerName(action: String, bVal: Boolean, dVal: Double, cName: String) {
+    fun updateMarkerName(action: String, bVal: Boolean, dVal: Double, sVal: String, cName: String) {
         val newName = when (action) {
             "Set Intake Active" -> "SetIntakeActive($bVal)"
             "Set Flywheel Active" -> "SetFlywheelActive($bVal)"
             "Set Transfer Active" -> "SetTransferActive($bVal)"
             "Set Flywheel Target RPM" -> "SetFlywheelTargetRPM($dVal)"
+            "Set Indicator Color" -> "SetIndicatorColor_$sVal"
             else -> cName
         }
         if (newName != marker.name) {
@@ -301,6 +315,7 @@ fun EventMarkerCard(
                     "Set Flywheel Active",
                     "Set Transfer Active",
                     "Set Flywheel Target RPM",
+                    "Set Indicator Color",
                     "Custom Command"
                 ).forEach { actionOption ->
                     DropdownMenuItem(
@@ -312,7 +327,7 @@ fun EventMarkerCard(
                             if (actionOption == "Custom Command" && customName.isEmpty()) {
                                 customName = "custom_event"
                             }
-                            updateMarkerName(actionOption, boolValue, doubleValue, customName)
+                            updateMarkerName(actionOption, boolValue, doubleValue, stringValue, customName)
                         }
                     )
                 }
@@ -332,7 +347,7 @@ fun EventMarkerCard(
                         checked = boolValue,
                         onCheckedChange = { checked ->
                             boolValue = checked
-                            updateMarkerName(selectedAction, checked, doubleValue, customName)
+                            updateMarkerName(selectedAction, checked, doubleValue, stringValue, customName)
                         },
                         colors = SwitchDefaults.colors(
                             checkedThumbColor = AresCyan,
@@ -349,7 +364,7 @@ fun EventMarkerCard(
                     onValueChange = { newValue ->
                         newValue.toDoubleOrNull()?.let { d ->
                             doubleValue = d
-                            updateMarkerName(selectedAction, boolValue, d, customName)
+                            updateMarkerName(selectedAction, boolValue, d, stringValue, customName)
                         }
                     },
                     label = { Text("Target RPM", fontSize = 10.sp) },
@@ -359,12 +374,49 @@ fun EventMarkerCard(
                     colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
                 )
             }
+            "Set Indicator Color" -> {
+                var colorDropdownExpanded by remember { mutableStateOf(false) }
+                val colors = listOf("OFF", "RED", "GREEN", "BLUE", "YELLOW", "VIOLET", "WHITE")
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = stringValue,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Color", fontSize = 10.sp) },
+                        modifier = Modifier.fillMaxWidth().clickable { colorDropdownExpanded = true },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
+                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder),
+                        trailingIcon = {
+                            IconButton(onClick = { colorDropdownExpanded = true }) {
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = AresTextSecondary)
+                            }
+                        }
+                    )
+                    DropdownMenu(
+                        expanded = colorDropdownExpanded,
+                        onDismissRequest = { colorDropdownExpanded = false },
+                        modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
+                    ) {
+                        colors.forEach { c ->
+                            DropdownMenuItem(
+                                text = { Text(c, color = AresTextPrimary) },
+                                onClick = {
+                                    stringValue = c
+                                    colorDropdownExpanded = false
+                                    updateMarkerName(selectedAction, boolValue, doubleValue, stringValue, customName)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
             "Custom Command" -> {
                 OutlinedTextField(
                     value = customName,
                     onValueChange = { newValue ->
                         customName = newValue
-                        updateMarkerName(selectedAction, boolValue, doubleValue, newValue)
+                        updateMarkerName(selectedAction, boolValue, doubleValue, stringValue, newValue)
                     },
                     label = { Text("Event Name", fontSize = 10.sp) },
                     modifier = Modifier.fillMaxWidth(),

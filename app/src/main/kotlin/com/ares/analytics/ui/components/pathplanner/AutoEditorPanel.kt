@@ -12,6 +12,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -261,9 +263,20 @@ fun AutoEditorPanel(
                                     }
                                 }
                             }
-                            
-                            IconButton(onClick = { onIntent(PathPlannerIntent.RemoveAutoCommand(index, projectPath, league)) }) {
-                                Icon(Icons.Default.Delete, contentDescription = "Remove Command", tint = AresError)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (index > 0) {
+                                    IconButton(onClick = { onIntent(PathPlannerIntent.MoveAutoCommand(index, -1, projectPath, league)) }) {
+                                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move Up", tint = AresTextSecondary)
+                                    }
+                                }
+                                if (index < commandsArray.size - 1) {
+                                    IconButton(onClick = { onIntent(PathPlannerIntent.MoveAutoCommand(index, 1, projectPath, league)) }) {
+                                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move Down", tint = AresTextSecondary)
+                                    }
+                                }
+                                IconButton(onClick = { onIntent(PathPlannerIntent.RemoveAutoCommand(index, projectPath, league)) }) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Remove Command", tint = AresError)
+                                }
                             }
                         }
                     }
