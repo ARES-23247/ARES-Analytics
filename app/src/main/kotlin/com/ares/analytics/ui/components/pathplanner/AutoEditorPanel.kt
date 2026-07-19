@@ -160,44 +160,98 @@ fun AutoEditorPanel(
                                         )
                                     }
                                     "named" -> {
-                                        val name = dataObj?.get("name")?.jsonPrimitive?.content ?: ""
-                                        var expanded by remember { mutableStateOf(false) }
-                                        val defaultActions = listOf("Intake", "Outtake", "Shoot", "Score", "Climb", "Stop")
-                                        Box {
-                                            OutlinedTextField(
-                                                value = name,
-                                                onValueChange = { 
-                                                    val newNode = AutoCommandNode("named", buildJsonObject { put("name", it) })
-                                                    onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
-                                                },
-                                                label = { Text("Action Name") },
-                                                singleLine = true,
-                                                modifier = Modifier.fillMaxWidth().clickable { expanded = true },
-                                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
-                                                colors = OutlinedTextFieldDefaults.colors(
-                                                    focusedBorderColor = AresCyan,
-                                                    unfocusedBorderColor = AresBorder
-                                                ),
-                                                trailingIcon = {
-                                                    IconButton(onClick = { expanded = true }) {
-                                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = AresTextSecondary)
+                                        val fullName = dataObj?.get("name")?.jsonPrimitive?.content ?: ""
+                                        val isIndicator = fullName.startsWith("SetIndicatorColor")
+                                        val baseName = if (isIndicator) "SetIndicatorColor" else fullName
+                                        
+                                        var expandedAction by remember { mutableStateOf(false) }
+                                        val defaultActions = listOf("Intake", "Outtake", "Shoot", "Score", "Climb", "Stop", "SetIndicatorColor")
+                                        
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Box(modifier = Modifier.weight(1f)) {
+                                                OutlinedTextField(
+                                                    value = baseName,
+                                                    onValueChange = { 
+                                                        val finalName = if (it == "SetIndicatorColor") "SetIndicatorColor_OFF" else it
+                                                        val newNode = AutoCommandNode("named", buildJsonObject { put("name", finalName) })
+                                                        onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
+                                                    },
+                                                    label = { Text("Action Name") },
+                                                    singleLine = true,
+                                                    modifier = Modifier.fillMaxWidth().clickable { expandedAction = true },
+                                                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
+                                                    colors = OutlinedTextFieldDefaults.colors(
+                                                        focusedBorderColor = AresCyan,
+                                                        unfocusedBorderColor = AresBorder
+                                                    ),
+                                                    trailingIcon = {
+                                                        IconButton(onClick = { expandedAction = true }) {
+                                                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = AresTextSecondary)
+                                                        }
+                                                    }
+                                                )
+                                                DropdownMenu(
+                                                    expanded = expandedAction,
+                                                    onDismissRequest = { expandedAction = false },
+                                                    modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
+                                                ) {
+                                                    defaultActions.forEach { a ->
+                                                        DropdownMenuItem(
+                                                            text = { Text(a, color = AresTextPrimary) },
+                                                            onClick = {
+                                                                val finalName = if (a == "SetIndicatorColor") "SetIndicatorColor_OFF" else a
+                                                                val newNode = AutoCommandNode("named", buildJsonObject { put("name", finalName) })
+                                                                onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
+                                                                expandedAction = false
+                                                            }
+                                                        )
                                                     }
                                                 }
-                                            )
-                                            DropdownMenu(
-                                                expanded = expanded,
-                                                onDismissRequest = { expanded = false },
-                                                modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
-                                            ) {
-                                                defaultActions.forEach { a ->
-                                                    DropdownMenuItem(
-                                                        text = { Text(a, color = AresTextPrimary) },
-                                                        onClick = {
-                                                            val newNode = AutoCommandNode("named", buildJsonObject { put("name", a) })
-                                                            onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
-                                                            expanded = false
+                                            }
+
+                                            if (isIndicator) {
+                                                val currentColor = fullName.substringAfter("_", "OFF")
+                                                val colors = listOf("OFF", "RED", "GREEN", "BLUE", "YELLOW", "VIOLET", "WHITE")
+                                                var expandedColor by remember { mutableStateOf(false) }
+
+                                                Box(modifier = Modifier.weight(1f)) {
+                                                    OutlinedTextField(
+                                                        value = currentColor,
+                                                        onValueChange = { },
+                                                        readOnly = true,
+                                                        label = { Text("Color") },
+                                                        singleLine = true,
+                                                        modifier = Modifier.fillMaxWidth().clickable { expandedColor = true },
+                                                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
+                                                        colors = OutlinedTextFieldDefaults.colors(
+                                                            focusedBorderColor = AresCyan,
+                                                            unfocusedBorderColor = AresBorder
+                                                        ),
+                                                        trailingIcon = {
+                                                            IconButton(onClick = { expandedColor = true }) {
+                                                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = AresTextSecondary)
+                                                            }
                                                         }
                                                     )
+                                                    DropdownMenu(
+                                                        expanded = expandedColor,
+                                                        onDismissRequest = { expandedColor = false },
+                                                        modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
+                                                    ) {
+                                                        colors.forEach { c ->
+                                                            DropdownMenuItem(
+                                                                text = { Text(c, color = AresTextPrimary) },
+                                                                onClick = {
+                                                                    val newNode = AutoCommandNode("named", buildJsonObject { put("name", "SetIndicatorColor_$c") })
+                                                                    onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
+                                                                    expandedColor = false
+                                                                }
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
