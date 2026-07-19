@@ -6,12 +6,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.PathPlannerEventMarker
 import com.ares.analytics.shared.RotationTarget
 import com.ares.analytics.ui.theme.*
+import com.ares.analytics.util.IndicatorLightColorMapper
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -265,7 +267,8 @@ fun DrawScope.drawRobotRepresentations(
     h: Float,
     fieldWidthM: Double,
     fieldHeightM: Double,
-    league: League
+    league: League,
+    indicatorLightPosition: Double = -1.0
 ) {
     val activeRobotWp = actualPath.lastOrNull()
     if (activeRobotWp != null && showTruePose) {
@@ -285,6 +288,34 @@ fun DrawScope.drawRobotRepresentations(
             close()
         }
         drawPath(path = arrowPath, color = AresAmber)
+
+        // ── Indicator Light Box ──
+        // Draw a colored square in the rear-left corner of the robot body.
+        // Inside the save/restore block so it rotates with the robot.
+        if (indicatorLightPosition >= 0.0) {
+            val lightColor = IndicatorLightColorMapper.positionToColor(indicatorLightPosition)
+            val lightSize = robotSizePx * 0.22f
+            val lightMargin = robotSizePx * 0.06f
+            val lightTopLeft = Offset(
+                robotOffset.x - robotSizePx / 2 + lightMargin,
+                robotOffset.y - robotSizePx / 2 + lightMargin
+            )
+            // Glowing fill
+            drawRect(
+                color = lightColor.copy(alpha = 0.85f),
+                topLeft = lightTopLeft,
+                size = Size(lightSize, lightSize),
+                style = Fill
+            )
+            // Border
+            drawRect(
+                color = lightColor,
+                topLeft = lightTopLeft,
+                size = Size(lightSize, lightSize),
+                style = Stroke(width = 1.5.dp.toPx())
+            )
+        }
+
         drawContext.canvas.restore()
     }
 

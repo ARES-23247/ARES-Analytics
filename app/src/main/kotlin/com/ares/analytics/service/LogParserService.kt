@@ -273,7 +273,7 @@ class LogParserService(
      * "time" or "timestamp" in its name) and remaining columns as telemetry keys.
      */
     private suspend fun parseCsvLogNative(file: File, sessionId: String) {
-        val absolutePath = file.absolutePath.replace("\\", "/")
+        val absolutePath = file.absolutePath.replace("\\", "/").replace("'", "''")
 
         // Detect the timestamp column name from the header
         val headerLine = file.bufferedReader(Charsets.UTF_8).use { it.readLine() }

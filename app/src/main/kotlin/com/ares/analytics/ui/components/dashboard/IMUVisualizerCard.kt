@@ -40,16 +40,19 @@ fun IMUVisualizerCard(
     var yaw by remember { mutableStateOf<Double?>(null) }
 
     LaunchedEffect(Unit) {
-        scope.launch {
-            nt4ClientService.telemetryFlow.collect { frame ->
-                val key = frame.key
-                val value = frame.value as? Double ?: return@collect
+        nt4ClientService.telemetryFlow.collect { frame ->
+            val key = frame.key
+            val value = frame.value as? Double ?: return@collect
+            
+            when {
+                key.endsWith("IMU/Roll") || key.endsWith("IMU/roll") -> roll = value
+                key.endsWith("IMU/Pitch") || key.endsWith("IMU/pitch") -> pitch = value
+                key.endsWith("IMU/Yaw") || key.endsWith("IMU/yaw") || key.endsWith("Drive/Pose_Heading") -> yaw = value
                 
-                when {
-                    key.endsWith("IMU/Roll") || key.endsWith("IMU/roll") -> roll = value
-                    key.endsWith("IMU/Pitch") || key.endsWith("IMU/pitch") -> pitch = value
-                    key.endsWith("IMU/Yaw") || key.endsWith("IMU/yaw") || key.endsWith("Drive/Pose_Heading") -> yaw = value
-                }
+                // Fallbacks if team puts IMU on different prefix
+                key.endsWith("Robot/Roll") || key.endsWith("Robot/roll") -> roll = value
+                key.endsWith("Robot/Pitch") || key.endsWith("Robot/pitch") -> pitch = value
+                key.endsWith("Robot/Yaw") || key.endsWith("Robot/yaw") -> yaw = value
             }
         }
     }

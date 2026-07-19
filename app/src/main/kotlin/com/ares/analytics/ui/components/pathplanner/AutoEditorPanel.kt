@@ -50,9 +50,9 @@ fun AutoEditorPanel(
                 pathName = state.pathName,
                 availablePaths = state.availableAutos,
                 saveStatus = state.saveStatus,
-                isPlaying = false,
-                playbackTime = 0.0,
-                estimatedDuration = 0.0,
+                isPlaying = state.isPlaying,
+                playbackTime = state.playbackTime,
+                estimatedDuration = state.estimatedDuration,
                 onPathNameChange = { onIntent(PathPlannerIntent.UpdatePathName(it)) },
                 onPathSelected = {
                     onIntent(PathPlannerIntent.UpdatePathName(it))
@@ -60,9 +60,9 @@ fun AutoEditorPanel(
                 },
                 onCreateNewPath = { onIntent(PathPlannerIntent.CreateNewAuto()) },
                 onSavePath = { onIntent(PathPlannerIntent.SaveAuto(projectPath, league)) },
-                onTogglePlayback = { },
-                onSeekPlayback = { },
-                onStopPlayback = { }
+                onTogglePlayback = { onIntent(PathPlannerIntent.TogglePlayback) },
+                onSeekPlayback = { onIntent(PathPlannerIntent.SeekPlayback(it)) },
+                onStopPlayback = { onIntent(PathPlannerIntent.StopPlayback) }
             )
         }
         

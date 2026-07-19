@@ -218,18 +218,22 @@ class ReplayEngineService(private val databaseService: DatabaseService) {
         val targetTimestamp = timestamps[index]
 
         // Reset incremental cache if we seeked backwards or this is first run
-        if (targetTimestamp < lastTargetTimestamp || lastTargetTimestamp == -1L) {
+        val seeked = targetTimestamp < lastTargetTimestamp || lastTargetTimestamp == -1L
+        if (seeked) {
             lastFrameIndex = 0
             lastActionIndex = 0
             valuesMap.clear()
         }
         lastTargetTimestamp = targetTimestamp
 
+        val deltaMap = mutableMapOf<String, Double>()
+
         // Incrementally aggregate frame updates
         while (lastFrameIndex < allFrames.size) {
             val frame = allFrames[lastFrameIndex]
             if (frame.timestampMs > targetTimestamp) break
             valuesMap[frame.key] = frame.value
+            deltaMap[frame.key] = frame.value
             lastFrameIndex++
         }
 
@@ -251,14 +255,20 @@ class ReplayEngineService(private val databaseService: DatabaseService) {
                     if (x != null) {
                         valuesMap["ARES/EstimatedPose/0"] = x
                         valuesMap["Drive/Odom_X"] = x
+                        deltaMap["ARES/EstimatedPose/0"] = x
+                        deltaMap["Drive/Odom_X"] = x
                     }
                     if (y != null) {
                         valuesMap["ARES/EstimatedPose/1"] = y
                         valuesMap["Drive/Odom_Y"] = y
+                        deltaMap["ARES/EstimatedPose/1"] = y
+                        deltaMap["Drive/Odom_Y"] = y
                     }
                     if (heading != null) {
                         valuesMap["ARES/EstimatedPose/2"] = heading
                         valuesMap["Drive/Odom_Heading"] = heading
+                        deltaMap["ARES/EstimatedPose/2"] = heading
+                        deltaMap["Drive/Odom_Heading"] = heading
                     }
                 }
             } catch (e: Exception) {
@@ -266,6 +276,8 @@ class ReplayEngineService(private val databaseService: DatabaseService) {
             }
             lastActionIndex++
         }
+
+        val mapToEmit = if (seeked) valuesMap.toMap() else deltaMap.toMap()
 
         // Expose a snapshot copy of the aggregated state map
         val currentValuesMap = valuesMap.toMap()
@@ -276,7 +288,7 @@ class ReplayEngineService(private val databaseService: DatabaseService) {
         val sessionId = "replay"
         emitJob?.cancel()
         emitJob = CoroutineScope(Dispatchers.Default).launch {
-            for ((key, value) in currentValuesMap) {
+            for ((key, value) in mapToEmit) {
                 val normalizedKey = key.removePrefix("/")
                 val telemetryFrame = TelemetryFrame(
                     timestampMs = targetTimestamp,
@@ -289,15 +301,20 @@ class ReplayEngineService(private val databaseService: DatabaseService) {
         }
 
         // 4. Re-broadcast via UDP loopback for AdvantageScope / telemetry viewer compatibility
-        broadcastTelemetry(frame)
+        broadcastTelemetry(ReplayFrame(targetTimestamp, mapToEmit))
     }
 
     private fun broadcastTelemetry(frame: ReplayFrame) {
         try {
-            val jsonStr = Json.encodeToString(frame.values)
-            val bytes = jsonStr.toByteArray()
-            val packet = DatagramPacket(bytes, bytes.size, loopbackAddress, broadcastPort)
-            datagramSocket.send(packet)
+            val maxChunkSize = 500
+            val entries = frame.values.entries.toList()
+            for (i in entries.indices step maxChunkSize) {
+                val chunkMap = entries.subList(i, minOf(i + maxChunkSize, entries.size)).associate { it.key to it.value }
+                val jsonStr = Json.encodeToString(chunkMap)
+                val bytes = jsonStr.toByteArray()
+                val packet = DatagramPacket(bytes, bytes.size, loopbackAddress, broadcastPort)
+                datagramSocket.send(packet)
+            }
         } catch (e: Exception) {
             // Ignore socket broadcast errors
         }

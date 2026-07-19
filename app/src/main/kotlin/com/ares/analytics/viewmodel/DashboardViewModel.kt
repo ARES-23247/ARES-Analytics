@@ -248,7 +248,7 @@ class DashboardViewModel(
             "runs_index", "match_schedule" -> Pair(4, 9)
             "mecanum_visualizer", "swerve_animator", "joystick_visualizer", "mechanism_visualizer" -> Pair(4, 6)
             "ai_coach" -> Pair(5, 6)
-            "alerts", "motor_health", "vision_quality", "battery_health", "system_health", "power_distribution" -> Pair(3, 4)
+            "alerts", "motor_health", "vision_quality", "battery_health", "system_health", "power_distribution", "indicator_lights" -> Pair(3, 4)
             "statistics_panel", "trends_card", "control_profiler", "state_tracker", "imu_visualizer", "ekf_telemetry", "path_tuning", "profiling_diagnostics" -> Pair(4, 5)
             else -> Pair(3, 3)
         }

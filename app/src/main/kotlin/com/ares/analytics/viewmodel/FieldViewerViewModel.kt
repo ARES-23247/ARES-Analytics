@@ -41,7 +41,10 @@ data class FieldViewerState(
     val isConnected: Boolean = false,
     val availablePaths: List<String> = emptyList(),
     val selectedPathName: String? = null,
-    val selectedPathWaypoints: List<Waypoint> = emptyList()
+    val selectedPathWaypoints: List<Waypoint> = emptyList(),
+    val isRedAlliance: Boolean = true,
+    /** Maps indicator light names to servo positions (0.0 to 1.0). -1.0 = no light. */
+    val indicatorLights: Map<String, Double> = emptyMap()
 )
 
 private class FieldViewerStateBuilder(state: FieldViewerState) {
@@ -60,6 +63,8 @@ private class FieldViewerStateBuilder(state: FieldViewerState) {
     var visionPoses: MutableMap<Int, Double> = state.visionPoses.toMutableMap()
     var visionHasTarget: Boolean = state.visionHasTarget
     var liveGamePieces: MutableMap<Int, GamePiece> = state.liveGamePieces.toMutableMap()
+    var isRedAlliance: Boolean = state.isRedAlliance
+    var indicatorLights: MutableMap<String, Double> = state.indicatorLights.toMutableMap()
 
     fun build(original: FieldViewerState): FieldViewerState {
         return original.copy(
@@ -77,7 +82,9 @@ private class FieldViewerStateBuilder(state: FieldViewerState) {
             visionHeading = visionHeading,
             visionPoses = visionPoses.toMap(),
             visionHasTarget = visionHasTarget,
-            liveGamePieces = liveGamePieces.toMap()
+            liveGamePieces = liveGamePieces.toMap(),
+            isRedAlliance = isRedAlliance,
+            indicatorLights = indicatorLights.toMap()
         )
     }
 }
@@ -86,6 +93,7 @@ sealed class FieldViewerIntent {
     data class FetchAvailablePaths(val projectPath: String?, val league: League) : FieldViewerIntent()
     data class SelectPath(val pathName: String?, val projectPath: String?, val league: League) : FieldViewerIntent()
     object ClearTrace : FieldViewerIntent()
+    object ToggleAlliance : FieldViewerIntent()
 }
 
 class FieldViewerViewModel(
@@ -138,6 +146,13 @@ class FieldViewerViewModel(
                     "Vision/Pose_X", "Vision/Pose/X" -> if (currentBuilder.visionHasTarget) currentBuilder.visionX = value
                     "Vision/Pose_Y", "Vision/Pose/Y" -> if (currentBuilder.visionHasTarget) currentBuilder.visionY = value
                     "Vision/Pose_Heading", "Vision/Pose/Heading" -> if (currentBuilder.visionHasTarget) currentBuilder.visionHeading = value
+                    "ARES/Input/isRedAlliance" -> currentBuilder.isRedAlliance = value > 0.5
+                }
+
+                // Indicator light topics: Superstructure/IndicatorLight/{name}
+                if (key.startsWith("Superstructure/IndicatorLight/")) {
+                    val lightName = key.substringAfterLast("/")
+                    currentBuilder.indicatorLights[lightName] = value
                 }
 
                 if (key.startsWith("Vision/PoseArray/") || key.startsWith("AdvantageScope/VisionPose/")) {
@@ -210,6 +225,9 @@ class FieldViewerViewModel(
     fun onIntent(intent: FieldViewerIntent) {
         scope.launch {
             when (intent) {
+                is FieldViewerIntent.ToggleAlliance -> {
+                    _state.update { it.copy(isRedAlliance = !it.isRedAlliance) }
+                }
                 is FieldViewerIntent.FetchAvailablePaths -> {
                     val projectPath = intent.projectPath
                     val league = intent.league

@@ -26,6 +26,12 @@ import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.FieldViewerViewModel
 import com.ares.analytics.viewmodel.FieldViewerIntent
+import androidx.compose.material.icons.filled.SwapHoriz
+import com.areslib.state.Alliance
+import com.areslib.math.geometry.Pose2d
+import com.areslib.math.geometry.Rotation2d
+import com.areslib.math.coordinate.AllianceMirroring
+import com.areslib.math.coordinate.FieldSymmetry
 
 @Composable
 fun FieldViewerCard(
@@ -270,6 +276,18 @@ fun FieldViewerCard(
                     }
 
                     IconButton(
+                        onClick = { viewModel.onIntent(FieldViewerIntent.ToggleAlliance) },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.SwapHoriz,
+                            contentDescription = "Toggle Alliance",
+                            tint = if (state.isRedAlliance) AresRed else AresCyan,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    IconButton(
                         onClick = { viewModel.onIntent(FieldViewerIntent.ClearTrace) },
                         modifier = Modifier.size(24.dp)
                     ) {
@@ -290,9 +308,20 @@ fun FieldViewerCard(
                     .clip(RoundedCornerShape(8.dp))
             ) {
                 val tracerEnabled = properties["show_tracer"]?.toBoolean() == true
+                
+                val displayWaypoints = remember(state.selectedPathWaypoints, state.isRedAlliance) {
+                    if (!state.isRedAlliance) state.selectedPathWaypoints
+                    else state.selectedPathWaypoints.map { wp ->
+                        val pose = Pose2d(wp.x, wp.y, Rotation2d(wp.headingRad ?: 0.0))
+                        val mirrored = AllianceMirroring.mirror(pose, Alliance.RED, FieldSymmetry.MIRRORED)
+                        val mirroredRot = wp.rotationDeg?.let { r -> -r }
+                        Waypoint(mirrored.x, mirrored.y, if (wp.headingRad == null) null else mirrored.heading.radians, wp.tangentMagnitude, rotationDeg = mirroredRot)
+                    }
+                }
+
                 FieldCanvas(
                     league = league,
-                    waypoints = state.selectedPathWaypoints,
+                    waypoints = displayWaypoints,
                     actualPath = if (tracerEnabled) state.poseHistory else listOfNotNull(state.poseHistory.lastOrNull() ?: if (state.trueX != 0.0 || state.trueY != 0.0) Waypoint(state.trueX, state.trueY, state.trueHeading) else null),
                     onWaypointsChanged = {},
                     projectPath = projectPath,
@@ -308,6 +337,7 @@ fun FieldViewerCard(
                     showToolbar = false,
                     initialViewRotation = properties["rotation"]?.toFloatOrNull() ?: 0f,
                     onViewRotationChanged = { newRot -> onPropertiesChanged(properties + ("rotation" to newRot.toString())) },
+                    indicatorLightPosition = state.indicatorLights.values.firstOrNull() ?: -1.0,
                     modifier = Modifier.fillMaxSize()
                 )
             }

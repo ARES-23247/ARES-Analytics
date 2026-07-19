@@ -88,6 +88,7 @@ fun FieldCanvas(
     initialViewRotation: Float = 0f,
     onViewRotationChanged: ((Float) -> Unit)? = null,
     showToolbar: Boolean = true,
+    indicatorLightPosition: Double = -1.0,
     modifier: Modifier = Modifier
 ) {
     var localFieldImage by remember { mutableStateOf<ImageBitmap?>(null) }
@@ -820,7 +821,8 @@ fun FieldCanvas(
                     h = h,
                     fieldWidthM = fieldWidthM,
                     fieldHeightM = fieldHeightM,
-                    league = league
+                    league = league,
+                    indicatorLightPosition = indicatorLightPosition
                 )
                 drawWaypoints(pathCache, waypoints, selectedWaypointIndex, isDraggingHeading, w, h, fieldWidthM, fieldHeightM, league, combinedRotationTargets, isDraggingRotation)
 

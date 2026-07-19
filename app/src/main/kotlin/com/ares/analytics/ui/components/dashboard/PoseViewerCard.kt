@@ -31,53 +31,32 @@ fun PoseViewerCard(
 ) {
     val scope = rememberCoroutineScope()
 
-    var trueX by remember { mutableStateOf<Double?>(null) }
-    var trueY by remember { mutableStateOf<Double?>(null) }
-    var trueHeading by remember { mutableStateOf<Double?>(null) }
+    val trueXSim by nt4ClientService.subscribeDouble("ARES/EstimatedPose/0").collectAsState(initial = null)
+    val trueYSim by nt4ClientService.subscribeDouble("ARES/EstimatedPose/1").collectAsState(initial = null)
+    val trueHeadingSim by nt4ClientService.subscribeDouble("ARES/EstimatedPose/2").collectAsState(initial = null)
 
-    var ekfX by remember { mutableStateOf<Double?>(null) }
-    var ekfY by remember { mutableStateOf<Double?>(null) }
-    var ekfHeading by remember { mutableStateOf<Double?>(null) }
+    val ekfX by nt4ClientService.subscribeDouble("Drive/Pose_X").collectAsState(initial = null)
+    val ekfY by nt4ClientService.subscribeDouble("Drive/Pose_Y").collectAsState(initial = null)
+    val ekfHeading by nt4ClientService.subscribeDouble("Drive/Drive_Heading").collectAsState(initial = null)
+    
+    val trueX = trueXSim ?: ekfX
+    val trueY = trueYSim ?: ekfY
+    val trueHeading = trueHeadingSim ?: ekfHeading
 
-    var pinpointX by remember { mutableStateOf<Double?>(null) }
-    var pinpointY by remember { mutableStateOf<Double?>(null) }
-    var pinpointHeading by remember { mutableStateOf<Double?>(null) }
+    val pinpointX by nt4ClientService.subscribeDouble("Drive/Odom_X").collectAsState(initial = null)
+    val pinpointY by nt4ClientService.subscribeDouble("Drive/Odom_Y").collectAsState(initial = null)
+    val pinpointHeading by nt4ClientService.subscribeDouble("Drive/Odom_Heading").collectAsState(initial = null)
 
-    var visionX by remember { mutableStateOf<Double?>(null) }
-    var visionY by remember { mutableStateOf<Double?>(null) }
-    var visionHeading by remember { mutableStateOf<Double?>(null) }
+    val visionX by nt4ClientService.subscribeDouble("Vision/Pose_X").collectAsState(initial = null)
+    val visionY by nt4ClientService.subscribeDouble("Vision/Pose_Y").collectAsState(initial = null)
+    val visionHeading by nt4ClientService.subscribeDouble("Vision/Pose_Heading").collectAsState(initial = null)
 
     var lastUpdateMs by remember { mutableStateOf<Long?>(null) }
-
-    LaunchedEffect(Unit) {
-        scope.launch {
-            nt4ClientService.telemetryFlow.collect { frame ->
-                val key = frame.key
-                val value = frame.value
-                lastUpdateMs = System.currentTimeMillis()
-                when (key) {
-                    "ARES/EstimatedPose/0", "Drive/Pose_X" -> {
-                        trueX = value
-                        if (key == "Drive/Pose_X") ekfX = value
-                    }
-                    "ARES/EstimatedPose/1", "Drive/Pose_Y" -> {
-                        trueY = value
-                        if (key == "Drive/Pose_Y") ekfY = value
-                    }
-                    "ARES/EstimatedPose/2", "Drive/Pose_Heading", "Drive/Drive_Heading" -> {
-                        trueHeading = value
-                        if (key != "ARES/EstimatedPose/2") ekfHeading = value
-                    }
-
-                    "Drive/Odom_X", "pinpoint_x", "pinpoint/x" -> pinpointX = value
-                    "Drive/Odom_Y", "pinpoint_y", "pinpoint/y" -> pinpointY = value
-                    "Drive/Odom_Heading", "pinpoint_heading", "pinpoint/heading" -> pinpointHeading = value
-
-                    "Vision/Pose_X", "Vision/Pose/X" -> visionX = value
-                    "Vision/Pose_Y", "Vision/Pose/Y" -> visionY = value
-                    "Vision/Pose_Heading", "Vision/Pose/Heading" -> visionHeading = value
-                }
-            }
+    
+    // Simple way to track last update:
+    LaunchedEffect(trueX, ekfX, pinpointX) {
+        if (trueX != null || ekfX != null || pinpointX != null) {
+            lastUpdateMs = System.currentTimeMillis()
         }
     }
 

@@ -236,6 +236,9 @@ fun DashboardScreen(
                 },
                 "profiling_diagnostics" to { _, mod ->
                     ProfilingDiagnosticsCard(services.nt4ClientService, mod)
+                },
+                "indicator_lights" to { _, mod ->
+                    IndicatorLightsCard(services.nt4ClientService, mod)
                 }
             )
 

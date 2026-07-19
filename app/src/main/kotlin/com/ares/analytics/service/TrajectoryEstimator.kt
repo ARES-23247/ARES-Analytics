@@ -136,14 +136,23 @@ object TrajectoryEstimator {
         val states = mutableListOf<TrajectoryState>()
 
         val combinedRotationTargets = mutableListOf<RotationTarget>()
+        
+        waypoints.forEachIndexed { i, wp ->
+            if (wp.rotationDeg != null) {
+                combinedRotationTargets.add(RotationTarget(waypointRelativePos = i.toDouble(), rotationDegrees = wp.rotationDeg))
+            }
+        }
+        
         val startingRot = idealStartingState?.rotation ?: 0.0
-        if (rotationTargets.none { kotlin.math.abs(it.waypointRelativePos) < 1e-3 }) {
+        if (combinedRotationTargets.none { kotlin.math.abs(it.waypointRelativePos) < 1e-3 }) {
             combinedRotationTargets.add(RotationTarget(waypointRelativePos = 0.0, rotationDegrees = startingRot))
         }
         combinedRotationTargets.addAll(rotationTargets)
+        combinedRotationTargets.sortBy { it.waypointRelativePos }
+        
         val endRot = goalEndState?.rotation ?: 0.0
         val lastWaypointIdx = (waypoints.size - 1).toDouble()
-        if (lastWaypointIdx >= 0.0 && rotationTargets.none { kotlin.math.abs(it.waypointRelativePos - lastWaypointIdx) < 1e-3 }) {
+        if (lastWaypointIdx >= 0.0 && combinedRotationTargets.none { kotlin.math.abs(it.waypointRelativePos - lastWaypointIdx) < 1e-3 }) {
             combinedRotationTargets.add(RotationTarget(waypointRelativePos = lastWaypointIdx, rotationDegrees = endRot))
         }
 

@@ -104,6 +104,10 @@ fun Route.archiveRoutes(
             try {
                 val db = customFirestore ?: FirestoreOptions.getDefaultInstance().service
 
+                if (principal.teamId != null && principal.teamId != req.teamId) {
+                    return@post call.respond(HttpStatusCode.Forbidden, "You do not have permission to delete sessions for this team.")
+                }
+
                 // Only admins/coaches can delete cloud sessions (role from ARESWEB Firestore)
                 if (!isUserAdmin(db, principal.uid)) {
                     return@post call.respond(HttpStatusCode.Forbidden, "Only admins and coaches can delete cloud sessions")
@@ -251,25 +255,7 @@ fun Route.archiveRoutes(
  * Reads the 'role' field from the ARESWEB Firestore users collection.
  */
 private suspend fun isUserAdmin(db: Firestore, uid: String): Boolean {
-    // 1. Try ARESWEB 'authorized_users' collection
-    val authUserDoc = withContext(Dispatchers.IO) { db.collection("authorized_users").document(uid).get().get() }
-    if (authUserDoc.exists()) {
-        val role = authUserDoc.getString("role")?.lowercase()
-        if (role == "admin" || role == "coach") {
-            return true
-        }
-    }
-
-    // 2. Try ARESWEB 'user_profiles' collection
-    val areswebDoc = withContext(Dispatchers.IO) { db.collection("user_profiles").document(uid).get().get() }
-    if (areswebDoc.exists()) {
-        val memberType = areswebDoc.getString("memberType")?.lowercase()
-        if (memberType == "admin" || memberType == "coach") {
-            return true
-        }
-    }
-
-    // 3. Try old/local 'users' collection fallback
+    // Look up the user in the primary 'users' collection provisioned by AuthRoutes
     val userDoc = withContext(Dispatchers.IO) { db.collection("users").document(uid).get().get() }
     if (userDoc.exists()) {
         val role = userDoc.getString("role")?.lowercase()
@@ -277,7 +263,6 @@ private suspend fun isUserAdmin(db: Firestore, uid: String): Boolean {
             return true
         }
     }
-
     return false
 }
 
