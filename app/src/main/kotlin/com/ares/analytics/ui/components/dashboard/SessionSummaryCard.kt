@@ -23,6 +23,7 @@ import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.shared.SessionSummary
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.launch
+import com.ares.analytics.ui.components.core.*
 
 @Composable
 /**
@@ -53,28 +54,16 @@ fun SessionSummaryCard(
         }
     }
 
-    Column(
+    AnalyticsCard(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(AresSurface)
-            .border(1.dp, AresBorder, RoundedCornerShape(12.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(imageVector = Icons.Default.Assessment, contentDescription = null, tint = AresCyan)
-            Text(
-                "Session Aggregate Stats",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = AresTextPrimary
-            )
-        }
+        CardHeader(
+            title = "Session Aggregate Stats",
+            icon = Icons.Default.Assessment,
+            iconTint = AresCyan
+        )
 
-        HorizontalDivider(color = AresBorder, thickness = 1.dp)
+
 
         when {
             isLoading -> {

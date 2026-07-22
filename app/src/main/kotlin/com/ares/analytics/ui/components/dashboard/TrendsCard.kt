@@ -25,6 +25,7 @@ import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.shared.SessionSummary
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.launch
+import com.ares.analytics.ui.components.core.*
 
 @Composable
 /**
@@ -56,32 +57,17 @@ fun TrendsCard(
         }
     }
 
-    Column(
+    AnalyticsCard(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(AresSurface)
-            .border(1.dp, AresBorder, RoundedCornerShape(12.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(imageVector = Icons.Default.TrendingDown, contentDescription = null, tint = AresGold)
-                Text(
-                    "Battery Health Trend",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = AresTextPrimary
-                )
-            }
-        }
+        CardHeader(
+            title = "Battery Health Trend",
+            icon = Icons.Default.TrendingDown,
+            iconTint = AresGold,
+            showDivider = false
+        )
+
+
 
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),

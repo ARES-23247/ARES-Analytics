@@ -17,6 +17,7 @@ import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import com.ares.analytics.ui.components.core.*
 
 @Composable
 /**
@@ -56,51 +57,24 @@ fun BrownoutProtectionCard(
         else -> AresBorder
     }
 
-    Card(
+    AnalyticsCard(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
-        shape = RoundedCornerShape(12.dp)
+        backgroundColor = AresSurfaceElevated
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.BatteryAlert,
-                        contentDescription = "Brownout Protection",
-                        tint = stateColor,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Brownout Protection", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-                }
+        CardHeader(
+            title = "Brownout Protection",
+            icon = Icons.Default.BatteryAlert,
+            iconTint = stateColor,
+            statusText = brownoutState,
+            statusColor = stateColor
+        )
 
-                Surface(
-                    color = stateColor.copy(alpha = 0.2f),
-                    shape = RoundedCornerShape(4.dp)
-                ) {
-                    Text(
-                        text = brownoutState,
-                        color = stateColor,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                }
-            }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = AresBorder)
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Power Scale", color = AresTextSecondary)
-                Text("${(powerScale * 100).toInt()}%", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-            }
+        MetricRow(
+            label = "Power Scale",
+            value = "${(powerScale * 100).toInt()}%"
+        )
             
             Spacer(modifier = Modifier.height(8.dp))
             
@@ -141,4 +115,4 @@ fun BrownoutProtectionCard(
             }
         }
     }
-}
+

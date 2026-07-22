@@ -23,6 +23,7 @@ import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
+import com.ares.analytics.ui.components.core.*
 
 private class RunningStats {
     var current: Double = 0.0
@@ -96,34 +97,15 @@ fun ProfilingDiagnosticsCard(
         }
     }
 
-    Card(
+    AnalyticsCard(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
-        shape = RoundedCornerShape(12.dp)
+        backgroundColor = AresSurfaceElevated
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.HourglassEmpty,
-                        contentDescription = "Loop Diagnostics",
-                        tint = AresCyan,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        "Loop profiling diagnostics",
-                        color = AresTextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp
-                    )
-                }
-
+        CardHeader(
+            title = "Loop profiling diagnostics",
+            icon = Icons.Default.HourglassEmpty,
+            iconTint = AresCyan,
+            trailingContent = {
                 IconButton(
                     onClick = {
                         statsMap.values.forEach { it.reset() }
@@ -139,8 +121,9 @@ fun ProfilingDiagnosticsCard(
                     )
                 }
             }
+        )
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = AresBorder)
+
 
             // Table Header
             Row(
@@ -235,4 +218,4 @@ fun ProfilingDiagnosticsCard(
             }
         }
     }
-}
+

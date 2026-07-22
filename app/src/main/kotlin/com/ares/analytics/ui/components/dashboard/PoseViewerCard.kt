@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.ui.theme.*
+import com.ares.analytics.ui.components.core.*
 
 @Composable
 /**
@@ -58,65 +59,25 @@ fun PoseViewerCard(
         }
     }
 
-    Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(AresSurface)
-            .border(1.dp, AresBorder, RoundedCornerShape(12.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MyLocation,
-                    contentDescription = null,
-                    tint = AresCyan
-                )
-                Text(
-                    "Robot Pose Telemetry",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = AresTextPrimary
-                )
-            }
-            
-            // Connection/Update indicator
-            val elapsed = lastUpdateMs?.let { System.currentTimeMillis() - it }
-            val (statusText, statusColor) = when {
-                elapsed == null -> "No Data" to AresTextTertiary
-                elapsed < 500 -> "Active" to AresGreen
-                elapsed < 2000 -> "Stale" to AresAmber
-                else -> "Offline" to AresError
-            }
-            
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(statusColor)
-                )
-                Text(
-                    text = statusText,
-                    fontSize = 11.sp,
-                    color = statusColor,
-                    fontWeight = FontWeight.Bold
-                )
-            }
-        }
+    val elapsed = lastUpdateMs?.let { System.currentTimeMillis() - it }
+    val (statusText, statusColor) = when {
+        elapsed == null -> "No Data" to AresTextTertiary
+        elapsed < 500 -> "Active" to AresGreen
+        elapsed < 2000 -> "Stale" to AresAmber
+        else -> "Offline" to AresError
+    }
 
-        HorizontalDivider(color = AresBorder, thickness = 1.dp)
+    AnalyticsCard(
+        modifier = modifier
+    ) {
+        CardHeader(
+            title = "Robot Pose Telemetry",
+            icon = Icons.Default.MyLocation,
+            iconTint = AresCyan,
+            statusText = statusText,
+            statusColor = statusColor
+        )
+
 
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),

@@ -20,6 +20,7 @@ import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import com.ares.analytics.ui.components.core.*
 
 @Composable
 /**
@@ -52,27 +53,17 @@ fun StateMachineTrackerCard(
         }
     }
 
-    Card(
+    AnalyticsCard(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
-        shape = RoundedCornerShape(12.dp)
+        backgroundColor = AresSurfaceElevated
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.AccountTree,
-                    contentDescription = "State Tracker",
-                    tint = AresCyan,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Subsystem States", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-            }
+        CardHeader(
+            title = "Subsystem States",
+            icon = Icons.Default.AccountTree,
+            iconTint = AresCyan
+        )
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = AresBorder)
+
 
             if (activeStates.isEmpty()) {
                 Box(
@@ -108,4 +99,4 @@ fun StateMachineTrackerCard(
             }
         }
     }
-}
+

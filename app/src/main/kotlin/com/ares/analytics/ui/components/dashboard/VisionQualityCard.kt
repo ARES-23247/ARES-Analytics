@@ -28,6 +28,7 @@ import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.shared.TelemetryFrame
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.launch
+import com.ares.analytics.ui.components.core.*
 
 @Composable
 /**
@@ -57,28 +58,15 @@ fun VisionQualityCard(
         }
     }
 
-    Column(
+    AnalyticsCard(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(AresSurface)
-            .border(1.dp, AresBorder, RoundedCornerShape(12.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(imageVector = Icons.Default.Visibility, contentDescription = null, tint = AresCyan)
-            Text(
-                "Vision EKF Innovation",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = AresTextPrimary
-            )
-        }
+        CardHeader(
+            title = "Vision EKF Innovation",
+            icon = Icons.Default.Visibility,
+            iconTint = AresCyan
+        )
 
-        HorizontalDivider(color = AresBorder, thickness = 1.dp)
 
         if (visionFrames.isEmpty()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {

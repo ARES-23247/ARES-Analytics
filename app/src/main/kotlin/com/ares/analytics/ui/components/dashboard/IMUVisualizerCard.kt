@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
+import com.ares.analytics.ui.components.core.*
 
 @Composable
 /**
@@ -63,28 +64,15 @@ fun IMUVisualizerCard(
         }
     }
 
-    Card(
+    AnalyticsCard(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
-        shape = RoundedCornerShape(12.dp)
+        backgroundColor = AresSurfaceElevated
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.CompassCalibration,
-                        contentDescription = "IMU Visualizer",
-                        tint = AresGold,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("IMU Orientation", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-                }
-                
+        CardHeader(
+            title = "IMU Orientation",
+            icon = Icons.Default.CompassCalibration,
+            iconTint = AresGold,
+            trailingContent = {
                 Button(
                     onClick = { scope.launch { nt4ClientService.publishInputBoolean(1100, true) } }, // Assume 1100 is a generic zero heading command
                     colors = ButtonDefaults.buttonColors(containerColor = AresSurface),
@@ -96,8 +84,9 @@ fun IMUVisualizerCard(
                     Text("Zero Heading", color = AresTextSecondary, fontSize = 10.sp)
                 }
             }
+        )
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = AresBorder)
+
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -188,4 +177,4 @@ fun IMUVisualizerCard(
             }
         }
     }
-}
+

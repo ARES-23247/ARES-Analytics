@@ -30,6 +30,7 @@ import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.shared.TelemetryFrame
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.launch
+import com.ares.analytics.ui.components.core.*
 
 @Composable
 /**
@@ -75,32 +76,16 @@ fun BatteryHealthCard(
         else -> "Healthy State"
     }
 
-    Column(
+    AnalyticsCard(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(AresSurface)
-            .border(1.dp, AresBorder, RoundedCornerShape(12.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Icon(
-                imageVector = if (latestVoltage < 11.5) Icons.Default.BatteryAlert else Icons.Default.BatteryChargingFull,
-                contentDescription = null,
-                tint = statusColor
-            )
-            Text(
-                "Battery Diagnostics",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = AresTextPrimary
-            )
-        }
+        CardHeader(
+            title = "Battery Diagnostics",
+            icon = if (latestVoltage < 11.5) Icons.Default.BatteryAlert else Icons.Default.BatteryChargingFull,
+            iconTint = statusColor
+        )
 
-        HorizontalDivider(color = AresBorder, thickness = 1.dp)
+
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -127,14 +112,9 @@ fun BatteryHealthCard(
             }
         }
 
-        Text(
-            statusText,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = statusColor,
-            modifier = Modifier
-                .background(statusColor.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
-                .padding(horizontal = 8.dp, vertical = 2.dp)
+        StatusBadge(
+            text = statusText,
+            color = statusColor
         )
 
         if (voltageFrames.isEmpty()) {

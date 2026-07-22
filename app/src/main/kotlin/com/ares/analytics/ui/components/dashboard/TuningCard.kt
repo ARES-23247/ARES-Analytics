@@ -1,5 +1,6 @@
 package com.ares.analytics.ui.components.dashboard
 import kotlinx.coroutines.launch
+import com.ares.analytics.ui.components.core.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -44,26 +45,16 @@ fun TuningCard(
         TuningGroup("Driver Profile Configuration", listOf("driverDeadbandExponent", "driverSlewRateLimit"))
     )
 
-    Card(
-        modifier = modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(12.dp))
-            .background(AresSurface)
-            .border(1.dp, AresBorder, RoundedCornerShape(12.dp)),
-        colors = CardDefaults.cardColors(containerColor = AresSurface)
+    AnalyticsCard(
+        modifier = modifier.fillMaxSize(),
+        backgroundColor = AresSurface,
+        contentPadding = 12.dp
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text(
-                "Live Tuning",
-                color = AresTextPrimary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp
-            )
+        CardHeader(
+            title = "Live Tuning",
+            showDivider = false
+        )
+
             
             Column(
                 modifier = Modifier
@@ -88,7 +79,6 @@ fun TuningCard(
                         HorizontalDivider(color = AresBorder.copy(alpha = 0.5f))
                     }
                 }
-            }
         }
     }
 }

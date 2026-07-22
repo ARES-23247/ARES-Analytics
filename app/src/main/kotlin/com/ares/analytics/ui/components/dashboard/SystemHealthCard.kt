@@ -20,6 +20,7 @@ import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import com.ares.analytics.ui.components.core.*
 
 @Composable
 /**
@@ -63,27 +64,17 @@ fun SystemHealthCard(
         }
     }
 
-    Card(
+    AnalyticsCard(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
-        shape = RoundedCornerShape(12.dp)
+        backgroundColor = AresSurfaceElevated
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Memory,
-                    contentDescription = "System Health",
-                    tint = AresGreen,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("RoboRIO / Control Hub Health", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-            }
+        CardHeader(
+            title = "RoboRIO / Control Hub Health",
+            icon = Icons.Default.Memory,
+            iconTint = AresGreen
+        )
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = AresBorder)
+
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -161,4 +152,4 @@ fun SystemHealthCard(
             }
         }
     }
-}
+

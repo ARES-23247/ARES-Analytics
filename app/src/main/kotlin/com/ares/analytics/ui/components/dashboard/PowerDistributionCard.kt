@@ -20,6 +20,7 @@ import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import com.ares.analytics.ui.components.core.*
 
 @Composable
 /**
@@ -65,28 +66,15 @@ fun PowerDistributionCard(
         }
     }
 
-    Card(
+    AnalyticsCard(
         modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
-        shape = RoundedCornerShape(12.dp)
+        backgroundColor = AresSurfaceElevated
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.ElectricBolt,
-                        contentDescription = "Power Distribution",
-                        tint = AresGold,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Power Distribution", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-                }
-                
+        CardHeader(
+            title = "Power Distribution",
+            icon = Icons.Default.ElectricBolt,
+            iconTint = AresGold,
+            trailingContent = {
                 Text(
                     text = String.format("%.1f A Total", totalCurrent),
                     color = if (totalCurrent > 120.0) AresError else AresGold,
@@ -95,8 +83,9 @@ fun PowerDistributionCard(
                     fontWeight = FontWeight.Bold
                 )
             }
+        )
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp), color = AresBorder)
+
 
             if (currentDraws.filterKeys { !it.lowercase().contains("total") }.isEmpty()) {
                 Box(
@@ -149,4 +138,4 @@ fun PowerDistributionCard(
             }
         }
     }
-}
+

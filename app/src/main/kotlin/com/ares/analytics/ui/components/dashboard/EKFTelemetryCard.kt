@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.flow.collect
+import com.ares.analytics.ui.components.core.*
 
 @Composable
 /**
@@ -75,24 +76,17 @@ fun EKFTelemetryCard(
             }
     }
 
-    Card(
+    AnalyticsCard(
         modifier = modifier
             .fillMaxWidth()
             .height(300.dp),
-        colors = CardDefaults.cardColors(containerColor = AresSurface),
-        shape = RoundedCornerShape(12.dp)
+        backgroundColor = AresSurface
     ) {
-        Column(modifier = Modifier.padding(16.dp).fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ShowChart, contentDescription = "EKF", tint = AresCyan)
-                Spacer(Modifier.width(8.dp))
-                Text("EKF Diagnostics", color = AresTextPrimary, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                
-                Spacer(Modifier.weight(1f))
-                
+        CardHeader(
+            title = "EKF Diagnostics",
+            icon = Icons.AutoMirrored.Filled.ShowChart,
+            iconTint = AresCyan,
+            trailingContent = {
                 Text(
                     "Cov(X): %.4f".format(currentCovX),
                     color = AresGold,
@@ -100,8 +94,10 @@ fun EKFTelemetryCard(
                     fontSize = 12.sp
                 )
             }
-            
-            Spacer(Modifier.height(16.dp))
+        )
+        
+        Spacer(Modifier.height(16.dp))
+
             
             Box(modifier = Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(AresBackground).border(1.dp, AresBorder, RoundedCornerShape(8.dp))) {
                 Canvas(modifier = Modifier.fillMaxSize().padding(8.dp)) {
@@ -156,4 +152,4 @@ fun EKFTelemetryCard(
             }
         }
     }
-}
+
