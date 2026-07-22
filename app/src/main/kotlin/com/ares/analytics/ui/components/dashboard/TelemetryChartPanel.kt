@@ -54,6 +54,8 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
+private val scratchChartPath = Path()
+
 /**
 
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
@@ -592,7 +594,7 @@ fun TelemetryChartPanel(
                             val now = liveTime
                             val minX = now - (selectedWindowSec * 1000)
                             val maxX = now
-                            val path = Path()
+                            val path = scratchChartPath.apply { reset() }
 
                             /**
 

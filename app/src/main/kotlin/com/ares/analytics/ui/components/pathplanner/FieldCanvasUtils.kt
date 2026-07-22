@@ -354,6 +354,9 @@ fun getClosestSplinePosition(
  *
 
  */
+private val scratchXArrowPath = Path()
+private val scratchYArrowPath = Path()
+
 fun DrawScope.drawCoordinateAxes(
     canvasW: Float,
     canvasH: Float,
@@ -372,7 +375,8 @@ fun DrawScope.drawCoordinateAxes(
     drawLine(color = AresRed, start = originOffset, end = xAxisOffset, strokeWidth = strokeW)
     // X Axis Arrow Head
     val xAngle = kotlin.math.atan2((xAxisOffset.y - originOffset.y).toDouble(), (xAxisOffset.x - originOffset.x).toDouble())
-    val xArrowPath = Path().apply {
+    val xArrowPath = scratchXArrowPath.apply {
+        reset()
         moveTo(xAxisOffset.x, xAxisOffset.y)
         lineTo(
             xAxisOffset.x - arrowSize * kotlin.math.cos(xAngle - Math.PI / 6).toFloat(),
@@ -390,7 +394,8 @@ fun DrawScope.drawCoordinateAxes(
     drawLine(color = AresGreen, start = originOffset, end = yAxisOffset, strokeWidth = strokeW)
     // Y Axis Arrow Head
     val yAngle = kotlin.math.atan2((yAxisOffset.y - originOffset.y).toDouble(), (yAxisOffset.x - originOffset.x).toDouble())
-    val yArrowPath = Path().apply {
+    val yArrowPath = scratchYArrowPath.apply {
+        reset()
         moveTo(yAxisOffset.x, yAxisOffset.y)
         lineTo(
             yAxisOffset.x - arrowSize * kotlin.math.cos(yAngle - Math.PI / 6).toFloat(),
