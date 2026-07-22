@@ -39,7 +39,7 @@ fun DrawScope.drawPlannedSpline(
     val splinePath = if (pathCache.splinePath != null && pathCache.splinePoints === splinePoints && pathCache.w == w && pathCache.h == h) {
         pathCache.splinePath!!
     } else {
-        val path = Path()
+        val path = pathCache.splinePath?.apply { reset() } ?: Path()
         if (splinePoints.isNotEmpty()) {
             val firstOffset = getCanvasOffsetBase(splinePoints.first(), w, h, fieldWidthM, fieldHeightM, league)
             path.moveTo(firstOffset.x, firstOffset.y)
@@ -55,7 +55,7 @@ fun DrawScope.drawPlannedSpline(
         path
     }
     if (waypoints.size >= 2) {
-        drawPath(path = splinePath, color = AresPathPlanned, style = Stroke(width = 4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))))
+        drawPath(path = splinePath, color = AresPathPlanned, style = Stroke(width = 4f, pathEffect = pathCache.dashEffect10))
     }
 }
 
