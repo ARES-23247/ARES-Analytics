@@ -28,10 +28,11 @@ class FieldPoseBufferManager(
                     val newWp = Waypoint(currentState.trueX, currentState.trueY, currentState.trueHeading)
                     val lastWp = currentState.poseHistory.lastOrNull()
                     if (lastWp == null || kotlin.math.abs(lastWp.x - newWp.x) > 0.01 || kotlin.math.abs(lastWp.y - newWp.y) > 0.01) {
+
                         val newHistory = currentState.poseHistory.toMutableList()
                         newHistory.add(newWp)
-                        if (newHistory.size > 2000) {
-                            newHistory.subList(0, 500).clear()
+                        if (newHistory.size > 150) {
+                            newHistory.removeAt(0)
                         }
                         stateFlow.update { it.copy(poseHistory = newHistory) }
                     } else if (lastWp.headingRad != newWp.headingRad) {
@@ -39,6 +40,7 @@ class FieldPoseBufferManager(
                         newHistory[newHistory.size - 1] = newWp
                         stateFlow.update { it.copy(poseHistory = newHistory) }
                     }
+
                 }
             }
         }
