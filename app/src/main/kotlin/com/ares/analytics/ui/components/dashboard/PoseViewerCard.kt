@@ -1,36 +1,23 @@
 package com.ares.analytics.ui.components.dashboard
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
+import com.ares.analytics.ui.components.core.CardHeader
+import com.ares.analytics.ui.components.core.GlassCard
+import com.ares.analytics.ui.components.core.MetricValueBadge
 import com.ares.analytics.ui.theme.*
-import com.ares.analytics.ui.components.core.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun PoseViewerCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
@@ -52,7 +39,6 @@ fun PoseViewerCard(
     val visionHeading by nt4ClientService.subscribeDouble("Vision/Pose_Heading").collectAsState(initial = null)
     var lastUpdateMs by remember { mutableStateOf<Long?>(null) }
     
-    // Simple way to track last update:
     LaunchedEffect(trueX, ekfX, pinpointX) {
         if (trueX != null || ekfX != null || pinpointX != null) {
             lastUpdateMs = System.currentTimeMillis()
@@ -67,7 +53,7 @@ fun PoseViewerCard(
         else -> "Offline" to AresError
     }
 
-    AnalyticsCard(
+    GlassCard(
         modifier = modifier
     ) {
         CardHeader(
@@ -77,7 +63,6 @@ fun PoseViewerCard(
             statusText = statusText,
             statusColor = statusColor
         )
-
 
         Column(
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -116,59 +101,27 @@ private fun PoseRow(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            PoseValueCard("X", x, "m", color, Modifier.weight(1f))
-            PoseValueCard("Y", y, "m", color, Modifier.weight(1f))
-            PoseValueCard("Heading", heading?.let { Math.toDegrees(it) }, "°", color, Modifier.weight(1f))
-        }
-    }
-}
-
-@Composable
-private fun PoseValueCard(
-    label: String,
-    value: Double?,
-    unit: String,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(AresSurfaceElevated)
-            .border(0.5.dp, AresBorder, RoundedCornerShape(6.dp))
-            .padding(vertical = 6.dp, horizontal = 8.dp)
-    ) {
-        Column(
-            horizontalAlignment = Alignment.Start,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = label,
-                fontSize = 9.sp,
-                color = AresTextTertiary,
-                fontWeight = FontWeight.Bold
+            MetricValueBadge(
+                label = "X",
+                value = x?.let { String.format("%.3f", it) } ?: "---",
+                unit = "m",
+                statusColor = if (x != null) color else AresTextTertiary,
+                modifier = Modifier.weight(1f)
             )
-            Row(
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(2.dp)
-            ) {
-                Text(
-                    text = value?.let { String.format("%.3f", it) } ?: "---",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (value != null) color else AresTextTertiary,
-                    fontFamily = FontFamily.Monospace
-                )
-                if (value != null) {
-                    Text(
-                        text = unit,
-                        fontSize = 9.sp,
-                        color = AresTextTertiary,
-                        fontWeight = FontWeight.Normal
-                    )
-                }
-            }
+            MetricValueBadge(
+                label = "Y",
+                value = y?.let { String.format("%.3f", it) } ?: "---",
+                unit = "m",
+                statusColor = if (y != null) color else AresTextTertiary,
+                modifier = Modifier.weight(1f)
+            )
+            MetricValueBadge(
+                label = "Heading",
+                value = heading?.let { String.format("%.3f", Math.toDegrees(it)) } ?: "---",
+                unit = "°",
+                statusColor = if (heading != null) color else AresTextTertiary,
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
-
