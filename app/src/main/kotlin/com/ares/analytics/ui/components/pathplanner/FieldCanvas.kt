@@ -43,7 +43,7 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 
-private val jsonFormatter: Json = Json { prettyPrint = true }
+private val jsonFormatter: Json = Json { prettyPrint = true; ignoreUnknownKeys = true; isLenient = true }
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -277,31 +277,40 @@ fun FieldCanvas(
 
     LaunchedEffect(projectPath) {
         try {
-            val searchDirs = if (!projectPath.isNullOrEmpty()) {
+            val searchDirs = mutableListOf<File>()
+            if (!projectPath.isNullOrEmpty()) {
                 val relDir = if (league == League.FTC) {
                     if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths" else "src/main/assets/paths"
                 } else "src/main/deploy/paths"
-                listOf(File(projectPath, relDir))
-            } else {
-                listOf(
-                    File("../ARES-FTC/TeamCode/src/main/assets/paths"),
-                    File("TeamCode/src/main/assets/paths"),
-                    File("src/main/assets/paths"),
-                    File("../src/main/assets/paths")
-                )
+                searchDirs.add(File(projectPath, relDir))
             }
+            searchDirs.addAll(listOf(
+                File("c:/Users/david/dev/robotics/ftc/ARES-FTC/TeamCode/src/main/assets/paths"),
+                File("../ARES-FTC/TeamCode/src/main/assets/paths"),
+                File("TeamCode/src/main/assets/paths"),
+                File("src/main/assets/paths"),
+                File("../src/main/assets/paths")
+            ))
 
             for (dir in searchDirs) {
                 if (dir.exists()) {
                     val fObs = File(dir, "obstacles.json")
-                    if (fObs.exists()) updateObstacles(Json.decodeFromString(fObs.readText()))
+                    if (fObs.exists()) {
+                        try { updateObstacles(jsonFormatter.decodeFromString(fObs.readText())) } catch (e: Exception) { e.printStackTrace() }
+                    }
                     val fGp = File(dir, "game_pieces.json")
-                    if (fGp.exists()) updateGamePieces(Json.decodeFromString(fGp.readText()))
+                    if (fGp.exists()) {
+                        try { updateGamePieces(jsonFormatter.decodeFromString(fGp.readText())) } catch (e: Exception) { e.printStackTrace() }
+                    }
                     val fAt = File(dir, "apriltags.json")
-                    if (fAt.exists()) updateAprilTags(Json.decodeFromString(fAt.readText()))
+                    if (fAt.exists()) {
+                        try { updateAprilTags(jsonFormatter.decodeFromString(fAt.readText())) } catch (e: Exception) { e.printStackTrace() }
+                    }
                     val fWp = File(dir, "field_waypoints.json")
-                    if (fWp.exists()) updateFieldWaypoints(Json.decodeFromString(fWp.readText()))
-                    break
+                    if (fWp.exists()) {
+                        try { updateFieldWaypoints(jsonFormatter.decodeFromString(fWp.readText())) } catch (e: Exception) { e.printStackTrace() }
+                    }
+                    if (fObs.exists() || fGp.exists()) break
                 }
             }
 
