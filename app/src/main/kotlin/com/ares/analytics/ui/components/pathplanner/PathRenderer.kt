@@ -235,7 +235,8 @@ fun DrawScope.drawActualPathAndDeviations(
     h: Float,
     fieldWidthM: Double,
     fieldHeightM: Double,
-    league: League
+    league: League,
+    showDeviations: Boolean = false
 ) {
     val actualPathObj = if (pathCache.actualPath != null &&
         pathCache.actualPoints.size == actualPath.size &&
@@ -263,7 +264,8 @@ fun DrawScope.drawActualPathAndDeviations(
     if (actualPath.size >= 2) {
         drawPath(path = actualPathObj, color = AresPathActual, style = Stroke(width = 3f))
 
-        if (waypoints.size >= 2) {
+        if (showDeviations && waypoints.size >= 2) {
+
             val step = maxOf(1, actualPath.size / 20)
             for (i in 0 until actualPath.size step step) {
                 val actualWp = actualPath[i]

@@ -65,9 +65,10 @@ fun JoystickVisualizer(
             var lastY: Boolean? = null
             
             // Publish static configurations once
-            nt4ClientService.publishInputBoolean(1007, true) // isTeleopMode
-            nt4ClientService.publishInputBoolean(1008, false) // isFieldCentric
-            nt4ClientService.publishInputBoolean(1009, true) // isRedAlliance
+            nt4ClientService.publishBoolean("ARES/Input/isTeleopMode", true)
+            nt4ClientService.publishBoolean("ARES/Input/isFieldCentric", false)
+            nt4ClientService.publishBoolean("ARES/Input/isRedAlliance", true)
+
 
             while (true) {
                 val g1 = gamepad1StateFlow?.value
@@ -106,18 +107,19 @@ fun JoystickVisualizer(
                 val xPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.x else keyboardState.isUPressed
                 val yPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.y else keyboardState.isIPressed
 
-                if (vx != lastVx) { nt4ClientService.publishInputDouble(1001, vx); lastVx = vx }
-                if (vy != lastVy) { nt4ClientService.publishInputDouble(1002, vy); lastVy = vy }
-                if (omega != lastOmega) { nt4ClientService.publishInputDouble(1003, omega); lastOmega = omega }
+                if (vx != lastVx) { nt4ClientService.publishDouble("ARES/Input/vx", vx); lastVx = vx }
+                if (vy != lastVy) { nt4ClientService.publishDouble("ARES/Input/vy", vy); lastVy = vy }
+                if (omega != lastOmega) { nt4ClientService.publishDouble("ARES/Input/omega", omega); lastOmega = omega }
                 
-                if (qPressed != lastQ) { nt4ClientService.publishInputBoolean(1004, qPressed); lastQ = qPressed }
-                if (ePressed != lastE) { nt4ClientService.publishInputBoolean(1005, ePressed); lastE = ePressed }
-                if (shiftPressed != lastShift) { nt4ClientService.publishInputBoolean(1006, shiftPressed); lastShift = shiftPressed }
+                if (qPressed != lastQ) { nt4ClientService.publishBoolean("ARES/Input/isIntaking", qPressed); lastQ = qPressed }
+                if (ePressed != lastE) { nt4ClientService.publishBoolean("ARES/Input/isFlywheelOn", ePressed); lastE = ePressed }
+                if (shiftPressed != lastShift) { nt4ClientService.publishBoolean("ARES/Input/isTransferring", shiftPressed); lastShift = shiftPressed }
                 
-                if (aPressed != lastA) { nt4ClientService.publishInputBoolean(1016, aPressed); lastA = aPressed }
-                if (bPressed != lastB) { nt4ClientService.publishInputBoolean(1017, bPressed); lastB = bPressed }
-                if (xPressed != lastX) { nt4ClientService.publishInputBoolean(1018, xPressed); lastX = xPressed }
-                if (yPressed != lastY) { nt4ClientService.publishInputBoolean(1019, yPressed); lastY = yPressed }
+                if (aPressed != lastA) { nt4ClientService.publishBoolean("ARES/Input/isButtonAPressed", aPressed); lastA = aPressed }
+                if (bPressed != lastB) { nt4ClientService.publishBoolean("ARES/Input/isButtonBPressed", bPressed); lastB = bPressed }
+                if (xPressed != lastX) { nt4ClientService.publishBoolean("ARES/Input/isButtonXPressed", xPressed); lastX = xPressed }
+                if (yPressed != lastY) { nt4ClientService.publishBoolean("ARES/Input/isButtonYPressed", yPressed); lastY = yPressed }
+
 
                 kotlinx.coroutines.delay(20)
             }
