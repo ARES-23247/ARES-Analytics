@@ -24,24 +24,143 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
+ * Handles serialization, parsing, path file loading, auto file loading, and disk persistence.
  */
 class PathSerializationManager(
     private val scope: CoroutineScope,
     private val stateFlow: MutableStateFlow<PathPlannerState>,
     private val onTrajectoryChanged: () -> Unit
 ) {
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
+    fun fetchAvailablePaths(projectPath: String?, league: League) {
+        if (projectPath.isNullOrBlank()) return
+        scope.launch(Dispatchers.IO) {
+            val pathsDir = File(projectPath, if (league == League.FTC) {
+                if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
+                else "src/main/assets/pathplanner/paths"
+            } else "src/main/deploy/pathplanner/paths")
 
-     *
+            val autosDir = File(projectPath, if (league == League.FTC) {
+                if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/autos"
+                else "src/main/assets/pathplanner/autos"
+            } else "src/main/deploy/pathplanner/autos")
 
-     */
+            val pathFiles = pathsDir.listFiles { _, name -> name.endsWith(".path") }?.map { it.nameWithoutExtension }?.sorted() ?: emptyList()
+            val autoFiles = autosDir.listFiles { _, name -> name.endsWith(".auto") }?.map { it.nameWithoutExtension }?.sorted() ?: emptyList()
+
+            val pathPreviews = pathFiles.map { pName ->
+                PathPreview(pName, loadPathTrajectory(pName, projectPath, league))
+            }
+            val autoPreviews = autoFiles.map { aName ->
+                PathPreview(aName, loadAutoTrajectory(aName, projectPath, league))
+            }
+
+            stateFlow.update {
+                it.copy(
+                    availablePaths = pathFiles,
+                    availableAutos = autoFiles,
+                    availablePathPreviews = pathPreviews,
+                    availableAutoPreviews = autoPreviews
+                )
+            }
+        }
+    }
+
+    fun loadPath(projectPath: String?, league: League, pathNameOverride: String? = null) {
+        if (projectPath.isNullOrBlank()) return
+        scope.launch(Dispatchers.IO) {
+            val s = stateFlow.value
+            val targetPathName = pathNameOverride ?: s.pathName
+            val relativeDir = if (league == League.FTC) {
+                if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
+                else "src/main/assets/pathplanner/paths"
+            } else "src/main/deploy/pathplanner/paths"
+
+            val file = File(File(projectPath, relativeDir), "$targetPathName.path")
+            if (!file.exists()) {
+                stateFlow.update { it.copy(saveStatus = "Path file $targetPathName.path does not exist") }
+                return@launch
+            }
+            try {
+                val pathFile = AppJson.decodeFromString<PathPlannerFile>(file.readText())
+                val loadedWps = pathFile.waypoints.map { pwp ->
+                    val next = pwp.nextControl
+                    val prev = pwp.prevControl
+                    val heading = when {
+                        next != null -> atan2(next.y - pwp.anchor.y, next.x - pwp.anchor.x)
+                        prev != null -> atan2(pwp.anchor.y - prev.y, pwp.anchor.x - prev.x)
+                        else -> 0.0
+                    }
+                    val prevLength = if (prev != null) hypot(pwp.anchor.x - prev.x, pwp.anchor.y - prev.y) else 0.5
+                    val nextLength = if (next != null) hypot(next.x - pwp.anchor.x, next.y - pwp.anchor.y) else 0.5
+                    Waypoint(pwp.anchor.x, pwp.anchor.y, heading, prevControlLength = prevLength, nextControlLength = nextLength)
+                }
+                val trajectory = TrajectoryEstimator.generateTrajectory(
+                    waypoints = loadedWps,
+                    globalConstraints = pathFile.globalConstraints,
+                    constraintZones = pathFile.constraintZones,
+                    rotationTargets = pathFile.rotationTargets,
+                    idealStartingState = pathFile.idealStartingState,
+                    goalEndState = pathFile.goalEndState
+                )
+                stateFlow.update {
+                    it.copy(
+                        pathName = targetPathName,
+                        waypoints = loadedWps,
+                        globalConstraints = pathFile.globalConstraints,
+                        constraintZones = pathFile.constraintZones,
+                        rotationTargets = pathFile.rotationTargets,
+                        eventMarkers = pathFile.eventMarkers,
+                        pointTowardsZones = pathFile.pointTowardsZones,
+                        idealStartingState = pathFile.idealStartingState,
+                        goalEndState = pathFile.goalEndState,
+                        reversed = pathFile.reversed,
+                        useDefaultConstraints = pathFile.useDefaultConstraints,
+                        trajectory = trajectory,
+                        estimatedDuration = trajectory.durationSeconds,
+                        saveStatus = "Loaded path: $targetPathName"
+                    )
+                }
+            } catch (e: Exception) {
+                stateFlow.update { it.copy(saveStatus = "Failed to load path: ${e.message}") }
+            }
+        }
+    }
+
+    fun loadAuto(projectPath: String?, league: League, autoNameOverride: String? = null) {
+        if (projectPath.isNullOrBlank()) return
+        scope.launch(Dispatchers.IO) {
+            val s = stateFlow.value
+            val targetAutoName = autoNameOverride ?: s.pathName
+            val relativeDir = if (league == League.FTC) {
+                if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/autos"
+                else "src/main/assets/pathplanner/autos"
+            } else "src/main/deploy/pathplanner/autos"
+
+            val file = File(File(projectPath, relativeDir), "$targetAutoName.auto")
+            if (!file.exists()) {
+                stateFlow.update { it.copy(saveStatus = "Auto file $targetAutoName.auto does not exist") }
+                return@launch
+            }
+            try {
+                val autoFile = AppJson.decodeFromString<AutoFile>(file.readText())
+                val autoTrajectory = loadAutoTrajectory(targetAutoName, projectPath, league)
+                stateFlow.update {
+                    it.copy(
+                        pathName = targetAutoName,
+                        autoStartingPose = autoFile.startingPose,
+                        currentAutoCommands = listOf(autoFile.command),
+                        trajectory = autoTrajectory,
+                        estimatedDuration = autoTrajectory?.durationSeconds ?: 0.0,
+                        saveStatus = "Loaded auto: $targetAutoName"
+                    )
+                }
+            } catch (e: Exception) {
+                stateFlow.update { it.copy(saveStatus = "Failed to load auto: ${e.message}") }
+            }
+        }
+    }
+
     fun loadPathTrajectory(pathName: String, projectPath: String, league: League): Trajectory? {
         try {
             val relativeDir = if (league == League.FTC) {
@@ -79,13 +198,6 @@ class PathSerializationManager(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun loadPathWaypoints(pathName: String, projectPath: String, league: League): List<Waypoint>? {
         try {
             val relativeDir = if (league == League.FTC) {
@@ -115,13 +227,6 @@ class PathSerializationManager(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun loadAutoTrajectory(autoName: String, projectPath: String, league: League): Trajectory? {
         try {
             val relativeDir = if (league == League.FTC) {
@@ -133,21 +238,15 @@ class PathSerializationManager(
             val targetDir = File(projectPath, relativeDir)
             val file = File(targetDir, "$autoName.auto")
             if (!file.exists()) return null
-            val autoFile = AppJson.decodeFromString<AutoCommandNode>(file.readText())
+            val autoFile = AppJson.decodeFromString<AutoFile>(file.readText())
             val pathNames = mutableListOf<String>()
-            /**
 
-             * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-             *
-
-             */
             fun extractPaths(node: AutoCommandNode) {
                 if (node.type == "path") {
                     val pName = node.data["pathName"]?.let { 
                         if (it is JsonPrimitive && it.isString) it.content else null 
                     }
-                    if (pName != null && pName.isNotEmpty()) {
+                    if (!pName.isNullOrEmpty()) {
                         pathNames.add(pName)
                     }
                 }
@@ -159,15 +258,8 @@ class PathSerializationManager(
                     } catch (e: Exception) {}
                 }
             }
-            val rootCommandField = (autoFile as? AutoCommandNode)?.data?.get("command")
-            if (rootCommandField != null) {
-                try {
-                    val rootCommandNode = AppJson.decodeFromJsonElement(AutoCommandNode.serializer(), rootCommandField)
-                    extractPaths(rootCommandNode)
-                } catch (e: Exception) {}
-            } else {
-                extractPaths(autoFile)
-            }
+            extractPaths(autoFile.command)
+
             var totalTime = 0.0
             val combinedStates = mutableListOf<TrajectoryState>()
             for (pName in pathNames) {
@@ -186,32 +278,19 @@ class PathSerializationManager(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun recalculateAutoTrajectory(projectPath: String?, league: League) {
         if (projectPath == null) return
         scope.launch(Dispatchers.IO) {
             val s = stateFlow.value
             val root = s.currentAutoCommands.firstOrNull() ?: return@launch
             val pathNames = mutableListOf<String>()
-            /**
 
-             * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-             *
-
-             */
             fun extractPaths(node: AutoCommandNode) {
                 if (node.type == "path") {
                     val pathName = node.data["pathName"]?.let { 
                         if (it is JsonPrimitive && it.isString) it.content else null 
                     }
-                    if (pathName != null && pathName.isNotEmpty()) {
+                    if (!pathName.isNullOrEmpty()) {
                         pathNames.add(pathName)
                     }
                 }
@@ -309,64 +388,6 @@ class PathSerializationManager(
             val targetFile = File(targetDir, "${s.pathName}.path")
             targetFile.writeText(serialized)
 
-            try {
-                val packageDir = if (league == League.FTC) {
-                    val candidates = listOf(
-                        "TeamCode/src/main/java/org/firstinspires/ftc/teamcode",
-                        "TeamCode/src/main/kotlin/org/firstinspires/ftc/teamcode",
-                        "src/main/java/org/firstinspires/ftc/teamcode",
-                        "src/main/kotlin/org/firstinspires/ftc/teamcode"
-                    )
-                    candidates.map { File(projectPath, it) }.firstOrNull { it.exists() && it.isDirectory }
-                } else {
-                    val srcKotlin = File(projectPath, "src/main/kotlin")
-                    if (srcKotlin.exists() && srcKotlin.isDirectory) srcKotlin else File(projectPath, "src/main/java")
-                }
-
-                if (packageDir != null && packageDir.exists()) {
-                    val className = s.pathName.split("_", "-").joinToString("") { it.replaceFirstChar { c -> c.uppercase() } } + "Auto"
-                    val companionFile = File(packageDir, "$className.kt")
-                    val packageName = if (league == League.FTC) {
-                        "org.firstinspires.ftc.teamcode"
-                    } else {
-                        "com.areslib.pathing"
-                    }
-                    val code = """
-                        package $packageName
-
-                        import com.areslib.pathing.DynamicPathLoader
-                        import com.areslib.pathing.HolonomicPathFollower
-
-                        /**
-                         * Auto-generated companion code for the path: ${s.pathName}.path
-                         * Map event callbacks to trigger subsystem commands.
-                         */
-                        object $className {
-                            val pathName = "${s.pathName}"
-
-
-                            /**
-                             * buildPathFollower fun.
-                             */
-                            fun buildPathFollower(
-                                follower: HolonomicPathFollower,
-                                eventMap: Map<String, () -> Unit>
-                            ) {
-                                val path = DynamicPathLoader.loadPath(pathName)
-                                follower.startPath(path)
-                                follower.onEventTriggered = { eventName ->
-                                    println("[Auto] Path event triggered: ${'$'}eventName")
-                                    eventMap[eventName]?.invoke()
-                                }
-                            }
-                        }
-                    """.trimIndent()
-                    companionFile.writeText(code)
-                }
-            } catch (e: Exception) {
-                System.err.println("WARN: Failed to generate companion auto file: ${e.message}")
-            }
-
             if (league == League.FTC) {
                 val pushed = pushFileToRobot(targetFile, "/sdcard/FIRST/paths", "${s.pathName}.path")
                 if (pushed) {
@@ -383,6 +404,36 @@ class PathSerializationManager(
             }
         } catch (e: Exception) {
             stateFlow.update { it.copy(saveStatus = "Save failed: ${e.message}") }
+        }
+    }
+
+    suspend fun saveAuto(projectPath: String, league: League) = withContext(Dispatchers.IO) {
+        val s = stateFlow.value
+        try {
+            val relativeDir = if (league == League.FTC) {
+                "TeamCode/src/main/assets/pathplanner/autos"
+            } else {
+                "src/main/deploy/pathplanner/autos"
+            }
+            val targetDir = File(projectPath, relativeDir)
+            targetDir.mkdirs()
+            val rootCmd = s.currentAutoCommands.firstOrNull() ?: AutoCommandNode("sequential")
+            val autoFile = AutoFile(
+                version = "1.0",
+                startingPose = s.autoStartingPose,
+                command = rootCmd
+            )
+            val json = Json { prettyPrint = true; encodeDefaults = false }
+            val serialized = json.encodeToString(autoFile)
+            val targetFile = File(targetDir, "${s.pathName}.auto")
+            targetFile.writeText(serialized)
+
+            if (league == League.FTC) {
+                pushFileToRobot(targetFile, "/sdcard/FIRST/autos", "${s.pathName}.auto")
+            }
+            stateFlow.update { it.copy(saveStatus = "Saved auto to ${targetFile.name}!") }
+        } catch (e: Exception) {
+            stateFlow.update { it.copy(saveStatus = "Auto save failed: ${e.message}") }
         }
     }
 
@@ -419,13 +470,6 @@ class PathSerializationManager(
         return "adb"
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun pushFileToRobot(localFile: File, remoteDir: String, remoteFileName: String): Boolean {
         try {
             val adb = findAdbPath()

@@ -513,11 +513,14 @@ class PathPlannerViewModel(
 
         scope.launch {
             when (intent) {
-                is PathPlannerIntent.LoadPath -> {
-                    // delegated in actual implementation
-                }
+                is PathPlannerIntent.LoadPath -> serializationManager.loadPath(intent.projectPath, intent.league)
+                is PathPlannerIntent.LoadAuto -> serializationManager.loadAuto(intent.projectPath, intent.league)
+                is PathPlannerIntent.FetchAvailablePaths -> serializationManager.fetchAvailablePaths(intent.projectPath, intent.league)
                 is PathPlannerIntent.SavePath -> serializationManager.savePath(intent.projectPath ?: return@launch, intent.league, ::updateContextAutoSync)
-                is PathPlannerIntent.FetchAvailablePaths -> { }
+                is PathPlannerIntent.SaveAuto -> serializationManager.saveAuto(intent.projectPath ?: return@launch, intent.league)
+                is PathPlannerIntent.CreateNewPath -> _state.update { it.copy(pathName = intent.name, saveStatus = "New path initialized") }
+                is PathPlannerIntent.CreateNewAuto -> _state.update { it.copy(pathName = intent.name, autoStartingPose = null, currentAutoCommands = listOf(com.ares.analytics.shared.AutoCommandNode("sequential")), saveStatus = "New auto initialized") }
+                is PathPlannerIntent.UpdateContextAuto -> serializationManager.recalculateAutoTrajectory(intent.projectPath, intent.league)
                 is PathPlannerIntent.ToggleBrowser -> _state.update { it.copy(showBrowser = !it.showBrowser) }
                 is PathPlannerIntent.UpdatePathName -> _state.update { it.copy(pathName = intent.name) }
                 is PathPlannerIntent.UpdateToolMode -> _state.update { it.copy(toolMode = intent.mode) }
@@ -578,9 +581,6 @@ class PathPlannerViewModel(
                 is PathPlannerIntent.DeleteConstraintZone -> { _state.update { val l = it.constraintZones.toMutableList(); l.removeAt(intent.index); it.copy(constraintZones = l) }; recalculateDuration() }
 
                 is PathPlannerIntent.UpdateEditorMode -> _state.update { it.copy(activeEditorMode = intent.mode) }
-                is PathPlannerIntent.CreateNewAuto -> _state.update { it.copy(pathName = intent.name, autoStartingPose = null, currentAutoCommands = listOf(com.ares.analytics.shared.AutoCommandNode("sequential")), saveStatus = "New auto initialized") }
-                
-                // Fallbacks to serializationManager will be handled later
                 else -> { }
             }
         }

@@ -9,9 +9,6 @@ object TelemetryTopicExtractor {
 
     fun normalizeTopic(key: String): String {
         return when (key) {
-            "ARES/EstimatedPose/0" -> "Drive/Pose_X"
-            "ARES/EstimatedPose/1" -> "Drive/Pose_Y"
-            "ARES/EstimatedPose/2" -> "Drive/Pose_Heading"
             "Drive/Drive_Heading" -> "Drive/Pose_Heading"
             "pinpoint_x", "pinpoint/x" -> "Drive/Odom_X"
             "pinpoint_y", "pinpoint/y" -> "Drive/Odom_Y"

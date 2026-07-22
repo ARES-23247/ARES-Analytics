@@ -1,5 +1,6 @@
 package com.ares.analytics.service
 
+import com.ares.analytics.service.log.*
 import com.ares.analytics.shared.TelemetryFrame
 import kotlinx.coroutines.test.runTest
 import java.io.ByteArrayOutputStream
@@ -53,7 +54,7 @@ class DSLogDecoderServiceTest {
             fos.write(baos.toByteArray())
         }
         val sessionId = "dslog-session-1"
-        decoderService.parseDsLog(tempDsLog, sessionId, batcher)
+        decoderService.decode(tempDsLog, sessionId, batcher)
         batcher.flush()
 
         // Verify the database has the telemetry frames

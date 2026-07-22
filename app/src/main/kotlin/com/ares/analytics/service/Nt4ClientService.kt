@@ -1,6 +1,7 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.*
+import com.ares.analytics.service.nt4.Nt4Topic
 import io.ktor.client.*
 import io.ktor.client.plugins.websocket.*
 import io.ktor.client.request.header
@@ -733,16 +734,3 @@ open class Nt4ClientService(
         return flow.asStateFlow()
     }
 }
-
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
-data class Nt4Topic(
-    val id: Int,
-    val name: String,
-    val type: String
-)

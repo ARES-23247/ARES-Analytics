@@ -1,5 +1,6 @@
 package com.ares.analytics.service
 
+import com.ares.analytics.service.log.HootDecoderService
 import com.ares.analytics.shared.TelemetryFrame
 import kotlinx.coroutines.test.runTest
 import java.io.File
