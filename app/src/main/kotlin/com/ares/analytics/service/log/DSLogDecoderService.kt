@@ -1,5 +1,7 @@
-package com.ares.analytics.service
+package com.ares.analytics.service.log
 
+import com.ares.analytics.service.DatabaseService
+import com.ares.analytics.service.FrameBatcher
 import com.ares.analytics.shared.SessionAnnotation
 import com.ares.analytics.shared.TelemetryFrame
 import java.io.DataInputStream
@@ -9,30 +11,25 @@ import java.io.FileInputStream
 import java.util.UUID
 
 /**
-
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
  *
-
  */
-class DSLogDecoderService(private val databaseService: DatabaseService) {
+class DSLogDecoderService(private val databaseService: DatabaseService) : BaseLogDecoder() {
 
     /**
-
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
      *
-
      */
     enum class PowerDistributionType {
         REV, CTRE, NONE
     }
 
-    suspend fun parseDsLog(
-        dslogFile: File,
+    override suspend fun decode(
+        file: File,
         sessionId: String,
         batcher: FrameBatcher
     ) {
+        val dslogFile = file
         if (!dslogFile.exists()) return
         var startTimeMs = 0.0
         var recordCount = 0

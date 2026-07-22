@@ -1,20 +1,18 @@
-package com.ares.analytics.service
+package com.ares.analytics.service.log
 
+import com.ares.analytics.service.FrameBatcher
 import com.ares.analytics.shared.TelemetryFrame
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
-
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
  *
-
  */
-class RlogDecoderService {
+class RlogDecoderService : BaseLogDecoder() {
 
-    suspend fun parseRlog(
+    override suspend fun decode(
         file: File,
         sessionId: String,
         batcher: FrameBatcher

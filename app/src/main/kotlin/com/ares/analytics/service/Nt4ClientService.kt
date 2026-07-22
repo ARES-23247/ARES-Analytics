@@ -521,7 +521,7 @@ open class Nt4ClientService(
         robotId: String
     ) {
         // Normalize key: strip leading '/' for consistent matching everywhere
-        val normalizedName = ntTopic.name.removePrefix("/")
+        val normalizedName = com.ares.analytics.service.log.TelemetryTopicExtractor.normalizeTopic(ntTopic.name.removePrefix("/"))
 
         if (discoveredKeys.add(normalizedName)) {
             println("[Nt4ClientService] Discovered telemetry key: $normalizedName (type=${ntTopic.type})")

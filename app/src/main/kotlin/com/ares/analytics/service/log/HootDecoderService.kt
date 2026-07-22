@@ -1,4 +1,4 @@
-package com.ares.analytics.service
+package com.ares.analytics.service.log
 
 import com.ares.analytics.shared.*
 import kotlinx.coroutines.Dispatchers
@@ -21,7 +21,7 @@ class HootDecoderService(
     private val databaseService: DatabaseService,
     private val summaryEngineService: SummaryEngineService,
     private val sysIdService: SysIdService
-) {
+) : BaseLogDecoder() {
 
     /**
 
@@ -98,6 +98,15 @@ class HootDecoderService(
             }
         }
         return null
+    }
+
+    override suspend fun decode(
+        file: File,
+        sessionId: String,
+        batcher: FrameBatcher
+    ) {
+        // HootDecoderService uses native CSV DuckDB insertion
+        // For interface compliance, this is a no-op when called directly.
     }
 
     /**

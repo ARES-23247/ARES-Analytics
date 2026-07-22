@@ -1,6 +1,7 @@
 package com.ares.analytics.di
 
 import com.ares.analytics.service.*
+import com.ares.analytics.service.log.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 

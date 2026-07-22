@@ -5,17 +5,26 @@ import com.ares.analytics.shared.TelemetryFrame
 /**
  * Encapsulates topic name mapping, signal normalization, and NT4 framing.
  */
-class TelemetryTopicExtractor {
+object TelemetryTopicExtractor {
 
-    /**
+    fun normalizeTopic(key: String): String {
+        return when (key) {
+            "ARES/EstimatedPose/0" -> "Drive/Pose_X"
+            "ARES/EstimatedPose/1" -> "Drive/Pose_Y"
+            "ARES/EstimatedPose/2" -> "Drive/Pose_Heading"
+            "Drive/Drive_Heading" -> "Drive/Pose_Heading"
+            "pinpoint_x", "pinpoint/x" -> "Drive/Odom_X"
+            "pinpoint_y", "pinpoint/y" -> "Drive/Odom_Y"
+            "pinpoint_heading", "pinpoint/heading" -> "Drive/Odom_Heading"
+            "Vision/Pose/X" -> "Vision/Pose_X"
+            "Vision/Pose/Y" -> "Vision/Pose_Y"
+            "Vision/Pose/Heading" -> "Vision/Pose_Heading"
+            "SysId_Data", "sysid_data" -> "SysId/Data"
+            else -> key
+        }
+    }
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun extractTopics(frame: TelemetryFrame): TelemetryFrame {
-        // TODO: Normalize topics, handle NetworkTables 4.0 mapping, etc.
-        return frame
+        return frame.copy(key = normalizeTopic(frame.key))
     }
 }

@@ -1,6 +1,7 @@
 package com.ares.analytics.viewmodel
 
 import com.ares.analytics.service.*
+import com.ares.analytics.service.log.*
 import com.ares.analytics.shared.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

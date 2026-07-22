@@ -109,16 +109,16 @@ class LogParserService(
                 } else {
                     file
                 }
-                DSLogDecoderService(databaseService).parseDsLog(targetFile, sessionId, batcher)
+                com.ares.analytics.service.log.DSLogDecoderService(databaseService).decode(targetFile, sessionId, batcher)
             }
             lowerName.endsWith(".log") -> {
-                RoadRunnerDecoderService().parseRoadRunnerLog(file, sessionId, batcher)
+                com.ares.analytics.service.log.RoadRunnerDecoderService().decode(file, sessionId, batcher)
             }
             lowerName.endsWith(".rlog") -> {
-                RlogDecoderService().parseRlog(file, sessionId, batcher)
+                com.ares.analytics.service.log.RlogDecoderService().decode(file, sessionId, batcher)
             }
             lowerName.endsWith(".revlog") -> {
-                RevlogDecoderService(databaseService).parseRevlog(file, sessionId, batcher, this@LogParserService)
+                com.ares.analytics.service.log.RevlogDecoderService(databaseService, this@LogParserService).decode(file, sessionId, batcher)
             }
             else -> {
                 throw IllegalArgumentException("Unsupported log file format: ${file.name}")
@@ -206,11 +206,11 @@ class LogParserService(
                     } else {
                         file
                     }
-                    DSLogDecoderService(databaseService).parseDsLog(targetFile, sessionId, batcher)
+                    com.ares.analytics.service.log.DSLogDecoderService(databaseService).decode(targetFile, sessionId, batcher)
                 }
-                lowerName.endsWith(".log") -> RoadRunnerDecoderService().parseRoadRunnerLog(file, sessionId, batcher)
-                lowerName.endsWith(".rlog") -> RlogDecoderService().parseRlog(file, sessionId, batcher)
-                lowerName.endsWith(".revlog") -> RevlogDecoderService(databaseService).parseRevlog(file, sessionId, batcher, this@LogParserService)
+                lowerName.endsWith(".log") -> com.ares.analytics.service.log.RoadRunnerDecoderService().decode(file, sessionId, batcher)
+                lowerName.endsWith(".rlog") -> com.ares.analytics.service.log.RlogDecoderService().decode(file, sessionId, batcher)
+                lowerName.endsWith(".revlog") -> com.ares.analytics.service.log.RevlogDecoderService(databaseService, this@LogParserService).decode(file, sessionId, batcher)
                 else -> throw IllegalArgumentException("Unsupported log file format: ${file.name}")
             }
 

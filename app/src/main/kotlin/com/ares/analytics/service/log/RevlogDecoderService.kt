@@ -1,5 +1,8 @@
-package com.ares.analytics.service
+package com.ares.analytics.service.log
 
+import com.ares.analytics.service.DatabaseService
+import com.ares.analytics.service.FrameBatcher
+import com.ares.analytics.service.LogParserService
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.TimeUnit
@@ -7,21 +10,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
-
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
  *
-
  */
 class RevlogDecoderService(
-    private val databaseService: DatabaseService
-) {
+    private val databaseService: DatabaseService,
+    private val logParserService: LogParserService
+) : BaseLogDecoder() {
 
-    suspend fun parseRevlog(
+    override suspend fun decode(
         file: File,
         sessionId: String,
-        batcher: FrameBatcher,
-        logParserService: LogParserService
+        batcher: FrameBatcher
     ) {
         val tempWpiLog = File(System.getProperty("java.io.tmpdir"), "revlog_" + UUID.randomUUID().toString() + ".wpilog")
         try {

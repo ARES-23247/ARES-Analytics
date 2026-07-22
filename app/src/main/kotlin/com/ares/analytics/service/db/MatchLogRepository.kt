@@ -300,31 +300,16 @@ suspend fun executeRaw(sql: String) = withDbLock {
      * Used for live-telemetry on the ephemeral connection where deduplication matters.
      */
     private fun insertTelemetryFramesJdbc(targetConn: Connection, frames: List<TelemetryFrame>) {
-        targetConn.autoCommit = false
-        try {
-            targetConn.prepareStatement("INSERT OR REPLACE INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value) VALUES (?, ?, ?, ?, ?)").use { ps ->
-                frames.chunked(10000).forEach { chunk ->
-                    for (frame in chunk) {
-                        ps.setLong(1, frame.timestampMs)
-                        ps.setString(2, frame.sessionId)
-                        ps.setString(3, frame.key)
-                        ps.setDouble(4, frame.value)
-                        if (frame.stringValue != null) {
-                            ps.setString(5, frame.stringValue)
-                        } else {
-                            ps.setNull(5, java.sql.Types.VARCHAR)
-                        }
-                        ps.addBatch()
-                    }
-                    ps.executeBatch()
-                }
+        executeBatchInsert(targetConn, frames, "INSERT OR REPLACE INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value) VALUES (?, ?, ?, ?, ?)") { ps, frame ->
+            ps.setLong(1, frame.timestampMs)
+            ps.setString(2, frame.sessionId)
+            ps.setString(3, frame.key)
+            ps.setDouble(4, frame.value)
+            if (frame.stringValue != null) {
+                ps.setString(5, frame.stringValue)
+            } else {
+                ps.setNull(5, java.sql.Types.VARCHAR)
             }
-            targetConn.commit()
-        } catch (e: Exception) {
-            targetConn.rollback()
-            throw e
-        } finally {
-            targetConn.autoCommit = true
         }
     }
 
@@ -564,25 +549,39 @@ suspend fun executeRaw(sql: String) = withDbLock {
         }
     }
 
-    suspend fun insertConsoleMessages(messages: List<ConsoleMessage>, sessionId: String) = withDbLock {
-        conn.autoCommit = false
+    private inline fun <T> executeBatchInsert(
+        targetConn: Connection,
+        items: List<T>,
+        sql: String,
+        batchSize: Int = 10000,
+        crossinline bind: (java.sql.PreparedStatement, T) -> Unit
+    ) {
+        targetConn.autoCommit = false
         try {
-            conn.prepareStatement("INSERT OR REPLACE INTO console_messages (timestamp_ms, session_id, text, severity) VALUES (?, ?, ?, ?)").use { ps ->
-                for (msg in messages) {
-                    ps.setLong(1, msg.timestampMs)
-                    ps.setString(2, sessionId)
-                    ps.setString(3, msg.text)
-                    ps.setString(4, msg.severity)
-                    ps.addBatch()
+            targetConn.prepareStatement(sql).use { ps ->
+                items.chunked(batchSize).forEach { chunk ->
+                    for (item in chunk) {
+                        bind(ps, item)
+                        ps.addBatch()
+                    }
+                    ps.executeBatch()
                 }
-                ps.executeBatch()
             }
-            conn.commit()
+            targetConn.commit()
         } catch (e: Exception) {
-            conn.rollback()
+            targetConn.rollback()
             throw e
         } finally {
-            conn.autoCommit = true
+            targetConn.autoCommit = true
+        }
+    }
+
+    suspend fun insertConsoleMessages(messages: List<ConsoleMessage>, sessionId: String) = withDbLock {
+        executeBatchInsert(conn, messages, "INSERT OR REPLACE INTO console_messages (timestamp_ms, session_id, text, severity) VALUES (?, ?, ?, ?)") { ps, msg ->
+            ps.setLong(1, msg.timestampMs)
+            ps.setString(2, sessionId)
+            ps.setString(3, msg.text)
+            ps.setString(4, msg.severity)
         }
     }
 

@@ -1,86 +1,60 @@
-package com.ares.analytics.service
+package com.ares.analytics.service.log
 
+import com.ares.analytics.service.FrameBatcher
 import com.ares.analytics.shared.TelemetryFrame
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
-
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
  *
-
  */
-class RoadRunnerDecoderService {
+class RoadRunnerDecoderService : BaseLogDecoder() {
 
     sealed interface RRSchema
     /**
-
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
      *
-
      */
     object IntSchema : RRSchema
     /**
-
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
      *
-
      */
     object LongSchema : RRSchema
     /**
-
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
      *
-
      */
     object DoubleSchema : RRSchema
     /**
-
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
      *
-
      */
     object StringSchema : RRSchema
     /**
-
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
      *
-
      */
     object BooleanSchema : RRSchema
     /**
-
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
      *
-
      */
     class EnumSchema(val constants: List<String>) : RRSchema
     /**
-
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
      *
-
      */
     class ArraySchema(val elementSchema: RRSchema) : RRSchema
     /**
-
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
      *
-
      */
     class StructSchema(val fields: List<Pair<String, RRSchema>>) : RRSchema
 
-    suspend fun parseRoadRunnerLog(
+    override suspend fun decode(
         file: File,
         sessionId: String,
         batcher: FrameBatcher
