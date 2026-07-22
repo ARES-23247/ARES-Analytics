@@ -252,54 +252,57 @@ fun SingleGamepadVisualizer(
     var btnLS by remember { mutableStateOf(false) }
     var btnRS by remember { mutableStateOf(false) }
 
-    if (currentFrame != null) {
-        lx = currentFrame.values["$gamepadId/LeftStick_X"] ?: 0.0
-        ly = currentFrame.values["$gamepadId/LeftStick_Y"] ?: 0.0
-        rx = currentFrame.values["$gamepadId/RightStick_X"] ?: 0.0
-        ry = currentFrame.values["$gamepadId/RightStick_Y"] ?: 0.0
-        lt = currentFrame.values["$gamepadId/LeftTrigger"] ?: 0.0
-        rt = currentFrame.values["$gamepadId/RightTrigger"] ?: 0.0
-        btnA = (currentFrame.values["$gamepadId/A"] ?: 0.0) > 0.5
-        btnB = (currentFrame.values["$gamepadId/B"] ?: 0.0) > 0.5
-        btnX = (currentFrame.values["$gamepadId/X"] ?: 0.0) > 0.5
-        btnY = (currentFrame.values["$gamepadId/Y"] ?: 0.0) > 0.5
-        dpadUp = (currentFrame.values["$gamepadId/DpadUp"] ?: 0.0) > 0.5
-        dpadDown = (currentFrame.values["$gamepadId/DpadDown"] ?: 0.0) > 0.5
-        dpadLeft = (currentFrame.values["$gamepadId/DpadLeft"] ?: 0.0) > 0.5
-        dpadRight = (currentFrame.values["$gamepadId/DpadRight"] ?: 0.0) > 0.5
-        lb = (currentFrame.values["$gamepadId/LeftBumper"] ?: 0.0) > 0.5
-        rb = (currentFrame.values["$gamepadId/RightBumper"] ?: 0.0) > 0.5
-        btnStart = (currentFrame.values["$gamepadId/Start"] ?: currentFrame.values["$gamepadId/Options"] ?: 0.0) > 0.5
-        btnBack = (currentFrame.values["$gamepadId/Back"] ?: currentFrame.values["$gamepadId/Share"] ?: 0.0) > 0.5
-        btnLS = (currentFrame.values["$gamepadId/LeftStickButton"] ?: 0.0) > 0.5
-        btnRS = (currentFrame.values["$gamepadId/RightStickButton"] ?: 0.0) > 0.5
-    } else if (nt4ClientService != null && !keyboardControlEnabled) {
-        LaunchedEffect(Unit) {
-            scope.launch {
-                nt4ClientService.telemetryFlow.collect { frame ->
-                    val key = frame.key
-                    val value = frame.value as? Double ?: return@collect
-                    when (key) {
-                        "$gamepadId/LeftStick_X" -> lx = value
-                        "$gamepadId/LeftStick_Y" -> ly = value
-                        "$gamepadId/RightStick_X" -> rx = value
-                        "$gamepadId/RightStick_Y" -> ry = value
-                        "$gamepadId/LeftTrigger" -> lt = value
-                        "$gamepadId/RightTrigger" -> rt = value
-                        "$gamepadId/A" -> btnA = value > 0.5
-                        "$gamepadId/B" -> btnB = value > 0.5
-                        "$gamepadId/X" -> btnX = value > 0.5
-                        "$gamepadId/Y" -> btnY = value > 0.5
-                        "$gamepadId/DpadUp" -> dpadUp = value > 0.5
-                        "$gamepadId/DpadDown" -> dpadDown = value > 0.5
-                        "$gamepadId/DpadLeft" -> dpadLeft = value > 0.5
-                        "$gamepadId/DpadRight" -> dpadRight = value > 0.5
-                        "$gamepadId/LeftBumper" -> lb = value > 0.5
-                        "$gamepadId/RightBumper" -> rb = value > 0.5
-                        "$gamepadId/Start", "$gamepadId/Options" -> btnStart = value > 0.5
-                        "$gamepadId/Back", "$gamepadId/Share" -> btnBack = value > 0.5
-                        "$gamepadId/LeftStickButton" -> btnLS = value > 0.5
-                        "$gamepadId/RightStickButton" -> btnRS = value > 0.5
+    when {
+        currentFrame != null -> {
+            lx = currentFrame.values["$gamepadId/LeftStick_X"] ?: 0.0
+            ly = currentFrame.values["$gamepadId/LeftStick_Y"] ?: 0.0
+            rx = currentFrame.values["$gamepadId/RightStick_X"] ?: 0.0
+            ry = currentFrame.values["$gamepadId/RightStick_Y"] ?: 0.0
+            lt = currentFrame.values["$gamepadId/LeftTrigger"] ?: 0.0
+            rt = currentFrame.values["$gamepadId/RightTrigger"] ?: 0.0
+            btnA = (currentFrame.values["$gamepadId/A"] ?: 0.0) > 0.5
+            btnB = (currentFrame.values["$gamepadId/B"] ?: 0.0) > 0.5
+            btnX = (currentFrame.values["$gamepadId/X"] ?: 0.0) > 0.5
+            btnY = (currentFrame.values["$gamepadId/Y"] ?: 0.0) > 0.5
+            dpadUp = (currentFrame.values["$gamepadId/DpadUp"] ?: 0.0) > 0.5
+            dpadDown = (currentFrame.values["$gamepadId/DpadDown"] ?: 0.0) > 0.5
+            dpadLeft = (currentFrame.values["$gamepadId/DpadLeft"] ?: 0.0) > 0.5
+            dpadRight = (currentFrame.values["$gamepadId/DpadRight"] ?: 0.0) > 0.5
+            lb = (currentFrame.values["$gamepadId/LeftBumper"] ?: 0.0) > 0.5
+            rb = (currentFrame.values["$gamepadId/RightBumper"] ?: 0.0) > 0.5
+            btnStart = (currentFrame.values["$gamepadId/Start"] ?: currentFrame.values["$gamepadId/Options"] ?: 0.0) > 0.5
+            btnBack = (currentFrame.values["$gamepadId/Back"] ?: currentFrame.values["$gamepadId/Share"] ?: 0.0) > 0.5
+            btnLS = (currentFrame.values["$gamepadId/LeftStickButton"] ?: 0.0) > 0.5
+            btnRS = (currentFrame.values["$gamepadId/RightStickButton"] ?: 0.0) > 0.5
+        }
+        nt4ClientService != null && !keyboardControlEnabled -> {
+            LaunchedEffect(Unit) {
+                scope.launch {
+                    nt4ClientService.telemetryFlow.collect { frame ->
+                        val key = frame.key
+                        val value = frame.value as? Double ?: return@collect
+                        when (key) {
+                            "$gamepadId/LeftStick_X" -> lx = value
+                            "$gamepadId/LeftStick_Y" -> ly = value
+                            "$gamepadId/RightStick_X" -> rx = value
+                            "$gamepadId/RightStick_Y" -> ry = value
+                            "$gamepadId/LeftTrigger" -> lt = value
+                            "$gamepadId/RightTrigger" -> rt = value
+                            "$gamepadId/A" -> btnA = value > 0.5
+                            "$gamepadId/B" -> btnB = value > 0.5
+                            "$gamepadId/X" -> btnX = value > 0.5
+                            "$gamepadId/Y" -> btnY = value > 0.5
+                            "$gamepadId/DpadUp" -> dpadUp = value > 0.5
+                            "$gamepadId/DpadDown" -> dpadDown = value > 0.5
+                            "$gamepadId/DpadLeft" -> dpadLeft = value > 0.5
+                            "$gamepadId/DpadRight" -> dpadRight = value > 0.5
+                            "$gamepadId/LeftBumper" -> lb = value > 0.5
+                            "$gamepadId/RightBumper" -> rb = value > 0.5
+                            "$gamepadId/Start", "$gamepadId/Options" -> btnStart = value > 0.5
+                            "$gamepadId/Back", "$gamepadId/Share" -> btnBack = value > 0.5
+                            "$gamepadId/LeftStickButton" -> btnLS = value > 0.5
+                            "$gamepadId/RightStickButton" -> btnRS = value > 0.5
+                        }
                     }
                 }
             }
@@ -310,52 +313,55 @@ fun SingleGamepadVisualizer(
         LaunchedEffect(Unit) {
             while (true) {
                 val g = gamepadStateFlow?.value
-                if (keyboardState?.useGamepad != false && g != null && g.connected) {
-                    lx = g.leftStickX.toDouble()
-                    ly = -g.leftStickY.toDouble()
-                    rx = g.rightStickX.toDouble()
-                    ry = -g.rightStickY.toDouble()
-                    lb = g.leftBumper
-                    rb = g.rightBumper
-                    lt = g.leftTrigger.toDouble()
-                    rt = g.rightTrigger.toDouble()
-                    btnA = g.a
-                    btnB = g.b
-                    btnX = g.x
-                    btnY = g.y
-                    dpadUp = g.dpadUp
-                    dpadDown = g.dpadDown
-                    dpadLeft = g.dpadLeft
-                    dpadRight = g.dpadRight
-                } else if (keyboardState != null) {
-                    lx = when {
-                        keyboardState.isAPressed -> -1.0
-                        keyboardState.isDPressed -> 1.0
-                        else -> 0.0
+                when {
+                    keyboardState?.useGamepad != false && g != null && g.connected -> {
+                        lx = g.leftStickX.toDouble()
+                        ly = -g.leftStickY.toDouble()
+                        rx = g.rightStickX.toDouble()
+                        ry = -g.rightStickY.toDouble()
+                        lb = g.leftBumper
+                        rb = g.rightBumper
+                        lt = g.leftTrigger.toDouble()
+                        rt = g.rightTrigger.toDouble()
+                        btnA = g.a
+                        btnB = g.b
+                        btnX = g.x
+                        btnY = g.y
+                        dpadUp = g.dpadUp
+                        dpadDown = g.dpadDown
+                        dpadLeft = g.dpadLeft
+                        dpadRight = g.dpadRight
                     }
-                    ly = when {
-                        keyboardState.isWPressed -> -1.0
-                        keyboardState.isSPressed -> 1.0
-                        else -> 0.0
+                    keyboardState != null -> {
+                        lx = when {
+                            keyboardState.isAPressed -> -1.0
+                            keyboardState.isDPressed -> 1.0
+                            else -> 0.0
+                        }
+                        ly = when {
+                            keyboardState.isWPressed -> -1.0
+                            keyboardState.isSPressed -> 1.0
+                            else -> 0.0
+                        }
+                        rx = when {
+                            keyboardState.isLeftPressed -> -1.0
+                            keyboardState.isRightPressed -> 1.0
+                            else -> 0.0
+                        }
+                        ry = when {
+                            keyboardState.isUpPressed -> -1.0
+                            keyboardState.isDownPressed -> 1.0
+                            else -> 0.0
+                        }
+                        lb = keyboardState.isQPressed
+                        rb = keyboardState.isEPressed
+                        lt = if (keyboardState.isSpacePressed) 1.0 else 0.0
+                        rt = if (keyboardState.isShiftPressed) 1.0 else 0.0
+                        btnA = keyboardState.isJPressed
+                        btnB = keyboardState.isLPressed
+                        btnX = keyboardState.isUPressed
+                        btnY = keyboardState.isIPressed
                     }
-                    rx = when {
-                        keyboardState.isLeftPressed -> -1.0
-                        keyboardState.isRightPressed -> 1.0
-                        else -> 0.0
-                    }
-                    ry = when {
-                        keyboardState.isUpPressed -> -1.0
-                        keyboardState.isDownPressed -> 1.0
-                        else -> 0.0
-                    }
-                    lb = keyboardState.isQPressed
-                    rb = keyboardState.isEPressed
-                    lt = if (keyboardState.isSpacePressed) 1.0 else 0.0
-                    rt = if (keyboardState.isShiftPressed) 1.0 else 0.0
-                    btnA = keyboardState.isJPressed
-                    btnB = keyboardState.isLPressed
-                    btnX = keyboardState.isUPressed
-                    btnY = keyboardState.isIPressed
                 }
                 kotlinx.coroutines.delay(20)
             }

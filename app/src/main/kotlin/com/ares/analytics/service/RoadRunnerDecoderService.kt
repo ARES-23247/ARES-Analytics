@@ -217,18 +217,21 @@ class RoadRunnerDecoderService {
                         val msg = readMsg(schema)
 
                         // Update timestamp if timestamp is present in log
-                        if ((key == "OPMODE_PRE_INIT" || key == "OPMODE_PRE_START" || key == "OPMODE_POST_STOP" || key == "TIMESTAMP") && msg is Long) {
-                            if (firstRRTimestamp == null) {
-                                firstRRTimestamp = msg
-                            }
-                            lastTimestampMs = (msg - firstRRTimestamp) / 1_000_000
-                        } else if (msg is Map<*, *>) {
-                            val ts = msg["timestamp"] as? Long
-                            if (ts != null) {
+                        when {
+                            (key == "OPMODE_PRE_INIT" || key == "OPMODE_PRE_START" || key == "OPMODE_POST_STOP" || key == "TIMESTAMP") && msg is Long -> {
                                 if (firstRRTimestamp == null) {
-                                    firstRRTimestamp = ts
+                                    firstRRTimestamp = msg
                                 }
-                                lastTimestampMs = (ts - firstRRTimestamp) / 1_000_000
+                                lastTimestampMs = (msg - firstRRTimestamp) / 1_000_000
+                            }
+                            msg is Map<*, *> -> {
+                                val ts = msg["timestamp"] as? Long
+                                if (ts != null) {
+                                    if (firstRRTimestamp == null) {
+                                        firstRRTimestamp = ts
+                                    }
+                                    lastTimestampMs = (ts - firstRRTimestamp) / 1_000_000
+                                }
                             }
                         }
 

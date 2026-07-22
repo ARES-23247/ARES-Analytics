@@ -71,144 +71,147 @@ class RlogDecoderService {
                             offset += 2
                             val keyName = keyIDs[keyID] ?: continue
 
-                            if (logRevision == 2) {
-                                val valueLength = buffer.getShort(offset).toInt() and 0xFFFF
-                                offset += 2
-                                val fieldType = keyTypes[keyID] ?: "unknown"
+                            when {
+                                logRevision == 2 -> {
+                                    val valueLength = buffer.getShort(offset).toInt() and 0xFFFF
+                                    offset += 2
+                                    val fieldType = keyTypes[keyID] ?: "unknown"
 
-                                val startValOffset = offset
-                                when (fieldType) {
-                                    "boolean" -> {
-                                        val v = bytes[offset].toInt() != 0
-                                        offset += 1
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, if (v) 1.0 else 0.0))
-                                    }
-                                    "int", "int64" -> {
-                                        val v = buffer.getLong(offset)
-                                        offset += 8
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
-                                    }
-                                    "float" -> {
-                                        val v = buffer.getFloat(offset)
-                                        offset += 4
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
-                                    }
-                                    "double" -> {
-                                        val v = buffer.getDouble(offset)
-                                        offset += 8
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v))
-                                    }
-                                    "boolean[]" -> {
-                                        for (i in 0 until valueLength) {
-                                            val v = bytes[offset + i].toInt() != 0
-                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", if (v) 1.0 else 0.0))
-                                        }
-                                        offset += valueLength
-                                    }
-                                    "int[]", "int64[]" -> {
-                                        val count = valueLength / 8
-                                        for (i in 0 until count) {
-                                            val v = buffer.getLong(offset)
-                                            offset += 8
-                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
-                                        }
-                                    }
-                                    "float[]" -> {
-                                        val count = valueLength / 4
-                                        for (i in 0 until count) {
-                                            val v = buffer.getFloat(offset)
-                                            offset += 4
-                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
-                                        }
-                                    }
-                                    "double[]" -> {
-                                        val count = valueLength / 8
-                                        for (i in 0 until count) {
-                                            val v = buffer.getDouble(offset)
-                                            offset += 8
-                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v))
-                                        }
-                                    }
-                                    else -> {
-                                        // Skip other complex types
-                                        offset = startValOffset + valueLength
-                                    }
-                                }
-                            } else if (logRevision == 1) {
-                                val valueType = bytes[offset].toInt() and 0xFF
-                                offset += 1
-                                when (valueType) {
-                                    0 -> { // null -> default 0.0
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, 0.0))
-                                    }
-                                    1 -> { // Boolean
-                                        val v = bytes[offset].toInt() != 0
-                                        offset += 1
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, if (v) 1.0 else 0.0))
-                                    }
-                                    9 -> { // Byte
-                                        val v = bytes[offset].toInt() and 0xFF
-                                        offset += 1
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
-                                    }
-                                    3 -> { // Integer
-                                        val v = buffer.getInt(offset)
-                                        offset += 4
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
-                                    }
-                                    5 -> { // Double
-                                        val v = buffer.getDouble(offset)
-                                        offset += 8
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v))
-                                    }
-                                    7 -> { // String
-                                        val strLen = buffer.getShort(offset).toInt() and 0xFFFF
-                                        offset += 2
-                                        offset += strLen // skip string bytes
-                                    }
-                                    2 -> { // BooleanArray
-                                        val arrLen = buffer.getShort(offset).toInt() and 0xFFFF
-                                        offset += 2
-                                        for (i in 0 until arrLen) {
+                                    val startValOffset = offset
+                                    when (fieldType) {
+                                        "boolean" -> {
                                             val v = bytes[offset].toInt() != 0
                                             offset += 1
-                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", if (v) 1.0 else 0.0))
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, if (v) 1.0 else 0.0))
                                         }
-                                    }
-                                    10 -> { // ByteArray
-                                        val arrLen = buffer.getShort(offset).toInt() and 0xFFFF
-                                        offset += 2
-                                        for (i in 0 until arrLen) {
-                                            val v = bytes[offset].toInt() and 0xFF
-                                            offset += 1
-                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
+                                        "int", "int64" -> {
+                                            val v = buffer.getLong(offset)
+                                            offset += 8
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
                                         }
-                                    }
-                                    4 -> { // IntegerArray
-                                        val arrLen = buffer.getShort(offset).toInt() and 0xFFFF
-                                        offset += 2
-                                        for (i in 0 until arrLen) {
-                                            val v = buffer.getInt(offset)
+                                        "float" -> {
+                                            val v = buffer.getFloat(offset)
                                             offset += 4
-                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
                                         }
-                                    }
-                                    6 -> { // DoubleArray
-                                        val arrLen = buffer.getShort(offset).toInt() and 0xFFFF
-                                        offset += 2
-                                        for (i in 0 until arrLen) {
+                                        "double" -> {
                                             val v = buffer.getDouble(offset)
                                             offset += 8
-                                            batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v))
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v))
+                                        }
+                                        "boolean[]" -> {
+                                            for (i in 0 until valueLength) {
+                                                val v = bytes[offset + i].toInt() != 0
+                                                batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", if (v) 1.0 else 0.0))
+                                            }
+                                            offset += valueLength
+                                        }
+                                        "int[]", "int64[]" -> {
+                                            val count = valueLength / 8
+                                            for (i in 0 until count) {
+                                                val v = buffer.getLong(offset)
+                                                offset += 8
+                                                batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
+                                            }
+                                        }
+                                        "float[]" -> {
+                                            val count = valueLength / 4
+                                            for (i in 0 until count) {
+                                                val v = buffer.getFloat(offset)
+                                                offset += 4
+                                                batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
+                                            }
+                                        }
+                                        "double[]" -> {
+                                            val count = valueLength / 8
+                                            for (i in 0 until count) {
+                                                val v = buffer.getDouble(offset)
+                                                offset += 8
+                                                batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v))
+                                            }
+                                        }
+                                        else -> {
+                                            // Skip other complex types
+                                            offset = startValOffset + valueLength
                                         }
                                     }
-                                    8 -> { // StringArray
-                                        val arrLen = buffer.getShort(offset).toInt() and 0xFFFF
-                                        offset += 2
-                                        for (i in 0 until arrLen) {
+                                }
+                                logRevision == 1 -> {
+                                    val valueType = bytes[offset].toInt() and 0xFF
+                                    offset += 1
+                                    when (valueType) {
+                                        0 -> { // null -> default 0.0
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, 0.0))
+                                        }
+                                        1 -> { // Boolean
+                                            val v = bytes[offset].toInt() != 0
+                                            offset += 1
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, if (v) 1.0 else 0.0))
+                                        }
+                                        9 -> { // Byte
+                                            val v = bytes[offset].toInt() and 0xFF
+                                            offset += 1
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
+                                        }
+                                        3 -> { // Integer
+                                            val v = buffer.getInt(offset)
+                                            offset += 4
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v.toDouble()))
+                                        }
+                                        5 -> { // Double
+                                            val v = buffer.getDouble(offset)
+                                            offset += 8
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v))
+                                        }
+                                        7 -> { // String
                                             val strLen = buffer.getShort(offset).toInt() and 0xFFFF
                                             offset += 2
-                                            offset += strLen
+                                            offset += strLen // skip string bytes
+                                        }
+                                        2 -> { // BooleanArray
+                                            val arrLen = buffer.getShort(offset).toInt() and 0xFFFF
+                                            offset += 2
+                                            for (i in 0 until arrLen) {
+                                                val v = bytes[offset].toInt() != 0
+                                                offset += 1
+                                                batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", if (v) 1.0 else 0.0))
+                                            }
+                                        }
+                                        10 -> { // ByteArray
+                                            val arrLen = buffer.getShort(offset).toInt() and 0xFFFF
+                                            offset += 2
+                                            for (i in 0 until arrLen) {
+                                                val v = bytes[offset].toInt() and 0xFF
+                                                offset += 1
+                                                batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
+                                            }
+                                        }
+                                        4 -> { // IntegerArray
+                                            val arrLen = buffer.getShort(offset).toInt() and 0xFFFF
+                                            offset += 2
+                                            for (i in 0 until arrLen) {
+                                                val v = buffer.getInt(offset)
+                                                offset += 4
+                                                batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v.toDouble()))
+                                            }
+                                        }
+                                        6 -> { // DoubleArray
+                                            val arrLen = buffer.getShort(offset).toInt() and 0xFFFF
+                                            offset += 2
+                                            for (i in 0 until arrLen) {
+                                                val v = buffer.getDouble(offset)
+                                                offset += 8
+                                                batcher.add(TelemetryFrame(timestampMs, sessionId, "$keyName[$i]", v))
+                                            }
+                                        }
+                                        8 -> { // StringArray
+                                            val arrLen = buffer.getShort(offset).toInt() and 0xFFFF
+                                            offset += 2
+                                            for (i in 0 until arrLen) {
+                                                val strLen = buffer.getShort(offset).toInt() and 0xFFFF
+                                                offset += 2
+                                                offset += strLen
+                                            }
                                         }
                                     }
                                 }

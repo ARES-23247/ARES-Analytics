@@ -41,31 +41,34 @@ fun MecanumVisualizer(
     val velocities = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
     val currents = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
 
-    if (currentFrame != null) {
-        velocities[0] = currentFrame.values["Drive/MotorVelocity_fl"] ?: currentFrame.values["Drive/MotorPower_fl"] ?: currentFrame.values["Hardware/Motors/fl/Velocity"] ?: currentFrame.values["Hardware/Motors/fl/Power"] ?: 0.0
-        velocities[1] = currentFrame.values["Drive/MotorVelocity_fr"] ?: currentFrame.values["Drive/MotorPower_fr"] ?: currentFrame.values["Hardware/Motors/fr/Velocity"] ?: currentFrame.values["Hardware/Motors/fr/Power"] ?: 0.0
-        velocities[2] = currentFrame.values["Drive/MotorVelocity_bl"] ?: currentFrame.values["Drive/MotorPower_bl"] ?: currentFrame.values["Hardware/Motors/bl/Velocity"] ?: currentFrame.values["Hardware/Motors/bl/Power"] ?: currentFrame.values["Hardware/Motors/rl/Velocity"] ?: currentFrame.values["Hardware/Motors/rl/Power"] ?: 0.0
-        velocities[3] = currentFrame.values["Drive/MotorVelocity_br"] ?: currentFrame.values["Drive/MotorPower_br"] ?: currentFrame.values["Hardware/Motors/br/Velocity"] ?: currentFrame.values["Hardware/Motors/br/Power"] ?: currentFrame.values["Hardware/Motors/rr/Velocity"] ?: currentFrame.values["Hardware/Motors/rr/Power"] ?: 0.0
+    when {
+        currentFrame != null -> {
+            velocities[0] = currentFrame.values["Drive/MotorVelocity_fl"] ?: currentFrame.values["Drive/MotorPower_fl"] ?: currentFrame.values["Hardware/Motors/fl/Velocity"] ?: currentFrame.values["Hardware/Motors/fl/Power"] ?: 0.0
+            velocities[1] = currentFrame.values["Drive/MotorVelocity_fr"] ?: currentFrame.values["Drive/MotorPower_fr"] ?: currentFrame.values["Hardware/Motors/fr/Velocity"] ?: currentFrame.values["Hardware/Motors/fr/Power"] ?: 0.0
+            velocities[2] = currentFrame.values["Drive/MotorVelocity_bl"] ?: currentFrame.values["Drive/MotorPower_bl"] ?: currentFrame.values["Hardware/Motors/bl/Velocity"] ?: currentFrame.values["Hardware/Motors/bl/Power"] ?: currentFrame.values["Hardware/Motors/rl/Velocity"] ?: currentFrame.values["Hardware/Motors/rl/Power"] ?: 0.0
+            velocities[3] = currentFrame.values["Drive/MotorVelocity_br"] ?: currentFrame.values["Drive/MotorPower_br"] ?: currentFrame.values["Hardware/Motors/br/Velocity"] ?: currentFrame.values["Hardware/Motors/br/Power"] ?: currentFrame.values["Hardware/Motors/rr/Velocity"] ?: currentFrame.values["Hardware/Motors/rr/Power"] ?: 0.0
 
-        currents[0] = currentFrame.values["Drive/MotorCurrent_fl"] ?: currentFrame.values["Hardware/Motors/fl/CurrentAmps"] ?: 0.0
-        currents[1] = currentFrame.values["Drive/MotorCurrent_fr"] ?: currentFrame.values["Hardware/Motors/fr/CurrentAmps"] ?: 0.0
-        currents[2] = currentFrame.values["Drive/MotorCurrent_bl"] ?: currentFrame.values["Hardware/Motors/bl/CurrentAmps"] ?: currentFrame.values["Hardware/Motors/rl/CurrentAmps"] ?: 0.0
-        currents[3] = currentFrame.values["Drive/MotorCurrent_br"] ?: currentFrame.values["Hardware/Motors/br/CurrentAmps"] ?: currentFrame.values["Hardware/Motors/rr/CurrentAmps"] ?: 0.0
-    } else if (nt4ClientService != null) {
-        LaunchedEffect(Unit) {
-            nt4ClientService.telemetryFlow.collect { frame ->
-                val key = frame.key
-                val value = frame.value
-                when (key) {
-                    "Drive/MotorVelocity_fl", "Drive/MotorPower_fl", "Hardware/Motors/fl/Velocity", "Hardware/Motors/fl/Power" -> velocities[0] = value
-                    "Drive/MotorVelocity_fr", "Drive/MotorPower_fr", "Hardware/Motors/fr/Velocity", "Hardware/Motors/fr/Power" -> velocities[1] = value
-                    "Drive/MotorVelocity_bl", "Drive/MotorPower_bl", "Drive/MotorVelocity_rl", "Drive/MotorPower_rl", "Hardware/Motors/bl/Velocity", "Hardware/Motors/bl/Power", "Hardware/Motors/rl/Velocity", "Hardware/Motors/rl/Power" -> velocities[2] = value
-                    "Drive/MotorVelocity_br", "Drive/MotorPower_br", "Drive/MotorVelocity_rr", "Drive/MotorPower_rr", "Hardware/Motors/br/Velocity", "Hardware/Motors/br/Power", "Hardware/Motors/rr/Velocity", "Hardware/Motors/rr/Power" -> velocities[3] = value
-                    
-                    "Drive/MotorCurrent_fl", "Hardware/Motors/fl/CurrentAmps" -> currents[0] = value
-                    "Drive/MotorCurrent_fr", "Hardware/Motors/fr/CurrentAmps" -> currents[1] = value
-                    "Drive/MotorCurrent_bl", "Drive/MotorCurrent_rl", "Hardware/Motors/bl/CurrentAmps", "Hardware/Motors/rl/CurrentAmps" -> currents[2] = value
-                    "Drive/MotorCurrent_br", "Drive/MotorCurrent_rr", "Hardware/Motors/br/CurrentAmps", "Hardware/Motors/rr/CurrentAmps" -> currents[3] = value
+            currents[0] = currentFrame.values["Drive/MotorCurrent_fl"] ?: currentFrame.values["Hardware/Motors/fl/CurrentAmps"] ?: 0.0
+            currents[1] = currentFrame.values["Drive/MotorCurrent_fr"] ?: currentFrame.values["Hardware/Motors/fr/CurrentAmps"] ?: 0.0
+            currents[2] = currentFrame.values["Drive/MotorCurrent_bl"] ?: currentFrame.values["Hardware/Motors/bl/CurrentAmps"] ?: currentFrame.values["Hardware/Motors/rl/CurrentAmps"] ?: 0.0
+            currents[3] = currentFrame.values["Drive/MotorCurrent_br"] ?: currentFrame.values["Hardware/Motors/br/CurrentAmps"] ?: currentFrame.values["Hardware/Motors/rr/CurrentAmps"] ?: 0.0
+        }
+        nt4ClientService != null -> {
+            LaunchedEffect(Unit) {
+                nt4ClientService.telemetryFlow.collect { frame ->
+                    val key = frame.key
+                    val value = frame.value
+                    when (key) {
+                        "Drive/MotorVelocity_fl", "Drive/MotorPower_fl", "Hardware/Motors/fl/Velocity", "Hardware/Motors/fl/Power" -> velocities[0] = value
+                        "Drive/MotorVelocity_fr", "Drive/MotorPower_fr", "Hardware/Motors/fr/Velocity", "Hardware/Motors/fr/Power" -> velocities[1] = value
+                        "Drive/MotorVelocity_bl", "Drive/MotorPower_bl", "Drive/MotorVelocity_rl", "Drive/MotorPower_rl", "Hardware/Motors/bl/Velocity", "Hardware/Motors/bl/Power", "Hardware/Motors/rl/Velocity", "Hardware/Motors/rl/Power" -> velocities[2] = value
+                        "Drive/MotorVelocity_br", "Drive/MotorPower_br", "Drive/MotorVelocity_rr", "Drive/MotorPower_rr", "Hardware/Motors/br/Velocity", "Hardware/Motors/br/Power", "Hardware/Motors/rr/Velocity", "Hardware/Motors/rr/Power" -> velocities[3] = value
+                        
+                        "Drive/MotorCurrent_fl", "Hardware/Motors/fl/CurrentAmps" -> currents[0] = value
+                        "Drive/MotorCurrent_fr", "Hardware/Motors/fr/CurrentAmps" -> currents[1] = value
+                        "Drive/MotorCurrent_bl", "Drive/MotorCurrent_rl", "Hardware/Motors/bl/CurrentAmps", "Hardware/Motors/rl/CurrentAmps" -> currents[2] = value
+                        "Drive/MotorCurrent_br", "Drive/MotorCurrent_rr", "Hardware/Motors/br/CurrentAmps", "Hardware/Motors/rr/CurrentAmps" -> currents[3] = value
+                    }
                 }
             }
         }
