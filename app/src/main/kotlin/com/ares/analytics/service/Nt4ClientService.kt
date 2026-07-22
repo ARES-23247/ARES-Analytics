@@ -644,7 +644,27 @@ open class Nt4ClientService(
         topicFlows[frame.key]?.value = doubleValue
     }
     private var nextPubUid = 2000
-    private val dynamicPubUids = ConcurrentHashMap<String, Int>()
+    private val dynamicPubUids = ConcurrentHashMap<String, Int>().apply {
+        put("ARES/Input/vx", 1001)
+        put("ARES/Input/vy", 1002)
+        put("ARES/Input/omega", 1003)
+        put("ARES/Input/isIntaking", 1004)
+        put("ARES/Input/isFlywheelOn", 1005)
+        put("ARES/Input/isTransferring", 1006)
+        put("ARES/Input/isTeleopMode", 1007)
+        put("ARES/Input/isFieldCentric", 1008)
+        put("ARES/Input/isRedAlliance", 1009)
+        put("ARES/Input/heartbeat", 1010)
+        put("ARES/DriverStation/Command", 1011)
+        put("ARES/DriverStation/SelectedOpMode", 1012)
+        put("ARES/DriverStation/MatchTime", 1013)
+        put("ARES/DriverStation/MatchState", 1014)
+        put("SysId/Command", 1015)
+        put("ARES/Input/isButtonAPressed", 1016)
+        put("ARES/Input/isButtonBPressed", 1017)
+        put("ARES/Input/isButtonXPressed", 1018)
+        put("ARES/Input/isPoseReset", 1019)
+    }
     private val dynamicPubMutex = kotlinx.coroutines.sync.Mutex()
 
     suspend fun publishDouble(key: String, value: Double) {
