@@ -1,5 +1,7 @@
 package com.ares.analytics.ui.screens
 
+import com.ares.analytics.ui.components.tuning.GainTuningPanel
+
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -36,6 +38,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.launch
+import androidx.compose.ui.text.TextStyle
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,181 +56,11 @@ fun TuningScreen(
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Left Column: Constants Tuning Board
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .clip(RoundedCornerShape(12.dp))
-                .background(AresSurface)
-                .border(1.dp, AresBorder, RoundedCornerShape(12.dp))
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Text("Constants Tuning Board", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = AresTextPrimary)
-            HorizontalDivider(color = AresBorder)
-
-            if (state.saveStatus.isNotEmpty()) {
-                Text(state.saveStatus, color = AresGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                LaunchedEffect(state.saveStatus) {
-                    kotlinx.coroutines.delay(3000)
-                    viewModel.onIntent(TuningIntent.ClearSaveStatus)
-                }
-            }
-            val error = state.errorMessage
-            if (error != null) {
-                Text(error, color = AresError, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            }
-
-            if (state.variables.isEmpty()) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text("Waiting for live Tuning constants from Robot over NT4...", color = AresTextTertiary, fontSize = 12.sp)
-                }
-            } else {
-                // Group by custom categories
-                val grouped = state.variables.entries.groupBy { 
-                    getCustomCategory(it.key)
-                }
-                
-                LazyVerticalStaggeredGrid(
-                    columns = StaggeredGridCells.Adaptive(minSize = 320.dp),
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalItemSpacing = 12.dp
-                ) {
-                    items(grouped.entries.toList().sortedBy { it.key }) { (category, constants) ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(AresSurfaceElevated, RoundedCornerShape(8.dp))
-                                .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
-                                .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            Text(
-                                text = category,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = AresCyan
-                            )
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                constants.sortedBy { it.key }.forEach { const ->
-                                    val constKey = const.key
-                                    val parts = constKey.removePrefix("Tuning/").split("/")
-                                    val displayName = if (parts.size > 1) parts.drop(1).joinToString("/") else parts[0]
-                                    
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        val descAndRange = getConstantDescriptionAndRange(constKey)
-                                        val tooltipState = rememberTooltipState(isPersistent = true)
-                                        val scope = rememberCoroutineScope()
-
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .pointerInput(Unit) {
-                                                    awaitPointerEventScope {
-                                                        while (true) {
-                                                            val event = awaitPointerEvent()
-                                                            when (event.type) {
-                                                                PointerEventType.Enter -> {
-                                                                    scope.launch { tooltipState.show() }
-                                                                }
-                                                                PointerEventType.Exit -> {
-                                                                    tooltipState.dismiss()
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                        ) {
-                                            @OptIn(ExperimentalMaterial3Api::class)
-                                            TooltipBox(
-                                                positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                                                tooltip = {
-                                                    PlainTooltip(
-                                                        containerColor = AresSurfaceElevated,
-                                                        contentColor = AresTextPrimary
-                                                    ) {
-                                                        Column(modifier = Modifier.padding(4.dp)) {
-                                                            Text(displayName, fontSize = 12.sp, color = AresCyan, fontWeight = FontWeight.Bold)
-                                                            Spacer(modifier = Modifier.height(4.dp))
-                                                            Text(descAndRange.first, fontSize = 11.sp, fontWeight = FontWeight.Normal)
-                                                            Spacer(modifier = Modifier.height(2.dp))
-                                                            Text("Typical Range: ${descAndRange.second}", fontSize = 10.sp, color = AresCyan, fontWeight = FontWeight.SemiBold)
-                                                        }
-                                                    }
-                                                },
-                                                state = tooltipState
-                                            ) {
-                                                Text(
-                                                    text = displayName,
-                                                    fontSize = 12.sp,
-                                                    color = AresTextPrimary,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier
-                                                        .fillMaxWidth()
-                                                        .clickable(onClick = {})
-                                                )
-                                            }
-                                        }
-
-                                        var textValue by remember(const.value) { mutableStateOf(const.value.toString()) }
-                                        BasicTextField(
-                                            value = textValue,
-                                            onValueChange = { textValue = it },
-                                            singleLine = true,
-                                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
-                                            cursorBrush = SolidColor(AresCyan),
-                                            modifier = Modifier
-                                                .width(90.dp)
-                                                .height(32.dp)
-                                                .background(AresSurface, RoundedCornerShape(6.dp))
-                                                .border(1.dp, AresBorder, RoundedCornerShape(6.dp)),
-                                            decorationBox = { innerTextField ->
-                                                Row(
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .padding(horizontal = 8.dp),
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Box(modifier = Modifier.weight(1f)) {
-                                                        if (textValue.isEmpty()) {
-                                                            Text("null", fontSize = 11.sp, color = AresTextTertiary)
-                                                        }
-                                                        innerTextField()
-                                                    }
-                                                }
-                                            }
-                                        )
-                                        Button(
-                                            onClick = {
-                                                val newVal = textValue.toDoubleOrNull()
-                                                if (newVal != null) {
-                                                    viewModel.onIntent(TuningIntent.SaveConstant(constKey, newVal))
-                                                }
-                                            },
-                                            modifier = Modifier.width(60.dp).height(32.dp),
-                                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
-                                            shape = RoundedCornerShape(6.dp),
-                                            contentPadding = PaddingValues(0.dp)
-                                        ) {
-                                            Text("Save", color = AresBackground, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        GainTuningPanel(
+            viewModel = viewModel,
+            state = state,
+            modifier = Modifier.weight(1f).fillMaxHeight()
+        )
 
         // Right Column: Auto-Calibration Board
         Column(
@@ -666,6 +499,51 @@ private fun LiveTelemetryPlot(samples: List<AlignedDataRow>) {
     }
 }
 
+
+@Composable
+fun GainTuningPanel(
+    viewModel: TuningViewModel,
+    state: com.ares.analytics.viewmodel.TuningState,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Active Gain Tuning", style = MaterialTheme.typography.titleMedium, color = AresTextPrimary)
+        
+        state.variables.forEach { (key, value) ->
+            val (desc, range) = getConstantDescriptionAndRange(key)
+            val category = getCustomCategory(key)
+            
+            Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                Text(category, fontSize = 10.sp, color = AresCyan, fontWeight = FontWeight.Bold)
+                Row(
+                    modifier = Modifier.fillMaxWidth().background(AresSurfaceElevated).padding(8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(key.removePrefix("Tuning/"), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                        Text(desc, fontSize = 11.sp, color = AresTextSecondary)
+                    }
+                    var textValue by remember(value) { mutableStateOf(value.toString()) }
+                    OutlinedTextField(
+                        value = textValue,
+                        onValueChange = { 
+                            textValue = it
+                            val parsed = it.toDoubleOrNull()
+                            if (parsed != null) {
+                                viewModel.onIntent(TuningIntent.SaveConstant(key, parsed))
+                            }
+                        },
+                        modifier = Modifier.width(100.dp),
+                        singleLine = true,
+                        textStyle = TextStyle(fontSize = 13.sp)
+                    )
+                }
+            }
+        }
+    }
+}
+
 private fun getCustomCategory(key: String): String {
     val cleanKey = key.removePrefix("Tuning/")
     val parts = cleanKey.split("/")
@@ -680,7 +558,6 @@ private fun getCustomCategory(key: String): String {
         }
     }
     
-    // Top-level variables
     return when {
         cleanKey == "pinpointXOffsetMm" || 
         cleanKey == "pinpointYOffsetMm" || 
