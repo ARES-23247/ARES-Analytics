@@ -34,9 +34,6 @@ class GatewayRouteTest {
                 }
             }
         }
-        /**
-         * response val.
-         */
         val response = client.get("/healthz")
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals("ok", response.bodyAsText())
@@ -66,10 +63,6 @@ class GatewayRouteTest {
                 diagnosticsRoutes()
             }
         }
-
-        /**
-         * response val.
-         */
         val response = client.post("/api/diagnostics/forensics") {
             contentType(ContentType.Application.Json)
             setBody("{}")

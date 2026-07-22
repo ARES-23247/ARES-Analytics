@@ -10,12 +10,11 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class ExportService(private val databaseService: DatabaseService) {
 
@@ -28,9 +27,6 @@ class ExportService(private val databaseService: DatabaseService) {
         destinationFile.printWriter().use { writer ->
             writer.println("key,timestamp_ms,value")
             for (key in selectedKeys) {
-                /**
-                 * frames val.
-                 */
                 val frames = databaseService.getTelemetryForKey(sessionId, key)
                 for (frame in frames) {
                     writer.println("${frame.key},${frame.timestampMs},${frame.value}")
@@ -48,9 +44,6 @@ class ExportService(private val databaseService: DatabaseService) {
         destinationFile.parentFile?.mkdirs()
 
         // Fetch all frames
-        /**
-         * allFrames val.
-         */
         val allFrames = mutableListOf<TelemetryFrame>()
         for (key in selectedKeys) {
             allFrames.addAll(databaseService.getTelemetryForKey(sessionId, key))
@@ -62,28 +55,12 @@ class ExportService(private val databaseService: DatabaseService) {
             }
             return@withContext
         }
-
-        /**
-         * minTime val.
-         */
         val minTime = allFrames.minOf { it.timestampMs }
-        /**
-         * maxTime val.
-         */
         val maxTime = allFrames.maxOf { it.timestampMs }
 
         // Generate timestamps
-        /**
-         * timestamps val.
-         */
         val timestamps = if (samplingPeriodMs != null && samplingPeriodMs > 0) {
-            /**
-             * list val.
-             */
             val list = mutableListOf<Long>()
-            /**
-             * curr var.
-             */
             var curr = minTime
             while (curr <= maxTime) {
                 list.add(curr)
@@ -95,9 +72,6 @@ class ExportService(private val databaseService: DatabaseService) {
         }
 
         // Map key to sorted frames
-        /**
-         * framesByKey val.
-         */
         val framesByKey = selectedKeys.associateWith { key ->
             databaseService.getTelemetryForKey(sessionId, key).sortedBy { it.timestampMs }
         }
@@ -106,28 +80,13 @@ class ExportService(private val databaseService: DatabaseService) {
             writer.println("timestamp_ms," + selectedKeys.joinToString(","))
 
             // Track current frame index for each key for efficient sample-and-hold
-            /**
-             * indices val.
-             */
             val indices = selectedKeys.associateWith { 0 }.toMutableMap()
-            /**
-             * lastValues val.
-             */
             val lastValues = selectedKeys.associateWith { "" }.toMutableMap()
 
             for (ts in timestamps) {
-                /**
-                 * rowValues val.
-                 */
                 val rowValues = mutableListOf<String>()
                 for (key in selectedKeys) {
-                    /**
-                     * keyFrames val.
-                     */
                     val keyFrames = framesByKey[key] ?: emptyList()
-                    /**
-                     * idx var.
-                     */
                     var idx = indices[key] ?: 0
 
                     // Advance pointer to the latest frame <= ts
@@ -149,46 +108,20 @@ class ExportService(private val databaseService: DatabaseService) {
         destinationFile: File
     ) = withContext(Dispatchers.IO) {
         destinationFile.parentFile?.mkdirs()
-
-        /**
-         * records val.
-         */
         val records = mutableListOf<WpiRecord>()
 
         // 1. Write control records for starting each key
-        /**
-         * nextEntryId var.
-         */
         var nextEntryId = 1
-        /**
-         * keyEntryIds val.
-         */
         val keyEntryIds = mutableMapOf<String, Int>()
 
         for (key in selectedKeys) {
-            /**
-             * entryId val.
-             */
             val entryId = nextEntryId++
             keyEntryIds[key] = entryId
 
             // CONTROL_START = 0
-            /**
-             * nameBytes val.
-             */
             val nameBytes = key.toByteArray(Charsets.UTF_8)
-            /**
-             * typeBytes val.
-             */
             val typeBytes = "double".toByteArray(Charsets.UTF_8)
-            /**
-             * metadataBytes val.
-             */
             val metadataBytes = "".toByteArray(Charsets.UTF_8)
-
-            /**
-             * payload val.
-             */
             val payload = ByteBuffer.allocate(1 + 4 + 4 + nameBytes.size + 4 + typeBytes.size + 4 + metadataBytes.size)
                 .order(ByteOrder.LITTLE_ENDIAN)
             payload.put(0.toByte()) // CONTROL_START
@@ -205,18 +138,9 @@ class ExportService(private val databaseService: DatabaseService) {
 
         // 2. Add data records
         for (key in selectedKeys) {
-            /**
-             * entryId val.
-             */
             val entryId = keyEntryIds[key] ?: continue
-            /**
-             * frames val.
-             */
             val frames = databaseService.getTelemetryForKey(sessionId, key)
             for (frame in frames) {
-                /**
-                 * doublePayload val.
-                 */
                 val doublePayload = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putDouble(frame.value).array()
                 records.add(WpiRecord(entryId, frame.timestampMs * 1000L, doublePayload))
             }
@@ -236,22 +160,9 @@ class ExportService(private val databaseService: DatabaseService) {
 
             // Write each record
             for (rec in records) {
-                /**
-                 * entryBytes val.
-                 */
                 val entryBytes = encodeInteger(rec.entry.toLong())
-                /**
-                 * sizeBytes val.
-                 */
                 val sizeBytes = encodeInteger(rec.payload.size.toLong())
-                /**
-                 * tsBytes val.
-                 */
                 val tsBytes = encodeInteger(rec.timestampMicro)
-
-                /**
-                 * lengthBitfield var.
-                 */
                 var lengthBitfield = 0
                 lengthBitfield = lengthBitfield or ((entryBytes.size - 1) and 0x3)
                 lengthBitfield = lengthBitfield or (((sizeBytes.size - 1) and 0x3) shl 2)
@@ -269,9 +180,6 @@ class ExportService(private val databaseService: DatabaseService) {
     private class WpiRecord(val entry: Int, val timestampMicro: Long, val payload: ByteArray)
 
     private fun encodeInteger(value: Long): ByteArray {
-        /**
-         * bytes val.
-         */
         val bytes = ByteBuffer.allocate(8).order(ByteOrder.LITTLE_ENDIAN).putLong(value).array()
         for (i in 7 downTo 1) {
             if (bytes[i] != 0.toByte()) {

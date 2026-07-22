@@ -8,35 +8,27 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class TargetScannerService {
     private val _isLocalSimOnline = MutableStateFlow(false)
-    /**
-     * isLocalSimOnline val.
-     */
     val isLocalSimOnline: StateFlow<Boolean> = _isLocalSimOnline.asStateFlow()
 
     private val _isLiveRobotOnline = MutableStateFlow(false)
-    /**
-     * isLiveRobotOnline val.
-     */
     val isLiveRobotOnline: StateFlow<Boolean> = _isLiveRobotOnline.asStateFlow()
 
     private var scannerJob: Job? = null
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun startScanning(liveRobotHost: String) {
         scannerJob?.cancel()
@@ -65,12 +57,11 @@ class TargetScannerService {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun stopScanning() {
         scannerJob?.cancel()

@@ -31,33 +31,25 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class TelemetryRow(
-    /**
-     * timestampMs val.
-     */
     val timestampMs: Long,
-    /**
-     * values val.
-     */
     val values: Map<String, Double?>
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun DataTablePanel(
     databaseService: DatabaseService,
@@ -65,53 +57,20 @@ fun DataTablePanel(
     sessionId: String?,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    /**
-     * availableKeys var.
-     */
     var availableKeys by remember { mutableStateOf<List<String>>(emptyList()) }
-    /**
-     * selectedKeys val.
-     */
     val selectedKeys = remember { mutableStateListOf<String>() }
-    /**
-     * keyDropdownExpanded var.
-     */
     var keyDropdownExpanded by remember { mutableStateOf(false) }
 
     // Table rows cache
-    /**
-     * telemetryRows var.
-     */
     var telemetryRows by remember { mutableStateOf<List<TelemetryRow>>(emptyList()) }
-    /**
-     * startTimestampMs var.
-     */
     var startTimestampMs by remember { mutableStateOf(0L) }
-    /**
-     * endTimestampMs var.
-     */
     var endTimestampMs by remember { mutableStateOf(0L) }
-    /**
-     * isLoading var.
-     */
     var isLoading by remember { mutableStateOf(false) }
 
     // Scroll state and replay engine sync
-    /**
-     * listState val.
-     */
     val listState = rememberLazyListState()
-    /**
-     * currentFrame val.
-     */
     val currentFrame by replayEngineService.currentFrame.collectAsState()
-    /**
-     * activeTimestamp val.
-     */
     val activeTimestamp = currentFrame?.timestampMs ?: 0L
 
     // Fetch keys on session change
@@ -120,9 +79,6 @@ fun DataTablePanel(
             isLoading = true
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    /**
-                     * allFrames val.
-                     */
                     val allFrames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
                     availableKeys = allFrames.map { it.key }.distinct().sorted()
                     startTimestampMs = allFrames.minOfOrNull { it.timestampMs } ?: 0L
@@ -148,36 +104,18 @@ fun DataTablePanel(
     LaunchedEffect(sessionId, selectedKeys.toList()) {
         if (sessionId != null && selectedKeys.isNotEmpty()) {
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                /**
-                 * data val.
-                 */
                 val data = mutableMapOf<String, List<TelemetryFrame>>()
                 for (key in selectedKeys) {
                     data[key] = databaseService.getTelemetryForKey(sessionId, key)
                 }
 
                 // Gather all distinct timestamps across selected keys
-                /**
-                 * allTimestamps val.
-                 */
                 val allTimestamps = data.values.flatMap { list -> list.map { it.timestampMs } }.distinct().sorted()
 
                 // Calculate aligned rows using sample-and-hold
-                /**
-                 * rows val.
-                 */
                 val rows = allTimestamps.map { ts ->
-                    /**
-                     * rowValues val.
-                     */
                     val rowValues = selectedKeys.associateWith { key ->
-                        /**
-                         * keyFrames val.
-                         */
                         val keyFrames = data[key] ?: emptyList()
-                        /**
-                         * idx var.
-                         */
                         var idx = keyFrames.binarySearchBy(ts) { it.timestampMs }
                         if (idx < 0) {
                             idx = -idx - 2 // Sample-and-hold last known value
@@ -196,9 +134,6 @@ fun DataTablePanel(
     // Auto-scroll table to active frame row during replay playback
     LaunchedEffect(activeTimestamp) {
         if (telemetryRows.isNotEmpty()) {
-            /**
-             * closestIndex var.
-             */
             var closestIndex = telemetryRows.binarySearchBy(activeTimestamp) { it.timestampMs }
             if (closestIndex < 0) {
                 closestIndex = -closestIndex - 2
@@ -206,13 +141,7 @@ fun DataTablePanel(
             closestIndex = closestIndex.coerceIn(0, telemetryRows.size - 1)
             
             // Check if active row is currently visible, if not scroll to it
-            /**
-             * visibleInfo val.
-             */
             val visibleInfo = listState.layoutInfo.visibleItemsInfo
-            /**
-             * isVisible val.
-             */
             val isVisible = visibleInfo.any { it.index == closestIndex }
             if (!isVisible && !listState.isScrollInProgress) {
                 listState.animateScrollToItem(closestIndex)
@@ -356,13 +285,7 @@ fun DataTablePanel(
                         .border(1.dp, AresBorder, RoundedCornerShape(4.dp))
                 ) {
                     itemsIndexed(telemetryRows) { index, row ->
-                        /**
-                         * isHighlighted val.
-                         */
                         val isHighlighted = abs(row.timestampMs - activeTimestamp) < 30L // Near active playhead
-                        /**
-                         * rowBg val.
-                         */
                         val rowBg = when {
                             isHighlighted -> AresCyanGlow
                             index % 2 == 0 -> AresSurfaceElevated
@@ -374,14 +297,8 @@ fun DataTablePanel(
                                 .fillMaxWidth()
                                 .background(rowBg)
                                 .clickable {
-                                    /**
-                                     * duration val.
-                                     */
                                     val duration = endTimestampMs - startTimestampMs
                                     if (duration > 0) {
-                                        /**
-                                         * pct val.
-                                         */
                                         val pct = (row.timestampMs - startTimestampMs).toDouble() / duration.toDouble()
                                         replayEngineService.scrubTo(pct)
                                     }
@@ -399,13 +316,7 @@ fun DataTablePanel(
                             )
                             // Keys columns values
                             selectedKeys.forEach { key ->
-                                /**
-                                 * valVal val.
-                                 */
                                 val valVal = row.values[key]
-                                /**
-                                 * textVal val.
-                                 */
                                 val textVal = if (valVal != null) String.format("%.4f", valVal) else "-"
                                 Text(
                                     text = textVal,

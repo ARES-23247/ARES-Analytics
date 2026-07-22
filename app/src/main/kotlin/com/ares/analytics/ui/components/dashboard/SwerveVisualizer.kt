@@ -25,62 +25,37 @@ import kotlin.math.sin
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun SwerveVisualizer(
     currentFrame: ReplayFrame?,
     modifier: Modifier = Modifier
 ) {
     // Front Left Module
-    /**
-     * angFl val.
-     */
     val angFl = currentFrame?.values?.get("Drive/Swerve/Angle_FL")
         ?: currentFrame?.values?.get("Drive/Swerve/FL_Angle") ?: 0.0
-    /**
-     * velFl val.
-     */
     val velFl = currentFrame?.values?.get("Drive/Swerve/Vel_FL")
         ?: currentFrame?.values?.get("Drive/Swerve/FL_Vel") ?: 0.0
 
     // Front Right Module
-    /**
-     * angFr val.
-     */
     val angFr = currentFrame?.values?.get("Drive/Swerve/Angle_FR")
         ?: currentFrame?.values?.get("Drive/Swerve/FR_Angle") ?: 0.0
-    /**
-     * velFr val.
-     */
     val velFr = currentFrame?.values?.get("Drive/Swerve/Vel_FR")
         ?: currentFrame?.values?.get("Drive/Swerve/FR_Vel") ?: 0.0
 
     // Back Left Module
-    /**
-     * angBl val.
-     */
     val angBl = currentFrame?.values?.get("Drive/Swerve/Angle_BL")
         ?: currentFrame?.values?.get("Drive/Swerve/BL_Angle") ?: 0.0
-    /**
-     * velBl val.
-     */
     val velBl = currentFrame?.values?.get("Drive/Swerve/Vel_BL")
         ?: currentFrame?.values?.get("Drive/Swerve/BL_Vel") ?: 0.0
 
     // Back Right Module
-    /**
-     * angBr val.
-     */
     val angBr = currentFrame?.values?.get("Drive/Swerve/Angle_BR")
         ?: currentFrame?.values?.get("Drive/Swerve/BR_Angle") ?: 0.0
-    /**
-     * velBr val.
-     */
     val velBr = currentFrame?.values?.get("Drive/Swerve/Vel_BR")
         ?: currentFrame?.values?.get("Drive/Swerve/BR_Vel") ?: 0.0
 
@@ -108,27 +83,12 @@ fun SwerveVisualizer(
                 .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                /**
-                 * cx val.
-                 */
                 val cx = size.width / 2f
-                /**
-                 * cy val.
-                 */
                 val cy = size.height / 2f
 
                 // Draw robot boundary outline (dashed)
-                /**
-                 * robotW val.
-                 */
                 val robotW = 200f
-                /**
-                 * robotH val.
-                 */
                 val robotH = 200f
-                /**
-                 * dashEffect val.
-                 */
                 val dashEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
                 drawRect(
                     color = AresBorder,
@@ -138,9 +98,6 @@ fun SwerveVisualizer(
                 )
 
                 // Module Offsets
-                /**
-                 * moduleOffsets val.
-                 */
                 val moduleOffsets = listOf(
                     Triple("FL", Offset(cx - robotW / 2f, cy - robotH / 2f), Pair(angFl, velFl)),
                     Triple("FR", Offset(cx + robotW / 2f, cy - robotH / 2f), Pair(angFr, velFr)),
@@ -149,19 +106,10 @@ fun SwerveVisualizer(
                 )
 
                 for ((name, center, state) in moduleOffsets) {
-                    /**
-                     * angle val.
-                     */
                     val angle = state.first
-                    /**
-                     * velocity val.
-                     */
                     val velocity = state.second
 
                     // Angle translation: support radians vs degrees
-                    /**
-                     * angleRad val.
-                     */
                     val angleRad = if (Math.abs(angle) > 2 * Math.PI) Math.toRadians(angle) else angle
 
                     // Draw module circle
@@ -178,27 +126,12 @@ fun SwerveVisualizer(
                     )
 
                     // Draw velocity vector arrow
-                    /**
-                     * maxArrowLen val.
-                     */
                     val maxArrowLen = 60f
-                    /**
-                     * arrowLen val.
-                     */
                     val arrowLen = (velocity * 12f).toFloat().coerceIn(-maxArrowLen, maxArrowLen)
                     
                     // Steer vector line (adjusted by -90 degrees to align with CCW field coordinates)
-                    /**
-                     * steerAngle val.
-                     */
                     val steerAngle = -angleRad - Math.PI / 2.0
-                    /**
-                     * endX val.
-                     */
                     val endX = center.x + arrowLen * cos(steerAngle).toFloat()
-                    /**
-                     * endY val.
-                     */
                     val endY = center.y + arrowLen * sin(steerAngle).toFloat()
 
                     drawLine(
@@ -211,25 +144,10 @@ fun SwerveVisualizer(
 
                     // Draw small arrowhead
                     if (Math.abs(arrowLen) > 5f) {
-                        /**
-                         * headSize val.
-                         */
                         val headSize = 10f
-                        /**
-                         * leftWingX val.
-                         */
                         val leftWingX = endX - headSize * cos(steerAngle - Math.PI / 6.0).toFloat()
-                        /**
-                         * leftWingY val.
-                         */
                         val leftWingY = endY - headSize * sin(steerAngle - Math.PI / 6.0).toFloat()
-                        /**
-                         * rightWingX val.
-                         */
                         val rightWingX = endX - headSize * cos(steerAngle + Math.PI / 6.0).toFloat()
-                        /**
-                         * rightWingY val.
-                         */
                         val rightWingY = endY - headSize * sin(steerAngle + Math.PI / 6.0).toFloat()
 
                         drawLine(color = AresCyan, start = Offset(endX, endY), end = Offset(leftWingX, leftWingY), strokeWidth = 3f)

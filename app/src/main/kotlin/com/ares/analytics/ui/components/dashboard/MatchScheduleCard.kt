@@ -25,12 +25,11 @@ import java.util.Locale
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun MatchScheduleCard(
     matches: List<MatchInfo>,
@@ -38,19 +37,10 @@ fun MatchScheduleCard(
     onSelectMatch: (MatchInfo, String) -> Unit, // (match, allianceColor)
     modifier: Modifier = Modifier
 ) {
-    /**
-     * timeFormat val.
-     */
     val timeFormat = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
-    /**
-     * now val.
-     */
     val now = System.currentTimeMillis()
 
     // Find the next upcoming match (scheduled time is in the future, or closest to now)
-    /**
-     * nextMatch val.
-     */
     val nextMatch = matches.filter { (it.scheduledTime ?: 0L) >= now }
         .minByOrNull { it.scheduledTime ?: Long.MAX_VALUE }
         ?: matches.lastOrNull()
@@ -89,26 +79,13 @@ fun MatchScheduleCard(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(matches) { match ->
-                    /**
-                     * isUpcoming val.
-                     */
                     val isUpcoming = match == nextMatch
-                    /**
-                     * containsCurrentTeam val.
-                     */
                     val containsCurrentTeam = match.redAlliance.contains(currentTeamId) || match.blueAlliance.contains(currentTeamId)
-                    /**
-                     * allianceColor val.
-                     */
                     val allianceColor = when {
                         match.redAlliance.contains(currentTeamId) -> "red"
                         match.blueAlliance.contains(currentTeamId) -> "blue"
                         else -> null
                     }
-
-                    /**
-                     * cardBorder val.
-                     */
                     val cardBorder = when {
                         isUpcoming -> AresCyan
                         containsCurrentTeam -> AresGold
@@ -170,9 +147,6 @@ fun MatchScheduleCard(
                                 verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 match.redAlliance.forEach { team ->
-                                    /**
-                                     * isCurrent val.
-                                     */
                                     val isCurrent = team == currentTeamId
                                     Text(
                                         team,
@@ -189,9 +163,6 @@ fun MatchScheduleCard(
                                 verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 match.blueAlliance.forEach { team ->
-                                    /**
-                                     * isCurrent val.
-                                     */
                                     val isCurrent = team == currentTeamId
                                     Text(
                                         team,

@@ -32,12 +32,11 @@ import java.time.format.DateTimeFormatter
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun RunDataCard(
     rowDefinition: RowDefinition,
@@ -47,40 +46,18 @@ fun RunDataCard(
     dateFormatter: DateTimeFormatter,
     onDismiss: () -> Unit
 ) {
-    /**
-     * dataPoints val.
-     */
     val dataPoints = remember(rowDefinition, sessions, summaries, diagnosticsMap) {
         sessions.mapIndexedNotNull { idx, s ->
-            /**
-             * sum val.
-             */
             val sum = summaries[s.sessionId]
-            /**
-             * diag val.
-             */
             val diag = diagnosticsMap[s.sessionId] ?: emptyMap()
-            /**
-             * valNum val.
-             */
             val valNum = rowDefinition.getNumericValue(s, sum, diag)
             if (valNum != null) {
-                /**
-                 * label val.
-                 */
                 val label = s.matchNumber?.let { "M#$it" } ?: "Run ${idx + 1}"
-                /**
-                 * detail val.
-                 */
                 val detail = dateFormatter.format(Instant.ofEpochMilli(s.createdAt))
                 Triple(label, valNum, detail)
             } else null
         }
     }
-
-    /**
-     * textMeasurer val.
-     */
     val textMeasurer = rememberTextMeasurer()
 
     Dialog(onDismissRequest = onDismiss) {
@@ -113,56 +90,17 @@ fun RunDataCard(
                     // Line Graph View
                     Box(modifier = Modifier.fillMaxWidth().weight(1f).padding(8.dp)) {
                         Canvas(modifier = Modifier.fillMaxSize()) {
-                            /**
-                             * w val.
-                             */
                             val w = size.width
-                            /**
-                             * h val.
-                             */
                             val h = size.height
-
-                            /**
-                             * paddingLeft val.
-                             */
                             val paddingLeft = 60f
-                            /**
-                             * paddingBottom val.
-                             */
                             val paddingBottom = 40f
-                            /**
-                             * paddingTop val.
-                             */
                             val paddingTop = 20f
-                            /**
-                             * paddingRight val.
-                             */
                             val paddingRight = 20f
-
-                            /**
-                             * graphW val.
-                             */
                             val graphW = w - paddingLeft - paddingRight
-                            /**
-                             * graphH val.
-                             */
                             val graphH = h - paddingTop - paddingBottom
-
-                            /**
-                             * yValues val.
-                             */
                             val yValues = dataPoints.map { it.second }
-                            /**
-                             * yMin val.
-                             */
                             val yMin = yValues.minOrNull() ?: 0.0
-                            /**
-                             * yMax val.
-                             */
                             val yMax = yValues.maxOrNull() ?: 12.0
-                            /**
-                             * yRange val.
-                             */
                             val yRange = if (yMax - yMin < 1e-4) 1.0 else yMax - yMin
 
                             // 1. Draw Grid axes and labels
@@ -180,38 +118,20 @@ fun RunDataCard(
                             )
 
                             // Draw Y-axis labels
-                            /**
-                             * divisions val.
-                             */
                             val divisions = 4
-                            /**
-                             * textStyle val.
-                             */
                             val textStyle = TextStyle(
                                 color = Color.White,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold
                             )
-                            /**
-                             * labelStyle val.
-                             */
                             val labelStyle = TextStyle(
                                 color = Color.Gray,
                                 fontSize = 9.sp
                             )
 
                             for (i in 0..divisions) {
-                                /**
-                                 * frac val.
-                                 */
                                 val frac = i.toDouble() / divisions
-                                /**
-                                 * yVal val.
-                                 */
                                 val yVal = yMin + frac * yRange
-                                /**
-                                 * yPos val.
-                                 */
                                 val yPos = h - paddingBottom - (frac * graphH).toFloat()
 
                                 drawLine(
@@ -229,33 +149,15 @@ fun RunDataCard(
                             }
 
                             // Draw Line and Points
-                            /**
-                             * points val.
-                             */
                             val points = dataPoints.mapIndexed { idx, item ->
-                                /**
-                                 * xFrac val.
-                                 */
                                 val xFrac = if (dataPoints.size > 1) idx.toFloat() / (dataPoints.size - 1) else 0.5f
-                                /**
-                                 * yFrac val.
-                                 */
                                 val yFrac = ((item.second - yMin) / yRange).toFloat()
-                                /**
-                                 * px val.
-                                 */
                                 val px = paddingLeft + xFrac * graphW
-                                /**
-                                 * py val.
-                                 */
                                 val py = h - paddingBottom - yFrac * graphH
                                 Offset(px, py)
                             }
 
                             if (points.size > 1) {
-                                /**
-                                 * path val.
-                                 */
                                 val path = Path().apply {
                                     moveTo(points[0].x, points[0].y)
                                     for (i in 1 until points.size) {
@@ -271,9 +173,6 @@ fun RunDataCard(
 
                             // Draw points
                             points.forEachIndexed { idx, pt ->
-                                /**
-                                 * isAnomaly val.
-                                 */
                                 val isAnomaly = rowDefinition.isAnomaly(dataPoints[idx].second)
                                 drawCircle(
                                     color = if (isAnomaly) AresError else AresCyan,

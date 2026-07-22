@@ -33,12 +33,11 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun RunsIndex(
     databaseService: DatabaseService,
@@ -49,41 +48,22 @@ fun RunsIndex(
     modifier: Modifier = Modifier,
     reloadTrigger: Int = 0
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    /**
-     * sessions var.
-     */
     var sessions by remember { mutableStateOf<List<Session>>(emptyList()) }
 
     // Edit Notes and Tags state
-    /**
-     * editingSession var.
-     */
     var editingSession by remember { mutableStateOf<Session?>(null) }
-    /**
-     * annotationText var.
-     */
     var annotationText by remember { mutableStateOf("") }
-    /**
-     * tagsText var.
-     */
     var tagsText by remember { mutableStateOf("") }
-    /**
-     * batteryLabel var.
-     */
     var batteryLabel by remember { mutableStateOf("A") }
 
     // Helper function to reload sessions list
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun reloadSessions() {
         scope.launch {
@@ -96,22 +76,12 @@ fun RunsIndex(
     }
 
     LaunchedEffect(editingSession) {
-        /**
-         * session val.
-         */
         val session = editingSession ?: return@LaunchedEffect
-        /**
-         * annotations val.
-         */
         val annotations = databaseService.getAnnotations(session.sessionId)
         annotationText = annotations.firstOrNull()?.text ?: ""
         tagsText = session.tags.filter { !it.startsWith("battery-") }.joinToString(", ")
         batteryLabel = session.tags.firstOrNull { it.startsWith("battery-") }?.removePrefix("battery-") ?: "A"
     }
-
-    /**
-     * dateFormat val.
-     */
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
 
     Column(
@@ -148,18 +118,8 @@ fun RunsIndex(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 items(sessions) { session ->
-                    /**
-                     * isPrimary val.
-                     */
                     val isPrimary = session.sessionId == primarySessionId
-                    /**
-                     * isCompare val.
-                     */
                     val isCompare = session.sessionId == compareSessionId
-
-                    /**
-                     * borderCol val.
-                     */
                     val borderCol = when {
                         isPrimary -> AresCyan
                         isCompare -> AresGold
@@ -189,9 +149,6 @@ fun RunsIndex(
                                     color = AresTextPrimary
                                 )
                                 session.allianceColor?.let { alliance ->
-                                    /**
-                                     * badgeColor val.
-                                     */
                                     val badgeColor = if (alliance.lowercase() == "red") AresRed else AresCyan
                                     Box(
                                         modifier = Modifier
@@ -213,9 +170,6 @@ fun RunsIndex(
                                 Spacer(Modifier.height(6.dp))
                                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                                     session.tags.forEach { tag ->
-                                        /**
-                                         * displayTag val.
-                                         */
                                         val displayTag = if (tag.startsWith("battery-")) {
                                             "🔋 ${tag.removePrefix("battery-")}"
                                         } else tag
@@ -334,9 +288,6 @@ fun RunsIndex(
             confirmButton = {
                 Button(
                     onClick = {
-                        /**
-                         * cleanTags val.
-                         */
                         val cleanTags = tagsText.split(",")
                             .map { it.trim() }
                             .filter { it.isNotEmpty() }
@@ -346,9 +297,6 @@ fun RunsIndex(
                         }
                         
                         scope.launch {
-                            /**
-                             * annotation val.
-                             */
                             val annotation = SessionAnnotation(
                                 annotationId = java.util.UUID.randomUUID().toString(),
                                 sessionId = session.sessionId,

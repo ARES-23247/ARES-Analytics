@@ -10,12 +10,11 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class AutoImportService(
     private val databaseService: DatabaseService,
@@ -27,34 +26,24 @@ class AutoImportService(
 ) {
     private var job: Job? = null
     private val _importNotifications = MutableSharedFlow<String>(replay = 100)
-    /**
-     * importNotifications val.
-     */
     val importNotifications: SharedFlow<String> = _importNotifications.asSharedFlow()
 
     private var onImportSuccessCallback: (() -> Unit)? = null
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun start(onImportSuccess: () -> Unit) {
         onImportSuccessCallback = onImportSuccess
         job?.cancel()
         job = scope.launch {
-            /**
-             * adbPath val.
-             */
             val adbPath = findAdbPath()
             while (isActive) {
                 try {
-                    /**
-                     * config val.
-                     */
                     val config = configProvider()
                     if (config != null && !config.projectPath.isNullOrEmpty()) {
                         // 1. Local logs auto-import
@@ -68,9 +57,6 @@ class AutoImportService(
                                 }
                             }
                             League.FRC -> {
-                                /**
-                                 * host val.
-                                 */
                                 val host = config.nt4Host ?: getDefaultFrcHost(config.teamId)
                                 if (isHostReachable(host)) {
                                     importFrcRobotLogs(config, host)
@@ -88,12 +74,11 @@ class AutoImportService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun stop() {
         job?.cancel()
@@ -102,9 +87,6 @@ class AutoImportService(
     }
 
     private suspend fun importLocalLogs(config: WorkspaceConfig) {
-        /**
-         * logsDirs val.
-         */
         val logsDirs = listOf(
             File(config.projectPath, "logs"),
             File(config.projectPath, "ftc-app/logs")
@@ -112,21 +94,10 @@ class AutoImportService(
 
         for (dir in logsDirs) {
             if (!dir.exists() || !dir.isDirectory) continue
-
-            /**
-             * files val.
-             */
             val files = dir.listFiles { _, name ->
-                /**
-                 * lower val.
-                 */
                 val lower = name.lowercase()
                 lower.endsWith(".wpilog") || lower.endsWith(".jsonl") || lower.endsWith(".csv") || lower.endsWith(".hoot")
             } ?: continue
-
-            /**
-             * importedDir val.
-             */
             val importedDir = File(dir, "imported")
             importedDir.mkdirs()
 
@@ -140,23 +111,13 @@ class AutoImportService(
 
                 try {
                     _importNotifications.emit("[AUTO-IMPORT] Found local log: ${file.name}. Importing...")
-                    /**
-                     * baseTags val.
-                     */
                     val baseTags = mutableListOf("auto-import")
                     if (file.name.lowercase().startsWith("sim_")) {
                         baseTags.add("simulated")
                     }
-
-                    /**
-                     * sessionId val.
-                     */
                     val sessionId = if (file.name.endsWith(".hoot", ignoreCase = true)) {
                         hootDecoderService.importHootLog(file, config.teamId, config.seasonId, config.robotId)
                     } else {
-                        /**
-                         * session val.
-                         */
                         val session = logParserService.parseLogFile(
                             file, config.teamId, config.seasonId, config.robotId,
                             tags = baseTags
@@ -179,59 +140,33 @@ class AutoImportService(
     }
 
     private suspend fun importFtcRobotLogs(config: WorkspaceConfig, adbPath: String) {
-        /**
-         * robotDirs val.
-         */
         val robotDirs = listOf(
             "/sdcard/FIRST/telemetry_logs/",
             "/sdcard/ctre-logs/",
             "/sdcard/FIRST/ctre-logs/"
         )
-
-        /**
-         * localDestDir val.
-         */
         val localDestDir = File(config.projectPath, "logs/imported")
         localDestDir.mkdirs()
 
         for (robotDir in robotDirs) {
-            /**
-             * filesOnRobot val.
-             */
             val filesOnRobot = listFilesOnFtcRobot(adbPath, robotDir)
             for (filename in filesOnRobot) {
-                /**
-                 * lower val.
-                 */
                 val lower = filename.lowercase()
                 if (lower.endsWith(".wpilog") || lower.endsWith(".jsonl") || lower.endsWith(".csv") || lower.endsWith(".hoot")) {
-                    /**
-                     * remotePath val.
-                     */
                     val remotePath = "$robotDir$filename"
                     
                     // Check if file is still being written to by ARESDataLogger
                     if (isFileInUseOnFtcRobot(adbPath, remotePath)) {
                         continue
                     }
-
-                    /**
-                     * tempLocalFile val.
-                     */
                     val tempLocalFile = File(System.getProperty("java.io.tmpdir"), filename)
                     
                     try {
                         _importNotifications.emit("[AUTO-IMPORT] Found FTC robot log: $filename. Pulling...")
                         if (pullFileFromFtcRobot(adbPath, remotePath, tempLocalFile)) {
-                            /**
-                             * sessionId val.
-                             */
                             val sessionId = if (lower.endsWith(".hoot")) {
                                 hootDecoderService.importHootLog(tempLocalFile, config.teamId, config.seasonId, config.robotId)
                             } else {
-                                /**
-                                 * session val.
-                                 */
                                 val session = logParserService.parseLogFile(
                                     tempLocalFile, config.teamId, config.seasonId, config.robotId,
                                     tags = listOf("auto-import", "robot-log")
@@ -260,58 +195,32 @@ class AutoImportService(
     }
 
     private suspend fun importFrcRobotLogs(config: WorkspaceConfig, host: String) {
-        /**
-         * robotDirs val.
-         */
         val robotDirs = listOf(
             "/home/lvuser/logs/",
             "/media/sda1/logs/"
         )
-
-        /**
-         * localDestDir val.
-         */
         val localDestDir = File(config.projectPath, "logs/imported")
         localDestDir.mkdirs()
 
         for (robotDir in robotDirs) {
-            /**
-             * filesOnRobot val.
-             */
             val filesOnRobot = listFilesOnFrcRobot(host, robotDir)
             for (filename in filesOnRobot) {
-                /**
-                 * lower val.
-                 */
                 val lower = filename.lowercase()
                 if (lower.endsWith(".wpilog") || lower.endsWith(".jsonl") || lower.endsWith(".csv") || lower.endsWith(".hoot")) {
-                    /**
-                     * remotePath val.
-                     */
                     val remotePath = "$robotDir$filename"
 
                     // Check if file is still being written to by DataLogManager
                     if (isFileInUseOnFrcRobot(host, remotePath)) {
                         continue
                     }
-
-                    /**
-                     * tempLocalFile val.
-                     */
                     val tempLocalFile = File(System.getProperty("java.io.tmpdir"), filename)
                     
                     try {
                         _importNotifications.emit("[AUTO-IMPORT] Found FRC robot log: $filename. Pulling...")
                         if (pullFileFromFrcRobot(host, remotePath, tempLocalFile)) {
-                            /**
-                             * sessionId val.
-                             */
                             val sessionId = if (lower.endsWith(".hoot")) {
                                 hootDecoderService.importHootLog(tempLocalFile, config.teamId, config.seasonId, config.robotId)
                             } else {
-                                /**
-                                 * session val.
-                                 */
                                 val session = logParserService.parseLogFile(
                                     tempLocalFile, config.teamId, config.seasonId, config.robotId,
                                     tags = listOf("auto-import", "robot-log")
@@ -343,23 +252,11 @@ class AutoImportService(
 
     private suspend fun listFilesOnFtcRobot(adbPath: String, directory: String): List<String> = withContext(Dispatchers.IO) {
         try {
-            /**
-             * pb val.
-             */
             val pb = ProcessBuilder(adbPath, "shell", "ls", directory)
-            /**
-             * proc val.
-             */
             val proc = pb.start()
             proc.errorStream.close()
             proc.outputStream.close()
-            /**
-             * output val.
-             */
             val output = proc.inputStream.bufferedReader().use { it.readText() }
-            /**
-             * finished val.
-             */
             val finished = proc.waitFor(10, TimeUnit.SECONDS)
             if (!finished) {
                 proc.destroyForcibly()
@@ -375,20 +272,11 @@ class AutoImportService(
 
     private suspend fun pullFileFromFtcRobot(adbPath: String, remotePath: String, localFile: File): Boolean = withContext(Dispatchers.IO) {
         try {
-            /**
-             * pb val.
-             */
             val pb = ProcessBuilder(adbPath, "pull", remotePath, localFile.absolutePath)
-            /**
-             * proc val.
-             */
             val proc = pb.start()
             proc.inputStream.close()
             proc.errorStream.close()
             proc.outputStream.close()
-            /**
-             * finished val.
-             */
             val finished = proc.waitFor(60, TimeUnit.SECONDS)
             if (!finished) {
                 proc.destroyForcibly()
@@ -402,20 +290,11 @@ class AutoImportService(
 
     private suspend fun deleteFileFromFtcRobot(adbPath: String, remotePath: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            /**
-             * pb val.
-             */
             val pb = ProcessBuilder(adbPath, "shell", "rm", remotePath)
-            /**
-             * proc val.
-             */
             val proc = pb.start()
             proc.inputStream.close()
             proc.errorStream.close()
             proc.outputStream.close()
-            /**
-             * finished val.
-             */
             val finished = proc.waitFor(10, TimeUnit.SECONDS)
             if (!finished) {
                 proc.destroyForcibly()
@@ -429,19 +308,10 @@ class AutoImportService(
 
     private suspend fun isFileInUseOnFtcRobot(adbPath: String, remotePath: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            /**
-             * pb val.
-             */
             val pb = ProcessBuilder(adbPath, "shell", "lsof", remotePath)
-            /**
-             * proc val.
-             */
             val proc = pb.start()
             proc.errorStream.close()
             proc.outputStream.close()
-            /**
-             * output val.
-             */
             val output = proc.inputStream.bufferedReader().use { it.readText() }
             proc.waitFor(10, TimeUnit.SECONDS)
             output.contains(remotePath) || output.isNotBlank()
@@ -454,9 +324,6 @@ class AutoImportService(
 
     private suspend fun listFilesOnFrcRobot(host: String, directory: String): List<String> = withContext(Dispatchers.IO) {
         try {
-            /**
-             * pb val.
-             */
             val pb = ProcessBuilder(
                 "ssh",
                 "-o", "StrictHostKeyChecking=no",
@@ -466,19 +333,10 @@ class AutoImportService(
                 "lvuser@$host",
                 "ls $directory"
             )
-            /**
-             * proc val.
-             */
             val proc = pb.start()
             proc.errorStream.close()
             proc.outputStream.close()
-            /**
-             * output val.
-             */
             val output = proc.inputStream.bufferedReader().use { it.readText() }
-            /**
-             * finished val.
-             */
             val finished = proc.waitFor(10, TimeUnit.SECONDS)
             if (!finished) {
                 proc.destroyForcibly()
@@ -494,9 +352,6 @@ class AutoImportService(
 
     private suspend fun pullFileFromFrcRobot(host: String, remotePath: String, localFile: File): Boolean = withContext(Dispatchers.IO) {
         try {
-            /**
-             * pb val.
-             */
             val pb = ProcessBuilder(
                 "scp",
                 "-o", "StrictHostKeyChecking=no",
@@ -506,16 +361,10 @@ class AutoImportService(
                 "lvuser@$host:$remotePath",
                 localFile.absolutePath
             )
-            /**
-             * proc val.
-             */
             val proc = pb.start()
             proc.inputStream.close()
             proc.errorStream.close()
             proc.outputStream.close()
-            /**
-             * finished val.
-             */
             val finished = proc.waitFor(60, TimeUnit.SECONDS)
             if (!finished) {
                 proc.destroyForcibly()
@@ -529,9 +378,6 @@ class AutoImportService(
 
     private suspend fun deleteFileFromFrcRobot(host: String, remotePath: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            /**
-             * pb val.
-             */
             val pb = ProcessBuilder(
                 "ssh",
                 "-o", "StrictHostKeyChecking=no",
@@ -541,16 +387,10 @@ class AutoImportService(
                 "lvuser@$host",
                 "rm $remotePath"
             )
-            /**
-             * proc val.
-             */
             val proc = pb.start()
             proc.inputStream.close()
             proc.errorStream.close()
             proc.outputStream.close()
-            /**
-             * finished val.
-             */
             val finished = proc.waitFor(10, TimeUnit.SECONDS)
             if (!finished) {
                 proc.destroyForcibly()
@@ -564,9 +404,6 @@ class AutoImportService(
 
     private suspend fun isFileInUseOnFrcRobot(host: String, remotePath: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            /**
-             * pb val.
-             */
             val pb = ProcessBuilder(
                 "ssh",
                 "-o", "StrictHostKeyChecking=no",
@@ -576,9 +413,6 @@ class AutoImportService(
                 "lvuser@$host",
                 "fuser $remotePath"
             )
-            /**
-             * proc val.
-             */
             val proc = pb.start()
             proc.inputStream.close()
             proc.errorStream.close()
@@ -592,28 +426,16 @@ class AutoImportService(
 
     private suspend fun isHostReachable(host: String): Boolean = withContext(Dispatchers.IO) {
         try {
-            /**
-             * isWindows val.
-             */
             val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
-            /**
-             * pb val.
-             */
             val pb = if (isWindows) {
                 ProcessBuilder("ping", "-n", "1", "-w", "1000", host)
             } else {
                 ProcessBuilder("ping", "-c", "1", "-W", "1", host)
             }
-            /**
-             * proc val.
-             */
             val proc = pb.start()
             proc.inputStream.close()
             proc.errorStream.close()
             proc.outputStream.close()
-            /**
-             * finished val.
-             */
             val finished = proc.waitFor(2, TimeUnit.SECONDS)
             finished && proc.exitValue() == 0
         } catch (e: Exception) {
@@ -634,9 +456,6 @@ class AutoImportService(
 
     private fun findAdbPath(): String {
         try {
-            /**
-             * proc val.
-             */
             val proc = ProcessBuilder("adb", "--version").start()
             proc.inputStream.close()
             proc.errorStream.close()
@@ -646,15 +465,8 @@ class AutoImportService(
         } catch (e: Exception) {
             // Ignore and fall through
         }
-
-        /**
-         * androidHome val.
-         */
         val androidHome = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
         if (!androidHome.isNullOrEmpty()) {
-            /**
-             * exe val.
-             */
             val exe = if (System.getProperty("os.name").contains("win", ignoreCase = true)) {
                 File(androidHome, "platform-tools/adb.exe")
             } else {
@@ -664,14 +476,7 @@ class AutoImportService(
                 return exe.absolutePath
             }
         }
-
-        /**
-         * userHome val.
-         */
         val userHome = System.getProperty("user.home")
-        /**
-         * defaultPaths val.
-         */
         val defaultPaths = listOf(
             File(userHome, "AppData/Local/Android/Sdk/platform-tools/adb.exe"),
             File(userHome, "Library/Android/sdk/platform-tools/adb"),
@@ -688,22 +493,10 @@ class AutoImportService(
     }
 
     private fun getDefaultFrcHost(teamId: String): String {
-        /**
-         * teamNumber val.
-         */
         val teamNumber = teamId.filter { it.isDigit() }
         return if (teamNumber.length in 1..4) {
-            /**
-             * padded val.
-             */
             val padded = teamNumber.padStart(4, '0')
-            /**
-             * te val.
-             */
             val te = padded.substring(0, 2).toInt()
-            /**
-             * am val.
-             */
             val am = padded.substring(2, 4).toInt()
             "10.$te.$am.2"
         } else {

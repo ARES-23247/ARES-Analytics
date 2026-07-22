@@ -31,12 +31,11 @@ import com.ares.analytics.ui.theme.*
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun ControllerBindingsSidebar(
     isOpen: Boolean,
@@ -98,17 +97,8 @@ fun ControllerBindingsSidebar(
                     )
                 }
             } else {
-                /**
-                 * uniqueFiles val.
-                 */
                 val uniqueFiles = bindings.map { it.sourceFile }.distinct().sorted()
-                /**
-                 * selectedOpMode var.
-                 */
                 var selectedOpMode by remember(bindings) { mutableStateOf(uniqueFiles.firstOrNull()) }
-                /**
-                 * dropdownExpanded var.
-                 */
                 var dropdownExpanded by remember { mutableStateOf(false) }
 
                 if (uniqueFiles.size > 1) {
@@ -137,18 +127,8 @@ fun ControllerBindingsSidebar(
                         }
                     }
                 }
-
-                /**
-                 * activeBindings val.
-                 */
                 val activeBindings = bindings.filter { it.sourceFile == selectedOpMode }
-                /**
-                 * gamepad1Bindings val.
-                 */
                 val gamepad1Bindings = activeBindings.filter { it.gamepadId == "gamepad1" || !it.gamepadId.contains("2") && !it.gamepadId.contains("operator") }
-                /**
-                 * gamepad2Bindings val.
-                 */
                 val gamepad2Bindings = activeBindings.filter { it.gamepadId == "gamepad2" || it.gamepadId.contains("2") || it.gamepadId.contains("operator") }
 
                 Column(
@@ -182,12 +162,11 @@ fun ControllerBindingsSidebar(
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun ControllerVisualizer(
     title: String,
@@ -211,9 +190,6 @@ fun ControllerVisualizer(
                 .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
-            /**
-             * resourceName val.
-             */
             val resourceName = if (league == League.FRC) "drawable/frc_controller.png" else "drawable/ftc_controller.png"
             
             Image(
@@ -225,9 +201,6 @@ fun ControllerVisualizer(
             
             // Map buttons to approx screen coordinates (offset from center)
             bindings.forEach { binding ->
-                /**
-                 * offset val.
-                 */
                 val offset = getButtonOffset(binding.button, league)
                 if (offset != null) {
                     Box(
@@ -250,12 +223,11 @@ fun ControllerVisualizer(
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun BindingTag(binding: ControllerBinding) {
     Column(
@@ -282,14 +254,7 @@ fun BindingTag(binding: ControllerBinding) {
 
 // Approximate offsets (X, Y) from the center of the controller image
 private fun getButtonOffset(button: String, league: League, scale: Float = 1.3f): Pair<Dp, Dp>? {
-    /**
-     * isXbox val.
-     */
     val isXbox = league == League.FRC
-    
-    /**
-     * baseOffset val.
-     */
     val baseOffset = when (button.lowercase()) {
         "a", "cross" -> Pair(180.dp, 60.dp)
         "b", "circle" -> Pair(240.dp, 0.dp)
@@ -321,12 +286,11 @@ private fun getButtonOffset(button: String, league: League, scale: Float = 1.3f)
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun KeyboardBindingsList() {
     Column(
@@ -343,10 +307,6 @@ fun KeyboardBindingsList() {
             color = AresCyan,
             fontSize = 18.sp
         )
-
-        /**
-         * keys val.
-         */
         val keys = listOf(
             "Left Stick" to "W / A / S / D",
             "Right Stick" to "Arrow Keys",

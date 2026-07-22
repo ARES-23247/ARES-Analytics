@@ -35,86 +35,49 @@ import com.ares.analytics.viewmodel.FieldEditorViewModel
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun FieldEditorScreen(
     viewModel: FieldEditorViewModel,
     league: League,
     projectPath: String? = null
 ) {
-    /**
-     * state val.
-     */
     val state by viewModel.state.collectAsState()
 
     LaunchedEffect(projectPath) {
         viewModel.onIntent(FieldEditorIntent.LoadConfig(projectPath, league))
     }
-
-    /**
-     * showCropBoundaries var.
-     */
     var showCropBoundaries by remember { mutableStateOf(false) }
-    /**
-     * obstaclesCollapsed var.
-     */
     var obstaclesCollapsed by remember { mutableStateOf(false) }
-    /**
-     * gamePiecesCollapsed var.
-     */
     var gamePiecesCollapsed by remember { mutableStateOf(false) }
-    /**
-     * aprilTagsCollapsed var.
-     */
     var aprilTagsCollapsed by remember { mutableStateOf(false) }
-    /**
-     * waypointsCollapsed var.
-     */
     var waypointsCollapsed by remember { mutableStateOf(false) }
-
-    /**
-     * fieldWidthM val.
-     */
     val fieldWidthM = if (state.fieldImageConfig.widthMeters > 0.0) state.fieldImageConfig.widthMeters else (if (league == League.FTC) 3.65 else 16.5)
-    /**
-     * fieldHeightM val.
-     */
     val fieldHeightM = if (state.fieldImageConfig.heightMeters > 0.0) state.fieldImageConfig.heightMeters else (if (league == League.FTC) 3.65 else 8.2)
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun mirrorObstacleX(obs: Obstacle, fieldWidth: Double, league: League): Obstacle {
         return when (obs) {
             is Obstacle.Circle -> {
-                /**
-                 * newX val.
-                 */
                 val newX = if (league == League.FTC) -obs.centerX else fieldWidth - obs.centerX
                 obs.copy(centerX = newX)
             }
             is Obstacle.Rectangle -> {
-                /**
-                 * newX val.
-                 */
                 val newX = if (league == League.FTC) -obs.centerX else fieldWidth - obs.centerX
                 obs.copy(centerX = newX, rotation = -obs.rotation)
             }
             is Obstacle.Polygon -> {
                 obs.copy(vertices = obs.vertices.map { v ->
-                    /**
-                     * newX val.
-                     */
                     val newX = if (league == League.FTC) -v.x else fieldWidth - v.x
                     PathPoint(newX, v.y)
                 })
@@ -123,34 +86,24 @@ fun FieldEditorScreen(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun mirrorObstacleY(obs: Obstacle, fieldHeight: Double, league: League): Obstacle {
         return when (obs) {
             is Obstacle.Circle -> {
-                /**
-                 * newY val.
-                 */
                 val newY = if (league == League.FTC) -obs.centerY else fieldHeight - obs.centerY
                 obs.copy(centerY = newY)
             }
             is Obstacle.Rectangle -> {
-                /**
-                 * newY val.
-                 */
                 val newY = if (league == League.FTC) -obs.centerY else fieldHeight - obs.centerY
                 obs.copy(centerY = newY, rotation = -obs.rotation)
             }
             is Obstacle.Polygon -> {
                 obs.copy(vertices = obs.vertices.map { v ->
-                    /**
-                     * newY val.
-                     */
                     val newY = if (league == League.FTC) -v.y else fieldHeight - v.y
                     PathPoint(v.x, newY)
                 })
@@ -179,21 +132,12 @@ fun FieldEditorScreen(
                     onClick = {
                         if (!projectPath.isNullOrEmpty()) {
                             SwingUtilities.invokeLater {
-                                /**
-                                 * chooser val.
-                                 */
                                 val chooser = JFileChooser().apply {
                                     dialogTitle = "Select Field Image (PNG/JPG)"
                                     fileFilter = FileNameExtensionFilter("Images", "png", "jpg", "jpeg")
                                 }
-                                /**
-                                 * result val.
-                                 */
                                 val result = chooser.showOpenDialog(null)
                                 if (result == JFileChooser.APPROVE_OPTION) {
-                                    /**
-                                     * selectedFile val.
-                                     */
                                     val selectedFile = chooser.selectedFile
                                     if (selectedFile != null && selectedFile.exists()) {
                                         viewModel.onIntent(FieldEditorIntent.ImportFieldImage(selectedFile, projectPath, league))
@@ -236,9 +180,6 @@ fun FieldEditorScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 listOf(0.0, 90.0, 180.0, 270.0).forEach { angle ->
-                                    /**
-                                     * isSelected val.
-                                     */
                                     val isSelected = state.fieldImageConfig.rotationDegrees == angle
                                     Button(
                                         onClick = {
@@ -311,9 +252,6 @@ fun FieldEditorScreen(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         FTCCoordinateSystem.entries.forEach { coord ->
-                            /**
-                             * isSelected val.
-                             */
                             val isSelected = state.fieldImageConfig.ftcCoordinateSystem == coord
                             Button(
                                 onClick = {
@@ -409,13 +347,7 @@ fun FieldEditorScreen(
                             ) {
                                 TextButton(
                                     onClick = {
-                                        /**
-                                         * copies val.
-                                         */
                                         val copies = state.obstacles.map { obs ->
-                                            /**
-                                             * mirrored val.
-                                             */
                                             val mirrored = mirrorObstacleX(obs, fieldWidthM, league)
                                             when (mirrored) {
                                                 is Obstacle.Circle -> mirrored.copy(id = "circle_${System.currentTimeMillis()}_${obs.id.hashCode()}", name = "${obs.name} Mirrored X")
@@ -434,13 +366,7 @@ fun FieldEditorScreen(
                                 }
                                 TextButton(
                                     onClick = {
-                                        /**
-                                         * copies val.
-                                         */
                                         val copies = state.obstacles.map { obs ->
-                                            /**
-                                             * mirrored val.
-                                             */
                                             val mirrored = mirrorObstacleY(obs, fieldHeightM, league)
                                             when (mirrored) {
                                                 is Obstacle.Circle -> mirrored.copy(id = "circle_${System.currentTimeMillis()}_${obs.id.hashCode()}", name = "${obs.name} Mirrored Y")
@@ -569,25 +495,13 @@ fun FieldEditorScreen(
                         Button(
                             onClick = {
                                 SwingUtilities.invokeLater {
-                                    /**
-                                     * chooser val.
-                                     */
                                     val chooser = JFileChooser().apply {
                                         dialogTitle = "Select Limelight .fmap File"
                                         fileFilter = FileNameExtensionFilter("AprilTag Map (.fmap)", "fmap")
                                     }
-                                    /**
-                                     * result val.
-                                     */
                                     val result = chooser.showOpenDialog(null)
                                     if (result == JFileChooser.APPROVE_OPTION) {
-                                        /**
-                                         * selectedFile val.
-                                         */
                                         val selectedFile = chooser.selectedFile
-                                        /**
-                                         * fmapContent val.
-                                         */
                                         val fmapContent = selectedFile.readText()
                                         viewModel.onIntent(FieldEditorIntent.ImportFmap(fmapContent, projectPath, league))
                                     }

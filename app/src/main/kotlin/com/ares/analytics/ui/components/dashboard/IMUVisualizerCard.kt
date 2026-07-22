@@ -30,44 +30,24 @@ import kotlin.math.sin
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun IMUVisualizerCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    
-    /**
-     * roll var.
-     */
     var roll by remember { mutableStateOf<Double?>(null) }
-    /**
-     * pitch var.
-     */
     var pitch by remember { mutableStateOf<Double?>(null) }
-    /**
-     * yaw var.
-     */
     var yaw by remember { mutableStateOf<Double?>(null) }
 
     LaunchedEffect(Unit) {
         nt4ClientService.telemetryFlow.collect { frame ->
-            /**
-             * key val.
-             */
             val key = frame.key
-            /**
-             * value val.
-             */
             val value = frame.value as? Double ?: return@collect
             
             when {
@@ -126,9 +106,6 @@ fun IMUVisualizerCard(
                 // Roll
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("ROLL", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    /**
-                     * rColor val.
-                     */
                     val rColor = if (roll != null && kotlin.math.abs(roll!!) > 15.0) AresError else AresTextPrimary
                     Text(
                         text = roll?.let { String.format("%.1f°", Math.toDegrees(it)) } ?: "--",
@@ -142,9 +119,6 @@ fun IMUVisualizerCard(
                 // Pitch
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("PITCH", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    /**
-                     * pColor val.
-                     */
                     val pColor = if (pitch != null && kotlin.math.abs(pitch!!) > 15.0) AresError else AresTextPrimary
                     Text(
                         text = pitch?.let { String.format("%.1f°", Math.toDegrees(it)) } ?: "--",
@@ -181,17 +155,8 @@ fun IMUVisualizerCard(
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(modifier = Modifier.size(80.dp)) {
-                    /**
-                     * cx val.
-                     */
                     val cx = size.width / 2f
-                    /**
-                     * cy val.
-                     */
                     val cy = size.height / 2f
-                    /**
-                     * radius val.
-                     */
                     val radius = size.width / 2f - 4f
                     
                     // Draw compass circle
@@ -199,19 +164,10 @@ fun IMUVisualizerCard(
                     drawCircle(color = AresBorder, radius = radius, center = Offset(cx, cy), style = Stroke(width = 2f))
                     
                     if (yaw != null) {
-                        /**
-                         * yawDeg val.
-                         */
                         val yawDeg = Math.toDegrees(yaw!!).toFloat()
                         rotate(degrees = -yawDeg, pivot = Offset(cx, cy)) {
                             // Draw robot arrow pointing up
-                            /**
-                             * arrowW val.
-                             */
                             val arrowW = 20f
-                            /**
-                             * arrowH val.
-                             */
                             val arrowH = 40f
                             drawRect(
                                 color = AresCyan,

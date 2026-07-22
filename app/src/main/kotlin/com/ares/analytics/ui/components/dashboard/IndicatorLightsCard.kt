@@ -38,30 +38,23 @@ import com.ares.analytics.util.IndicatorLightColorMapper
  */
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun IndicatorLightsCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
     // Track discovered indicator lights — keyed by name, valued by last position
-    /**
-     * lights val.
-     */
     val lights = remember { mutableStateMapOf<String, Double>() }
 
     // Collect the telemetry flow to discover indicator light topics
     LaunchedEffect(Unit) {
         nt4ClientService.telemetryFlow.collect { frame ->
             if (frame.key.startsWith("Superstructure/IndicatorLight/")) {
-                /**
-                 * lightName val.
-                 */
                 val lightName = frame.key.substringAfterLast("/")
                 lights[lightName] = frame.value
             }
@@ -161,19 +154,10 @@ private fun IndicatorLightRow(
     name: String,
     position: Double
 ) {
-    /**
-     * displayColor val.
-     */
     val displayColor = IndicatorLightColorMapper.positionToColor(position)
-    /**
-     * colorName val.
-     */
     val colorName = IndicatorLightColorMapper.positionToName(position)
 
     // Smooth color transition animation
-    /**
-     * animatedColor val.
-     */
     val animatedColor by animateColorAsState(
         targetValue = displayColor,
         animationSpec = tween(durationMillis = 150),

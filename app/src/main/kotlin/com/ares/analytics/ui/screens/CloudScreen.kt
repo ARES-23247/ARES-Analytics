@@ -31,29 +31,19 @@ import com.ares.analytics.viewmodel.RobotLogFileInfo
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun CloudScreen(
     viewModel: CloudViewModel,
     teamId: String,
     seasonId: String
 ) {
-    /**
-     * state val.
-     */
     val state by viewModel.state.collectAsState()
-    /**
-     * checkedRobotRuns val.
-     */
     val checkedRobotRuns = remember { mutableStateListOf<String>() }
-    /**
-     * checkedSessions val.
-     */
     val checkedSessions = remember { mutableStateListOf<String>() }
 
     Column(
@@ -156,9 +146,6 @@ fun CloudScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            /**
-                             * allChecked val.
-                             */
                             val allChecked = state.robotRuns.isNotEmpty() && state.robotRuns.all { it.runId in checkedRobotRuns }
                             Checkbox(
                                 checked = allChecked,
@@ -259,9 +246,6 @@ fun CloudScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            /**
-                             * allChecked val.
-                             */
                             val allChecked = state.sessions.isNotEmpty() && state.sessions.all { it.summary.sessionId in checkedSessions }
                             Checkbox(
                                 checked = allChecked,
@@ -286,21 +270,9 @@ fun CloudScreen(
                         modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        /**
-                         * selectedSessionInfos val.
-                         */
                         val selectedSessionInfos = state.sessions.filter { it.summary.sessionId in checkedSessions }
-                        /**
-                         * remoteOnlySummaries val.
-                         */
                         val remoteOnlySummaries = selectedSessionInfos.filter { !it.isLocal && it.isRemote }.map { it.summary }
-                        /**
-                         * localOnlySessionIds val.
-                         */
                         val localOnlySessionIds = selectedSessionInfos.filter { it.isLocal }.map { it.summary.sessionId }
-                        /**
-                         * remoteSessionIdsAndTeamIds val.
-                         */
                         val remoteSessionIdsAndTeamIds = selectedSessionInfos.filter { it.isRemote }.map { it.summary.sessionId to it.summary.teamId }
 
                         if (remoteOnlySummaries.isNotEmpty()) {
@@ -396,14 +368,8 @@ fun CloudScreen(
 
                     IconButton(
                         onClick = {
-                            /**
-                             * textToCopy val.
-                             */
                             val textToCopy = state.uploadLogs.joinToString("\n")
                             try {
-                                /**
-                                 * selection val.
-                                 */
                                 val selection = java.awt.datatransfer.StringSelection(textToCopy)
                                 java.awt.Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, selection)
                             } catch (e: Exception) {
@@ -420,10 +386,6 @@ fun CloudScreen(
                         )
                     }
                 }
-
-                /**
-                 * lazyListState val.
-                 */
                 val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
                 LaunchedEffect(state.uploadLogs.size) {
                     if (state.uploadLogs.isNotEmpty()) {
@@ -445,12 +407,11 @@ fun CloudScreen(
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun RobotRunRow(
     run: com.ares.analytics.viewmodel.RobotRun,
@@ -482,9 +443,6 @@ fun RobotRunRow(
             )
             Column {
                 Text("Run: ${run.runId}", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-                /**
-                 * statusText val.
-                 */
                 val statusText = if (run.isActive) " | ACTIVE RECORDING..." else ""
                 Text(
                     "Files: ${run.files.size} | Size: ${run.totalSizeBytes / 1024} KB | ${run.lastModifiedFmt}$statusText",
@@ -517,12 +475,11 @@ fun RobotRunRow(
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun SessionSyncRow(
     info: com.ares.analytics.viewmodel.SessionSyncInfo,
@@ -533,9 +490,6 @@ fun SessionSyncRow(
     onDeleteLocal: () -> Unit,
     onDeleteRemote: () -> Unit
 ) {
-    /**
-     * summary val.
-     */
     val summary = info.summary
     Row(
         modifier = Modifier
@@ -557,27 +511,14 @@ fun SessionSyncRow(
                 colors = CheckboxDefaults.colors(checkedColor = AresCyan)
             )
             Column(modifier = Modifier.weight(1f)) {
-                /**
-                 * formatter val.
-                 */
                 val formatter = java.text.SimpleDateFormat("yyyyMMdd_HHmmss")
-                /**
-                 * runName val.
-                 */
                 val runName = try {
                     formatter.format(java.util.Date(summary.createdAt))
                 } catch (e: Exception) {
                     "Unknown Date"
                 }
                 Text("Session: $runName", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-
-                /**
-                 * sizeStr val.
-                 */
                 val sizeStr = if (summary.fileSizeBytes > 0) " | Size: ${summary.fileSizeBytes / 1024} KB" else ""
-                /**
-                 * dateStr val.
-                 */
                 val dateStr = try {
                     java.text.SimpleDateFormat("MMM dd, HH:mm").format(java.util.Date(summary.createdAt))
                 } catch (e: Exception) {
@@ -591,17 +532,11 @@ fun SessionSyncRow(
                 )
 
                 Spacer(modifier = Modifier.height(6.dp))
-                /**
-                 * badgeColor val.
-                 */
                 val badgeColor = when {
                     info.isLocal && info.isRemote -> AresGreen
                     info.isLocal -> AresCyan
                     else -> AresAmber
                 }
-                /**
-                 * badgeText val.
-                 */
                 val badgeText = when {
                     info.isLocal && info.isRemote -> "Synced"
                     info.isLocal -> "Local Only (DuckDB)"

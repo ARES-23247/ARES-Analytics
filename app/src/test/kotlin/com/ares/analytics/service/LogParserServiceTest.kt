@@ -16,50 +16,20 @@ class LogParserServiceTest {
      * testParseJsonlLog fun.
      */
     fun testParseJsonlLog() = runTest {
-        /**
-         * tempDb val.
-         */
         val tempDb = File.createTempFile("log_jsonl_db", ".db").apply { deleteOnExit() }
-        /**
-         * databaseService val.
-         */
         val databaseService = DatabaseService(tempDb.absolutePath)
-        /**
-         * sysIdService val.
-         */
         val sysIdService = SysIdService(databaseService)
-        /**
-         * driverAnalysisService val.
-         */
         val driverAnalysisService = DriverAnalysisService(databaseService, sysIdService)
-        /**
-         * summaryEngineService val.
-         */
         val summaryEngineService = SummaryEngineService(databaseService, sysIdService, driverAnalysisService)
-        /**
-         * logParser val.
-         */
         val logParser = LogParserService(databaseService, summaryEngineService)
-
-        /**
-         * tempFile val.
-         */
         val tempFile = File.createTempFile("log_test", ".jsonl")
         tempFile.deleteOnExit()
-
-        /**
-         * jsonLines val.
-         */
         val jsonLines = """
             {"timestampMs": 1000, "voltage": 12.5, "velocity": 2.1}
             {"timestampMs": 1020, "voltage": 12.4, "velocity": 2.2}
             {"timestampMs": 1040, "voltage": 12.3, "velocity": 2.3}
         """.trimIndent()
         tempFile.writeText(jsonLines)
-
-        /**
-         * session val.
-         */
         val session = logParser.parseLogFile(
             file = tempFile,
             teamId = "23247",
@@ -73,14 +43,8 @@ class LogParserServiceTest {
         assertTrue(session.tags.contains("jsonl-test"))
 
         // Query telemetry from database
-        /**
-         * frames val.
-         */
         val frames = databaseService.getTelemetryRange(session.sessionId, 0L, Long.MAX_VALUE).filter { !it.key.startsWith("Diagnostics/") }
         assertEquals(6, frames.size) // 3 timestamps * 2 keys each
-        /**
-         * firstVoltage val.
-         */
         val firstVoltage = frames.first { it.timestampMs == 1000L && it.key == "voltage" }
         assertEquals(12.5, firstVoltage.value)
 
@@ -93,40 +57,14 @@ class LogParserServiceTest {
      * testParseCsvLog fun.
      */
     fun testParseCsvLog() = runTest {
-        /**
-         * tempDb val.
-         */
         val tempDb = File.createTempFile("log_csv_db", ".db").apply { deleteOnExit() }
-        /**
-         * databaseService val.
-         */
         val databaseService = DatabaseService(tempDb.absolutePath)
-        /**
-         * sysIdService val.
-         */
         val sysIdService = SysIdService(databaseService)
-        /**
-         * driverAnalysisService val.
-         */
         val driverAnalysisService = DriverAnalysisService(databaseService, sysIdService)
-        /**
-         * summaryEngineService val.
-         */
         val summaryEngineService = SummaryEngineService(databaseService, sysIdService, driverAnalysisService)
-        /**
-         * logParser val.
-         */
         val logParser = LogParserService(databaseService, summaryEngineService)
-
-        /**
-         * tempFile val.
-         */
         val tempFile = File.createTempFile("log_test", ".csv")
         tempFile.deleteOnExit()
-
-        /**
-         * csvLines val.
-         */
         val csvLines = """
             timestamp, voltage, velocity
             2000, 11.5, 1.1
@@ -134,10 +72,6 @@ class LogParserServiceTest {
             2040, 11.3, 1.3
         """.trimIndent()
         tempFile.writeText(csvLines)
-
-        /**
-         * session val.
-         */
         val session = logParser.parseLogFile(
             file = tempFile,
             teamId = "23247",
@@ -149,14 +83,8 @@ class LogParserServiceTest {
         assertEquals(40L, session.durationMs) // 2040 - 2000 = 40ms
 
         // Query telemetry from database
-        /**
-         * frames val.
-         */
         val frames = databaseService.getTelemetryRange(session.sessionId, 0L, Long.MAX_VALUE).filter { !it.key.startsWith("Diagnostics/") }
         assertEquals(6, frames.size)
-        /**
-         * firstVoltage val.
-         */
         val firstVoltage = frames.first { it.timestampMs == 2000L && it.key == "voltage" }
         assertEquals(11.5, firstVoltage.value)
 

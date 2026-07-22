@@ -32,12 +32,11 @@ import androidx.compose.ui.platform.LocalDensity
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun WidgetGrid(
     widgets: List<WidgetConfig>,
@@ -47,44 +46,14 @@ fun WidgetGrid(
     widgetBuilders: Map<String, @Composable (WidgetConfig, Modifier) -> Unit>,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * density val.
-     */
     val density = LocalDensity.current.density
-    /**
-     * colWidth val.
-     */
     val colWidth = 120.dp
-    /**
-     * rowHeight val.
-     */
     val rowHeight = 80.dp
-    /**
-     * spacing val.
-     */
     val spacing = 16.dp
-
-    /**
-     * maxRow val.
-     */
     val maxRow = widgets.maxOfOrNull { it.row + it.rowSpan } ?: 0
-    /**
-     * gridHeight val.
-     */
     val gridHeight = rowHeight * maxRow + spacing * (maxRow - 1).coerceAtLeast(0) + 120.dp
-
-    /**
-     * maxCol val.
-     */
     val maxCol = widgets.maxOfOrNull { it.col + it.colSpan } ?: 12
-    /**
-     * gridWidth val.
-     */
     val gridWidth = colWidth * maxCol + spacing * (maxCol - 1).coerceAtLeast(0) + 64.dp
-
-    /**
-     * currentWidgets val.
-     */
     val currentWidgets by rememberUpdatedState(widgets)
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -102,52 +71,17 @@ fun WidgetGrid(
             ) {
             widgets.forEach { widget ->
                 key(widget.id) {
-                    /**
-                     * offsetX var.
-                     */
                     var offsetX by remember { mutableStateOf(0f) }
-                    /**
-                     * offsetY var.
-                     */
                     var offsetY by remember { mutableStateOf(0f) }
-                    /**
-                     * isDragging var.
-                     */
                     var isDragging by remember { mutableStateOf(false) }
-
-                /**
-                 * resizeWidthOffset var.
-                 */
                 var resizeWidthOffset by remember { mutableStateOf(0f) }
-                /**
-                 * resizeHeightOffset var.
-                 */
                 var resizeHeightOffset by remember { mutableStateOf(0f) }
-                /**
-                 * isResizing var.
-                 */
                 var isResizing by remember { mutableStateOf(false) }
-
-                /**
-                 * builder val.
-                 */
                 val builder = widgetBuilders[widget.type]
                 if (builder != null) {
-                    /**
-                     * w val.
-                     */
                     val w = colWidth * widget.colSpan + spacing * (widget.colSpan - 1) + (resizeWidthOffset / density).dp
-                    /**
-                     * h val.
-                     */
                     val h = rowHeight * widget.rowSpan + spacing * (widget.rowSpan - 1) + (resizeHeightOffset / density).dp
-                    /**
-                     * x val.
-                     */
                     val x = colWidth * widget.col + spacing * widget.col
-                    /**
-                     * y val.
-                     */
                     val y = rowHeight * widget.row + spacing * widget.row
 
                     Box(
@@ -177,28 +111,13 @@ fun WidgetGrid(
                                             onDragStart = { isDragging = true },
                                             onDragEnd = {
                                                 isDragging = false
-                                                /**
-                                                 * deltaCol val.
-                                                 */
                                                 val deltaCol = ((offsetX / density) / 120f).roundToInt()
-                                                /**
-                                                 * deltaRow val.
-                                                 */
                                                 val deltaRow = ((offsetY / density) / 80f).roundToInt()
                                                 offsetX = 0f
                                                 offsetY = 0f
                                                 if (deltaCol != 0 || deltaRow != 0) {
-                                                    /**
-                                                     * newCol val.
-                                                     */
                                                     val newCol = (widget.col + deltaCol).coerceIn(0, 18 - widget.colSpan)
-                                                    /**
-                                                     * newRow val.
-                                                     */
                                                     val newRow = (widget.row + deltaRow).coerceIn(0, 30)
-                                                    /**
-                                                     * updated val.
-                                                     */
                                                     val updated = currentWidgets.map {
                                                         if (it.id == widget.id) it.copy(col = newCol, row = newRow) else it
                                                     }
@@ -231,9 +150,6 @@ fun WidgetGrid(
                                 ) {
                                     IconButton(
                                         onClick = { 
-                                            /**
-                                             * updated val.
-                                             */
                                             val updated = widgets.map {
                                                 if (it.id == widget.id) it.copy(isLocked = !it.isLocked) else it
                                             }
@@ -280,28 +196,13 @@ fun WidgetGrid(
                                             onDragStart = { isResizing = true },
                                             onDragEnd = {
                                                 isResizing = false
-                                                /**
-                                                 * deltaColSpan val.
-                                                 */
                                                 val deltaColSpan = ((resizeWidthOffset / density) / 120f).roundToInt()
-                                                /**
-                                                 * deltaRowSpan val.
-                                                 */
                                                 val deltaRowSpan = ((resizeHeightOffset / density) / 80f).roundToInt()
                                                 resizeWidthOffset = 0f
                                                 resizeHeightOffset = 0f
                                                 if (deltaColSpan != 0 || deltaRowSpan != 0) {
-                                                    /**
-                                                     * newColSpan val.
-                                                     */
                                                     val newColSpan = (widget.colSpan + deltaColSpan).coerceIn(1, 18 - widget.col)
-                                                    /**
-                                                     * newRowSpan val.
-                                                     */
                                                     val newRowSpan = (widget.rowSpan + deltaRowSpan).coerceIn(1, 12)
-                                                    /**
-                                                     * updated val.
-                                                     */
                                                     val updated = currentWidgets.map {
                                                         if (it.id == widget.id) it.copy(colSpan = newColSpan, rowSpan = newRowSpan) else it
                                                     }
@@ -363,53 +264,31 @@ fun WidgetGrid(
  * The active widget has placement priority.
  */
 private fun resolveOverlaps(widgets: List<WidgetConfig>, activeWidgetId: String): List<WidgetConfig> {
-    /**
-     * active val.
-     */
     val active = widgets.find { it.id == activeWidgetId } ?: return widgets
-    /**
-     * others val.
-     */
     val others = widgets.filter { it.id != activeWidgetId }
-    /**
-     * resolved val.
-     */
     val resolved = mutableListOf<WidgetConfig>()
 
     // 1. Locked widgets are completely stationary, they get placed first
-    /**
-     * lockedOthers val.
-     */
     val lockedOthers = others.filter { it.isLocked }
     resolved.addAll(lockedOthers)
 
     // Helper to check overlap
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun hasOverlap(w: WidgetConfig): Boolean {
         return resolved.any { placed ->
-            /**
-             * overlapX val.
-             */
             val overlapX = w.col < placed.col + placed.colSpan && w.col + w.colSpan > placed.col
-            /**
-             * overlapY val.
-             */
             val overlapY = w.row < placed.row + placed.rowSpan && w.row + w.rowSpan > placed.row
             overlapX && overlapY
         }
     }
 
     // 2. Add the active widget, resolving its position around locked widgets
-    /**
-     * currentActive var.
-     */
     var currentActive = active
     while (hasOverlap(currentActive)) {
         currentActive = currentActive.copy(row = currentActive.row + 1)
@@ -417,16 +296,10 @@ private fun resolveOverlaps(widgets: List<WidgetConfig>, activeWidgetId: String)
     resolved.add(currentActive)
 
     // 3. Add unlocked others, resolving around locked AND active widgets
-    /**
-     * unlockedOthers val.
-     */
     val unlockedOthers = others.filter { !it.isLocked }.sortedWith(
         compareBy<WidgetConfig> { it.row }.thenBy { it.col }
     )
     for (widget in unlockedOthers) {
-        /**
-         * currentWidget var.
-         */
         var currentWidget = widget
         while (hasOverlap(currentWidget)) {
             currentWidget = currentWidget.copy(row = currentWidget.row + 1)

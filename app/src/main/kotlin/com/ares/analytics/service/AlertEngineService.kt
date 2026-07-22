@@ -14,12 +14,11 @@ import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class AlertEngineService(
     private val databaseService: DatabaseService,
@@ -31,9 +30,6 @@ class AlertEngineService(
 
     // Active alert state: AlertId -> AlertRecord
     private val _alerts = MutableStateFlow<Map<String, AlertRecord>>(emptyMap())
-    /**
-     * alerts val.
-     */
     val alerts: StateFlow<List<AlertRecord>> = _alerts
         .map { it.values.toList().sortedByDescending { r -> r.triggerTimestampMs } }
         .stateIn(CoroutineScope(Dispatchers.Default), SharingStarted.Eagerly, emptyList())
@@ -47,16 +43,10 @@ class AlertEngineService(
     }
 
     private fun loadRules() {
-        /**
-         * file val.
-         */
         val file = File(thresholdsPath)
         if (!file.exists()) {
             // Write defaults
             file.parentFile?.mkdirs()
-            /**
-             * defaults val.
-             */
             val defaults = listOf(
                 ThresholdRule("/Drive/Voltage", "Low Battery Voltage", minValue = 11.5, audibleAlert = true),
                 ThresholdRule("/Drive/EkfDrift", "High EKF Position Drift", maxValue = 0.20, audibleAlert = true),
@@ -67,9 +57,6 @@ class AlertEngineService(
         }
 
         try {
-            /**
-             * loaded val.
-             */
             val loaded = json.decodeFromString<List<ThresholdRule>>(file.readText())
             loaded.forEach { rules[it.key] = it }
         } catch (e: Exception) {
@@ -86,66 +73,34 @@ class AlertEngineService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun stop() {
         engineJob?.cancel()
     }
 
     private suspend fun evaluateFrame(frame: TelemetryFrame) {
-        /**
-         * rule val.
-         */
         val rule = rules[frame.key] ?: return
-        /**
-         * value val.
-         */
         val value = frame.value
 
         // Check if value violates rules
-        /**
-         * minVal val.
-         */
         val minVal = rule.minValue
-        /**
-         * maxVal val.
-         */
         val maxVal = rule.maxValue
-        /**
-         * violatesMin val.
-         */
         val violatesMin = minVal != null && value < minVal
-        /**
-         * violatesMax val.
-         */
         val violatesMax = maxVal != null && value > maxVal
-        /**
-         * isViolating val.
-         */
         val isViolating = violatesMin || violatesMax
-
-        /**
-         * currentMap val.
-         */
         val currentMap = _alerts.value
         // Find if we already have an active alert for this rule key
-        /**
-         * existingAlert val.
-         */
         val existingAlert = currentMap.values.firstOrNull { it.ruleKey == rule.key && !it.triaged }
 
         if (isViolating) {
             when {
                 existingAlert == null -> {
                     // Trigger new active alert
-                    /**
-                     * newAlert val.
-                     */
                     val newAlert = AlertRecord(
                         alertId = UUID.randomUUID().toString(),
                         sessionId = frame.sessionId,
@@ -161,9 +116,6 @@ class AlertEngineService(
                 }
                 existingAlert.resolveTimestampMs != null -> {
                     // It was resolved but not triaged, and now it's active again -> re-activate
-                    /**
-                     * reActive val.
-                     */
                     val reActive = existingAlert.copy(
                         resolveTimestampMs = null,
                         durationMs = 0L,
@@ -176,9 +128,6 @@ class AlertEngineService(
                 }
                 else -> {
                     // Update peak value of current active alert
-                    /**
-                     * updated val.
-                     */
                     val updated = existingAlert.copy(
                         peakValue = if (rule.maxValue != null) maxOf(existingAlert.peakValue, value) else minOf(existingAlert.peakValue, value)
                     )
@@ -188,9 +137,6 @@ class AlertEngineService(
         } else {
             // Value is normal. If there is an active alert that isn't resolved yet -> mark resolved (but still latched)
             if (existingAlert != null && existingAlert.resolveTimestampMs == null) {
-                /**
-                 * resolved val.
-                 */
                 val resolved = existingAlert.copy(
                     resolveTimestampMs = frame.timestampMs,
                     durationMs = frame.timestampMs - existingAlert.triggerTimestampMs
@@ -215,13 +161,7 @@ class AlertEngineService(
     }
 
     suspend fun triageAlert(alertId: String) {
-        /**
-         * alert val.
-         */
         val alert = _alerts.value[alertId] ?: return
-        /**
-         * triaged val.
-         */
         val triaged = alert.copy(triaged = true)
         updateAlertState(triaged)
     }
@@ -233,9 +173,6 @@ class AlertEngineService(
     }
 
     private fun triggerAudibleAlert() {
-        /**
-         * now val.
-         */
         val now = System.currentTimeMillis()
         if (now - lastBeepTime > 2000) {
             lastBeepTime = now
@@ -250,32 +187,14 @@ class AlertEngineService(
     }
 
     private fun playBeepTone(frequency: Float, durationMs: Int) {
-        /**
-         * sampleRate val.
-         */
         val sampleRate = 8000f
-        /**
-         * numSamples val.
-         */
         val numSamples = (durationMs * sampleRate / 1000).toInt()
-        /**
-         * buf val.
-         */
         val buf = ByteArray(numSamples)
         for (i in 0 until numSamples) {
-            /**
-             * angle val.
-             */
             val angle = i / (sampleRate / frequency) * 2.0 * Math.PI
             buf[i] = (Math.sin(angle) * 127.0).toInt().toByte()
         }
-        /**
-         * format val.
-         */
         val format = AudioFormat(sampleRate, 8, 1, true, true)
-        /**
-         * line val.
-         */
         val line = AudioSystem.getSourceDataLine(format)
         line.open(format)
         line.start()

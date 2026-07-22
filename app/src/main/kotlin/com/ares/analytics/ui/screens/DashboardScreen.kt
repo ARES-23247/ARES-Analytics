@@ -28,12 +28,11 @@ import java.util.Locale
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun DashboardScreen(
     viewModel: DashboardViewModel,
@@ -46,55 +45,21 @@ fun DashboardScreen(
     onImportSuccess: () -> Unit,
     onOpenKeybindings: () -> Unit = {}
 ) {
-    /**
-     * state val.
-     */
     val state by viewModel.state.collectAsState()
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    /**
-     * newLayoutName var.
-     */
     var newLayoutName by remember { mutableStateOf("") }
 
     // Replay integration
-    /**
-     * replayEngine val.
-     */
     val replayEngine = services.replayEngineService
-    /**
-     * replayState val.
-     */
     val replayState by replayEngine.state.collectAsState()
-    /**
-     * replayProgress val.
-     */
     val replayProgress by replayEngine.progress.collectAsState()
-    /**
-     * replaySpeed val.
-     */
     val replaySpeed by replayEngine.speed.collectAsState()
-    /**
-     * isReplayMode val.
-     */
     val isReplayMode = state.primarySessionId != null && replayState != ReplayState.STOPPED
-
-    /**
-     * undismissedAlerts val.
-     */
     val undismissedAlerts = remember { mutableStateListOf<AlertRecord>() }
-    /**
-     * timeFormat val.
-     */
     val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
 
     LaunchedEffect(state.alerts) {
         state.alerts.forEach { alert ->
-            /**
-             * isCritical val.
-             */
             val isCritical = alert.ruleKey.contains("brownout", ignoreCase = true) ||
                              alert.ruleKey.contains("comms", ignoreCase = true) ||
                              alert.ruleKey.contains("can", ignoreCase = true) ||
@@ -112,9 +77,6 @@ fun DashboardScreen(
 
     // Load replay session when primarySessionId changes
     LaunchedEffect(state.primarySessionId) {
-        /**
-         * sessionId val.
-         */
         val sessionId = state.primarySessionId
         if (sessionId != null) {
             replayEngine.loadSession(sessionId)
@@ -146,14 +108,8 @@ fun DashboardScreen(
 
 
         // Configurable widgets area
-        /**
-         * layout val.
-         */
         val layout = state.currentLayout
         if (layout != null) {
-            /**
-             * builders val.
-             */
             val builders = mapOf<String, @Composable (WidgetConfig, Modifier) -> Unit>(
                 "driver_station" to { _, mod ->
                     FtcDriverStationWidget(nt4Client = services.nt4ClientService, modifier = mod)
@@ -307,13 +263,7 @@ fun DashboardScreen(
         }
 
         // Timeline Scrubber Bar
-        /**
-         * isConnected val.
-         */
         val isConnected by services.nt4ClientService.isConnected.collectAsState()
-        /**
-         * isReplayActive val.
-         */
         val isReplayActive by services.nt4ClientService.isReplayActive.collectAsState()
 
         if (state.primarySessionId != null || isConnected) {
@@ -453,22 +403,12 @@ private fun ReplayTimelineScrubber(
     onPlayLive: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-
-    /**
-     * modeColor val.
-     */
     val modeColor = when (sessionMode) {
         SessionMode.LIVE_STREAMING -> ModeLive
         SessionMode.LIVE_REWIND -> ModeRewind
         SessionMode.HISTORICAL_REPLAY -> ModeReplay
     }
-    /**
-     * modeGlow val.
-     */
     val modeGlow = when (sessionMode) {
         SessionMode.LIVE_STREAMING -> ModeLiveGlow
         SessionMode.LIVE_REWIND -> ModeRewindGlow
@@ -598,30 +538,11 @@ private fun ReplayTimelineScrubber(
                     modifier = Modifier.size(18.dp)
                 )
             }
-
-            /**
-             * sliderDragging var.
-             */
             var sliderDragging by remember { mutableStateOf(false) }
-            /**
-             * localSliderValue var.
-             */
             var localSliderValue by remember { mutableStateOf(0f) }
-            /**
-             * density val.
-             */
             val density by replayEngine.telemetryDensity.collectAsState()
-            /**
-             * actions val.
-             */
             val actions by replayEngine.sessionActions.collectAsState()
-            /**
-             * sessionStart val.
-             */
             val sessionStart by replayEngine.sessionStartTimestampMs.collectAsState()
-            /**
-             * sessionDuration val.
-             */
             val sessionDuration by replayEngine.sessionDurationMs.collectAsState()
 
             Box(modifier = Modifier.weight(1f).height(32.dp)) {
@@ -629,22 +550,10 @@ private fun ReplayTimelineScrubber(
                 if (density.isNotEmpty() || actions.isNotEmpty() || alerts.isNotEmpty()) {
                     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
                         if (density.isNotEmpty()) {
-                            /**
-                             * barWidth val.
-                             */
                             val barWidth = size.width / density.size
                             density.forEachIndexed { i, value ->
-                                /**
-                                 * barHeight val.
-                                 */
                                 val barHeight = size.height * value
-                                /**
-                                 * x val.
-                                 */
                                 val x = i * barWidth
-                                /**
-                                 * y val.
-                                 */
                                 val y = size.height - barHeight
                                 drawRect(
                                     color = modeColor.copy(alpha = 0.3f),
@@ -657,13 +566,7 @@ private fun ReplayTimelineScrubber(
                         // Draw action markers
                         if (actions.isNotEmpty() && sessionDuration > 0) {
                             actions.forEach { action ->
-                                /**
-                                 * proportion val.
-                                 */
                                 val proportion = (action.timestampMs - sessionStart).toDouble() / sessionDuration.toDouble()
-                                /**
-                                 * x val.
-                                 */
                                 val x = (proportion * size.width).toFloat()
                                 drawCircle(
                                     color = androidx.compose.ui.graphics.Color(0xFF00E5FF), // Cyan marker
@@ -676,14 +579,8 @@ private fun ReplayTimelineScrubber(
                         // Draw alert markers (Red Flags)
                         if (alerts.isNotEmpty() && sessionDuration > 0) {
                             alerts.forEach { alert ->
-                                /**
-                                 * proportion val.
-                                 */
                                 val proportion = (alert.triggerTimestampMs - sessionStart).toDouble() / sessionDuration.toDouble()
                                 if (proportion in 0.0..1.0) {
-                                    /**
-                                     * x val.
-                                     */
                                     val x = (proportion * size.width).toFloat()
                                     // Vertical flag line
                                     drawLine(
@@ -693,9 +590,6 @@ private fun ReplayTimelineScrubber(
                                         strokeWidth = 2f
                                     )
                                     // Downward pointing triangle flag at the top
-                                    /**
-                                     * path val.
-                                     */
                                     val path = androidx.compose.ui.graphics.Path().apply {
                                         moveTo(x, 0f)
                                         lineTo(x - 4f, 0f)
@@ -762,9 +656,6 @@ private fun ReplayTimelineScrubber(
             }
 
             // Speed selector
-            /**
-             * speedExpanded var.
-             */
             var speedExpanded by remember { mutableStateOf(false) }
             Box {
                 TextButton(

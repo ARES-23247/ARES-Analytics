@@ -23,183 +23,103 @@ import java.io.File
 
 @Serializable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class FirebaseSignInResponse(
-    /**
-     * idToken val.
-     */
     val idToken: String,
-    /**
-     * refreshToken val.
-     */
     val refreshToken: String,
-    /**
-     * expiresIn val.
-     */
     val expiresIn: String,
-    /**
-     * localId val.
-     */
     val localId: String,
-    /**
-     * displayName val.
-     */
     val displayName: String? = null,
-    /**
-     * email val.
-     */
     val email: String? = null
 )
 
 @Serializable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class FirebaseTokenRefreshResponse(
-    /**
-     * expires_in val.
-     */
     val expires_in: String,
-    /**
-     * token_type val.
-     */
     val token_type: String,
-    /**
-     * refresh_token val.
-     */
     val refresh_token: String,
-    /**
-     * id_token val.
-     */
     val id_token: String,
-    /**
-     * user_id val.
-     */
     val user_id: String,
-    /**
-     * project_id val.
-     */
     val project_id: String
 )
 
 @Serializable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class SavedAuth(
-    /**
-     * refreshToken val.
-     */
     val refreshToken: String,
-    /**
-     * uid val.
-     */
     val uid: String,
-    /**
-     * email val.
-     */
     val email: String,
-    /**
-     * displayName val.
-     */
     val displayName: String,
-    /**
-     * googleAccessToken val.
-     */
     val googleAccessToken: String? = null,
-    /**
-     * googleRefreshToken val.
-     */
     val googleRefreshToken: String? = null,
-    /**
-     * googleTokenExpiresAt val.
-     */
     val googleTokenExpiresAt: Long? = null
 )
 
 sealed class FirebaseAuthState {
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object Unauthenticated : FirebaseAuthState()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object Authenticating : FirebaseAuthState()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class Authenticated(
-        /**
-         * firebaseToken val.
-         */
         val firebaseToken: String,
-        /**
-         * uid val.
-         */
         val uid: String,
-        /**
-         * email val.
-         */
         val email: String,
-        /**
-         * displayName val.
-         */
         val displayName: String,
-        /**
-         * githubToken val.
-         */
         val githubToken: String? = null
     ) : FirebaseAuthState()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class Error(val message: String) : FirebaseAuthState()
 }
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class FirebaseClientService {
 
@@ -210,28 +130,18 @@ class FirebaseClientService {
     }
 
     private val _authState = MutableStateFlow<FirebaseAuthState>(FirebaseAuthState.Unauthenticated)
-    /**
-     * authState val.
-     */
     val authState: StateFlow<FirebaseAuthState> = _authState.asStateFlow()
 
     // Configuration values (loaded from workspace config or env)
-    /**
-     * apiKey var.
-     */
     var apiKey: String = System.getenv("FIREBASE_API_KEY") ?: "AIzaSyB4cU7pgHpqoxtqtQalIE4HqZoz3X7bJH0"
-    /**
-     * projectId var.
-     */
     var projectId: String = System.getenv("FIREBASE_PROJECT_ID") ?: "aresfirst-portal"
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun isDevMode(): Boolean {
         return apiKey.isEmpty() || apiKey == "mock" || System.getenv("DEV_MODE") == "true"
@@ -248,13 +158,7 @@ class FirebaseClientService {
     private suspend fun loadPersistedAuth() {
         if (!authFile.exists()) return
         try {
-            /**
-             * jsonStr val.
-             */
             val jsonStr = authFile.readText()
-            /**
-             * savedAuth val.
-             */
             val savedAuth = AppJson.decodeFromString<SavedAuth>(jsonStr)
             refreshFirebaseToken(savedAuth)
         } catch (e: Exception) {
@@ -266,13 +170,7 @@ class FirebaseClientService {
     private suspend fun refreshFirebaseToken(savedAuth: SavedAuth) {
         _authState.value = FirebaseAuthState.Authenticating
         try {
-            /**
-             * url val.
-             */
             val url = "https://securetoken.googleapis.com/v1/token?key=$apiKey"
-            /**
-             * response val.
-             */
             val response = httpClient.post(url) {
                 contentType(ContentType.Application.Json)
                 setBody(buildJsonObject {
@@ -281,15 +179,9 @@ class FirebaseClientService {
                 })
             }
             if (response.status == HttpStatusCode.OK) {
-                /**
-                 * data val.
-                 */
                 val data = response.body<FirebaseTokenRefreshResponse>()
                 
                 // Update file with the potential new refresh token
-                /**
-                 * newSavedAuth val.
-                 */
                 val newSavedAuth = savedAuth.copy(refreshToken = data.refresh_token)
                 authFile.writeText(Json.encodeToString(newSavedAuth))
                 
@@ -321,9 +213,6 @@ class FirebaseClientService {
         _authState.value = FirebaseAuthState.Authenticating
         if (isDevMode()) {
             // Local dev fallback
-            /**
-             * mockToken val.
-             */
             val mockToken = "mock-token:$email:$email:$name"
             _authState.value = FirebaseAuthState.Authenticated(
                 firebaseToken = mockToken,
@@ -335,18 +224,8 @@ class FirebaseClientService {
         }
 
         try {
-            /**
-             * url val.
-             */
             val url = "https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=$apiKey"
-            /**
-             * postBody val.
-             */
             val postBody = "id_token=$googleIdToken&providerId=google.com"
-            
-            /**
-             * response val.
-             */
             val response = httpClient.post(url) {
                 contentType(ContentType.Application.Json)
                 header("Referer", "https://${projectId}.firebaseapp.com")
@@ -360,9 +239,6 @@ class FirebaseClientService {
             }
 
             if (response.status == HttpStatusCode.OK) {
-                /**
-                 * data val.
-                 */
                 val data = response.body<FirebaseSignInResponse>()
                 _authState.value = FirebaseAuthState.Authenticated(
                     firebaseToken = data.idToken,
@@ -372,9 +248,6 @@ class FirebaseClientService {
                 )
                 
                 try {
-                    /**
-                     * savedAuth val.
-                     */
                     val savedAuth = SavedAuth(
                         refreshToken = data.refreshToken,
                         uid = data.localId,
@@ -390,9 +263,6 @@ class FirebaseClientService {
                     println("Failed to persist auth data: ${e.message}")
                 }
             } else {
-                /**
-                 * body val.
-                 */
                 val body = response.bodyAsText()
                 _authState.value = FirebaseAuthState.Error("Firebase Sign-In failed (${response.status}): $body")
             }
@@ -402,12 +272,11 @@ class FirebaseClientService {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun getSavedAuth(): SavedAuth? {
         if (!authFile.exists()) return null
@@ -419,12 +288,11 @@ class FirebaseClientService {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun saveAuth(auth: SavedAuth) {
         try {
@@ -436,17 +304,13 @@ class FirebaseClientService {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun linkGitHubToken(githubToken: String) {
-        /**
-         * current val.
-         */
         val current = _authState.value
         if (current is FirebaseAuthState.Authenticated) {
             _authState.value = current.copy(githubToken = githubToken)
@@ -454,12 +318,11 @@ class FirebaseClientService {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun logout() {
         _authState.value = FirebaseAuthState.Unauthenticated
@@ -469,17 +332,13 @@ class FirebaseClientService {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun getFirebaseToken(): String? {
-        /**
-         * current val.
-         */
         val current = _authState.value
         return if (current is FirebaseAuthState.Authenticated) {
             current.firebaseToken
@@ -487,12 +346,11 @@ class FirebaseClientService {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun close() {
         try {

@@ -37,29 +37,11 @@ class TeamRobotsIntegrationTest {
      * testGetRobotsFlow fun.
      */
     fun testGetRobotsFlow() = testApplication {
-        /**
-         * mockFirestore val.
-         */
         val mockFirestore = mock(Firestore::class.java)
-        /**
-         * mockTeamsCol val.
-         */
         val mockTeamsCol = mock(CollectionReference::class.java)
-        /**
-         * mockTeamDoc val.
-         */
         val mockTeamDoc = mock(DocumentReference::class.java)
-        /**
-         * mockRobotsCol val.
-         */
         val mockRobotsCol = mock(CollectionReference::class.java)
-        /**
-         * mockFuture val.
-         */
         val mockFuture = mock(ApiFuture::class.java) as ApiFuture<QuerySnapshot>
-        /**
-         * mockQuerySnapshot val.
-         */
         val mockQuerySnapshot = mock(QuerySnapshot::class.java)
 
         `when`(mockFirestore.collection("teams")).thenReturn(mockTeamsCol)
@@ -67,10 +49,6 @@ class TeamRobotsIntegrationTest {
         `when`(mockTeamDoc.collection("robots")).thenReturn(mockRobotsCol)
         `when`(mockRobotsCol.get()).thenReturn(mockFuture)
         `when`(mockFuture.get()).thenReturn(mockQuerySnapshot)
-
-        /**
-         * doc1 val.
-         */
         val doc1 = mock(QueryDocumentSnapshot::class.java)
         `when`(doc1.id).thenReturn("ares-bot")
         `when`(doc1.data).thenReturn(mapOf(
@@ -97,18 +75,11 @@ class TeamRobotsIntegrationTest {
                 archiveRoutes(customFirestore = mockFirestore)
             }
         }
-
-        /**
-         * response val.
-         */
         val response = client.get("/api/team/9999/robots") {
             header(HttpHeaders.Authorization, "Bearer mock-token:uid:email:name:9999")
         }
 
         assertEquals(HttpStatusCode.OK, response.status)
-        /**
-         * decoded val.
-         */
         val decoded = Json.decodeFromString<TeamRobotsResponse>(response.bodyAsText())
         assertEquals(1, decoded.robots.size)
         assertEquals("ares-bot", decoded.robots[0].robotId)
@@ -122,51 +93,18 @@ class TeamRobotsIntegrationTest {
      * testAddAndDeleteRobotsFlow fun.
      */
     fun testAddAndDeleteRobotsFlow() = testApplication {
-        /**
-         * mockFirestore val.
-         */
         val mockFirestore = mock(Firestore::class.java)
-        /**
-         * mockTeamsCol val.
-         */
         val mockTeamsCol = mock(CollectionReference::class.java)
-        /**
-         * mockTeamDoc val.
-         */
         val mockTeamDoc = mock(DocumentReference::class.java)
-        /**
-         * mockRobotsCol val.
-         */
         val mockRobotsCol = mock(CollectionReference::class.java)
-        /**
-         * mockRobotDoc val.
-         */
         val mockRobotDoc = mock(DocumentReference::class.java)
-        /**
-         * mockSetFuture val.
-         */
         val mockSetFuture = mock(ApiFuture::class.java) as ApiFuture<WriteResult>
-        /**
-         * mockDeleteFuture val.
-         */
         val mockDeleteFuture = mock(ApiFuture::class.java) as ApiFuture<WriteResult>
 
         // Mock users role verification
-        /**
-         * mockUsersCol val.
-         */
         val mockUsersCol = mock(CollectionReference::class.java)
-        /**
-         * mockUserDocRef val.
-         */
         val mockUserDocRef = mock(DocumentReference::class.java)
-        /**
-         * mockUserGetFuture val.
-         */
         val mockUserGetFuture = mock(ApiFuture::class.java) as ApiFuture<DocumentSnapshot>
-        /**
-         * mockUserDocSnapshot val.
-         */
         val mockUserDocSnapshot = mock(DocumentSnapshot::class.java)
 
         `when`(mockFirestore.collection("users")).thenReturn(mockUsersCol)
@@ -202,16 +140,10 @@ class TeamRobotsIntegrationTest {
         }
 
         // Test Add
-        /**
-         * addReq val.
-         */
         val addReq = AddRobotRequest(
             teamId = "9999",
             robot = RobotProfile("ares-bot", League.FTC, "2026", "Ares FTC")
         )
-        /**
-         * addResponse val.
-         */
         val addResponse = client.post("/api/team/robots/add") {
             header(HttpHeaders.Authorization, "Bearer mock-token:uid:email:name:9999")
             contentType(ContentType.Application.Json)
@@ -223,16 +155,10 @@ class TeamRobotsIntegrationTest {
         assertEquals(HttpStatusCode.OK, addResponse.status)
 
         // Test Delete
-        /**
-         * deleteReq val.
-         */
         val deleteReq = DeleteRobotRequest(
             teamId = "9999",
             robotId = "ares-bot"
         )
-        /**
-         * deleteResponse val.
-         */
         val deleteResponse = client.post("/api/team/robots/delete") {
             header(HttpHeaders.Authorization, "Bearer mock-token:uid:email:name:9999")
             contentType(ContentType.Application.Json)

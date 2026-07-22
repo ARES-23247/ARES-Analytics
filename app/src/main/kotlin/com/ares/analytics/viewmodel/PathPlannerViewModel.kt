@@ -20,600 +20,458 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class PathPreview(val name: String, val trajectory: Trajectory?)
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class PathPlannerState(
-    /**
-     * pathName val.
-     */
     val pathName: String = "autonomous_route",
-    /**
-     * availablePaths val.
-     */
     val availablePaths: List<String> = emptyList(),
-    /**
-     * saveStatus val.
-     */
     val saveStatus: String = "",
-    /**
-     * waypoints val.
-     */
     val waypoints: List<Waypoint> = listOf(
         Waypoint(-1.2, -1.2, 0.0),
         Waypoint(0.0, 0.0, Math.toRadians(45.0)),
         Waypoint(1.2, 1.2, Math.toRadians(90.0))
     ),
-    /**
-     * eventMarkers val.
-     */
     val eventMarkers: List<PathPlannerEventMarker> = emptyList(),
-    /**
-     * rotationTargets val.
-     */
     val rotationTargets: List<RotationTarget> = emptyList(),
-    /**
-     * constraintZones val.
-     */
     val constraintZones: List<ConstraintsZone> = emptyList(),
-    /**
-     * pointTowardsZones val.
-     */
     val pointTowardsZones: List<PointTowardsZone> = emptyList(),
-    /**
-     * globalConstraints val.
-     */
     val globalConstraints: PathConstraints = PathConstraints(),
-    /**
-     * idealStartingState val.
-     */
     val idealStartingState: IdealStartingState? = null,
-    /**
-     * goalEndState val.
-     */
     val goalEndState: GoalEndState? = null,
-    /**
-     * reversed val.
-     */
     val reversed: Boolean = false,
-    /**
-     * useDefaultConstraints val.
-     */
     val useDefaultConstraints: Boolean = true,
-    /**
-     * estimatedDuration val.
-     */
     val estimatedDuration: Double = 0.0,
-    /**
-     * selectedWaypointIndex val.
-     */
     val selectedWaypointIndex: Int? = null,
-    /**
-     * toolMode val.
-     */
     val toolMode: String = "Select",
-    /**
-     * viewRotation val.
-     */
     val viewRotation: Float = 0f,
-    /**
-     * trajectory val.
-     */
     val trajectory: Trajectory? = null,
-    /**
-     * isPlaying val.
-     */
     val isPlaying: Boolean = false,
-    /**
-     * playbackTime val.
-     */
     val playbackTime: Double = 0.0,
     
     // Auto Editor specific state
-    /**
-     * activeEditorMode val.
-     */
     val activeEditorMode: String = "Path", // "Path" or "Auto"
-    /**
-     * availableAutos val.
-     */
     val availableAutos: List<String> = emptyList(),
-    /**
-     * autoStartingPose val.
-     */
     val autoStartingPose: AutoStartingPose? = null,
-    /**
-     * currentAutoCommands val.
-     */
     val currentAutoCommands: List<AutoCommandNode> = emptyList(),
-    /**
-     * contextAutoName val.
-     */
     val contextAutoName: String? = null,
-    /**
-     * contextTrajectory val.
-     */
     val contextTrajectory: Trajectory? = null,
-    /**
-     * contextWaypoints val.
-     */
     val contextWaypoints: List<Waypoint> = emptyList(),
     
     // Browser specific state
-    /**
-     * showBrowser val.
-     */
     val showBrowser: Boolean = false,
-    /**
-     * availablePathPreviews val.
-     */
     val availablePathPreviews: List<PathPreview> = emptyList(),
-    /**
-     * availableAutoPreviews val.
-     */
     val availableAutoPreviews: List<PathPreview> = emptyList()
 )
 
 sealed class PathPlannerIntent {
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class LoadPath(val projectPath: String?, val league: League) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class FetchAvailablePaths(val projectPath: String?, val league: League) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SavePath(val projectPath: String?, val league: League) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class CreateNewPath(val name: String = "new_path") : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class CreateNewAuto(val name: String = "new_auto") : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object OptimizePath : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdatePathName(val name: String) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateEditorMode(val mode: String) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateWaypoints(val newWaypoints: List<Waypoint>) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateWaypoint(val index: Int, val waypoint: Waypoint) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class AddWaypoint(val waypoint: Waypoint) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class DeleteWaypoint(val index: Int) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SelectWaypoint(val index: Int?) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateToolMode(val mode: String) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateGlobalConstraints(val constraints: PathConstraints) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateStartingState(val state: IdealStartingState?) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateEndState(val state: GoalEndState?) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateReversed(val reversed: Boolean) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateUseDefaultConstraints(val useDefault: Boolean) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateViewRotation(val viewRotation: Float) : PathPlannerIntent()
     
     // Browser
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object ToggleBrowser : PathPlannerIntent()
     
     // Playback
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object TogglePlayback : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SeekPlayback(val timeSeconds: Double) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object StopPlayback : PathPlannerIntent()
     
     // Event Markers
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class AddEventMarker(val marker: PathPlannerEventMarker) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateEventMarker(val index: Int, val marker: PathPlannerEventMarker) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateEventMarkers(val markers: List<PathPlannerEventMarker>) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class DeleteEventMarker(val index: Int) : PathPlannerIntent()
     
     // Rotation Targets
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class AddRotationTarget(val target: RotationTarget) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateRotationTarget(val index: Int, val target: RotationTarget) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateRotationTargets(val targets: List<RotationTarget>) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class DeleteRotationTarget(val index: Int) : PathPlannerIntent()
     
     // Point Towards Zones
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class AddPointTowardsZone(val zone: PointTowardsZone) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdatePointTowardsZone(val index: Int, val zone: PointTowardsZone) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class DeletePointTowardsZone(val index: Int) : PathPlannerIntent()
 
     // Constraint Zones
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class AddConstraintZone(val zone: ConstraintsZone) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateConstraintZone(val index: Int, val zone: ConstraintsZone) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class DeleteConstraintZone(val index: Int) : PathPlannerIntent()
     
     // Auto Editor
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class LoadAuto(val projectPath: String?, val league: League) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SaveAuto(val projectPath: String?, val league: League) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateAutoStartingPose(val pose: AutoStartingPose?) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class AddAutoCommand(val node: AutoCommandNode, val projectPath: String?, val league: League) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class RemoveAutoCommand(val index: Int, val projectPath: String?, val league: League) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class MoveAutoCommand(val fromIndex: Int, val direction: Int, val projectPath: String?, val league: League) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateAutoCommand(val index: Int, val node: AutoCommandNode, val projectPath: String?, val league: League) : PathPlannerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateContextAuto(val autoName: String?, val projectPath: String?, val league: League) : PathPlannerIntent()
 }
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class PathPlannerViewModel(
     private val scope: CoroutineScope
 ) {
     private val _state = MutableStateFlow(PathPlannerState())
-    /**
-     * state val.
-     */
     val state: StateFlow<PathPlannerState> = _state.asStateFlow()
 
     private var playbackJob: kotlinx.coroutines.Job? = null
@@ -623,13 +481,7 @@ class PathPlannerViewModel(
     private val serializationManager = com.ares.analytics.viewmodel.pathing.PathSerializationManager(scope, _state, this::recalculateDuration)
 
     private fun recalculateDuration() {
-        /**
-         * s val.
-         */
         val s = _state.value
-        /**
-         * trajectory val.
-         */
         val trajectory = com.ares.analytics.service.TrajectoryEstimator.generateTrajectory(
             waypoints = s.waypoints,
             globalConstraints = s.globalConstraints,
@@ -646,12 +498,11 @@ class PathPlannerViewModel(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun onIntent(intent: PathPlannerIntent) {
         if (isModifyingIntent(intent)) {
@@ -678,9 +529,6 @@ class PathPlannerViewModel(
                 is PathPlannerIntent.UpdateViewRotation -> _state.update { it.copy(viewRotation = intent.viewRotation) }
                 
                 is PathPlannerIntent.TogglePlayback -> {
-                    /**
-                     * currentlyPlaying val.
-                     */
                     val currentlyPlaying = _state.value.isPlaying
                     if (currentlyPlaying) {
                         _state.update { it.copy(isPlaying = false) }
@@ -691,24 +539,12 @@ class PathPlannerViewModel(
                         }
                         _state.update { it.copy(isPlaying = true) }
                         playbackJob = scope.launch {
-                            /**
-                             * lastTime var.
-                             */
                             var lastTime = System.currentTimeMillis()
                             while (_state.value.isPlaying) {
                                 kotlinx.coroutines.delay(16)
-                                /**
-                                 * now val.
-                                 */
                                 val now = System.currentTimeMillis()
-                                /**
-                                 * dt val.
-                                 */
                                 val dt = (now - lastTime) / 1000.0
                                 lastTime = now
-                                /**
-                                 * nextTime val.
-                                 */
                                 val nextTime = _state.value.playbackTime + dt
                                 if (nextTime >= _state.value.estimatedDuration) {
                                     _state.update { it.copy(playbackTime = _state.value.estimatedDuration, isPlaying = false) }

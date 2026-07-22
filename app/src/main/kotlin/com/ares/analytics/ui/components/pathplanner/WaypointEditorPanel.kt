@@ -18,12 +18,11 @@ import com.ares.analytics.viewmodel.PathPlannerState
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun WaypointEditorPanel(
     state: PathPlannerState,
@@ -66,9 +65,6 @@ fun WaypointEditorPanel(
             }
             
             item {
-                /**
-                 * contextDropdownExpanded var.
-                 */
                 var contextDropdownExpanded by remember { mutableStateOf(false) }
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
                     Text("Background Auto Overlay", fontSize = 11.sp, color = AresTextSecondary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp))
@@ -138,9 +134,6 @@ fun WaypointEditorPanel(
                     }
                     Button(
                         onClick = {
-                            /**
-                             * last val.
-                             */
                             val last = state.waypoints.lastOrNull() ?: Waypoint(0.0, 0.0)
                             onIntent(PathPlannerIntent.AddWaypoint(Waypoint(last.x + 0.3, last.y + 0.3)))
                         },
@@ -155,9 +148,6 @@ fun WaypointEditorPanel(
             // EVENT MARKERS
             item {
                 CollapsibleSection(title = "Event Markers", badgeCount = state.eventMarkers.size) {
-                    /**
-                     * maxPos val.
-                     */
                     val maxPos = (state.waypoints.size - 1).coerceAtLeast(0).toDouble()
                     state.eventMarkers.forEachIndexed { idx, marker ->
                         EventMarkerCard(
@@ -198,9 +188,6 @@ fun WaypointEditorPanel(
             // POINT TOWARDS ZONES
             item {
                 CollapsibleSection(title = "Point Towards Zones", badgeCount = state.pointTowardsZones.size) {
-                    /**
-                     * maxPos val.
-                     */
                     val maxPos = (state.waypoints.size - 1).coerceAtLeast(0).toDouble()
                     state.pointTowardsZones.forEachIndexed { idx, zone ->
                         PointTowardsZoneCard(
@@ -240,18 +227,12 @@ fun WaypointEditorPanel(
 
             // STARTING STATE (velocity only — rotation is per-waypoint)
             item {
-                /**
-                 * startVelStr val.
-                 */
                 val startVelStr = state.idealStartingState?.velocity?.toString() ?: "0.0"
                 CollapsibleSection(title = "Start Velocity", badgeText = "${startVelStr} M/S") {
                     OutlinedTextField(
                         value = startVelStr,
                         onValueChange = { newValue ->
                             newValue.toDoubleOrNull()?.let { v ->
-                                /**
-                                 * currentState val.
-                                 */
                                 val currentState = state.idealStartingState ?: IdealStartingState()
                                 onIntent(PathPlannerIntent.UpdateStartingState(currentState.copy(velocity = v)))
                             }
@@ -273,18 +254,12 @@ fun WaypointEditorPanel(
 
             // END STATE (velocity only — rotation is per-waypoint)
             item {
-                /**
-                 * endVelStr val.
-                 */
                 val endVelStr = state.goalEndState?.velocity?.toString() ?: "0.0"
                 CollapsibleSection(title = "End Velocity", badgeText = "${endVelStr} M/S") {
                     OutlinedTextField(
                         value = endVelStr,
                         onValueChange = { newValue ->
                             newValue.toDoubleOrNull()?.let { v ->
-                                /**
-                                 * currentState val.
-                                 */
                                 val currentState = state.goalEndState ?: GoalEndState()
                                 onIntent(PathPlannerIntent.UpdateEndState(currentState.copy(velocity = v)))
                             }
@@ -306,25 +281,10 @@ fun WaypointEditorPanel(
 
             // GLOBAL CONSTRAINTS
             item {
-                /**
-                 * globalVelText val.
-                 */
                 val globalVelText by remember(state.globalConstraints.maxVelocity) { mutableStateOf(String.format("%.2f", state.globalConstraints.maxVelocity)) }
-                /**
-                 * globalAccText val.
-                 */
                 val globalAccText by remember(state.globalConstraints.maxAcceleration) { mutableStateOf(String.format("%.2f", state.globalConstraints.maxAcceleration)) }
-                /**
-                 * globalAngVelText val.
-                 */
                 val globalAngVelText by remember(state.globalConstraints.maxAngularVelocity) { mutableStateOf(String.format("%.1f", state.globalConstraints.maxAngularVelocity)) }
-                /**
-                 * globalAngAccText val.
-                 */
                 val globalAngAccText by remember(state.globalConstraints.maxAngularAcceleration) { mutableStateOf(String.format("%.1f", state.globalConstraints.maxAngularAcceleration)) }
-                /**
-                 * globalVoltsText val.
-                 */
                 val globalVoltsText by remember(state.globalConstraints.nominalVoltage) { mutableStateOf(String.format("%.1f", state.globalConstraints.nominalVoltage)) }
 
                 CollapsibleSection(title = "Global Constraints") {
@@ -411,9 +371,6 @@ fun WaypointEditorPanel(
             // CONSTRAINT ZONES
             item {
                 CollapsibleSection(title = "Constraint Zones", badgeCount = state.constraintZones.size) {
-                    /**
-                     * maxPos val.
-                     */
                     val maxPos = (state.waypoints.size - 1).coerceAtLeast(0).toDouble()
                     state.constraintZones.forEachIndexed { idx, zone ->
                         ConstraintsZoneCard(

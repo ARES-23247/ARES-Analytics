@@ -1,24 +1,22 @@
 package com.ares.analytics.shared
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 enum class UnitCategory {
     LENGTH, ANGLE, ANGULAR_VELOCITY, TIME, VOLTAGE, CURRENT, TEMPERATURE, NONE
 }
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 enum class RobotUnit(val symbol: String, val category: UnitCategory, val factorToBase: Double) {
     // Length (Base: Meter)
@@ -57,17 +55,13 @@ enum class RobotUnit(val symbol: String, val category: UnitCategory, val factorT
 
     companion object {
         /**
-         * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
          * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-         * Canvas-to-field coordinate transformation conventions applied where relevant.
+
          *
-         * @param args relevant arguments
-         * @return expected results
+
          */
         fun fromSymbol(symbol: String): RobotUnit? {
-            /**
-             * clean val.
-             */
             val clean = symbol.trim()
             return entries.find { it.symbol.equals(clean, ignoreCase = true) || it.name.equals(clean, ignoreCase = true) }
         }
@@ -75,29 +69,24 @@ enum class RobotUnit(val symbol: String, val category: UnitCategory, val factorT
 }
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 object UnitConversion {
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun convert(value: Double, from: RobotUnit, to: RobotUnit): Double {
         if (from.category != to.category) return value
 
         if (from.category == UnitCategory.TEMPERATURE) {
-            /**
-             * celsius val.
-             */
             val celsius = when (from) {
                 RobotUnit.CELSIUS -> value
                 RobotUnit.FAHRENHEIT -> (value - 32.0) * 5.0 / 9.0
@@ -111,26 +100,18 @@ object UnitConversion {
                 else -> celsius
             }
         }
-
-        /**
-         * baseValue val.
-         */
         val baseValue = value * from.factorToBase
         return baseValue / to.factorToBase
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun detectUnitFromKey(key: String): RobotUnit? {
-        /**
-         * lowerKey val.
-         */
         val lowerKey = key.lowercase()
         return when {
             lowerKey.contains("voltage") || lowerKey.contains("volt") -> RobotUnit.VOLT

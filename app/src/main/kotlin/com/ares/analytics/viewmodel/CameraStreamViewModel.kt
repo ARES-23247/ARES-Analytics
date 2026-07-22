@@ -16,82 +16,61 @@ import kotlinx.coroutines.flow.update
 import java.io.ByteArrayOutputStream
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class CameraStreamState(
-    /**
-     * streamUrl val.
-     */
     val streamUrl: String = "http://10.0.0.2:1181/stream.mjpg",
-    /**
-     * isConfiguring val.
-     */
     val isConfiguring: Boolean = false,
-    /**
-     * currentFrame val.
-     */
     val currentFrame: ImageBitmap? = null,
-    /**
-     * isConnected val.
-     */
     val isConnected: Boolean = false,
-    /**
-     * errorMessage val.
-     */
     val errorMessage: String? = null
 )
 
 sealed class CameraStreamIntent {
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SetConfiguring(val isConfiguring: Boolean) : CameraStreamIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateStreamUrl(val streamUrl: String) : CameraStreamIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object Connect : CameraStreamIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object Disconnect : CameraStreamIntent()
 }
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class CameraStreamViewModel(
     initialStreamUrl: String?,
@@ -103,9 +82,6 @@ class CameraStreamViewModel(
             isConfiguring = initialStreamUrl == null
         )
     )
-    /**
-     * state val.
-     */
     val state: StateFlow<CameraStreamState> = _state.asStateFlow()
     
     private var streamJob: Job? = null
@@ -124,12 +100,11 @@ class CameraStreamViewModel(
     }
     
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun onIntent(intent: CameraStreamIntent) {
         when (intent) {
@@ -156,12 +131,11 @@ class CameraStreamViewModel(
     }
     
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun close() {
         stopStreaming()
@@ -172,14 +146,8 @@ class CameraStreamViewModel(
         streamJob?.cancel()
         
         streamJob = scope.launch(Dispatchers.IO) {
-            /**
-             * retryDelayMs var.
-             */
             var retryDelayMs = 1000L
             while (isActive) {
-                /**
-                 * currentUrl val.
-                 */
                 val currentUrl = _state.value.streamUrl
                 if (_state.value.isConfiguring || currentUrl.isBlank()) {
                     delay(1000)
@@ -193,38 +161,16 @@ class CameraStreamViewModel(
                         if (response.status.value in 200..299) {
                             _state.update { it.copy(isConnected = true) }
                             retryDelayMs = 1000L
-                            /**
-                             * channel val.
-                             */
                             val channel = response.bodyAsChannel()
-                            /**
-                             * bos val.
-                             */
                             val bos = ByteArrayOutputStream()
-                            /**
-                             * readBuffer val.
-                             */
                             val readBuffer = ByteArray(8192)
 
                             while (isActive && !channel.isClosedForRead && !_state.value.isConfiguring) {
-                                /**
-                                 * read val.
-                                 */
                                 val read = channel.readAvailable(readBuffer, 0, readBuffer.size)
                                 if (read > 0) {
                                     bos.write(readBuffer, 0, read)
-                                    /**
-                                     * currentBytes val.
-                                     */
                                     val currentBytes = bos.toByteArray()
-                                    
-                                    /**
-                                     * soi var.
-                                     */
                                     var soi = -1
-                                    /**
-                                     * eoi var.
-                                     */
                                     var eoi = -1
                                     for (i in 0 until currentBytes.size - 1) {
                                         if (currentBytes[i] == 0xFF.toByte() && currentBytes[i + 1] == 0xD8.toByte()) {
@@ -237,21 +183,12 @@ class CameraStreamViewModel(
                                     }
 
                                     if (soi != -1 && eoi != -1 && eoi > soi) {
-                                        /**
-                                         * frameBytes val.
-                                         */
                                         val frameBytes = currentBytes.copyOfRange(soi, eoi + 1)
-                                        /**
-                                         * remainder val.
-                                         */
                                         val remainder = currentBytes.copyOfRange(eoi + 1, currentBytes.size)
                                         bos.reset()
                                         bos.write(remainder)
 
                                         try {
-                                            /**
-                                             * imageBitmap val.
-                                             */
                                             val imageBitmap = org.jetbrains.skia.Image.makeFromEncoded(frameBytes).toComposeImageBitmap()
                                             _state.update { it.copy(currentFrame = imageBitmap) }
                                         } catch (e: Exception) {

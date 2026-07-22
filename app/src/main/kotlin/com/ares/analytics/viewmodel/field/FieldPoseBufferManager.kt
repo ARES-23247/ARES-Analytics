@@ -9,12 +9,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class FieldPoseBufferManager(
     private val scope: CoroutineScope,
@@ -24,23 +23,11 @@ class FieldPoseBufferManager(
         scope.launch {
             while (true) {
                 delay(50)
-                /**
-                 * currentState val.
-                 */
                 val currentState = stateFlow.value
                 if (currentState.trueX != 0.0 || currentState.trueY != 0.0) {
-                    /**
-                     * newWp val.
-                     */
                     val newWp = Waypoint(currentState.trueX, currentState.trueY, currentState.trueHeading)
-                    /**
-                     * lastWp val.
-                     */
                     val lastWp = currentState.poseHistory.lastOrNull()
                     if (lastWp == null || kotlin.math.abs(lastWp.x - newWp.x) > 0.01 || kotlin.math.abs(lastWp.y - newWp.y) > 0.01) {
-                        /**
-                         * newHistory val.
-                         */
                         val newHistory = currentState.poseHistory.toMutableList()
                         newHistory.add(newWp)
                         if (newHistory.size > 2000) {
@@ -48,9 +35,6 @@ class FieldPoseBufferManager(
                         }
                         stateFlow.update { it.copy(poseHistory = newHistory) }
                     } else if (lastWp.headingRad != newWp.headingRad) {
-                        /**
-                         * newHistory val.
-                         */
                         val newHistory = currentState.poseHistory.toMutableList()
                         newHistory[newHistory.size - 1] = newWp
                         stateFlow.update { it.copy(poseHistory = newHistory) }
@@ -61,12 +45,11 @@ class FieldPoseBufferManager(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun clearTrace() {
         stateFlow.update { it.copy(poseHistory = emptyList()) }

@@ -31,12 +31,11 @@ import kotlinx.coroutines.launch
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun AdminScreen(
     syncEngineService: SyncEngineService,
@@ -44,44 +43,20 @@ fun AdminScreen(
     config: WorkspaceConfig,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    /**
-     * authState val.
-     */
     val authState by oauthService.authState.collectAsState()
-    
-    /**
-     * robotProfiles var.
-     */
     var robotProfiles by remember { mutableStateOf<List<RobotProfile>>(emptyList()) }
-    /**
-     * isLoading var.
-     */
     var isLoading by remember { mutableStateOf(false) }
-    /**
-     * errorMessage var.
-     */
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    /**
-     * showAddDialog var.
-     */
     var showAddDialog by remember { mutableStateOf(false) }
-
-    /**
-     * isAuthenticated val.
-     */
     val isAuthenticated = authState is AuthState.Authenticated
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun refreshRobots() {
         if (!isAuthenticated) return
@@ -89,25 +64,16 @@ fun AdminScreen(
             isLoading = true
             errorMessage = null
             try {
-                /**
-                 * profiles var.
-                 */
                 var profiles = syncEngineService.getRemoteRobotProfiles()
                 
                 // If local active robot is missing from the list, register it automatically
                 if (profiles.none { it.robotId == config.robotId }) {
-                    /**
-                     * localRobot val.
-                     */
                     val localRobot = RobotProfile(
                         robotId = config.robotId,
                         league = config.league,
                         seasonId = config.seasonId,
                         name = config.robotName.takeIf { it.isNotBlank() } ?: "${config.robotId} (Local Active)"
                     )
-                    /**
-                     * updated val.
-                     */
                     val updated = profiles + localRobot
                     syncEngineService.saveRemoteRobotProfiles(updated)
                     profiles = updated
@@ -268,9 +234,6 @@ fun AdminScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    /**
-                                     * badgeBg val.
-                                     */
                                     val badgeBg = if (robot.league == League.FTC) AresGold else AresCyan
                                     Text(
                                         text = robot.league.name,
@@ -301,9 +264,6 @@ fun AdminScreen(
                                 IconButton(
                                     onClick = {
                                         scope.launch {
-                                            /**
-                                             * updated val.
-                                             */
                                             val updated = robotProfiles.filter { it.robotId != robot.robotId }
                                             syncEngineService.saveRemoteRobotProfiles(updated)
                                             robotProfiles = updated
@@ -321,25 +281,10 @@ fun AdminScreen(
     }
 
     if (showAddDialog) {
-        /**
-         * robotId var.
-         */
         var robotId by remember { mutableStateOf("") }
-        /**
-         * name var.
-         */
         var name by remember { mutableStateOf("") }
-        /**
-         * league var.
-         */
         var league by remember { mutableStateOf(League.FTC) }
-        /**
-         * seasonId var.
-         */
         var seasonId by remember { mutableStateOf("2026") }
-        /**
-         * dialogError var.
-         */
         var dialogError by remember { mutableStateOf<String?>(null) }
 
         AlertDialog(
@@ -413,13 +358,7 @@ fun AdminScreen(
                         }
                         scope.launch {
                             try {
-                                /**
-                                 * newRobot val.
-                                 */
                                 val newRobot = RobotProfile(robotId, league, seasonId, name)
-                                /**
-                                 * updated val.
-                                 */
                                 val updated = robotProfiles + newRobot
                                 syncEngineService.saveRemoteRobotProfiles(updated)
                                 robotProfiles = updated

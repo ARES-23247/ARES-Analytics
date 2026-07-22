@@ -33,73 +33,37 @@ import kotlin.math.sin
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun VideoPlayerPanel(
     videoSyncService: VideoSyncService,
     replayEngineService: ReplayEngineService,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    /**
-     * videoFile val.
-     */
     val videoFile by videoSyncService.videoFile.collectAsState()
-    /**
-     * videoDurationMs val.
-     */
     val videoDurationMs by videoSyncService.videoDurationMs.collectAsState()
-    /**
-     * currentVideoTimeMs val.
-     */
     val currentVideoTimeMs by videoSyncService.currentVideoTimeMs.collectAsState()
-    /**
-     * logOffsetMs val.
-     */
     val logOffsetMs by videoSyncService.logOffsetMs.collectAsState()
-
-    /**
-     * replayState val.
-     */
     val replayState by replayEngineService.state.collectAsState()
-    /**
-     * currentFrame val.
-     */
     val currentFrame by replayEngineService.currentFrame.collectAsState()
 
     // Calculate formatted times
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun formatTime(ms: Long): String {
-        /**
-         * totalSecs val.
-         */
         val totalSecs = ms / 1000
-        /**
-         * minutes val.
-         */
         val minutes = totalSecs / 60
-        /**
-         * seconds val.
-         */
         val seconds = totalSecs % 60
-        /**
-         * millis val.
-         */
         val millis = ms % 1000
         return String.format("%02d:%02d.%03d", minutes, seconds, millis)
     }
@@ -130,21 +94,12 @@ fun VideoPlayerPanel(
             // Load Video Button
             Button(
                 onClick = {
-                    /**
-                     * chooser val.
-                     */
                     val chooser = JFileChooser().apply {
                         dialogTitle = "Select Match Video"
                         fileFilter = FileNameExtensionFilter("Video Files", "mp4", "mkv", "avi", "mov")
                     }
-                    /**
-                     * result val.
-                     */
                     val result = chooser.showOpenDialog(null)
                     if (result == JFileChooser.APPROVE_OPTION) {
-                        /**
-                         * file val.
-                         */
                         val file = chooser.selectedFile
                         if (file != null && file.exists()) {
                             videoSyncService.loadVideo(file)
@@ -181,23 +136,11 @@ fun VideoPlayerPanel(
             } else {
                 // Premium simulated video frame drawing telemetry overlay
                 Canvas(modifier = Modifier.fillMaxSize()) {
-                    /**
-                     * width val.
-                     */
                     val width = size.width
-                    /**
-                     * height val.
-                     */
                     val height = size.height
 
                     // Simulated Camera Static / Scanlines based on timestamp
-                    /**
-                     * t val.
-                     */
                     val t = currentVideoTimeMs.toDouble() / 1000.0
-                    /**
-                     * isPlaying val.
-                     */
                     val isPlaying = replayState == ReplayState.PLAYING
                     
                     // Draw outer border / lens bounds
@@ -209,13 +152,7 @@ fun VideoPlayerPanel(
                     )
 
                     // Draw Camera Crosshair
-                    /**
-                     * cx val.
-                     */
                     val cx = width / 2
-                    /**
-                     * cy val.
-                     */
                     val cy = height / 2
                     drawLine(AresGlassBorder, Offset(cx - 30, cy), Offset(cx + 30, cy), 1.5f)
                     drawLine(AresGlassBorder, Offset(cx, cy - 30), Offset(cx, cy + 30), 1.5f)
@@ -233,27 +170,12 @@ fun VideoPlayerPanel(
                     drawLine(AresGlass, Offset(0f, height * 0.75f), Offset(width, height * 0.75f), 0.5f)
 
                     // Draw simulated robot telemetry movement on canvas
-                    /**
-                     * poseX val.
-                     */
                     val poseX = currentFrame?.values?.get("Drive/Pose_X") ?: 0.0
-                    /**
-                     * poseY val.
-                     */
                     val poseY = currentFrame?.values?.get("Drive/Pose_Y") ?: 0.0
-                    /**
-                     * heading val.
-                     */
                     val heading = currentFrame?.values?.get("Drive/Pose_Heading") ?: 0.0
 
                     // Draw a visual representation of the robot moving
-                    /**
-                     * rx val.
-                     */
                     val rx = cx + (poseX * 80).toFloat()
-                    /**
-                     * ry val.
-                     */
                     val ry = cy - (poseY * 80).toFloat()
                     
                     if (rx in 0f..width && ry in 0f..height) {
@@ -268,13 +190,7 @@ fun VideoPlayerPanel(
                             center = Offset(rx, ry)
                         )
                         // Heading indicator line
-                        /**
-                         * dx val.
-                         */
                         val dx = (kotlin.math.cos(heading) * 24).toFloat()
-                        /**
-                         * dy val.
-                         */
                         val dy = -(sin(heading) * 24).toFloat()
                         drawLine(
                             color = AresCyan,
@@ -328,17 +244,8 @@ fun VideoPlayerPanel(
                             .padding(8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        /**
-                         * voltage val.
-                         */
                         val voltage = currentFrame?.values?.get("Drive/Voltage")
-                        /**
-                         * loopTime val.
-                         */
                         val loopTime = currentFrame?.values?.get("LoopTimeMs")
-                        /**
-                         * drift val.
-                         */
                         val drift = currentFrame?.values?.get("Drive/EkfDrift")
 
                         Text("HUD METRICS:", color = AresCyan, fontSize = 9.sp, fontWeight = FontWeight.Bold)
@@ -387,9 +294,6 @@ fun VideoPlayerPanel(
                         // Align button
                         Button(
                             onClick = {
-                                /**
-                                 * currentLogTime val.
-                                 */
                                 val currentLogTime = currentFrame?.timestampMs
                                 if (currentLogTime != null) {
                                     videoSyncService.alignTimestamp(currentVideoTimeMs, currentLogTime)
@@ -415,9 +319,6 @@ fun VideoPlayerPanel(
                         Text("Micro offset adjustments:", fontSize = 11.sp, color = AresTextSecondary)
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             listOf(-1000, -100, -10, 10, 100, 1000).forEach { adjustment ->
-                                /**
-                                 * sign val.
-                                 */
                                 val sign = if (adjustment > 0) "+" else ""
                                 TextButton(
                                     onClick = { videoSyncService.adjustOffset(adjustment.toLong()) },
@@ -458,9 +359,6 @@ fun VideoPlayerPanel(
                 Slider(
                     value = if (videoDurationMs > 0) currentVideoTimeMs.toFloat() / videoDurationMs.toFloat() else 0f,
                     onValueChange = { pct ->
-                        /**
-                         * targetTime val.
-                         */
                         val targetTime = (pct * videoDurationMs).toLong()
                         videoSyncService.seekVideo(targetTime)
                     },

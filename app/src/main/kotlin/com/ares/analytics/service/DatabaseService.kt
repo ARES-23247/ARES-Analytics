@@ -8,12 +8,11 @@ import java.sql.Connection
 import java.sql.DriverManager
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb") {
     
@@ -27,19 +26,8 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     
     init {
         Class.forName("org.duckdb.DuckDBDriver")
-        
-        /**
-         * oldDbPath val.
-         */
         val oldDbPath = System.getProperty("user.home") + "/.ares-analytics/telemetry.db"
-        /**
-         * isFirstRun val.
-         */
         val isFirstRun = !File(dbPath).exists()
-        
-        /**
-         * dbFile val.
-         */
         val dbFile = File(dbPath)
         dbFile.parentFile?.mkdirs()
         
@@ -103,12 +91,11 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     suspend fun importParquet(file: File) = backupExporter.importParquet(file)
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun close() {
         if (!conn.isClosed) {

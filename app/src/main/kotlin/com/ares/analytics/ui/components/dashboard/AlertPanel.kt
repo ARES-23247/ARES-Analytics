@@ -29,24 +29,17 @@ import kotlin.math.sin
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun AlertPanel(
     alertEngineService: AlertEngineService,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * alerts val.
-     */
     val alerts by alertEngineService.alerts.collectAsState()
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
 
     Column(
@@ -124,32 +117,14 @@ private fun AlertItem(
     alert: AlertRecord,
     onTriage: () -> Unit
 ) {
-    /**
-     * isActive val.
-     */
     val isActive = alert.resolveTimestampMs == null
-    /**
-     * isLatched val.
-     */
     val isLatched = alert.resolveTimestampMs != null && !alert.triaged
-    /**
-     * isTriaged val.
-     */
     val isTriaged = alert.triaged
 
     // Pulse factor for active alerts
-    /**
-     * pulseColor var.
-     */
     var pulseColor by remember { mutableStateOf(AresAlertActive) }
     if (isActive) {
-        /**
-         * t val.
-         */
         val t = System.currentTimeMillis()
-        /**
-         * pulse val.
-         */
         val pulse = (sin(t / 150.0) + 1.0) / 2.0
         pulseColor = Color(
             red = (AresAlertActive.red * pulse + AresSurfaceElevated.red * (1.0 - pulse)).toFloat(),
@@ -158,19 +133,11 @@ private fun AlertItem(
             alpha = 1f
         )
     }
-
-    /**
-     * stateColor val.
-     */
     val stateColor = when {
         isActive -> pulseColor
         isLatched -> AresAlertLatched
         else -> AresAlertTriaged
     }
-
-    /**
-     * statusText val.
-     */
     val statusText = when {
         isActive -> "ACTIVE"
         isLatched -> "LATCHED"

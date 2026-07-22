@@ -16,12 +16,11 @@ import io.ktor.utils.io.streams.*
 import io.ktor.utils.io.jvm.javaio.copyTo
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class GoogleDriveService(
     private val oauthService: OAuthService,
@@ -35,18 +34,9 @@ class GoogleDriveService(
     }
 
     private suspend fun getAccessToken(): String {
-        /**
-         * config val.
-         */
         val config = environmentService.loadConfig()
             ?: throw IllegalStateException("No active workspace configuration loaded")
-        /**
-         * clientId val.
-         */
         val clientId = config.googleClientId ?: "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com"
-        /**
-         * clientSecret val.
-         */
         val clientSecret = config.googleClientSecret ?: if (clientId == "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com") {
             "_xLIrcFXWhqNpYO1gwPrlZpkRqOs-XPSCOG".reversed()
         } else {
@@ -58,22 +48,12 @@ class GoogleDriveService(
     }
 
     suspend fun findOrCreateFolder(name: String, parentId: String? = null): String = withContext(Dispatchers.IO) {
-        /**
-         * token val.
-         */
         val token = getAccessToken()
-        /**
-         * query val.
-         */
         val query = if (parentId == null) {
             "name = '$name' and mimeType = 'application/vnd.google-apps.folder' and 'root' in parents and trashed = false"
         } else {
             "name = '$name' and mimeType = 'application/vnd.google-apps.folder' and '$parentId' in parents and trashed = false"
         }
-
-        /**
-         * searchResponse val.
-         */
         val searchResponse = httpClient.get("https://www.googleapis.com/drive/v3/files") {
             header(HttpHeaders.Authorization, "Bearer $token")
             parameter("q", query)
@@ -83,23 +63,13 @@ class GoogleDriveService(
         if (searchResponse.status != HttpStatusCode.OK) {
             throw Exception("Failed to search folder: ${searchResponse.bodyAsText()}")
         }
-
-        /**
-         * searchResult val.
-         */
         val searchResult = searchResponse.body<JsonObject>()
-        /**
-         * files val.
-         */
         val files = searchResult["files"]?.jsonArray
         if (files != null && files.isNotEmpty()) {
             return@withContext files[0].jsonObject["id"]!!.jsonPrimitive.content
         }
 
         // Create new folder
-        /**
-         * createBody val.
-         */
         val createBody = buildJsonObject {
             put("name", name)
             put("mimeType", "application/vnd.google-apps.folder")
@@ -107,10 +77,6 @@ class GoogleDriveService(
                 put("parents", buildJsonArray { add(parentId) })
             }
         }
-
-        /**
-         * createResponse val.
-         */
         val createResponse = httpClient.post("https://www.googleapis.com/drive/v3/files") {
             header(HttpHeaders.Authorization, "Bearer $token")
             contentType(ContentType.Application.Json)
@@ -120,27 +86,13 @@ class GoogleDriveService(
         if (createResponse.status != HttpStatusCode.OK) {
             throw Exception("Failed to create folder: ${createResponse.bodyAsText()}")
         }
-
-        /**
-         * createdObj val.
-         */
         val createdObj = createResponse.body<JsonObject>()
         createdObj["id"]!!.jsonPrimitive.content
     }
 
     suspend fun findFile(name: String, parentId: String): String? = withContext(Dispatchers.IO) {
-        /**
-         * token val.
-         */
         val token = getAccessToken()
-        /**
-         * query val.
-         */
         val query = "name = '$name' and '$parentId' in parents and trashed = false"
-
-        /**
-         * response val.
-         */
         val response = httpClient.get("https://www.googleapis.com/drive/v3/files") {
             header(HttpHeaders.Authorization, "Bearer $token")
             parameter("q", query)
@@ -150,14 +102,7 @@ class GoogleDriveService(
         if (response.status != HttpStatusCode.OK) {
             throw Exception("Failed to search file: ${response.bodyAsText()}")
         }
-
-        /**
-         * searchResult val.
-         */
         val searchResult = response.body<JsonObject>()
-        /**
-         * files val.
-         */
         val files = searchResult["files"]?.jsonArray
         if (files != null && files.isNotEmpty()) {
             files[0].jsonObject["id"]!!.jsonPrimitive.content
@@ -167,18 +112,8 @@ class GoogleDriveService(
     }
 
     suspend fun findFileContaining(substring: String, parentId: String): String? = withContext(Dispatchers.IO) {
-        /**
-         * token val.
-         */
         val token = getAccessToken()
-        /**
-         * query val.
-         */
         val query = "name contains '$substring' and '$parentId' in parents and trashed = false"
-
-        /**
-         * response val.
-         */
         val response = httpClient.get("https://www.googleapis.com/drive/v3/files") {
             header(HttpHeaders.Authorization, "Bearer $token")
             parameter("q", query)
@@ -188,14 +123,7 @@ class GoogleDriveService(
         if (response.status != HttpStatusCode.OK) {
             throw Exception("Failed to search file: ${response.bodyAsText()}")
         }
-
-        /**
-         * searchResult val.
-         */
         val searchResult = response.body<JsonObject>()
-        /**
-         * files val.
-         */
         val files = searchResult["files"]?.jsonArray
         if (files != null && files.isNotEmpty()) {
             files[0].jsonObject["id"]!!.jsonPrimitive.content
@@ -205,13 +133,7 @@ class GoogleDriveService(
     }
 
     suspend fun readFile(fileId: String): ByteArray = withContext(Dispatchers.IO) {
-        /**
-         * token val.
-         */
         val token = getAccessToken()
-        /**
-         * response val.
-         */
         val response = httpClient.get("https://www.googleapis.com/drive/v3/files/$fileId") {
             header(HttpHeaders.Authorization, "Bearer $token")
             parameter("alt", "media")
@@ -229,9 +151,6 @@ class GoogleDriveService(
      * Use this for large files (Parquet) to avoid loading the entire file into memory.
      */
     suspend fun readFileStreaming(fileId: String, destination: File): Unit = withContext(Dispatchers.IO) {
-        /**
-         * token val.
-         */
         val token = getAccessToken()
         httpClient.prepareGet("https://www.googleapis.com/drive/v3/files/$fileId") {
             header(HttpHeaders.Authorization, "Bearer $token")
@@ -240,10 +159,6 @@ class GoogleDriveService(
             if (response.status != HttpStatusCode.OK) {
                 throw Exception("Failed to download file: ${response.bodyAsText()}")
             }
-
-            /**
-             * channel val.
-             */
             val channel = response.bodyAsChannel()
             java.io.FileOutputStream(destination).use { outputStream ->
                 channel.copyTo(outputStream)
@@ -252,9 +167,6 @@ class GoogleDriveService(
     }
 
     suspend fun writeFile(name: String, bytes: ByteArray, parentId: String, mimeType: String, fileId: String? = null): String = withContext(Dispatchers.IO) {
-        /**
-         * token val.
-         */
         val token = getAccessToken()
 
         if (fileId != null) {
@@ -271,21 +183,11 @@ class GoogleDriveService(
             }
         } else {
             // Create a new file with multipart metadata + media content
-            /**
-             * boundary val.
-             */
             val boundary = "Boundary_${System.currentTimeMillis()}"
-            /**
-             * metadataPart val.
-             */
             val metadataPart = buildJsonObject {
                 put("name", name)
                 put("parents", buildJsonArray { add(parentId) })
             }.toString()
-
-            /**
-             * response val.
-             */
             val response = httpClient.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart") {
                 header(HttpHeaders.Authorization, "Bearer $token")
                 contentType(ContentType.parse("multipart/related; boundary=$boundary"))
@@ -307,10 +209,6 @@ class GoogleDriveService(
             if (response.status != HttpStatusCode.OK) {
                 throw Exception("Failed to upload multipart file: ${response.bodyAsText()}")
             }
-
-            /**
-             * created val.
-             */
             val created = response.body<JsonObject>()
             created["id"]!!.jsonPrimitive.content
         }
@@ -321,9 +219,6 @@ class GoogleDriveService(
      * Use this for large files (Parquet) to avoid loading the entire file into memory.
      */
     suspend fun writeFileStreaming(name: String, file: File, parentId: String, mimeType: String, fileId: String? = null): String = withContext(Dispatchers.IO) {
-        /**
-         * token val.
-         */
         val token = getAccessToken()
 
         if (fileId != null) {
@@ -343,18 +238,12 @@ class GoogleDriveService(
         } else {
             // For new file creation, read bytes (metadata + content multipart requires it)
             // This path is acceptable because new uploads are rarer than overwrites
-            /**
-             * bytes val.
-             */
             val bytes = file.readBytes()
             return@withContext writeFile(name, bytes, parentId, mimeType, null)
         }
     }
 
     suspend fun deleteFile(fileId: String): Unit = withContext(Dispatchers.IO) {
-        /**
-         * token val.
-         */
         val token = getAccessToken()
         httpClient.prepareDelete("https://www.googleapis.com/drive/v3/files/$fileId") {
             header(HttpHeaders.Authorization, "Bearer $token")

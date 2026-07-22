@@ -28,12 +28,11 @@ import com.ares.analytics.shared.League
 import com.ares.analytics.ui.theme.*
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 enum class NavigationTarget(val label: String, val icon: ImageVector) {
     DASHBOARD("Dashboard", Icons.Default.Speed),
@@ -73,9 +72,6 @@ internal fun Sidebar(
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             // ARES brand logo (turns green if simulation running)
-            /**
-             * logoBgColors val.
-             */
             val logoBgColors = if (isSimRunning) {
                 listOf(AresGreen, AresGreen.copy(alpha = 0.7f))
             } else {
@@ -166,16 +162,10 @@ internal fun SidebarIcon(
     isActive: Boolean,
     onClick: () -> Unit
 ) {
-    /**
-     * iconColor val.
-     */
     val iconColor by animateColorAsState(
         targetValue = if (isActive) AresCyan else AresTextTertiary,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
     )
-    /**
-     * bgColor val.
-     */
     val bgColor by animateColorAsState(
         targetValue = if (isActive) AresCyanGlow else Color.Transparent,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow)
@@ -220,9 +210,6 @@ internal fun ConnectionIndicator(
     label: String,
     activeColor: Color = AresGreen
 ) {
-    /**
-     * dotColor val.
-     */
     val dotColor by animateColorAsState(
         targetValue = if (connected) activeColor else AresTextTertiary,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow)

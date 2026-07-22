@@ -5,22 +5,20 @@ import com.ares.analytics.shared.SessionSummary
 import com.ares.analytics.ui.screens.RowDefinition
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 object RunDataDictionary {
     
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun canonicalizeMotorName(name: String): String {
         return when (name.lowercase()) {
@@ -33,17 +31,13 @@ object RunDataDictionary {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun getDiagnosticValue(diag: Map<String, Double>, canonicalMotor: String, param: String): Double? {
-        /**
-         * namesToCheck val.
-         */
         val namesToCheck = when (canonicalMotor) {
             "rl" -> listOf("rl", "bl")
             "rr" -> listOf("rr", "br")
@@ -52,9 +46,6 @@ object RunDataDictionary {
             else -> listOf(canonicalMotor)
         }
         for (name in namesToCheck) {
-            /**
-             * value val.
-             */
             val value = diag["Diagnostics/SysId/Motors/$name/$param"]
             if (value != null) return value
         }
@@ -62,18 +53,14 @@ object RunDataDictionary {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun getMotorCurrentAverage(summary: SessionSummary?, canonicalMotor: String): Double? {
         if (summary == null) return null
-        /**
-         * namesToCheck val.
-         */
         val namesToCheck = when (canonicalMotor) {
             "rl" -> listOf("rl", "bl")
             "rr" -> listOf("rr", "br")
@@ -82,9 +69,6 @@ object RunDataDictionary {
             else -> listOf(canonicalMotor)
         }
         for (name in namesToCheck) {
-            /**
-             * value val.
-             */
             val value = summary.motorCurrentAverages[name]
             if (value != null) return value
         }
@@ -92,12 +76,11 @@ object RunDataDictionary {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun buildBaseRowDefinitions(): List<RowDefinition> {
         return listOf(
@@ -149,12 +132,11 @@ object RunDataDictionary {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun buildMotorCurrentRows(allMotorNames: List<String>): List<RowDefinition> {
         return allMotorNames.map { motor ->
@@ -172,12 +154,11 @@ object RunDataDictionary {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun buildMotorSysIdRows(allMotorNames: List<String>): List<RowDefinition> {
         return allMotorNames.flatMap { motor ->

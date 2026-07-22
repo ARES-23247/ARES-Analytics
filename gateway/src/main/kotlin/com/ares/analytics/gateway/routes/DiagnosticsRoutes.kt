@@ -15,43 +15,26 @@ import io.ktor.server.plugins.ratelimit.*
 import kotlinx.serialization.json.Json
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun Route.diagnosticsRoutes() {
-    /**
-     * projectId val.
-     */
     val projectId = System.getenv("GOOGLE_CLOUD_PROJECT") ?: "ares-analytics"
-    /**
-     * location val.
-     */
     val location = System.getenv("GOOGLE_CLOUD_LOCATION") ?: "us-central1"
 
     authenticate("firebase") {
         rateLimit(RateLimitName("forensics")) {
             post("/api/diagnostics/forensics") {
-                /**
-                 * req val.
-                 */
                 val req = call.receive<ForensicsRequest>()
 
             try {
                 // Initialize Vertex AI client
                 VertexAI(projectId, location).use { vertexAi ->
                     // Configure model directly using simple constructor
-                    /**
-                     * model val.
-                     */
                     val model = GenerativeModel("gemini-1.5-flash", vertexAi)
-
-                    /**
-                     * prompt val.
-                     */
                     val prompt = """
                         You are ARES Pit Forensics AI, a diagnostic copilot for FTC/FRC robotics teams.
                         Analyze the following telemetry packet containing session statistics, triggered threshold alerts, motor currents, EKF positioning drift, and hardware topology.
@@ -76,24 +59,11 @@ fun Route.diagnosticsRoutes() {
                         Data Packet:
                         ${Json.encodeToString(ForensicsRequest.serializer(), req)}
                     """.trimIndent()
-
-                    /**
-                     * response val.
-                     */
                     val response = model.generateContent(prompt)
-                    /**
-                     * jsonResponse val.
-                     */
                     val jsonResponse = ResponseHandler.getText(response) ?: "{}"
-                    /**
-                     * sanitizedJson val.
-                     */
                     val sanitizedJson = jsonResponse.replace(Regex("```(?:json)?\\n?(.*?)\\n?```", RegexOption.DOT_MATCHES_ALL), "$1").trim()
 
                     // Parse to verify compliance and return to client
-                    /**
-                     * parsed val.
-                     */
                     val parsed = try {
                         Json.decodeFromString<ForensicsResponse>(sanitizedJson)
                     } catch (e: Exception) {

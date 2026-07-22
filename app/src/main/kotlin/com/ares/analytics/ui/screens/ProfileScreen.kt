@@ -32,21 +32,17 @@ import com.ares.analytics.viewmodel.ProfileViewModel
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun ProfileScreen(
     viewModel: ProfileViewModel,
     config: WorkspaceConfig,
     onConfigChanged: (WorkspaceConfig) -> Unit
 ) {
-    /**
-     * state val.
-     */
     val state by viewModel.state.collectAsState()
 
     LaunchedEffect(config) {
@@ -54,108 +50,35 @@ fun ProfileScreen(
     }
 
     // Workspace Active Settings overrides
-    /**
-     * teamId var.
-     */
     var teamId by remember(config.teamId) { mutableStateOf(config.teamId) }
-    /**
-     * robotId var.
-     */
     var robotId by remember(config.robotId) { mutableStateOf(config.robotId) }
-    /**
-     * robotName var.
-     */
     var robotName by remember(config.robotName) { mutableStateOf(config.robotName) }
-    /**
-     * league var.
-     */
     var league by remember(config.league) { mutableStateOf(config.league) }
-    /**
-     * seasonId var.
-     */
     var seasonId by remember(config.seasonId) { mutableStateOf(config.seasonId) }
-    /**
-     * robotMenuExpanded var.
-     */
     var robotMenuExpanded by remember { mutableStateOf(false) }
-    /**
-     * colorblindMode var.
-     */
     var colorblindMode by remember(config.colorblindMode) { mutableStateOf(config.colorblindMode) }
-    /**
-     * highContrastMode var.
-     */
     var highContrastMode by remember(config.highContrastMode) { mutableStateOf(config.highContrastMode) }
-    /**
-     * touchOptimizedMode var.
-     */
     var touchOptimizedMode by remember(config.touchOptimizedMode) { mutableStateOf(config.touchOptimizedMode) }
 
     // Optional credential overrides
-    /**
-     * googleClientId var.
-     */
     var googleClientId by remember(state.googleClientId) { mutableStateOf(state.googleClientId) }
-    /**
-     * firebaseApiKey var.
-     */
     var firebaseApiKey by remember(state.firebaseApiKey) { mutableStateOf(state.firebaseApiKey) }
-    /**
-     * googleClientSecret var.
-     */
     var googleClientSecret by remember(state.googleClientSecret) { mutableStateOf(state.googleClientSecret) }
-    /**
-     * showAdvanced var.
-     */
     var showAdvanced by remember { mutableStateOf(false) }
 
     // Match integration overrides
-    /**
-     * eventCode var.
-     */
     var eventCode by remember(state.eventCode) { mutableStateOf(state.eventCode) }
-    /**
-     * toaApiKey var.
-     */
     var toaApiKey by remember(state.toaApiKey) { mutableStateOf(state.toaApiKey) }
-    /**
-     * tbaApiKey var.
-     */
     var tbaApiKey by remember(state.tbaApiKey) { mutableStateOf(state.tbaApiKey) }
 
     // AI Diagnostics overrides
-    /**
-     * aiMode var.
-     */
     var aiMode by remember(state.aiMode) { mutableStateOf(state.aiMode) }
-    /**
-     * geminiApiKey var.
-     */
     var geminiApiKey by remember(state.geminiApiKey) { mutableStateOf(state.geminiApiKey) }
-    /**
-     * geminiModel var.
-     */
     var geminiModel by remember(state.geminiModel) { mutableStateOf(state.geminiModel) }
-    /**
-     * modelMenuExpanded var.
-     */
     var modelMenuExpanded by remember { mutableStateOf(false) }
-    /**
-     * vertexServiceAccountPath var.
-     */
     var vertexServiceAccountPath by remember(state.vertexServiceAccountPath) { mutableStateOf(state.vertexServiceAccountPath) }
-    /**
-     * vertexProjectId var.
-     */
     var vertexProjectId by remember(state.vertexProjectId) { mutableStateOf(state.vertexProjectId) }
-    /**
-     * vertexLocation var.
-     */
     var vertexLocation by remember(state.vertexLocation) { mutableStateOf(state.vertexLocation) }
-
-    /**
-     * scrollState val.
-     */
     val scrollState = rememberScrollState()
 
     Column(
@@ -300,9 +223,6 @@ fun ProfileScreen(
                         Text("Connect your Google Account to automatically synchronize registered robots, configurations, and Parquet data blocks with your team.", color = AresTextSecondary, fontSize = 11.sp)
                         Button(
                             onClick = {
-                                /**
-                                 * updatedConfig val.
-                                 */
                                 val updatedConfig = config.copy(
                                     googleClientId = googleClientId.takeIf { it.isNotBlank() },
                                     firebaseApiKey = firebaseApiKey.takeIf { it.isNotBlank() },
@@ -606,9 +526,6 @@ fun ProfileScreen(
         // Save Button Footer
         Button(
             onClick = {
-                /**
-                 * newConfig val.
-                 */
                 val newConfig = config.copy(
                     teamId = teamId,
                     robotId = robotId,

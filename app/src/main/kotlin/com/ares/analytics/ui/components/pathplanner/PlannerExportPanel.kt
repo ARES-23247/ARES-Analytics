@@ -18,12 +18,11 @@ import java.io.File
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun PlannerExportPanel(
     showPathControls: Boolean,
@@ -33,13 +32,7 @@ fun PlannerExportPanel(
     modifier: Modifier = Modifier
 ) {
     if (showPathControls && !projectPath.isNullOrEmpty()) {
-        /**
-         * pathName var.
-         */
         var pathName by remember { mutableStateOf("autonomous_route") }
-        /**
-         * saveStatus var.
-         */
         var saveStatus by remember { mutableStateOf("") }
         
         Surface(
@@ -68,31 +61,12 @@ fun PlannerExportPanel(
                 Button(
                     onClick = {
                         try {
-                            /**
-                             * json val.
-                             */
                             val json = Json { prettyPrint = true }
-                            /**
-                             * pathData val.
-                             */
                             val pathData = waypoints.map { PathPoint(it.x, it.y) }
-                            /**
-                             * serialized val.
-                             */
                             val serialized = json.encodeToString(pathData)
-
-                            /**
-                             * relativeDir val.
-                             */
                             val relativeDir = if (league == League.FTC) "src/main/assets/paths" else "src/main/deploy/paths"
-                            /**
-                             * targetDir val.
-                             */
                             val targetDir = File(projectPath, relativeDir)
                             targetDir.mkdirs()
-                            /**
-                             * targetFile val.
-                             */
                             val targetFile = File(targetDir, "$pathName.json")
                             targetFile.writeText(serialized)
                             saveStatus = "Path exported to ${targetFile.name}!"

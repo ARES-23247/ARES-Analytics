@@ -3,36 +3,28 @@ package com.ares.analytics.service
 import kotlinx.serialization.json.*
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 object Nt4Decoder {
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun decodeMsgPackInt(bytes: ByteArray, offset: Int): Pair<Int, Int> {
         if (offset >= bytes.size) return Pair(0, 0)
-        /**
-         * marker val.
-         */
         val marker = bytes[offset].toInt() and 0xFF
         return when {
             marker in 0x00..0x7f -> Pair(marker, 1)
             marker in 0xe0..0xff -> Pair(marker - 256, 1)
             marker == 0xcc || marker == 0xd0 -> Pair(if (marker == 0xcc) bytes[offset + 1].toInt() and 0xFF else bytes[offset + 1].toInt(), 2)
             marker == 0xcd || marker == 0xd1 -> {
-                /**
-                 * value val.
-                 */
                 val value = readInt16(bytes, offset + 1)
                 Pair(if (marker == 0xcd) value else value.toShort().toInt(), 3)
             }
@@ -42,34 +34,24 @@ object Nt4Decoder {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun decodeMsgPackLong(bytes: ByteArray, offset: Int): Pair<Long, Int> {
         if (offset >= bytes.size) return Pair(0L, 0)
-        /**
-         * marker val.
-         */
         val marker = bytes[offset].toInt() and 0xFF
         return when {
             marker in 0x00..0x7f -> Pair(marker.toLong(), 1)
             marker in 0xe0..0xff -> Pair((marker - 256).toLong(), 1)
             marker == 0xcc || marker == 0xd0 -> Pair((if (marker == 0xcc) bytes[offset + 1].toInt() and 0xFF else bytes[offset + 1].toInt()).toLong(), 2)
             marker == 0xcd || marker == 0xd1 -> {
-                /**
-                 * value val.
-                 */
                 val value = readInt16(bytes, offset + 1)
                 Pair((if (marker == 0xcd) value else value.toShort().toInt()).toLong(), 3)
             }
             marker == 0xce || marker == 0xd2 -> {
-                /**
-                 * value val.
-                 */
                 val value = readInt32(bytes, offset + 1)
                 Pair(if (marker == 0xce) (value.toLong() and 0xFFFFFFFFL) else value.toLong(), 5)
             }
@@ -79,18 +61,14 @@ object Nt4Decoder {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun parseMsgPackValue(bytes: ByteArray, offset: Int): Pair<Any?, Int> {
         if (offset >= bytes.size) return Pair(null, 0)
-        /**
-         * marker val.
-         */
         val marker = bytes[offset].toInt() and 0xFF
 
         when {
@@ -105,9 +83,6 @@ object Nt4Decoder {
             // int8, uint8
             marker == 0xcc || marker == 0xd0 -> {
                 if (offset + 1 < bytes.size) {
-                    /**
-                     * value val.
-                     */
                     val value = if (marker == 0xcc) bytes[offset + 1].toInt() and 0xFF else bytes[offset + 1].toInt()
                     return Pair(value, 2)
                 }
@@ -116,13 +91,7 @@ object Nt4Decoder {
             // int16, uint16
             marker == 0xcd || marker == 0xd1 -> {
                 if (offset + 2 < bytes.size) {
-                    /**
-                     * value val.
-                     */
                     val value = readInt16(bytes, offset + 1)
-                    /**
-                     * out val.
-                     */
                     val out = if (marker == 0xcd) value else value.toShort().toInt()
                     return Pair(out, 3)
                 }
@@ -131,13 +100,7 @@ object Nt4Decoder {
             // int32, uint32
             marker == 0xce || marker == 0xd2 -> {
                 if (offset + 4 < bytes.size) {
-                    /**
-                     * value val.
-                     */
                     val value = readInt32(bytes, offset + 1)
-                    /**
-                     * out val.
-                     */
                     val out = if (marker == 0xce) (value.toLong() and 0xFFFFFFFFL) else value.toLong()
                     return Pair(out, 5)
                 }
@@ -146,9 +109,6 @@ object Nt4Decoder {
             // int64, uint64
             marker == 0xcf || marker == 0xd3 -> {
                 if (offset + 8 < bytes.size) {
-                    /**
-                     * value val.
-                     */
                     val value = readInt64(bytes, offset + 1)
                     return Pair(value, 9)
                 }
@@ -157,9 +117,6 @@ object Nt4Decoder {
             // float32
             marker == 0xca -> {
                 if (offset + 4 < bytes.size) {
-                    /**
-                     * bits val.
-                     */
                     val bits = readInt32(bytes, offset + 1)
                     return Pair(java.lang.Float.intBitsToFloat(bits).toDouble(), 5)
                 }
@@ -168,9 +125,6 @@ object Nt4Decoder {
             // float64
             marker == 0xcb -> {
                 if (offset + 8 < bytes.size) {
-                    /**
-                     * bits val.
-                     */
                     val bits = readInt64(bytes, offset + 1)
                     return Pair(java.lang.Double.longBitsToDouble(bits), 9)
                 }
@@ -180,9 +134,6 @@ object Nt4Decoder {
             marker in 0xa0..0xbf || marker == 0xd9 || marker == 0xda || marker == 0xdb -> {
                 val (len, headerSize) = getStringLengthAndHeader(marker, bytes, offset)
                 if (offset + headerSize + len <= bytes.size) {
-                    /**
-                     * strValue val.
-                     */
                     val strValue = String(bytes, offset + headerSize, len, Charsets.UTF_8)
                     return Pair(strValue, headerSize + len)
                 }
@@ -191,13 +142,7 @@ object Nt4Decoder {
             // Arrays
             marker in 0x90..0x9f || marker == 0xdc || marker == 0xdd -> {
                 val (arrayLen, headerSize) = getArrayLengthAndHeader(marker, bytes, offset)
-                /**
-                 * currentOffset var.
-                 */
                 var currentOffset = offset + headerSize
-                /**
-                 * list val.
-                 */
                 val list = ArrayList<Any?>(arrayLen)
                 for (i in 0 until arrayLen) {
                     val (elem, size) = parseMsgPackValue(bytes, currentOffset)
@@ -207,21 +152,16 @@ object Nt4Decoder {
                 return Pair(list, currentOffset - offset)
             }
         }
-
-        /**
-         * size val.
-         */
         val size = getMsgPackValueLength(bytes, offset)
         return Pair(null, size)
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun readInt16(bytes: ByteArray, offset: Int): Int {
         return (((bytes[offset].toInt() and 0xFF) shl 8) or
@@ -229,12 +169,11 @@ object Nt4Decoder {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun readInt32(bytes: ByteArray, offset: Int): Int {
         return (((bytes[offset].toInt() and 0xFF) shl 24) or
@@ -244,12 +183,11 @@ object Nt4Decoder {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun readInt64(bytes: ByteArray, offset: Int): Long {
         return (((bytes[offset].toLong() and 0xFF) shl 56) or
@@ -263,12 +201,11 @@ object Nt4Decoder {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun getStringLengthAndHeader(marker: Int, bytes: ByteArray, offset: Int): Pair<Int, Int> {
         return when {
@@ -290,12 +227,11 @@ object Nt4Decoder {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun getArrayLengthAndHeader(marker: Int, bytes: ByteArray, offset: Int): Pair<Int, Int> {
         return when {
@@ -313,29 +249,19 @@ object Nt4Decoder {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun getMsgPackValueLength(bytes: ByteArray, offset: Int): Int {
         if (offset >= bytes.size) return 0
-        /**
-         * marker val.
-         */
         val marker = bytes[offset].toInt() and 0xFF
         return when {
             marker in 0x00..0x7f || marker in 0xe0..0xff -> 1
             marker in 0x80..0x8f -> {
-                /**
-                 * size val.
-                 */
                 val size = marker - 0x80
-                /**
-                 * len var.
-                 */
                 var len = 1
                 for (i in 0 until size * 2) {
                     len += getMsgPackValueLength(bytes, offset + len)
@@ -343,13 +269,7 @@ object Nt4Decoder {
                 len
             }
             marker in 0x90..0x9f -> {
-                /**
-                 * size val.
-                 */
                 val size = marker - 0x90
-                /**
-                 * len var.
-                 */
                 var len = 1
                 for (i in 0 until size) {
                     len += getMsgPackValueLength(bytes, offset + len)
@@ -375,13 +295,7 @@ object Nt4Decoder {
             marker == 0xcf || marker == 0xd3 -> 9
             marker == 0xdc -> {
                 if (offset + 2 < bytes.size) {
-                    /**
-                     * size val.
-                     */
                     val size = readInt16(bytes, offset + 1)
-                    /**
-                     * len var.
-                     */
                     var len = 3
                     for (i in 0 until size) {
                         len += getMsgPackValueLength(bytes, offset + len)
@@ -391,13 +305,7 @@ object Nt4Decoder {
             }
             marker == 0xdd -> {
                 if (offset + 4 < bytes.size) {
-                    /**
-                     * size val.
-                     */
                     val size = readInt32(bytes, offset + 1)
-                    /**
-                     * len var.
-                     */
                     var len = 5
                     for (i in 0 until size) {
                         len += getMsgPackValueLength(bytes, offset + len)
@@ -407,13 +315,7 @@ object Nt4Decoder {
             }
             marker == 0xde -> {
                 if (offset + 2 < bytes.size) {
-                    /**
-                     * size val.
-                     */
                     val size = readInt16(bytes, offset + 1)
-                    /**
-                     * len var.
-                     */
                     var len = 3
                     for (i in 0 until size * 2) {
                         len += getMsgPackValueLength(bytes, offset + len)
@@ -423,13 +325,7 @@ object Nt4Decoder {
             }
             marker == 0xdf -> {
                 if (offset + 4 < bytes.size) {
-                    /**
-                     * size val.
-                     */
                     val size = readInt32(bytes, offset + 1)
-                    /**
-                     * len var.
-                     */
                     var len = 5
                     for (i in 0 until size * 2) {
                         len += getMsgPackValueLength(bytes, offset + len)

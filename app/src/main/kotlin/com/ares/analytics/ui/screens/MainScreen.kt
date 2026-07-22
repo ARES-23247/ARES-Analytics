@@ -39,26 +39,15 @@ import kotlinx.coroutines.*
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun MainScreen(services: ServiceRegistry) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    /**
-     * focusRequester val.
-     */
     val focusRequester = remember { FocusRequester() }
-
-    /**
-     * mainViewModel val.
-     */
     val mainViewModel = remember {
         MainViewModel(
             environmentService = services.environmentService,
@@ -67,61 +56,22 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope
         )
     }
-    /**
-     * mainState val.
-     */
     val mainState by mainViewModel.state.collectAsState()
-
-    /**
-     * config val.
-     */
     val config = mainState.config
-    /**
-     * activeNav val.
-     */
     val activeNav = mainState.activeNav
-    /**
-     * matches val.
-     */
     val matches = mainState.matches
-    /**
-     * runsIndexReloadTrigger val.
-     */
     val runsIndexReloadTrigger = mainState.runsIndexReloadTrigger
-    /**
-     * diagnosticsResponse val.
-     */
     val diagnosticsResponse = mainState.diagnosticsResponse
-    /**
-     * isTerminalOpen val.
-     */
     val isTerminalOpen = mainState.isTerminalOpen
-    /**
-     * isKeybindingsOpen val.
-     */
     val isKeybindingsOpen = mainState.isKeybindingsOpen
-    /**
-     * parsedBindings val.
-     */
     val parsedBindings = mainState.parsedBindings
-    /**
-     * showUpdateBanner val.
-     */
     val showUpdateBanner = mainState.showUpdateBanner
-
-    /**
-     * updateState val.
-     */
     val updateState by services.updateCheckerService.updateState.collectAsState()
 
     // Trigger update check on startup
     LaunchedEffect(Unit) {
         services.updateCheckerService.checkForUpdates()
     }
-
-    /**
-     * autoImportService val.
-     */
     val autoImportService = remember {
         AutoImportService(
             databaseService = services.databaseService,
@@ -147,10 +97,6 @@ fun MainScreen(services: ServiceRegistry) {
             autoImportService.stop()
         }
     }
-
-    /**
-     * currentConfig val.
-     */
     val currentConfig = config
 
     LaunchedEffect(currentConfig?.colorblindMode, currentConfig?.highContrastMode, currentConfig?.touchOptimizedMode) {
@@ -162,17 +108,11 @@ fun MainScreen(services: ServiceRegistry) {
     }
 
     if (currentConfig == null) {
-        /**
-         * onboardingViewModel val.
-         */
         val onboardingViewModel = remember {
             OnboardingViewModel(services.environmentService, services.teamApiService, scope) { loaded ->
                 mainViewModel.onIntent(MainIntent.SaveConfig(loaded))
             }
         }
-        /**
-         * showCancel val.
-         */
         val showCancel = mainState.workspaces.isNotEmpty()
         OnboardingScreen(
             viewModel = onboardingViewModel,
@@ -184,9 +124,6 @@ fun MainScreen(services: ServiceRegistry) {
     }
 
     // Instantiate ViewModels
-    /**
-     * dashboardViewModel val.
-     */
     val dashboardViewModel = remember {
         DashboardViewModel(
             databaseService = services.databaseService,
@@ -199,25 +136,12 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope
         )
     }
-
-    /**
-     * pathPlannerViewModel val.
-     */
     val pathPlannerViewModel = remember {
         PathPlannerViewModel(scope = scope)
     }
-
-    /**
-     * fieldEditorViewModel val.
-     */
     val fieldEditorViewModel = remember {
         FieldEditorViewModel(scope = scope)
     }
-
-
-    /**
-     * sysIdViewModel val.
-     */
     val sysIdViewModel = remember {
         SysIdViewModel(
             databaseService = services.databaseService,
@@ -227,21 +151,12 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope
         )
     }
-
-
-    /**
-     * tuningViewModel val.
-     */
     val tuningViewModel = remember {
         TuningViewModel(
             nt4ClientService = services.nt4ClientService,
             scope = scope
         )
     }
-
-    /**
-     * profileViewModel val.
-     */
     val profileViewModel = remember {
         ProfileViewModel(
             oauthService = services.oauthService,
@@ -251,10 +166,6 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope
         )
     }
-
-    /**
-     * cloudViewModel val.
-     */
     val cloudViewModel = remember {
         com.ares.analytics.viewmodel.CloudViewModel(
             databaseService = services.databaseService,
@@ -265,55 +176,18 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope
         )
     }
-
-    /**
-     * dashboardState val.
-     */
     val dashboardState by dashboardViewModel.state.collectAsState()
-    /**
-     * primarySessionId val.
-     */
     val primarySessionId = dashboardState.primarySessionId
-    /**
-     * compareSessionId val.
-     */
     val compareSessionId = dashboardState.compareSessionId
-
-    /**
-     * isConnected val.
-     */
     val isConnected by services.nt4ClientService.isConnected.collectAsState()
-    /**
-     * adbConnected val.
-     */
     val adbConnected by services.processManagerService.adbConnected.collectAsState()
-    /**
-     * isSimRunning val.
-     */
     val isSimRunning by services.processManagerService.isSimRunning.collectAsState()
-
-    /**
-     * isBuildRunning val.
-     */
     val isBuildRunning by services.processManagerService.isBuildRunning.collectAsState()
-    /**
-     * targetSelection var.
-     */
     var targetSelection by remember { mutableStateOf(TargetSelection.LIVE_ROBOT) }
-    /**
-     * liveRobotIp var.
-     */
     var liveRobotIp by remember(currentConfig.nt4Host) {
         mutableStateOf(currentConfig.nt4Host ?: "192.168.43.1")
     }
-
-    /**
-     * isLiveRobotOnline val.
-     */
     val isLiveRobotOnline by services.targetScannerService.isLiveRobotOnline.collectAsState()
-    /**
-     * isLocalSimOnline val.
-     */
     val isLocalSimOnline by services.targetScannerService.isLocalSimOnline.collectAsState()
 
     LaunchedEffect(liveRobotIp) {
@@ -343,9 +217,6 @@ fun MainScreen(services: ServiceRegistry) {
     LaunchedEffect(currentConfig, targetSelection, liveRobotIp, isSimRunning) {
         println("[MainScreen LaunchedEffect] RUNNING: config=$currentConfig (hash=${System.identityHashCode(currentConfig)}), targetSelection=$targetSelection, liveRobotIp=$liveRobotIp, isSimRunning=$isSimRunning")
         focusRequester.requestFocus()
-        /**
-         * host val.
-         */
         val host = if (targetSelection == TargetSelection.LOCAL_SIM) {
             "127.0.0.1"
         } else {
@@ -369,9 +240,6 @@ fun MainScreen(services: ServiceRegistry) {
             .focusable()
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type == KeyEventType.KeyDown) {
-                    /**
-                     * isCtrl val.
-                     */
                     val isCtrl = keyEvent.isCtrlPressed
                     when (keyEvent.key) {
                         Key.B -> if (isCtrl) {
@@ -435,9 +303,6 @@ fun MainScreen(services: ServiceRegistry) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Dropdown Selector for active Workspace/Robot configuration
-                        /**
-                         * dropdownExpanded var.
-                         */
                         var dropdownExpanded by remember { mutableStateOf(false) }
                         Box {
                             Row(
@@ -450,9 +315,6 @@ fun MainScreen(services: ServiceRegistry) {
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                /**
-                                 * badgeBg val.
-                                 */
                                 val badgeBg = if (currentConfig.league == League.FTC) AresGold else AresCyan
                                 Text(
                                     text = currentConfig.league.name,
@@ -584,13 +446,7 @@ fun MainScreen(services: ServiceRegistry) {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (activeNav == NavigationTarget.DASHBOARD) {
-                                /**
-                                 * dashState val.
-                                 */
                                 val dashState by dashboardViewModel.state.collectAsState()
-                                /**
-                                 * newLayoutName var.
-                                 */
                                 var newLayoutName by remember { mutableStateOf("") }
                                 
                                 // Profile Selection
@@ -604,14 +460,8 @@ fun MainScreen(services: ServiceRegistry) {
                                         onDismissRequest = { dashboardViewModel.onIntent(DashboardIntent.SetProfileExpanded(false)) },
                                         modifier = Modifier.width(200.dp).background(AresSurfaceElevated).border(1.dp, AresBorder)
                                     ) {
-                                        /**
-                                         * defaults val.
-                                         */
                                         val defaults = listOf("Standard", "Driver Coach", "Programmer", "Pit Crew", "Match Review", "Pit Diagnostics", "Driver Practice")
                                         dashState.availableProfiles.forEach { profile ->
-                                            /**
-                                             * isCustom val.
-                                             */
                                             val isCustom = defaults.none { it.equals(profile, ignoreCase = true) }
                                             DropdownMenuItem(
                                                 text = {
@@ -724,9 +574,6 @@ fun MainScreen(services: ServiceRegistry) {
                                 onSelectMatch = { match, allianceColor ->
                                     if (primarySessionId != null) {
                                         scope.launch {
-                                            /**
-                                             * opponents val.
-                                             */
                                             val opponents = if (allianceColor == "red") match.blueAlliance else match.redAlliance
                                             services.databaseService.associateSessionWithMatch(
                                                 sessionId = primarySessionId,
@@ -808,9 +655,6 @@ fun MainScreen(services: ServiceRegistry) {
         }
 
         // ── Update Notification Banner ──────────────────────────────────────────
-        /**
-         * currentUpdateState val.
-         */
         val currentUpdateState = updateState
         if (currentUpdateState is UpdateCheckerService.UpdateState.UpdateAvailable && showUpdateBanner) {
             Box(

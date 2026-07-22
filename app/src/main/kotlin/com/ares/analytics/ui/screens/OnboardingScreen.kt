@@ -31,12 +31,11 @@ import javax.swing.JFileChooser
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun OnboardingScreen(
     viewModel: OnboardingViewModel,
@@ -45,18 +44,8 @@ fun OnboardingScreen(
     onCancel: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * state val.
-     */
     val state by viewModel.state.collectAsState()
-    /**
-     * authState val.
-     */
     val authState by oauthService.authState.collectAsState()
-
-    /**
-     * token val.
-     */
     val token = (authState as? AuthState.Authenticated)?.firebaseToken
 
 
@@ -111,13 +100,7 @@ fun OnboardingScreen(
                     onClientIdChange = { viewModel.handleIntent(OnboardingIntent.UpdateGoogleClientId(it)) },
                     onClientSecretChange = { viewModel.handleIntent(OnboardingIntent.UpdateGoogleClientSecret(it)) },
                     onSignInClick = {
-                        /**
-                         * targetClientId val.
-                         */
                         val targetClientId = state.googleClientId.takeIf { it.isNotEmpty() } ?: "mock"
-                        /**
-                         * targetClientSecret val.
-                         */
                         val targetClientSecret = state.googleClientSecret.takeIf { it.isNotBlank() }
                             ?: if (targetClientId == "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com") {
                                 "_xLIrcFXWhqNpYO1gwPrlZpkRqOs-XPSCOG".reversed()
@@ -136,16 +119,10 @@ fun OnboardingScreen(
                     projectPath = state.projectPath,
                     onProjectPathChange = { viewModel.handleIntent(OnboardingIntent.UpdateProjectPath(it)) },
                     onBrowseProject = {
-                        /**
-                         * chooser val.
-                         */
                         val chooser = JFileChooser().apply {
                             fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
                             dialogTitle = "Select Robot Project Root"
                         }
-                        /**
-                         * result val.
-                         */
                         val result = chooser.showOpenDialog(null)
                         if (result == JFileChooser.APPROVE_OPTION) {
                             viewModel.handleIntent(OnboardingIntent.UpdateProjectPath(chooser.selectedFile.absolutePath))

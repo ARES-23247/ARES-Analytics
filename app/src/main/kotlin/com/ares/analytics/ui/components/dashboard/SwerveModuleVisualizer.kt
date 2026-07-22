@@ -29,77 +29,43 @@ import kotlin.math.sin
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun SwerveModuleVisualizer(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
 
     // 0: FL, 1: FR, 2: BL, 3: BR
-    /**
-     * speedsTarget val.
-     */
     val speedsTarget = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
-    /**
-     * anglesTarget val.
-     */
     val anglesTarget = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
-    /**
-     * speedsActual val.
-     */
     val speedsActual = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
-    /**
-     * anglesActual val.
-     */
     val anglesActual = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
 
     LaunchedEffect(Unit) {
         scope.launch {
             nt4ClientService.telemetryFlow.collect { frame ->
-                /**
-                 * key val.
-                 */
                 val key = frame.key
-                /**
-                 * value val.
-                 */
                 val value = frame.value
                 when {
                     key.startsWith("Swerve/ModuleSpeedsTarget/") -> {
-                        /**
-                         * idx val.
-                         */
                         val idx = key.substringAfterLast("/").toIntOrNull()
                         if (idx != null && idx in 0..3) speedsTarget[idx] = value
                     }
                     key.startsWith("Swerve/ModuleAnglesTarget/") -> {
-                        /**
-                         * idx val.
-                         */
                         val idx = key.substringAfterLast("/").toIntOrNull()
                         if (idx != null && idx in 0..3) anglesTarget[idx] = value
                     }
                     key.startsWith("Swerve/ModuleSpeedsActual/") -> {
-                        /**
-                         * idx val.
-                         */
                         val idx = key.substringAfterLast("/").toIntOrNull()
                         if (idx != null && idx in 0..3) speedsActual[idx] = value
                     }
                     key.startsWith("Swerve/ModuleAnglesActual/") -> {
-                        /**
-                         * idx val.
-                         */
                         val idx = key.substringAfterLast("/").toIntOrNull()
                         if (idx != null && idx in 0..3) anglesActual[idx] = value
                     }
@@ -135,9 +101,6 @@ fun SwerveModuleVisualizer(
                 fontWeight = FontWeight.Bold,
                 fontSize = 14.sp
             )
-            /**
-             * isConnected val.
-             */
             val isConnected by nt4ClientService.isConnected.collectAsState()
             Text(
                 if (isConnected) "Live Connected" else "Live Disconnected",
@@ -181,17 +144,8 @@ private fun ModuleCard(
     ) {
         // Dial Canvas
         Canvas(modifier = Modifier.size(56.dp)) {
-            /**
-             * cx val.
-             */
             val cx = size.width / 2f
-            /**
-             * cy val.
-             */
             val cy = size.height / 2f
-            /**
-             * r val.
-             */
             val r = size.width / 2f - 4f
 
             // Draw outer dial boundary
@@ -203,29 +157,11 @@ private fun ModuleCard(
             )
 
             // Draw target vector line (dashed gold)
-            /**
-             * targetRad val.
-             */
             val targetRad = if (Math.abs(angleTarget) > 2 * Math.PI) Math.toRadians(angleTarget) else angleTarget
-            /**
-             * targetLength val.
-             */
             val targetLength = r * (speedTarget / 4.0).coerceIn(0.0, 1.0).toFloat()
-            /**
-             * targetSteer val.
-             */
             val targetSteer = -targetRad - Math.PI / 2.0
-            /**
-             * tx val.
-             */
             val tx = cx + targetLength * cos(targetSteer).toFloat()
-            /**
-             * ty val.
-             */
             val ty = cy + targetLength * sin(targetSteer).toFloat()
-            /**
-             * dashEffect val.
-             */
             val dashEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
             drawLine(
                 color = AresGold,
@@ -237,25 +173,10 @@ private fun ModuleCard(
             )
 
             // Draw actual vector line (solid cyan)
-            /**
-             * actualRad val.
-             */
             val actualRad = if (Math.abs(angleActual) > 2 * Math.PI) Math.toRadians(angleActual) else angleActual
-            /**
-             * actualLength val.
-             */
             val actualLength = r * (speedActual / 4.0).coerceIn(0.0, 1.0).toFloat()
-            /**
-             * actualSteer val.
-             */
             val actualSteer = -actualRad - Math.PI / 2.0
-            /**
-             * ax val.
-             */
             val ax = cx + actualLength * cos(actualSteer).toFloat()
-            /**
-             * ay val.
-             */
             val ay = cy + actualLength * sin(actualSteer).toFloat()
             drawLine(
                 color = AresCyan,

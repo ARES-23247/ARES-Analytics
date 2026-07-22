@@ -15,59 +15,38 @@ import kotlinx.serialization.json.Json
 
 @Serializable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class PhoenixDevice(
-    /**
-     * id val.
-     */
     val id: String,
-    /**
-     * name val.
-     */
     val name: String,
-    /**
-     * type val.
-     */
     val type: String,
-    /**
-     * canId val.
-     */
     val canId: Int? = null
 )
 
 @Serializable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class PhoenixTelemetryResponse(
-    /**
-     * deviceId val.
-     */
     val deviceId: String,
-    /**
-     * signals val.
-     */
     val signals: Map<String, Double>
 )
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class PhoenixDiagnosticsService(
     private val nt4ClientService: Nt4ClientService,
@@ -78,21 +57,17 @@ class PhoenixDiagnosticsService(
     }
 ) {
     private val _isConnected = MutableStateFlow(false)
-    /**
-     * isConnected val.
-     */
     val isConnected: StateFlow<Boolean> = _isConnected
 
     private var pollJob: Job? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun start(host: String = "localhost", port: Int = 1250, pollIntervalMs: Long = 100) {
         pollJob?.cancel()
@@ -102,26 +77,14 @@ class PhoenixDiagnosticsService(
                     httpClient.prepareGet("http://$host:$port/devices").execute { devicesResponse ->
                         if (devicesResponse.status == HttpStatusCode.OK) {
                             _isConnected.value = true
-                            /**
-                             * devices val.
-                             */
                             val devices = devicesResponse.body<List<PhoenixDevice>>()
                             
                             for (device in devices) {
                                 httpClient.prepareGet("http://$host:$port/device/${device.id}/telemetry").execute { telResponse ->
                                     if (telResponse.status == HttpStatusCode.OK) {
-                                        /**
-                                         * telData val.
-                                         */
                                         val telData = telResponse.body<PhoenixTelemetryResponse>()
-                                        /**
-                                         * now val.
-                                         */
                                         val now = System.currentTimeMillis()
                                         for ((signalName, signalValue) in telData.signals) {
-                                            /**
-                                             * frame val.
-                                             */
                                             val frame = TelemetryFrame(
                                                 timestampMs = now,
                                                 sessionId = "live-telemetry",
@@ -146,12 +109,11 @@ class PhoenixDiagnosticsService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun stop() {
         pollJob?.cancel()
@@ -159,12 +121,11 @@ class PhoenixDiagnosticsService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun dispose() {
         stop()

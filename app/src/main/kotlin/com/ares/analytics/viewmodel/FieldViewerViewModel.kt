@@ -24,179 +24,97 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class FieldViewerState(
-    /**
-     * trueX val.
-     */
     val trueX: Double = 0.0,
-    /**
-     * trueY val.
-     */
     val trueY: Double = 0.0,
-    /**
-     * trueHeading val.
-     */
     val trueHeading: Double = 0.0,
-    /**
-     * simHeading val.
-     */
     val simHeading: Double? = null,
-    /**
-     * ekfX val.
-     */
     val ekfX: Double? = null,
-    /**
-     * ekfY val.
-     */
     val ekfY: Double? = null,
-    /**
-     * ekfHeading val.
-     */
     val ekfHeading: Double? = null,
-    /**
-     * odomX val.
-     */
     val odomX: Double? = null,
-    /**
-     * odomY val.
-     */
     val odomY: Double? = null,
-    /**
-     * odomHeading val.
-     */
     val odomHeading: Double? = null,
-    /**
-     * visionX val.
-     */
     val visionX: Double? = null,
-    /**
-     * visionY val.
-     */
     val visionY: Double? = null,
-    /**
-     * visionHeading val.
-     */
     val visionHeading: Double? = null,
-    /**
-     * visionPoses val.
-     */
     val visionPoses: Map<Int, Double> = emptyMap(),
-    /**
-     * visionHasTarget val.
-     */
     val visionHasTarget: Boolean = false,
-    /**
-     * poseHistory val.
-     */
     val poseHistory: List<Waypoint> = emptyList(),
-    /**
-     * liveGamePieces val.
-     */
     val liveGamePieces: Map<Int, GamePiece> = emptyMap(),
-    /**
-     * isConnected val.
-     */
     val isConnected: Boolean = false,
-    /**
-     * availablePaths val.
-     */
     val availablePaths: List<String> = emptyList(),
-    /**
-     * selectedPathName val.
-     */
     val selectedPathName: String? = null,
-    /**
-     * selectedPathWaypoints val.
-     */
     val selectedPathWaypoints: List<Waypoint> = emptyList(),
-    /**
-     * isRedAlliance val.
-     */
     val isRedAlliance: Boolean = true,
-    /**
-     * indicatorLights val.
-     */
     val indicatorLights: Map<String, Double> = emptyMap()
 )
 
 sealed class FieldViewerIntent {
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class FetchAvailablePaths(val projectPath: String?, val league: League) : FieldViewerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SelectPath(val pathName: String?, val projectPath: String?, val league: League) : FieldViewerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object ClearTrace : FieldViewerIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object ToggleAlliance : FieldViewerIntent()
 }
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class FieldViewerViewModel(
     private val nt4ClientService: Nt4ClientService,
     private val scope: CoroutineScope
 ) {
     private val _state = MutableStateFlow(FieldViewerState())
-    /**
-     * state val.
-     */
     val state: StateFlow<FieldViewerState> = _state.asStateFlow()
 
     private val topicSubscriber = FieldTopicSubscriber(nt4ClientService, scope, _state)
     private val poseBufferManager = FieldPoseBufferManager(scope, _state)
-    /**
-     * cameraGestureController val.
-     */
     val cameraGestureController = FieldCameraGestureController()
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun onIntent(intent: FieldViewerIntent) {
         scope.launch {
@@ -221,46 +139,21 @@ class FieldViewerViewModel(
         if (projectPath.isNullOrEmpty()) return
         withContext(Dispatchers.IO) {
             try {
-                /**
-                 * relativePathsDir val.
-                 */
                 val relativePathsDir = if (league == League.FTC) {
                     if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
                     else "src/main/assets/pathplanner/paths"
                 } else {
                     "src/main/deploy/pathplanner/paths"
                 }
-                /**
-                 * relativeAutosDir val.
-                 */
                 val relativeAutosDir = relativePathsDir.replace("/paths", "/autos").replace("\\paths", "\\autos")
-
-                /**
-                 * pathsTargetDir val.
-                 */
                 val pathsTargetDir = File(projectPath, relativePathsDir)
-                /**
-                 * autosTargetDir val.
-                 */
                 val autosTargetDir = File(projectPath, relativeAutosDir)
-
-                /**
-                 * pathFiles val.
-                 */
                 val pathFiles = if (pathsTargetDir.exists() && pathsTargetDir.isDirectory) {
                     pathsTargetDir.listFiles { _, name -> name.endsWith(".path") }?.map { "[Path] ${it.nameWithoutExtension}" } ?: emptyList()
                 } else emptyList()
-
-                /**
-                 * autoFiles val.
-                 */
                 val autoFiles = if (autosTargetDir.exists() && autosTargetDir.isDirectory) {
                     autosTargetDir.listFiles { _, name -> name.endsWith(".auto") }?.map { "[Auto] ${it.nameWithoutExtension}" } ?: emptyList()
                 } else emptyList()
-
-                /**
-                 * allAvailable val.
-                 */
                 val allAvailable = (autoFiles.sorted() + pathFiles.sorted())
                 _state.update { it.copy(availablePaths = allAvailable) }
             } catch (e: Exception) {
@@ -277,68 +170,31 @@ class FieldViewerViewModel(
         if (projectPath.isNullOrEmpty()) return
         withContext(Dispatchers.IO) {
             try {
-                /**
-                 * relativePathsDir val.
-                 */
                 val relativePathsDir = if (league == League.FTC) {
                     if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
                     else "src/main/assets/pathplanner/paths"
                 } else {
                     "src/main/deploy/pathplanner/paths"
                 }
-                /**
-                 * relativeAutosDir val.
-                 */
                 val relativeAutosDir = relativePathsDir.replace("/paths", "/autos").replace("\\paths", "\\autos")
-
-                /**
-                 * pathsTargetDir val.
-                 */
                 val pathsTargetDir = File(projectPath, relativePathsDir)
-                /**
-                 * autosTargetDir val.
-                 */
                 val autosTargetDir = File(projectPath, relativeAutosDir)
-
-                /**
-                 * json val.
-                 */
                 val json = AppJson
-                /**
-                 * loadedWps val.
-                 */
                 val loadedWps = mutableListOf<Waypoint>()
 
                 if (pathName.startsWith("[Auto] ")) {
-                    /**
-                     * autoName val.
-                     */
                     val autoName = pathName.substringAfter("[Auto] ")
-                    /**
-                     * autoFile val.
-                     */
                     val autoFile = File(autosTargetDir, "$autoName.auto")
                     if (autoFile.exists()) {
-                        /**
-                         * content val.
-                         */
                         val content = autoFile.readText()
-                        /**
-                         * auto val.
-                         */
                         val auto = json.decodeFromString<AutoFile>(content)
-
-                        /**
-                         * extractedPaths val.
-                         */
                         val extractedPaths = mutableListOf<String>()
                         /**
-                         * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
                          * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-                         * Canvas-to-field coordinate transformation conventions applied where relevant.
+
                          *
-                         * @param args relevant arguments
-                         * @return expected results
+
                          */
                         fun collectPaths(node: AutoCommandNode) {
                             if (node.type == "path") {
@@ -351,9 +207,6 @@ class FieldViewerViewModel(
                                     for (element in commandsElement) {
                                         if (element is kotlinx.serialization.json.JsonObject) {
                                             try {
-                                                /**
-                                                 * subNode val.
-                                                 */
                                                 val subNode = json.decodeFromJsonElement<AutoCommandNode>(element)
                                                 collectPaths(subNode)
                                             } catch (e: Exception) {}
@@ -365,34 +218,13 @@ class FieldViewerViewModel(
                         collectPaths(auto.command)
 
                         for (pName in extractedPaths) {
-                            /**
-                             * pFile val.
-                             */
                             val pFile = File(pathsTargetDir, "$pName.path")
                             if (pFile.exists()) {
-                                /**
-                                 * pContent val.
-                                 */
                                 val pContent = pFile.readText()
-                                /**
-                                 * pathFile val.
-                                 */
                                 val pathFile = json.decodeFromString<PathPlannerFile>(pContent)
-                                /**
-                                 * pathWps val.
-                                 */
                                 val pathWps = pathFile.waypoints.map { pwp ->
-                                    /**
-                                     * next val.
-                                     */
                                     val next = pwp.nextControl
-                                    /**
-                                     * prev val.
-                                     */
                                     val prev = pwp.prevControl
-                                    /**
-                                     * heading val.
-                                     */
                                     val heading = when {
                                         next != null -> kotlin.math.atan2(next.y - pwp.anchor.y, next.x - pwp.anchor.x)
                                         prev != null -> kotlin.math.atan2(pwp.anchor.y - prev.y, pwp.anchor.x - prev.x)
@@ -405,38 +237,14 @@ class FieldViewerViewModel(
                         }
                     }
                 } else {
-                    /**
-                     * cleanPathName val.
-                     */
                     val cleanPathName = if (pathName.startsWith("[Path] ")) pathName.substringAfter("[Path] ") else pathName
-                    /**
-                     * file val.
-                     */
                     val file = File(pathsTargetDir, "$cleanPathName.path")
                     if (file.exists()) {
-                        /**
-                         * content val.
-                         */
                         val content = file.readText()
-                        /**
-                         * pathFile val.
-                         */
                         val pathFile = json.decodeFromString<PathPlannerFile>(content)
-                        /**
-                         * pathWps val.
-                         */
                         val pathWps = pathFile.waypoints.map { pwp ->
-                            /**
-                             * next val.
-                             */
                             val next = pwp.nextControl
-                            /**
-                             * prev val.
-                             */
                             val prev = pwp.prevControl
-                            /**
-                             * heading val.
-                             */
                             val heading = when {
                                 next != null -> kotlin.math.atan2(next.y - pwp.anchor.y, next.x - pwp.anchor.x)
                                 prev != null -> kotlin.math.atan2(pwp.anchor.y - prev.y, pwp.anchor.x - prev.x)

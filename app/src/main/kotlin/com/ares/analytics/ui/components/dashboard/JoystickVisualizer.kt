@@ -22,12 +22,11 @@ import kotlinx.coroutines.launch
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun JoystickVisualizer(
     currentFrame: ReplayFrame?,
@@ -36,70 +35,24 @@ fun JoystickVisualizer(
     onOpenKeybindings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    /**
-     * keyboardState val.
-     */
     val keyboardState = services?.keyboardDriveState ?: remember { com.ares.analytics.di.KeyboardDriveState() }
-    /**
-     * keyboardControlEnabled val.
-     */
     val keyboardControlEnabled = keyboardState.enabled
-
-    /**
-     * gamepad1StateFlow val.
-     */
     val gamepad1StateFlow = services?.gamepadService?.gamepad1State
-    /**
-     * gamepad2StateFlow val.
-     */
     val gamepad2StateFlow = services?.gamepadService?.gamepad2State
 
     // Keyboard/Gamepad publishing loop
     LaunchedEffect(keyboardControlEnabled) {
         if (keyboardControlEnabled && nt4ClientService != null) {
-            /**
-             * heartbeat var.
-             */
             var heartbeat = 0L
-            /**
-             * lastVx var.
-             */
             var lastVx: Double? = null
-            /**
-             * lastVy var.
-             */
             var lastVy: Double? = null
-            /**
-             * lastOmega var.
-             */
             var lastOmega: Double? = null
-            /**
-             * lastQ var.
-             */
             var lastQ: Boolean? = null
-            /**
-             * lastE var.
-             */
             var lastE: Boolean? = null
-            /**
-             * lastShift var.
-             */
             var lastShift: Boolean? = null
-            /**
-             * lastA var.
-             */
             var lastA: Boolean? = null
-            /**
-             * lastB var.
-             */
             var lastB: Boolean? = null
-            /**
-             * lastX var.
-             */
             var lastX: Boolean? = null
-            /**
-             * lastY var.
-             */
             var lastY: Boolean? = null
             
             // Publish static configurations once
@@ -108,45 +61,24 @@ fun JoystickVisualizer(
             nt4ClientService.publishInputBoolean(1009, true) // isRedAlliance
 
             while (true) {
-                /**
-                 * g1 val.
-                 */
                 val g1 = gamepad1StateFlow?.value
 
                 val (vx, vy, omega) = if (keyboardState.useGamepad && g1 != null && g1.connected) {
-                    /**
-                     * activeVx val.
-                     */
                     val activeVx = g1.leftStickY.toDouble() * 4.0
-                    /**
-                     * activeVy val.
-                     */
                     val activeVy = g1.leftStickX.toDouble() * -4.0
-                    /**
-                     * activeOmega val.
-                     */
                     val activeOmega = g1.rightStickX.toDouble() * -4.0
                     Triple(activeVx, activeVy, activeOmega)
                 } else {
-                    /**
-                     * activeVx val.
-                     */
                     val activeVx = when {
                         keyboardState.isWPressed -> 4.0
                         keyboardState.isSPressed -> -4.0
                         else -> 0.0
                     }
-                    /**
-                     * activeVy val.
-                     */
                     val activeVy = when {
                         keyboardState.isAPressed -> 4.0
                         keyboardState.isDPressed -> -4.0
                         else -> 0.0
                     }
-                    /**
-                     * activeOmega val.
-                     */
                     val activeOmega = when {
                         keyboardState.isLeftPressed -> 4.0
                         keyboardState.isRightPressed -> -4.0
@@ -154,35 +86,12 @@ fun JoystickVisualizer(
                     }
                     Triple(activeVx, activeVy, activeOmega)
                 }
-
-                /**
-                 * qPressed val.
-                 */
                 val qPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.leftBumper else keyboardState.isQPressed
-                /**
-                 * ePressed val.
-                 */
                 val ePressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.rightBumper else keyboardState.isEPressed
-                /**
-                 * shiftPressed val.
-                 */
                 val shiftPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.rightTrigger > 0.5f else keyboardState.isShiftPressed
-
-                /**
-                 * aPressed val.
-                 */
                 val aPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.a else keyboardState.isJPressed
-                /**
-                 * bPressed val.
-                 */
                 val bPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.b else keyboardState.isLPressed
-                /**
-                 * xPressed val.
-                 */
                 val xPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.x else keyboardState.isUPressed
-                /**
-                 * yPressed val.
-                 */
                 val yPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.y else keyboardState.isIPressed
 
                 if (vx != lastVx) { nt4ClientService.publishInputDouble(1001, vx); lastVx = vx }
@@ -315,12 +224,11 @@ fun JoystickVisualizer(
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun SingleGamepadVisualizer(
     title: String,
@@ -332,90 +240,26 @@ fun SingleGamepadVisualizer(
     gamepadStateFlow: kotlinx.coroutines.flow.StateFlow<com.ares.analytics.service.GamepadState>?,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-
-    /**
-     * lx var.
-     */
     var lx by remember { mutableStateOf(0.0) }
-    /**
-     * ly var.
-     */
     var ly by remember { mutableStateOf(0.0) }
-    /**
-     * rx var.
-     */
     var rx by remember { mutableStateOf(0.0) }
-    /**
-     * ry var.
-     */
     var ry by remember { mutableStateOf(0.0) }
-    /**
-     * lt var.
-     */
     var lt by remember { mutableStateOf(0.0) }
-    /**
-     * rt var.
-     */
     var rt by remember { mutableStateOf(0.0) }
-    /**
-     * btnA var.
-     */
     var btnA by remember { mutableStateOf(false) }
-    /**
-     * btnB var.
-     */
     var btnB by remember { mutableStateOf(false) }
-    /**
-     * btnX var.
-     */
     var btnX by remember { mutableStateOf(false) }
-    /**
-     * btnY var.
-     */
     var btnY by remember { mutableStateOf(false) }
-    /**
-     * dpadUp var.
-     */
     var dpadUp by remember { mutableStateOf(false) }
-    /**
-     * dpadDown var.
-     */
     var dpadDown by remember { mutableStateOf(false) }
-    /**
-     * dpadLeft var.
-     */
     var dpadLeft by remember { mutableStateOf(false) }
-    /**
-     * dpadRight var.
-     */
     var dpadRight by remember { mutableStateOf(false) }
-    /**
-     * lb var.
-     */
     var lb by remember { mutableStateOf(false) }
-    /**
-     * rb var.
-     */
     var rb by remember { mutableStateOf(false) }
-    /**
-     * btnStart var.
-     */
     var btnStart by remember { mutableStateOf(false) }
-    /**
-     * btnBack var.
-     */
     var btnBack by remember { mutableStateOf(false) }
-    /**
-     * btnLS var.
-     */
     var btnLS by remember { mutableStateOf(false) }
-    /**
-     * btnRS var.
-     */
     var btnRS by remember { mutableStateOf(false) }
 
     when {
@@ -445,13 +289,7 @@ fun SingleGamepadVisualizer(
             LaunchedEffect(Unit) {
                 scope.launch {
                     nt4ClientService.telemetryFlow.collect { frame ->
-                        /**
-                         * key val.
-                         */
                         val key = frame.key
-                        /**
-                         * value val.
-                         */
                         val value = frame.value as? Double ?: return@collect
                         when (key) {
                             "$gamepadId/LeftStick_X" -> lx = value
@@ -484,9 +322,6 @@ fun SingleGamepadVisualizer(
     if (keyboardControlEnabled && (keyboardState != null || gamepadStateFlow != null)) {
         LaunchedEffect(Unit) {
             while (true) {
-                /**
-                 * g val.
-                 */
                 val g = gamepadStateFlow?.value
                 when {
                     keyboardState?.useGamepad != false && g != null && g.connected -> {
@@ -555,25 +390,13 @@ fun SingleGamepadVisualizer(
         Spacer(modifier = Modifier.height(4.dp))
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             Canvas(modifier = Modifier.fillMaxSize()) {
-                /**
-                 * cx val.
-                 */
                 val cx = size.width / 2f
-                /**
-                 * cy val.
-                 */
                 val cy = size.height / 2f
 
                 // Scale the controller to fit half the width now
-                /**
-                 * scale val.
-                 */
                 val scale = minOf(size.width / 380f, size.height / 200f).coerceAtMost(1f)
 
                 // Draw PS4 Body using Path
-                /**
-                 * bodyPath val.
-                 */
                 val bodyPath = androidx.compose.ui.graphics.Path().apply {
                     // Center body
                     addRoundRect(androidx.compose.ui.geometry.RoundRect(
@@ -584,10 +407,6 @@ fun SingleGamepadVisualizer(
                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(20f * scale)
                     ))
                 }
-                
-                /**
-                 * leftGrip val.
-                 */
                 val leftGrip = androidx.compose.ui.graphics.Path().apply {
                     addRoundRect(androidx.compose.ui.geometry.RoundRect(
                         left = cx - 140f * scale,
@@ -597,10 +416,6 @@ fun SingleGamepadVisualizer(
                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(30f * scale)
                     ))
                 }
-                
-                /**
-                 * rightGrip val.
-                 */
                 val rightGrip = androidx.compose.ui.graphics.Path().apply {
                     addRoundRect(androidx.compose.ui.geometry.RoundRect(
                         left = cx + 80f * scale,
@@ -610,16 +425,9 @@ fun SingleGamepadVisualizer(
                         cornerRadius = androidx.compose.ui.geometry.CornerRadius(30f * scale)
                     ))
                 }
-
-                /**
-                 * combinedGrips val.
-                 */
                 val combinedGrips = androidx.compose.ui.graphics.Path().apply {
                     op(bodyPath, leftGrip, androidx.compose.ui.graphics.PathOperation.Union)
                 }
-                /**
-                 * finalBodyPath val.
-                 */
                 val finalBodyPath = androidx.compose.ui.graphics.Path().apply {
                     op(combinedGrips, rightGrip, androidx.compose.ui.graphics.PathOperation.Union)
                 }
@@ -635,13 +443,7 @@ fun SingleGamepadVisualizer(
                 )
 
                 // D-Pad (Top Left)
-                /**
-                 * dpadCenter val.
-                 */
                 val dpadCenter = Offset(cx - 85f * scale, cy - 10f * scale)
-                /**
-                 * dpadSize val.
-                 */
                 val dpadSize = 12f * scale
                 drawRect(color = AresSurface, topLeft = Offset(dpadCenter.x - dpadSize * 2.5f, dpadCenter.y - dpadSize / 2f), size = Size(dpadSize * 5f, dpadSize))
                 drawRect(color = AresSurface, topLeft = Offset(dpadCenter.x - dpadSize / 2f, dpadCenter.y - dpadSize * 2.5f), size = Size(dpadSize, dpadSize * 5f))
@@ -651,17 +453,8 @@ fun SingleGamepadVisualizer(
                 drawRect(color = if (dpadDown) AresCyan else AresBorder, topLeft = Offset(dpadCenter.x - dpadSize / 2f, dpadCenter.y + dpadSize * 1.5f), size = Size(dpadSize, dpadSize))
 
                 // Face Buttons (Top Right)
-                /**
-                 * buttonsCenter val.
-                 */
                 val buttonsCenter = Offset(cx + 85f * scale, cy - 10f * scale)
-                /**
-                 * btnRadius val.
-                 */
                 val btnRadius = 9f * scale
-                /**
-                 * btnOffset val.
-                 */
                 val btnOffset = 18f * scale
                 drawCircle(color = if (btnY) AresGold else AresSurface, radius = btnRadius, center = Offset(buttonsCenter.x, buttonsCenter.y - btnOffset))
                 drawCircle(color = AresBorder, radius = btnRadius, center = Offset(buttonsCenter.x, buttonsCenter.y - btnOffset), style = Stroke(width = 1.5f * scale))
@@ -673,57 +466,27 @@ fun SingleGamepadVisualizer(
                 drawCircle(color = AresBorder, radius = btnRadius, center = Offset(buttonsCenter.x + btnOffset, buttonsCenter.y), style = Stroke(width = 1.5f * scale))
 
                 // Left Stick (Bottom Left Grip)
-                /**
-                 * stickRadius val.
-                 */
                 val stickRadius = 24f * scale
-                /**
-                 * leftStickCenter val.
-                 */
                 val leftStickCenter = Offset(cx - 50f * scale, cy + 40f * scale)
                 drawCircle(color = AresSurface, radius = stickRadius, center = leftStickCenter)
                 if (btnLS) drawCircle(color = AresCyan.copy(alpha = 0.3f), radius = stickRadius, center = leftStickCenter)
                 drawCircle(color = AresBorder, radius = stickRadius, center = leftStickCenter, style = Stroke(width = 1.5f * scale))
-                /**
-                 * lNodeX val.
-                 */
                 val lNodeX = leftStickCenter.x + (lx * stickRadius * 0.7).toFloat()
-                /**
-                 * lNodeY val.
-                 */
                 val lNodeY = leftStickCenter.y + (ly * stickRadius * 0.7).toFloat()
                 drawCircle(color = if (keyboardControlEnabled) AresGreen else AresCyan, radius = 10f * scale, center = Offset(lNodeX, lNodeY))
 
                 // Right Stick (Bottom Right Grip)
-                /**
-                 * rightStickCenter val.
-                 */
                 val rightStickCenter = Offset(cx + 50f * scale, cy + 40f * scale)
                 drawCircle(color = AresSurface, radius = stickRadius, center = rightStickCenter)
                 if (btnRS) drawCircle(color = AresCyan.copy(alpha = 0.3f), radius = stickRadius, center = rightStickCenter)
                 drawCircle(color = AresBorder, radius = stickRadius, center = rightStickCenter, style = Stroke(width = 1.5f * scale))
-                /**
-                 * rNodeX val.
-                 */
                 val rNodeX = rightStickCenter.x + (rx * stickRadius * 0.7).toFloat()
-                /**
-                 * rNodeY val.
-                 */
                 val rNodeY = rightStickCenter.y + (ry * stickRadius * 0.7).toFloat()
                 drawCircle(color = if (keyboardControlEnabled) AresGreen else AresCyan, radius = 10f * scale, center = Offset(rNodeX, rNodeY))
 
                 // Triggers (Top Edge L2/R2)
-                /**
-                 * triggerW val.
-                 */
                 val triggerW = 50f * scale
-                /**
-                 * triggerH val.
-                 */
                 val triggerH = 14f * scale
-                /**
-                 * triggerTop val.
-                 */
                 val triggerTop = cy - 74f * scale
                 drawRect(color = AresSurface, topLeft = Offset(cx - 110f * scale, triggerTop), size = Size(triggerW, triggerH))
                 drawRect(color = if (keyboardControlEnabled) AresGreen else AresCyan, topLeft = Offset(cx - 110f * scale, triggerTop), size = Size(triggerW * lt.toFloat(), triggerH))
@@ -734,13 +497,7 @@ fun SingleGamepadVisualizer(
                 drawRect(color = AresBorder, topLeft = Offset(cx + 60f * scale, triggerTop), size = Size(triggerW, triggerH), style = Stroke(width = 1.5f * scale))
 
                 // Bumpers (Top Edge L1/R1, directly below triggers)
-                /**
-                 * bumperTop val.
-                 */
                 val bumperTop = cy - 60f * scale
-                /**
-                 * bumperH val.
-                 */
                 val bumperH = 10f * scale
                 drawRoundRect(color = if (lb) AresCyan else AresSurface, topLeft = Offset(cx - 110f * scale, bumperTop), size = Size(triggerW, bumperH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale, 4f * scale))
                 drawRoundRect(color = AresBorder, topLeft = Offset(cx - 110f * scale, bumperTop), size = Size(triggerW, bumperH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale, 4f * scale), style = Stroke(width = 1.5f * scale))
@@ -749,25 +506,13 @@ fun SingleGamepadVisualizer(
                 drawRoundRect(color = AresBorder, topLeft = Offset(cx + 60f * scale, bumperTop), size = Size(triggerW, bumperH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale, 4f * scale), style = Stroke(width = 1.5f * scale))
 
                 // Touchpad (Center Top)
-                /**
-                 * touchPadW val.
-                 */
                 val touchPadW = 70f * scale
-                /**
-                 * touchPadH val.
-                 */
                 val touchPadH = 45f * scale
                 drawRoundRect(color = AresSurface, topLeft = Offset(cx - touchPadW / 2f, cy - 45f * scale), size = Size(touchPadW, touchPadH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale))
                 drawRoundRect(color = AresBorder, topLeft = Offset(cx - touchPadW / 2f, cy - 45f * scale), size = Size(touchPadW, touchPadH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale), style = Stroke(width = 1.5f * scale))
 
                 // Share / Options (Small buttons beside touchpad)
-                /**
-                 * centerBtnW val.
-                 */
                 val centerBtnW = 10f * scale
-                /**
-                 * centerBtnH val.
-                 */
                 val centerBtnH = 16f * scale
                 // Share
                 drawRoundRect(color = if (btnBack) AresCyan else AresSurface, topLeft = Offset(cx - 50f * scale, cy - 35f * scale), size = Size(centerBtnW, centerBtnH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale))

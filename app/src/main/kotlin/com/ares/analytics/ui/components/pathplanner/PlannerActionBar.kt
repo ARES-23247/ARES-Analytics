@@ -13,12 +13,11 @@ import kotlin.math.roundToInt
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun PlannerActionBar(
     mode: String = "Path",
@@ -39,9 +38,6 @@ fun PlannerActionBar(
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("$mode Name", fontSize = 11.sp, color = AresTextSecondary, fontWeight = FontWeight.Bold)
-        /**
-         * expanded var.
-         */
         var expanded by remember { mutableStateOf(false) }
         ExposedDropdownMenuBox(
             expanded = expanded,

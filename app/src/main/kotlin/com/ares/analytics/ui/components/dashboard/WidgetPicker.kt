@@ -22,35 +22,18 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class AvailableWidget(
-    /**
-     * type val.
-     */
     val type: String,
-    /**
-     * displayName val.
-     */
     val displayName: String,
-    /**
-     * description val.
-     */
     val description: String,
-    /**
-     * icon val.
-     */
     val icon: ImageVector
 )
-
-/**
- * availableWidgetsList val.
- */
 val availableWidgetsList = listOf(
     AvailableWidget("driver_station", "Driver Station", "Simulated FTC Driver Station to select and run OpModes.", Icons.Default.SportsEsports),
     AvailableWidget("runs_index", "Recorded Sessions", "List of practice runs, match logs, and annotation tagging.", Icons.Default.History),
@@ -86,12 +69,11 @@ val availableWidgetsList = listOf(
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun WidgetPicker(
     onDismiss: () -> Unit,

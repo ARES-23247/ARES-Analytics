@@ -14,12 +14,11 @@ import java.sql.Connection
 import java.sql.ResultSet
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class MatchLogRepository(
     private val conn: Connection,
@@ -36,32 +35,14 @@ suspend fun executeRaw(sql: String) = withDbLock {
     
     suspend fun executeQueryRaw(sql: String): QueryResult = withDbLock {
         conn.createStatement().use { st ->
-            /**
-             * hasResultSet val.
-             */
             val hasResultSet = st.execute(sql)
             if (hasResultSet) {
                 st.resultSet.use { rs ->
-                    /**
-                     * meta val.
-                     */
                     val meta = rs.metaData
-                    /**
-                     * colCount val.
-                     */
                     val colCount = meta.columnCount
-                    /**
-                     * columns val.
-                     */
                     val columns = (1..colCount).map { meta.getColumnName(it) }
-                    /**
-                     * rows val.
-                     */
                     val rows = mutableListOf<List<String>>()
                     while (rs.next()) {
-                        /**
-                         * row val.
-                         */
                         val row = (1..colCount).map {
                             rs.getObject(it)?.toString() ?: "NULL"
                         }
@@ -70,9 +51,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
                     QueryResult(columns, rows)
                 }
             } else {
-                /**
-                 * updateCount val.
-                 */
                 val updateCount = st.updateCount
                 QueryResult(
                     columns = listOf("Status"),
@@ -97,32 +75,14 @@ suspend fun executeRaw(sql: String) = withDbLock {
                     else -> ps.setObject(index + 1, param)
                 }
             }
-            /**
-             * hasResultSet val.
-             */
             val hasResultSet = ps.execute()
             if (hasResultSet) {
                 ps.resultSet.use { rs ->
-                    /**
-                     * meta val.
-                     */
                     val meta = rs.metaData
-                    /**
-                     * colCount val.
-                     */
                     val colCount = meta.columnCount
-                    /**
-                     * columns val.
-                     */
                     val columns = (1..colCount).map { meta.getColumnName(it) }
-                    /**
-                     * rows val.
-                     */
                     val rows = mutableListOf<List<String>>()
                     while (rs.next()) {
-                        /**
-                         * row val.
-                         */
                         val row = (1..colCount).map {
                             rs.getObject(it)?.toString() ?: "NULL"
                         }
@@ -131,9 +91,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
                     QueryResult(columns, rows)
                 }
             } else {
-                /**
-                 * updateCount val.
-                 */
                 val updateCount = ps.updateCount
                 QueryResult(
                     columns = listOf("Status"),
@@ -161,9 +118,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     suspend fun getSessions(): List<Session> = withDbLock {
-        /**
-         * list val.
-         */
         val list = mutableListOf<Session>()
         conn.createStatement().use { st ->
             st.executeQuery("SELECT * FROM sessions ORDER BY created_at DESC").use { rs ->
@@ -237,9 +191,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     suspend fun getAllSessionSummaries(): List<SessionSummary> = withDbLock {
-        /**
-         * list val.
-         */
         val list = mutableListOf<SessionSummary>()
         conn.createStatement().use { st ->
             st.executeQuery("SELECT * FROM session_summaries ORDER BY created_at DESC").use { rs ->
@@ -251,9 +202,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
 
     suspend fun insertTelemetryFrames(frames: List<TelemetryFrame>) = withDbLock {
         if (frames.isEmpty()) return@withDbLock
-        /**
-         * targetConn val.
-         */
         val targetConn = if (frames.first().sessionId == "live-telemetry") ephemeralConn else conn
         
         if (targetConn === conn) {
@@ -274,13 +222,7 @@ suspend fun executeRaw(sql: String) = withDbLock {
      * Does not support INSERT OR REPLACE — assumes no duplicate keys (safe for imports).
      */
     private fun insertTelemetryFramesAppender(frames: List<TelemetryFrame>) {
-        /**
-         * duckConn val.
-         */
         val duckConn = conn.unwrap(DuckDBConnection::class.java)
-        /**
-         * appender val.
-         */
         val appender = duckConn.createAppender(DuckDBConnection.DEFAULT_SCHEMA, "telemetry_frames")
         try {
             for (frame in frames) {
@@ -305,13 +247,7 @@ suspend fun executeRaw(sql: String) = withDbLock {
      */
     suspend fun insertRobotActionsBulk(actions: List<com.ares.analytics.shared.RobotActionRecord>) = withDbLock {
         if (actions.isEmpty()) return@withDbLock
-        /**
-         * duckConn val.
-         */
         val duckConn = conn.unwrap(DuckDBConnection::class.java)
-        /**
-         * appender val.
-         */
         val appender = duckConn.createAppender(DuckDBConnection.DEFAULT_SCHEMA, "robot_actions")
         try {
             for (action in actions) {
@@ -336,9 +272,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
      * Retrieves all robot actions for a given session, ordered chronologically.
      */
     suspend fun getActionsForSession(sessionId: String): List<com.ares.analytics.shared.RobotActionRecord> = withDbLock {
-        /**
-         * list val.
-         */
         val list = mutableListOf<com.ares.analytics.shared.RobotActionRecord>()
         conn.prepareStatement(
             "SELECT timestamp_ms, session_id, run_id, robot_id, match_number, alliance, action_type, payload_json FROM robot_actions WHERE session_id = ? ORDER BY timestamp_ms"
@@ -405,13 +338,7 @@ suspend fun executeRaw(sql: String) = withDbLock {
             ps.setString(1, sessionId)
             ps.executeQuery().use { rs ->
                 if (rs.next()) {
-                    /**
-                     * min val.
-                     */
                     val min = rs.getLong(1)
-                    /**
-                     * max val.
-                     */
                     val max = rs.getLong(2)
                     if (rs.wasNull()) null else Pair(min, max)
                 } else null
@@ -420,13 +347,7 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     suspend fun getTelemetryRange(sessionId: String, startMs: Long, endMs: Long): List<TelemetryFrame> = withDbLock {
-        /**
-         * targetConn val.
-         */
         val targetConn = if (sessionId == "live-telemetry") ephemeralConn else conn
-        /**
-         * list val.
-         */
         val list = mutableListOf<TelemetryFrame>()
         targetConn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_ms ASC").use { ps ->
             ps.setString(1, sessionId)
@@ -440,13 +361,7 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     suspend fun getTelemetryRangeBatched(sessionId: String, startMs: Long, endMs: Long, limit: Long, offset: Long): List<TelemetryFrame> = withDbLock {
-        /**
-         * targetConn val.
-         */
         val targetConn = if (sessionId == "live-telemetry") ephemeralConn else conn
-        /**
-         * list val.
-         */
         val list = mutableListOf<TelemetryFrame>()
         targetConn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_ms ASC LIMIT ? OFFSET ?").use { ps ->
             ps.setString(1, sessionId)
@@ -471,9 +386,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     suspend fun getTelemetryForKey(sessionId: String, key: String): List<TelemetryFrame> = withDbLock {
-        /**
-         * list val.
-         */
         val list = mutableListOf<TelemetryFrame>()
         conn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND key = ? ORDER BY timestamp_ms ASC").use { ps ->
             ps.setString(1, sessionId)
@@ -486,9 +398,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     suspend fun getDiagnosticsTelemetry(sessionId: String): List<TelemetryFrame> = withDbLock {
-        /**
-         * list val.
-         */
         val list = mutableListOf<TelemetryFrame>()
         conn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND key LIKE 'Diagnostics/%'").use { ps ->
             ps.setString(1, sessionId)
@@ -499,29 +408,14 @@ suspend fun executeRaw(sql: String) = withDbLock {
         list
     }
     suspend fun getTelemetryForFilters(sessionId: String, keys: List<String>, prefixes: List<String>): List<TelemetryFrame> = withDbLock {
-        /**
-         * list val.
-         */
         val list = mutableListOf<TelemetryFrame>()
-        /**
-         * queryBuilder val.
-         */
         val queryBuilder = StringBuilder("SELECT * FROM telemetry_frames WHERE session_id = ?")
-        /**
-         * conditions val.
-         */
         val conditions = mutableListOf<String>()
         if (keys.isNotEmpty()) {
-            /**
-             * placeholders val.
-             */
             val placeholders = keys.joinToString(",") { "?" }
             conditions.add("key IN ($placeholders)")
         }
         if (prefixes.isNotEmpty()) {
-            /**
-             * likeConditions val.
-             */
             val likeConditions = prefixes.joinToString(" OR ") { "key LIKE ?" }
             conditions.add("($likeConditions)")
         }
@@ -530,9 +424,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
 
         conn.prepareStatement(queryBuilder.toString()).use { ps ->
             ps.setString(1, sessionId)
-            /**
-             * idx var.
-             */
             var idx = 2
             for (k in keys) {
                 ps.setString(idx++, k)
@@ -548,9 +439,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     suspend fun getDistinctTimestamps(sessionId: String): List<Long> = withDbLock {
-        /**
-         * list val.
-         */
         val list = mutableListOf<Long>()
         conn.prepareStatement("SELECT DISTINCT timestamp_ms FROM telemetry_frames WHERE session_id = ? ORDER BY timestamp_ms ASC").use { ps ->
             ps.setString(1, sessionId)
@@ -588,9 +476,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     suspend fun getAnnotations(sessionId: String): List<SessionAnnotation> = withDbLock {
-        /**
-         * list val.
-         */
         val list = mutableListOf<SessionAnnotation>()
         conn.prepareStatement("SELECT * FROM session_annotations WHERE session_id = ? ORDER BY created_at ASC").use { ps ->
             ps.setString(1, sessionId)
@@ -652,9 +537,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     suspend fun getAlerts(sessionId: String): List<AlertRecord> = withDbLock {
-        /**
-         * list val.
-         */
         val list = mutableListOf<AlertRecord>()
         conn.prepareStatement("SELECT * FROM alerts WHERE session_id = ? ORDER BY trigger_timestamp_ms ASC").use { ps ->
             ps.setString(1, sessionId)
@@ -705,9 +587,6 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     suspend fun getConsoleMessages(sessionId: String): List<ConsoleMessage> = withDbLock {
-        /**
-         * list val.
-         */
         val list = mutableListOf<ConsoleMessage>()
         conn.prepareStatement("SELECT * FROM console_messages WHERE session_id = ? ORDER BY timestamp_ms ASC").use { ps ->
             ps.setString(1, sessionId)
@@ -721,13 +600,7 @@ suspend fun executeRaw(sql: String) = withDbLock {
     // --- ResultSet Mappers ---
 
     private fun ResultSet.toSession(): Session {
-        /**
-         * matchNum val.
-         */
         val matchNum = getLong("match_number")
-        /**
-         * matchNumFinal val.
-         */
         val matchNumFinal = if (wasNull()) null else matchNum.toInt()
         
         return Session(
@@ -744,13 +617,7 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     private fun ResultSet.toSessionSummary(): SessionSummary {
-        /**
-         * matchNum val.
-         */
         val matchNum = getLong("match_number")
-        /**
-         * matchNumFinal val.
-         */
         val matchNumFinal = if (wasNull()) null else matchNum.toInt()
         
         return SessionSummary(
@@ -777,13 +644,7 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     private fun ResultSet.toTelemetryFrame(): TelemetryFrame {
-        /**
-         * sVal val.
-         */
         val sVal = getString("string_value")
-        /**
-         * sValFinal val.
-         */
         val sValFinal = if (wasNull()) null else sVal
         return TelemetryFrame(
             timestampMs = getLong("timestamp_ms"),
@@ -805,13 +666,7 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     private fun ResultSet.toAlertRecord(): AlertRecord {
-        /**
-         * rTime val.
-         */
         val rTime = getLong("resolve_timestamp_ms")
-        /**
-         * rTimeFinal val.
-         */
         val rTimeFinal = if (wasNull()) null else rTime
         
         return AlertRecord(
@@ -835,18 +690,8 @@ suspend fun executeRaw(sql: String) = withDbLock {
     }
 
     suspend fun getTelemetryDensity(sessionId: String, buckets: Int = 100): List<Float> = withDbLock {
-        /**
-         * activeConn val.
-         */
         val activeConn = if (sessionId == "live-telemetry") ephemeralConn else conn
-        
-        /**
-         * minTime var.
-         */
         var minTime = 0L
-        /**
-         * maxTime var.
-         */
         var maxTime = 0L
         activeConn.createStatement().use { st ->
             st.executeQuery("SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM telemetry_frames WHERE session_id = '$sessionId'").use { rs ->
@@ -860,24 +705,10 @@ suspend fun executeRaw(sql: String) = withDbLock {
         if (minTime == maxTime || maxTime == 0L) {
             return@withDbLock List(buckets) { 0f }
         }
-        
-        /**
-         * duration val.
-         */
         val duration = maxTime - minTime
-        /**
-         * bucketSize val.
-         */
         val bucketSize = duration.toDouble() / buckets
-        
-        /**
-         * bucketCounts val.
-         */
         val bucketCounts = LongArray(buckets)
         activeConn.createStatement().use { st ->
-            /**
-             * query val.
-             */
             val query = """
                 SELECT CAST((timestamp_ms - $minTime) / $bucketSize AS INTEGER) as bucket_idx, COUNT(*) as cnt 
                 FROM telemetry_frames 
@@ -886,22 +717,12 @@ suspend fun executeRaw(sql: String) = withDbLock {
             """.trimIndent()
             st.executeQuery(query).use { rs ->
                 while (rs.next()) {
-                    /**
-                     * idx val.
-                     */
                     val idx = rs.getInt(1).coerceIn(0, buckets - 1)
-                    /**
-                     * cnt val.
-                     */
                     val cnt = rs.getLong(2)
                     bucketCounts[idx] += cnt
                 }
             }
         }
-        
-        /**
-         * maxCount val.
-         */
         val maxCount = bucketCounts.maxOrNull() ?: 1L
         if (maxCount == 0L) {
              return@withDbLock List(buckets) { 0f }

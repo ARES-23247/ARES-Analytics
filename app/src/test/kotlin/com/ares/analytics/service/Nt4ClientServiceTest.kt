@@ -45,9 +45,6 @@ class Nt4ClientServiceTest {
      */
     fun testAnnounceAndUnannounce() = runBlocking {
         // 1. Send announce payload
-        /**
-         * announcePayload val.
-         */
         val announcePayload = """
             [
               {
@@ -62,9 +59,6 @@ class Nt4ClientServiceTest {
         """.trimIndent()
 
         nt4ClientService.handleIncomingText(announcePayload, "team-1", "season-1", "robot-1")
-        /**
-         * topic val.
-         */
         val topic = nt4ClientService.topicMap[42]
         assertTrue(topic != null)
         assertEquals("/Drive/Pose_X", topic.name)
@@ -72,9 +66,6 @@ class Nt4ClientServiceTest {
         assertEquals("double", topic.type)
 
         // 2. Send unannounce payload
-        /**
-         * unannouncePayload val.
-         */
         val unannouncePayload = """
             [
               {
@@ -96,9 +87,6 @@ class Nt4ClientServiceTest {
      */
     fun testSingleValueDataUpdate() = runBlocking {
         // Announce topic first
-        /**
-         * announcePayload val.
-         */
         val announcePayload = """
             [
               {"method": "announce", "params": {"name": "/Drive/Pose_X", "id": 10, "type": "double"}}
@@ -107,9 +95,6 @@ class Nt4ClientServiceTest {
         nt4ClientService.handleIncomingText(announcePayload, "team-1", "season-1", "robot-1")
 
         // Send value frame
-        /**
-         * valuePayload val.
-         */
         val valuePayload = """
             [
               {"topic": 10, "time": 1000000, "value": 1.25}
@@ -118,9 +103,6 @@ class Nt4ClientServiceTest {
 
         withTimeout(2000) {
             nt4ClientService.handleIncomingText(valuePayload, "team-1", "season-1", "robot-1")
-            /**
-             * frame val.
-             */
             val frame = nt4ClientService.telemetryFlow.first()
             assertEquals("Drive/Pose_X", frame.key)
             assertEquals(1.25, frame.value)
@@ -134,9 +116,6 @@ class Nt4ClientServiceTest {
      */
     fun testArrayValueDataUpdate() = runBlocking {
         // Announce array topic
-        /**
-         * announcePayload val.
-         */
         val announcePayload = """
             [
               {"method": "announce", "params": {"name": "/Drive/EstimatedPose", "id": 20, "type": "double[]"}}
@@ -145,24 +124,14 @@ class Nt4ClientServiceTest {
         nt4ClientService.handleIncomingText(announcePayload, "team-1", "season-1", "robot-1")
 
         // Send array update
-        /**
-         * valuePayload val.
-         */
         val valuePayload = """
             [
               {"topic": 20, "time": 2000000, "value": [1.5, -2.5, 3.14]}
             ]
         """.trimIndent()
-
-        /**
-         * results val.
-         */
         val results = mutableListOf<TelemetryFrame>()
         
         // Let's capture the emitted frames from telemetryFlow
-        /**
-         * job val.
-         */
         val job = launch {
             nt4ClientService.telemetryFlow.collect {
                 results.add(it)

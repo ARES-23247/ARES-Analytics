@@ -14,12 +14,11 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class TeamApiService(
     private val firebaseClientService: FirebaseClientService,
@@ -40,9 +39,6 @@ class TeamApiService(
     }
 
     suspend fun fetchTeamRobots(teamId: String, authToken: String? = null): List<RobotProfile> = withContext(Dispatchers.IO) {
-        /**
-         * token val.
-         */
         val token = try { getActiveToken(authToken) } catch (e: Exception) { return@withContext emptyList() }
         try {
             httpClient.prepareGet("$gatewayUrl/api/team/$teamId/robots") {
@@ -61,9 +57,6 @@ class TeamApiService(
     }
 
     suspend fun addRobotProfile(teamId: String, robot: RobotProfile, authToken: String? = null): Boolean = withContext(Dispatchers.IO) {
-        /**
-         * token val.
-         */
         val token = getActiveToken(authToken)
         return@withContext try {
             httpClient.preparePost("$gatewayUrl/api/team/robots/add") {
@@ -85,9 +78,6 @@ class TeamApiService(
     }
 
     suspend fun deleteRobotProfile(teamId: String, robotId: String, authToken: String? = null): Boolean = withContext(Dispatchers.IO) {
-        /**
-         * token val.
-         */
         val token = getActiveToken(authToken)
         try {
             httpClient.preparePost("$gatewayUrl/api/team/robots/delete") {
@@ -104,12 +94,11 @@ class TeamApiService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun close() {
         httpClient.close()

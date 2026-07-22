@@ -23,12 +23,11 @@ import com.ares.analytics.ui.theme.*
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun GamePieceRow(
     index: Int,
@@ -55,17 +54,11 @@ fun GamePieceRow(
                 textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
             )
             Spacer(modifier = Modifier.height(4.dp))
-            /**
-             * types val.
-             */
             val types = if (league == League.FTC) {
                 listOf("Sample (Yellow)", "Sample (Red)", "Sample (Blue)", "Specimen")
             } else {
                 listOf("Note", "High Note")
             }
-            /**
-             * expanded var.
-             */
             var expanded by remember { mutableStateOf(false) }
             Box {
                 Text(
@@ -92,9 +85,6 @@ fun GamePieceRow(
             }
             Spacer(modifier = Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                /**
-                 * gpXText var.
-                 */
                 var gpXText by remember(gp.id, gp.x) { mutableStateOf(gp.x.toString()) }
                 AresTextField(
                     value = gpXText,
@@ -107,9 +97,6 @@ fun GamePieceRow(
                     modifier = Modifier.weight(1f),
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                 )
-                /**
-                 * gpYText var.
-                 */
                 var gpYText by remember(gp.id, gp.y) { mutableStateOf(gp.y.toString()) }
                 AresTextField(
                     value = gpYText,

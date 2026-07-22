@@ -28,18 +28,10 @@ open class Nt4ClientService(
         "127.0.0.1", "localhost" -> localClient
         else -> remoteClient
     }
-
-    /**
-     * serverIp var.
-     */
     var serverIp: String = "127.0.0.1"
 
     private val _isConnected = MutableStateFlow(false)
     open val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
-
-    /**
-     * isReplayActive val.
-     */
     val isReplayActive = MutableStateFlow(false)
 
     private val _telemetryFlow = MutableSharedFlow<TelemetryFrame>(
@@ -55,9 +47,6 @@ open class Nt4ClientService(
         extraBufferCapacity = 1024,
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
     )
-    /**
-     * consoleFlow val.
-     */
     val consoleFlow: SharedFlow<ConsoleMessage> = _consoleFlow.asSharedFlow()
 
     /**
@@ -70,9 +59,6 @@ open class Nt4ClientService(
     }
 
     private val _currentSession = MutableStateFlow<Session?>(null)
-    /**
-     * currentSession val.
-     */
     val currentSession: StateFlow<Session?> = _currentSession.asStateFlow()
 
     private var webSocketSession: DefaultClientWebSocketSession? = null
@@ -80,22 +66,15 @@ open class Nt4ClientService(
     // Topic ID to Topic Name mapping
     internal val topicMap = ConcurrentHashMap<Int, Nt4Topic>()
     private val discoveredKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    /**
-     * latestValues val.
-     */
     val latestValues = ConcurrentHashMap<String, TelemetryFrame>()
-    /**
-     * telemetryHistory val.
-     */
     val telemetryHistory = ConcurrentHashMap<String, java.util.ArrayDeque<TelemetryFrame>>()
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun getActiveTopics(): List<String> {
         return topicMap.values.map { it.name.removePrefix("/") }.sorted()
@@ -104,28 +83,16 @@ open class Nt4ClientService(
     private val pendingFrames = java.util.concurrent.ConcurrentLinkedQueue<TelemetryFrame>()
 
     suspend fun flushPendingFrames() {
-        /**
-         * framesToInsert val.
-         */
         val framesToInsert = mutableListOf<TelemetryFrame>()
         while (true) {
-            /**
-             * frame val.
-             */
             val frame = pendingFrames.poll() ?: break
             framesToInsert.add(frame)
         }
         if (framesToInsert.isNotEmpty()) {
             try {
                 databaseService.insertTelemetryFrames(framesToInsert)
-                /**
-                 * maxTimestamp val.
-                 */
                 val maxTimestamp = framesToInsert.filter { it.sessionId == "live-telemetry" }.maxOfOrNull { it.timestampMs }
                 if (maxTimestamp != null) {
-                    /**
-                     * cutoff val.
-                     */
                     val cutoff = maxTimestamp - 300_000
                     databaseService.pruneTelemetryFrames("live-telemetry", cutoff)
                 }
@@ -138,12 +105,11 @@ open class Nt4ClientService(
     private var clientJob: Job? = null
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun start(host: String, teamId: String, seasonId: String, robotId: String) {
         println("[Nt4ClientService] start() called with host=$host, teamId=$teamId, seasonId=$seasonId, robotId=$robotId")
@@ -163,27 +129,12 @@ open class Nt4ClientService(
             }
 
             while (isActive) {
-                /**
-                 * activeHost var.
-                 */
                 var activeHost = host
-                /**
-                 * clientName val.
-                 */
                 val clientName = "ARES-Analytics-${System.currentTimeMillis()}"
-                /**
-                 * path val.
-                 */
                 val path = "/nt/$clientName"
-                /**
-                 * url val.
-                 */
                 val url = "ws://$activeHost:5810$path"
                 this@Nt4ClientService.serverIp = activeHost
                 try {
-                    /**
-                     * activeEngine val.
-                     */
                     val activeEngine = if (activeHost == "127.0.0.1" || activeHost == "localhost") "CIO" else "OkHttp"
                     println("[Nt4ClientService] Attempting to connect to $url (engine=$activeEngine)")
                     clientFor(activeHost).webSocket(
@@ -201,9 +152,6 @@ open class Nt4ClientService(
                         topicMap.clear()
 
                         // 1. Announce input topics
-                        /**
-                         * announceInputsMsg val.
-                         */
                         val announceInputsMsg = """
                             [
                               {"method": "publish", "params": {"name": "ARES/Input/vx", "pubuid": 1001, "type": "double"}},
@@ -230,9 +178,6 @@ open class Nt4ClientService(
                         send(Frame.Text(announceInputsMsg))
 
                         // 2. Subscribe to all topics (using explicit prefixes to support both WPILib and Sim)
-                        /**
-                         * subMsg val.
-                         */
                         val subMsg = """
                             [
                               {
@@ -253,22 +198,13 @@ open class Nt4ClientService(
                         // 2.5 Re-announce dynamic UI tuning topics
                         dynamicPubMutex.withLock {
                             for ((key, id) in dynamicPubUids) {
-                                /**
-                                 * announceMsg val.
-                                 */
                                 val announceMsg = "[{\"method\": \"publish\", \"params\": {\"name\": \"$key\", \"pubuid\": $id, \"type\": \"double\"}}]"
                                 send(Frame.Text(announceMsg))
                             }
                         }
 
                         // Start connection-alive heartbeat loop at 50Hz (20ms interval)
-                        /**
-                         * heartbeatJob val.
-                         */
                         val heartbeatJob = launch {
-                            /**
-                             * heartbeat var.
-                             */
                             var heartbeat = 0L
                             while (isActive) {
                                 try {
@@ -285,16 +221,10 @@ open class Nt4ClientService(
                             for (frame in incoming) {
                                 when (frame) {
                                     is Frame.Text -> {
-                                        /**
-                                         * text val.
-                                         */
                                         val text = frame.readText()
                                         handleIncomingText(text, teamId, seasonId, robotId)
                                     }
                                     is Frame.Binary -> {
-                                        /**
-                                         * bytes val.
-                                         */
                                         val bytes = frame.readBytes()
                                         handleIncomingBinary(bytes, teamId, seasonId, robotId)
                                     }
@@ -303,9 +233,6 @@ open class Nt4ClientService(
                             }
                         } finally {
                             try {
-                                /**
-                                 * reason val.
-                                 */
                                 val reason = withContext(NonCancellable) {
                                     closeReason.await()
                                 }
@@ -327,17 +254,8 @@ open class Nt4ClientService(
     }
 
     private suspend fun sendBinaryUpdate(pubuid: Int, typeId: Byte, valueBytes: ByteArray) {
-        /**
-         * timestampUs val.
-         */
         val timestampUs = System.currentTimeMillis() * 1000L
-        /**
-         * size val.
-         */
         val size = 14 + valueBytes.size
-        /**
-         * buffer val.
-         */
         val buffer = ByteArray(size)
         
         // Write array header (MsgPack array of 4 elements = 0x94)
@@ -366,9 +284,6 @@ open class Nt4ClientService(
         System.arraycopy(valueBytes, 0, buffer, 14, valueBytes.size)
         
         if (pubuid == 1010) {
-            /**
-             * bytesStr val.
-             */
             val bytesStr = buffer.joinToString("") { String.format("%02x", it) }
             println("[Nt4ClientService] sendBinaryUpdate 1010 (heartbeat): timestampUs=$timestampUs, buffer=$bytesStr")
         }
@@ -377,13 +292,7 @@ open class Nt4ClientService(
     }
 
     suspend fun publishInputDouble(pubuid: Int, value: Double) {
-        /**
-         * bits val.
-         */
         val bits = java.lang.Double.doubleToRawLongBits(value)
-        /**
-         * valueBytes val.
-         */
         val valueBytes = ByteArray(9)
         valueBytes[0] = 0xcb.toByte() // MsgPack float64 marker
         valueBytes[1] = (bits shr 56).toByte()
@@ -398,28 +307,14 @@ open class Nt4ClientService(
     }
 
     suspend fun publishInputString(pubuid: Int, value: String) {
-        /**
-         * strBytes val.
-         */
         val strBytes = value.toByteArray(Charsets.UTF_8)
-        /**
-         * size val.
-         */
         val size = strBytes.size
-        
-        /**
-         * headerBytes val.
-         */
         val headerBytes = when {
             size <= 31 -> byteArrayOf((0xa0 or size).toByte())
             size <= 255 -> byteArrayOf(0xd9.toByte(), size.toByte())
             size <= 65535 -> byteArrayOf(0xda.toByte(), (size shr 8).toByte(), size.toByte())
             else -> byteArrayOf(0xdb.toByte(), (size shr 24).toByte(), (size shr 16).toByte(), (size shr 8).toByte(), size.toByte())
         }
-        
-        /**
-         * valueBytes val.
-         */
         val valueBytes = ByteArray(headerBytes.size + strBytes.size)
         System.arraycopy(headerBytes, 0, valueBytes, 0, headerBytes.size)
         System.arraycopy(strBytes, 0, valueBytes, headerBytes.size, strBytes.size)
@@ -428,17 +323,11 @@ open class Nt4ClientService(
     }
 
     suspend fun publishInputBoolean(pubuid: Int, value: Boolean) {
-        /**
-         * valueBytes val.
-         */
         val valueBytes = byteArrayOf(if (value) 0xc3.toByte() else 0xc2.toByte()) // MsgPack true/false markers
         sendBinaryUpdate(pubuid, 0.toByte(), valueBytes)
     }
 
     suspend fun publishInputLong(pubuid: Int, value: Long) {
-        /**
-         * valueBytes val.
-         */
         val valueBytes = ByteArray(9)
         valueBytes[0] = 0xd3.toByte() // MsgPack int64 marker
         valueBytes[1] = (value shr 56).toByte()
@@ -453,12 +342,11 @@ open class Nt4ClientService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun stop() {
         clientJob?.cancel()
@@ -472,13 +360,7 @@ open class Nt4ClientService(
     }
 
     suspend fun publishFrame(frame: TelemetryFrame) {
-        /**
-         * session val.
-         */
         val session = _currentSession.value
-        /**
-         * finalFrame val.
-         */
         val finalFrame = if (session != null) {
             frame.copy(sessionId = session.sessionId)
         } else {
@@ -498,9 +380,6 @@ open class Nt4ClientService(
         allianceColor: String? = null,
         tags: List<String> = emptyList()
     ): Session {
-        /**
-         * session val.
-         */
         val session = Session(
             sessionId = UUID.randomUUID().toString(),
             teamId = teamId,
@@ -517,22 +396,10 @@ open class Nt4ClientService(
     }
 
     suspend fun stopRecordingSession() {
-        /**
-         * session val.
-         */
         val session = _currentSession.value ?: return
         flushPendingFrames() // Flush any remaining buffered frames to SQLite
-        /**
-         * endTime val.
-         */
         val endTime = System.currentTimeMillis()
-        /**
-         * duration val.
-         */
         val duration = endTime - session.createdAt
-        /**
-         * updated val.
-         */
         val updated = session.copy(durationMs = duration)
         databaseService.insertSession(updated)
         _currentSession.value = null
@@ -545,50 +412,23 @@ open class Nt4ClientService(
         robotId: String
     ) {
         try {
-            /**
-             * jsonArray val.
-             */
             val jsonArray = Json.parseToJsonElement(text).jsonArray
             for (element in jsonArray) {
-                /**
-                 * obj val.
-                 */
                 val obj = element.jsonObject
-                /**
-                 * method val.
-                 */
                 val method = obj["method"]?.jsonPrimitive?.content
 
                 if (method != null) {
                     when (method) {
                         "announce" -> {
-                            /**
-                             * params val.
-                             */
                             val params = obj["params"]?.jsonObject ?: continue
-                            /**
-                             * name val.
-                             */
                             val name = params["name"]?.jsonPrimitive?.content ?: continue
-                            /**
-                             * id val.
-                             */
                             val id = params["id"]?.jsonPrimitive?.intOrNull ?: continue
-                            /**
-                             * type val.
-                             */
                             val type = params["type"]?.jsonPrimitive?.content ?: "double"
                             println("[Nt4ClientService] Server announced topic: $name (id=$id, type=$type)")
                             topicMap[id] = Nt4Topic(id, name, type)
                         }
                         "unannounce" -> {
-                            /**
-                             * params val.
-                             */
                             val params = obj["params"]?.jsonObject ?: continue
-                            /**
-                             * id val.
-                             */
                             val id = params["id"]?.jsonPrimitive?.intOrNull ?: continue
                             println("[Nt4ClientService] Server unannounced topic id: $id")
                             topicMap.remove(id)
@@ -596,22 +436,9 @@ open class Nt4ClientService(
                     }
                 } else {
                     // This is a data update frame: {"topic": id, "time": timestamp, "value": value}
-                    /**
-                     * topicId val.
-                     */
                     val topicId = obj["topic"]?.jsonPrimitive?.intOrNull ?: continue
-                    /**
-                     * valueElement val.
-                     */
                     val valueElement = obj["value"] ?: continue
-                    /**
-                     * ntTopic val.
-                     */
                     val ntTopic = topicMap[topicId] ?: continue
-
-                    /**
-                     * timestampMs val.
-                     */
                     val timestampMs = (obj["time"]?.jsonPrimitive?.longOrNull ?: System.currentTimeMillis() * 1000) / 1000
 
                     dispatchValue(ntTopic, valueElement, timestampMs, teamId, seasonId, robotId)
@@ -631,14 +458,8 @@ open class Nt4ClientService(
         if (bytes.isEmpty()) return
         println("[Nt4ClientService] Received binary frame: size=${bytes.size}")
         try {
-            /**
-             * offset var.
-             */
             var offset = 0
             while (offset < bytes.size) {
-                /**
-                 * marker val.
-                 */
                 val marker = bytes[offset].toInt() and 0xFF
                 val (arrayLen, headerSize) = Nt4Decoder.getArrayLengthAndHeader(marker, bytes, offset)
                 
@@ -665,9 +486,6 @@ open class Nt4ClientService(
         seasonId: String,
         robotId: String
     ): Int {
-        /**
-         * elementOffset var.
-         */
         var elementOffset = offset + headerSize
         
         // 1. Topic ID
@@ -685,14 +503,7 @@ open class Nt4ClientService(
         // 4. Value
         val (valueElement, valueSize) = Nt4Decoder.parseMsgPackValue(bytes, elementOffset)
         elementOffset += valueSize
-        
-        /**
-         * timestampMs val.
-         */
         val timestampMs = timestampUs / 1000
-        /**
-         * ntTopic val.
-         */
         val ntTopic = topicMap[topicId]
         if (ntTopic != null) {
             dispatchValue(ntTopic, valueElement, timestampMs, teamId, seasonId, robotId)
@@ -710,9 +521,6 @@ open class Nt4ClientService(
         robotId: String
     ) {
         // Normalize key: strip leading '/' for consistent matching everywhere
-        /**
-         * normalizedName val.
-         */
         val normalizedName = ntTopic.name.removePrefix("/")
 
         if (discoveredKeys.add(normalizedName)) {
@@ -726,17 +534,11 @@ open class Nt4ClientService(
         // Intercept log file path linkage
         if (normalizedName == "ARES/Session/LogFilePath") {
             try {
-                /**
-                 * logFilePath val.
-                 */
                 val logFilePath = when (valueElement) {
                     is JsonPrimitive -> valueElement.content
                     is String -> valueElement
                     else -> return
                 }
-                /**
-                 * session val.
-                 */
                 val session = _currentSession.value
                 if (session != null) {
                     CoroutineScope(Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, e -> e.printStackTrace() }).launch {
@@ -752,13 +554,7 @@ open class Nt4ClientService(
         // Handle topology mapping directly
         if (normalizedName == "Topology/HardwareMap") {
             try {
-                /**
-                 * topologyJson val.
-                 */
                 val topologyJson = if (valueElement is JsonPrimitive) valueElement.content else valueElement.toString()
-                /**
-                 * topology val.
-                 */
                 val topology = Json.decodeFromString<HardwareTopology>(topologyJson)
                 databaseService.insertTopology(topology)
             } catch (e: Exception) {
@@ -768,35 +564,17 @@ open class Nt4ClientService(
         }
 
         // Intercept and handle console log messages
-        /**
-         * lowerName val.
-         */
         val lowerName = normalizedName.lowercase()
         if (lowerName.contains("console") || lowerName.contains("log") || lowerName.contains("print")) {
             try {
-                /**
-                 * text val.
-                 */
                 val text = if (valueElement is JsonPrimitive) valueElement.content else valueElement.toString()
-                /**
-                 * severity val.
-                 */
                 val severity = when {
                     text.contains("[ERROR]", ignoreCase = true) || text.contains("error:", ignoreCase = true) || lowerName.contains("error") -> "ERROR"
                     text.contains("[WARN]", ignoreCase = true) || text.contains("warning:", ignoreCase = true) || lowerName.contains("warn") -> "WARN"
                     else -> "INFO"
                 }
-                /**
-                 * session val.
-                 */
                 val session = _currentSession.value
-                /**
-                 * sessionId val.
-                 */
                 val sessionId = session?.sessionId ?: "live-telemetry"
-                /**
-                 * consoleMsg val.
-                 */
                 val consoleMsg = ConsoleMessage(timestampMs, text, severity)
                 
                 // Save in DB if session is active
@@ -812,22 +590,9 @@ open class Nt4ClientService(
         }
 
         if (valueElement is JsonArray || valueElement is List<*> || valueElement is DoubleArray || valueElement is FloatArray || valueElement is Array<*>) {
-            /**
-             * session val.
-             */
             val session = _currentSession.value
-            /**
-             * sessionId val.
-             */
             val sessionId = session?.sessionId ?: "live-telemetry"
-            /**
-             * frames val.
-             */
             val frames = mutableListOf<TelemetryFrame>()
-            
-            /**
-             * list val.
-             */
             val list = when (valueElement) {
                 is JsonArray -> valueElement.map { 
                     if (it is JsonPrimitive && it.isString) it.content else it.jsonPrimitive.doubleOrNull ?: 0.0 
@@ -840,35 +605,19 @@ open class Nt4ClientService(
             }
             
             for (idx in list.indices) {
-                /**
-                 * element val.
-                 */
                 val element = list[idx]
-                /**
-                 * doubleValue val.
-                 */
                 val doubleValue = when (element) {
                     is JsonPrimitive -> if (element.isString) element.content.toDoubleOrNull() ?: 0.0 else element.doubleOrNull ?: 0.0
                     is Number -> element.toDouble()
                     is String -> element.toDoubleOrNull() ?: 0.0
                     else -> 0.0
                 }
-                /**
-                 * stringValue val.
-                 */
                 val stringValue = when (element) {
                     is JsonPrimitive -> if (element.isString) element.content else null
                     is String -> element
                     else -> null
                 }
-                
-                /**
-                 * frameKey val.
-                 */
                 val frameKey = "$normalizedName/$idx"
-                /**
-                 * frame val.
-                 */
                 val frame = TelemetryFrame(
                     timestampMs = timestampMs,
                     sessionId = sessionId,
@@ -878,15 +627,9 @@ open class Nt4ClientService(
                 )
                 frames.add(frame)
                 latestValues[frame.key] = frame
-                /**
-                 * history val.
-                 */
                 val history = telemetryHistory.getOrPut(frame.key) { java.util.ArrayDeque() }
                 synchronized(history) {
                     history.add(frame)
-                    /**
-                     * cutoff val.
-                     */
                     val cutoff = frame.timestampMs - 120_000
                     while (history.isNotEmpty() && history.first().timestampMs < cutoff) {
                         history.removeFirst()
@@ -906,37 +649,19 @@ open class Nt4ClientService(
         }
 
         // Extract double value and string value
-        /**
-         * doubleValue val.
-         */
         val doubleValue = when (valueElement) {
             is JsonPrimitive -> if (valueElement.isString) valueElement.content.toDoubleOrNull() ?: 0.0 else valueElement.doubleOrNull ?: 0.0
             is Number -> valueElement.toDouble()
             is String -> valueElement.toDoubleOrNull() ?: 0.0
             else -> 0.0
         }
-        
-        /**
-         * stringValue val.
-         */
         val stringValue = when (valueElement) {
             is JsonPrimitive -> if (valueElement.isString) valueElement.content else null
             is String -> valueElement
             else -> null
         }
-
-        /**
-         * session val.
-         */
         val session = _currentSession.value
-        /**
-         * sessionId val.
-         */
         val sessionId = session?.sessionId ?: "live-telemetry"
-
-        /**
-         * frame val.
-         */
         val frame = TelemetryFrame(
             timestampMs = timestampMs,
             sessionId = sessionId,
@@ -947,15 +672,9 @@ open class Nt4ClientService(
 
         pendingFrames.add(frame)
         latestValues[frame.key] = frame
-        /**
-         * history val.
-         */
         val history = telemetryHistory.getOrPut(frame.key) { java.util.ArrayDeque() }
         synchronized(history) {
             history.add(frame)
-            /**
-             * cutoff val.
-             */
             val cutoff = frame.timestampMs - 120_000
             while (history.isNotEmpty() && history.first().timestampMs < cutoff) {
                 history.removeFirst()
@@ -974,33 +693,17 @@ open class Nt4ClientService(
     private val dynamicPubMutex = kotlinx.coroutines.sync.Mutex()
 
     suspend fun publishDouble(key: String, value: Double) {
-        /**
-         * pubuid val.
-         */
         val pubuid = dynamicPubMutex.withLock {
-            /**
-             * id var.
-             */
             var id = dynamicPubUids[key]
             if (id == null) {
                 id = nextPubUid++
                 dynamicPubUids[key] = id
-                /**
-                 * announceMsg val.
-                 */
                 val announceMsg = "[{\"method\": \"publish\", \"params\": {\"name\": \"$key\", \"pubuid\": $id, \"type\": \"double\"}}]"
                 webSocketSession?.send(Frame.Text(announceMsg))
             }
             id
         }
-        
-        /**
-         * cleanKey val.
-         */
         val cleanKey = key.removePrefix("/")
-        /**
-         * frame val.
-         */
         val frame = TelemetryFrame(
             timestampMs = System.currentTimeMillis(),
             sessionId = _currentSession.value?.sessionId ?: "live-telemetry",
@@ -1017,17 +720,13 @@ open class Nt4ClientService(
     private val topicFlows = ConcurrentHashMap<String, MutableStateFlow<Double>>()
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun subscribeDouble(key: String): Flow<Double> {
-        /**
-         * flow val.
-         */
         val flow = topicFlows.getOrPut(key) {
             MutableStateFlow(latestValues[key]?.value ?: 0.0)
         }
@@ -1036,24 +735,14 @@ open class Nt4ClientService(
 }
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class Nt4Topic(
-    /**
-     * id val.
-     */
     val id: Int,
-    /**
-     * name val.
-     */
     val name: String,
-    /**
-     * type val.
-     */
     val type: String
 )

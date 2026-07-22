@@ -33,38 +33,25 @@ import kotlinx.coroutines.launch
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun BatteryHealthCard(
     databaseService: DatabaseService,
     sessionId: String?,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    /**
-     * voltageFrames var.
-     */
     var voltageFrames by remember { mutableStateOf<List<TelemetryFrame>>(emptyList()) }
 
     LaunchedEffect(sessionId) {
         if (sessionId != null) {
             while (isActive) {
-                /**
-                 * allTelemetry val.
-                 */
                 val allTelemetry = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
                 voltageFrames = allTelemetry.filter { 
-                    /**
-                     * lower val.
-                     */
                     val lower = it.key.lowercase()
                     lower.contains("voltage") || lower.contains("battery")
                 }
@@ -75,28 +62,13 @@ fun BatteryHealthCard(
             voltageFrames = emptyList()
         }
     }
-
-    /**
-     * latestVoltage val.
-     */
     val latestVoltage = voltageFrames.lastOrNull()?.value ?: 12.0
-    /**
-     * minVoltage val.
-     */
     val minVoltage = voltageFrames.minOfOrNull { it.value } ?: 12.0
-
-    /**
-     * statusColor val.
-     */
     val statusColor = when {
         latestVoltage < 11.5 -> AresError
         latestVoltage < 12.5 -> AresAmber
         else -> AresCyan
     }
-
-    /**
-     * statusText val.
-     */
     val statusText = when {
         latestVoltage < 11.5 -> "CRITICAL BROWNOUT RISK"
         latestVoltage < 12.5 -> "Warning: Voltage Dropping"
@@ -189,31 +161,11 @@ fun BatteryHealthCard(
 @Composable
 private fun BatteryVoltageChart(frames: List<TelemetryFrame>, statusColor: Color) {
     if (frames.size < 2) return
-
-    /**
-     * minTime val.
-     */
     val minTime = frames.first().timestampMs.toDouble()
-    /**
-     * maxTime val.
-     */
     val maxTime = frames.last().timestampMs.toDouble()
-    /**
-     * timeRange val.
-     */
     val timeRange = (maxTime - minTime).coerceAtLeast(1.0)
-
-    /**
-     * minVal val.
-     */
     val minVal = (frames.minOf { it.value } - 0.5).coerceAtLeast(0.0)
-    /**
-     * maxVal val.
-     */
     val maxVal = (frames.maxOf { it.value } + 0.5).coerceAtLeast(14.0)
-    /**
-     * valRange val.
-     */
     val valRange = (maxVal - minVal).coerceAtLeast(1.0)
 
     Canvas(
@@ -222,48 +174,19 @@ private fun BatteryVoltageChart(frames: List<TelemetryFrame>, statusColor: Color
             .border(1.dp, AresBorder, RoundedCornerShape(6.dp))
             .background(AresBackground)
     ) {
-        /**
-         * w val.
-         */
         val w = size.width
-        /**
-         * h val.
-         */
         val h = size.height
 
         // Draw horizontal grid lines
-        /**
-         * linesCount val.
-         */
         val linesCount = 4
         for (i in 1 until linesCount) {
-            /**
-             * y val.
-             */
             val y = h * (i.toFloat() / linesCount)
             drawLine(color = AresBorder, start = Offset(0f, y), end = Offset(w, y), strokeWidth = 1f)
         }
-
-        /**
-         * splinePath val.
-         */
         val splinePath = Path()
-        /**
-         * fillPath val.
-         */
         val fillPath = Path()
-
-        /**
-         * firstFrame val.
-         */
         val firstFrame = frames.first()
-        /**
-         * firstX val.
-         */
         val firstX = ((firstFrame.timestampMs - minTime) / timeRange * w).toFloat()
-        /**
-         * firstY val.
-         */
         val firstY = (h - ((firstFrame.value - minVal) / valRange * h)).toFloat().coerceIn(0f, h)
 
         splinePath.moveTo(firstX, firstY)
@@ -271,17 +194,8 @@ private fun BatteryVoltageChart(frames: List<TelemetryFrame>, statusColor: Color
         fillPath.lineTo(firstX, firstY)
 
         for (i in 1 until frames.size) {
-            /**
-             * f val.
-             */
             val f = frames[i]
-            /**
-             * x val.
-             */
             val x = ((f.timestampMs - minTime) / timeRange * w).toFloat()
-            /**
-             * y val.
-             */
             val y = (h - ((f.value - minVal) / valRange * h)).toFloat().coerceIn(0f, h)
             splinePath.lineTo(x, y)
             fillPath.lineTo(x, y)

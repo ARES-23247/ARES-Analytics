@@ -11,21 +11,17 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class FtcDashboardService(
     private val nt4ClientService: Nt4ClientService,
     private val client: HttpClient = HttpClient { install(WebSockets) }
 ) {
     private val _isConnected = MutableStateFlow(false)
-    /**
-     * isConnected val.
-     */
     val isConnected: StateFlow<Boolean> = _isConnected
 
     private var wsJob: Job? = null
@@ -33,21 +29,17 @@ class FtcDashboardService(
     private var session: WebSocketSession? = null
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun start(host: String = "192.168.43.1", port: Int = 8000) {
         wsJob?.cancel()
         wsJob = serviceScope.launch {
             while (isActive) {
                 try {
-                    /**
-                     * url val.
-                     */
                     val url = "ws://$host:$port/dash"
                     client.webSocket(url) {
                         session = this
@@ -55,9 +47,6 @@ class FtcDashboardService(
                         
                         for (frame in incoming) {
                             if (frame is Frame.Text) {
-                                /**
-                                 * text val.
-                                 */
                                 val text = frame.readText()
                                 handleIncomingMessage(text)
                             }
@@ -74,42 +63,18 @@ class FtcDashboardService(
 
     private suspend fun handleIncomingMessage(text: String) {
         try {
-            /**
-             * json val.
-             */
             val json = Json.parseToJsonElement(text).jsonObject
-            /**
-             * type val.
-             */
             val type = json["type"]?.jsonPrimitive?.content ?: return
-            /**
-             * data val.
-             */
             val data = json["data"] ?: return
 
             when (type) {
                 "receiveTelemetry" -> {
-                    /**
-                     * dataObj val.
-                     */
                     val dataObj = data.jsonObject
-                    /**
-                     * telemetryObj val.
-                     */
                     val telemetryObj = dataObj["telemetry"]?.jsonObject ?: return
-                    /**
-                     * now val.
-                     */
                     val now = System.currentTimeMillis()
                     
                     for ((key, value) in telemetryObj) {
-                        /**
-                         * doubleVal val.
-                         */
                         val doubleVal = value.jsonPrimitive.doubleOrNull ?: continue
-                        /**
-                         * frame val.
-                         */
                         val frame = TelemetryFrame(
                             timestampMs = now,
                             sessionId = "live-telemetry",
@@ -126,24 +91,17 @@ class FtcDashboardService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun sendConfigUpdate(configJson: String) {
-        /**
-         * wsSession val.
-         */
         val wsSession = session
         if (wsSession != null && wsSession.isActive) {
             serviceScope.launch {
                 try {
-                    /**
-                     * message val.
-                     */
                     val message = """
                         {
                             "type": "saveConfig",
@@ -159,12 +117,11 @@ class FtcDashboardService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun stop() {
         wsJob?.cancel()
@@ -173,12 +130,11 @@ class FtcDashboardService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun dispose() {
         stop()

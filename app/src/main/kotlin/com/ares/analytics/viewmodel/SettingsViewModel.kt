@@ -13,130 +13,96 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class SettingsState(
-    /**
-     * config val.
-     */
     val config: WorkspaceConfig? = null,
-    /**
-     * theme val.
-     */
     val theme: String = "Dark", // "System", "Light", "Dark"
-    /**
-     * audibleAlertsEnabled val.
-     */
     val audibleAlertsEnabled: Boolean = true,
-    /**
-     * autoCheckUpdates val.
-     */
     val autoCheckUpdates: Boolean = true,
-    /**
-     * autoSyncEnabled val.
-     */
     val autoSyncEnabled: Boolean = false,
-    /**
-     * saveStatus val.
-     */
     val saveStatus: String = "",
-    /**
-     * isLoading val.
-     */
     val isLoading: Boolean = false,
-    /**
-     * errorMessage val.
-     */
     val errorMessage: String? = null
 )
 
 sealed class SettingsIntent {
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class LoadSettings(val config: WorkspaceConfig) : SettingsIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SaveConfig(val config: WorkspaceConfig) : SettingsIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class UpdateTheme(val theme: String) : SettingsIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SetAudibleAlertsEnabled(val enabled: Boolean) : SettingsIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SetAutoCheckUpdates(val enabled: Boolean) : SettingsIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SetAutoSyncEnabled(val enabled: Boolean) : SettingsIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object ClearDatabase : SettingsIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object ClearSaveStatus : SettingsIntent()
 }
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class SettingsViewModel(
     private val databaseService: DatabaseService,
@@ -144,18 +110,14 @@ class SettingsViewModel(
     private val scope: CoroutineScope
 ) {
     private val _state = MutableStateFlow(SettingsState())
-    /**
-     * state val.
-     */
     val state: StateFlow<SettingsState> = _state.asStateFlow()
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun onIntent(intent: SettingsIntent) {
         scope.launch {
@@ -192,9 +154,6 @@ class SettingsViewModel(
                     _state.update { it.copy(isLoading = true, saveStatus = "", errorMessage = null) }
                     try {
                         withContext(Dispatchers.IO) {
-                            /**
-                             * sessions val.
-                             */
                             val sessions = databaseService.getSessions()
                             sessions.forEach {
                                 databaseService.deleteSession(it.sessionId)

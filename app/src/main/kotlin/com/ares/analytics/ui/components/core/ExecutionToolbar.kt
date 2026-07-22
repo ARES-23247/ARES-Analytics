@@ -22,12 +22,11 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.SolidColor
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 enum class TargetSelection(val label: String) {
     LIVE_ROBOT("Live Robot"),
@@ -37,12 +36,11 @@ enum class TargetSelection(val label: String) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun ExecutionToolbar(
     targetSelection: TargetSelection,
@@ -67,9 +65,6 @@ fun ExecutionToolbar(
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         // Target Dropdown
-        /**
-         * dropdownExpanded var.
-         */
         var dropdownExpanded by remember { mutableStateOf(false) }
         Box {
             Row(
@@ -96,9 +91,6 @@ fun ExecutionToolbar(
                 )
 
                 // Status Dot
-                /**
-                 * isOnline val.
-                 */
                 val isOnline = if (targetSelection == TargetSelection.LIVE_ROBOT) isLiveRobotOnline else isLocalSimOnline
                 Box(
                     modifier = Modifier
@@ -132,10 +124,6 @@ fun ExecutionToolbar(
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(target.label, color = AresTextPrimary)
                                 Spacer(modifier = Modifier.width(8.dp))
-                                
-                                /**
-                                 * isTargetOnline val.
-                                 */
                                 val isTargetOnline = if (target == TargetSelection.LIVE_ROBOT) isLiveRobotOnline else isLocalSimOnline
                                 Box(
                                     modifier = Modifier
@@ -186,9 +174,6 @@ fun ExecutionToolbar(
         }
 
         // Launch Simulator Button
-        /**
-         * simIconTint val.
-         */
         val simIconTint by animateColorAsState(targetValue = if (isSimRunning) AresGreen else AresCyan)
         TooltipBox(
             positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
@@ -242,17 +227,8 @@ fun ExecutionToolbar(
         ) {
             IconButton(
                 onClick = {
-                    /**
-                     * ip val.
-                     */
                     val ip = targetIp.trim()
-                    /**
-                     * argsStr val.
-                     */
                     val argsStr = if (ip == "127.0.0.1") "" else " --args=\"$ip\""
-                    /**
-                     * command val.
-                     */
                     val command = """cd /d c:\Users\david\dev\robotics\ftc\ARESLib-Kotlin && .\gradlew.bat :simulator:runFakeController --console=plain""" + argsStr
                     try {
                         ProcessBuilder("cmd.exe", "/c", "start", "cmd.exe", "/k", command).start()
@@ -272,9 +248,6 @@ fun ExecutionToolbar(
         }
 
         // Stop Button
-        /**
-         * isAnyRunning val.
-         */
         val isAnyRunning = isBuildRunning || isSimRunning
         TooltipBox(
             positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),

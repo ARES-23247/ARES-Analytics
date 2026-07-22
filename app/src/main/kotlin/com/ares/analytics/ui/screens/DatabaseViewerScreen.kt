@@ -31,51 +31,21 @@ import java.sql.SQLException
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun DatabaseViewerScreen(databaseService: DatabaseService) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    
-    /**
-     * queryText var.
-     */
     var queryText by remember { mutableStateOf("SELECT * FROM sessions LIMIT 10;") }
-    /**
-     * queryResult var.
-     */
     var queryResult by remember { mutableStateOf<QueryResult?>(null) }
-    /**
-     * errorMessage var.
-     */
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    /**
-     * isLoading var.
-     */
     var isLoading by remember { mutableStateOf(false) }
-    /**
-     * executionTimeMs var.
-     */
     var executionTimeMs by remember { mutableStateOf(0L) }
-    
-    /**
-     * tablesList var.
-     */
     var tablesList by remember { mutableStateOf<List<String>>(emptyList()) }
-    /**
-     * dbSizeMB var.
-     */
     var dbSizeMB by remember { mutableStateOf(0.0) }
-    /**
-     * refreshTrigger var.
-     */
     var refreshTrigger by remember { mutableStateOf(0) }
 
     // Fetch dynamic tables list and DB size on startup and after runs
@@ -83,16 +53,10 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
         withContext(Dispatchers.IO) {
             try {
                 // Get tables using SHOW TABLES
-                /**
-                 * tablesRes val.
-                 */
                 val tablesRes = databaseService.executeQueryRaw("SHOW TABLES;")
                 tablesList = tablesRes.rows.flatten()
                 
                 // Get file size
-                /**
-                 * file val.
-                 */
                 val file = File(databaseService.dbPath)
                 if (file.exists()) {
                     dbSizeMB = file.length().toDouble() / (1024.0 * 1024.0)
@@ -102,33 +66,20 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
             }
         }
     }
-
-    /**
-     * runQuery val.
-     */
     val runQuery = {
         scope.launch {
             if (queryText.trim().isEmpty()) return@launch
             isLoading = true
             errorMessage = null
             queryResult = null
-            /**
-             * startTime val.
-             */
             val startTime = System.currentTimeMillis()
             try {
-                /**
-                 * result val.
-                 */
                 val result = withContext(Dispatchers.IO) {
                     databaseService.executeQueryRaw(queryText.trim())
                 }
                 executionTimeMs = System.currentTimeMillis() - startTime
                 queryResult = result
                 // Trigger statistics refresh if DDL/DML was run
-                /**
-                 * lower val.
-                 */
                 val lower = queryText.trim().lowercase()
                 if (lower.contains("create") || lower.contains("drop") || lower.contains("insert") || lower.contains("delete") || lower.contains("update")) {
                     refreshTrigger++
@@ -191,13 +142,7 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                         .background(AresBackground)
                         .clickable {
                             try {
-                                /**
-                                 * clipboard val.
-                                 */
                                 val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
-                                /**
-                                 * selection val.
-                                 */
                                 val selection = java.awt.datatransfer.StringSelection(databaseService.dbPath)
                                 clipboard.setContents(selection, selection)
                             } catch (_: Exception) {}
@@ -206,9 +151,6 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    /**
-                     * dbName val.
-                     */
                     val dbName = File(databaseService.dbPath).name
                     Text(
                         text = dbName,
@@ -290,10 +232,6 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
             // Preset Quick Queries
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("PRESET QUERIES", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                
-                /**
-                 * presets val.
-                 */
                 val presets = listOf(
                     "Show Tables" to "SHOW TABLES;",
                     "Latest 10 Sessions" to "SELECT * FROM sessions ORDER BY created_at DESC LIMIT 10;",
@@ -451,9 +389,6 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                         }
                     }
                     queryResult != null -> {
-                        /**
-                         * result val.
-                         */
                         val result = queryResult!!
                         Column(modifier = Modifier.fillMaxSize()) {
                             Row(
@@ -484,13 +419,7 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                                 }
                             } else {
                                 // Scrollable Grid
-                                /**
-                                 * scrollStateHorizontal val.
-                                 */
                                 val scrollStateHorizontal = rememberScrollState()
-                                /**
-                                 * scrollStateVertical val.
-                                 */
                                 val scrollStateVertical = rememberScrollState()
 
                                 Box(
@@ -547,9 +476,6 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
 
                                         // Data Rows
                                         result.rows.forEachIndexed { rowIndex, row ->
-                                            /**
-                                             * rowBg val.
-                                             */
                                             val rowBg = if (rowIndex % 2 == 0) AresBackground else AresSurface
                                             Row(
                                                 modifier = Modifier

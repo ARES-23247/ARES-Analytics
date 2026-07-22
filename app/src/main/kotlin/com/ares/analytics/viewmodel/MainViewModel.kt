@@ -18,192 +18,146 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class MainState(
-    /**
-     * config val.
-     */
     val config: WorkspaceConfig? = null,
-    /**
-     * workspaces val.
-     */
     val workspaces: List<WorkspaceConfig> = emptyList(),
-    /**
-     * activeNav val.
-     */
     val activeNav: NavigationTarget = NavigationTarget.DASHBOARD,
-    /**
-     * matches val.
-     */
     val matches: List<MatchInfo> = emptyList(),
-    /**
-     * runsIndexReloadTrigger val.
-     */
     val runsIndexReloadTrigger: Int = 0,
-    /**
-     * diagnosticsResponse val.
-     */
     val diagnosticsResponse: ForensicsResponse? = null,
-    /**
-     * isTerminalOpen val.
-     */
     val isTerminalOpen: Boolean = false,
-    /**
-     * isKeybindingsOpen val.
-     */
     val isKeybindingsOpen: Boolean = false,
-    /**
-     * parsedBindings val.
-     */
     val parsedBindings: List<ControllerBinding> = emptyList(),
-    /**
-     * showUpdateBanner val.
-     */
     val showUpdateBanner: Boolean = true
 )
 
 sealed class MainIntent {
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object LoadConfig : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SetActiveNav(val nav: NavigationTarget) : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SetMatches(val matches: List<MatchInfo>) : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object TriggerRunsIndexReload : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SetDiagnosticsResponse(val response: ForensicsResponse?) : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SetTerminalOpen(val isOpen: Boolean) : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SetKeybindingsOpen(val isOpen: Boolean) : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object RefreshKeybindings : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SetShowUpdateBanner(val show: Boolean) : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SaveConfig(val config: WorkspaceConfig) : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class SelectWorkspace(val id: String) : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     data class DeleteWorkspace(val id: String) : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object AddNewWorkspace : MainIntent()
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     object CancelAddNewWorkspace : MainIntent()
 }
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class MainViewModel(
     private val environmentService: EnvironmentService,
@@ -212,9 +166,6 @@ class MainViewModel(
     private val scope: CoroutineScope
 ) {
     private val _state = MutableStateFlow(MainState())
-    /**
-     * state val.
-     */
     val state: StateFlow<MainState> = _state.asStateFlow()
 
     init {
@@ -222,24 +173,17 @@ class MainViewModel(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun onIntent(intent: MainIntent) {
         scope.launch {
             when (intent) {
                 is MainIntent.LoadConfig -> {
-                    /**
-                     * app val.
-                     */
                     val app = environmentService.loadWorkspaces()
-                    /**
-                     * active val.
-                     */
                     val active = app.workspaces.find { it.id == app.activeWorkspaceId } ?: app.workspaces.firstOrNull()
                     _state.update { it.copy(config = active, workspaces = app.workspaces) }
                     if (active != null) {
@@ -268,14 +212,8 @@ class MainViewModel(
                     }
                 }
                 is MainIntent.RefreshKeybindings -> {
-                    /**
-                     * path val.
-                     */
                     val path = _state.value.config?.projectPath
                     if (path != null && path.isNotEmpty()) {
-                        /**
-                         * bindings val.
-                         */
                         val bindings = keybindingParserService.parseBindings(path)
                         _state.update { it.copy(parsedBindings = bindings) }
                     }
@@ -284,25 +222,13 @@ class MainViewModel(
                     _state.update { it.copy(showUpdateBanner = intent.show) }
                 }
                 is MainIntent.SaveConfig -> {
-                    /**
-                     * configWithId val.
-                     */
                     val configWithId = if (intent.config.id.isEmpty()) {
                         intent.config.copy(id = "${intent.config.league}-${intent.config.teamId}-${intent.config.robotId}-${intent.config.seasonId}")
                     } else {
                         intent.config
                     }
-                    /**
-                     * app val.
-                     */
                     val app = environmentService.loadWorkspaces()
-                    /**
-                     * newList val.
-                     */
                     val newList = app.workspaces.filter { it.id != configWithId.id } + configWithId
-                    /**
-                     * newApp val.
-                     */
                     val newApp = com.ares.analytics.shared.AppWorkspaces(activeWorkspaceId = configWithId.id, workspaces = newList)
                     environmentService.saveWorkspaces(newApp)
 
@@ -310,18 +236,9 @@ class MainViewModel(
                     loadMatchSchedule(configWithId)
                 }
                 is MainIntent.SelectWorkspace -> {
-                    /**
-                     * app val.
-                     */
                     val app = environmentService.loadWorkspaces()
-                    /**
-                     * target val.
-                     */
                     val target = app.workspaces.find { it.id == intent.id }
                     if (target != null) {
-                        /**
-                         * newApp val.
-                         */
                         val newApp = app.copy(activeWorkspaceId = target.id)
                         environmentService.saveWorkspaces(newApp)
                         _state.update { it.copy(config = target, workspaces = app.workspaces) }
@@ -329,31 +246,15 @@ class MainViewModel(
                     }
                 }
                 is MainIntent.DeleteWorkspace -> {
-                    /**
-                     * app val.
-                     */
                     val app = environmentService.loadWorkspaces()
-                    /**
-                     * newList val.
-                     */
                     val newList = app.workspaces.filter { it.id != intent.id }
-                    /**
-                     * newActiveId val.
-                     */
                     val newActiveId = if (app.activeWorkspaceId == intent.id) {
                         newList.firstOrNull()?.id
                     } else {
                         app.activeWorkspaceId
                     }
-                    /**
-                     * newApp val.
-                     */
                     val newApp = com.ares.analytics.shared.AppWorkspaces(activeWorkspaceId = newActiveId, workspaces = newList)
                     environmentService.saveWorkspaces(newApp)
-
-                    /**
-                     * newActiveConfig val.
-                     */
                     val newActiveConfig = newList.find { it.id == newActiveId }
                     _state.update { it.copy(config = newActiveConfig, workspaces = newList) }
                     if (newActiveConfig != null) {
@@ -366,13 +267,7 @@ class MainViewModel(
                     _state.update { it.copy(config = null) }
                 }
                 is MainIntent.CancelAddNewWorkspace -> {
-                    /**
-                     * app val.
-                     */
                     val app = environmentService.loadWorkspaces()
-                    /**
-                     * active val.
-                     */
                     val active = app.workspaces.find { it.id == app.activeWorkspaceId } ?: app.workspaces.firstOrNull()
                     if (active != null) {
                         _state.update { it.copy(config = active) }
@@ -383,24 +278,12 @@ class MainViewModel(
     }
 
     private suspend fun loadMatchSchedule(currentConf: WorkspaceConfig) {
-        /**
-         * eventCode val.
-         */
         val eventCode = currentConf.eventCode
         if (eventCode != null && eventCode.isNotEmpty()) {
-            /**
-             * list val.
-             */
             val list = if (currentConf.league == League.FTC) {
-                /**
-                 * apiKey val.
-                 */
                 val apiKey = currentConf.toaApiKey ?: ""
                 eventApiService.fetchFtcEventSchedule(eventCode, apiKey)
             } else {
-                /**
-                 * apiKey val.
-                 */
                 val apiKey = currentConf.tbaApiKey ?: ""
                 eventApiService.fetchFrcEventSchedule(eventCode, apiKey)
             }

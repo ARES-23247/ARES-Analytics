@@ -31,34 +31,24 @@ import kotlinx.coroutines.launch
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun VisionQualityCard(
     databaseService: DatabaseService,
     sessionId: String?,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    /**
-     * visionFrames var.
-     */
     var visionFrames by remember { mutableStateOf<List<TelemetryFrame>>(emptyList()) }
 
     LaunchedEffect(sessionId) {
         if (sessionId != null) {
             scope.launch {
                 // Fetch vision error/innovation keys
-                /**
-                 * allTelemetry val.
-                 */
                 val allTelemetry = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
                 visionFrames = allTelemetry.filter { it.key.lowercase().contains("vision") && it.key.lowercase().contains("innovation") }
             }
@@ -105,23 +95,9 @@ fun VisionQualityCard(
 @Composable
 private fun VisionInnovationChart(frames: List<TelemetryFrame>) {
     if (frames.size < 2) return
-
-    /**
-     * minTime val.
-     */
     val minTime = frames.first().timestampMs.toDouble()
-    /**
-     * maxTime val.
-     */
     val maxTime = frames.last().timestampMs.toDouble()
-    /**
-     * timeRange val.
-     */
     val timeRange = (maxTime - minTime).coerceAtLeast(1.0)
-    
-    /**
-     * maxInnovation val.
-     */
     val maxInnovation = (frames.maxOf { it.value }).coerceAtLeast(0.2) // minimum 20cm limit
 
     Canvas(
@@ -130,29 +106,13 @@ private fun VisionInnovationChart(frames: List<TelemetryFrame>) {
             .border(1.dp, AresBorder, RoundedCornerShape(6.dp))
             .background(AresBackground)
     ) {
-        /**
-         * w val.
-         */
         val w = size.width
-        /**
-         * h val.
-         */
         val h = size.height
 
         // Draw horizontal grid lines (showing center 0 line, and ± innovation thresholds)
-        /**
-         * center val.
-         */
         val center = h / 2f
         drawLine(color = AresBorder, start = Offset(0f, center), end = Offset(w, center), strokeWidth = 1.5f)
-        
-        /**
-         * threshYTop val.
-         */
         val threshYTop = center - (0.05 / maxInnovation * (h / 2f)).toFloat()
-        /**
-         * threshYBottom val.
-         */
         val threshYBottom = center + (0.05 / maxInnovation * (h / 2f)).toFloat()
         
         // Threshold line at 5cm (dashed warning line)
@@ -170,38 +130,16 @@ private fun VisionInnovationChart(frames: List<TelemetryFrame>) {
             strokeWidth = 1f,
             pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
         )
-
-        /**
-         * linePath val.
-         */
         val linePath = Path()
-        /**
-         * firstFrame val.
-         */
         val firstFrame = frames.first()
-        /**
-         * firstX val.
-         */
         val firstX = ((firstFrame.timestampMs - minTime) / timeRange * w).toFloat()
-        /**
-         * firstY val.
-         */
         val firstY = (center - (firstFrame.value / maxInnovation * (h / 2f))).toFloat().coerceIn(0f, h)
 
         linePath.moveTo(firstX, firstY)
 
         for (i in 1 until frames.size) {
-            /**
-             * f val.
-             */
             val f = frames[i]
-            /**
-             * x val.
-             */
             val x = ((f.timestampMs - minTime) / timeRange * w).toFloat()
-            /**
-             * y val.
-             */
             val y = (center - (f.value / maxInnovation * (h / 2f))).toFloat().coerceIn(0f, h)
             linePath.lineTo(x, y)
         }

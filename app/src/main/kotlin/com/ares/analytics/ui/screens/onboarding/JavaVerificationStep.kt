@@ -19,12 +19,11 @@ import com.ares.analytics.ui.theme.*
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun JavaVerificationStep(
     isValid: Boolean?,
@@ -46,17 +45,11 @@ fun JavaVerificationStep(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.weight(1f)
         ) {
-            /**
-             * icon val.
-             */
             val icon = when (isValid) {
                 true -> Icons.Default.CheckCircle
                 false -> Icons.Default.Error
                 null -> Icons.Default.HourglassEmpty
             }
-            /**
-             * tint val.
-             */
             val tint = when (isValid) {
                 true -> AresGreen
                 false -> AresError

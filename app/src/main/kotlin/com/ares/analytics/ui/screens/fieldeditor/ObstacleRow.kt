@@ -25,12 +25,11 @@ import com.ares.analytics.ui.theme.*
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun ObstacleRow(
     index: Int,
@@ -57,9 +56,6 @@ fun ObstacleRow(
             AresTextField(
                 value = obs.name,
                 onValueChange = { newName ->
-                    /**
-                     * updated val.
-                     */
                     val updated = when (obs) {
                         is Obstacle.Circle -> obs.copy(name = newName)
                         is Obstacle.Rectangle -> obs.copy(name = newName)
@@ -72,9 +68,6 @@ fun ObstacleRow(
                 textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
             )
             Spacer(modifier = Modifier.height(2.dp))
-            /**
-             * details val.
-             */
             val details = when (obs) {
                 is Obstacle.Circle -> "Circle | r=${String.format("%.2fm", obs.radius)}"
                 is Obstacle.Rectangle -> "Rect | ${String.format("%.2fm", obs.width)}x${String.format("%.2fm", obs.height)} @ ${String.format("%.0f°", obs.rotation)}"
@@ -100,21 +93,12 @@ fun ObstacleRow(
                     "#8E24AA", // Purple
                     "#E91E63"  // Pink
                 ).forEach { colorHex ->
-                    /**
-                     * color val.
-                     */
                     val color = try {
-                        /**
-                         * clean val.
-                         */
                         val clean = colorHex.removePrefix("#")
                         Color(0xFF000000 or clean.toLong(16))
                     } catch (e: Exception) {
                         AresRed
                     }
-                    /**
-                     * isSelected val.
-                     */
                     val isSelected = obs.colorHex.equals(colorHex, ignoreCase = true)
                     Box(
                         modifier = Modifier
@@ -127,9 +111,6 @@ fun ObstacleRow(
                                 shape = CircleShape
                             )
                             .clickable {
-                                /**
-                                 * updated val.
-                                 */
                                 val updated = when (obs) {
                                     is Obstacle.Circle -> obs.copy(colorHex = colorHex)
                                     is Obstacle.Rectangle -> obs.copy(colorHex = colorHex)
@@ -144,9 +125,6 @@ fun ObstacleRow(
             when (obs) {
                 is Obstacle.Circle -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        /**
-                         * cxText var.
-                         */
                         var cxText by remember(obs.id, obs.centerX) { mutableStateOf(obs.centerX.toString()) }
                         AresTextField(
                             value = cxText,
@@ -159,9 +137,6 @@ fun ObstacleRow(
                             modifier = Modifier.weight(1f),
                             textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                         )
-                        /**
-                         * cyText var.
-                         */
                         var cyText by remember(obs.id, obs.centerY) { mutableStateOf(obs.centerY.toString()) }
                         AresTextField(
                             value = cyText,
@@ -176,9 +151,6 @@ fun ObstacleRow(
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    /**
-                     * radiusText var.
-                     */
                     var radiusText by remember(obs.id, obs.radius) { mutableStateOf(obs.radius.toString()) }
                     AresTextField(
                         value = radiusText,
@@ -193,9 +165,6 @@ fun ObstacleRow(
                 }
                 is Obstacle.Rectangle -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        /**
-                         * cxText var.
-                         */
                         var cxText by remember(obs.id, obs.centerX) { mutableStateOf(obs.centerX.toString()) }
                         AresTextField(
                             value = cxText,
@@ -208,9 +177,6 @@ fun ObstacleRow(
                             modifier = Modifier.weight(1f),
                             textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                         )
-                        /**
-                         * cyText var.
-                         */
                         var cyText by remember(obs.id, obs.centerY) { mutableStateOf(obs.centerY.toString()) }
                         AresTextField(
                             value = cyText,
@@ -225,17 +191,8 @@ fun ObstacleRow(
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    /**
-                     * rectWText var.
-                     */
                     var rectWText by remember(obs.id, obs.width) { mutableStateOf(obs.width.toString()) }
-                    /**
-                     * rectHText var.
-                     */
                     var rectHText by remember(obs.id, obs.height) { mutableStateOf(obs.height.toString()) }
-                    /**
-                     * rotationText var.
-                     */
                     var rotationText by remember(obs.id, obs.rotation) { mutableStateOf(obs.rotation.toString()) }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -299,19 +256,12 @@ fun ObstacleRow(
                                         color = AresTextTertiary,
                                         modifier = Modifier.width(20.dp)
                                     )
-                                    
-                                    /**
-                                     * vxText var.
-                                     */
                                     var vxText by remember(obs.id, vIdx, vertex.x) { mutableStateOf(vertex.x.toString()) }
                                     AresTextField(
                                         value = vxText,
                                         onValueChange = { newVal ->
                                             vxText = newVal
                                             newVal.toDoubleOrNull()?.let { parsed ->
-                                                /**
-                                                 * updatedVertices val.
-                                                 */
                                                 val updatedVertices = obs.vertices.toMutableList()
                                                 updatedVertices[vIdx] = PathPoint(parsed, vertex.y)
                                                 onUpdate(index, obs.copy(vertices = updatedVertices))
@@ -322,19 +272,12 @@ fun ObstacleRow(
                                         modifier = Modifier.weight(1f),
                                         textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                                     )
-                                    
-                                    /**
-                                     * vyText var.
-                                     */
                                     var vyText by remember(obs.id, vIdx, vertex.y) { mutableStateOf(vertex.y.toString()) }
                                     AresTextField(
                                         value = vyText,
                                         onValueChange = { newVal ->
                                             vyText = newVal
                                             newVal.toDoubleOrNull()?.let { parsed ->
-                                                /**
-                                                 * updatedVertices val.
-                                                 */
                                                 val updatedVertices = obs.vertices.toMutableList()
                                                 updatedVertices[vIdx] = PathPoint(vertex.x, parsed)
                                                 onUpdate(index, obs.copy(vertices = updatedVertices))
@@ -348,9 +291,6 @@ fun ObstacleRow(
                                     
                                     IconButton(
                                         onClick = {
-                                            /**
-                                             * updatedVertices val.
-                                             */
                                             val updatedVertices = obs.vertices.toMutableList()
                                             updatedVertices.removeAt(vIdx)
                                             onUpdate(index, obs.copy(vertices = updatedVertices))
@@ -371,13 +311,7 @@ fun ObstacleRow(
                         
                         TextButton(
                             onClick = {
-                                /**
-                                 * updatedVertices val.
-                                 */
                                 val updatedVertices = obs.vertices.toMutableList()
-                                /**
-                                 * last val.
-                                 */
                                 val last = obs.vertices.lastOrNull() ?: PathPoint(0.0, 0.0)
                                 updatedVertices.add(PathPoint(last.x + 0.2, last.y + 0.2))
                                 onUpdate(index, obs.copy(vertices = updatedVertices))
@@ -393,9 +327,6 @@ fun ObstacleRow(
                 }
             }
         }
-        /**
-         * flipMenuExpanded var.
-         */
         var flipMenuExpanded by remember { mutableStateOf(false) }
         Box {
             IconButton(
@@ -413,9 +344,6 @@ fun ObstacleRow(
                     text = { Text("Mirror Horizontally", color = AresTextPrimary) },
                     onClick = {
                         flipMenuExpanded = false
-                        /**
-                         * mirrored val.
-                         */
                         val mirrored = onMirrorX(obs, fieldWidthM, league)
                         onUpdate(index, mirrored)
                     }
@@ -424,9 +352,6 @@ fun ObstacleRow(
                     text = { Text("Mirror Vertically", color = AresTextPrimary) },
                     onClick = {
                         flipMenuExpanded = false
-                        /**
-                         * mirrored val.
-                         */
                         val mirrored = onMirrorY(obs, fieldHeightM, league)
                         onUpdate(index, mirrored)
                     }
@@ -435,13 +360,7 @@ fun ObstacleRow(
                     text = { Text("Duplicate & Mirror X", color = AresTextPrimary) },
                     onClick = {
                         flipMenuExpanded = false
-                        /**
-                         * mirrored val.
-                         */
                         val mirrored = onMirrorX(obs, fieldWidthM, league)
-                        /**
-                         * copy val.
-                         */
                         val copy = when (mirrored) {
                             is Obstacle.Circle -> mirrored.copy(id = "circle_${System.currentTimeMillis()}", name = "${obs.name} Mirrored X")
                             is Obstacle.Rectangle -> mirrored.copy(id = "rect_${System.currentTimeMillis()}", name = "${obs.name} Mirrored X")
@@ -454,13 +373,7 @@ fun ObstacleRow(
                     text = { Text("Duplicate & Mirror Y", color = AresTextPrimary) },
                     onClick = {
                         flipMenuExpanded = false
-                        /**
-                         * mirrored val.
-                         */
                         val mirrored = onMirrorY(obs, fieldHeightM, league)
-                        /**
-                         * copy val.
-                         */
                         val copy = when (mirrored) {
                             is Obstacle.Circle -> mirrored.copy(id = "circle_${System.currentTimeMillis()}", name = "${obs.name} Mirrored Y")
                             is Obstacle.Rectangle -> mirrored.copy(id = "rect_${System.currentTimeMillis()}", name = "${obs.name} Mirrored Y")
@@ -474,9 +387,6 @@ fun ObstacleRow(
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             IconButton(
                 onClick = {
-                    /**
-                     * updated val.
-                     */
                     val updated = when (obs) {
                         is Obstacle.Circle -> obs.copy(locked = !obs.locked)
                         is Obstacle.Rectangle -> obs.copy(locked = !obs.locked)

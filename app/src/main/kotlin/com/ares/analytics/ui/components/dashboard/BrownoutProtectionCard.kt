@@ -20,45 +20,25 @@ import kotlinx.coroutines.launch
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun BrownoutProtectionCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    
-    /**
-     * powerScale var.
-     */
     var powerScale by remember { mutableStateOf(1.0) }
-    /**
-     * stateOfCharge var.
-     */
     var stateOfCharge by remember { mutableStateOf(100.0) }
-    /**
-     * brownoutState var.
-     */
     var brownoutState by remember { mutableStateOf("HEALTHY") }
-    /**
-     * tripCount var.
-     */
     var tripCount by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         scope.launch {
             nt4ClientService.telemetryFlow.collect { frame ->
-                /**
-                 * key val.
-                 */
                 val key = frame.key
                 when (key) {
                     "Robot/BrownoutPowerScale" -> powerScale = frame.value as? Double ?: 1.0
@@ -69,10 +49,6 @@ fun BrownoutProtectionCard(
             }
         }
     }
-
-    /**
-     * stateColor val.
-     */
     val stateColor = when (brownoutState) {
         "HEALTHY" -> AresGreen
         "WARNING" -> AresAmber

@@ -7,12 +7,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class RevlogDecoderService(
     private val databaseService: DatabaseService
@@ -24,28 +23,16 @@ class RevlogDecoderService(
         batcher: FrameBatcher,
         logParserService: LogParserService
     ) {
-        /**
-         * tempWpiLog val.
-         */
         val tempWpiLog = File(System.getProperty("java.io.tmpdir"), "revlog_" + UUID.randomUUID().toString() + ".wpilog")
         try {
             withContext(Dispatchers.IO) {
                 // Attempt to run the official revlog-converter via npx
-                /**
-                 * pb val.
-                 */
                 val pb = ProcessBuilder(
                     "cmd.exe", "/c",
                     "npx --yes @rev-robotics/revlog-converter ${file.absolutePath} -o ${tempWpiLog.absolutePath}"
                 )
                 pb.redirectErrorStream(true)
-                /**
-                 * process val.
-                 */
                 val process = pb.start()
-                /**
-                 * finished val.
-                 */
                 val finished = process.waitFor(30, TimeUnit.SECONDS)
                 if (!finished) {
                     process.destroyForcibly()
@@ -56,21 +43,12 @@ class RevlogDecoderService(
                     logParserService.parseWpiLog(tempWpiLog, sessionId, batcher)
                 } else {
                     // If npx failed or wasn't installed, fallback to check if revlog-converter is globally on PATH
-                    /**
-                     * pbFallback val.
-                     */
                     val pbFallback = ProcessBuilder(
                         "cmd.exe", "/c",
                         "revlog-converter ${file.absolutePath} -o ${tempWpiLog.absolutePath}"
                     )
                     pbFallback.redirectErrorStream(true)
-                    /**
-                     * processFallback val.
-                     */
                     val processFallback = pbFallback.start()
-                    /**
-                     * finishedFallback val.
-                     */
                     val finishedFallback = processFallback.waitFor(30, TimeUnit.SECONDS)
                     if (!finishedFallback) {
                         processFallback.destroyForcibly()

@@ -13,85 +13,30 @@ import kotlinx.coroutines.launch
 import org.lwjgl.glfw.GLFW.*
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class GamepadState(
-    /**
-     * connected val.
-     */
     val connected: Boolean = false,
-    /**
-     * name val.
-     */
     val name: String = "",
-    /**
-     * leftStickX val.
-     */
     val leftStickX: Float = 0f,
-    /**
-     * leftStickY val.
-     */
     val leftStickY: Float = 0f,
-    /**
-     * rightStickX val.
-     */
     val rightStickX: Float = 0f,
-    /**
-     * rightStickY val.
-     */
     val rightStickY: Float = 0f,
-    /**
-     * leftTrigger val.
-     */
     val leftTrigger: Float = 0f,
-    /**
-     * rightTrigger val.
-     */
     val rightTrigger: Float = 0f,
-    /**
-     * a val.
-     */
     val a: Boolean = false,
-    /**
-     * b val.
-     */
     val b: Boolean = false,
-    /**
-     * x val.
-     */
     val x: Boolean = false,
-    /**
-     * y val.
-     */
     val y: Boolean = false,
-    /**
-     * leftBumper val.
-     */
     val leftBumper: Boolean = false,
-    /**
-     * rightBumper val.
-     */
     val rightBumper: Boolean = false,
-    /**
-     * dpadUp val.
-     */
     val dpadUp: Boolean = false,
-    /**
-     * dpadDown val.
-     */
     val dpadDown: Boolean = false,
-    /**
-     * dpadLeft val.
-     */
     val dpadLeft: Boolean = false,
-    /**
-     * dpadRight val.
-     */
     val dpadRight: Boolean = false
 )
 
@@ -106,27 +51,20 @@ class GamepadService {
     private var isInitialized = false
 
     private val _gamepad1State = MutableStateFlow(GamepadState())
-    /**
-     * gamepad1State val.
-     */
     val gamepad1State: StateFlow<GamepadState> = _gamepad1State.asStateFlow()
 
     private val _gamepad2State = MutableStateFlow(GamepadState())
-    /**
-     * gamepad2State val.
-     */
     val gamepad2State: StateFlow<GamepadState> = _gamepad2State.asStateFlow()
 
     private var pollingJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO)
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun start() {
         if (!isInitialized) {
@@ -146,9 +84,6 @@ class GamepadService {
         if (pollingJob?.isActive == true) return
 
         pollingJob = scope.launch {
-            /**
-             * gamepadState val.
-             */
             val gamepadState = org.lwjgl.glfw.GLFWGamepadState.malloc()
             try {
                 while (isActive) {
@@ -177,37 +112,15 @@ class GamepadService {
             }
             return
         }
-
-        /**
-         * name val.
-         */
         val name = glfwGetJoystickName(joystickId) ?: "Unknown Gamepad"
 
         if (glfwJoystickIsGamepad(joystickId) && glfwGetGamepadState(joystickId, gamepadState)) {
             // Standardized gamepad API (Xbox/XInput mapping)
-            /**
-             * lx val.
-             */
             val lx = gamepadState.axes(GLFW_GAMEPAD_AXIS_LEFT_X)
-            /**
-             * ly val.
-             */
             val ly = gamepadState.axes(GLFW_GAMEPAD_AXIS_LEFT_Y)
-            /**
-             * rx val.
-             */
             val rx = gamepadState.axes(GLFW_GAMEPAD_AXIS_RIGHT_X)
-            /**
-             * ry val.
-             */
             val ry = gamepadState.axes(GLFW_GAMEPAD_AXIS_RIGHT_Y)
-            /**
-             * lt val.
-             */
             val lt = gamepadState.axes(GLFW_GAMEPAD_AXIS_LEFT_TRIGGER)
-            /**
-             * rt val.
-             */
             val rt = gamepadState.axes(GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER)
 
             stateFlow.update {
@@ -234,43 +147,14 @@ class GamepadService {
             }
         } else {
             // Fallback: raw joystick axes/buttons (DirectInput, Bluetooth, etc.)
-            /**
-             * axes val.
-             */
             val axes = glfwGetJoystickAxes(joystickId)
-            /**
-             * buttons val.
-             */
             val buttons = glfwGetJoystickButtons(joystickId)
-
-            /**
-             * lx val.
-             */
             val lx = if (axes != null && axes.capacity() > 0) axes[0] else 0f
-            /**
-             * ly val.
-             */
             val ly = if (axes != null && axes.capacity() > 1) axes[1] else 0f
-            /**
-             * rx val.
-             */
             val rx = if (axes != null && axes.capacity() > 2) axes[2] else 0f
-            /**
-             * ry val.
-             */
             val ry = if (axes != null && axes.capacity() > 3) axes[3] else 0f
-            /**
-             * lt val.
-             */
             val lt = if (axes != null && axes.capacity() > 4) axes[4] else -1f
-            /**
-             * rt val.
-             */
             val rt = if (axes != null && axes.capacity() > 5) axes[5] else -1f
-
-            /**
-             * cap val.
-             */
             val cap = buttons?.capacity() ?: 0
 
             stateFlow.update {
@@ -299,12 +183,11 @@ class GamepadService {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun stop() {
         pollingJob?.cancel()
@@ -312,12 +195,11 @@ class GamepadService {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun dispose() {
         stop()

@@ -5,19 +5,15 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class ParquetExporterService(private val databaseService: DatabaseService) {
 
     suspend fun exportSessionToParquet(sessionId: String, destinationFile: File) = withContext(Dispatchers.IO) {
-        /**
-         * count val.
-         */
         val count = databaseService.countTelemetryFrames(sessionId)
         if (count == 0L) {
             throw IllegalArgumentException("Cannot export empty session: $sessionId")
@@ -30,10 +26,6 @@ class ParquetExporterService(private val databaseService: DatabaseService) {
         if (destinationFile.exists()) {
             destinationFile.delete()
         }
-
-        /**
-         * absolutePath val.
-         */
         val absolutePath = destinationFile.absolutePath.replace("\\", "/")
         
         databaseService.executeRaw("""

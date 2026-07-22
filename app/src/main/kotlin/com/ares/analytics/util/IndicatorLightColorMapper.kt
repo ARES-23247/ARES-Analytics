@@ -35,27 +35,12 @@ object IndicatorLightColorMapper {
      * @return The interpolated [Color] for display
      */
     fun positionToColor(position: Double): Color {
-        /**
-         * pos val.
-         */
         val pos = position.coerceIn(0.0, 1.0)
         for (i in 0 until stops.size - 1) {
-            /**
-             * lo val.
-             */
             val lo = stops[i]
-            /**
-             * hi val.
-             */
             val hi = stops[i + 1]
             if (pos <= hi.position) {
-                /**
-                 * range val.
-                 */
                 val range = hi.position - lo.position
-                /**
-                 * t val.
-                 */
                 val t = if (range > 0.001) ((pos - lo.position) / range).toFloat() else 0f
                 return lerp(lo.color, hi.color, t.coerceIn(0f, 1f))
             }
@@ -70,9 +55,6 @@ object IndicatorLightColorMapper {
      * @return Human-readable color name
      */
     fun positionToName(position: Double): String {
-        /**
-         * pos val.
-         */
         val pos = position.coerceIn(0.0, 1.0)
         return when {
             pos < 0.140 -> "Off"

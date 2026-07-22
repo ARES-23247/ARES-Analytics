@@ -23,49 +23,26 @@ import kotlinx.coroutines.launch
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun SystemHealthCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    
-    /**
-     * loopTimeMs var.
-     */
     var loopTimeMs by remember { mutableStateOf<Double?>(null) }
-    /**
-     * batteryVoltage var.
-     */
     var batteryVoltage by remember { mutableStateOf<Double?>(null) }
-    /**
-     * brownoutCount var.
-     */
     var brownoutCount by remember { mutableStateOf<Int?>(null) }
-    /**
-     * loopOverruns var.
-     */
     var loopOverruns by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(Unit) {
         scope.launch {
             nt4ClientService.telemetryFlow.collect { frame ->
-                /**
-                 * key val.
-                 */
                 val key = frame.key.lowercase()
-                /**
-                 * value val.
-                 */
                 val value = frame.value
                 
                 when {
@@ -115,13 +92,7 @@ fun SystemHealthCard(
                 // Loop Time
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("LOOP TIME", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    /**
-                     * hz val.
-                     */
                     val hz = if (loopTimeMs != null && loopTimeMs!! > 0) 1000.0 / loopTimeMs!! else 0.0
-                    /**
-                     * loopColor val.
-                     */
                     val loopColor = when {
                         hz < 35.0 -> AresError
                         hz < 45.0 -> AresGold
@@ -144,13 +115,7 @@ fun SystemHealthCard(
                 // Overruns
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("OVERRUNS", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    /**
-                     * overrunVal val.
-                     */
                     val overrunVal = loopOverruns ?: 0
-                    /**
-                     * overrunColor val.
-                     */
                     val overrunColor = if (overrunVal > 0) AresGold else AresGreen
                     Text(
                         text = overrunVal.toString(),
@@ -164,13 +129,7 @@ fun SystemHealthCard(
                 // Battery Voltage
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("BATTERY", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    /**
-                     * voltage val.
-                     */
                     val voltage = batteryVoltage
-                    /**
-                     * batteryColor val.
-                     */
                     val batteryColor = when {
                         voltage == null -> AresTextPrimary
                         voltage < 11.5 -> AresError
@@ -189,13 +148,7 @@ fun SystemHealthCard(
                 // Brownouts
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("BROWNOUTS", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    /**
-                     * brownoutVal val.
-                     */
                     val brownoutVal = brownoutCount ?: 0
-                    /**
-                     * brownoutColor val.
-                     */
                     val brownoutColor = if (brownoutVal > 0) AresError else AresTextPrimary
                     Text(
                         text = brownoutVal.toString(),

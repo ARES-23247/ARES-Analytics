@@ -25,30 +25,17 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 
 private class RunningStats {
-    /**
-     * current var.
-     */
     var current: Double = 0.0
-    /**
-     * sum var.
-     */
     var sum: Double = 0.0
-    /**
-     * count var.
-     */
     var count: Long = 0L
-    /**
-     * max var.
-     */
     var max: Double = 0.0
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun update(value: Double) {
         current = value
@@ -60,12 +47,11 @@ private class RunningStats {
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun reset() {
         current = 0.0
@@ -73,58 +59,35 @@ private class RunningStats {
         count = 0L
         max = 0.0
     }
-
-    /**
-     * average val.
-     */
     val average: Double
         get() = if (count > 0) sum / count else 0.0
 }
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun ProfilingDiagnosticsCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
     
     // Concurrent map to hold running stats for each profiling key
-    /**
-     * statsMap val.
-     */
     val statsMap = remember { ConcurrentHashMap<String, RunningStats>() }
     // State trigger to force recomposition when stats update
-    /**
-     * updateTrigger var.
-     */
     var updateTrigger by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         scope.launch {
             nt4ClientService.telemetryFlow.collect { frame ->
-                /**
-                 * key val.
-                 */
                 val key = frame.key
                 if (key.startsWith("Profiling/")) {
-                    /**
-                     * cleanKey val.
-                     */
                     val cleanKey = key.removePrefix("Profiling/").removeSuffix("_ms")
-                    /**
-                     * stats val.
-                     */
                     val stats = statsMap.getOrPut(cleanKey) { RunningStats() }
                     stats.update(frame.value)
                     updateTrigger++
@@ -193,9 +156,6 @@ fun ProfilingDiagnosticsCard(
             }
 
             // Key mapping for update trigger
-            /**
-             * statsList val.
-             */
             val statsList = remember(updateTrigger) {
                 statsMap.entries.map { it.key to it.value }.sortedBy { it.first }
             }
@@ -220,17 +180,8 @@ fun ProfilingDiagnosticsCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     statsList.forEach { (name, stats) ->
-                        /**
-                         * displayName val.
-                         */
                         val displayName = name.replace(Regex("([a-z])([A-Z]+)"), "$1 $2").replaceFirstChar { it.uppercase() }
-                        /**
-                         * isOverrunAlert val.
-                         */
                         val isOverrunAlert = name.equals("Total", ignoreCase = true) && stats.current > 20.0 // 50Hz budget = 20ms
-                        /**
-                         * textColor val.
-                         */
                         val textColor = when {
                             isOverrunAlert -> AresRed
                             name.equals("Total", ignoreCase = true) -> AresCyan

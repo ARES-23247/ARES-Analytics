@@ -8,12 +8,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class SysIdSignalGenerator(
     private val nt4ClientService: Nt4ClientService,
@@ -23,10 +22,6 @@ class SysIdSignalGenerator(
         _state.update { it.copy(exportStatus = "Applying to robot over NT4...") }
         try {
             nt4ClientService.publishDouble("Tuning/driverDeadbandExponent", recommendedExponent)
-            
-            /**
-             * slewVal val.
-             */
             val slewVal = if (recommendedSlewRate == Double.MAX_VALUE) 999.0 else recommendedSlewRate
             nt4ClientService.publishDouble("Tuning/driverSlewRateLimit", slewVal)
             
@@ -40,9 +35,6 @@ class SysIdSignalGenerator(
 
     suspend fun startRoutine(mechanism: SysIdMechanism, routine: SysIdRoutine) {
         _state.update { it.copy(liveSamples = emptyList(), liveCalibrationData = emptyList(), isRoutineRunning = true, summary = null, isLoading = true) }
-        /**
-         * cmd val.
-         */
         val cmd = "START_${mechanism.name}_${routine.name}"
         nt4ClientService.publishInputString(1015, cmd)
     }
@@ -83,13 +75,7 @@ class SysIdSignalGenerator(
         try {
             when (calibrationType) {
                 "PINPOINT_SPIN" -> {
-                    /**
-                     * x val.
-                     */
                     val x = _state.value.recommendedPinpointXOffsetMm
-                    /**
-                     * y val.
-                     */
                     val y = _state.value.recommendedPinpointYOffsetMm
                     if (x != null && y != null) {
                         nt4ClientService.publishDouble("Tuning/pinpointXOffsetMm", x)
@@ -98,9 +84,6 @@ class SysIdSignalGenerator(
                     }
                 }
                 "TRACK_WIDTH_SPIN" -> {
-                    /**
-                     * tw val.
-                     */
                     val tw = _state.value.recommendedTrackWidthMeters
                     if (tw != null) {
                         nt4ClientService.publishDouble("Tuning/trackWidthMeters", tw)
@@ -108,17 +91,8 @@ class SysIdSignalGenerator(
                     }
                 }
                 "VISION_CALIBRATION" -> {
-                    /**
-                     * sx val.
-                     */
                     val sx = _state.value.recommendedVisionStdDevsX
-                    /**
-                     * sy val.
-                     */
                     val sy = _state.value.recommendedVisionStdDevsY
-                    /**
-                     * sh val.
-                     */
                     val sh = _state.value.recommendedVisionStdDevsHeading
                     if (sx != null && sy != null && sh != null) {
                         nt4ClientService.publishDouble("Tuning/visionStdDevsX", sx)
@@ -128,9 +102,6 @@ class SysIdSignalGenerator(
                     }
                 }
                 "LINEAR_DRIVE" -> {
-                    /**
-                     * ticks val.
-                     */
                     val ticks = _state.value.recommendedTicksPerMeter
                     if (ticks != null) {
                         nt4ClientService.publishDouble("Tuning/ticksPerMeter", ticks)

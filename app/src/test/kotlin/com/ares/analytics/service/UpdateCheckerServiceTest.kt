@@ -22,9 +22,6 @@ class UpdateCheckerServiceTest {
      * testCheckForUpdatesAvailable fun.
      */
     fun testCheckForUpdatesAvailable() = runBlocking {
-        /**
-         * mockEngine val.
-         */
         val mockEngine = MockEngine { request ->
             respond(
                 content = """
@@ -38,32 +35,18 @@ class UpdateCheckerServiceTest {
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
             )
         }
-
-        /**
-         * client val.
-         */
         val client = HttpClient(mockEngine) {
             install(ContentNegotiation) {
                 json(Json { ignoreUnknownKeys = true })
             }
         }
-
-        /**
-         * service val.
-         */
         val service = UpdateCheckerService(client)
 
         // Trigger update check
         service.checkForUpdates()
 
         // Wait until update state transitions away from Checking or UpToDate
-        /**
-         * state var.
-         */
         var state = service.updateState.value
-        /**
-         * retries var.
-         */
         var retries = 0
         while ((state is UpdateCheckerService.UpdateState.Checking || state is UpdateCheckerService.UpdateState.UpToDate) && retries < 50) {
             delay(50)
@@ -85,9 +68,6 @@ class UpdateCheckerServiceTest {
      * testCheckForUpdatesUpToDate fun.
      */
     fun testCheckForUpdatesUpToDate() = runBlocking {
-        /**
-         * mockEngine val.
-         */
         val mockEngine = MockEngine { request ->
             respond(
                 content = """
@@ -101,31 +81,16 @@ class UpdateCheckerServiceTest {
                 headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
             )
         }
-
-        /**
-         * client val.
-         */
         val client = HttpClient(mockEngine) {
             install(ContentNegotiation) {
                 json(Json { ignoreUnknownKeys = true })
             }
         }
-
-        /**
-         * service val.
-         */
         val service = UpdateCheckerService(client)
 
         // Trigger update check
         service.checkForUpdates()
-
-        /**
-         * state var.
-         */
         var state = service.updateState.value
-        /**
-         * retries var.
-         */
         var retries = 0
         while (state is UpdateCheckerService.UpdateState.Checking && retries < 50) {
             delay(50)

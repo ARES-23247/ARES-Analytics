@@ -19,57 +19,24 @@ class AutoImportServiceTest {
      * testLocalLogsAutoImport fun.
      */
     fun testLocalLogsAutoImport() = runBlocking {
-        /**
-         * tempDb val.
-         */
         val tempDb = File.createTempFile("auto_import_db", ".db").apply { deleteOnExit() }
-        /**
-         * databaseService val.
-         */
         val databaseService = DatabaseService(tempDb.absolutePath)
-        /**
-         * sysIdService val.
-         */
         val sysIdService = SysIdService(databaseService)
-        /**
-         * driverAnalysisService val.
-         */
         val driverAnalysisService = DriverAnalysisService(databaseService, sysIdService)
-        /**
-         * summaryEngineService val.
-         */
         val summaryEngineService = SummaryEngineService(databaseService, sysIdService, driverAnalysisService)
-        /**
-         * logParserService val.
-         */
         val logParserService = LogParserService(databaseService, summaryEngineService)
-        /**
-         * hootDecoderService val.
-         */
         val hootDecoderService = HootDecoderService(databaseService, summaryEngineService, sysIdService)
         
         // Mock ProcessManagerService
-        /**
-         * processManagerService val.
-         */
         val processManagerService = ProcessManagerService()
 
         // Create a temporary project path
-        /**
-         * tempProjectDir val.
-         */
         val tempProjectDir = File(System.getProperty("java.io.tmpdir"), "ares_project_test_${System.currentTimeMillis()}")
         tempProjectDir.mkdirs()
-        /**
-         * logsDir val.
-         */
         val logsDir = File(tempProjectDir, "logs")
         logsDir.mkdirs()
 
         // Write a mock log file
-        /**
-         * mockLog val.
-         */
         val mockLog = File(logsDir, "test_run.csv")
         mockLog.writeText(
             """
@@ -78,10 +45,6 @@ class AutoImportServiceTest {
             2000, 11.8, 1.6
             """.trimIndent()
         )
-
-        /**
-         * config val.
-         */
         val config = WorkspaceConfig(
             teamId = "1234",
             seasonId = "2026",
@@ -89,14 +52,7 @@ class AutoImportServiceTest {
             projectPath = tempProjectDir.absolutePath,
             league = League.FTC
         )
-
-        /**
-         * importSuccessCalled var.
-         */
         var importSuccessCalled = false
-        /**
-         * autoImportService val.
-         */
         val autoImportService = AutoImportService(
             databaseService = databaseService,
             logParserService = logParserService,
@@ -115,9 +71,6 @@ class AutoImportServiceTest {
         // or we just call the private methods by exposing them, or since the service runs in a loop,
         // we can wait a moment or just verify the file moves after a short delay since it is running on a coroutine.
         // Let's delay the test thread slightly to allow the loop to run.
-        /**
-         * retries var.
-         */
         var retries = 0
         while (!importSuccessCalled && retries < 50) {
             kotlinx.coroutines.delay(100)
@@ -132,9 +85,6 @@ class AutoImportServiceTest {
         assertTrue(!mockLog.exists(), "Original log file was not deleted/moved")
 
         // Verify session was inserted into database
-        /**
-         * sessions val.
-         */
         val sessions = databaseService.getSessions()
         assertEquals(1, sessions.size)
         assertEquals("1234", sessions[0].teamId)

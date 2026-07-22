@@ -22,60 +22,52 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 @Serializable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class GithubAuthRequest(val githubToken: String, val targetOrg: String? = null)
 
 @Serializable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class GithubOrg(val login: String)
 
 @Serializable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class GithubUser(val login: String)
 
 @Serializable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class AuthSuccessResponse(val status: String, val username: String, val orgs: List<String>, val role: String)
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun Route.authRoutes() {
-    /**
-     * httpClient val.
-     */
     val httpClient = HttpClient {
         install(ContentNegotiation) {
             json(AppJson)
@@ -84,22 +76,12 @@ fun Route.authRoutes() {
 
     authenticate("firebase") {
         post("/api/auth/github") {
-            /**
-             * principal val.
-             */
             val principal = call.principal<FirebasePrincipal>()
                 ?: return@post call.respond(HttpStatusCode.Unauthorized, "No valid Firebase principal")
-
-            /**
-             * req val.
-             */
             val req = call.receive<GithubAuthRequest>()
 
             try {
                 // Query GitHub API for user's organizations
-                /**
-                 * orgs val.
-                 */
                 val orgs = httpClient.prepareGet("https://api.github.com/user/orgs") {
                     header(HttpHeaders.Authorization, "token ${req.githubToken}")
                     header(HttpHeaders.Accept, "application/vnd.github.v3+json")
@@ -109,9 +91,6 @@ fun Route.authRoutes() {
                     }
                     orgsResponse.body<List<GithubOrg>>()
                 } ?: return@post call.respond(HttpStatusCode.BadRequest, "Failed to verify GitHub token")
-                /**
-                 * orgNames val.
-                 */
                 val orgNames = orgs.map { it.login }
 
                 // If a target organization is specified, verify membership
@@ -123,9 +102,6 @@ fun Route.authRoutes() {
                 }
 
                 // Query username to resolve teams
-                /**
-                 * username val.
-                 */
                 val username = httpClient.prepareGet("https://api.github.com/user") {
                     header(HttpHeaders.Authorization, "token ${req.githubToken}")
                     header(HttpHeaders.Accept, "application/vnd.github.v3+json")
@@ -136,9 +112,6 @@ fun Route.authRoutes() {
                 }
 
                 // Determine sub-team admin tier
-                /**
-                 * role var.
-                 */
                 var role = "VIEWER"
                 if (req.targetOrg != null && username != null) {
                     // Check mentors membership
@@ -153,18 +126,8 @@ fun Route.authRoutes() {
                 }
 
                 // Provision/Update user document in Firestore
-                /**
-                 * db val.
-                 */
                 val db = FirestoreOptions.getDefaultInstance().service
-                /**
-                 * userDocRef val.
-                 */
                 val userDocRef = db.collection("users").document(principal.uid)
-
-                /**
-                 * userData val.
-                 */
                 val userData = mapOf(
                     "uid" to principal.uid,
                     "email" to principal.email,

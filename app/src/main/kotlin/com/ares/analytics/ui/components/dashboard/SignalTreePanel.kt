@@ -34,94 +34,55 @@ import kotlin.math.roundToInt
 
 // ── Global Drag & Drop Manager ──────────────────────────────────────────────
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 object DragDropManager {
-    /**
-     * draggedSignalKey var.
-     */
     var draggedSignalKey by mutableStateOf<String?>(null)
-    /**
-     * dragOffset var.
-     */
     var dragOffset by mutableStateOf(Offset.Zero)
 }
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class SignalNode(
-    /**
-     * name val.
-     */
     val name: String,
-    /**
-     * fullPath val.
-     */
     val fullPath: String,
-    /**
-     * isLeaf val.
-     */
     val isLeaf: Boolean,
-    /**
-     * children val.
-     */
     val children: MutableMap<String, SignalNode> = mutableMapOf()
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun SignalTreePanel(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    /**
-     * activeTopics val.
-     */
     val activeTopics = remember { mutableStateListOf<String>() }
-    /**
-     * liveValues val.
-     */
     val liveValues = remember { mutableStateMapOf<String, Double>() }
-    /**
-     * searchQuery var.
-     */
     var searchQuery by remember { mutableStateOf("") }
     
     // Track expanded folders: fullPath -> Boolean
-    /**
-     * expandedStates val.
-     */
     val expandedStates = remember { mutableStateMapOf<String, Boolean>() }
 
     // Periodically update active topics
     LaunchedEffect(Unit) {
         while (true) {
-            /**
-             * topics val.
-             */
             val topics = nt4ClientService.getActiveTopics()
             // Add any new topics
             topics.forEach { topic ->
@@ -143,45 +104,20 @@ fun SignalTreePanel(
     }
 
     // Build the hierarchical tree from active topics and search query
-    /**
-     * rootNode val.
-     */
     val rootNode = remember(activeTopics.toList(), searchQuery) {
-        /**
-         * filtered val.
-         */
         val filtered = if (searchQuery.isEmpty()) {
             activeTopics.toList()
         } else {
             activeTopics.filter { it.contains(searchQuery, ignoreCase = true) }
         }
-        
-        /**
-         * root val.
-         */
         val root = SignalNode("", "", false)
         for (topic in filtered) {
-            /**
-             * parts val.
-             */
             val parts = topic.split("/").filter { it.isNotEmpty() }
-            /**
-             * current var.
-             */
             var current = root
-            /**
-             * currentPath var.
-             */
             var currentPath = ""
             for (i in parts.indices) {
-                /**
-                 * part val.
-                 */
                 val part = parts[i]
                 currentPath += "/$part"
-                /**
-                 * isLeaf val.
-                 */
                 val isLeaf = (i == parts.lastIndex)
                 current = current.children.getOrPut(part) {
                     SignalNode(part, currentPath, isLeaf)
@@ -193,29 +129,19 @@ fun SignalTreePanel(
 
     // Flatten tree to visible items based on expansion state
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun getVisibleItems(node: SignalNode, depth: Int): List<Pair<SignalNode, Int>> {
-        /**
-         * items val.
-         */
         val items = mutableListOf<Pair<SignalNode, Int>>()
         
         // Sort children alphabetically
-        /**
-         * sortedChildren val.
-         */
         val sortedChildren = node.children.values.sortedBy { it.name }
         for (child in sortedChildren) {
             items.add(child to depth)
-            /**
-             * isExpanded val.
-             */
             val isExpanded = expandedStates[child.fullPath] ?: (searchQuery.isNotEmpty())
             if (!child.isLeaf && isExpanded) {
                 items.addAll(getVisibleItems(child, depth + 1))
@@ -223,10 +149,6 @@ fun SignalTreePanel(
         }
         return items
     }
-
-    /**
-     * visibleItems val.
-     */
     val visibleItems = remember(rootNode, expandedStates.toMap(), searchQuery) {
         getVisibleItems(rootNode, 0)
     }
@@ -318,12 +240,11 @@ fun SignalTreePanel(
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun SignalTreeRow(
     node: SignalNode,
@@ -337,9 +258,6 @@ fun SignalTreeRow(
         if (!node.isLeaf) {
             Icons.Default.Folder to AresTextSecondary
         } else {
-            /**
-             * pathLower val.
-             */
             val pathLower = node.fullPath.lowercase()
             when {
                 pathLower.contains("pose") || pathLower.contains("translation") || pathLower.contains("rotation") -> {

@@ -16,21 +16,17 @@ import com.ares.analytics.viewmodel.PathPlannerViewModel
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun PathPlannerScreen(
     viewModel: PathPlannerViewModel,
     league: League,
     projectPath: String? = null
 ) {
-    /**
-     * state val.
-     */
     val state by viewModel.state.collectAsState()
 
     LaunchedEffect(state.pathName, projectPath, state.activeEditorMode) {
@@ -44,23 +40,10 @@ fun PathPlannerScreen(
     LaunchedEffect(projectPath, state.saveStatus) {
         viewModel.onIntent(PathPlannerIntent.FetchAvailablePaths(projectPath, league))
     }
-
-    /**
-     * playbackPose val.
-     */
     val playbackPose = remember(state.trajectory, state.playbackTime) {
-        /**
-         * traj val.
-         */
         val traj = state.trajectory
         if (traj != null && traj.states.isNotEmpty()) {
-            /**
-             * idx val.
-             */
             val idx = traj.states.indexOfFirst { it.timeSeconds >= state.playbackTime }
-            /**
-             * stateAtTime val.
-             */
             val stateAtTime = if (idx == -1) traj.states.last() else traj.states[idx]
             Waypoint(stateAtTime.x, stateAtTime.y, stateAtTime.headingRad)
         } else {
@@ -73,14 +56,8 @@ fun PathPlannerScreen(
             modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
             horizontalArrangement = Arrangement.Center
         ) {
-            /**
-             * modes val.
-             */
             val modes = listOf("Path", "Auto")
             modes.forEach { mode ->
-                /**
-                 * selected val.
-                 */
                 val selected = state.activeEditorMode == mode
                 Button(
                     onClick = { viewModel.onIntent(PathPlannerIntent.UpdateEditorMode(mode)) },

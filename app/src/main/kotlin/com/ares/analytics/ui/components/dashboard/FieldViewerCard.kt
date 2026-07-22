@@ -35,12 +35,11 @@ import com.areslib.math.coordinate.FieldSymmetry
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun FieldViewerCard(
     nt4ClientService: Nt4ClientService,
@@ -50,75 +49,26 @@ fun FieldViewerCard(
     onPropertiesChanged: (Map<String, String>) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    /**
-     * scope val.
-     */
     val scope = rememberCoroutineScope()
-    /**
-     * viewModel val.
-     */
     val viewModel = remember(nt4ClientService) { FieldViewerViewModel(nt4ClientService, scope) }
-    /**
-     * state val.
-     */
     val state by viewModel.state.collectAsState()
-
-    /**
-     * estimatedPose val.
-     */
     val estimatedPose = if (state.ekfX != null && state.ekfY != null && state.ekfHeading != null) {
         Waypoint(state.ekfX!!, state.ekfY!!, state.ekfHeading!!)
     } else null
-
-    /**
-     * odomPose val.
-     */
     val odomPose = if (state.odomX != null && state.odomY != null && state.odomHeading != null) {
         Waypoint(state.odomX!!, state.odomY!!, state.odomHeading!!)
     } else null
-
-    /**
-     * showEkfPose var.
-     */
     var showEkfPose by remember { mutableStateOf(true) }
-    /**
-     * showOdomPose var.
-     */
     var showOdomPose by remember { mutableStateOf(true) }
-    /**
-     * showVisionPoses var.
-     */
     var showVisionPoses by remember { mutableStateOf(true) }
-    /**
-     * layersMenuExpanded var.
-     */
     var layersMenuExpanded by remember { mutableStateOf(false) }
-
-    /**
-     * activeVisionPoses val.
-     */
     val activeVisionPoses = remember(state.visionPoses, state.visionX, state.visionY, state.visionHeading, state.visionHasTarget) {
-        /**
-         * list val.
-         */
         val list = mutableListOf<Waypoint>()
         if (state.visionHasTarget) {
-            /**
-             * maxIndex val.
-             */
             val maxIndex = state.visionPoses.keys.maxOrNull() ?: -1
             for (i in 0..maxIndex step 3) {
-                /**
-                 * vx val.
-                 */
                 val vx = state.visionPoses[i]
-                /**
-                 * vy val.
-                 */
                 val vy = state.visionPoses[i + 1]
-                /**
-                 * vh val.
-                 */
                 val vh = state.visionPoses[i + 2]
                 if (vx != null && vy != null && vh != null) {
                     list.add(Waypoint(vx, vy, vh))
@@ -168,9 +118,6 @@ fun FieldViewerCard(
                 )
                 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    /**
-                     * menuExpanded var.
-                     */
                     var menuExpanded by remember { mutableStateOf(false) }
                     Box {
                         TextButton(
@@ -203,16 +150,9 @@ fun FieldViewerCard(
                             }
                         }
                     }
-                
-                    /**
-                     * currentRotation val.
-                     */
                     val currentRotation = properties["rotation"]?.toFloatOrNull() ?: 0f
                     IconButton(
                         onClick = {
-                            /**
-                             * nextRot val.
-                             */
                             val nextRot = (currentRotation + 90f) % 360f
                             onPropertiesChanged(properties + ("rotation" to nextRot.toString()))
                         },
@@ -225,10 +165,6 @@ fun FieldViewerCard(
                             modifier = Modifier.size(16.dp)
                         )
                     }
-
-                    /**
-                     * showTracer val.
-                     */
                     val showTracer = properties["show_tracer"]?.toBoolean() ?: false
                     IconButton(
                         onClick = { onPropertiesChanged(properties + ("show_tracer" to (!showTracer).toString())) },
@@ -259,14 +195,8 @@ fun FieldViewerCard(
                             onDismissRequest = { layersMenuExpanded = false },
                             modifier = Modifier.background(AresBackground)
                         ) {
-                            /**
-                             * allSelected val.
-                             */
                             val allSelected = showEkfPose && showOdomPose && showVisionPoses
                             DropdownMenuItem(onClick = {
-                                /**
-                                 * target val.
-                                 */
                                 val target = !allSelected
                                 showEkfPose = target
                                 showOdomPose = target
@@ -378,28 +308,12 @@ fun FieldViewerCard(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
             ) {
-                /**
-                 * tracerEnabled val.
-                 */
                 val tracerEnabled = properties["show_tracer"]?.toBoolean() == true
-                
-                /**
-                 * displayWaypoints val.
-                 */
                 val displayWaypoints = remember(state.selectedPathWaypoints, state.isRedAlliance) {
                     if (!state.isRedAlliance) state.selectedPathWaypoints
                     else state.selectedPathWaypoints.map { wp ->
-                        /**
-                         * pose val.
-                         */
                         val pose = Pose2d(wp.x, wp.y, Rotation2d(wp.headingRad ?: 0.0))
-                        /**
-                         * mirrored val.
-                         */
                         val mirrored = AllianceMirroring.mirror(pose, Alliance.RED, FieldSymmetry.MIRRORED)
-                        /**
-                         * mirroredRot val.
-                         */
                         val mirroredRot = wp.rotationDeg?.let { r -> -r }
                         Waypoint(mirrored.x, mirrored.y, if (wp.headingRad == null) null else mirrored.heading.radians, wp.prevControlLength, wp.nextControlLength, rotationDeg = mirroredRot)
                     }

@@ -9,71 +9,41 @@ import java.io.File
 
 @Serializable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class WidgetConfig(
-    /**
-     * id val.
-     */
     val id: String,
-    /**
-     * type val.
-     */
     val type: String, // "runs_index", "alerts", "telemetry_chart", "motor_health", "vision_quality", "ai_coach", "match_schedule", "console_viewer"
-    /**
-     * row val.
-     */
     val row: Int,
-    /**
-     * col val.
-     */
     val col: Int,
-    /**
-     * rowSpan val.
-     */
     val rowSpan: Int,
-    /**
-     * colSpan val.
-     */
     val colSpan: Int,
-    /**
-     * isLocked val.
-     */
     val isLocked: Boolean = false,
-    /**
-     * properties val.
-     */
     val properties: Map<String, String> = emptyMap()
 )
 
 @Serializable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class DashboardLayoutConfig(
-    /**
-     * widgets val.
-     */
     val widgets: List<WidgetConfig>
 )
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class LayoutPreferenceService(
     private val baseDir: String = System.getProperty("user.home") + "/.ares-analytics/layouts"
@@ -89,17 +59,11 @@ class LayoutPreferenceService(
     }
 
     suspend fun saveLayout(profileName: String, config: DashboardLayoutConfig) = withContext(Dispatchers.IO) {
-        /**
-         * file val.
-         */
         val file = getFileForProfile(profileName)
         file.writeText(json.encodeToString(config))
     }
 
     suspend fun loadLayout(profileName: String): DashboardLayoutConfig = withContext(Dispatchers.IO) {
-        /**
-         * file val.
-         */
         val file = getFileForProfile(profileName)
         if (file.exists()) {
             try {
@@ -113,12 +77,11 @@ class LayoutPreferenceService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun getDefaultLayout(profileName: String): DashboardLayoutConfig {
         return when (profileName.lowercase().replace(" ", "_")) {
@@ -170,22 +133,15 @@ class LayoutPreferenceService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun getSavedLayouts(): List<String> {
-        /**
-         * dir val.
-         */
         val dir = File(baseDir)
         if (!dir.exists()) return emptyList()
-        /**
-         * files val.
-         */
         val files = dir.listFiles { _, name -> name.endsWith(".json") } ?: return emptyList()
         return files.map { file ->
             file.nameWithoutExtension.split("_").joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
@@ -193,29 +149,19 @@ class LayoutPreferenceService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun getAvailableLayouts(): List<String> {
-        /**
-         * defaults val.
-         */
         val defaults = listOf("Standard", "Driver Coach", "Programmer", "Pit Crew", "Match Review", "Pit Diagnostics", "Driver Practice")
-        /**
-         * saved val.
-         */
         val saved = getSavedLayouts()
         return (defaults + saved).distinct()
     }
 
     suspend fun deleteLayout(profileName: String): Boolean = withContext(Dispatchers.IO) {
-        /**
-         * file val.
-         */
         val file = getFileForProfile(profileName)
         if (file.exists()) {
             file.delete()

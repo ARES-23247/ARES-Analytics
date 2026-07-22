@@ -43,29 +43,19 @@ import androidx.compose.ui.text.TextStyle
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun TuningScreen(
     viewModel: TuningViewModel,
     sysIdViewModel: SysIdViewModel,
     projectPath: String // Kept for compatibility but unused
 ) {
-    /**
-     * state val.
-     */
     val state by viewModel.state.collectAsState()
-    /**
-     * sysIdState val.
-     */
     val sysIdState by sysIdViewModel.state.collectAsState()
-    /**
-     * activeCalTab var.
-     */
     var activeCalTab by remember { mutableStateOf(0) }
 
     Row(
@@ -127,14 +117,8 @@ fun TuningScreen(
                     .border(1.dp, AresBorder, RoundedCornerShape(6.dp)),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                /**
-                 * calTabs val.
-                 */
                 val calTabs = listOf("SysId", "Pinpoint", "Track Width", "Vision")
                 calTabs.forEachIndexed { index, title ->
-                    /**
-                     * selected val.
-                     */
                     val selected = activeCalTab == index
                     Box(
                         modifier = Modifier
@@ -176,9 +160,6 @@ fun TuningScreen(
                                         .border(1.dp, AresBorder, RoundedCornerShape(6.dp))
                                 ) {
                                     SysIdMechanism.values().forEach { mech ->
-                                        /**
-                                         * selected val.
-                                         */
                                         val selected = sysIdState.selectedMechanism == mech
                                         Box(
                                             modifier = Modifier
@@ -215,10 +196,6 @@ fun TuningScreen(
                                 }
                             }
                         }
-
-                        /**
-                         * summary val.
-                         */
                         val summary = sysIdState.summary
                         if (summary != null) {
                             HorizontalDivider(color = AresBorder)
@@ -244,13 +221,7 @@ fun TuningScreen(
                                     onClick = { sysIdViewModel.onIntent(SysIdIntent.StartCalibration("PINPOINT_SPIN")) },
                                     enabled = sysIdState.isRobotConnected
                                 )
-                                /**
-                                 * px val.
-                                 */
                                 val px = sysIdState.recommendedPinpointXOffsetMm
-                                /**
-                                 * py val.
-                                 */
                                 val py = sysIdState.recommendedPinpointYOffsetMm
                                 if (px != null && py != null) {
                                     ParamRow("Recommended X Offset", String.format("%.2f mm", px))
@@ -262,9 +233,6 @@ fun TuningScreen(
                                 HorizontalDivider(color = AresBorder)
 
                                 Text("Ticks/Meter Encoder Calibration", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AresCyan)
-                                /**
-                                 * distText var.
-                                 */
                                 var distText by remember(sysIdState.linearDriveActualDistanceMeters) { 
                                     mutableStateOf(sysIdState.linearDriveActualDistanceMeters.toString()) 
                                 }
@@ -278,9 +246,6 @@ fun TuningScreen(
                                         value = distText,
                                         onValueChange = { 
                                             distText = it
-                                            /**
-                                             * parsed val.
-                                             */
                                             val parsed = it.toDoubleOrNull()
                                             if (parsed != null && parsed > 0.0) {
                                                 sysIdViewModel.onIntent(SysIdIntent.SetLinearDriveDistance(parsed))
@@ -303,9 +268,6 @@ fun TuningScreen(
                                     onClick = { sysIdViewModel.onIntent(SysIdIntent.StartCalibration("LINEAR_DRIVE")) },
                                     enabled = sysIdState.isRobotConnected
                                 )
-                                /**
-                                 * ticks val.
-                                 */
                                 val ticks = sysIdState.recommendedTicksPerMeter
                                 if (ticks != null) {
                                     ParamRow("Recommended Ticks/Meter", String.format("%.2f", ticks))
@@ -326,10 +288,6 @@ fun TuningScreen(
                                     enabled = sysIdState.isRobotConnected
                             )
                         }
-
-                        /**
-                         * tw val.
-                         */
                         val tw = sysIdState.recommendedTrackWidthMeters
                         if (tw != null) {
                             HorizontalDivider(color = AresBorder)
@@ -350,18 +308,8 @@ fun TuningScreen(
                                 enabled = sysIdState.isRobotConnected
                             )
                         }
-
-                        /**
-                         * vx val.
-                         */
                         val vx = sysIdState.recommendedVisionStdDevsX
-                        /**
-                         * vy val.
-                         */
                         val vy = sysIdState.recommendedVisionStdDevsY
-                        /**
-                         * vh val.
-                         */
                         val vh = sysIdState.recommendedVisionStdDevsHeading
                         if (vx != null && vy != null && vh != null) {
                             HorizontalDivider(color = AresBorder)
@@ -528,37 +476,14 @@ private fun LiveTelemetryPlot(samples: List<AlignedDataRow>) {
             .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
     ) {
         if (samples.size < 2) return@Canvas
-
-        /**
-         * maxTime val.
-         */
         val maxTime = samples.maxOf { it.timestampMs }
-        /**
-         * minTime val.
-         */
         val minTime = samples.minOf { it.timestampMs }
-        /**
-         * dt val.
-         */
         val dt = (maxTime - minTime).toDouble()
-
-        /**
-         * maxVel val.
-         */
         val maxVel = samples.maxOf { kotlin.math.abs(it.velocity) }.coerceAtLeast(1.0)
-        /**
-         * path val.
-         */
         val path = Path()
 
         samples.forEachIndexed { index, sample ->
-            /**
-             * x val.
-             */
             val x = if (dt > 0) ((sample.timestampMs - minTime) / dt * size.width).toFloat() else 0f
-            /**
-             * y val.
-             */
             val y = (size.height - (kotlin.math.abs(sample.velocity) / maxVel * size.height)).toFloat()
 
             if (index == 0) {
@@ -579,12 +504,11 @@ private fun LiveTelemetryPlot(samples: List<AlignedDataRow>) {
 
 @Composable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun GainTuningPanel(
     viewModel: TuningViewModel,
@@ -596,9 +520,6 @@ fun GainTuningPanel(
         
         state.variables.forEach { (key, value) ->
             val (desc, range) = getConstantDescriptionAndRange(key)
-            /**
-             * category val.
-             */
             val category = getCustomCategory(key)
             
             Column(modifier = Modifier.padding(vertical = 4.dp)) {
@@ -612,17 +533,11 @@ fun GainTuningPanel(
                         Text(key.removePrefix("Tuning/"), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                         Text(desc, fontSize = 11.sp, color = AresTextSecondary)
                     }
-                    /**
-                     * textValue var.
-                     */
                     var textValue by remember(value) { mutableStateOf(value.toString()) }
                     OutlinedTextField(
                         value = textValue,
                         onValueChange = { 
                             textValue = it
-                            /**
-                             * parsed val.
-                             */
                             val parsed = it.toDoubleOrNull()
                             if (parsed != null) {
                                 viewModel.onIntent(TuningIntent.SaveConstant(key, parsed))
@@ -639,13 +554,7 @@ fun GainTuningPanel(
 }
 
 private fun getCustomCategory(key: String): String {
-    /**
-     * cleanKey val.
-     */
     val cleanKey = key.removePrefix("Tuning/")
-    /**
-     * parts val.
-     */
     val parts = cleanKey.split("/")
     if (parts.size > 1) {
         return when (parts[0]) {
@@ -673,9 +582,6 @@ private fun getCustomCategory(key: String): String {
 }
 
 private fun getConstantDescriptionAndRange(key: String): Pair<String, String> {
-    /**
-     * cleanKey val.
-     */
     val cleanKey = key.removePrefix("Tuning/")
     return when (cleanKey) {
         "trackWidthMeters" -> Pair("Distance between center of left and right wheels.", "0.30 - 0.50 m")

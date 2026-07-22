@@ -27,17 +27,11 @@ private suspend inline fun withTeamContext(
     mismatchMessage: String = "Team ID mismatch",
     block: suspend (FirebasePrincipal) -> Unit
 ) {
-    /**
-     * principal val.
-     */
     val principal = call.principal<FirebasePrincipal>()
     if (principal == null) {
         call.respond(HttpStatusCode.Unauthorized)
         return
     }
-    /**
-     * callerTeamId val.
-     */
     val callerTeamId = principal.teamId
     if (callerTeamId == null) {
         call.respond(HttpStatusCode.Forbidden, "Missing team claim")
@@ -51,36 +45,23 @@ private suspend inline fun withTeamContext(
 }
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun Route.archiveRoutes(
     customStorage: Storage? = null,
     customFirestore: Firestore? = null
 ) {
-    /**
-     * storage val.
-     */
     val storage = customStorage ?: StorageOptions.getDefaultInstance().service
-    /**
-     * bucketName val.
-     */
     val bucketName = System.getenv("GCS_BUCKET_NAME") ?: "ares-analytics-telemetry"
-    /**
-     * db val.
-     */
     val db = customFirestore ?: FirestoreOptions.getDefaultInstance().service
 
     authenticate("firebase") {
         rateLimit(RateLimitName("archive")) {
             post("/api/archive/upload-url") {
-                /**
-                 * req val.
-                 */
                 val req = call.receive<UploadUrlRequest>()
 
             withTeamContext(call, req.summary.teamId) { principal ->
@@ -89,21 +70,12 @@ fun Route.archiveRoutes(
 
                 // 1. Save summary metadata to Firestore
                 withContext(Dispatchers.IO) {
-                    /**
-                     * docRef val.
-                     */
                     val docRef = db.collection("summaries").document(req.sessionId)
                     docRef.set(req.summary.toMap()).get()
                 }
 
                 // 2. Generate pre-signed GCS URL
-                /**
-                 * blobInfo val.
-                 */
                 val blobInfo = BlobInfo.newBuilder(bucketName, "${req.summary.teamId}/telemetry/${req.sessionId}.parquet").build()
-                /**
-                 * uploadUrl val.
-                 */
                 val uploadUrl = storage.signUrl(
                     blobInfo,
                     15,
@@ -111,10 +83,6 @@ fun Route.archiveRoutes(
                     Storage.SignUrlOption.httpMethod(HttpMethod.PUT),
                     Storage.SignUrlOption.withV4Signature()
                 )
-
-                /**
-                 * expiresAt val.
-                 */
                 val expiresAt = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(15)
                 call.respond(UploadUrlResponse(uploadUrl.toString(), expiresAt))
                 } catch (e: Exception) {
@@ -124,9 +92,6 @@ fun Route.archiveRoutes(
         }
 
         post("/api/archive/sync") {
-            /**
-             * req val.
-             */
             val req = call.receive<SyncRequest>()
 
             withTeamContext(call, req.teamId) { principal ->
@@ -134,9 +99,6 @@ fun Route.archiveRoutes(
                 try {
 
                 // Query all summaries matching teamId and seasonId
-                /**
-                 * querySnapshot val.
-                 */
                 val querySnapshot = withContext(Dispatchers.IO) {
                     db.collection("summaries")
                         .whereEqualTo("teamId", req.teamId)
@@ -144,18 +106,11 @@ fun Route.archiveRoutes(
                         .get()
                         .get()
                 }
-
-                /**
-                 * cloudSummaries val.
-                 */
                 val cloudSummaries = querySnapshot.documents.map { doc ->
                     doc.data.toSessionSummary()
                 }
 
                 // Filter to only include those not in local knownSessionIds
-                /**
-                 * missingSummaries val.
-                 */
                 val missingSummaries = cloudSummaries.filter { summary ->
                     !req.knownSessionIds.contains(summary.sessionId)
                 }
@@ -168,9 +123,6 @@ fun Route.archiveRoutes(
         }
 
         post("/api/archive/delete") {
-            /**
-             * req val.
-             */
             val req = call.receive<DeleteSessionRequest>()
 
             withTeamContext(call, req.teamId, "You do not have permission to delete sessions for this team.") { principal ->
@@ -188,9 +140,6 @@ fun Route.archiveRoutes(
 
                 // 2. Delete GCS parquet blob (best-effort, may not exist)
                     try {
-                    /**
-                     * blobId val.
-                     */
                     val blobId = com.google.cloud.storage.BlobId.of(bucketName, "${req.teamId}/telemetry/${req.sessionId}.parquet")
                     storage.delete(blobId)
                 } catch (_: Exception) {
@@ -205,25 +154,13 @@ fun Route.archiveRoutes(
         }
 
         get("/api/archive/download-url") {
-            /**
-             * sessionId val.
-             */
             val sessionId = call.request.queryParameters["sessionId"] ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing sessionId")
-            /**
-             * teamId val.
-             */
             val teamId = call.request.queryParameters["teamId"] ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing teamId")
 
             withTeamContext(call, teamId) { principal ->
 
                 try {
-                /**
-                 * blobInfo val.
-                 */
                 val blobInfo = BlobInfo.newBuilder(bucketName, "${teamId}/telemetry/${sessionId}.parquet").build()
-                /**
-                 * downloadUrl val.
-                 */
                 val downloadUrl = storage.signUrl(
                     blobInfo,
                     1,
@@ -231,10 +168,6 @@ fun Route.archiveRoutes(
                     Storage.SignUrlOption.httpMethod(HttpMethod.GET),
                     Storage.SignUrlOption.withV4Signature()
                 )
-
-                /**
-                 * expiresAt val.
-                 */
                 val expiresAt = System.currentTimeMillis() + TimeUnit.HOURS.toMillis(1)
                 call.respond(DownloadUrlResponse(downloadUrl.toString(), expiresAt))
                 } catch (e: Exception) {
@@ -244,25 +177,13 @@ fun Route.archiveRoutes(
         }
 
         get("/api/team/{teamId}/robots") {
-            /**
-             * teamId val.
-             */
             val teamId = call.parameters["teamId"] ?: return@get call.respond(HttpStatusCode.BadRequest, "Missing teamId")
             withTeamContext(call, teamId) { principal ->
                 try {
-                /**
-                 * querySnapshot val.
-                 */
                 val querySnapshot = withContext(Dispatchers.IO) {
                     db.collection("teams").document(teamId).collection("robots").get().get()
                 }
-                /**
-                 * robotsList val.
-                 */
                 val robotsList = querySnapshot.documents.map { doc ->
-                    /**
-                     * data val.
-                     */
                     val data = doc.data
                     RobotProfile(
                         robotId = doc.id,
@@ -279,22 +200,13 @@ fun Route.archiveRoutes(
         }
 
         post("/api/team/robots/add") {
-            /**
-             * req val.
-             */
             val req = call.receive<AddRobotRequest>()
             withTeamContext(call, req.teamId) { principal ->
                 try {
                 if (!isUserAdmin(db, principal.uid)) {
                     return@post call.respond(HttpStatusCode.Forbidden, "Only mentors and administrators can register robot profiles.")
                 }
-                /**
-                 * docRef val.
-                 */
                 val docRef = db.collection("teams").document(req.teamId).collection("robots").document(req.robot.robotId)
-                /**
-                 * robotMap val.
-                 */
                 val robotMap = mapOf(
                     "league" to req.robot.league.name,
                     "seasonId" to req.robot.seasonId,
@@ -311,18 +223,12 @@ fun Route.archiveRoutes(
         }
 
         post("/api/team/robots/delete") {
-            /**
-             * req val.
-             */
             val req = call.receive<DeleteRobotRequest>()
             withTeamContext(call, req.teamId) { principal ->
                 try {
                 if (!isUserAdmin(db, principal.uid)) {
                     return@post call.respond(HttpStatusCode.Forbidden, "Only mentors and administrators can delete robot profiles.")
                 }
-                /**
-                 * docRef val.
-                 */
                 val docRef = db.collection("teams").document(req.teamId).collection("robots").document(req.robotId)
                 withContext(Dispatchers.IO) {
                     docRef.delete().get()
@@ -335,29 +241,14 @@ fun Route.archiveRoutes(
         }
 
         post("/api/archive/upload-raw-urls") {
-            /**
-             * req val.
-             */
             val req = call.receive<RawUploadUrlsRequest>()
             withTeamContext(call, req.teamId) { principal ->
 
                 try {
-                /**
-                 * uploadUrls val.
-                 */
                 val uploadUrls = mutableMapOf<String, String>()
                 for (fileName in req.fileNames) {
-                    /**
-                     * blobPath val.
-                     */
                     val blobPath = "raw/${req.teamId}/${req.runTimestamp}/$fileName"
-                    /**
-                     * blobInfo val.
-                     */
                     val blobInfo = BlobInfo.newBuilder(bucketName, blobPath).build()
-                    /**
-                     * signedUrl val.
-                     */
                     val signedUrl = storage.signUrl(
                         blobInfo,
                         15,
@@ -367,10 +258,6 @@ fun Route.archiveRoutes(
                     )
                     uploadUrls[fileName] = signedUrl.toString()
                 }
-
-                /**
-                 * expiresAt val.
-                 */
                 val expiresAt = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(15)
                 call.respond(RawUploadUrlsResponse(uploadUrls, expiresAt))
                 } catch (e: Exception) {
@@ -388,14 +275,8 @@ fun Route.archiveRoutes(
  */
 private suspend fun isUserAdmin(db: Firestore, uid: String): Boolean {
     // Look up the user in the primary 'users' collection provisioned by AuthRoutes
-    /**
-     * userDoc val.
-     */
     val userDoc = withContext(Dispatchers.IO) { db.collection("users").document(uid).get().get() }
     if (userDoc.exists()) {
-        /**
-         * role val.
-         */
         val role = userDoc.getString("role")?.lowercase()
         if (role == "admin" || role == "coach") {
             return true
@@ -432,9 +313,6 @@ private fun SessionSummary.toMap(): Map<String, Any?> {
 
 @Suppress("UNCHECKED_CAST")
 private fun Map<String, Any?>.toSessionSummary(): SessionSummary {
-    /**
-     * motorCurrents val.
-     */
     val motorCurrents = (get("motorCurrentAverages") as? Map<*, *>)?.map {
         it.key.toString() to (it.value as? Number)?.toDouble()!!
     }?.toMap() ?: emptyMap()

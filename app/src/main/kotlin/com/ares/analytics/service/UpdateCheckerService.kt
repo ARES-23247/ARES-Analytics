@@ -17,29 +17,24 @@ import kotlinx.serialization.json.Json
 
 @Serializable
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 data class GitHubRelease(
     @SerialName("tag_name") val tagName: String,
     @SerialName("html_url") val htmlUrl: String,
-    /**
-     * body val.
-     */
     val body: String? = null
 )
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 class UpdateCheckerService(
     private val httpClient: HttpClient = HttpClient {
@@ -51,56 +46,48 @@ class UpdateCheckerService(
 ) {
     sealed class UpdateState {
         /**
-         * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
          * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-         * Canvas-to-field coordinate transformation conventions applied where relevant.
+
          *
-         * @param args relevant arguments
-         * @return expected results
+
          */
         object Checking : UpdateState()
         /**
-         * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
          * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-         * Canvas-to-field coordinate transformation conventions applied where relevant.
+
          *
-         * @param args relevant arguments
-         * @return expected results
+
          */
         object UpToDate : UpdateState()
         /**
-         * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
          * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-         * Canvas-to-field coordinate transformation conventions applied where relevant.
+
          *
-         * @param args relevant arguments
-         * @return expected results
+
          */
         data class UpdateAvailable(val latestVersion: String, val downloadUrl: String, val releaseNotes: String?) : UpdateState()
         /**
-         * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
          * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-         * Canvas-to-field coordinate transformation conventions applied where relevant.
+
          *
-         * @param args relevant arguments
-         * @return expected results
+
          */
         data class Error(val message: String) : UpdateState()
     }
 
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.UpToDate)
-    /**
-     * updateState val.
-     */
     val updateState: StateFlow<UpdateState> = _updateState
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun checkForUpdates() {
         serviceScope.launch {
@@ -110,9 +97,6 @@ class UpdateCheckerService(
                     header(HttpHeaders.UserAgent, "ares-analytics-app")
                 }.execute { response ->
                     if (response.status == HttpStatusCode.OK) {
-                        /**
-                         * release val.
-                         */
                         val release = response.body<GitHubRelease>()
                         if (isNewerVersion(BuildConfig.VERSION, release.tagName)) {
                             _updateState.value = UpdateState.UpdateAvailable(
@@ -134,49 +118,25 @@ class UpdateCheckerService(
     }
 
     /**
-     * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     * Canvas-to-field coordinate transformation conventions applied where relevant.
+
      *
-     * @param args relevant arguments
-     * @return expected results
+
      */
     fun dispose() {
         serviceScope.coroutineContext.cancelChildren()
     }
 
     private fun isNewerVersion(current: String, latest: String): Boolean {
-        /**
-         * cleanCurrent val.
-         */
         val cleanCurrent = current.removePrefix("v").trim()
-        /**
-         * cleanLatest val.
-         */
         val cleanLatest = latest.removePrefix("v").trim()
         if (cleanCurrent == cleanLatest) return false
-        
-        /**
-         * currentParts val.
-         */
         val currentParts = cleanCurrent.split(".").mapNotNull { it.toIntOrNull() }
-        /**
-         * latestParts val.
-         */
         val latestParts = cleanLatest.split(".").mapNotNull { it.toIntOrNull() }
-        
-        /**
-         * maxLength val.
-         */
         val maxLength = maxOf(currentParts.size, latestParts.size)
         for (i in 0 until maxLength) {
-            /**
-             * currVal val.
-             */
             val currVal = currentParts.getOrElse(i) { 0 }
-            /**
-             * latVal val.
-             */
             val latVal = latestParts.getOrElse(i) { 0 }
             if (latVal > currVal) return true
             if (currVal > latVal) return false

@@ -26,30 +26,22 @@ import com.ares.analytics.shared.UploadUrlRequest
 import kotlinx.serialization.json.Json
 
 /**
- * High-level description: Handles data processing pipeline, UI state management (MVI), or Ktor endpoint logic.
+
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- * Canvas-to-field coordinate transformation conventions applied where relevant.
+
  *
- * @param args relevant arguments
- * @return expected results
+
  */
 fun main() {
     // Disable Netty OpenSSL to force gRPC and Ktor to fall back to the JDK JSSE provider.
     // This prevents SIGSEGV crashes in netty-tcnative when running inside Google Cloud Run.
     System.setProperty("io.netty.handler.ssl.openssl.useOpenssl", "false")
     System.setProperty("io.grpc.netty.shaded.io.netty.handler.ssl.openssl.useOpenssl", "false")
-
-    /**
-     * port val.
-     */
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
 
     // Initialize Firebase Admin SDK using Application Default Credentials
     try {
         if (FirebaseApp.getApps().isEmpty()) {
-            /**
-             * options val.
-             */
             val options = FirebaseOptions.builder()
                 .setCredentials(GoogleCredentials.getApplicationDefault())
                 .build()

@@ -17,36 +17,14 @@ class HootDecoderServiceTest {
      * testParseAndInsertTelemetry fun.
      */
     fun testParseAndInsertTelemetry() = runTest {
-        /**
-         * tempDb val.
-         */
         val tempDb = File.createTempFile("hoot_db_test", ".db").apply { deleteOnExit() }
-        /**
-         * databaseService val.
-         */
         val databaseService = DatabaseService(tempDb.absolutePath)
-        /**
-         * sysIdService val.
-         */
         val sysIdService = SysIdService(databaseService)
-        /**
-         * driverAnalysisService val.
-         */
         val driverAnalysisService = DriverAnalysisService(databaseService, sysIdService)
-        /**
-         * summaryEngineService val.
-         */
         val summaryEngineService = SummaryEngineService(databaseService, sysIdService, driverAnalysisService)
-        
-        /**
-         * hootDecoderService val.
-         */
         val hootDecoderService = HootDecoderService(databaseService, summaryEngineService, sysIdService)
 
         // Create a mock CSV file mimicking owlet's output (timestamps in seconds)
-        /**
-         * tempCsv val.
-         */
         val tempCsv = File.createTempFile("hoot_test_log", ".csv").apply { deleteOnExit() }
         tempCsv.writeText(
             """
@@ -56,10 +34,6 @@ class HootDecoderServiceTest {
             0.04, 1.2, 2.2, 3.2
             """.trimIndent()
         )
-
-        /**
-         * sessionId val.
-         */
         val sessionId = "test-hoot-session"
         val (firstTime, lastTime, keys) = hootDecoderService.parseAndInsertTelemetry(tempCsv, sessionId)
 
@@ -73,9 +47,6 @@ class HootDecoderServiceTest {
         assertTrue(keys.contains("/Drive/MotorFL/Current"))
 
         // Query database to verify values are correctly batch-inserted
-        /**
-         * voltages val.
-         */
         val voltages = databaseService.getTelemetryForKey(sessionId, "/Drive/MotorFL/Voltage")
         assertEquals(3, voltages.size)
         assertEquals(0L, voltages[0].timestampMs)
