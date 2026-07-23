@@ -78,7 +78,8 @@ open class Nt4ClientService(
 
      */
     fun getActiveTopics(): List<String> {
-        return topicMap.values.map { it.name.removePrefix("/") }.sorted()
+        val fromMap = topicMap.values.map { it.name.removePrefix("/") }
+        return (fromMap + discoveredKeys).distinct().filter { it.isNotEmpty() }.sorted()
     }
 
     private val pendingFrames = java.util.concurrent.ConcurrentLinkedQueue<TelemetryFrame>()

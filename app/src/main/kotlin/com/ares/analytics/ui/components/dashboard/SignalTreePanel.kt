@@ -55,9 +55,12 @@ object DragDropManager {
 class SignalNode(
     val name: String,
     val fullPath: String,
-    val isLeaf: Boolean,
+    private val initialIsLeaf: Boolean = false,
     val children: MutableMap<String, SignalNode> = mutableMapOf()
-)
+) {
+    val isLeaf: Boolean
+        get() = children.isEmpty()
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
