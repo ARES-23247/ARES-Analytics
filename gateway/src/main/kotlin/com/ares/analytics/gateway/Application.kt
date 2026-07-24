@@ -99,8 +99,11 @@ fun main() {
 
         install(RequestValidation) {
             validate<UploadUrlRequest> { req ->
-                if (req.summary.tags.size > 100) ValidationResult.Invalid("Payload too large: too many tags")
-                else ValidationResult.Valid
+                when {
+                    req.summary.tags.size > 100 -> ValidationResult.Invalid("Payload too large: too many tags")
+                    req.sessionId.contains("..") || req.sessionId.contains("/") || req.sessionId.contains("\\") -> ValidationResult.Invalid("Invalid sessionId: path traversal characters detected")
+                    else -> ValidationResult.Valid
+                }
             }
             validate<ForensicsRequest> { req ->
                 when {

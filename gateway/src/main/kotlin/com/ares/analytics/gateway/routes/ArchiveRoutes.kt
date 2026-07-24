@@ -68,14 +68,17 @@ fun Route.archiveRoutes(
 
                 try {
 
+                val safeSessionId = req.sessionId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                val safeTeamId = req.summary.teamId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+
                 // 1. Save summary metadata to Firestore
                 withContext(Dispatchers.IO) {
-                    val docRef = db.collection("summaries").document(req.sessionId)
+                    val docRef = db.collection("summaries").document(safeSessionId)
                     docRef.set(req.summary.toMap()).get()
                 }
 
                 // 2. Generate pre-signed GCS URL
-                val blobInfo = BlobInfo.newBuilder(bucketName, "${req.summary.teamId}/telemetry/${req.sessionId}.parquet").build()
+                val blobInfo = BlobInfo.newBuilder(bucketName, "$safeTeamId/telemetry/$safeSessionId.parquet").build()
                 val uploadUrl = storage.signUrl(
                     blobInfo,
                     15,
@@ -133,15 +136,20 @@ fun Route.archiveRoutes(
                     return@post call.respond(HttpStatusCode.Forbidden, "Only admins and coaches can delete cloud sessions")
                 }
 
+                val safeSessionId = req.sessionId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                val safeTeamId = req.teamId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+
                 // 1. Delete Firestore summary document
                 withContext(Dispatchers.IO) {
-                    db.collection("summaries").document(req.sessionId).delete().get()
+                    db.collection("summaries").document(safeSessionId).delete().get()
                 }
 
                 // 2. Delete GCS parquet blob (best-effort, may not exist)
-                    try {
-                    val blobId = com.google.cloud.storage.BlobId.of(bucketName, "${req.teamId}/telemetry/${req.sessionId}.parquet")
-                    storage.delete(blobId)
+                try {
+                    val blobId = com.google.cloud.storage.BlobId.of(bucketName, "$safeTeamId/telemetry/$safeSessionId.parquet")
+                    withContext(Dispatchers.IO) {
+                        storage.delete(blobId)
+                    }
                 } catch (_: Exception) {
                     // Blob may not exist if upload failed — that's fine
                 }
@@ -160,7 +168,9 @@ fun Route.archiveRoutes(
             withTeamContext(call, teamId) { principal ->
 
                 try {
-                val blobInfo = BlobInfo.newBuilder(bucketName, "${teamId}/telemetry/${sessionId}.parquet").build()
+                val safeSessionId = sessionId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                val safeTeamId = teamId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                val blobInfo = BlobInfo.newBuilder(bucketName, "$safeTeamId/telemetry/$safeSessionId.parquet").build()
                 val downloadUrl = storage.signUrl(
                     blobInfo,
                     1,
@@ -245,9 +255,12 @@ fun Route.archiveRoutes(
             withTeamContext(call, req.teamId) { principal ->
 
                 try {
+                val safeTeamId = req.teamId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
+                val safeRunTimestamp = req.runTimestamp.replace(Regex("[^a-zA-Z0-9_-]"), "_")
                 val uploadUrls = mutableMapOf<String, String>()
                 for (fileName in req.fileNames) {
-                    val blobPath = "raw/${req.teamId}/${req.runTimestamp}/$fileName"
+                    val safeFileName = fileName.replace(Regex("[^a-zA-Z0-9_.-]"), "_")
+                    val blobPath = "raw/$safeTeamId/$safeRunTimestamp/$safeFileName"
                     val blobInfo = BlobInfo.newBuilder(bucketName, blobPath).build()
                     val signedUrl = storage.signUrl(
                         blobInfo,
@@ -313,24 +326,26 @@ private fun SessionSummary.toMap(): Map<String, Any?> {
 
 @Suppress("UNCHECKED_CAST")
 private fun Map<String, Any?>.toSessionSummary(): SessionSummary {
-    val motorCurrents = (get("motorCurrentAverages") as? Map<*, *>)?.map {
-        it.key.toString() to (it.value as? Number)?.toDouble()!!
+    val motorCurrents = (get("motorCurrentAverages") as? Map<*, *>)?.mapNotNull { (key, valObj) ->
+        val k = key?.toString() ?: return@mapNotNull null
+        val v = (valObj as? Number)?.toDouble() ?: return@mapNotNull null
+        k to v
     }?.toMap() ?: emptyMap()
 
     return SessionSummary(
-        sessionId = get("sessionId") as String,
-        teamId = get("teamId") as String,
-        seasonId = get("seasonId") as String,
-        robotId = get("robotId") as String,
-        createdAt = (get("createdAt") as Number).toLong(),
-        durationMs = (get("durationMs") as Number).toLong(),
-        minBatteryVoltage = (get("minBatteryVoltage") as Number).toDouble(),
-        maxEkfDrift = (get("maxEkfDrift") as Number).toDouble(),
-        avgLoopTimeMs = (get("avgLoopTimeMs") as Number).toDouble(),
-        p95LoopTimeMs = (get("p95LoopTimeMs") as Number).toDouble(),
+        sessionId = get("sessionId") as? String ?: "",
+        teamId = get("teamId") as? String ?: "",
+        seasonId = get("seasonId") as? String ?: "",
+        robotId = get("robotId") as? String ?: "",
+        createdAt = (get("createdAt") as? Number)?.toLong() ?: 0L,
+        durationMs = (get("durationMs") as? Number)?.toLong() ?: 0L,
+        minBatteryVoltage = (get("minBatteryVoltage") as? Number)?.toDouble() ?: 0.0,
+        maxEkfDrift = (get("maxEkfDrift") as? Number)?.toDouble() ?: 0.0,
+        avgLoopTimeMs = (get("avgLoopTimeMs") as? Number)?.toDouble() ?: 0.0,
+        p95LoopTimeMs = (get("p95LoopTimeMs") as? Number)?.toDouble() ?: 0.0,
         motorCurrentAverages = motorCurrents,
-        visionAcceptanceRate = (get("visionAcceptanceRate") as Number).toDouble(),
-        tags = (get("tags") as? List<*>)?.map { it.toString() } ?: emptyList(),
+        visionAcceptanceRate = (get("visionAcceptanceRate") as? Number)?.toDouble() ?: 0.0,
+        tags = (get("tags") as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
         matchNumber = (get("matchNumber") as? Number)?.toInt(),
         allianceColor = get("allianceColor") as? String,
         rawGcsPath = get("rawGcsPath") as? String,

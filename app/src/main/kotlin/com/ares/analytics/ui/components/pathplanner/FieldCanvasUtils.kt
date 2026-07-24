@@ -327,7 +327,7 @@ fun getClosestSplinePosition(
 ): Double {
     if (waypoints.size < 2) return 0.0
     var bestPos = 0.0
-    var minDist = Float.MAX_VALUE
+    var minDistSq = Float.MAX_VALUE
     val maxPos = (waypoints.size - 1).toDouble()
     
     // Sample the spline densely to find closest projection
@@ -338,9 +338,9 @@ fun getClosestSplinePosition(
         val offset = getCanvasOffsetBase(wp, canvasW, canvasH, fieldW, fieldH, league)
         val dx = mouseOffset.x - offset.x
         val dy = mouseOffset.y - offset.y
-        val dist = kotlin.math.sqrt((dx * dx + dy * dy).toDouble()).toFloat()
-        if (dist < minDist) {
-            minDist = dist
+        val distSq = dx * dx + dy * dy
+        if (distSq < minDistSq) {
+            minDistSq = distSq
             bestPos = pos
         }
     }

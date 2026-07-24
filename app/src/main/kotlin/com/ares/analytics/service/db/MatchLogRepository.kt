@@ -111,7 +111,7 @@ suspend fun executeRaw(sql: String) = withDbLock {
             ps.setLong(5, session.createdAt)
             ps.setLong(6, session.durationMs)
             ps.setString(7, Json.encodeToString(session.tags))
-            if (session.matchNumber != null) ps.setLong(8, session.matchNumber!!.toLong()) else ps.setNull(8, java.sql.Types.BIGINT)
+            session.matchNumber?.let { ps.setLong(8, it.toLong()) } ?: ps.setNull(8, java.sql.Types.BIGINT)
             ps.setString(9, session.allianceColor)
             ps.executeUpdate()
         }
@@ -175,7 +175,7 @@ suspend fun executeRaw(sql: String) = withDbLock {
             ps.setString(15, Json.encodeToString(summary.maxMotorTemps))
             ps.setDouble(16, summary.avgVisionLatencyMs)
             ps.setString(17, Json.encodeToString(summary.tags))
-            if (summary.matchNumber != null) ps.setLong(18, summary.matchNumber!!.toLong()) else ps.setNull(18, java.sql.Types.BIGINT)
+            summary.matchNumber?.let { ps.setLong(18, it.toLong()) } ?: ps.setNull(18, java.sql.Types.BIGINT)
             ps.setString(19, summary.allianceColor)
             ps.executeUpdate()
         }
