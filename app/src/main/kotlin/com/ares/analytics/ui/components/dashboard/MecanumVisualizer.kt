@@ -304,12 +304,19 @@ private data class WheelData(
     val current: Double
 )
 
-private fun getForceAngle(name: String, speed: Double): Double = when (name) {
-    "FL" -> if (speed >= 0) Math.toRadians(-45.0) else Math.toRadians(135.0)
-    "FR" -> if (speed >= 0) Math.toRadians(-135.0) else Math.toRadians(45.0)
-    "BL" -> if (speed >= 0) Math.toRadians(-135.0) else Math.toRadians(45.0)
-    "BR" -> if (speed >= 0) Math.toRadians(-45.0) else Math.toRadians(135.0)
-    else -> 0.0
+private fun getForceAngle(name: String, speed: Double): Double {
+    val isForward = speed >= 0
+    return when {
+        name == "FL" && isForward -> Math.toRadians(-45.0)
+        name == "FL" && !isForward -> Math.toRadians(135.0)
+        name == "FR" && isForward -> Math.toRadians(-135.0)
+        name == "FR" && !isForward -> Math.toRadians(45.0)
+        (name == "BL" || name == "RL") && isForward -> Math.toRadians(-135.0)
+        (name == "BL" || name == "RL") && !isForward -> Math.toRadians(45.0)
+        (name == "BR" || name == "RR") && isForward -> Math.toRadians(-45.0)
+        (name == "BR" || name == "RR") && !isForward -> Math.toRadians(135.0)
+        else -> 0.0
+    }
 }
 
 private fun tan(radians: Double): Double = kotlin.math.tan(radians)

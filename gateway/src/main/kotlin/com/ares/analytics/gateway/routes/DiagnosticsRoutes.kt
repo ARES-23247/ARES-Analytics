@@ -13,6 +13,13 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.plugins.ratelimit.*
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+val projectId = System.getenv("GOOGLE_CLOUD_PROJECT") ?: "ares-analytics"
+val location = System.getenv("GOOGLE_CLOUD_LOCATION") ?: "us-central1"
+val vertexAi = VertexAI(projectId, location)
+val model = GenerativeModel("gemini-1.5-flash", vertexAi)
 
 /**
 
@@ -22,20 +29,13 @@ import kotlinx.serialization.json.Json
 
  */
 fun Route.diagnosticsRoutes() {
-    val projectId = System.getenv("GOOGLE_CLOUD_PROJECT") ?: "ares-analytics"
-    val location = System.getenv("GOOGLE_CLOUD_LOCATION") ?: "us-central1"
-
     authenticate("firebase") {
         rateLimit(RateLimitName("forensics")) {
             post("/api/diagnostics/forensics") {
                 val req = call.receive<ForensicsRequest>()
 
             try {
-                // Initialize Vertex AI client
-                VertexAI(projectId, location).use { vertexAi ->
-                    // Configure model directly using simple constructor
-                    val model = GenerativeModel("gemini-1.5-flash", vertexAi)
-                    val prompt = """
+                val prompt = """
                         You are ARES Pit Forensics AI, a diagnostic copilot for FTC/FRC robotics teams.
                         Analyze the following telemetry packet containing session statistics, triggered threshold alerts, motor currents, EKF positioning drift, and hardware topology.
                         
@@ -59,7 +59,7 @@ fun Route.diagnosticsRoutes() {
                         Data Packet:
                         ${Json.encodeToString(ForensicsRequest.serializer(), req)}
                     """.trimIndent()
-                    val response = model.generateContent(prompt)
+                    val response = withContext(Dispatchers.IO) { model.generateContent(prompt) }
                     val jsonResponse = ResponseHandler.getText(response) ?: "{}"
                     val sanitizedJson = jsonResponse.replace(Regex("```(?:json)?\\n?(.*?)\\n?```", RegexOption.DOT_MATCHES_ALL), "$1").trim()
 
@@ -76,7 +76,6 @@ fun Route.diagnosticsRoutes() {
                         )
                     }
                     call.respond(parsed)
-                }
             } catch (e: Exception) {
                 call.respond(HttpStatusCode.InternalServerError, "AI diagnostics failed: ${e.message}")
             }

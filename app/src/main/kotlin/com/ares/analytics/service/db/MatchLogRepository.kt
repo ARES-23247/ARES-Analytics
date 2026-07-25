@@ -692,8 +692,9 @@ suspend fun executeRaw(sql: String) = withDbLock {
         val activeConn = if (sessionId == "live-telemetry") ephemeralConn else conn
         var minTime = 0L
         var maxTime = 0L
-        activeConn.createStatement().use { st ->
-            st.executeQuery("SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM telemetry_frames WHERE session_id = '$sessionId'").use { rs ->
+        activeConn.prepareStatement("SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM telemetry_frames WHERE session_id = ?").use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeQuery().use { rs ->
                 if (rs.next()) {
                     minTime = rs.getLong(1)
                     maxTime = rs.getLong(2)
@@ -707,14 +708,16 @@ suspend fun executeRaw(sql: String) = withDbLock {
         val duration = maxTime - minTime
         val bucketSize = duration.toDouble() / buckets
         val bucketCounts = LongArray(buckets)
-        activeConn.createStatement().use { st ->
-            val query = """
-                SELECT CAST((timestamp_ms - $minTime) / $bucketSize AS INTEGER) as bucket_idx, COUNT(*) as cnt 
-                FROM telemetry_frames 
-                WHERE session_id = '$sessionId' 
-                GROUP BY bucket_idx
-            """.trimIndent()
-            st.executeQuery(query).use { rs ->
+        activeConn.prepareStatement("""
+            SELECT CAST((timestamp_ms - ?) / ? AS INTEGER) as bucket_idx, COUNT(*) as cnt 
+            FROM telemetry_frames 
+            WHERE session_id = ? 
+            GROUP BY bucket_idx
+        """.trimIndent()).use { ps ->
+            ps.setLong(1, minTime)
+            ps.setDouble(2, bucketSize)
+            ps.setString(3, sessionId)
+            ps.executeQuery().use { rs ->
                 while (rs.next()) {
                     val idx = rs.getInt(1).coerceIn(0, buckets - 1)
                     val cnt = rs.getLong(2)

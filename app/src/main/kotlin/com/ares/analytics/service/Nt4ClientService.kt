@@ -449,15 +449,16 @@ open class Nt4ClientService(
         robotId: String
     ) {
         try {
-            val jsonArray = Json.parseToJsonElement(text).jsonArray
+            val parsed = Json.parseToJsonElement(text)
+            val jsonArray = parsed as? JsonArray ?: return
             for (element in jsonArray) {
-                val obj = element.jsonObject
+                val obj = element as? JsonObject ?: continue
                 val method = obj["method"]?.jsonPrimitive?.content
 
                 if (method != null) {
                     when (method) {
                         "announce" -> {
-                            val params = obj["params"]?.jsonObject ?: continue
+                            val params = obj["params"] as? JsonObject ?: continue
                             val name = params["name"]?.jsonPrimitive?.content ?: continue
                             val id = params["id"]?.jsonPrimitive?.intOrNull ?: continue
                             val type = params["type"]?.jsonPrimitive?.content ?: "double"
@@ -465,7 +466,7 @@ open class Nt4ClientService(
                             topicMap[id] = Nt4Topic(id, name, type)
                         }
                         "unannounce" -> {
-                            val params = obj["params"]?.jsonObject ?: continue
+                            val params = obj["params"] as? JsonObject ?: continue
                             val id = params["id"]?.jsonPrimitive?.intOrNull ?: continue
                             println("[Nt4ClientService] Server unannounced topic id: $id")
                             topicMap.remove(id)

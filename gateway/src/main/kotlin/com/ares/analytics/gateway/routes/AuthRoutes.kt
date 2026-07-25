@@ -20,6 +20,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
 @Serializable
 /**
 
@@ -111,11 +112,24 @@ fun Route.authRoutes() {
                     } else null
                 }
 
+                val db = FirestoreOptions.getDefaultInstance().service
+
+                // Look up official GitHub org for the team
+                var officialOrg: String? = null
+                if (principal.teamId != null) {
+                    val teamDoc = withContext(Dispatchers.IO) {
+                        db.collection("teams").document(principal.teamId).get().get()
+                    }
+                    if (teamDoc.exists()) {
+                        officialOrg = teamDoc.getString("githubOrg")
+                    }
+                }
+
                 // Determine sub-team admin tier
                 var role = "VIEWER"
-                if (req.targetOrg != null && username != null) {
+                if (officialOrg != null && username != null) {
                     // Check mentors membership
-                    httpClient.prepareGet("https://api.github.com/orgs/${req.targetOrg}/teams/mentors/memberships/$username") {
+                    httpClient.prepareGet("https://api.github.com/orgs/${officialOrg}/teams/mentors/memberships/$username") {
                         header(HttpHeaders.Authorization, "token ${req.githubToken}")
                         header(HttpHeaders.Accept, "application/vnd.github.v3+json")
                     }.execute { mentorsResponse ->
@@ -126,7 +140,6 @@ fun Route.authRoutes() {
                 }
 
                 // Provision/Update user document in Firestore
-                val db = FirestoreOptions.getDefaultInstance().service
                 val userDocRef = db.collection("users").document(principal.uid)
                 val userData = mapOf(
                     "uid" to principal.uid,

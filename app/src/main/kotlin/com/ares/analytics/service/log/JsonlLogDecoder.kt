@@ -32,7 +32,7 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
                 val trimmed = line.trim()
                 if (trimmed.isNotEmpty()) {
                     try {
-                        val obj = Json.parseToJsonElement(trimmed).jsonObject
+                        val obj = Json.parseToJsonElement(trimmed) as? JsonObject ?: continue
                         // Look for timestamp
                         val timestampMs = obj["timestampMs"]?.jsonPrimitive?.longOrNull
                             ?: obj["time"]?.jsonPrimitive?.longOrNull
@@ -73,7 +73,7 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
                 val trimmed = line.trim()
                 if (trimmed.isNotEmpty()) {
                     try {
-                        val obj = Json.parseToJsonElement(trimmed).jsonObject
+                        val obj = Json.parseToJsonElement(trimmed) as? JsonObject ?: continue
                         val runId = obj["run_id"]?.jsonPrimitive?.contentOrNull ?: ""
                         val robotId = obj["robot_id"]?.jsonPrimitive?.contentOrNull ?: ""
                         val matchNumber = obj["match_number"]?.jsonPrimitive?.intOrNull ?: 0
@@ -86,7 +86,7 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
                             firstAlliance = alliance
                             isFirstLine = false
                         }
-                        val payload = obj["payload"]?.jsonObject
+                        val payload = obj["payload"] as? JsonObject
                         val timestampMs = payload?.get("timestampMs")?.jsonPrimitive?.longOrNull ?: 0L
                         val payloadJson = payload?.toString() ?: "{}"
 
