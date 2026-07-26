@@ -35,6 +35,7 @@ data class FieldViewerState(
     val trueY: Double = 0.0,
     val trueHeading: Double = 0.0,
     val simHeading: Double? = null,
+    val hasTruePoseData: Boolean = false,
     val ekfX: Double? = null,
     val ekfY: Double? = null,
     val ekfHeading: Double? = null,

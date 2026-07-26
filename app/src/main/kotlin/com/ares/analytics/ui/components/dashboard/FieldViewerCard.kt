@@ -328,6 +328,7 @@ fun FieldViewerCard(
                     estimatedPose = estimatedPose,
                     odomPose = odomPose,
                     visionPoses = activeVisionPoses,
+                    showTruePose = state.hasTruePoseData,
                     showEkfPose = showEkfPose,
                     showOdomPose = showOdomPose,
                     showVisionPoses = showVisionPoses,

@@ -52,11 +52,18 @@ class FieldTopicSubscriber(
                 }
                 
                 when (key) {
-                    "ARES/TruePose/0" -> currentBuilder.trueX = value
-                    "ARES/TruePose/1" -> currentBuilder.trueY = value
+                    "ARES/TruePose/0" -> {
+                        currentBuilder.trueX = value
+                        currentBuilder.hasTruePoseData = true
+                    }
+                    "ARES/TruePose/1" -> {
+                        currentBuilder.trueY = value
+                        currentBuilder.hasTruePoseData = true
+                    }
                     "ARES/TruePose/2" -> {
                         currentBuilder.simHeading = value
                         currentBuilder.trueHeading = value
+                        currentBuilder.hasTruePoseData = true
                     }
                     "ARES/EstimatedPose/0", "Drive/Pose_X" -> currentBuilder.ekfX = value
                     "ARES/EstimatedPose/1", "Drive/Pose_Y" -> currentBuilder.ekfY = value
@@ -147,6 +154,7 @@ class FieldViewerStateBuilder(state: FieldViewerState) {
     var trueY: Double = state.trueY
     var trueHeading: Double = state.trueHeading
     var simHeading: Double? = state.simHeading
+    var hasTruePoseData: Boolean = state.hasTruePoseData
     var ekfX: Double? = state.ekfX
     var ekfY: Double? = state.ekfY
     var ekfHeading: Double? = state.ekfHeading
@@ -189,6 +197,7 @@ class FieldViewerStateBuilder(state: FieldViewerState) {
             trueY = trueY,
             trueHeading = trueHeading,
             simHeading = simHeading,
+            hasTruePoseData = hasTruePoseData,
             ekfX = ekfX,
             ekfY = ekfY,
             ekfHeading = ekfHeading,
