@@ -207,13 +207,27 @@ fun AutoEditorPanel(
                                 }
                                 "named" -> {
                                     val fullName = dataObj?.get("name")?.jsonPrimitive?.content ?: ""
-                                    val isIndicator1 = fullName.startsWith("SetIndicatorColor_") || fullName == "SetIndicatorColor"
+                                    val isIndicator1 = fullName.startsWith("SetIndicatorColor_") && fullName.split("_").size == 2 || fullName == "SetIndicatorColor"
                                     val isIndicator2 = fullName.startsWith("SetSecondIndicatorColor_") || fullName == "SetSecondIndicatorColor"
-                                    val isIndicator = isIndicator1 || isIndicator2
+                                    val isIndicator3 = fullName.startsWith("SetThirdIndicatorColor_") || fullName == "SetThirdIndicatorColor"
+                                    val isIndicator4 = fullName.startsWith("SetFourthIndicatorColor_") || fullName == "SetFourthIndicatorColor"
+                                    val isCustomIndicator = fullName.startsWith("SetIndicatorColor_") && fullName.split("_").size == 3
+                                    val isIndicator = isIndicator1 || isIndicator2 || isIndicator3 || isIndicator4 || isCustomIndicator
+
+                                    val prefix = when {
+                                        isIndicator2 -> "SetSecondIndicatorColor"
+                                        isIndicator3 -> "SetThirdIndicatorColor"
+                                        isIndicator4 -> "SetFourthIndicatorColor"
+                                        isCustomIndicator -> "SetIndicatorColor_${fullName.split("_")[1]}"
+                                        else -> "SetIndicatorColor"
+                                    }
 
                                     val actionDisplayLabel = when {
                                         isIndicator1 -> "Indicator Light 1"
                                         isIndicator2 -> "Indicator Light 2"
+                                        isIndicator3 -> "Indicator Light 3"
+                                        isIndicator4 -> "Indicator Light 4"
+                                        isCustomIndicator -> "Indicator Light (${fullName.split("_")[1]})"
                                         else -> fullName
                                     }
 
@@ -221,6 +235,8 @@ fun AutoEditorPanel(
                                     val defaultActions = listOf(
                                         "Indicator Light 1",
                                         "Indicator Light 2",
+                                        "Indicator Light 3",
+                                        "Indicator Light 4",
                                         "Intake",
                                         "Outtake",
                                         "Shoot",
@@ -263,6 +279,8 @@ fun AutoEditorPanel(
                                                             val finalName = when (a) {
                                                                 "Indicator Light 1" -> "SetIndicatorColor_OFF"
                                                                 "Indicator Light 2" -> "SetSecondIndicatorColor_OFF"
+                                                                "Indicator Light 3" -> "SetThirdIndicatorColor_OFF"
+                                                                "Indicator Light 4" -> "SetFourthIndicatorColor_OFF"
                                                                 else -> a
                                                             }
                                                             val newNode = AutoCommandNode("named", buildJsonObject { put("name", finalName) })
@@ -275,8 +293,7 @@ fun AutoEditorPanel(
                                         }
 
                                         if (isIndicator) {
-                                            val prefix = if (isIndicator2) "SetSecondIndicatorColor" else "SetIndicatorColor"
-                                            val currentColor = fullName.substringAfter("_", "OFF")
+                                            val currentColor = fullName.substringAfterLast("_", "OFF")
                                             val colors = listOf("OFF", "RAINBOW", "RED", "ORANGE", "YELLOW", "GREEN", "CYAN", "BLUE", "PURPLE", "VIOLET", "WHITE")
                                             var expandedColor by remember { mutableStateOf(false) }
 
@@ -383,6 +400,14 @@ fun AutoEditorPanel(
                     text = { Text("Indicator Light 2") },
                     onClick = {
                         val node = AutoCommandNode("named", buildJsonObject { put("name", "SetSecondIndicatorColor_BLUE") })
+                        onIntent(PathPlannerIntent.AddAutoCommand(node, projectPath, league))
+                        expandedAddCommand = false
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Indicator Light 3") },
+                    onClick = {
+                        val node = AutoCommandNode("named", buildJsonObject { put("name", "SetThirdIndicatorColor_RED") })
                         onIntent(PathPlannerIntent.AddAutoCommand(node, projectPath, league))
                         expandedAddCommand = false
                     }
