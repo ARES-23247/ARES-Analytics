@@ -483,4 +483,39 @@ class PathSerializationManager(
             return false
         }
     }
+
+    fun deleteFileFromRobot(remoteFilePath: String): Boolean {
+        try {
+            val adb = findAdbPath()
+            ProcessBuilder(adb, "connect", "192.168.43.1:5555").start().waitFor(2, java.util.concurrent.TimeUnit.SECONDS)
+            val proc = ProcessBuilder(adb, "shell", "rm", "-f", remoteFilePath).start()
+            val finished = proc.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+            return finished && proc.exitValue() == 0
+        } catch (e: Exception) {
+            System.err.println("Failed to delete file via ADB: ${e.message}")
+            return false
+        }
+    }
+
+    suspend fun deletePath(name: String, projectPath: String?, league: League) = withContext(Dispatchers.IO) {
+        if (projectPath.isNullOrEmpty()) return@withContext
+        val relativeDir = if (league == League.FTC) "TeamCode/src/main/assets/pathplanner/paths" else "src/main/deploy/pathplanner/paths"
+        val file = File(File(projectPath, relativeDir), "$name.path")
+        if (file.exists()) file.delete()
+        if (league == League.FTC) {
+            deleteFileFromRobot("/sdcard/FIRST/paths/$name.path")
+        }
+        fetchAvailablePaths(projectPath, league)
+    }
+
+    suspend fun deleteAuto(name: String, projectPath: String?, league: League) = withContext(Dispatchers.IO) {
+        if (projectPath.isNullOrEmpty()) return@withContext
+        val relativeDir = if (league == League.FTC) "TeamCode/src/main/assets/pathplanner/autos" else "src/main/deploy/pathplanner/autos"
+        val file = File(File(projectPath, relativeDir), "$name.auto")
+        if (file.exists()) file.delete()
+        if (league == League.FTC) {
+            deleteFileFromRobot("/sdcard/FIRST/autos/$name.auto")
+        }
+        fetchAvailablePaths(projectPath, league)
+    }
 }

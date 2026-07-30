@@ -19,6 +19,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ares.analytics.shared.AutoCommandNode
 import com.ares.analytics.shared.League
@@ -85,7 +87,7 @@ fun AutoEditorPanel(
         LazyColumn(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             itemsIndexed(commandsArray) { index, element ->
                 val commandObj = element as? JsonObject
@@ -98,191 +100,227 @@ fun AutoEditorPanel(
                         colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
                         border = BorderStroke(1.dp, AresBorder)
                     ) {
-                        Row(
+                        Column(
                             modifier = Modifier.padding(12.dp).fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(type.uppercase(), style = MaterialTheme.typography.labelSmall, color = AresCyan)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                
-                                when (type) {
-                                    "path" -> {
-                                        val pathName = dataObj?.get("pathName")?.jsonPrimitive?.content ?: ""
-                                        var expanded by remember { mutableStateOf(false) }
-                                        Box {
+                            // Header Row: Type badge + Reorder/Delete Actions
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = type.uppercase(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = AresCyan,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (index > 0) {
+                                        IconButton(
+                                            onClick = { onIntent(PathPlannerIntent.MoveAutoCommand(index, -1, projectPath, league)) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move Up", tint = AresTextSecondary)
+                                        }
+                                    }
+                                    if (index < commandsArray.size - 1) {
+                                        IconButton(
+                                            onClick = { onIntent(PathPlannerIntent.MoveAutoCommand(index, 1, projectPath, league)) },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move Down", tint = AresTextSecondary)
+                                        }
+                                    }
+                                    IconButton(
+                                        onClick = { onIntent(PathPlannerIntent.RemoveAutoCommand(index, projectPath, league)) },
+                                        modifier = Modifier.size(28.dp)
+                                    ) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Remove Command", tint = AresError)
+                                    }
+                                }
+                            }
+
+                            // Body Inputs
+                            when (type) {
+                                "path" -> {
+                                    val pathName = dataObj?.get("pathName")?.jsonPrimitive?.content ?: ""
+                                    var expanded by remember { mutableStateOf(false) }
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        OutlinedTextField(
+                                            value = pathName,
+                                            onValueChange = { 
+                                                val newNode = AutoCommandNode("path", buildJsonObject { put("pathName", it) })
+                                                onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
+                                            },
+                                            label = { Text("Run Path") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth().clickable { expanded = true },
+                                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = AresCyan,
+                                                unfocusedBorderColor = AresBorder
+                                            ),
+                                            trailingIcon = {
+                                                IconButton(onClick = { expanded = true }) {
+                                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = AresTextSecondary)
+                                                }
+                                            }
+                                        )
+                                        DropdownMenu(
+                                            expanded = expanded,
+                                            onDismissRequest = { expanded = false },
+                                            modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
+                                        ) {
+                                            state.availablePaths.forEach { p ->
+                                                DropdownMenuItem(
+                                                    text = { Text(p, color = AresTextPrimary) },
+                                                    onClick = {
+                                                        val newNode = AutoCommandNode("path", buildJsonObject { put("pathName", p) })
+                                                        onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
+                                                        expanded = false
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                "wait" -> {
+                                    val waitTimeStr = dataObj?.get("waitTime")?.jsonPrimitive?.content ?: "0.0"
+                                    OutlinedTextField(
+                                        value = waitTimeStr,
+                                        onValueChange = { 
+                                            val num = it.toDoubleOrNull() ?: 0.0
+                                            val newNode = AutoCommandNode("wait", buildJsonObject { put("waitTime", num) })
+                                            onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
+                                        },
+                                        label = { Text("Wait Time (s)") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = AresCyan,
+                                            unfocusedBorderColor = AresBorder
+                                        )
+                                    )
+                                }
+                                "named" -> {
+                                    val fullName = dataObj?.get("name")?.jsonPrimitive?.content ?: ""
+                                    val isIndicator1 = fullName.startsWith("SetIndicatorColor_") || fullName == "SetIndicatorColor"
+                                    val isIndicator2 = fullName.startsWith("SetSecondIndicatorColor_") || fullName == "SetSecondIndicatorColor"
+                                    val isIndicator = isIndicator1 || isIndicator2
+
+                                    val actionDisplayLabel = when {
+                                        isIndicator1 -> "Indicator Light 1"
+                                        isIndicator2 -> "Indicator Light 2"
+                                        else -> fullName
+                                    }
+
+                                    var expandedAction by remember { mutableStateOf(false) }
+                                    val defaultActions = listOf(
+                                        "Indicator Light 1",
+                                        "Indicator Light 2",
+                                        "Intake",
+                                        "Outtake",
+                                        "Shoot",
+                                        "Score",
+                                        "Climb",
+                                        "Stop"
+                                    )
+
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Box(modifier = Modifier.fillMaxWidth()) {
                                             OutlinedTextField(
-                                                value = pathName,
-                                                onValueChange = { 
-                                                    val newNode = AutoCommandNode("path", buildJsonObject { put("pathName", it) })
+                                                value = actionDisplayLabel,
+                                                onValueChange = { newText ->
+                                                    val newNode = AutoCommandNode("named", buildJsonObject { put("name", newText) })
                                                     onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
                                                 },
-                                                label = { Text("Run Path") },
+                                                label = { Text("Action / Target") },
                                                 singleLine = true,
-                                                modifier = Modifier.fillMaxWidth().clickable { expanded = true },
+                                                modifier = Modifier.fillMaxWidth(),
                                                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
                                                 colors = OutlinedTextFieldDefaults.colors(
                                                     focusedBorderColor = AresCyan,
                                                     unfocusedBorderColor = AresBorder
                                                 ),
                                                 trailingIcon = {
-                                                    IconButton(onClick = { expanded = true }) {
+                                                    IconButton(onClick = { expandedAction = true }) {
                                                         Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = AresTextSecondary)
                                                     }
                                                 }
                                             )
                                             DropdownMenu(
-                                                expanded = expanded,
-                                                onDismissRequest = { expanded = false },
+                                                expanded = expandedAction,
+                                                onDismissRequest = { expandedAction = false },
                                                 modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
                                             ) {
-                                                state.availablePaths.forEach { p ->
+                                                defaultActions.forEach { a ->
                                                     DropdownMenuItem(
-                                                        text = { Text(p, color = AresTextPrimary) },
+                                                        text = { Text(a, color = AresTextPrimary) },
                                                         onClick = {
-                                                            val newNode = AutoCommandNode("path", buildJsonObject { put("pathName", p) })
+                                                            val finalName = when (a) {
+                                                                "Indicator Light 1" -> "SetIndicatorColor_OFF"
+                                                                "Indicator Light 2" -> "SetSecondIndicatorColor_OFF"
+                                                                else -> a
+                                                            }
+                                                            val newNode = AutoCommandNode("named", buildJsonObject { put("name", finalName) })
                                                             onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
-                                                            expanded = false
+                                                            expandedAction = false
                                                         }
                                                     )
                                                 }
                                             }
                                         }
-                                    }
-                                    "wait" -> {
-                                        val waitTimeStr = dataObj?.get("waitTime")?.jsonPrimitive?.content ?: "0.0"
-                                        OutlinedTextField(
-                                            value = waitTimeStr,
-                                            onValueChange = { 
-                                                val num = it.toDoubleOrNull() ?: 0.0
-                                                val newNode = AutoCommandNode("wait", buildJsonObject { put("waitTime", num) })
-                                                onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
-                                            },
-                                            label = { Text("Wait Time (s)") },
-                                            singleLine = true,
-                                            modifier = Modifier.fillMaxWidth(),
-                                            textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = AresCyan,
-                                                unfocusedBorderColor = AresBorder
-                                            )
-                                        )
-                                    }
-                                    "named" -> {
-                                        val fullName = dataObj?.get("name")?.jsonPrimitive?.content ?: ""
-                                        val isIndicator = fullName.startsWith("SetIndicatorColor")
-                                        val baseName = if (isIndicator) "SetIndicatorColor" else fullName
-                                        var expandedAction by remember { mutableStateOf(false) }
-                                        val defaultActions = listOf("Intake", "Outtake", "Shoot", "Score", "Climb", "Stop", "SetIndicatorColor")
-                                        
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            Box(modifier = Modifier.weight(1f)) {
+
+                                        if (isIndicator) {
+                                            val prefix = if (isIndicator2) "SetSecondIndicatorColor" else "SetIndicatorColor"
+                                            val currentColor = fullName.substringAfter("_", "OFF")
+                                            val colors = listOf("OFF", "RAINBOW", "RED", "ORANGE", "YELLOW", "GREEN", "CYAN", "BLUE", "PURPLE", "VIOLET", "WHITE")
+                                            var expandedColor by remember { mutableStateOf(false) }
+
+                                            Box(modifier = Modifier.fillMaxWidth()) {
                                                 OutlinedTextField(
-                                                    value = baseName,
-                                                    onValueChange = { 
-                                                        val finalName = if (it == "SetIndicatorColor") "SetIndicatorColor_OFF" else it
-                                                        val newNode = AutoCommandNode("named", buildJsonObject { put("name", finalName) })
-                                                        onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
-                                                    },
-                                                    label = { Text("Action Name") },
+                                                    value = currentColor,
+                                                    onValueChange = { },
+                                                    readOnly = true,
+                                                    label = { Text("Light Color") },
                                                     singleLine = true,
-                                                    modifier = Modifier.fillMaxWidth().clickable { expandedAction = true },
+                                                    modifier = Modifier.fillMaxWidth().clickable { expandedColor = true },
                                                     textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
                                                     colors = OutlinedTextFieldDefaults.colors(
                                                         focusedBorderColor = AresCyan,
                                                         unfocusedBorderColor = AresBorder
                                                     ),
                                                     trailingIcon = {
-                                                        IconButton(onClick = { expandedAction = true }) {
+                                                        IconButton(onClick = { expandedColor = true }) {
                                                             Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = AresTextSecondary)
                                                         }
                                                     }
                                                 )
                                                 DropdownMenu(
-                                                    expanded = expandedAction,
-                                                    onDismissRequest = { expandedAction = false },
+                                                    expanded = expandedColor,
+                                                    onDismissRequest = { expandedColor = false },
                                                     modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
                                                 ) {
-                                                    defaultActions.forEach { a ->
+                                                    colors.forEach { c ->
                                                         DropdownMenuItem(
-                                                            text = { Text(a, color = AresTextPrimary) },
+                                                            text = { Text(c, color = AresTextPrimary) },
                                                             onClick = {
-                                                                val finalName = if (a == "SetIndicatorColor") "SetIndicatorColor_OFF" else a
-                                                                val newNode = AutoCommandNode("named", buildJsonObject { put("name", finalName) })
+                                                                val newNode = AutoCommandNode("named", buildJsonObject { put("name", "${prefix}_$c") })
                                                                 onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
-                                                                expandedAction = false
+                                                                expandedColor = false
                                                             }
                                                         )
                                                     }
                                                 }
                                             }
-
-                                            if (isIndicator) {
-                                                val currentColor = fullName.substringAfter("_", "OFF")
-                                                val colors = listOf("OFF", "RED", "GREEN", "BLUE", "YELLOW", "VIOLET", "WHITE")
-                                                var expandedColor by remember { mutableStateOf(false) }
-
-                                                Box(modifier = Modifier.weight(1f)) {
-                                                    OutlinedTextField(
-                                                        value = currentColor,
-                                                        onValueChange = { },
-                                                        readOnly = true,
-                                                        label = { Text("Color") },
-                                                        singleLine = true,
-                                                        modifier = Modifier.fillMaxWidth().clickable { expandedColor = true },
-                                                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
-                                                        colors = OutlinedTextFieldDefaults.colors(
-                                                            focusedBorderColor = AresCyan,
-                                                            unfocusedBorderColor = AresBorder
-                                                        ),
-                                                        trailingIcon = {
-                                                            IconButton(onClick = { expandedColor = true }) {
-                                                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = AresTextSecondary)
-                                                            }
-                                                        }
-                                                    )
-                                                    DropdownMenu(
-                                                        expanded = expandedColor,
-                                                        onDismissRequest = { expandedColor = false },
-                                                        modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
-                                                    ) {
-                                                        colors.forEach { c ->
-                                                            DropdownMenuItem(
-                                                                text = { Text(c, color = AresTextPrimary) },
-                                                                onClick = {
-                                                                    val newNode = AutoCommandNode("named", buildJsonObject { put("name", "SetIndicatorColor_$c") })
-                                                                    onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
-                                                                    expandedColor = false
-                                                                }
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
                                         }
                                     }
-                                    else -> {
-                                        Text("Data: $dataObj", style = MaterialTheme.typography.bodySmall, color = AresTextSecondary)
-                                    }
                                 }
-                            }
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (index > 0) {
-                                    IconButton(onClick = { onIntent(PathPlannerIntent.MoveAutoCommand(index, -1, projectPath, league)) }) {
-                                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move Up", tint = AresTextSecondary)
-                                    }
-                                }
-                                if (index < commandsArray.size - 1) {
-                                    IconButton(onClick = { onIntent(PathPlannerIntent.MoveAutoCommand(index, 1, projectPath, league)) }) {
-                                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move Down", tint = AresTextSecondary)
-                                    }
-                                }
-                                IconButton(onClick = { onIntent(PathPlannerIntent.RemoveAutoCommand(index, projectPath, league)) }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Remove Command", tint = AresError)
+                                else -> {
+                                    Text("Data: $dataObj", style = MaterialTheme.typography.bodySmall, color = AresTextSecondary)
                                 }
                             }
                         }
@@ -293,16 +331,16 @@ fun AutoEditorPanel(
         
         HorizontalDivider(color = AresBorder)
         
-        // Add Button
+        // High-Contrast Legible Add Command Button
         Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Button(
                 onClick = { expandedAddCommand = true },
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresBackground)
+                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black)
             ) {
-                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Add, contentDescription = null, tint = Color.Black, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Add Command")
+                Text("Add Command", color = Color.Black, fontWeight = FontWeight.Bold)
             }
             
             DropdownMenu(
@@ -329,6 +367,22 @@ fun AutoEditorPanel(
                     text = { Text("Named Action") },
                     onClick = {
                         val node = AutoCommandNode("named", buildJsonObject { put("name", "Intake") })
+                        onIntent(PathPlannerIntent.AddAutoCommand(node, projectPath, league))
+                        expandedAddCommand = false
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Indicator Light 1") },
+                    onClick = {
+                        val node = AutoCommandNode("named", buildJsonObject { put("name", "SetIndicatorColor_GREEN") })
+                        onIntent(PathPlannerIntent.AddAutoCommand(node, projectPath, league))
+                        expandedAddCommand = false
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Indicator Light 2") },
+                    onClick = {
+                        val node = AutoCommandNode("named", buildJsonObject { put("name", "SetSecondIndicatorColor_BLUE") })
                         onIntent(PathPlannerIntent.AddAutoCommand(node, projectPath, league))
                         expandedAddCommand = false
                     }

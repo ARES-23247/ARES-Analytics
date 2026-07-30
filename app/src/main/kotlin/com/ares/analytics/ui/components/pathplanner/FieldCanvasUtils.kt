@@ -113,8 +113,8 @@ fun getRobotCoordBase(
     league: League
 ): Waypoint {
     return if (league == League.FTC) {
-        val rx = -(offset.y / canvasH - 0.5) * fieldH
         val ry = -(offset.x / canvasW - 0.5) * fieldW
+        val rx = -(offset.y / canvasH - 0.5) * fieldH
         Waypoint(rx, ry)
     } else {
         val rx = (offset.x / canvasW) * fieldW

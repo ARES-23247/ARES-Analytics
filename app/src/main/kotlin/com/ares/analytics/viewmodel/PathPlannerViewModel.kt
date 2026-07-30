@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
 import java.io.File
 
 /**
@@ -459,6 +459,8 @@ sealed class PathPlannerIntent {
 
      */
     data class UpdateContextAuto(val autoName: String?, val projectPath: String?, val league: League) : PathPlannerIntent()
+    data class DeletePath(val name: String, val projectPath: String?, val league: League) : PathPlannerIntent()
+    data class DeleteAuto(val name: String, val projectPath: String?, val league: League) : PathPlannerIntent()
 }
 
 /**
@@ -581,9 +583,75 @@ class PathPlannerViewModel(
                 is PathPlannerIntent.DeleteConstraintZone -> { _state.update { val l = it.constraintZones.toMutableList(); l.removeAt(intent.index); it.copy(constraintZones = l) }; recalculateDuration() }
 
                 is PathPlannerIntent.UpdateEditorMode -> _state.update { it.copy(activeEditorMode = intent.mode) }
+
+                is PathPlannerIntent.AddAutoCommand -> {
+                    updateAutoCommands { oldArray ->
+                        val jsonNode = AppJson.encodeToJsonElement(AutoCommandNode.serializer(), intent.node)
+                        buildJsonArray {
+                            oldArray.forEach { add(it) }
+                            add(jsonNode)
+                        }
+                    }
+                    serializationManager.recalculateAutoTrajectory(intent.projectPath, intent.league)
+                }
+
+                is PathPlannerIntent.RemoveAutoCommand -> {
+                    updateAutoCommands { oldArray ->
+                        buildJsonArray {
+                            oldArray.forEachIndexed { i, element ->
+                                if (i != intent.index) add(element)
+                            }
+                        }
+                    }
+                    serializationManager.recalculateAutoTrajectory(intent.projectPath, intent.league)
+                }
+
+                is PathPlannerIntent.MoveAutoCommand -> {
+                    updateAutoCommands { oldArray ->
+                        val toIndex = intent.fromIndex + intent.direction
+                        if (intent.fromIndex in 0 until oldArray.size && toIndex in 0 until oldArray.size) {
+                            val list = oldArray.toMutableList()
+                            val item = list.removeAt(intent.fromIndex)
+                            list.add(toIndex, item)
+                            buildJsonArray { list.forEach { add(it) } }
+                        } else {
+                            oldArray
+                        }
+                    }
+                    serializationManager.recalculateAutoTrajectory(intent.projectPath, intent.league)
+                }
+
+                is PathPlannerIntent.UpdateAutoCommand -> {
+                    updateAutoCommands { oldArray ->
+                        val jsonNode = AppJson.encodeToJsonElement(AutoCommandNode.serializer(), intent.node)
+                        buildJsonArray {
+                            oldArray.forEachIndexed { i, element ->
+                                if (i == intent.index) add(jsonNode) else add(element)
+                            }
+                        }
+                    }
+                    serializationManager.recalculateAutoTrajectory(intent.projectPath, intent.league)
+                }
+
+                is PathPlannerIntent.DeletePath -> serializationManager.deletePath(intent.name, intent.projectPath, intent.league)
+                is PathPlannerIntent.DeleteAuto -> serializationManager.deleteAuto(intent.name, intent.projectPath, intent.league)
+
                 else -> { }
             }
         }
+    }
+
+    private fun updateAutoCommands(transform: (JsonArray) -> JsonArray) {
+        val rootNode = _state.value.currentAutoCommands.firstOrNull() ?: AutoCommandNode("sequential", buildJsonObject { put("commands", buildJsonArray {}) })
+        val oldCommands = (rootNode.data["commands"] as? JsonArray) ?: buildJsonArray {}
+        val newCommands = transform(oldCommands)
+        val newRoot = AutoCommandNode(rootNode.type, buildJsonObject {
+            rootNode.data.forEach { (k, v) ->
+                if (k != "commands") put(k, v)
+            }
+            put("commands", newCommands)
+        })
+        _state.update { it.copy(currentAutoCommands = listOf(newRoot)) }
     }
 
     private fun isModifyingIntent(intent: PathPlannerIntent): Boolean {

@@ -17,6 +17,7 @@ object IndicatorLightColorMapper {
 
     private val stops = listOf(
         ColorStop(0.000, Color(0xFF202020)),  // OFF (dark)
+        ColorStop(0.2525, Color(0xFFFF007F)), // RAINBOW (magenta/rainbow accent)
         ColorStop(0.279, Color(0xFFFF0000)),  // RED
         ColorStop(0.333, Color(0xFFFF8000)),  // ORANGE
         ColorStop(0.388, Color(0xFFFFFF00)),  // YELLOW
@@ -35,7 +36,9 @@ object IndicatorLightColorMapper {
      * @return The interpolated [Color] for display
      */
     fun positionToColor(position: Double): Color {
+        if (position < 0.0) return Color(0xFF202020)
         val pos = position.coerceIn(0.0, 1.0)
+        if (pos in 0.240..0.265) return Color(0xFFFF007F)
         for (i in 0 until stops.size - 1) {
             val lo = stops[i]
             val hi = stops[i + 1]
@@ -55,9 +58,11 @@ object IndicatorLightColorMapper {
      * @return Human-readable color name
      */
     fun positionToName(position: Double): String {
+        if (position < 0.0) return "Off"
         val pos = position.coerceIn(0.0, 1.0)
         return when {
             pos < 0.140 -> "Off"
+            pos in 0.240..0.265 -> "Rainbow"
             pos < 0.306 -> "Red"
             pos < 0.361 -> "Orange"
             pos < 0.430 -> "Yellow"

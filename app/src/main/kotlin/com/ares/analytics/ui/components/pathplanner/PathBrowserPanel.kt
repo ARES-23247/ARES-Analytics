@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -86,14 +88,36 @@ fun PathBrowserPanel(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(AresSurfaceElevated)
-                                .padding(horizontal = 16.dp, vertical = 10.dp)
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
                         ) {
-                            Text(
-                                text = preview.name,
-                                color = AresTextPrimary,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 16.sp
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = preview.name,
+                                    color = AresTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 16.sp
+                                )
+                                IconButton(
+                                    onClick = {
+                                        if (state.activeEditorMode == "Path") {
+                                            onIntent(PathPlannerIntent.DeletePath(preview.name, projectPath, league))
+                                        } else {
+                                            onIntent(PathPlannerIntent.DeleteAuto(preview.name, projectPath, league))
+                                        }
+                                    },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete",
+                                        tint = AresError
+                                    )
+                                }
+                            }
                         }
                         Box(modifier = Modifier.fillMaxSize().padding(12.dp).clip(RoundedCornerShape(8.dp)).border(1.dp, AresBorder, RoundedCornerShape(8.dp))) {
                             // Mini FieldCanvas
