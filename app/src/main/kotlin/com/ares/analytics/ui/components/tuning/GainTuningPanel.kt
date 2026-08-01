@@ -1,5 +1,6 @@
 package com.ares.analytics.ui.components.tuning
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -9,11 +10,15 @@ import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -28,18 +33,23 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun GainTuningPanel(
     viewModel: TuningViewModel,
     state: com.ares.analytics.viewmodel.TuningState,
     modifier: Modifier = Modifier
 ) {
+    val allKeys = (state.variables.keys + state.appVariables.keys).toSet()
+    val syncedCount = allKeys.count { k ->
+        val r = state.variables[k]
+        val a = state.appVariables[k]
+        r != null && a != null && kotlin.math.abs(r - a) < 1e-5
+    }
+    val diffCount = allKeys.count { k ->
+        val r = state.variables[k]
+        val a = state.appVariables[k]
+        r != null && a != null && kotlin.math.abs(r - a) >= 1e-5
+    }
+
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
@@ -48,7 +58,62 @@ fun GainTuningPanel(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("Constants Tuning Board", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = AresTextPrimary)
+        // Header Row with Global Batch Sync Controls
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("Constants Tuning Board", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = AresTextPrimary)
+                if (allKeys.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(top = 2.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .background(if (diffCount == 0 && syncedCount > 0) AresGreen else AresAmber, RoundedCornerShape(3.dp))
+                        )
+                        Text(
+                            text = if (diffCount == 0 && syncedCount > 0) "All $syncedCount Constants Synced" else "$diffCount Out of Sync ($syncedCount Synced)",
+                            fontSize = 11.sp,
+                            color = if (diffCount == 0 && syncedCount > 0) AresGreen else AresAmber,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            // Global Push / Pull Action Buttons
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { viewModel.onIntent(TuningIntent.PushAllToRobot) },
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black),
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Push All -> Robot", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = { viewModel.onIntent(TuningIntent.PullAllFromRobot) },
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, AresBorder),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = AresTextPrimary, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("<- Pull All to App", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
         HorizontalDivider(color = AresBorder)
 
         if (state.saveStatus.isNotEmpty()) {
@@ -63,23 +128,21 @@ fun GainTuningPanel(
             Text(error, color = AresError, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
 
-        if (state.variables.isEmpty()) {
+        if (allKeys.isEmpty()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("Waiting for live Tuning constants from Robot over NT4...", color = AresTextTertiary, fontSize = 12.sp)
+                Text("Waiting for live Tuning constants from Robot over NT4 or local project JSON...", color = AresTextTertiary, fontSize = 12.sp)
             }
         } else {
             // Group by custom categories
-            val grouped = state.variables.entries.groupBy { 
-                getCustomCategory(it.key)
-            }
+            val grouped = allKeys.groupBy { getCustomCategory(it) }
             
             LazyVerticalStaggeredGrid(
-                columns = StaggeredGridCells.Adaptive(minSize = 320.dp),
+                columns = StaggeredGridCells.Adaptive(minSize = 360.dp),
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalItemSpacing = 12.dp
             ) {
-                items(grouped.entries.toList().sortedBy { it.key }) { (category, constants) ->
+                items(grouped.entries.toList().sortedBy { it.key }) { (category, keys) ->
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -94,18 +157,35 @@ fun GainTuningPanel(
                             fontWeight = FontWeight.Bold,
                             color = AresCyan
                         )
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+
+                        // Column Headers: Name | App JSON | Sync | Robot NT4
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            constants.sortedBy { it.key }.forEach { const ->
-                                val constKey = const.key
+                            Text("VARIABLE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AresTextTertiary, modifier = Modifier.weight(1f))
+                            Text("APP (JSON)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AresCyan, modifier = Modifier.width(75.dp))
+                            Text("SYNC", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AresTextTertiary, modifier = Modifier.width(50.dp))
+                            Text("ROBOT (NT4)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AresTextSecondary, modifier = Modifier.width(75.dp))
+                        }
+                        HorizontalDivider(color = AresBorder.copy(alpha = 0.5f))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            keys.sorted().forEach { constKey ->
                                 val parts = constKey.removePrefix("Tuning/").split("/")
                                 val displayName = if (parts.size > 1) parts.drop(1).joinToString("/") else parts[0]
+                                
+                                val robotVal = state.variables[constKey]
+                                val appVal = state.appVariables[constKey]
+                                
+                                val isSynced = robotVal != null && appVal != null && kotlin.math.abs(robotVal - appVal) < 1e-5
+                                val isDiff = robotVal != null && appVal != null && kotlin.math.abs(robotVal - appVal) >= 1e-5
                                 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     val descAndRange = getConstantDescriptionAndRange(constKey)
                                     val tooltipState = rememberTooltipState(isPersistent = true)
@@ -155,53 +235,97 @@ fun GainTuningPanel(
                                                 fontWeight = FontWeight.SemiBold,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .clickable(onClick = {})
+                                                modifier = Modifier.fillMaxWidth().clickable(onClick = {})
                                             )
                                         }
                                     }
-                                    var textValue by remember(const.value) { mutableStateOf(const.value.toString()) }
+
+                                    // App Value Input Field (Local JSON)
+                                    var appText by remember(appVal) { mutableStateOf(appVal?.toString() ?: "") }
                                     BasicTextField(
-                                        value = textValue,
-                                        onValueChange = { textValue = it },
+                                        value = appText,
+                                        onValueChange = { newText ->
+                                            appText = newText
+                                            newText.toDoubleOrNull()?.let { v ->
+                                                viewModel.onIntent(TuningIntent.UpdateAppConstant(constKey, v))
+                                            }
+                                        },
                                         singleLine = true,
-                                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
+                                        textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary, fontWeight = FontWeight.Bold),
                                         cursorBrush = SolidColor(AresCyan),
                                         modifier = Modifier
-                                            .width(90.dp)
-                                            .height(32.dp)
+                                            .width(75.dp)
+                                            .height(30.dp)
                                             .background(AresSurface, RoundedCornerShape(6.dp))
-                                            .border(1.dp, AresBorder, RoundedCornerShape(6.dp)),
+                                            .border(1.dp, if (isDiff) AresAmber else AresBorder, RoundedCornerShape(6.dp)),
                                         decorationBox = { innerTextField ->
                                             Row(
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(horizontal = 8.dp),
+                                                modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Box(modifier = Modifier.weight(1f)) {
-                                                    if (textValue.isEmpty()) {
-                                                        Text("null", fontSize = 11.sp, color = AresTextTertiary)
+                                                    if (appText.isEmpty()) {
+                                                        Text("--", fontSize = 11.sp, color = AresTextTertiary)
                                                     }
                                                     innerTextField()
                                                 }
                                             }
                                         }
                                     )
-                                    Button(
-                                        onClick = {
-                                            val newVal = textValue.toDoubleOrNull()
-                                            if (newVal != null) {
-                                                viewModel.onIntent(TuningIntent.SaveConstant(constKey, newVal))
-                                            }
-                                        },
-                                        modifier = Modifier.width(60.dp).height(32.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
-                                        shape = RoundedCornerShape(6.dp),
-                                        contentPadding = PaddingValues(0.dp)
+
+                                    // Sync Transfer Controls: [Push ->] [Dot] [<- Pull]
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                        modifier = Modifier.width(50.dp)
                                     ) {
-                                        Text("Save", color = AresBackground, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        // Push App -> Robot
+                                        IconButton(
+                                            onClick = { viewModel.onIntent(TuningIntent.PushToRobot(constKey)) },
+                                            modifier = Modifier.size(20.dp).background(AresCyan.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
+                                        ) {
+                                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Push to Robot", tint = AresCyan, modifier = Modifier.size(12.dp))
+                                        }
+
+                                        // Status dot
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .background(
+                                                    when {
+                                                        isSynced -> AresGreen
+                                                        isDiff -> AresAmber
+                                                        else -> AresTextTertiary
+                                                    },
+                                                    RoundedCornerShape(3.dp)
+                                                )
+                                        )
+
+                                        // Pull Robot -> App
+                                        IconButton(
+                                            onClick = { viewModel.onIntent(TuningIntent.PullFromRobot(constKey)) },
+                                            modifier = Modifier.size(20.dp).background(AresSurface, RoundedCornerShape(4.dp)).border(1.dp, AresBorder, RoundedCornerShape(4.dp))
+                                        ) {
+                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Pull from Robot", tint = AresTextSecondary, modifier = Modifier.size(12.dp))
+                                        }
+                                    }
+
+                                    // Robot Live Value Display (NT4)
+                                    Box(
+                                        modifier = Modifier
+                                            .width(75.dp)
+                                            .height(30.dp)
+                                            .background(AresSurface, RoundedCornerShape(6.dp))
+                                            .border(1.dp, AresBorder, RoundedCornerShape(6.dp))
+                                            .padding(horizontal = 6.dp),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        Text(
+                                            text = robotVal?.let { String.format("%.4f", it).trimEnd('0').trimEnd('.') } ?: "--",
+                                            fontSize = 11.sp,
+                                            color = if (robotVal != null) AresCyan else AresTextTertiary,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
                                     }
                                 }
                             }

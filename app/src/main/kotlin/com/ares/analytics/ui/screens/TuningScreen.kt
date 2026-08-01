@@ -58,6 +58,10 @@ fun TuningScreen(
     val sysIdState by sysIdViewModel.state.collectAsState()
     var activeCalTab by remember { mutableStateOf(0) }
 
+    LaunchedEffect(projectPath) {
+        viewModel.onIntent(TuningIntent.LoadConstants(projectPath))
+    }
+
     Row(
         modifier = Modifier.fillMaxSize().padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp)
