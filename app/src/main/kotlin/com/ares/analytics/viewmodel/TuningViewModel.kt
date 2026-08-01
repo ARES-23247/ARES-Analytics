@@ -26,6 +26,7 @@ data class TuningState(
     val appVariables: Map<String, Double> = emptyMap(),   // Local App JSON values (robot_constants.json)
     val projectPath: String = "",
     val availableBackups: List<BackupInfo> = emptyList(),
+    val isAutoSaveEnabled: Boolean = true,                // Auto-sync live NT4 changes into app JSON
     val isLoading: Boolean = false,
     val saveStatus: String = "",
     val errorMessage: String? = null
@@ -42,6 +43,7 @@ sealed class TuningIntent {
     object CreateBackup : TuningIntent()
     data class LoadBackup(val filename: String) : TuningIntent()
     object RefreshBackups : TuningIntent()
+    object ToggleAutoSave : TuningIntent()
     object ClearSaveStatus : TuningIntent()
 }
 
@@ -77,13 +79,14 @@ class TuningViewModel(
 
                 if (changed) {
                     _state.update { currentState ->
-                        // Auto-seed appVariables for any new keys if appVariables doesn't have them yet
                         val updatedAppVars = currentState.appVariables.toMutableMap()
                         var appVarsChanged = false
                         currentMap.forEach { (k, v) ->
-                            if (!updatedAppVars.containsKey(k)) {
-                                updatedAppVars[k] = v
-                                appVarsChanged = true
+                            if (currentState.isAutoSaveEnabled || !updatedAppVars.containsKey(k)) {
+                                if (updatedAppVars[k] != v) {
+                                    updatedAppVars[k] = v
+                                    appVarsChanged = true
+                                }
                             }
                         }
                         if (appVarsChanged && currentState.projectPath.isNotBlank()) {
@@ -232,6 +235,15 @@ class TuningViewModel(
                     if (path.isNotBlank()) {
                         val backups = withContext(Dispatchers.IO) { listBackups(path) }
                         _state.update { it.copy(availableBackups = backups) }
+                    }
+                }
+                is TuningIntent.ToggleAutoSave -> {
+                    _state.update { currentState ->
+                        val nextState = !currentState.isAutoSaveEnabled
+                        currentState.copy(
+                            isAutoSaveEnabled = nextState,
+                            saveStatus = if (nextState) "Auto-Sync Enabled: Live robot changes write to JSON" else "Auto-Sync Disabled: Manual Push/Pull required"
+                        )
                     }
                 }
                 is TuningIntent.ClearSaveStatus -> {
