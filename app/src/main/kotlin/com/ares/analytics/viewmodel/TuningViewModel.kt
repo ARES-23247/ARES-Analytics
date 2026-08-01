@@ -14,10 +14,18 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import java.io.File
 
+data class BackupInfo(
+    val filename: String,
+    val formattedDate: String,
+    val filePath: String,
+    val count: Int
+)
+
 data class TuningState(
     val variables: Map<String, Double> = emptyMap(),      // Live values from Robot over NT4
     val appVariables: Map<String, Double> = emptyMap(),   // Local App JSON values (robot_constants.json)
     val projectPath: String = "",
+    val availableBackups: List<BackupInfo> = emptyList(),
     val isLoading: Boolean = false,
     val saveStatus: String = "",
     val errorMessage: String? = null
@@ -31,6 +39,9 @@ sealed class TuningIntent {
     data class PullFromRobot(val key: String) : TuningIntent()
     object PushAllToRobot : TuningIntent()
     object PullAllFromRobot : TuningIntent()
+    object CreateBackup : TuningIntent()
+    data class LoadBackup(val filename: String) : TuningIntent()
+    object RefreshBackups : TuningIntent()
     object ClearSaveStatus : TuningIntent()
 }
 
@@ -97,15 +108,15 @@ class TuningViewModel(
                     val path = intent.projectPath
                     if (path.isNotBlank()) {
                         val loadedMap = withContext(Dispatchers.IO) { loadAppConstants(path) }
+                        val backups = withContext(Dispatchers.IO) { listBackups(path) }
                         _state.update { currentState ->
                             val mergedAppVars = loadedMap.toMutableMap()
-                            // Also populate from current live variables if missing
                             currentState.variables.forEach { (k, v) ->
                                 if (!mergedAppVars.containsKey(k)) {
                                     mergedAppVars[k] = v
                                 }
                             }
-                            currentState.copy(projectPath = path, appVariables = mergedAppVars)
+                            currentState.copy(projectPath = path, appVariables = mergedAppVars, availableBackups = backups)
                         }
                     }
                 }
@@ -173,11 +184,116 @@ class TuningViewModel(
                         _state.update { it.copy(errorMessage = "No active Robot variables to pull") }
                     }
                 }
+                is TuningIntent.CreateBackup -> {
+                    val appVars = _state.value.appVariables
+                    val path = _state.value.projectPath
+                    if (appVars.isNotEmpty() && path.isNotBlank()) {
+                        val filename = withContext(Dispatchers.IO) { createBackup(path, appVars) }
+                        if (filename != null) {
+                            val backups = withContext(Dispatchers.IO) { listBackups(path) }
+                            _state.update { it.copy(availableBackups = backups, saveStatus = "Backup saved: $filename (${appVars.size} constants)") }
+                        } else {
+                            _state.update { it.copy(errorMessage = "Failed to create backup file") }
+                        }
+                    } else {
+                        _state.update { it.copy(errorMessage = "No constants available to backup") }
+                    }
+                }
+                is TuningIntent.LoadBackup -> {
+                    val path = _state.value.projectPath
+                    val file = File(File(path, "constants_backups"), intent.filename)
+                    if (file.exists()) {
+                        val loadedMap = withContext(Dispatchers.IO) {
+                            try {
+                                val text = file.readText()
+                                val jsonObj = Json.parseToJsonElement(text).jsonObject
+                                jsonObj.mapValues { it.value.jsonPrimitive.double }
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }
+                        if (loadedMap != null) {
+                            _state.update { currentState ->
+                                currentState.copy(
+                                    appVariables = loadedMap,
+                                    saveStatus = "Loaded backup '${intent.filename}' (${loadedMap.size} constants restored)"
+                                )
+                            }
+                            withContext(Dispatchers.IO) {
+                                saveAppConstants(path, loadedMap)
+                            }
+                        } else {
+                            _state.update { it.copy(errorMessage = "Failed to parse backup file ${intent.filename}") }
+                        }
+                    }
+                }
+                is TuningIntent.RefreshBackups -> {
+                    val path = _state.value.projectPath
+                    if (path.isNotBlank()) {
+                        val backups = withContext(Dispatchers.IO) { listBackups(path) }
+                        _state.update { it.copy(availableBackups = backups) }
+                    }
+                }
                 is TuningIntent.ClearSaveStatus -> {
                     _state.update { it.copy(saveStatus = "") }
                 }
             }
         }
+    }
+
+    private fun createBackup(projectPath: String, map: Map<String, Double>): String? {
+        if (projectPath.isBlank() || map.isEmpty()) return null
+        val dir = File(projectPath, "constants_backups")
+        if (!dir.exists()) dir.mkdirs()
+
+        val dateStr = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
+        val filename = "constants_$dateStr.json"
+        val file = File(dir, filename)
+
+        return try {
+            val jsonMap = map.mapValues { JsonPrimitive(it.value) }
+            val jsonObj = JsonObject(jsonMap)
+            val jsonFormatter = Json { prettyPrint = true }
+            file.writeText(jsonFormatter.encodeToString(JsonObject.serializer(), jsonObj))
+            filename
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    private fun listBackups(projectPath: String): List<BackupInfo> {
+        if (projectPath.isBlank()) return emptyList()
+        val dir = File(projectPath, "constants_backups")
+        if (!dir.exists()) return emptyList()
+
+        return dir.listFiles { _, name -> name.startsWith("constants_") && name.endsWith(".json") }
+            ?.mapNotNull { file ->
+                try {
+                    val text = file.readText()
+                    val jsonObj = Json.parseToJsonElement(text).jsonObject
+                    val count = jsonObj.size
+                    
+                    val rawTime = file.name.removePrefix("constants_").removeSuffix(".json")
+                    val formatted = try {
+                        val date = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).parse(rawTime)
+                        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(date)
+                    } catch (_: Exception) {
+                        rawTime
+                    }
+                    
+                    BackupInfo(
+                        filename = file.name,
+                        formattedDate = formatted,
+                        filePath = file.absolutePath,
+                        count = count
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+            }
+            ?.sortedByDescending { it.filename }
+            ?: emptyList()
     }
 
     private fun loadAppConstants(projectPath: String): Map<String, Double> {

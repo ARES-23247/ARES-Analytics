@@ -87,7 +87,9 @@ fun GainTuningPanel(
                 }
             }
 
-            // Global Push / Pull Action Buttons
+            var showBackupMenu by remember { mutableStateOf(false) }
+
+            // Global Push / Pull / Backup Action Buttons
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = { viewModel.onIntent(TuningIntent.PushAllToRobot) },
@@ -111,6 +113,59 @@ fun GainTuningPanel(
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = AresTextPrimary, modifier = Modifier.size(14.dp))
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("<- Pull All to App", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+
+                OutlinedButton(
+                    onClick = { viewModel.onIntent(TuningIntent.CreateBackup) },
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, AresBorder),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Text("Save Backup", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                }
+
+                Box {
+                    OutlinedButton(
+                        onClick = {
+                            viewModel.onIntent(TuningIntent.RefreshBackups)
+                            showBackupMenu = true
+                        },
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, AresBorder),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Text("Load Backup", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+
+                    DropdownMenu(
+                        expanded = showBackupMenu,
+                        onDismissRequest = { showBackupMenu = false },
+                        modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
+                    ) {
+                        if (state.availableBackups.isEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text("No backups found", color = AresTextTertiary, fontSize = 11.sp) },
+                                onClick = { showBackupMenu = false }
+                            )
+                        } else {
+                            state.availableBackups.forEach { backup ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(backup.formattedDate, color = AresCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            Text("${backup.count} constants • ${backup.filename}", color = AresTextSecondary, fontSize = 10.sp)
+                                        }
+                                    },
+                                    onClick = {
+                                        viewModel.onIntent(TuningIntent.LoadBackup(backup.filename))
+                                        showBackupMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
