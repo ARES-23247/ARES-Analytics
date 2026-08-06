@@ -694,6 +694,8 @@ fun MainScreen(services: ServiceRegistry) {
                                 }
                             )
                             NavigationTarget.KDOC_VIEWER -> KDocViewerScreen()
+                            NavigationTarget.PIT_DIAGNOSTICS -> HardwareSelfTestWizard(nt4ClientService = services.nt4ClientService)
+                            NavigationTarget.MATCH_STRATEGY -> MatchStrategyScreen()
                             NavigationTarget.RUN_HISTORY -> RunHistoryScreen(
                                 databaseService = services.databaseService,
                                 syncEngineService = services.syncEngineService

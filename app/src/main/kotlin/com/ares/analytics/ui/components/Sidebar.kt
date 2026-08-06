@@ -41,6 +41,8 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     FIELD_EDITOR("Field Editor", Icons.Default.Layers),
     ACADEMY("ARES Academy", Icons.Default.School),
     KDOC_VIEWER("KDoc Explorer", Icons.Default.Book),
+    PIT_DIAGNOSTICS("Pit Self-Test", Icons.Default.Build),
+    MATCH_STRATEGY("Match Strategy", Icons.Default.Analytics),
     RUN_HISTORY("Run History", Icons.Default.TableChart),
     DATABASE_VIEWER("Database", Icons.Default.Storage),
     TUNING("Tuning", Icons.Default.Tune),
