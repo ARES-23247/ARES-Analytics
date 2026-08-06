@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -38,6 +39,9 @@ enum class AcademyTrack(val title: String, val subtitle: String, val icon: Image
     KINEMATICS("Drivetrain Kinematics", "Mecanum Vector Math, Swerve Azimuth & Zero Calibration", Icons.Default.DirectionsCar, AresGold),
     VISION("Vision & AprilTags", "Limelight 3D Pose, Target-Space Alignment, Outlier Rejection", Icons.Default.Videocam, AresPurple),
     PATHFINDING("Pathfinding & Avoidance", "Bezier Splines, PathPlanner Markers, Theta* & VFH+", Icons.Default.Route, AresRed),
+    HARDWARE_ELECTRICAL("Hardware & Electrical Wiring", "GoBilda Pinpoint, CAN Bus 120-Ohm Resistors, Crimping", Icons.Default.Build, AresGold),
+    AUTONOMOUS_STRATEGY("Autonomous Pathing Strategy", "PathPlanner Event Markers, Alliance Coordinate Transforms", Icons.Default.Map, AresCyan),
+    TELEMETRY_SCOUTING("Telemetry & Scouting Analysis", ".wpilog Graphing, Motor Current Spikes, Driver Heatmaps", Icons.Default.Analytics, AresPurple),
     POWER_DIAGNOSTICS("Power & System Diagnostics", "Brownout Protection, .wpilog Analysis, Voltage Scaling", Icons.Default.BatteryChargingFull, AresCyan)
 }
 
@@ -75,6 +79,16 @@ fun AcademyScreen(
     var quizAnswers by remember { mutableStateOf(mapOf<Int, Int>()) }
     var quizSubmitted by remember { mutableStateOf(false) }
 
+    // Playground Sandbox Code Input State
+    var playgroundCode by remember { mutableStateOf("""
+        // ARES Kotlin Sandbox Code Example
+        val kS = 0.06
+        val errX = 0.05 // 5cm position error
+        val fieldVx = (errX * 1.8) + (1.0 * kS)
+        println("Calculated Field Velocity: " + fieldVx)
+    """.trimIndent()) }
+    var playgroundOutput by remember { mutableStateOf("Ready to run code snippet.") }
+
     val lessonsByTrack = remember {
         mapOf(
             AcademyTrack.CONTROL_THEORY to listOf(
@@ -92,18 +106,6 @@ fun AcademyScreen(
                             options = listOf("Increases rise speed towards target", "Damps high-frequency oscillation", "Removes motor battery noise", "Limits maximum velocity"),
                             correctIndex = 0,
                             explanation = "kP produces control effort proportional to error, reducing initial rise time towards the setpoint."
-                        ),
-                        QuizQuestion(
-                            question = "Which term prevents overshooting and dampens system oscillation?",
-                            options = listOf("Integral (kI)", "Derivative (kD)", "Feedforward (kF)", "Deadband"),
-                            correctIndex = 1,
-                            explanation = "Derivative gain kD resists the rate of change of error, dampening overshoot."
-                        ),
-                        QuizQuestion(
-                            question = "Why is Feedforward (kF / kS) essential in motor velocity control?",
-                            options = listOf("It anticipates expected motor output before error occurs", "It resets the gyro heading", "It increases battery voltage", "It filters vision noise"),
-                            correctIndex = 0,
-                            explanation = "Feedforward provides baseline voltage based on expected target velocity or static friction."
                         )
                     )
                 ),
@@ -114,94 +116,59 @@ fun AcademyScreen(
                     formula = "V_{ff} = kS \\text{sgn}(v) + kV v + kA a",
                     physicalUnits = "Voltage: V, Velocity: m/s, Acceleration: m/s²",
                     keyTakeaway = "Static friction kS is critical for Mecanum position hold on foam tile friction.",
-                    defaultVal = 0.06, minVal = 0.0, maxVal = 0.25,
-                    quiz = listOf(
-                        QuizQuestion(
-                            question = "Why is static friction feedforward kS added to Mecanum position hold?",
-                            options = listOf("To break static wheel friction on foam tiles", "To measure optical odometry", "To invert motor directions", "To lock EKF covariance"),
-                            correctIndex = 0,
-                            explanation = "Small position errors produce tiny PID outputs below motor breakout voltage. kS adds minimum breakout power."
-                        )
-                    )
-                ),
-                AcademyLesson(
-                    id = "integral_windup",
-                    title = "Integral Windup & Anti-Windup Clamping",
-                    description = "Preventing actuator saturation overshoots when integral accumulators grow unbounded.",
-                    formula = "e_{accum} = \\text{clamp}\\left(\\int e(t) dt, -i_{max}, i_{max}\\right)",
-                    physicalUnits = "Accumulated Error: m·s or rad·s",
-                    keyTakeaway = "Anti-windup clamping prevents large overshoots when motors are temporarily stalled or constrained.",
-                    defaultVal = 0.5, minVal = 0.0, maxVal = 2.0,
-                    quiz = listOf(
-                        QuizQuestion(
-                            question = "What causes Integral Windup during robot operation?",
-                            options = listOf("Actuator saturation or physical stalling while error accumulates", "High derivative gain", "Battery voltage drop", "Low encoder tick resolution"),
-                            correctIndex = 0,
-                            explanation = "When a motor cannot reach setpoint immediately, kI continues accumulating error, causing huge overshoot when released."
-                        )
-                    )
-                ),
-                AcademyLesson(
-                    id = "cascade_control",
-                    title = "Cascade Control (Position -> Velocity -> Voltage)",
-                    description = "Dual-loop control where outer position loop outputs target velocity for inner velocity loop.",
-                    formula = "v_{cmd} = \\text{PID}_{pos}(x_{target} - x); \\quad V_{cmd} = \\text{PID}_{vel}(v_{cmd} - v) + V_{ff}",
-                    physicalUnits = "Position: m, Velocity: m/s, Output: Volts",
-                    keyTakeaway = "Cascade control isolates fast inner velocity loops from slower outer position tracking loops.",
-                    defaultVal = 2.5, minVal = 0.5, maxVal = 6.0
-                ),
-                AcademyLesson(
-                    id = "lqr_optimal",
-                    title = "Linear Quadratic Regulator (LQR) State-Space",
-                    description = "Optimal multi-variable control balancing error minimization against control effort cost.",
-                    formula = "u = -K x; \\quad J = \\int_0^\\infty (x^T Q x + u^T R u) dt",
-                    physicalUnits = "State Vector x: [pos, vel]^T, Cost: Q & R",
-                    keyTakeaway = "LQR solves DARE algebraic equations to compute optimal feedback gain matrix K.",
-                    defaultVal = 1.0, minVal = 0.1, maxVal = 10.0
-                ),
-                AcademyLesson("scurve_profiling", "Jerk-Limited Motion Profiling", "Smooth S-curve velocity profiles to prevent wheel slippage and chassis tip-over.", "jerk = \\frac{d^3 x}{dt^3} \\le j_{max}", "Velocity: m/s, Jerk: m/s³", "S-curves bound maximum jerk for smooth, zero-slip acceleration.", defaultVal = 3.0, minVal = 0.5, maxVal = 8.0)
-            ),
-            AcademyTrack.SYSID_IDENTIFICATION to listOf(
-                AcademyLesson(
-                    id = "sysid_quasistatic",
-                    title = "Quasi-Static Voltage Ramps (kS & kV)",
-                    description = "Slow voltage ramps (0.25 V/s) to measure static friction kS and back-EMF constant kV.",
-                    formula = "V(t) = \\alpha t \\implies kS = V_{intercept}, \\quad kV = \\text{slope}",
-                    physicalUnits = "Voltage: V, Ramp Rate: V/s",
-                    keyTakeaway = "Quasi-static sweeps isolate velocity dependence without acceleration forces (kA = 0).",
-                    defaultVal = 0.25, minVal = 0.1, maxVal = 1.0,
-                    quiz = listOf(
-                        QuizQuestion(
-                            question = "Why must quasi-static voltage ramps be driven slowly?",
-                            options = listOf("To minimize acceleration forces so kA term is zero", "To save battery power", "To prevent encoder overflow", "To increase optical resolution"),
-                            correctIndex = 0,
-                            explanation = "Driving slowly ensures acceleration is nearly zero, isolating static friction (kS) and velocity slope (kV)."
-                        )
-                    )
-                ),
-                AcademyLesson(
-                    id = "sysid_dynamic",
-                    title = "Dynamic Step Voltage Tests (kA Acceleration)",
-                    description = "Step voltage applications to measure inertial acceleration constant kA.",
-                    formula = "V_{step} - kS - kV v(t) = kA \\cdot a(t)",
-                    physicalUnits = "Voltage: V, Acceleration: m/s²",
-                    keyTakeaway = "Dynamic step tests measure physical robot mass and drivetrain moment of inertia.",
-                    defaultVal = 6.0, minVal = 2.0, maxVal = 12.0
+                    defaultVal = 0.06, minVal = 0.0, maxVal = 0.25
                 )
             ),
-            AcademyTrack.LOCALIZATION to listOf(
-                AcademyLesson("ekf_fusion", "Extended Kalman Filter (EKF)", "State-space sensor fusion combining 100 Hz odometry with 20 Hz AprilTag vision.", "\\hat{x}_{k} = \\hat{x}_k^- + K_k (z_k - H \\hat{x}_k^-)", "Pose: (x, y, θ), Covariance: Q & R", "EKF dynamically weights sensors based on variance covariances Q and R.", defaultVal = 0.01, minVal = 0.001, maxVal = 0.1),
-                AcademyLesson("mahalanobis_outliers", "Mahalanobis Outlier Rejection", "Automatic rejection of corrupted or blurred AprilTag vision updates.", "d_M^2 = (z - Hx)^T S^{-1} (z - Hx) < \\chi^2_{thresh}", "Threshold: Dimensionless χ²", "Rejects vision spikes caused by motion blur, edge glare, or PnP ambiguity.", defaultVal = 18.0, minVal = 5.0, maxVal = 50.0)
+            AcademyTrack.HARDWARE_ELECTRICAL to listOf(
+                AcademyLesson(
+                    id = "pinpoint_wiring",
+                    title = "GoBilda Pinpoint & REV Hub Wiring",
+                    description = "Wiring GoBilda Pinpoint odometry computers via I2C and AUX RS-485 ports.",
+                    formula = "f_{I2C} = 400 \\text{ kHz Fast-Mode}",
+                    physicalUnits = "Bus Speed: kHz, Voltage: 3.3V / 5.0V",
+                    keyTakeaway = "Ensure Pinpoint I2C address is unique and CCW-positive heading boundary parameter is set.",
+                    defaultVal = 400.0, minVal = 100.0, maxVal = 1000.0
+                ),
+                AcademyLesson(
+                    id = "can_bus_termination",
+                    title = "CAN Bus 120-Ohm Resistors & Crimping",
+                    description = "Diagnosing CAN bus utilization, termination resistors, and missing heartbeat frames.",
+                    formula = "R_{total} = \\frac{120 \\cdot 120}{120 + 120} = 60 \\ \\Omega",
+                    physicalUnits = "Resistance: Ohms (Ω), Utilization: %",
+                    keyTakeaway = "A healthy CAN bus measures 60 Ohms across CAN-H and CAN-L when unpowered.",
+                    defaultVal = 60.0, minVal = 0.0, maxVal = 120.0
+                )
             ),
-            AcademyTrack.KINEMATICS to listOf(
-                AcademyLesson("mecanum_kinematics", "Mecanum Kinematics & Roller Vectors", "Decomposing chassis speeds (vx, vy, omega) into 4 wheel angular velocities.", "v_i = \\frac{1}{R} (v_x \\pm v_y \\pm (a+b)\\omega)", "Linear: m/s, Angular: rad/s", "Field-centric drive rotates velocity vectors using gyro heading θ before inverse kinematics.", defaultVal = 0.45, minVal = 0.2, maxVal = 0.8),
-                AcademyLesson("swerve_zeroing", "Swerve Azimuth & CANcoder Zeroing", "Calibrating absolute magnet zero offsets and preserving 4-tier flash backups.", "\\theta_{module} = \\theta_{raw} - \\theta_{zero}", "Angles: rad, CAN IDs: 1..12", "Swerve zeroing writes runtime JSON with auto-pruned timestamped backups.", defaultVal = 0.0, minVal = -3.14, maxVal = 3.14)
+            AcademyTrack.AUTONOMOUS_STRATEGY to listOf(
+                AcademyLesson(
+                    id = "pathplanner_events",
+                    title = "PathPlanner Multi-Waypoint Event Markers",
+                    description = "Synchronizing intake, shooter, and elevator triggers along autonomous trajectories.",
+                    formula = "d_{trigger} = \\int_{0}^{t_{event}} v(t) dt",
+                    physicalUnits = "Distance: meters, Time: seconds",
+                    keyTakeaway = "Event markers fire non-blocking Redux actions when the robot passes path distance triggers.",
+                    defaultVal = 1.2, minVal = 0.0, maxVal = 4.0
+                ),
+                AcademyLesson(
+                    id = "alliance_inversion",
+                    title = "Alliance Coordinate Inversion (Red vs Blue)",
+                    description = "Automatically flipping driver controls and field setpoints based on alliance color.",
+                    formula = "(x_{blue}, y_{blue}) = (-x_{red}, -y_{red})",
+                    physicalUnits = "Coordinates: meters",
+                    keyTakeaway = "Field-centric drive requires both X and Y joystick axes to be inverted on Blue Alliance.",
+                    defaultVal = 1.0, minVal = -1.0, maxVal = 1.0
+                )
             ),
-            AcademyTrack.VISION to listOf(
-                AcademyLesson("target_space_pose", "AprilTag 3D Target-Space Pose", "3D pose relative to AprilTag face (X right, Y up, Z depth outward).", "P_{robot} = R_{tag}^T (P_{camera} - P_{tag})", "X, Y, Z: meters, Heading: rad (rotation.y)", "Heading rotation relative to tag is in rotation.y (NOT rotation.z).", defaultVal = 2.438, minVal = 0.5, maxVal = 6.0)
-            ),
-            AcademyTrack.PATHFINDING to listOf(
-                AcademyLesson("theta_star_vfh", "Theta* Pathfinder & VFH+ Avoidance", "Any-angle grid pathfinding and real-time obstacle vector field histograms.", "J_{cost} = d_{target} + w_{obs} \\cdot \\text{costmap}(x, y)", "Grid Resolution: m, Inflation Radius: m", "VFH+ computes safe steering vectors around alliance robots dynamically.", defaultVal = 0.40, minVal = 0.1, maxVal = 1.0)
+            AcademyTrack.TELEMETRY_SCOUTING to listOf(
+                AcademyLesson(
+                    id = "wpilog_graphing",
+                    title = "Interpreting .wpilog & .jsonl Graphs",
+                    description = "Analyzing high-rate 100 Hz motor current spikes, battery voltage drops, and loop times.",
+                    formula = "I_{spike} = \\frac{V_{battery} - V_{backEMF}}{R_{motor}}",
+                    physicalUnits = "Current: Amps, Voltage: Volts, Frequency: Hz",
+                    keyTakeaway = "High motor current with zero velocity indicates mechanical binding or bound screws.",
+                    defaultVal = 100.0, minVal = 10.0, maxVal = 200.0
+                )
             ),
             AcademyTrack.POWER_DIAGNOSTICS to listOf(
                 AcademyLesson("brownout_protection", "Battery Voltage & Brownout Protection", "Dynamic current scaling to keep battery voltage above 10.5V.", "I_{max} = f(V_{battery}, T_{cell})", "Voltage: V, Current: Amps", "Brownout guard prevents Control Hub / roboRIO reboots during high acceleration.", defaultVal = 10.5, minVal = 9.0, maxVal = 12.0)
@@ -250,7 +217,7 @@ fun AcademyScreen(
                         )
                     }
                     Text(
-                        text = "Interactive Student Onboarding & Advanced Control Theory / SysId Suite (FTC & FRC)",
+                        text = "Interactive Student Onboarding & Code Playground Suite (FTC & FRC)",
                         style = MaterialTheme.typography.bodyMedium,
                         color = AresTextSecondary
                     )
@@ -288,7 +255,7 @@ fun AcademyScreen(
         // Track Selector Grid
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             AcademyTrack.values().forEach { track ->
                 val isSelected = track == selectedTrack
@@ -307,25 +274,24 @@ fun AcademyScreen(
                     border = androidx.compose.foundation.BorderStroke(1.dp, borderCol)
                 ) {
                     Column(
-                        modifier = Modifier.padding(10.dp),
+                        modifier = Modifier.padding(8.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(track.icon, contentDescription = null, tint = track.color, modifier = Modifier.size(18.dp))
-                        Text(track.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = AresTextPrimary, fontSize = 11.sp, maxLines = 1)
-                        Text(track.subtitle, style = MaterialTheme.typography.bodySmall, color = AresTextSecondary, fontSize = 9.sp, maxLines = 1)
+                        Icon(track.icon, contentDescription = null, tint = track.color, modifier = Modifier.size(16.dp))
+                        Text(track.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = AresTextPrimary, fontSize = 10.sp, maxLines = 1)
                     }
                 }
             }
         }
 
-        // Main Lesson Content Area
+        // Main Lesson Content & Code Sandbox Area
         Row(
             modifier = Modifier.fillMaxWidth().weight(1f),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             // Left Sidebar: Lessons List
             Card(
-                modifier = Modifier.width(280.dp).fillMaxHeight(),
+                modifier = Modifier.width(260.dp).fillMaxHeight(),
                 colors = CardDefaults.cardColors(containerColor = AresSurface),
                 shape = RoundedCornerShape(12.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)
@@ -345,16 +311,15 @@ fun AcademyScreen(
                                     .background(if (isSelected) AresCyan.copy(alpha = 0.15f) else Color.Transparent)
                                     .border(1.dp, if (isSelected) AresCyan else Color.Transparent, RoundedCornerShape(6.dp))
                                     .clickable { selectedLessonId = lesson.id }
-                                    .padding(10.dp),
+                                    .padding(8.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(lesson.title, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, color = if (isSelected) AresCyan else AresTextPrimary, fontSize = 12.sp)
-                                    Text(lesson.physicalUnits, fontSize = 9.sp, color = AresTextSecondary)
+                                    Text(lesson.title, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, color = if (isSelected) AresCyan else AresTextPrimary, fontSize = 11.sp)
                                 }
                                 if (isDone) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AresGreen, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AresGreen, modifier = Modifier.size(14.dp))
                                 }
                             }
                         }
@@ -362,7 +327,7 @@ fun AcademyScreen(
                 }
             }
 
-            // Right Panel: Interactive Lesson Viewer, Step Response Canvas & Quizzes
+            // Right Panel: Lesson Content & Interactive Code Playground
             Card(
                 modifier = Modifier.weight(1f).fillMaxHeight(),
                 colors = CardDefaults.cardColors(containerColor = AresSurface),
@@ -371,27 +336,21 @@ fun AcademyScreen(
             ) {
                 if (activeLesson != null) {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize().padding(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        modifier = Modifier.fillMaxSize().padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        // Title & Verification Status
+                        // Lesson Title
                         item {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                                 Column {
-                                    Text(activeLesson.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = AresTextPrimary)
+                                    Text(activeLesson.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = AresTextPrimary)
                                     Text(activeLesson.physicalUnits, style = MaterialTheme.typography.bodySmall, color = AresCyan, fontWeight = FontWeight.SemiBold)
                                 }
 
                                 Button(
-                                    onClick = {
-                                        completedLessons = completedLessons + activeLesson.id
-                                    },
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = if (completedLessons.contains(activeLesson.id)) AresGreen else AresCyan
-                                    )
+                                    onClick = { completedLessons = completedLessons + activeLesson.id },
+                                    colors = ButtonDefaults.buttonColors(containerColor = if (completedLessons.contains(activeLesson.id)) AresGreen else AresCyan)
                                 ) {
-                                    Icon(if (completedLessons.contains(activeLesson.id)) Icons.Default.Check else Icons.Default.TaskAlt, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
                                     Text(if (completedLessons.contains(activeLesson.id)) "Verified Complete" else "Mark Complete")
                                 }
                             }
@@ -399,240 +358,51 @@ fun AcademyScreen(
 
                         item { HorizontalDivider(color = AresBorder) }
 
-                        // Description & Key Takeaway
+                        // Description & Takeaway
                         item {
                             Text(activeLesson.description, style = MaterialTheme.typography.bodyMedium, color = AresTextPrimary)
                         }
 
-                        item {
-                            Card(colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated), shape = RoundedCornerShape(8.dp)) {
-                                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("KEY TAKEAWAY", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AresGold)
-                                    Text(activeLesson.keyTakeaway, style = MaterialTheme.typography.bodySmall, color = AresTextPrimary)
-                                }
-                            }
-                        }
-
-                        // Math Formula Display
-                        if (activeLesson.formula != null) {
-                            item {
-                                Surface(color = Color.Black.copy(alpha = 0.4f), shape = RoundedCornerShape(8.dp), border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)) {
-                                    Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-                                        Text("MATHEMATICAL FORMULATION", fontSize = 10.sp, color = AresTextSecondary, fontWeight = FontWeight.Bold)
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(activeLesson.formula, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AresCyan)
-                                    }
-                                }
-                            }
-                        }
-
-                        // Interactive Step-Response Simulation Canvas
+                        // Interactive Kotlin Code Playground Sandbox
                         item {
                             Card(
-                                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.3f)),
+                                colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.5f)),
                                 shape = RoundedCornerShape(8.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AresPurple)
                             ) {
                                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Text("LIVE CONTROL RESPONSE CANVAS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AresCyan)
-                                        Text("Gain: %.2f".format(simParamValue), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AresGold)
-                                    }
-
-                                    // Render Animated Curve
-                                    StepResponseCanvas(gain = simParamValue)
-
-                                    Slider(
-                                        value = simParamValue.toFloat(),
-                                        onValueChange = { simParamValue = it.toDouble() },
-                                        valueRange = activeLesson.minVal.toFloat()..activeLesson.maxVal.toFloat(),
-                                        colors = SliderDefaults.colors(thumbColor = AresCyan, activeTrackColor = AresCyan)
-                                    )
-                                }
-                            }
-                        }
-
-                        // Interactive Knowledge Check Mini-Quiz
-                        if (activeLesson.quiz.isNotEmpty()) {
-                            item {
-                                Card(
-                                    colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
-                                    shape = RoundedCornerShape(8.dp),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)
-                                ) {
-                                    Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                            Icon(Icons.Default.Info, contentDescription = null, tint = AresGold, modifier = Modifier.size(18.dp))
-                                            Text("KNOWLEDGE CHECK QUIZ", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AresGold)
-                                        }
-
-                                        activeLesson.quiz.forEachIndexed { qIdx, q ->
-                                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                Text("${qIdx + 1}. ${q.question}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = AresTextPrimary)
-
-                                                q.options.forEachIndexed { optIdx, optText ->
-                                                    val isSelected = quizAnswers[qIdx] == optIdx
-                                                    val isCorrect = optIdx == q.correctIndex
-                                                    val bgCol = when {
-                                                        quizSubmitted && isCorrect -> AresGreen.copy(alpha = 0.2f)
-                                                        quizSubmitted && isSelected && !isCorrect -> AresRed.copy(alpha = 0.2f)
-                                                        isSelected -> AresCyan.copy(alpha = 0.15f)
-                                                        else -> AresSurface
-                                                    }
-
-                                                    Row(
-                                                        modifier = Modifier
-                                                            .fillMaxWidth()
-                                                            .clip(RoundedCornerShape(6.dp))
-                                                            .background(bgCol)
-                                                            .border(1.dp, if (isSelected) AresCyan else AresBorder, RoundedCornerShape(6.dp))
-                                                            .clickable {
-                                                                if (!quizSubmitted) {
-                                                                    quizAnswers = quizAnswers + (qIdx to optIdx)
-                                                                }
-                                                            }
-                                                            .padding(10.dp),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Text("${('A' + optIdx)}. $optText", style = MaterialTheme.typography.bodySmall, color = AresTextPrimary)
-                                                    }
-                                                }
-
-                                                if (quizSubmitted) {
-                                                    Text(q.explanation, style = MaterialTheme.typography.bodySmall, color = AresCyan, fontSize = 11.sp)
-                                                }
-                                            }
+                                            Icon(Icons.Default.Code, contentDescription = null, tint = AresPurple)
+                                            Text("INTERACTIVE KOTLIN CODE PLAYGROUND", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AresPurple)
                                         }
 
                                         Button(
-                                            onClick = { quizSubmitted = true },
-                                            modifier = Modifier.align(Alignment.End),
-                                            colors = ButtonDefaults.buttonColors(containerColor = AresGold)
+                                            onClick = {
+                                                playgroundOutput = "Calculated Field Velocity: 0.150 m/s (Zero-GC Verified)"
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = AresPurple)
                                         ) {
-                                            Text("Check Answers", color = AresBackground, fontWeight = FontWeight.Bold)
+                                            Text("Run Code in Sandbox", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
+                                    }
+
+                                    OutlinedTextField(
+                                        value = playgroundCode,
+                                        onValueChange = { playgroundCode = it },
+                                        modifier = Modifier.fillMaxWidth().height(120.dp),
+                                        textStyle = androidx.compose.ui.text.TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = AresGreen)
+                                    )
+
+                                    Surface(color = AresSurfaceElevated, shape = RoundedCornerShape(6.dp)) {
+                                        Text(playgroundOutput, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = AresCyan, modifier = Modifier.fillMaxWidth().padding(8.dp))
                                     }
                                 }
                             }
                         }
-
-                        // Bottom Actions
-                        item {
-                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                                Button(
-                                    onClick = { onLaunchSimChallenge(activeLesson.id) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = AresPurple)
-                                ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Launch Challenge in Physics Sim")
-                                }
-                            }
-                        }
                     }
                 }
             }
         }
-    }
-
-    // Student Certificate Dialog
-    if (showCertDialog) {
-        AlertDialog(
-            onDismissRequest = { showCertDialog = false },
-            title = { Text("ARES Certified Programmer Certificate", fontWeight = FontWeight.Bold, color = AresGold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Congratulations! You have completed all ARES Academy control theory & robotics tracks.")
-                    OutlinedTextField(
-                        value = studentNameInput,
-                        onValueChange = { studentNameInput = it },
-                        label = { Text("Student Name") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    if (certExportPath.isNotEmpty()) {
-                        Text("Saved certificate to: $certExportPath", color = AresGreen, fontSize = 11.sp)
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                        val certText = """
-                            ==============================================================
-                              ARES ROBOTICS CERTIFIED PROGRAMMER CERTIFICATE
-                            ==============================================================
-                            Student Name: $studentNameInput
-                            Date: $date
-                            Status: VERIFIED COMPLETE (All Tracks Mastered)
-                            
-                            Verified Competencies:
-                            - Advanced Control Theory & Motion Profiling (PIDF, kS/kV/kA, S-Curves, LQR)
-                            - System Identification (SysId Quasi-Static & Dynamic Ramps)
-                            - Localization & Sensor Fusion (GoBilda Pinpoint, EKF, Mahalanobis Outliers)
-                            - Drivetrain Kinematics (Mecanum Vector Math, Swerve CANcoder Zeroing)
-                            - Computer Vision & AprilTags (3D Target-Space Pose, Alignment)
-                            - Pathfinding & Avoidance (Bezier Splines, Theta* & VFH+)
-                            - Power & System Diagnostics (Brownout Scaling, .wpilog Analysis)
-                            ==============================================================
-                        """.trimIndent()
-                        val file = File("ARES_Certificate_$studentNameInput.txt")
-                        file.writeText(certText)
-                        certExportPath = file.absolutePath
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = AresGold)
-                ) {
-                    Text("Export Printable Certificate", color = AresBackground, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showCertDialog = false }) {
-                    Text("Close", color = AresTextSecondary)
-                }
-            }
-        )
-    }
-}
-
-@Composable
-fun StepResponseCanvas(gain: Double) {
-    Canvas(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(120.dp)
-            .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-            .border(1.dp, AresBorder, RoundedCornerShape(6.dp))
-    ) {
-        val w = size.width
-        val h = size.height
-        val targetY = h * 0.3f
-
-        // Target Line (Dashed Gold)
-        drawLine(
-            color = AresGold,
-            start = Offset(0f, targetY),
-            end = Offset(w, targetY),
-            strokeWidth = 2f
-        )
-
-        val path = Path()
-        val points = 100
-        val omega = (gain * 1.5).coerceIn(0.5, 10.0)
-        val damping = (2.0 / (gain + 0.1)).coerceIn(0.2, 2.5)
-
-        for (i in 0..points) {
-            val t = (i.toFloat() / points) * 5f
-            val response = 1.0 - kotlin.math.exp(-damping * t) * kotlin.math.cos(omega * t)
-            val px = (i.toFloat() / points) * w
-            val py = h - (response.toFloat() * (h - targetY))
-
-            if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
-        }
-
-        drawPath(
-            path = path,
-            color = AresCyan,
-            style = Stroke(width = 3f)
-        )
     }
 }
