@@ -744,6 +744,13 @@ fun MainScreen(services: ServiceRegistry) {
                     onClose = { mainViewModel.onIntent(MainIntent.SetKeybindingsOpen(false)) },
                     modifier = Modifier.align(Alignment.CenterEnd)
                 )
+
+                // Critical Emergency Fault Alert Overlay (Pop-up Banner for Motor Stalls, Brownouts, Disconnects)
+                Box(modifier = Modifier.align(Alignment.TopCenter)) {
+                    com.ares.analytics.ui.components.dashboard.CriticalAlertOverlay(
+                        alertEngineService = services.alertEngineService
+                    )
+                }
             }
         }
 

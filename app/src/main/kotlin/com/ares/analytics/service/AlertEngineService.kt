@@ -14,11 +14,9 @@ import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
+ * High-performance real-time alert evaluation engine.
+ * Detects motor mechanical binding/stalls, disconnected motor cables, low battery brownouts,
+ * EKF position drifts, and sensor freezes, triggering audible alerts and high-priority UI overlays.
  */
 class AlertEngineService(
     private val databaseService: DatabaseService,
@@ -27,6 +25,8 @@ class AlertEngineService(
 ) {
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
     private val rules = ConcurrentHashMap<String, ThresholdRule>()
+    private val recentValues = ConcurrentHashMap<String, Double>()
+    private val motorNames = listOf("fl", "fr", "rl", "rr", "bl", "br")
 
     // Active alert state: AlertId -> AlertRecord
     private val _alerts = MutableStateFlow<Map<String, AlertRecord>>(emptyMap())
@@ -45,14 +45,20 @@ class AlertEngineService(
     private fun loadRules() {
         val file = File(thresholdsPath)
         if (!file.exists()) {
-            // Write defaults
             file.parentFile?.mkdirs()
-            val defaults = listOf(
-                ThresholdRule("/Drive/Voltage", "Low Battery Voltage", minValue = 11.5, audibleAlert = true),
-                ThresholdRule("/Drive/EkfDrift", "High EKF Position Drift", maxValue = 0.20, audibleAlert = true),
-                ThresholdRule("/LoopTimeMs", "Robot Loop Time Spike", maxValue = 25.0, audibleAlert = false),
-                ThresholdRule("/Drive/MotorCurrentMax", "Motor Current Draw Spike", maxValue = 25.0, audibleAlert = true)
+            val defaults = mutableListOf(
+                ThresholdRule("/Drive/Voltage", "Low Battery Voltage (<10.5V)", minValue = 10.5, audibleAlert = true),
+                ThresholdRule("/Drive/EkfDrift", "High EKF Position Drift (>0.20m)", maxValue = 0.20, audibleAlert = true),
+                ThresholdRule("/LoopTimeMs", "Robot Loop Time Spike (>25ms)", maxValue = 25.0, audibleAlert = false),
+                ThresholdRule("/Drive/MotorCurrentMax", "Motor Current Spike (>15A)", maxValue = 15.0, audibleAlert = true)
             )
+
+            // Dynamic rules for all 6 possible motor channels
+            motorNames.forEach { motor ->
+                defaults.add(ThresholdRule("Hardware/Motors/$motor/Stall", "CRITICAL: Motor '$motor' Mechanical Binding / Stall!", maxValue = 0.5, audibleAlert = true))
+                defaults.add(ThresholdRule("Hardware/Motors/$motor/Disconnected", "WARNING: Motor '$motor' Cable Disconnected!", maxValue = 0.5, audibleAlert = true))
+            }
+
             file.writeText(json.encodeToString(defaults))
         }
 
@@ -67,75 +73,63 @@ class AlertEngineService(
     private fun startEngine() {
         engineJob = CoroutineScope(Dispatchers.Default).launch {
             nt4ClientService.telemetryFlow.collect { frame ->
+                recentValues[frame.key] = frame.value
                 evaluateFrame(frame)
+                evaluateCompositeRules(frame)
             }
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun stop() {
         engineJob?.cancel()
     }
 
+    /**
+     * Standard single-key threshold rule evaluation.
+     */
     private suspend fun evaluateFrame(frame: TelemetryFrame) {
         val rule = rules[frame.key] ?: return
         val value = frame.value
 
-        // Check if value violates rules
         val minVal = rule.minValue
         val maxVal = rule.maxValue
         val violatesMin = minVal != null && value < minVal
         val violatesMax = maxVal != null && value > maxVal
         val isViolating = violatesMin || violatesMax
         val currentMap = _alerts.value
-        // Find if we already have an active alert for this rule key
         val existingAlert = currentMap.values.firstOrNull { it.ruleKey == rule.key && !it.triaged }
 
         if (isViolating) {
-            when {
-                existingAlert == null -> {
-                    // Trigger new active alert
-                    val newAlert = AlertRecord(
-                        alertId = UUID.randomUUID().toString(),
-                        sessionId = frame.sessionId,
-                        ruleKey = rule.key,
-                        triggerTimestampMs = frame.timestampMs,
-                        peakValue = value,
-                        triaged = false
-                    )
-                    updateAlertState(newAlert)
-                    if (rule.audibleAlert) {
-                        triggerAudibleAlert()
-                    }
+            if (existingAlert == null) {
+                val newAlert = AlertRecord(
+                    alertId = UUID.randomUUID().toString(),
+                    sessionId = frame.sessionId,
+                    ruleKey = rule.key,
+                    triggerTimestampMs = frame.timestampMs,
+                    peakValue = value,
+                    triaged = false
+                )
+                updateAlertState(newAlert)
+                if (rule.audibleAlert) {
+                    triggerAudibleAlert()
                 }
-                existingAlert.resolveTimestampMs != null -> {
-                    // It was resolved but not triaged, and now it's active again -> re-activate
-                    val reActive = existingAlert.copy(
-                        resolveTimestampMs = null,
-                        durationMs = 0L,
-                        peakValue = maxOf(existingAlert.peakValue, value)
-                    )
-                    updateAlertState(reActive)
-                    if (rule.audibleAlert) {
-                        triggerAudibleAlert()
-                    }
+            } else if (existingAlert.resolveTimestampMs != null) {
+                val reActive = existingAlert.copy(
+                    resolveTimestampMs = null,
+                    durationMs = 0L,
+                    peakValue = maxOf(existingAlert.peakValue, value)
+                )
+                updateAlertState(reActive)
+                if (rule.audibleAlert) {
+                    triggerAudibleAlert()
                 }
-                else -> {
-                    // Update peak value of current active alert
-                    val updated = existingAlert.copy(
-                        peakValue = if (rule.maxValue != null) maxOf(existingAlert.peakValue, value) else minOf(existingAlert.peakValue, value)
-                    )
-                    updateAlertState(updated)
-                }
+            } else {
+                val updated = existingAlert.copy(
+                    peakValue = if (rule.maxValue != null) maxOf(existingAlert.peakValue, value) else minOf(existingAlert.peakValue, value)
+                )
+                updateAlertState(updated)
             }
         } else {
-            // Value is normal. If there is an active alert that isn't resolved yet -> mark resolved (but still latched)
             if (existingAlert != null && existingAlert.resolveTimestampMs == null) {
                 val resolved = existingAlert.copy(
                     resolveTimestampMs = frame.timestampMs,
@@ -146,13 +140,89 @@ class AlertEngineService(
         }
     }
 
+    /**
+     * Evaluates multi-signal composite diagnostic rules (Motor Stalling, Cable Disconnection, etc.).
+     */
+    private suspend fun evaluateCompositeRules(frame: TelemetryFrame) {
+        val ts = frame.timestampMs
+        val sessionId = frame.sessionId
+
+        for (m in motorNames) {
+            val pwr = kotlin.math.abs(recentValues["Hardware/Motors/$m/Power"] ?: recentValues["Hardware/Motors/$m/Voltage"] ?: 0.0)
+            val vel = kotlin.math.abs(recentValues["Hardware/Motors/$m/Velocity"] ?: 0.0)
+            val current = recentValues["Hardware/Motors/$m/CurrentAmps"] ?: 0.0
+
+            val stallKey = "Hardware/Motors/$m/Stall"
+            val disconnectKey = "Hardware/Motors/$m/Disconnected"
+
+            // 1. Mechanical Binding / Motor Stall Check:
+            // High power commanded (>0.35), zero velocity (<5.0 ticks/rad/s), and high current draw (>5.0A)
+            val isStalled = pwr > 0.35 && vel < 5.0 && current > 5.0
+            val stallRule = rules[stallKey] ?: ThresholdRule(stallKey, "CRITICAL: Motor '$m' Mechanical Binding / Stall!", maxValue = 0.5, audibleAlert = true)
+            rules.putIfAbsent(stallKey, stallRule)
+            evaluateCustomRule(stallKey, isStalled, if (isStalled) 1.0 else 0.0, ts, sessionId, stallRule)
+
+            // 2. Disconnected Motor Cable / Blown Fuse Check:
+            // High power commanded (>0.35), zero velocity (<5.0), but low current draw (<0.1A)
+            val isDisconnected = pwr > 0.35 && vel < 5.0 && current < 0.1 && current >= 0.0
+            val disconnectRule = rules[disconnectKey] ?: ThresholdRule(disconnectKey, "WARNING: Motor '$m' Cable Disconnected!", maxValue = 0.5, audibleAlert = true)
+            rules.putIfAbsent(disconnectKey, disconnectRule)
+            evaluateCustomRule(disconnectKey, isDisconnected, if (isDisconnected) 1.0 else 0.0, ts, sessionId, disconnectRule)
+        }
+    }
+
+    private suspend fun evaluateCustomRule(
+        key: String,
+        isViolating: Boolean,
+        value: Double,
+        ts: Long,
+        sessionId: String,
+        rule: ThresholdRule
+    ) {
+        val currentMap = _alerts.value
+        val existingAlert = currentMap.values.firstOrNull { it.ruleKey == key && !it.triaged }
+
+        if (isViolating) {
+            if (existingAlert == null) {
+                val newAlert = AlertRecord(
+                    alertId = UUID.randomUUID().toString(),
+                    sessionId = sessionId,
+                    ruleKey = key,
+                    triggerTimestampMs = ts,
+                    peakValue = value,
+                    triaged = false
+                )
+                updateAlertState(newAlert)
+                if (rule.audibleAlert) {
+                    triggerAudibleAlert()
+                }
+            } else if (existingAlert.resolveTimestampMs != null) {
+                val reActive = existingAlert.copy(
+                    resolveTimestampMs = null,
+                    durationMs = 0L,
+                    peakValue = maxOf(existingAlert.peakValue, value)
+                )
+                updateAlertState(reActive)
+                if (rule.audibleAlert) {
+                    triggerAudibleAlert()
+                }
+            }
+        } else {
+            if (existingAlert != null && existingAlert.resolveTimestampMs == null) {
+                val resolved = existingAlert.copy(
+                    resolveTimestampMs = ts,
+                    durationMs = ts - existingAlert.triggerTimestampMs
+                )
+                updateAlertState(resolved)
+            }
+        }
+    }
+
     private suspend fun updateAlertState(alert: AlertRecord) {
-        // Write to DB if there's a recording session
         if (alert.sessionId != "live-telemetry") {
             databaseService.insertAlert(alert)
         }
 
-        // Update in-memory Map
         _alerts.update { current ->
             current.toMutableMap().apply {
                 put(alert.alertId, alert)
@@ -174,11 +244,14 @@ class AlertEngineService(
 
     private fun triggerAudibleAlert() {
         val now = System.currentTimeMillis()
-        if (now - lastBeepTime > 2000) {
+        if (now - lastBeepTime > 1500) {
             lastBeepTime = now
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    playBeepTone(880f, 150)
+                    // Urgent dual-tone beep
+                    playBeepTone(1000f, 100)
+                    delay(50)
+                    playBeepTone(1200f, 150)
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
@@ -201,5 +274,9 @@ class AlertEngineService(
         line.write(buf, 0, buf.size)
         line.drain()
         line.close()
+    }
+
+    fun getRuleDisplayName(key: String): String {
+        return rules[key]?.displayName ?: key
     }
 }
