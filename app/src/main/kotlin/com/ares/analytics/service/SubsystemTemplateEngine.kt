@@ -7,11 +7,28 @@ import com.ares.analytics.viewmodel.StateFieldEntry
 import com.ares.analytics.viewmodel.FieldType
 
 /**
- * Service for generating Redux-compliant subsystem file suites.
- * Physical units: Distances in m, angles in rad, velocities in m/s or rad/s, time in s.
+ * Boilerplate code generation engine producing complete Redux subsystem file suites for `ARESLib-Kotlin`.
+ *
+ * Generates decoupling architecture layers for new robot subsystems:
+ * 1. **`State.kt`**: Immutable Redux state data classes.
+ * 2. **`IO.kt`**: Decoupled hardware IO layer interface.
+ * 3. **`FtcIO.kt`**: Physical FTC hardware SDK driver implementation.
+ * 4. **`MockIO.kt`**: Mock hardware component implementation for offline simulation.
+ * 5. **`Controller.kt`**: Subsystem state-space or PID controller facade.
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Pure functional generator object executing string templating without side effects.
+ *
+ * @see com.ares.analytics.viewmodel.SubsystemGeneratorState
  */
 object SubsystemTemplateEngine {
 
+    /**
+     * Generates a map of relative file paths to generated Kotlin source code string contents.
+     *
+     * @param state Subsystem generator parameters and hardware configuration state.
+     * @return Map binding target file paths (e.g. `"hardware/FtcArmIO.kt"`) to source code string contents.
+     */
     fun generateFiles(state: SubsystemGeneratorState): Map<String, String> {
         val rawName = state.subsystemName.trim()
         if (rawName.isEmpty()) return emptyMap()

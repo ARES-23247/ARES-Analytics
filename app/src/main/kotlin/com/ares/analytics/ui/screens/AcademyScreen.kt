@@ -32,6 +32,16 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * Educational curriculum learning tracks offered in the ARES Robotics Academy.
+ *
+ * Covers control theory math, SysId system identification formulas, EKF localization, kinematics, and vision processing.
+ *
+ * @property title Track display title.
+ * @property subtitle Track topic summary string.
+ * @property icon UI Vector icon.
+ * @property color Theme accent color.
+ */
 enum class AcademyTrack(val title: String, val subtitle: String, val icon: ImageVector, val color: Color) {
     CONTROL_THEORY("Control Theory & Motion Profiling", "PIDF, Feedforwards (kS/kV/kA), S-Curve Motion, LQR", Icons.Default.Tune, AresCyan),
     SYSID_IDENTIFICATION("System Identification (SysId)", "Quasi-Static & Dynamic Ramps, Friction, Voltage Sweeps", Icons.Default.BarChart, AresGold),

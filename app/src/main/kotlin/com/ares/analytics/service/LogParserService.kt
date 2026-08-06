@@ -11,11 +11,27 @@ import java.io.FileInputStream
 import java.util.UUID
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * High-level unified log parser and session ingestion service.
  *
-
+ * Serves as the primary entry point for importing diverse robot log file formats into DuckDB telemetry storage.
+ * Auto-detects log file types based on extension or magic bytes, dispatching parsing to specialized decoders
+ * ([WpiLogDecoder], [JsonlLogDecoder], [CsvLogDecoder]), buffering frames through [FrameBatcher], and calculating
+ * session summary KPIs via [SummaryEngineService].
+ *
+ * ### Supported Formats:
+ * - `.wpilog` / `.rlog` / `.revlog`: WPILib, AdvantageKit, REV binary logs
+ * - `.jsonl`: Line-delimited JSON Redux action and telemetry streams
+ * - `.csv`: Wide or long tabular CSV log recordings
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * All parsing operations execute asynchronously on `Dispatchers.IO`. Utilizes bounded [FrameBatcher] memory buffers
+ * to guarantee zero heap exhaustion during large file imports.
+ *
+ * @param databaseService Primary DuckDB database management service.
+ * @param summaryEngineService Service for generating aggregate session KPI summaries post-ingest.
+ *
+ * @see FrameBatcher
+ * @see SummaryEngineService
  */
 class LogParserService(
     private val databaseService: DatabaseService,

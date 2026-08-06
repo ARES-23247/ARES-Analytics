@@ -34,7 +34,7 @@ class ServiceRegistry {
     val nt4ClientService by lazy { Nt4ClientService(databaseService) }
     val logParserService by lazy { LogParserService(databaseService, summaryEngineService) }
     val parquetExporterService by lazy { ParquetExporterService(databaseService) }
-    val replayEngineService by lazy { ReplayEngineService(databaseService) }
+    val replayEngineService by lazy { ReplayEngineService(databaseService, nt4ClientService) }
     val sysIdService by lazy { SysIdService(databaseService) }
     val calibrationService by lazy { CalibrationService(databaseService) }
     val oauthService by lazy { OAuthService(firebaseClientService) }

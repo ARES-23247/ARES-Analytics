@@ -3,15 +3,21 @@ package com.ares.analytics.service
 import com.ares.analytics.shared.TelemetryFrame
 
 /**
- * Accumulates [TelemetryFrame] objects and auto-flushes them to the database
- * in constant-size batches (default 5,000) to maintain bounded heap usage
- * during log imports. Tracks min/max timestamps incrementally so session
- * duration can be computed without holding the full frame list in memory.
+ * High-performance bounded channel buffer for accumulating [TelemetryFrame] objects during bulk log imports.
  *
- * @param databaseService The database service to flush batches into.
- * @param batchSize Number of frames to accumulate before auto-flushing.
- * @param keyTransform Optional transformation applied to every frame's key
- *   before it is added to the batch (e.g. prepending `/Log0/` for multi-file imports).
+ * Prevents JVM heap exhaustion by auto-flushing frame buffers to DuckDB in constant-sized memory chunks
+ * (default 50,000 frames). Computes session bounding timestamps ($t_{\text{min}}, t_{\text{max}}$) incrementally,
+ * eliminating the need to store full session frame arrays in memory.
+ *
+ * ### Performance Guarantees & Memory Footprint:
+ * Maintains $O(1)$ amortized memory allocation bounds per imported frame. Auto-flushes when `buffer.size >= batchSize`.
+ *
+ * @param databaseService Target database service for executing batch insertions.
+ * @param batchSize Maximum frame buffer capacity before executing an automatic batch flush.
+ * @param keyTransform Optional lambda transformation applied to frame topic keys before insertion (e.g. key normalization).
+ *
+ * @see DatabaseService
+ * @see com.ares.analytics.service.log.BaseLogDecoder
  */
 class FrameBatcher(
     private val databaseService: DatabaseService,

@@ -14,11 +14,20 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Service for communicating with the ARES Analytics Cloud Gateway team API endpoints.
  *
-
+ * Interfaces with `https://ares-analytics-gateway-staging-205869391101.us-central1.run.app` to retrieve team robot profiles,
+ * register new robot configurations, and sync team metadata using Firebase Auth Bearer tokens.
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Performs non-blocking HTTP requests asynchronously on `Dispatchers.IO`.
+ *
+ * @param firebaseClientService Firebase auth service supplying active user Bearer tokens.
+ * @param gatewayUrl Base URL for the Ktor gateway service.
+ * @param httpClient Ktor HTTP client configured with JSON serialization.
+ *
+ * @see FirebaseClientService
+ * @see SyncEngineService
  */
 class TeamApiService(
     private val firebaseClientService: FirebaseClientService,

@@ -4,28 +4,23 @@ import java.util.Random
 import kotlin.math.*
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * 2D field coordinate point in meters ($m$).
  *
-
+ * @property x Field X coordinate in meters ($m$).
+ * @property y Field Y coordinate in meters ($m$).
  */
 data class SimPoint(val x: Double, val y: Double)
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Convex field obstacle polygon defined by ordered vertices in meters ($m$).
  *
-
+ * @property vertices List of 2D polygon vertex points [SimPoint].
  */
 data class SimPolygon(val vertices: List<SimPoint>) {
     /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+     * Generates a list of bounding line segment edges for polygon intersection testing.
      *
-
+     * @return List of line segment vertex pairs `(P1, P2)`.
      */
     fun getEdges(): List<Pair<SimPoint, SimPoint>> {
         val edges = mutableListOf<Pair<SimPoint, SimPoint>>()
@@ -35,6 +30,7 @@ data class SimPolygon(val vertices: List<SimPoint>) {
         return edges
     }
 }
+
 
 /**
 

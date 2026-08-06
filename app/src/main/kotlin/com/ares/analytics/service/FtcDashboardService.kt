@@ -11,11 +11,23 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * WebSocket streaming service connecting to legacy Acme Robotics FTC Dashboard instances (`ws://192.168.43.1:8000/dash`).
  *
-
+ * Receives JSON telemetry broadcast frames from FTC Control Hubs running FTC Dashboard, parsing variable state maps
+ * and field overlay drawing operations into normalized [TelemetryFrame] channels consumed by dashboard UI screens.
+ *
+ * ### WebSocket Protocol Specifications:
+ * - Default Target URI: `ws://192.168.43.1:8000/dash`
+ * - Incoming Event Type: `"RECEIVE_TELEMETRY"`
+ * - Output Mapping: Converts telemetry map keys to normalized NT4 topics (`"Drive/Pose_X"`).
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * WebSocket frame reading loop runs asynchronously within [serviceScope] on `Dispatchers.IO`. Automatically re-establishes connection on disconnect.
+ *
+ * @param nt4ClientService NT4 client service receiving bridge telemetry frames.
+ * @param client Ktor HTTP client configured with WebSocket plugin.
+ *
+ * @see Nt4ClientService
  */
 class FtcDashboardService(
     private val nt4ClientService: Nt4ClientService,

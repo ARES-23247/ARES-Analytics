@@ -11,19 +11,43 @@ import java.io.FileInputStream
 import java.util.UUID
 
 /**
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
+ * Decodes FRC Driver Station binary log files (`.dslog` version 4 format) into normalized telemetry frames.
  *
+ * Extracts 50Hz driver station diagnostic records, converting LabVIEW epoch timestamps into millisecond time-series values.
+ * Parses RIO CPU utilization, CAN bus utilization, battery voltage, round-trip packet latency, packet loss rates, and PDP/PDH motor currents.
+ *
+ * ### Binary File Layout & Conversion Math:
+ * - Version Header: 4-byte INT (must equal 4)
+ * - LabVIEW Epoch Offset: `convertLVTime(seconds, fractional)` $\to$ Start Timestamp in $ms$
+ * - Sampling Period: Fixed 20 ms per record ($50\text{ Hz}$)
+ * - Battery Voltage: $V_{\text{batt}} = \frac{\text{raw\_uint16}}{256.0}\text{ Volts}$
+ * - Trip Time: $t_{\text{trip}} = \text{raw\_uint8} \cdot 0.5\text{ ms}$
+ * - PDP/PDH Motor Currents: Fixed-point scaling to Amperes ($A$)
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Runs asynchronously on `Dispatchers.IO`. Streams binary file sequential bytes via [DataInputStream] into [FrameBatcher], avoiding full memory buffer allocation.
+ *
+ * @param databaseService Primary database service for persisting session metadata and annotations.
+ *
+ * @see BaseLogDecoder
+ * @see WpiLogDecoder
  */
 class DSLogDecoderService(private val databaseService: DatabaseService) : BaseLogDecoder() {
 
     /**
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     *
+     * Identifies the physical power distribution module type logged within the Driver Station binary file.
      */
     enum class PowerDistributionType {
         REV, CTRE, NONE
     }
 
+    /**
+     * Decodes a binary `.dslog` file into 50Hz telemetry frame series and generates session event annotations.
+     *
+     * @param file Target `.dslog` file.
+     * @param sessionId Session identifier string.
+     * @param batcher Destination telemetry frame batcher buffer.
+     */
     override suspend fun decode(
         file: File,
         sessionId: String,

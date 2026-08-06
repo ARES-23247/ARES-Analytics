@@ -23,14 +23,29 @@ import com.ares.analytics.shared.PathPoint
 import com.ares.analytics.ui.components.forms.AresTextField
 import com.ares.analytics.ui.theme.*
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * UI row editor component for field obstacles (rectangles, circles, custom polygons).
  *
-
+ * Configures obstacle dimensions ($width, height, radius$) in meters ($m$), center coordinates $(x, y)$, and rotation angles ($\theta$).
+ *
+ * ### Physical Units:
+ * - Position $(x, y)$ & Dimensions $(w, h, r)$: Meters ($m$)
+ * - Rotation ($\theta$): Degrees ($^\circ$)
+ *
+ * @param index Zero-based list index of this obstacle.
+ * @param obs Current [Obstacle] data model.
+ * @param fieldWidthM Field width boundary in meters ($m$).
+ * @param fieldHeightM Field height boundary in meters ($m$).
+ * @param league Active robotics league ([League.FTC] / [League.FRC]).
+ * @param onUpdate Callback triggered when obstacle properties change.
+ * @param onDelete Callback triggered when obstacle is removed.
+ * @param onAdd Callback triggered to add a new obstacle.
+ * @param onMirrorX Callback to mirror obstacle horizontally.
+ * @param onMirrorY Callback to mirror obstacle vertically.
+ *
+ * @see com.ares.analytics.shared.Obstacle
  */
+@Composable
 fun ObstacleRow(
     index: Int,
     obs: Obstacle,

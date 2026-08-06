@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens.onboarding
 
 import androidx.compose.foundation.background
@@ -18,14 +19,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * First onboarding step component displaying the ARES Analytics welcome hero banner, feature overview, and setup guidance.
  *
-
+ * Displays branded typography, gradient icon containers, and quick setup instructions for initializing team workspaces.
+ *
+ * @see OnboardingScreen
  */
+@Composable
 fun WelcomeStep() {
     Column(
         verticalArrangement = Arrangement.spacedBy(20.dp),

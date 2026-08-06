@@ -7,14 +7,19 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 
-@Serializable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Grid layout configuration for a single dashboard widget card.
  *
-
+ * @property id Unique widget instance identifier.
+ * @property type Widget view type string (`"runs_index"`, `"alerts"`, `"telemetry_chart"`, `"motor_health"`, `"vision_quality"`, `"ai_coach"`, `"match_schedule"`, `"console_viewer"`).
+ * @property row Zero-indexed grid row position.
+ * @property col Zero-indexed grid column position.
+ * @property rowSpan Row span count ($1 \dots N$).
+ * @property colSpan Column span count ($1 \dots N$).
+ * @property isLocked `true` if widget position is locked against user dragging.
+ * @property properties Custom key-value properties dictionary for the widget.
  */
+@Serializable
 data class WidgetConfig(
     val id: String,
     val type: String, // "runs_index", "alerts", "telemetry_chart", "motor_health", "vision_quality", "ai_coach", "match_schedule", "console_viewer"
@@ -26,14 +31,12 @@ data class WidgetConfig(
     val properties: Map<String, String> = emptyMap()
 )
 
-@Serializable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Dashboard layout container holding configured widgets.
  *
-
+ * @property widgets List of [WidgetConfig] records.
  */
+@Serializable
 data class DashboardLayoutConfig(
     val widgets: List<WidgetConfig>
 )

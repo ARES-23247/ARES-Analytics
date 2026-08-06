@@ -12,20 +12,36 @@ import org.ejml.simple.SimpleMatrix
 import kotlin.math.*
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * 6-DOF Camera Extrinsic Calibration Solver using non-linear least squares optimization (Gauss-Newton / Levenberg-Marquardt).
  *
-
+ * Estimates 3D camera mounting pose $(dx, dy, dz, \text{roll}, \text{pitch}, \text{yaw})$ relative to the physical robot center
+ * by processing target-space vision measurements across diverse calibration poses.
+ *
+ * ### Coordinate System & Rotation Conventions:
+ * - Robot Center Frame: $+X$ forward, $+Y$ left, $+Z$ up (meters $m$).
+ * - Heading ($\text{yaw}$): Radians ($rad$), **CCW-positive** (0 = +X).
+ * - Target-Space Axes: $+X$ right, $+Y$ vertical up, $+Z$ depth outward from tag face ($m$).
+ * - Rotation Mapping: $\text{robotYaw} = -\text{targetSpaceYaw}$ (Limelight Y-axis rotation).
+ *
+ * ### Optimization Formulation:
+ * Minimizes reprojection residual error sum:
+ * $$E = \sum_{i=1}^{N} \left\| \mathbf{P}_{\text{cam}} - \mathbf{T}_{\text{extrinsic}} \mathbf{P}_{\text{tag}, i} \right\|^2$$
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Execution uses EJML linear algebra matrices on `Dispatchers.IO` or caller thread without thread contention.
+ *
+ * @param databaseService Primary DuckDB telemetry database service.
+ *
+ * @see OdometryCalibrationSolver
+ * @see com.ares.analytics.service.Pose3d
  */
 class CameraCalibrationSolver(private val databaseService: DatabaseService) {
 
     /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+     * Solves 6-DOF camera extrinsic mounting pose $(x, y, z, \text{roll}, \text{pitch}, \text{yaw})$ from a dataset of AprilTag calibration observations.
      *
-
+     * @param measurements List of target-space optical observations recorded during calibration rotation maneuvers.
+     * @return 6-DOF camera extrinsic mounting pose relative to robot origin $(x, y, z, \text{roll}, \text{pitch}, \text{yaw})$.
      */
     fun solveCameraExtrinsics(measurements: List<CalibrationMeasurement>): Pose3d {
         if (measurements.isEmpty()) {

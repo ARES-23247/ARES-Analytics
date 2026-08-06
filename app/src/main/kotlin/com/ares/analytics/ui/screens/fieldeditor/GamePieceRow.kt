@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens.fieldeditor
 
 import androidx.compose.foundation.background
@@ -21,14 +22,20 @@ import com.ares.analytics.shared.League
 import com.ares.analytics.ui.components.forms.AresTextField
 import com.ares.analytics.ui.theme.*
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * UI row component for editing game piece initial field locations $(x, y, z)$ in meters ($m$).
  *
-
+ * Configures game piece type variants (sample/specimen/note/cone/cube), initial field coordinates, and lock status.
+ *
+ * @param index Zero-based list index of this game piece.
+ * @param gp Current [GamePiece] data record.
+ * @param league Active robotics league ([League.FTC] / [League.FRC]).
+ * @param onUpdate Callback for updating game piece properties.
+ * @param onDelete Callback for removing this game piece.
+ *
+ * @see com.ares.analytics.shared.GamePiece
  */
+@Composable
 fun GamePieceRow(
     index: Int,
     gp: GamePiece,

@@ -16,11 +16,24 @@ import io.ktor.utils.io.streams.*
 import io.ktor.utils.io.jvm.javaio.copyTo
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Service managing Google Drive API v3 interactions for cloud backup of match telemetry logs and session archives.
  *
-
+ * Utilizes OAuth 2.0 PKCE authentication via [OAuthService] to request OAuth access tokens, uploading Parquet and JSONL log files
+ * directly to the user's Google Drive storage.
+ *
+ * ### REST Endpoint Targets:
+ * - File Search: `GET https://www.googleapis.com/drive/v3/files`
+ * - Resumable Upload: `POST https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable`
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * All file upload network calls run asynchronously on `Dispatchers.IO`. Uses Ktor CIO engine.
+ *
+ * @param oauthService OAuth authentication provider service.
+ * @param environmentService Workspace settings service.
+ * @param firebaseClientService Firebase auth service.
+ *
+ * @see OAuthService
+ * @see SyncEngineService
  */
 class GoogleDriveService(
     private val oauthService: OAuthService,

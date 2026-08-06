@@ -8,7 +8,11 @@ import kotlinx.serialization.json.*
 import java.io.File
 
 /**
- * Metadata extracted from an action log file's envelope fields.
+ * Metadata extracted from a Redux robot action log envelope header.
+ *
+ * @property durationMs Total session execution duration in milliseconds ($ms$).
+ * @property matchNumber Tournament match sequence number.
+ * @property alliance Alliance station color string (`"RED"`, `"BLUE"`, or `"UNKNOWN"`).
  */
 data class ActionLogMetadata(
     val durationMs: Long,
@@ -17,14 +21,32 @@ data class ActionLogMetadata(
 )
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Service for parsing line-delimited JSON (`.jsonl`) telemetry log files and Redux robot action event streams.
  *
-
+ * Parses streaming JSON objects containing frame key-value pairs or structured [RobotActionRecord] objects emitted by
+ * `ARESLib-Kotlin` Redux reducers.
+ *
+ * ### Schema & Data Formats:
+ * - Telemetry JSON: `{"timestampMs": 12345, "Drive/Pose_X": 1.25, "Hardware/Motors/fl/Power": 0.85}`
+ * - Action JSON: Redux dispatch action payloads `(actionType, payloadJson, alliance, matchNumber)`
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Suspend functions process JSON line streams sequentially on `Dispatchers.IO`, buffering parsed items into [FrameBatcher] channel without loading complete files into memory.
+ *
+ * @param databaseService Primary DuckDB persistence interface.
+ *
+ * @see CsvLogDecoder
+ * @see FrameBatcher
  */
 class JsonlLogDecoder(private val databaseService: DatabaseService) {
 
+    /**
+     * Parses a line-delimited JSON telemetry file line by line into [batcher].
+     *
+     * @param file Source `.jsonl` file.
+     * @param sessionId Target session ID string.
+     * @param batcher Destination telemetry frame batch buffer.
+     */
     suspend fun parseJsonlLog(file: File, sessionId: String, batcher: FrameBatcher) {
         file.bufferedReader(Charsets.UTF_8).use { reader ->
             var line: String? = reader.readLine()

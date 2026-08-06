@@ -7,11 +7,36 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
+ * Service for decoding AdvantageKit binary `.rlog` trace files (revisions 1 and 2).
  *
+ * Binary log format decoder parsing high-frequency robot telemetry emitted by AdvantageKit logging framework.
+ * Maps integer key IDs to string topic paths and decodes primitive values (Doubles, Booleans, Strings, Double Arrays).
+ *
+ * ### Binary File Layout & Protocol Specs:
+ * - Byte 0: Log revision byte (must equal 1 or 2)
+ * - Record Timestamp: 8-byte Big-Endian IEEE 754 double (seconds $s$), scaled to milliseconds ($t_{\text{ms}} = t_{\text{sec}} \cdot 1000.0$)
+ * - Record Type 0: Timestamp boundary delimiter
+ * - Record Type 1: Key metadata declaration `(ID -> Name, Type)`
+ * - Record Type 2: Double numeric sample ($V, A, m/s, rad$)
+ * - Record Type 3: Boolean value (`1.0` / `0.0`)
+ * - Record Type 4: String text value
+ * - Record Type 5: Double Array values
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Operates asynchronously on `Dispatchers.IO`. Parses binary byte arrays using [ByteBuffer] into [FrameBatcher].
+ *
+ * @see BaseLogDecoder
+ * @see WpiLogDecoder
  */
 class RlogDecoderService : BaseLogDecoder() {
 
+    /**
+     * Decodes an AdvantageKit `.rlog` binary trace file into [batcher].
+     *
+     * @param file Target `.rlog` file.
+     * @param sessionId Session identifier string.
+     * @param batcher Destination telemetry frame channel buffer.
+     */
     override suspend fun decode(
         file: File,
         sessionId: String,

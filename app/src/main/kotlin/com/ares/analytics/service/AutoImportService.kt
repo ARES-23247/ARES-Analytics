@@ -11,11 +11,29 @@ import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Automated log file importer watching local directories and remote robot storage systems (FTC ADB / FRC RoboRIO).
  *
-
+ * Polling service executing on `Dispatchers.IO` to continuously discover and import new robot log files.
+ * Supports FTC Control Hub log pulling via ADB (`adb pull /sdcard/FIRST/logs/` on port 5555) and FRC RoboRIO SCP pulling (`rio@10.TE.AM.2`).
+ * Interoperates with [LogParserService] to automatically ingest `.wpilog`, `.rlog`, `.hoot`, `.dslog`, `.revlog`, `.jsonl`, and `.csv` files.
+ *
+ * ### Import Pipelines:
+ * 1. **Local Disk Watcher**: Scans active workspace project directory for newly created `.jsonl` or `.wpilog` files.
+ * 2. **FTC ADB Puller**: Polls connected Android Control Hubs via ADB daemon.
+ * 3. **FRC SSH/SCP Puller**: Fetches USB driver station logs from connected RoboRIOs.
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Executes in a cancellable background coroutine on [Dispatchers.IO]. Pushes notifications to a shared event flow [importNotifications].
+ *
+ * @param databaseService Primary DuckDB telemetry database service.
+ * @param logParserService Central log parser service.
+ * @param hootDecoderService Decoder service for CTRE `.hoot` logs.
+ * @param processManagerService Service monitoring ADB connection status.
+ * @param configProvider Lambda supplying current active workspace configuration.
+ * @param scope Coroutine scope running background watcher loops.
+ *
+ * @see LogParserService
+ * @see ProcessManagerService
  */
 class AutoImportService(
     private val databaseService: DatabaseService,

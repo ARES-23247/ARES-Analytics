@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens.onboarding
 
 import androidx.compose.foundation.background
@@ -17,14 +18,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ares.analytics.ui.theme.*
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Onboarding step component for verifying system JDK Java development environment installation.
  *
-
+ * Checks `JAVA_HOME` and PATH configuration to ensure compatible Java compilers exist for Gradle builds.
+ *
+ * @param isValid Verification status (`true` if valid JDK 11+ is detected, `false` if invalid, `null` if unverified).
+ * @param isVerifying `true` while actively running background process verification.
+ * @param message Diagnostic status message output.
+ * @param onVerifyClick Callback triggering manual re-verification of the JDK environment.
+ *
+ * @see OnboardingScreen
  */
+@Composable
 fun JavaVerificationStep(
     isValid: Boolean?,
     isVerifying: Boolean,

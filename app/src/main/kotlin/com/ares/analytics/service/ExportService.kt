@@ -10,14 +10,29 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Service for exporting stored telemetry session data into external file formats (CSV, Parquet).
  *
-
+ * Implements two CSV export modes:
+ * 1. **Narrow List Format** ([exportToCsvList]): Produces single-row streams of `(key, timestamp_ms, value)`.
+ * 2. **Pivoted Wide Table Format** ([exportToCsvTable]): Reshapes time-series frames into wide matrix format with timestamp rows and key columns.
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Executes file writing on [Dispatchers.IO] using buffered IO streams (`BufferedOutputStream` / `PrintWriter`) to maintain high throughput without memory exhaustion.
+ *
+ * @param databaseService Primary DuckDB telemetry database service.
+ *
+ * @see DatabaseService
+ * @see ParquetExporterService
  */
 class ExportService(private val databaseService: DatabaseService) {
 
+    /**
+     * Exports selected telemetry keys for a session into a flat CSV list (`key,timestamp_ms,value`).
+     *
+     * @param sessionId Target session ID string.
+     * @param selectedKeys List of telemetry key strings to include in the export.
+     * @param destinationFile File on the local filesystem where CSV output is written.
+     */
     suspend fun exportToCsvList(
         sessionId: String,
         selectedKeys: List<String>,

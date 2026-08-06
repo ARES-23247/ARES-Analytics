@@ -12,14 +12,17 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
-@Serializable
+
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Tournament match schedule and alliance configuration retrieved from official event APIs (The Blue Alliance / FIRST API).
  *
-
+ * @property matchNumber Match sequence number (e.g., 12).
+ * @property compLevel Competition level identifier string (`"qm"`, `"qf"`, `"sf"`, `"f"`).
+ * @property redAlliance Ordered list of team key strings on the Red Alliance.
+ * @property blueAlliance Ordered list of team key strings on the Blue Alliance.
+ * @property scheduledTime Optional Unix timestamp ($ms$) of match start.
  */
+@Serializable
 data class MatchInfo(
     val matchNumber: Int,
     val compLevel: String,
@@ -29,11 +32,18 @@ data class MatchInfo(
 )
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * REST API client integration for fetching tournament event schedules and team alliance match pairings.
  *
-
+ * Interoperates with FIRST FTC Events API and The Blue Alliance (TBA) REST endpoints over HTTP/Ktor Client,
+ * mapping tournament match schedules to local telemetry session records.
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * All HTTP requests execute asynchronously on `Dispatchers.IO` using non-blocking Ktor client engines.
+ *
+ * @param httpClient Configured Ktor HTTP client instance with JSON content negotiation.
+ *
+ * @see MatchInfo
+ * @see TeamApiService
  */
 class EventApiService(
     private val httpClient: HttpClient = HttpClient {

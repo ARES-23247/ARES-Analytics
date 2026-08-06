@@ -12,11 +12,27 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Service for decoding CTRE Phoenix 6 high-speed binary `.hoot` trace files.
  *
-
+ * Utilizes CTRE's `owlet` CLI utility to unpack binary hoot traces into intermediate CSV formats, subsequently
+ * ingesting high-frequency motor signals ($250\text{ Hz} \dots 1000\text{ Hz}$) into DuckDB telemetry frames. Automatically extracts
+ * motor voltage ($V$), velocity ($rad/s$), stator current ($A$), and acceleration ($rad/s^2$) for SysId characterization.
+ *
+ * ### Signal Ingestion & Analysis:
+ * - Direct motor signal mapping for TalonFX / Kraken X60 actuators
+ * - Automated closed-loop setpoint tracking vs actual state error calculations
+ * - Feedforward ($k_S, k_V, k_A$) and Feedback ($k_P, k_D$) SysId fitting integration via [SysIdService]
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Executes process invocation and file parsing asynchronously on `Dispatchers.IO`. Cleans up intermediate converted CSV files automatically.
+ *
+ * @param databaseService Primary DuckDB storage interface.
+ * @param summaryEngineService Service for generating session KPI summaries from decoded traces.
+ * @param sysIdService Subsystem characterization engine for system identification analysis.
+ *
+ * @see BaseLogDecoder
+ * @see SysIdService
+ * @see SummaryEngineService
  */
 class HootDecoderService(
     private val databaseService: DatabaseService,
@@ -25,11 +41,13 @@ class HootDecoderService(
 ) : BaseLogDecoder() {
 
     /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+     * Topic key grouping for a single CTRE motor channel used during SysId characterization and motor telemetry extraction.
      *
-
+     * @property motorName Canonical name of the motor (e.g. `"Drive/fl"`).
+     * @property voltageKey Topic key for motor output voltage ($V$).
+     * @property velocityKey Topic key for motor rotational velocity ($rad/s$).
+     * @property currentKey Optional topic key for motor stator current ($A$).
+     * @property accelKey Topic key for motor rotational acceleration ($rad/s^2$).
      */
     data class MotorKeys(
         val motorName: String,
@@ -40,11 +58,10 @@ class HootDecoderService(
     )
 
     /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+     * Pair mapping an actual mechanism measurement key to its target closed-loop setpoint key.
      *
-
+     * @property actualKey Topic key for measured mechanism pose or velocity.
+     * @property setpointKey Topic key for commanded target setpoint.
      */
     data class SetpointPair(
         val actualKey: String,

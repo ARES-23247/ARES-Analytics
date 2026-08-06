@@ -8,11 +8,15 @@ import java.net.InetSocketAddress
 import java.net.Socket
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Background network polling service discovering online telemetry hosts (Local Simulation & Live Robot).
  *
-
+ * Periodically attempts socket connections to port `5810` (every 2.0s with a 200ms timeout), updating active online status flows
+ * for local desktop simulators (`127.0.0.1:5810`) and live wireless robot control hubs.
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Executes non-blocking socket connection attempts in a background coroutine loop on [Dispatchers.IO].
+ *
+ * @see Nt4ClientService
  */
 class TargetScannerService {
     private val _isLocalSimOnline = MutableStateFlow(false)
@@ -24,11 +28,9 @@ class TargetScannerService {
     private var scannerJob: Job? = null
 
     /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+     * Starts continuous socket polling for local and remote robot telemetry endpoints.
      *
-
+     * @param liveRobotHost IP address or hostname of the live robot controller (e.g., `"192.168.43.1"`).
      */
     fun startScanning(liveRobotHost: String) {
         scannerJob?.cancel()

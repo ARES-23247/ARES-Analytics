@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens
 
 import androidx.compose.foundation.border
@@ -14,14 +15,20 @@ import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.PathPlannerIntent
 import com.ares.analytics.viewmodel.PathPlannerViewModel
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Visual autonomous trajectory path editor and S-curve motion profile generator screen.
  *
-
+ * Provides interactive waypoints control ($x, y, \theta$), control point Bézier velocity vectors ($v_{\max}, a_{\max}, j_{\max}$),
+ * and field canvas visualization for FTC ($3.6576\text{ m}$) and FRC ($16.541\text{ m}$) fields.
+ *
+ * @param viewModel State manager [PathPlannerViewModel] driving path editing intents.
+ * @param league Competition league context ([League.FTC] / [League.FRC]).
+ * @param projectPath Absolute directory path of active robot workspace.
+ *
+ * @see PathPlannerViewModel
+ * @see com.ares.analytics.service.TrajectoryEstimator
  */
+@Composable
 fun PathPlannerScreen(
     viewModel: PathPlannerViewModel,
     league: League,

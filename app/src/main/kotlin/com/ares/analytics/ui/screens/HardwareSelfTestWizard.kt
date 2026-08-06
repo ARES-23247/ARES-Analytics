@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens
 
 import androidx.compose.animation.*
@@ -23,6 +24,15 @@ import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+/**
+ * Diagnostic step execution record in the automated hardware self-test wizard sequence.
+ *
+ * @property id Unique step identifier string.
+ * @property name Diagnostic test label.
+ * @property description Detailed testing instructions or diagnostic assertion goals.
+ * @property status Current execution status (`"PENDING"`, `"CONFIRMING"`, `"RUNNING"`, `"PASSED"`, `"FAILED"`).
+ * @property details Telemetry readings or error output log string.
+ */
 data class SelfTestStep(
     val id: String,
     val name: String,
@@ -31,6 +41,16 @@ data class SelfTestStep(
     var details: String = ""
 )
 
+/**
+ * Automated robot hardware self-test wizard screen.
+ *
+ * Sequentially tests motor encoders, GoBilda Pinpoint odometry computers, Limelight cameras, CAN bus devices, and battery voltage levels over NT4.
+ *
+ * @param nt4ClientService NT4 service supplying real-time topic telemetry feeds.
+ *
+ * @see Nt4ClientService
+ * @see SelfTestStep
+ */
 @Composable
 fun HardwareSelfTestWizard(
     nt4ClientService: Nt4ClientService

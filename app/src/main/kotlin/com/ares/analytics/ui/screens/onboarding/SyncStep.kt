@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens.onboarding
 
 import androidx.compose.foundation.background
@@ -23,14 +24,22 @@ import com.ares.analytics.ui.components.forms.AresTextField
 import com.ares.analytics.ui.theme.*
 import javax.swing.JFileChooser
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Onboarding step component for configuring team identity, robot profiles, and local workspace directory paths.
  *
-
+ * Configures local project path (`projectPath`), team ID, active robot profile selection, and league context ([League.FTC] / [League.FRC]).
+ *
+ * @param projectPath Absolute directory path of the active robot project.
+ * @param onProjectPathChange Callback for manual project path text edits.
+ * @param onBrowseProject Callback opening a desktop native [JFileChooser] dialog.
+ * @param teamId Active team identifier string.
+ * @param onTeamIdChange Callback for team ID text edits.
+ * @param cloudRobots List of robot profiles fetched from cloud gateway endpoints.
+ *
+ * @see OnboardingScreen
+ * @see com.ares.analytics.service.EnvironmentService
  */
+@Composable
 fun SyncStep(
     projectPath: String,
     onProjectPathChange: (String) -> Unit,

@@ -30,18 +30,25 @@ import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.ProfileIntent
 import com.ares.analytics.viewmodel.ProfileViewModel
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * User account profile, developer preferences, and workspace configuration screen.
  *
-
+ * Configures active user identity, team membership, telemetry chart preferences, theme colors, and AI assistant prompt defaults.
+ *
+ * @param viewModel [ProfileViewModel] for handling profile mutations.
+ * @param authState Active OAuth authentication flow state.
+ * @param onLogout Callback for terminating active user session.
+ *
+ * @see ProfileViewModel
+ * @see WorkspaceConfig
  */
+@Composable
 fun ProfileScreen(
     viewModel: ProfileViewModel,
     config: WorkspaceConfig,
-    onConfigChanged: (WorkspaceConfig) -> Unit
+    onConfigChanged: (WorkspaceConfig) -> Unit,
+    authState: AuthState = AuthState.Unauthenticated,
+    onLogout: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
 

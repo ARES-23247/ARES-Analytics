@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens
 
 import androidx.compose.foundation.Canvas
@@ -20,6 +21,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
 
+/**
+ * Driver coaching card containing telemetry analysis feedback on driver inputs and robot power usage.
+ *
+ * @property title Coaching rule headline.
+ * @property detail Detailed diagnostic description (e.g. voltage sag $V_{\text{sag}} > 1.2\text{ V}$).
+ * @property category Rule domain category (`"VOLTAGE"`, `"ACCELERATION"`, `"POSITION_HOLD"`, `"PATHING"`).
+ * @property severity Severity rating (`"TIP"`, `"WARNING"`, `"EXCELLENT"`).
+ */
 data class DriverCoachingCard(
     val title: String,
     val detail: String,
@@ -27,6 +36,14 @@ data class DriverCoachingCard(
     val severity: String // TIP, WARNING, EXCELLENT
 )
 
+/**
+ * Match strategy and AI driver coaching screen.
+ *
+ * Analyzes historical match logs to highlight driver efficiency, battery voltage sag mitigation, pathing smoothness, and defensive positioning.
+ *
+ * @see DriverCoachingCard
+ * @see com.ares.analytics.service.DriverAnalysisService
+ */
 @Composable
 fun MatchStrategyScreen() {
     val coachingCards = remember {

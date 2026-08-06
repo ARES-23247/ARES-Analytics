@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens.fieldeditor
 
 import androidx.compose.foundation.background
@@ -18,14 +19,21 @@ import com.ares.analytics.shared.FieldWaypoint
 import com.ares.analytics.ui.components.forms.AresTextField
 import com.ares.analytics.ui.theme.*
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * UI component row for configuring target field waypoint coordinates $(x, y)$ and heading $(\theta)$ in the field layout editor.
  *
-
+ * ### Physical Units:
+ * - Position $(x, y)$: Meters ($m$)
+ * - Heading ($\theta$): Degrees ($^\circ$), converted to radians internally (**CCW-positive**)
+ *
+ * @param index Zero-based list index of this waypoint.
+ * @param wp Current [FieldWaypoint] model instance.
+ * @param onUpdate Callback triggered when waypoint properties are edited.
+ * @param onDelete Callback triggered when waypoint is deleted.
+ *
+ * @see com.ares.analytics.shared.FieldWaypoint
  */
+@Composable
 fun FieldWaypointRow(
     index: Int,
     wp: FieldWaypoint,

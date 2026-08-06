@@ -94,14 +94,19 @@ data class RowDefinition(
     val isAnomaly: (Double) -> Boolean = { false }
 )
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Historical match run index, log inspector, and multi-run chart comparison screen.
  *
-
+ * Browses historical match runs stored in DuckDB, rendering time-series telemetry plots (motor currents $A$, velocities $m/s$, headings $rad$),
+ * log scrubbing replay controls, and AI log breakdown chat threads.
+ *
+ * @param databaseService Primary [DatabaseService] backing DuckDB telemetry queries.
+ * @param syncEngineService Sync engine service for downloading log files.
+ *
+ * @see com.ares.analytics.service.MatchLogRepository
+ * @see com.ares.analytics.service.ReplayEngineService
  */
+@Composable
 fun RunHistoryScreen(
     databaseService: DatabaseService,
     syncEngineService: SyncEngineService

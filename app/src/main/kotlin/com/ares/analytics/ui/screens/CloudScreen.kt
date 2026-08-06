@@ -29,14 +29,20 @@ import com.ares.analytics.viewmodel.CloudIntent
 import com.ares.analytics.viewmodel.CloudViewModel
 import com.ares.analytics.viewmodel.RobotLogFileInfo
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Cloud management screen for pulling raw robot logs over local Wi-Fi, converting to Parquet, and syncing with Google Cloud Run gateway.
  *
-
+ * Facilitates Desktop Pull Architecture: downloads `.jsonl` files from Control Hub `LogManagerServer` (port 5002),
+ * parses telemetry into DuckDB, exports Snappy-compressed Parquet files, and executes delta-sync to Google Cloud Storage.
+ *
+ * @param viewModel [CloudViewModel] managing cloud intent dispatching and state updates.
+ * @param teamId Unique identifier for the team.
+ * @param seasonId Unique identifier for the season.
+ *
+ * @see com.ares.analytics.viewmodel.CloudViewModel
+ * @see com.ares.analytics.service.SyncEngineService
  */
+@Composable
 fun CloudScreen(
     viewModel: CloudViewModel,
     teamId: String,

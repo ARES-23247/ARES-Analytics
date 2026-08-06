@@ -13,25 +13,59 @@ import org.duckdb.DuckDBConnection
 import java.sql.Connection
 import java.sql.ResultSet
 
+
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Primary repository interface for telemetry persistent storage, DuckDB vectorized queries, and match history.
  *
-
+ * Provides thread-safe transaction execution over DuckDB JDBC connections, utilizing DuckDB's native Appender C++ API
+ * (`insertTelemetryFramesAppender`, `insertRobotActionsBulk`) for bulk frame ingest (~10-100x faster than traditional JDBC SQL batches).
+ *
+ * ### Physical Units & Storage Targets:
+ * - Timestamps: Milliseconds ($ms$)
+ * - Telemetry keys: Normalized NT4 paths (`"Drive/Pose_X"`, `"Hardware/Motors/fl/Power"`)
+ * - Battery Voltage metrics: Volts ($V$)
+ * - Motor Current metrics: Amperes ($A$)
+ * - Loop timing: Milliseconds ($ms$)
+ * - Vision latency: Milliseconds ($ms$)
+ * - EKF position drift / cross-track error: Meters ($m$)
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Thread-safe suspend functions executing DB transactions under mutual exclusion lock ([dbMutex]) on [Dispatchers.IO].
+ * Appender operations stream raw memory arrays to DuckDB C++ native buffers with zero JVM heap fragmentation.
+ *
+ * @param conn Primary DuckDB connection bound to disk storage.
+ * @param ephemeralConn In-memory DuckDB connection for high-throughput live telemetry buffers.
+ * @param dbMutex Mutual exclusion coroutine lock controlling connection write concurrency.
+ *
+ * @see SchemaMigrationManager
+ * @see DatabaseBackupExporter
+ * @see QueryResult
  */
 class MatchLogRepository(
     private val conn: Connection,
     private val ephemeralConn: Connection,
     private val dbMutex: Mutex
 ) {
+    /**
+     * Executes a raw database operation safely under [dbMutex] on [Dispatchers.IO].
+     *
+     * @param T Result type of the transaction block.
+     * @param block Database execution logic.
+     * @return Result produced by [block].
+     */
     private suspend fun <T> withDbLock(block: suspend () -> T): T = withContext(Dispatchers.IO) {
         dbMutex.withLock { block() }
     }
 
-suspend fun executeRaw(sql: String) = withDbLock {
+    /**
+     * Executes an arbitrary SQL execution string (DDL/DML) on the primary connection.
+     *
+     * @param sql Raw SQL statement string.
+     */
+    suspend fun executeRaw(sql: String) = withDbLock {
         conn.createStatement().use { it.execute(sql) }
     }
+
     
     suspend fun executeQueryRaw(sql: String): QueryResult = withDbLock {
         conn.createStatement().use { st ->

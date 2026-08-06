@@ -6,6 +6,14 @@ import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
 
+/**
+ * Closed-loop PID ($k_P, k_I, k_D$) and Feedforward ($k_S, k_V, k_A$) gain parameters for robot subsystem controllers.
+ *
+ * @property kP Proportional gain (Volts per unit error, e.g. $V/(m/s)$ or $V/rad$).
+ * @property kI Integral gain (Volts per unit error-second, $V/(m \cdot s)$).
+ * @property kD Derivative gain (Volts per unit velocity error, $V/(m/s^2)$ or $V/(rad/s)$).
+ * @property kF Arbitrary feedforward gain constant (Volts).
+ */
 data class AutoTunerPIDFGains(
     val kP: Double,
     val kI: Double,
@@ -17,13 +25,43 @@ data class AutoTunerPIDFGains(
  * High-performance **Auto-Tuner & PID / Feedforward Optimizer**.
  *
  * Evaluates live telemetry or high-resolution 100 Hz log recordings (`.jsonl` / `.wpilog`) to derive
- * optimal closed-loop PID and feedforward coefficients ($kS, kV, kA, kP, kI, kD$).
+ * optimal closed-loop PID and feedforward coefficients ($k_S, k_V, k_A, k_P, k_I, k_D$).
  *
- * Requires explicit student review and approval before publishing tuned gains to `TuningState`.
+ * ### Feedforward Mathematical Derivations:
+ * - Static friction voltage: $k_S \approx 0.06\text{ V}$
+ * - Velocity feedforward: $k_V = \frac{12.0}{v_{\text{max}}}\text{ V}/(m/s)$
+ * - Acceleration feedforward: $k_A = \frac{12.0}{a_{\text{max}}}\text{ V}/(m/s^2)$
+ *
+ * ### Ziegler-Nichols Step Response Heuristics:
+ * - Proportional Gain: $k_P = \text{clamp}(0.8 \cdot k_V, 0.5, 8.0)$
+ * - Integral Gain: $k_I = 0.0$ (disincentivized for high-inertia robotics to prevent integral windup)
+ * - Derivative Gain: $k_D = \text{clamp}(0.4 \cdot k_A, 0.01, 0.5)$
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Analyzes log files asynchronously on caller thread. Publishes results to [StateFlow] and streams NetworkTables NT4 updates without thread blocking.
+ *
+ * @param nt4ClientService Active NetworkTables NT4 client service for publishing approved gains.
+ *
+ * @see Nt4ClientService
+ * @see SysIdService
  */
 class AutoTunerService(
     private val nt4ClientService: Nt4ClientService
 ) {
+    /**
+     * Tuning recommendation record containing proposed feedback/feedforward gains and response characteristics.
+     *
+     * @property mechanismName Name of the analyzed mechanism (e.g. `"drive"`).
+     * @property recommendedGains Calculated PID gains ($k_P, k_I, k_D$).
+     * @property recommendedkS Static friction voltage ($V$).
+     * @property recommendedkV Velocity feedforward gain ($V/(m/s)$).
+     * @property recommendedkA Acceleration feedforward gain ($V/(m/s^2)$).
+     * @property riseTimeMs Estimated 10% to 90% rise time in milliseconds ($ms$).
+     * @property percentOvershoot Peak percentage overshoot (% error).
+     * @property settlingTimeMs 2% error band settling time in milliseconds ($ms$).
+     * @property logSource Source log filename.
+     * @property studentApproved Indicates whether the user explicitly approved sending gains to the robot.
+     */
     data class TuningRecommendation(
         val mechanismName: String,
         val recommendedGains: AutoTunerPIDFGains,

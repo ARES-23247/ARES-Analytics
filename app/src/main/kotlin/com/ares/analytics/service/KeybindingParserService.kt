@@ -6,13 +6,26 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Service for parsing Kotlin and Java source code AST annotations to discover FTC/FRC gamepad controller keybindings.
  *
-
+ * Scans robot source files for ARESLib controller DSL method invocations (`gamepad1.a.onPress("Intake Release")`),
+ * building a structured list of [ControllerBinding] records for driver station visual overlays.
+ *
+ * ### DSL Matching Expression:
+ * `Regex("""\b([a-zA-Z0-9_]+)\.([a-zA-Z_]+)\.(onPress|onRelease|whilePressed|label)\(\s*"([^"]+)"\s*\)""")`
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Executes source file tree traversal asynchronously on `Dispatchers.IO`.
+ *
+ * @see com.ares.analytics.shared.ControllerBinding
  */
 class KeybindingParserService {
+    /**
+     * Scans project directory source code files for gamepad button DSL bindings.
+     *
+     * @param projectPath Absolute directory path of the target robot project.
+     * @return List of parsed [ControllerBinding] objects.
+     */
     suspend fun parseBindings(projectPath: String): List<ControllerBinding> = withContext(Dispatchers.IO) {
         val root = File(projectPath)
         val bindings = mutableListOf<ControllerBinding>()

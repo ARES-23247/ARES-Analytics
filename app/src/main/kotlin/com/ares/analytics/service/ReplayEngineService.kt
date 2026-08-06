@@ -21,22 +21,17 @@ import java.net.DatagramSocket
 import java.net.InetAddress
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
+ * Operational play/pause state of the telemetry replay engine.
  */
 enum class ReplayState {
     PLAYING, PAUSED, STOPPED
 }
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Telemetry log replay frame container holding mapped numeric topic values at a timestamp offset.
  *
-
+ * @property timestampMs Log timestamp in milliseconds ($ms$).
+ * @property values Key-value map binding NT4 topic names to numeric telemetry values.
  */
 data class ReplayFrame(
     val timestampMs: Long,
@@ -44,14 +39,25 @@ data class ReplayFrame(
 )
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * High-performance match log replay and frame scrubbing engine.
  *
-
+ * Replays historical DuckDB match telemetry records at configurable playback speed ratios ($0.25\times, 0.5\times, 1.0\times, 2.0\times, 4.0\times$),
+ * streaming frame updates directly into [Nt4ClientService.emitReplayFrame] and optional UDP broadcast sockets (port 5810).
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Runs replay timing loops asynchronously within [CoroutineScope] on `Dispatchers.Default`. Frame scrubbing executes seeking without database table scans.
+ *
+ * @param databaseService Primary DuckDB telemetry database service.
+ * @param nt4ClientService Active NT4 client receiving injected replay telemetry frames.
+ *
+ * @see Nt4ClientService
+ * @see ReplayState
+ * @see ReplayFrame
  */
-class ReplayEngineService(private val databaseService: DatabaseService) {
-
+class ReplayEngineService(
+    private val databaseService: DatabaseService,
+    private val nt4ClientService: Nt4ClientService
+) {
     private val jsonParser = Json { ignoreUnknownKeys = true }
 
     private val _state = MutableStateFlow(ReplayState.STOPPED)

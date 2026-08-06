@@ -29,14 +29,24 @@ import com.ares.analytics.viewmodel.OnboardingIntent
 import com.ares.analytics.viewmodel.OnboardingViewModel
 import javax.swing.JFileChooser
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Multi-step first-run onboarding wizard screen for initializing workspace settings.
  *
-
+ * Guides users through 4 steps:
+ * 1. [WelcomeStep]: Intro hero banner and feature overview.
+ * 2. [JavaVerificationStep]: System JDK 11+ environment verification.
+ * 3. [AuthStep]: Google OAuth 2.0 PKCE authentication flow.
+ * 4. [SyncStep]: Team profile and local project workspace directory selection.
+ *
+ * @param viewModel [OnboardingViewModel] handling state flow and wizard navigation intents.
+ * @param oauthService OAuth authentication provider.
+ * @param teamApiService Gateway team API client.
+ * @param onCancel Callback invoked when onboarding is cancelled.
+ * @param modifier Compose modifier for layout.
+ *
+ * @see OnboardingViewModel
  */
+@Composable
 fun OnboardingScreen(
     viewModel: OnboardingViewModel,
     teamApiService: TeamApiService,

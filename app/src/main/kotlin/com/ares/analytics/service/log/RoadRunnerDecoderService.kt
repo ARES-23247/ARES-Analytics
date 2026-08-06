@@ -7,53 +7,73 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
 /**
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
+ * Service for decoding FTC RoadRunner binary telemetry files (`.log`) emitted during trajectory execution.
  *
+ * Unpacks nested binary schema structures describing robot odometry pose ($x, y, \theta$), profile target state,
+ * motor power commands, and heading errors ($rad$).
+ *
+ * ### Physical Units & Kinematics Specs:
+ * - Position ($x, y$): Meters ($m$) or Inches ($in$)
+ * - Heading ($\theta$): Radians ($rad$), **CCW-positive** (0 = +X)
+ * - Velocity ($v_x, v_y, \omega$): $m/s$ and $rad/s$
+ * - Motor Commands: Duty cycle percent ($-1.0 \dots +1.0$)
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Runs asynchronously on `Dispatchers.IO`. Decodes binary streams into [FrameBatcher] channel buffer.
+ *
+ * @see BaseLogDecoder
+ * @see CsvLogDecoder
  */
 class RoadRunnerDecoderService : BaseLogDecoder() {
 
+    /**
+     * Sealed interface representing schema definitions for binary RoadRunner record fields.
+     */
     sealed interface RRSchema
-    /**
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     *
-     */
+
+    /** Schema descriptor for 32-bit integer fields. */
     object IntSchema : RRSchema
-    /**
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     *
-     */
+
+    /** Schema descriptor for 64-bit long integer fields. */
     object LongSchema : RRSchema
-    /**
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     *
-     */
+
+    /** Schema descriptor for 64-bit IEEE 754 double floating-point fields. */
     object DoubleSchema : RRSchema
-    /**
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     *
-     */
+
+    /** Schema descriptor for UTF-8 string fields. */
     object StringSchema : RRSchema
-    /**
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     *
-     */
+
+    /** Schema descriptor for boolean flags (`true` / `false`). */
     object BooleanSchema : RRSchema
+
     /**
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
+     * Schema descriptor for enumerated type fields.
      *
+     * @property constants List of string enum variant names.
      */
     class EnumSchema(val constants: List<String>) : RRSchema
+
     /**
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
+     * Schema descriptor for array collection fields.
      *
+     * @property elementSchema Type schema of array elements.
      */
     class ArraySchema(val elementSchema: RRSchema) : RRSchema
+
     /**
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
+     * Schema descriptor for nested struct objects.
      *
+     * @property fields List of field name and type schema pairs.
      */
     class StructSchema(val fields: List<Pair<String, RRSchema>>) : RRSchema
 
+    /**
+     * Decodes a binary RoadRunner trajectory log file into [batcher].
+     *
+     * @param file Target binary log file.
+     * @param sessionId Session identifier string.
+     * @param batcher Destination telemetry frame batch buffer.
+     */
     override suspend fun decode(
         file: File,
         sessionId: String,

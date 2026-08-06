@@ -16,6 +16,26 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.withLock
 import io.ktor.client.engine.okhttp.OkHttp
 
+/**
+ * High-performance **NetworkTables NT4 WebSocket Streaming Client**.
+ *
+ * Establishes real-time, non-blocking binary and JSON WebSocket streams over port `5810` with FRC roboRIOs,
+ * FTC Control Hubs, and ARES Physics Simulators.
+ *
+ * ### NetworkTables 4 Protocol Specifications:
+ * - **WebSocket Connection URI:** `ws://<host>:5810/nt/v4/ws`
+ * - **Subscription Handshake:**
+ *   $$\text{Subscribe} \iff \{ \text{"method": "subscribe"}, \text{"params": } \{ \text{"topics": } [\text{"/Drive/Pose_X"}, \text{"/Drive/Pose_Y"}, \dots] \} \}$$
+ *
+ * ### Performance & Memory Guarantees:
+ * - **Streaming Rate:** $20\text{ Hz}$ live telemetry to $100\text{ Hz}$ high-density log replay
+ * - **Buffer Capacity:** $65,536$ frames in a non-blocking `SharedFlow` with `DROP_OLDEST` overflow strategy.
+ * - **Thread Safety:** Fully thread-safe state management via `ConcurrentHashMap` and atomic volatile references.
+ *
+ * @param databaseService SQLite log persistence engine for historical telemetry recording.
+ * @see TelemetryFrame
+ * @see DatabaseService
+ */
 open class Nt4ClientService(
     private val databaseService: DatabaseService
 ) {

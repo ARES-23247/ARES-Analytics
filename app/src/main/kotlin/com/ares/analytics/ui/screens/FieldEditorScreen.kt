@@ -33,14 +33,20 @@ import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.FieldEditorIntent
 import com.ares.analytics.viewmodel.FieldEditorViewModel
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Visual field layout and obstacle configuration editor screen for FTC ($3.6576 \times 3.6576\text{ m}$) and FRC ($16.541 \times 8.211\text{ m}$) game fields.
  *
-
+ * Configures 3D AprilTag placements, obstacle polygons, game piece initial coordinates, and target field waypoints.
+ * Renders interactive canvas preview synchronized with JSON layout file import/export.
+ *
+ * @param viewModel State management view model [FieldEditorViewModel].
+ * @param league The current competition [League].
+ * @param projectPath The root directory path for saving/loading configuration files.
+ *
+ * @see com.ares.analytics.viewmodel.FieldEditorViewModel
+ * @see com.ares.analytics.ui.components.pathplanner.FieldCanvas
  */
+@Composable
 fun FieldEditorScreen(
     viewModel: FieldEditorViewModel,
     league: League,

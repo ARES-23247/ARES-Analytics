@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens
 
 import androidx.compose.foundation.*
@@ -29,14 +30,18 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.sql.SQLException
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Interactive SQL query viewer and table inspector screen for DuckDB match telemetry databases.
  *
-
+ * Executes arbitrary SQL queries, displays query timing in milliseconds ($ms$), renders formatted result tables with pagination,
+ * and exports DuckDB schema structures into Parquet/CSV formats.
+ *
+ * @param databaseService Primary [DatabaseService] backing DuckDB query execution.
+ *
+ * @see DatabaseService
+ * @see QueryResult
  */
+@Composable
 fun DatabaseViewerScreen(databaseService: DatabaseService) {
     val scope = rememberCoroutineScope()
     var queryText by remember { mutableStateOf("SELECT * FROM sessions LIMIT 10;") }

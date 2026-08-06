@@ -9,11 +9,19 @@ import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Service managing human driver control input profiles and joystick exponent/deadband response curves.
  *
-
+ * Persists driver control parameters (joystick exponent curves, maximum rotational speed $rad/s$, translational velocity $m/s$)
+ * to JSON files (`driver_profiles.json`), allowing customizable driver station input mapping across practice and competition runs.
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Thread-safe state management utilizing `ConcurrentHashMap` and asynchronous IO disk reads/writes on `Dispatchers.IO`.
+ *
+ * @param databaseService Primary DuckDB telemetry database service.
+ * @param sysIdService Actuator characterization engine for driver responsiveness analysis.
+ * @param profilesPath Absolute filesystem path to persistent JSON driver profile storage.
+ *
+ * @see com.ares.analytics.shared.DriverProfile
  */
 class DriverAnalysisService(
     private val databaseService: DatabaseService,

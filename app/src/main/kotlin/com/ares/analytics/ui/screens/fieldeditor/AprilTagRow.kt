@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens.fieldeditor
 
 import androidx.compose.foundation.background
@@ -18,14 +19,27 @@ import com.ares.analytics.shared.AprilTagPlacement
 import com.ares.analytics.ui.components.forms.AresTextField
 import com.ares.analytics.ui.theme.*
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * UI row component for editing 3D AprilTag placement parameters in the field layout editor.
  *
-
+ * Allows configuring numeric Tag ID, field coordinates $(x, y, z)$ in meters ($m$), and 3D Euler rotation angles $(\text{roll}, \text{pitch}, \text{yaw})$ in degrees ($^\circ$).
+ *
+ * ### Physical Units:
+ * - Position $(x, y, z)$: Meters ($m$)
+ * - Rotation $(\text{roll}, \text{pitch}, \text{yaw})$: Degrees ($^\circ$)
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Zero-allocation Jetpack Compose UI component. State mutations are dispatched via non-blocking callbacks.
+ *
+ * @param index Zero-based list index of this AprilTag.
+ * @param at Current [AprilTagPlacement] data record.
+ * @param onUpdate Callback invoked when AprilTag parameters are modified.
+ * @param onDelete Callback invoked when this AprilTag entry is deleted.
+ *
+ * @see com.ares.analytics.shared.AprilTagPlacement
+ * @see FieldEditorScreen
  */
+@Composable
 fun AprilTagRow(
     index: Int,
     at: AprilTagPlacement,

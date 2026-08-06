@@ -10,11 +10,24 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Workspace and environment configuration management service.
  *
-
+ * Manages active team workspaces, season identifiers, robot configurations, and league settings across FTC and FRC.
+ * Handles schema migration from single legacy `config.json` files to multi-workspace `workspaces.json` persistence.
+ *
+ * ### Configuration Data:
+ * - Active workspace ID mapping
+ * - League enum configuration ([League.FTC] / [League.FRC])
+ * - Team number, season ID, and robot hardware ID metadata
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * All file read/write operations execute asynchronously on `Dispatchers.IO`. Thread-safe.
+ *
+ * @param configPath Legacy single workspace config JSON path (`~/.ares-analytics/config.json`).
+ * @param workspacesPath Multi-workspace configuration JSON path (`~/.ares-analytics/workspaces.json`).
+ *
+ * @see com.ares.analytics.shared.AppWorkspaces
+ * @see com.ares.analytics.shared.WorkspaceConfig
  */
 class EnvironmentService(
     private val configPath: String = System.getProperty("user.home") + "/.ares-analytics/config.json",

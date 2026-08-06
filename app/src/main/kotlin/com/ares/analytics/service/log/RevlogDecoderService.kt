@@ -10,14 +10,39 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
+ * Service for decoding REV Robotics proprietary binary `.revlog` files (emitted by REV Hardware Client / SPARK MAX / SPARK Flex).
  *
+ * Interoperates with REV's `@rev-robotics/revlog-converter` Node.js package to convert binary revlogs into standard WPILib `.wpilog` files,
+ * subsequently passing the converted file to [LogParserService.parseWpiLog].
+ *
+ * ### Workflow & Execution Strategy:
+ * 1. Invokes `npx --yes @rev-robotics/revlog-converter input.revlog -o temp.wpilog` in subprocess.
+ * 2. Fallbacks to global CLI invocation `revlog-converter` if `npx` execution fails or times out (30 sec timeout).
+ * 3. Streams converted WPILOG frames through [LogParserService] into [FrameBatcher].
+ * 4. Deletes temporary `.wpilog` files upon process completion in `finally` block.
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Executes subprocess spawning asynchronously on `Dispatchers.IO`. Subprocesses enforce strict 30-second timeout destruction.
+ *
+ * @param databaseService Primary DuckDB persistence service.
+ * @param logParserService Central log parser service handling delegated WPILOG decoding.
+ *
+ * @see BaseLogDecoder
+ * @see WpiLogDecoder
+ * @see LogParserService
  */
 class RevlogDecoderService(
     private val databaseService: DatabaseService,
     private val logParserService: LogParserService
 ) : BaseLogDecoder() {
 
+    /**
+     * Converts a binary `.revlog` file to temporary WPILOG format and streams decoded telemetry frames.
+     *
+     * @param file Source `.revlog` binary file.
+     * @param sessionId Session identifier string.
+     * @param batcher Destination telemetry frame batch buffer.
+     */
     override suspend fun decode(
         file: File,
         sessionId: String,

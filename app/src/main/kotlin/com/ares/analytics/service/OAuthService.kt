@@ -29,11 +29,9 @@ import java.security.SecureRandom
 import java.util.Base64
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Generates a cryptographically secure 256-bit PKCE code verifier string for OAuth 2.0 authorization requests.
  *
-
+ * @return URL-safe Base64-encoded random code verifier string.
  */
 fun generateCodeVerifier(): String {
     val secureRandom = SecureRandom()

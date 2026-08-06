@@ -2,7 +2,6 @@ package com.ares.analytics.service
 
 import com.ares.analytics.shared.AppJson
 
-
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -21,14 +20,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
 
-@Serializable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Authentication response record returned by Firebase Identity Toolkit REST APIs.
  *
-
+ * @property idToken Short-lived JWT Bearer token ($1\text{ hour}$ validity).
+ * @property refreshToken Long-lived refresh token for obtaining new ID tokens.
+ * @property expiresIn Token lifetime duration string in seconds ($s$).
+ * @property localId Unique Firebase User UID.
+ * @property displayName User display name.
+ * @property email User registered email address.
  */
+@Serializable
 data class FirebaseSignInResponse(
     val idToken: String,
     val refreshToken: String,
@@ -38,13 +40,15 @@ data class FirebaseSignInResponse(
     val email: String? = null
 )
 
-@Serializable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Firebase token refresh payload response.
  *
-
+ * @property expires_in Token duration in seconds ($s$).
+ * @property token_type Token type string (`"Bearer"`).
+ * @property refresh_token OAuth refresh token.
+ * @property id_token Firebase JWT ID token.
+ * @property user_id User UID.
+ * @property project_id Firebase project identifier.
  */
 data class FirebaseTokenRefreshResponse(
     val expires_in: String,
@@ -115,11 +119,16 @@ sealed class FirebaseAuthState {
 }
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Client service managing Firebase Authentication and Firestore Cloud database interactions.
  *
-
+ * Handles team user login, token refresh, match telemetry cloud backup, and user profile sync via Firebase Identity Toolkit
+ * and Cloud Firestore REST APIs.
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Performs network authentication requests asynchronously on [Dispatchers.IO]. Manages persistent auth tokens in local app config.
+ *
+ * @see OAuthService
+ * @see GoogleDriveService
  */
 class FirebaseClientService {
 

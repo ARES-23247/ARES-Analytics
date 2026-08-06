@@ -37,14 +37,20 @@ import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.*
 import kotlinx.coroutines.*
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Root UI frame container and screen routing shell for the ARES Analytics desktop application.
  *
-
+ * Manages navigation sidebar targets ([NavigationTarget]), execution toolbars (Gradle build/deploy, ADB logcat, Sim launcher),
+ * terminal output drawers, and global keyboard shortcuts (`Ctrl+Shift+B`, `Ctrl+Shift+R`).
+ *
+ * @param services Primary dependency container [ServiceRegistry].
+ * @param currentConfig Active workspace configuration state.
+ * @param onUpdateConfig Callback for saving modified workspace settings.
+ *
+ * @see NavigationTarget
+ * @see com.ares.analytics.service.ProcessManagerService
  */
+@Composable
 fun MainScreen(services: ServiceRegistry) {
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }

@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens.onboarding
 
 import androidx.compose.foundation.layout.*
@@ -16,14 +17,20 @@ import com.ares.analytics.service.AuthState
 import com.ares.analytics.ui.components.forms.AresTextField
 import com.ares.analytics.ui.theme.*
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Onboarding wizard step component for configuring OAuth 2.0 authentication credentials and Google Drive authorization.
  *
-
+ * @param authState Current [AuthState] flow value.
+ * @param googleClientId Google OAuth Client ID string.
+ * @param googleClientSecret Google OAuth Client Secret string.
+ * @param onClientIdChange Callback for Client ID edits.
+ * @param onClientSecretChange Callback for Client Secret edits.
+ * @param onSignInClick Callback triggering browser PKCE authentication flow.
+ *
+ * @see com.ares.analytics.service.OAuthService
+ * @see OnboardingScreen
  */
+@Composable
 fun AuthStep(
     authState: AuthState,
     googleClientId: String,

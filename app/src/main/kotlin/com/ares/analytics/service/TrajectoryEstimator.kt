@@ -11,14 +11,37 @@ import com.ares.analytics.shared.TrajectoryState
 import kotlin.math.*
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * High-performance jerk-limited S-curve motion profile trajectory generator.
  *
-
+ * Generates continuous time-parameterized drivetrain trajectories over piecewise cubic Bézier Splines,
+ * enforcing translational velocity ($m/s$), acceleration ($m/s^2$), angular velocity ($rad/s$), and jerk ($m/s^3$) limits.
+ *
+ * ### Mathematical Formulations:
+ * 1. **Cubic Bézier Position Evaluation**:
+ *    $$\mathbf{P}(t) = (1-t)^3 \mathbf{P}_0 + 3(1-t)^2 t \mathbf{P}_1 + 3(1-t) t^2 \mathbf{P}_2 + t^3 \mathbf{P}_3$$
+ * 2. **Path Curvature ($\kappa$) & Centripetal Speed Constraint**:
+ *    $$\kappa = \frac{|\dot{x}\ddot{y} - \dot{y}\ddot{x}|}{(\dot{x}^2 + \dot{y}^2)^{3/2}}, \quad v_{\text{max, centripetal}} = \sqrt{\frac{a_{\text{max}}}{\kappa}}$$
+ * 3. **Forward-Backward Kinematic Pass**:
+ *    $$v_k^2 \le v_{k-1}^2 + 2 a_{\text{max}} \Delta s$$
+ *
+ * ### Physical Units & Coordinates:
+ * - Position ($x, y$): Meters ($m$)
+ * - Heading ($\theta$): Radians ($rad$), **CCW-positive** (0 = +X, $\pi/2$ = +Y)
+ * - Translational Velocity / Accel: $m/s$, $m/s^2$
+ * - Angular Velocity: $rad/s$
+ *
+ * ### Thread Safety & Zero-GC Guarantees:
+ * Zero-allocation during hot-path sampling. Utilizes a [ThreadLocal] pool of pre-allocated `SampledPoint` buffers,
+ * ensuring high-frequency UI path previews run without GC pauses.
+ *
+ * @see com.ares.analytics.shared.Trajectory
+ * @see com.ares.analytics.shared.PathConstraints
  */
 object TrajectoryEstimator {
 
+    /**
+     * Internal point record used during 2-pass motion profile trajectory generation.
+     */
     private data class SampledPoint(
         var x: Double = 0.0,
         var y: Double = 0.0,
@@ -32,11 +55,15 @@ object TrajectoryEstimator {
     private val pointPool = ThreadLocal.withInitial { ArrayList<SampledPoint>(500) }
 
     /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+     * Generates a time-parameterized [Trajectory] passing through the specified [waypoints].
      *
-
+     * @param waypoints List of geometric waypoints defining spline control points.
+     * @param globalConstraints Default velocity, acceleration, and angular velocity limits.
+     * @param constraintZones Region-specific velocity and acceleration override boundaries.
+     * @param rotationTargets Intermediate heading targets along the path.
+     * @param idealStartingState Initial velocity and heading boundary condition.
+     * @param goalEndState Target terminal velocity and heading boundary condition.
+     * @return Fully sampled time-parameterized [Trajectory] object.
      */
     fun generateTrajectory(
         waypoints: List<Waypoint>,

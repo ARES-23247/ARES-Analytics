@@ -8,11 +8,21 @@ import java.io.File
 import java.io.InputStreamReader
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Service managing external OS process lifecycle execution for Gradle builds, ADB logcat streams, and physics simulators.
  *
-
+ * Spawns and monitors underlying system processes for compiling FTC/FRC codebases (`./gradlew assembleDebug`), streaming Android
+ * Control Hub logs (`adb logcat`), and launching desktop robot physics simulators (`DesktopSimLauncher`).
+ *
+ * ### Process Management Tasks:
+ * - **Gradle Compilation**: Invokes local Gradle wrapper (`gradlew.bat` or `./gradlew`) with real-time output line buffering.
+ * - **ADB Daemon Monitoring**: Monitors ADB connection state to physical Control Hubs on port 5555.
+ * - **Simulator Launcher**: Executes JVM desktop physics simulator processes with cancellation supervisor jobs.
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Process standard output/error reading runs asynchronously on `Dispatchers.IO`. Utilizes `SharedFlow(replay = 200)` to buffer process logs without thread blocking.
+ *
+ * @see AutoImportService
+ * @see TargetScannerService
  */
 class ProcessManagerService {
 

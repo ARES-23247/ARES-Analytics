@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens
 
 import androidx.compose.animation.*
@@ -22,6 +23,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
 
+/**
+ * Symbol metadata entry rendered in the internal interactive KDoc documentation viewer browser.
+ *
+ * @property id Unique symbol identifier string.
+ * @property name Symbol name.
+ * @property category Architecture category (`"Control"`, `"Localization"`, `"Kinematics"`, `"Vision"`, `"Redux"`).
+ * @property signature Full Kotlin code method signature string.
+ * @property summary Brief functional description.
+ * @property description Detailed implementation documentation.
+ * @property formula Optional LaTeX mathematical formula string.
+ * @property physicalUnits Physical units string ($m$, $rad$, $V$, $A$, $Hz$, $ms$).
+ * @property codeSnippet Illustrative usage code example.
+ * @property aiExplanation AI-generated technical explanation details.
+ */
 data class KDocSymbol(
     val id: String,
     val name: String,
@@ -35,6 +50,13 @@ data class KDocSymbol(
     val aiExplanation: String
 )
 
+/**
+ * In-app KDoc documentation browser and reference manual screen.
+ *
+ * Provides searchable index of control theory algorithms, zero-GC memory guidelines, EKF state equations, and Redux store architecture invariants.
+ *
+ * @see KDocSymbol
+ */
 @Composable
 fun KDocViewerScreen() {
     var searchQuery by remember { mutableStateOf("") }

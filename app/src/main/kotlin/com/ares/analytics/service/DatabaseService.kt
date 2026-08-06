@@ -8,11 +8,26 @@ import java.sql.Connection
 import java.sql.DriverManager
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * High-level embedded relational database service wrapping the DuckDB C++ engine over JDBC.
  *
-
+ * Manages persistent on-disk database files (`telemetry.duckdb`) and fast ephemeral in-memory databases (`jdbc:duckdb:`).
+ * Orchestrates schema migrations via [SchemaMigrationManager], encapsulates CRUD queries via [MatchLogRepository],
+ * and handles Parquet import/export routines via [DatabaseBackupExporter].
+ *
+ * ### Database Engine Specifications:
+ * - Driver: `org.duckdb.DuckDBDriver`
+ * - File Path: [dbPath] (defaults to `~/.ares-analytics/telemetry.duckdb`)
+ * - Native Extensions Loaded: `parquet` (for high-speed binary trace ingestion)
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Multi-thread safe. All write and query transactions are synchronized through an asynchronous coroutine [dbMutex] lock.
+ * Delegates SQL execution to `MatchLogRepository`.
+ *
+ * @param dbPath Absolute filesystem path to the DuckDB database file.
+ *
+ * @see SchemaMigrationManager
+ * @see MatchLogRepository
+ * @see DatabaseBackupExporter
  */
 class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb") {
     

@@ -1,3 +1,4 @@
+
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.TelemetryFrame
@@ -13,14 +14,15 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-@Serializable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Data container describing a discovered CTRE CAN bus hardware device (TalonFX, CANcoder, Pigeon2, Kraken X60).
  *
-
+ * @property id Unique string identifier for the device.
+ * @property name Human-readable device name.
+ * @property type Device hardware model type.
+ * @property canId Numeric CAN Bus node ID.
  */
+@Serializable
 data class PhoenixDevice(
     val id: String,
     val name: String,

@@ -7,11 +7,20 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Match video playback and telemetry log frame synchronization service.
  *
-
+ * Synchronizes video playback timestamps ($t_{\text{video}}$) with telemetry log playhead timestamps ($t_{\text{log}}$)
+ * by maintaining an alignment time offset ($t_{\text{offset}}$).
+ *
+ * ### Alignment Mechanics:
+ * $$t_{\text{log}} = t_{\text{video}} + t_{\text{offset}} \implies t_{\text{video}} = t_{\text{log}} - t_{\text{offset}}$$
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Collects replay frame updates asynchronously on `Dispatchers.Default`, emitting synchronized video playhead values via [StateFlow].
+ *
+ * @param replayEngineService Replay engine supplying log timestamp updates.
+ *
+ * @see ReplayEngineService
  */
 class VideoSyncService(private val replayEngineService: ReplayEngineService) {
 

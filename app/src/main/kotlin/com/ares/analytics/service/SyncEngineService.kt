@@ -1,3 +1,4 @@
+
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.AppJson
@@ -20,11 +21,32 @@ import kotlinx.serialization.encodeToString
 import java.io.File
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Cloud Gateway Delta-Synchronization Service for uploading historical telemetry match logs.
  *
-
+ * Implements the **Desktop Pull & Push Architecture**, uploading local DuckDB telemetry logs to the Google Cloud Run gateway
+ * (`ares-analytics-gateway`) via secure GCS Signed URLs. Compares local match session hashes against remote server manifests,
+ * performing efficient incremental delta syncs.
+ *
+ * ### Gateway & Sync Protocol:
+ * - Gateway Endpoint: `https://ares-analytics-gateway-staging-205869391101.us-central1.run.app`
+ * - GCS Ingestion: Acquires pre-signed PUT URLs from the gateway and streams binary Apache Parquet session files directly to Google Cloud Storage.
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * All cloud HTTP requests and GCS binary uploads execute asynchronously on `Dispatchers.IO`.
+ *
+ * @param databaseService Primary DuckDB telemetry database service.
+ * @param parquetExporterService Service converting DuckDB session tables into Parquet binary format.
+ * @param firebaseClientService Firebase auth service supplying bearer tokens.
+ * @param environmentService Workspace environment settings provider.
+ * @param teamApiService FIRST team metadata API service.
+ * @param summaryEngineService Match KPI summary calculator.
+ * @param googleDriveService Auxiliary Google Drive backup service.
+ * @param gatewayUrl Base URL for the Ktor Cloud Run gateway.
+ * @param httpClient Ktor HTTP client configured with JSON serialization.
+ *
+ * @see DatabaseService
+ * @see ParquetExporterService
+ * @see FirebaseClientService
  */
 class SyncEngineService(
     private val databaseService: DatabaseService,

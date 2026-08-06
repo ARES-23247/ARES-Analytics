@@ -4,22 +4,39 @@ import java.io.File
 import java.sql.Connection
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Manages DDL schema initialization and database migration operations for DuckDB telemetry stores.
  *
-
+ * Configures relational tables for main persistent database connections and temporary in-memory
+ * connection instances, establishing primary keys, indexed metrics, and default values for robot performance metrics.
+ *
+ * ### Database Tables & Schemas:
+ * - `sessions`: `(session_id VARCHAR PRIMARY KEY, team_id, season_id, robot_id, created_at BIGINT, duration_ms BIGINT, tags VARCHAR, match_number BIGINT, alliance_color VARCHAR)`
+ * - `session_summaries`: Aggregate performance KPIs (`min_battery_voltage` V, `max_ekf_drift` m, `avg_loop_time_ms` ms, `p95_loop_time_ms` ms, `vision_acceptance_rate` %, `avg_cross_track_error` m)
+ * - `telemetry_frames`: Time-series data points `(timestamp_ms BIGINT, session_id VARCHAR, key VARCHAR, value DOUBLE, string_value VARCHAR)`
+ * - `session_annotations`, `alerts`, `console_messages`, `cached_topologies`, `robot_actions`
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Must be executed sequentially during system startup before telemetry frame ingestion begins.
+ * Uses atomic DDL statements (`CREATE TABLE IF NOT EXISTS`).
+ *
+ * @param conn Primary DuckDB JDBC connection bound to persistent storage on disk.
+ * @param ephemeralConn Temporary in-memory DuckDB JDBC connection used for fast buffer filtering.
+ *
+ * @see DatabaseBackupExporter
+ * @see MatchLogRepository
  */
 class SchemaMigrationManager(
     private val conn: Connection,
     private val ephemeralConn: Connection
 ) {
     /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+     * Runs DDL schema migrations across both primary and ephemeral DuckDB connections.
      *
-
+     * If [isFirstRun] is true and an legacy SQLite database exists at [oldDbPath], attempts to attach
+     * the SQLite database (`ATTACH ... TYPE SQLITE`) and migrate existing historical data tables.
+     *
+     * @param isFirstRun Indicates whether this is the application's initial launch requiring legacy database migration.
+     * @param oldDbPath Absolute filesystem path to the legacy database file to migrate data from.
      */
     fun runMigrations(isFirstRun: Boolean, oldDbPath: String) {
         createSchemaSync(conn)
@@ -44,6 +61,11 @@ class SchemaMigrationManager(
         }
     }
     
+    /**
+     * Executes DDL `CREATE TABLE IF NOT EXISTS` queries synchronously on the specified JDBC connection.
+     *
+     * @param targetConn The active DuckDB connection to initialize.
+     */
     private fun createSchemaSync(targetConn: Connection) {
         targetConn.createStatement().use { st ->
             st.execute("""

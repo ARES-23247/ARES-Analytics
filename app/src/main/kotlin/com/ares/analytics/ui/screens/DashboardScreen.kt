@@ -26,14 +26,25 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Primary telemetry analytics dashboard screen displaying real-time robot visualization cards.
  *
-
+ * Coordinates live telemetry streams over NT4 (`ARES/EstimatedPose`, `Drive/Pose_X`, `Drive/Pose_Y`, `Drive/Drive_Heading`),
+ * rendering Mecanum drive motor currents ($A$) / powers ($-1.0 \dots 1.0$), 2D field canvas trajectories, system alerts, and AI strategy advice.
+ *
+ * ### Field Canvas Axis Coordinate Transform:
+ * - $\text{canvasX} = \left(-\frac{\text{fieldY}}{\text{fieldWidth}} + 0.5\right) \times \text{canvasWidth}$
+ * - $\text{canvasY} = \left(-\frac{\text{fieldX}}{\text{fieldHeight}} + 0.5\right) \times \text{canvasHeight}$
+ * - Robot icon heading angle rotation offset: $-90^\circ$
+ *
+ * @param viewModel State manager [DashboardViewModel] for dashboard actions.
+ * @param services Dependency container [ServiceRegistry].
+ * @param currentConfig Active workspace configuration settings.
+ *
+ * @see FieldViewerViewModel
+ * @see MecanumVisualizer
  */
+@Composable
 fun DashboardScreen(
     viewModel: DashboardViewModel,
     services: ServiceRegistry,

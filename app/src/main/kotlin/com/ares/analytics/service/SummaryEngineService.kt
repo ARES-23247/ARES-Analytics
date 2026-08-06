@@ -10,11 +10,30 @@ import kotlin.math.abs
 import kotlin.math.sign
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * High-performance analytics service computing statistical KPI summaries from logged match telemetry sessions.
  *
-
+ * Utilizes vectorized DuckDB SQL aggregation queries (`PERCENTILE_CONT`, `MIN`, `MAX`, `AVG`) to extract match performance metrics
+ * without pulling raw time-series frame arrays into JVM memory space.
+ *
+ * ### Computed Mathematical Metrics & Physical Units:
+ * - **Minimum Battery Voltage**: $\min(V_{\text{batt}})$ in Volts ($V$)
+ * - **Internal Battery Resistance**: $R_{\text{batt}} = \frac{\Delta V}{\Delta I}$ in Ohms ($\Omega$)
+ * - **Maximum EKF Position Drift**: $\max(\text{error}_{\text{pose}})$ in Meters ($m$)
+ * - **Average & P95 Control Loop Timing**: $t_{\text{loop}}$ and $P_{95}(t_{\text{loop}})$ in Milliseconds ($ms$)
+ * - **Vision Acceptance Rate & Latency**: Vision pose acceptance percentage (%) and optical processing latency ($ms$)
+ * - **Average Cross-Track Error**: $\bar{e}_{\text{ct}} = \frac{1}{N} \sum |e_{\text{ct}}|$ in Meters ($m$)
+ * - **Motor Currents & Thermal Extremes**: Per-motor stator current averages ($A$) and maximum motor temperatures ($^\circ\text{C}$)
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Executes SQL aggregate calculations on `Dispatchers.Default`. Stores summary metrics in the DuckDB `session_summaries` table.
+ *
+ * @param databaseService Primary DuckDB database management service.
+ * @param sysIdService System identification service for motor parameter characterization.
+ * @param driverAnalysisService Driver control analysis service.
+ *
+ * @see SessionSummary
+ * @see DatabaseService
+ * @see SysIdService
  */
 class SummaryEngineService(
     private val databaseService: DatabaseService,

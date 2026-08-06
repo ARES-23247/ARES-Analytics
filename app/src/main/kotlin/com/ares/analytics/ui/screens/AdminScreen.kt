@@ -29,14 +29,17 @@ import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.launch
 
-@Composable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * System administration screen for managing team identity, robot profiles, workspace settings, and OAuth credentials.
  *
-
+ * Configures global workspace settings, active robot profiles, cloud API sync endpoints, and dev mode overrides.
+ *
+ * @param syncEngineService Log sync engine service for manual delta-sync triggers.
+ * @param oauthService OAuth authentication management service.
+ * @param config Active [WorkspaceConfig] record.
+ * @param modifier Modifier to be applied to the layout.
  */
+@Composable
 fun AdminScreen(
     syncEngineService: SyncEngineService,
     oauthService: OAuthService,

@@ -4,11 +4,14 @@ import com.ares.analytics.service.calibration.CameraCalibrationSolver
 import com.ares.analytics.service.calibration.OdometryCalibrationSolver
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * 3D spatial pose vector representing mechanism translation and orientation in 3D field space.
  *
-
+ * @property x Translational X offset in meters ($m$).
+ * @property y Translational Y offset in meters ($m$).
+ * @property z Translational Z height offset in meters ($m$).
+ * @property roll Rotation angle around X axis in radians ($rad$).
+ * @property pitch Rotation angle around Y axis in radians ($rad$).
+ * @property yaw Rotation angle around Z axis in radians ($rad$), **CCW-positive** (0 = +X).
  */
 data class Pose3d(
     val x: Double, // Left-Right (meters)
@@ -20,11 +23,12 @@ data class Pose3d(
 )
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Diagnostic metrics produced by camera or odometry calibration solvers.
  *
-
+ * @property pose Solved 6-DOF target pose [Pose3d].
+ * @property standardErrors Standard error vector for parameter estimates.
+ * @property covarianceMatrix $6 \times 6$ parameter estimation covariance matrix.
+ * @property reducedChiSquared Goodness-of-fit reduced Chi-Squared statistic ($\chi_\nu^2$).
  */
 data class CalibrationDiagnostics(
     val pose: Pose3d,
@@ -51,6 +55,7 @@ data class CalibrationDiagnostics(
         return result
     }
 }
+
 
 /**
 

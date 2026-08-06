@@ -1,3 +1,4 @@
+
 package com.ares.analytics.service
 
 import com.ares.analytics.BuildConfig
@@ -15,14 +16,14 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-@Serializable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * GitHub Release payload record returned by GitHub REST API (`/releases/latest`).
  *
-
+ * @property tagName Release version tag string (e.g. `"v2.4.0"`).
+ * @property htmlUrl Direct browser URL to release release release page.
+ * @property body Optional markdown release notes text.
  */
+@Serializable
 data class GitHubRelease(
     @SerialName("tag_name") val tagName: String,
     @SerialName("html_url") val htmlUrl: String,
@@ -30,11 +31,18 @@ data class GitHubRelease(
 )
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Service checking for application software updates via GitHub Releases API.
  *
-
+ * Compares current application version ([BuildConfig.VERSION]) against the latest release published to
+ * `https://api.github.com/repos/ares-robotics/ares-analytics/releases/latest`.
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Executes HTTP requests asynchronously within [serviceScope] on `Dispatchers.IO`. Updates UI state via [StateFlow].
+ *
+ * @param httpClient Ktor HTTP client configured with JSON serialization.
+ * @param serviceScope Coroutine scope for update checking tasks.
+ *
+ * @see GitHubRelease
  */
 class UpdateCheckerService(
     private val httpClient: HttpClient = HttpClient {

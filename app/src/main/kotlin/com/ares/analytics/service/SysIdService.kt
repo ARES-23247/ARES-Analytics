@@ -11,14 +11,47 @@ import kotlin.math.abs
 import kotlin.math.sign
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * System Identification (SysId) Service for actuator feedforward parameter estimation and mechanical vibration spectral analysis.
  *
-
+ * Implements Ordinary Least Squares (OLS) multi-variable linear regression to solve motor feedforward parameters ($k_S, k_V, k_A$),
+ * and applies Apache Commons Math Fast Fourier Transform (FFT) analysis to identify mechanical resonance frequencies in mechanism telemetry.
+ *
+ * ### Mathematical Regressions:
+ * 1. **Electromechanical Voltage Model**:
+ *    $$V(t) = k_S \cdot \operatorname{sgn}(v(t)) + k_V \cdot v(t) + k_A \cdot a(t)$$
+ * 2. **OLS Matrix Solution**:
+ *    $$\mathbf{Y} = \mathbf{X} \boldsymbol{\beta} \implies \boldsymbol{\beta} = (\mathbf{X}^T \mathbf{X})^{-1} \mathbf{X}^T \mathbf{Y}$$
+ * 3. **Direction-Change Filtering**:
+ *    Cleanses zero-crossing transients by excluding telemetry samples recorded within $\pm 50\text{ ms}$ of velocity sign changes ($\operatorname{sgn}(v)$).
+ *
+ * ### Physical Units & Quantities:
+ * - Voltage ($V$): Volts ($V$)
+ * - Velocity ($v$): Meters/sec ($m/s$) or Radians/sec ($rad/s$)
+ * - Acceleration ($a$): $m/s^2$ or $rad/s^2$
+ * - Static Friction ($k_S$): Volts ($V$)
+ * - Velocity Feedforward ($k_V$): $V/(m/s)$ or $V/(rad/s)$
+ * - Acceleration Feedforward ($k_A$): $V/(m/s^2)$ or $V/(rad/s^2)$
+ * - Resonance Frequency: Hertz ($Hz$)
+ *
+ * ### Thread Safety & Performance Guarantees:
+ * Performs linear algebra calculations using EJML `SimpleMatrix` on background coroutines (`Dispatchers.IO`).
+ *
+ * @param databaseService Primary DuckDB telemetry repository.
+ *
+ * @see AutoTunerService
+ * @see SummaryEngineService
  */
 class SysIdService(private val databaseService: DatabaseService) {
 
+    /**
+     * Solves feedforward gains ($k_S, k_V, k_A$) and calculates transient statistics for a specified motor channel across a log session.
+     *
+     * @param sessionId Session identifier string.
+     * @param voltageKey Telemetry topic key for motor voltage ($V$).
+     * @param velocityKey Telemetry topic key for motor velocity ($m/s$ or $rad/s$).
+     * @param accelerationKey Telemetry topic key for motor acceleration ($m/s^2$ or $rad/s^2$).
+     * @return Calculated summary containing solved feedforward coefficients and $R^2$ goodness-of-fit.
+     */
     suspend fun analyzeMotorData(
         sessionId: String,
         voltageKey: String,

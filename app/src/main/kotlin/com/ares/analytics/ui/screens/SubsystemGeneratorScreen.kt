@@ -1,3 +1,4 @@
+
 package com.ares.analytics.ui.screens
 
 import androidx.compose.foundation.BorderStroke
@@ -23,8 +24,16 @@ import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.*
 
 /**
- * Redux Subsystem Generator Wizard Screen.
- * Physical units: Distances in m, angles in rad, velocities in m/s or rad/s, time in s.
+ * Interactive wizard screen for generating Redux-compliant robot subsystem code files.
+ *
+ * Configures state variables, hardware interfaces (motors, encoders, analog sensors), controller models (PID, LQR, Feedforward),
+ * and generates complete Kotlin source file suites (`State.kt`, `IO.kt`, `FtcIO.kt`, `MockIO.kt`, `Controller.kt`).
+ *
+ * @param viewModel [SubsystemGeneratorViewModel] managing generation parameters and file preview maps.
+ * @param projectPath Target root path of the robot codebase directory.
+ *
+ * @see com.ares.analytics.service.SubsystemTemplateEngine
+ * @see SubsystemGeneratorViewModel
  */
 @Composable
 fun SubsystemGeneratorScreen(

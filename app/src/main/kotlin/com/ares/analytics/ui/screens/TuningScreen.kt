@@ -40,15 +40,23 @@ import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.launch
 import androidx.compose.ui.text.TextStyle
 
+/**
+ * Real-time PID controller gain tuning and SysId system identification test screen.
+ *
+ * Configures PID gains ($k_P, k_I, k_D$) and feedforward coefficients ($k_S, k_V, k_A$), executing live NT4 parameter updates.
+ * Runs SysId quasi-static voltage ramps and dynamic step routines to solve OLS motor model parameters:
+ * $$V = k_S \operatorname{sgn}(v) + k_V v + k_A a$$
+ *
+ * @param viewModel [TuningViewModel] handling live gain updates.
+ * @param sysIdViewModel [SysIdViewModel] managing automated SysId voltage routines and OLS matrix regression solvers.
+ * @param projectPath Kept for compatibility but unused.
+ *
+ * @see TuningViewModel
+ * @see SysIdViewModel
+ * @see com.ares.analytics.service.SysIdService
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun TuningScreen(
     viewModel: TuningViewModel,
     sysIdViewModel: SysIdViewModel,
