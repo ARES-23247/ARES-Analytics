@@ -40,6 +40,7 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     PATH_PLANNER("Path Planner", Icons.Default.Route),
     FIELD_EDITOR("Field Editor", Icons.Default.Layers),
     ACADEMY("ARES Academy", Icons.Default.School),
+    KDOC_VIEWER("KDoc Explorer", Icons.Default.Book),
     RUN_HISTORY("Run History", Icons.Default.TableChart),
     DATABASE_VIEWER("Database", Icons.Default.Storage),
     TUNING("Tuning", Icons.Default.Tune),

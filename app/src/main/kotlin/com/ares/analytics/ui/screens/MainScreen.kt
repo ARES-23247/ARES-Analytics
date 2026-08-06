@@ -693,6 +693,7 @@ fun MainScreen(services: ServiceRegistry) {
                                     mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
                                 }
                             )
+                            NavigationTarget.KDOC_VIEWER -> KDocViewerScreen()
                             NavigationTarget.RUN_HISTORY -> RunHistoryScreen(
                                 databaseService = services.databaseService,
                                 syncEngineService = services.syncEngineService
