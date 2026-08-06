@@ -33,9 +33,11 @@ class AlertEngineCompositeTest {
 
             mockNt4Service.emitReplayFrame(pwrFrame)
             mockNt4Service.emitReplayFrame(velFrame)
-            mockNt4Service.emitReplayFrame(curFrame)
+            repeat(3) {
+                mockNt4Service.emitReplayFrame(curFrame)
+            }
 
-            kotlinx.coroutines.delay(150)
+            kotlinx.coroutines.delay(250)
 
             val activeAlerts = alertService.alerts.value
             val stallAlert = activeAlerts.firstOrNull { it.ruleKey.contains("Hardware/Motors/fl/Stall") }

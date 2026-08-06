@@ -28,6 +28,7 @@ class AlertEngineService(
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
     private val rules = ConcurrentHashMap<String, ThresholdRule>()
     private val recentValues = ConcurrentHashMap<String, Double>()
+    private val currentBuffers = ConcurrentHashMap<String, ArrayDeque<Double>>()
     private val motorNames = listOf("fl", "fr", "rl", "rr", "bl", "br")
 
     // Active alert state: AlertId -> AlertRecord
@@ -157,20 +158,25 @@ class AlertEngineService(
         val ts = frame.timestampMs
         val sessionId = frame.sessionId
 
-        // 1. Motor Stalling & Disconnect Check across all motors
+        // 1. Motor Stalling & Disconnect Check across all motors using 1.0-second moving average
         motorNames.forEach { m ->
             val pwr = kotlin.math.abs(recentValues["Hardware/Motors/$m/Power"] ?: recentValues["Hardware/Motors/$m/Voltage"] ?: 0.0)
             val vel = kotlin.math.abs(recentValues["Hardware/Motors/$m/Velocity"] ?: 0.0)
             val current = recentValues["Hardware/Motors/$m/CurrentAmps"] ?: 0.0
 
+            val buf = currentBuffers.getOrPut(m) { ArrayDeque() }
+            buf.addLast(current)
+            if (buf.size > 20) buf.removeFirst()
+            val avgCurrent = if (buf.isNotEmpty()) buf.average() else current
+
             val stallKey = "Hardware/Motors/$m/Stall"
             val disconnectKey = "Hardware/Motors/$m/Disconnected"
 
-            val isStalled = pwr > 0.35 && vel < 5.0 && current > 5.0
+            val isStalled = pwr > 0.35 && vel < 5.0 && avgCurrent > 5.0
             val stallRule = rules.getOrPut(stallKey) { ThresholdRule(stallKey, "CRITICAL: Motor '$m' Mechanical Binding / Stall!", maxValue = 0.5, audibleAlert = true) }
             evaluateRuleState(stallKey, isStalled, if (isStalled) 1.0 else 0.0, ts, sessionId, stallRule)
 
-            val isDisconnected = pwr > 0.35 && vel < 5.0 && current < 0.1 && current >= 0.0
+            val isDisconnected = pwr > 0.35 && vel < 5.0 && avgCurrent < 0.1 && avgCurrent >= 0.0
             val disconnectRule = rules.getOrPut(disconnectKey) { ThresholdRule(disconnectKey, "WARNING: Motor '$m' Cable Disconnected!", maxValue = 0.5, audibleAlert = true) }
             evaluateRuleState(disconnectKey, isDisconnected, if (isDisconnected) 1.0 else 0.0, ts, sessionId, disconnectRule)
         }
