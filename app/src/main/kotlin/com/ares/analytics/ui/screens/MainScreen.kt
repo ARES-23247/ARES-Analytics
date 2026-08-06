@@ -683,6 +683,16 @@ fun MainScreen(services: ServiceRegistry) {
                                 league = currentConfig.league,
                                 projectPath = currentConfig.projectPath
                             )
+                            NavigationTarget.ACADEMY -> AcademyScreen(
+                                onLaunchSimChallenge = { challengeId ->
+                                    services.processManagerService.runSimulation(
+                                        currentConfig.projectPath,
+                                        currentConfig.league,
+                                        currentConfig.simulatorCommand
+                                    )
+                                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                }
+                            )
                             NavigationTarget.RUN_HISTORY -> RunHistoryScreen(
                                 databaseService = services.databaseService,
                                 syncEngineService = services.syncEngineService

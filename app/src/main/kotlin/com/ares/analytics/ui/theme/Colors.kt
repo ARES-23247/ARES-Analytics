@@ -34,6 +34,7 @@ val AresCyanGlow: Color get() = AresThemeSettings.currentColors.cyanGlow
 val AresGold: Color get() = AresThemeSettings.currentColors.gold
 val AresAmber: Color get() = AresThemeSettings.currentColors.amber
 val AresGreen: Color get() = AresThemeSettings.currentColors.green
+val AresPurple: Color = Color(0xFFA855F7)
 val AresError: Color get() = AresThemeSettings.currentColors.error
 val AresTextPrimary: Color get() = AresThemeSettings.currentColors.textPrimary
 val AresTextSecondary: Color get() = AresThemeSettings.currentColors.textSecondary
