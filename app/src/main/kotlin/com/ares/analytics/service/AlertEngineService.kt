@@ -14,11 +14,48 @@ import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
 
 /**
- * High-performance real-time alert evaluation engine.
- * Detects motor mechanical binding/stalls, disconnected motor cables, low battery brownouts,
- * CAN bus utilization/error spikes, I2C/Lynx timeouts, and sensor freezes.
+ * High-performance real-time **Emergency Fault Alert & Diagnostic Engine**.
  *
- * Enforces Zero-Nested-If Kotlin style guidelines using clean `when` control flow.
+ * Continuously evaluates high-rate NetworkTables NT4 telemetry streams against multi-signal hardware diagnostic
+ * rules. Automatically triggers pop-up overlays, persistent database records, and urgent dual-tone audio beeps
+ * upon fault detection.
+ *
+ * ### Diagnostic Failure Equations & Thresholds:
+ * - **1.0s Moving Average Current Window ($N = 20$ samples):**
+ *   $$\bar{I}_{\text{avg}} = \frac{1}{N} \sum_{i=1}^{N} I_i \quad (N = 20 \text{ samples at } 20\text{ Hz})$$
+ *
+ * - **Motor Mechanical Binding / Loose Screw Stall:**
+ *   $$\text{Stall} \iff |P| > 0.35 \;\land\; |\omega| < 5.0\text{ ticks/s} \;\land\; \bar{I}_{\text{avg}} > 5.0\text{ Amps}$$
+ *
+ * - **Motor Cable Disconnection / Blown Breaker:**
+ *   $$\text{Disconnected} \iff |P| > 0.35 \;\land\; |\omega| < 5.0\text{ ticks/s} \;\land\; 0.0\text{A} \le \bar{I}_{\text{avg}} < 0.1\text{ Amps}$$
+ *
+ * - **Battery Brownout Risk:**
+ *   $$\text{Brownout} \iff V_{\text{battery}} < 10.5\text{ Volts}$$
+ *
+ * - **Motor Over-Temperature Thermal Alert:**
+ *   $$\text{Overheat} \iff T_{\text{motor}} > 70.0^\circ\text{C}$$
+ *
+ * - **Limelight Stale Vision Frame Rate Alert:**
+ *   $$\text{VisionStale} \iff f_{\text{limelight}} < 5.0\text{ Hz}$$
+ *
+ * - **Control Loop Latency Overrun Alert:**
+ *   $$\text{LoopOverrun} \iff t_{\text{loop}} > 25.0\text{ ms}$$
+ *
+ * ### Physical Units & Guarantees:
+ * - **Power ($P$):** Normalized motor duty cycle $[-1.0, 1.0]$ or Volts ($V$)
+ * - **Current ($I$):** Amperes ($A$)
+ * - **Velocity ($\omega$):** Encoder ticks/s or meters per second ($m/s$)
+ * - **Temperature ($T$):** Degrees Celsius ($^\circ\text{C}$)
+ * - **Loop Latency ($t_{\text{loop}}$):** Milliseconds ($ms$)
+ * - **Control Flow:** Zero nested `if` statements enforced via clean, argument-less `when` expressions.
+ *
+ * @param databaseService SQLite persistent logging service for historical run analytics.
+ * @param nt4ClientService Active NetworkTables NT4 websocket streaming client.
+ * @param thresholdsPath File path to persistent JSON threshold configuration file.
+ * @see Nt4ClientService
+ * @see AlertRecord
+ * @see ThresholdRule
  */
 class AlertEngineService(
     private val databaseService: DatabaseService,
@@ -33,6 +70,10 @@ class AlertEngineService(
 
     // Active alert state: AlertId -> AlertRecord
     private val _alerts = MutableStateFlow<Map<String, AlertRecord>>(emptyMap())
+
+    /**
+     * Observable stream of active and historical [AlertRecord]s sorted descending by trigger timestamp.
+     */
     val alerts: StateFlow<List<AlertRecord>> = _alerts
         .map { it.values.toList().sortedByDescending { r -> r.triggerTimestampMs } }
         .stateIn(CoroutineScope(Dispatchers.Default), SharingStarted.Eagerly, emptyList())
@@ -83,7 +124,12 @@ class AlertEngineService(
         }
     }
 
-    private fun startEngine() {
+    /**
+     * Starts the non-blocking telemetry evaluation coroutine collector.
+     */
+    fun startEngine() {
+        engineJob?.cancel()
+
         engineJob = CoroutineScope(Dispatchers.Default).launch {
             nt4ClientService.telemetryFlow.collect { frame ->
                 recentValues[frame.key] = frame.value
@@ -93,12 +139,17 @@ class AlertEngineService(
         }
     }
 
+    /**
+     * Cancels the active telemetry evaluation coroutine job.
+     */
     fun stop() {
         engineJob?.cancel()
     }
 
     /**
      * Single-key threshold rule evaluation using clean zero-nested `when` flow.
+     *
+     * @param frame Incoming telemetry frame containing topic key and double value.
      */
     private suspend fun evaluateFrame(frame: TelemetryFrame) {
         val rule = rules[frame.key] ?: return
@@ -152,7 +203,9 @@ class AlertEngineService(
     }
 
     /**
-     * Multi-signal composite diagnostic evaluation (Motor Stalls, Cable Disconnects, CAN Errors, I2C Timeouts).
+     * Multi-signal composite diagnostic evaluation (Stalls, Cable Disconnects, Over-Temp, CAN Errors, Vision Latency).
+     *
+     * @param frame Current telemetry frame being processed.
      */
     private suspend fun evaluateCompositeRules(frame: TelemetryFrame) {
         val ts = frame.timestampMs
@@ -273,12 +326,20 @@ class AlertEngineService(
         }
     }
 
+    /**
+     * Marks an active alert as triaged/acknowledged by the driver or pit crew.
+     *
+     * @param alertId Unique UUID string of the target alert.
+     */
     suspend fun triageAlert(alertId: String) {
         val alert = _alerts.value[alertId] ?: return
         val triaged = alert.copy(triaged = true)
         updateAlertState(triaged)
     }
 
+    /**
+     * Clears all triaged and resolved alerts from the active alert banner queue.
+     */
     suspend fun clearAllResolvedAlerts() {
         _alerts.update { current ->
             current.filterValues { !it.triaged || it.resolveTimestampMs == null }
@@ -316,6 +377,12 @@ class AlertEngineService(
         line.close()
     }
 
+    /**
+     * Retrieves human-readable display name for a rule key.
+     *
+     * @param key NetworkTables rule topic key.
+     * @return Human-readable display string.
+     */
     fun getRuleDisplayName(key: String): String {
         return rules[key]?.displayName ?: key
     }
