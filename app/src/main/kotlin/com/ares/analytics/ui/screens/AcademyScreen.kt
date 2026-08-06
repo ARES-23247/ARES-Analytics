@@ -33,11 +33,12 @@ import java.util.Locale
 
 enum class AcademyTrack(val title: String, val subtitle: String, val icon: ImageVector, val color: Color) {
     CONTROL_THEORY("Control Theory & Motion Profiling", "PIDF, Feedforwards (kS/kV/kA), S-Curve Motion, LQR", Icons.Default.Tune, AresCyan),
+    SYSID_IDENTIFICATION("System Identification (SysId)", "Quasi-Static & Dynamic Ramps, Friction, Voltage Sweeps", Icons.Default.BarChart, AresGold),
     LOCALIZATION("Localization & Sensor Fusion", "GoBilda Pinpoint, EKF Pose Estimation, Outlier Filtering", Icons.Default.GpsFixed, AresGreen),
     KINEMATICS("Drivetrain Kinematics", "Mecanum Vector Math, Swerve Azimuth & Zero Calibration", Icons.Default.DirectionsCar, AresGold),
     VISION("Vision & AprilTags", "Limelight 3D Pose, Target-Space Alignment, Outlier Rejection", Icons.Default.Videocam, AresPurple),
     PATHFINDING("Pathfinding & Avoidance", "Bezier Splines, PathPlanner Markers, Theta* & VFH+", Icons.Default.Route, AresRed),
-    POWER_DIAGNOSTICS("Power & System Diagnostics", "Brownout Protection, .wpilog Analysis, SysId Characterization", Icons.Default.BatteryChargingFull, AresCyan)
+    POWER_DIAGNOSTICS("Power & System Diagnostics", "Brownout Protection, .wpilog Analysis, Voltage Scaling", Icons.Default.BatteryChargingFull, AresCyan)
 }
 
 data class QuizQuestion(
@@ -123,7 +124,70 @@ fun AcademyScreen(
                         )
                     )
                 ),
+                AcademyLesson(
+                    id = "integral_windup",
+                    title = "Integral Windup & Anti-Windup Clamping",
+                    description = "Preventing actuator saturation overshoots when integral accumulators grow unbounded.",
+                    formula = "e_{accum} = \\text{clamp}\\left(\\int e(t) dt, -i_{max}, i_{max}\\right)",
+                    physicalUnits = "Accumulated Error: m·s or rad·s",
+                    keyTakeaway = "Anti-windup clamping prevents large overshoots when motors are temporarily stalled or constrained.",
+                    defaultVal = 0.5, minVal = 0.0, maxVal = 2.0,
+                    quiz = listOf(
+                        QuizQuestion(
+                            question = "What causes Integral Windup during robot operation?",
+                            options = listOf("Actuator saturation or physical stalling while error accumulates", "High derivative gain", "Battery voltage drop", "Low encoder tick resolution"),
+                            correctIndex = 0,
+                            explanation = "When a motor cannot reach setpoint immediately, kI continues accumulating error, causing huge overshoot when released."
+                        )
+                    )
+                ),
+                AcademyLesson(
+                    id = "cascade_control",
+                    title = "Cascade Control (Position -> Velocity -> Voltage)",
+                    description = "Dual-loop control where outer position loop outputs target velocity for inner velocity loop.",
+                    formula = "v_{cmd} = \\text{PID}_{pos}(x_{target} - x); \\quad V_{cmd} = \\text{PID}_{vel}(v_{cmd} - v) + V_{ff}",
+                    physicalUnits = "Position: m, Velocity: m/s, Output: Volts",
+                    keyTakeaway = "Cascade control isolates fast inner velocity loops from slower outer position tracking loops.",
+                    defaultVal = 2.5, minVal = 0.5, maxVal = 6.0
+                ),
+                AcademyLesson(
+                    id = "lqr_optimal",
+                    title = "Linear Quadratic Regulator (LQR) State-Space",
+                    description = "Optimal multi-variable control balancing error minimization against control effort cost.",
+                    formula = "u = -K x; \\quad J = \\int_0^\\infty (x^T Q x + u^T R u) dt",
+                    physicalUnits = "State Vector x: [pos, vel]^T, Cost: Q & R",
+                    keyTakeaway = "LQR solves DARE algebraic equations to compute optimal feedback gain matrix K.",
+                    defaultVal = 1.0, minVal = 0.1, maxVal = 10.0
+                ),
                 AcademyLesson("scurve_profiling", "Jerk-Limited Motion Profiling", "Smooth S-curve velocity profiles to prevent wheel slippage and chassis tip-over.", "jerk = \\frac{d^3 x}{dt^3} \\le j_{max}", "Velocity: m/s, Jerk: m/s³", "S-curves bound maximum jerk for smooth, zero-slip acceleration.", defaultVal = 3.0, minVal = 0.5, maxVal = 8.0)
+            ),
+            AcademyTrack.SYSID_IDENTIFICATION to listOf(
+                AcademyLesson(
+                    id = "sysid_quasistatic",
+                    title = "Quasi-Static Voltage Ramps (kS & kV)",
+                    description = "Slow voltage ramps (0.25 V/s) to measure static friction kS and back-EMF constant kV.",
+                    formula = "V(t) = \\alpha t \\implies kS = V_{intercept}, \\quad kV = \\text{slope}",
+                    physicalUnits = "Voltage: V, Ramp Rate: V/s",
+                    keyTakeaway = "Quasi-static sweeps isolate velocity dependence without acceleration forces (kA = 0).",
+                    defaultVal = 0.25, minVal = 0.1, maxVal = 1.0,
+                    quiz = listOf(
+                        QuizQuestion(
+                            question = "Why must quasi-static voltage ramps be driven slowly?",
+                            options = listOf("To minimize acceleration forces so kA term is zero", "To save battery power", "To prevent encoder overflow", "To increase optical resolution"),
+                            correctIndex = 0,
+                            explanation = "Driving slowly ensures acceleration is nearly zero, isolating static friction (kS) and velocity slope (kV)."
+                        )
+                    )
+                ),
+                AcademyLesson(
+                    id = "sysid_dynamic",
+                    title = "Dynamic Step Voltage Tests (kA Acceleration)",
+                    description = "Step voltage applications to measure inertial acceleration constant kA.",
+                    formula = "V_{step} - kS - kV v(t) = kA \\cdot a(t)",
+                    physicalUnits = "Voltage: V, Acceleration: m/s²",
+                    keyTakeaway = "Dynamic step tests measure physical robot mass and drivetrain moment of inertia.",
+                    defaultVal = 6.0, minVal = 2.0, maxVal = 12.0
+                )
             ),
             AcademyTrack.LOCALIZATION to listOf(
                 AcademyLesson("ekf_fusion", "Extended Kalman Filter (EKF)", "State-space sensor fusion combining 100 Hz odometry with 20 Hz AprilTag vision.", "\\hat{x}_{k} = \\hat{x}_k^- + K_k (z_k - H \\hat{x}_k^-)", "Pose: (x, y, θ), Covariance: Q & R", "EKF dynamically weights sensors based on variance covariances Q and R.", defaultVal = 0.01, minVal = 0.001, maxVal = 0.1),
@@ -186,7 +250,7 @@ fun AcademyScreen(
                         )
                     }
                     Text(
-                        text = "Interactive Student Onboarding & Control Theory Suite (FTC & FRC)",
+                        text = "Interactive Student Onboarding & Advanced Control Theory / SysId Suite (FTC & FRC)",
                         style = MaterialTheme.typography.bodyMedium,
                         color = AresTextSecondary
                     )
@@ -224,7 +288,7 @@ fun AcademyScreen(
         // Track Selector Grid
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             AcademyTrack.values().forEach { track ->
                 val isSelected = track == selectedTrack
@@ -243,12 +307,12 @@ fun AcademyScreen(
                     border = androidx.compose.foundation.BorderStroke(1.dp, borderCol)
                 ) {
                     Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        modifier = Modifier.padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Icon(track.icon, contentDescription = null, tint = track.color, modifier = Modifier.size(20.dp))
-                        Text(track.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = AresTextPrimary, fontSize = 12.sp, maxLines = 1)
-                        Text(track.subtitle, style = MaterialTheme.typography.bodySmall, color = AresTextSecondary, fontSize = 10.sp, maxLines = 1)
+                        Icon(track.icon, contentDescription = null, tint = track.color, modifier = Modifier.size(18.dp))
+                        Text(track.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = AresTextPrimary, fontSize = 11.sp, maxLines = 1)
+                        Text(track.subtitle, style = MaterialTheme.typography.bodySmall, color = AresTextSecondary, fontSize = 9.sp, maxLines = 1)
                     }
                 }
             }
@@ -286,8 +350,8 @@ fun AcademyScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(lesson.title, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, color = if (isSelected) AresCyan else AresTextPrimary, fontSize = 13.sp)
-                                    Text(lesson.physicalUnits, fontSize = 10.sp, color = AresTextSecondary)
+                                    Text(lesson.title, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, color = if (isSelected) AresCyan else AresTextPrimary, fontSize = 12.sp)
+                                    Text(lesson.physicalUnits, fontSize = 9.sp, color = AresTextSecondary)
                                 }
                                 if (isDone) {
                                     Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AresGreen, modifier = Modifier.size(16.dp))
@@ -371,7 +435,7 @@ fun AcademyScreen(
                             ) {
                                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                                        Text("LIVE STEP RESPONSE CANVAS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AresCyan)
+                                        Text("LIVE CONTROL RESPONSE CANVAS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AresCyan)
                                         Text("Gain: %.2f".format(simParamValue), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AresGold)
                                     }
 
@@ -478,7 +542,7 @@ fun AcademyScreen(
             title = { Text("ARES Certified Programmer Certificate", fontWeight = FontWeight.Bold, color = AresGold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("Congratulations! You have completed all 6 ARES Academy tracks.")
+                    Text("Congratulations! You have completed all ARES Academy control theory & robotics tracks.")
                     OutlinedTextField(
                         value = studentNameInput,
                         onValueChange = { studentNameInput = it },
@@ -500,10 +564,11 @@ fun AcademyScreen(
                             ==============================================================
                             Student Name: $studentNameInput
                             Date: $date
-                            Status: VERIFIED COMPLETE (All 6 Tracks Mastered)
+                            Status: VERIFIED COMPLETE (All Tracks Mastered)
                             
                             Verified Competencies:
-                            - Control Theory & Motion Profiling (PIDF, kS/kV/kA, Jerk-Limited S-Curves)
+                            - Advanced Control Theory & Motion Profiling (PIDF, kS/kV/kA, S-Curves, LQR)
+                            - System Identification (SysId Quasi-Static & Dynamic Ramps)
                             - Localization & Sensor Fusion (GoBilda Pinpoint, EKF, Mahalanobis Outliers)
                             - Drivetrain Kinematics (Mecanum Vector Math, Swerve CANcoder Zeroing)
                             - Computer Vision & AprilTags (3D Target-Space Pose, Alignment)
