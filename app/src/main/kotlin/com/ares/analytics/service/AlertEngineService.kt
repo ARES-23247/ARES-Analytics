@@ -16,7 +16,9 @@ import javax.sound.sampled.AudioSystem
 /**
  * High-performance real-time alert evaluation engine.
  * Detects motor mechanical binding/stalls, disconnected motor cables, low battery brownouts,
- * EKF position drifts, and sensor freezes, triggering audible alerts and high-priority UI overlays.
+ * CAN bus utilization/error spikes, I2C/Lynx timeouts, and sensor freezes.
+ *
+ * Enforces Zero-Nested-If Kotlin style guidelines using clean `when` control flow.
  */
 class AlertEngineService(
     private val databaseService: DatabaseService,
@@ -44,29 +46,39 @@ class AlertEngineService(
 
     private fun loadRules() {
         val file = File(thresholdsPath)
-        if (!file.exists()) {
-            file.parentFile?.mkdirs()
-            val defaults = mutableListOf(
-                ThresholdRule("/Drive/Voltage", "Low Battery Voltage (<10.5V)", minValue = 10.5, audibleAlert = true),
-                ThresholdRule("/Drive/EkfDrift", "High EKF Position Drift (>0.20m)", maxValue = 0.20, audibleAlert = true),
-                ThresholdRule("/LoopTimeMs", "Robot Loop Time Spike (>25ms)", maxValue = 25.0, audibleAlert = false),
-                ThresholdRule("/Drive/MotorCurrentMax", "Motor Current Spike (>15A)", maxValue = 15.0, audibleAlert = true)
+        val defaultRules = listOf(
+            ThresholdRule("/Drive/Voltage", "Low Battery Voltage (<10.5V)", minValue = 10.5, audibleAlert = true),
+            ThresholdRule("/Drive/EkfDrift", "High EKF Position Drift (>0.20m)", maxValue = 0.20, audibleAlert = true),
+            ThresholdRule("/LoopTimeMs", "Robot Loop Time Spike (>25ms)", maxValue = 25.0, audibleAlert = false),
+            ThresholdRule("/Drive/MotorCurrentMax", "Motor Current Spike (>15A)", maxValue = 15.0, audibleAlert = true),
+            ThresholdRule("Hardware/CAN/Utilization", "CRITICAL: CAN Bus Utilization High (>85%)!", maxValue = 85.0, audibleAlert = true),
+            ThresholdRule("Hardware/CAN/TxErrors", "CRITICAL: CAN Bus Transmit Error Detected!", maxValue = 0.5, audibleAlert = true),
+            ThresholdRule("Hardware/I2C/Timeouts", "WARNING: FTC I2C / Lynx Bus Timeout!", maxValue = 0.5, audibleAlert = true)
+        )
+
+        val motorRules = motorNames.flatMap { motor ->
+            listOf(
+                ThresholdRule("Hardware/Motors/$motor/Stall", "CRITICAL: Motor '$motor' Mechanical Binding / Stall!", maxValue = 0.5, audibleAlert = true),
+                ThresholdRule("Hardware/Motors/$motor/Disconnected", "WARNING: Motor '$motor' Cable Disconnected!", maxValue = 0.5, audibleAlert = true)
             )
-
-            // Dynamic rules for all 6 possible motor channels
-            motorNames.forEach { motor ->
-                defaults.add(ThresholdRule("Hardware/Motors/$motor/Stall", "CRITICAL: Motor '$motor' Mechanical Binding / Stall!", maxValue = 0.5, audibleAlert = true))
-                defaults.add(ThresholdRule("Hardware/Motors/$motor/Disconnected", "WARNING: Motor '$motor' Cable Disconnected!", maxValue = 0.5, audibleAlert = true))
-            }
-
-            file.writeText(json.encodeToString(defaults))
         }
 
-        try {
-            val loaded = json.decodeFromString<List<ThresholdRule>>(file.readText())
-            loaded.forEach { rules[it.key] = it }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        val allDefaults = defaultRules + motorRules
+
+        when {
+            !file.exists() -> {
+                file.parentFile?.mkdirs()
+                file.writeText(json.encodeToString(allDefaults))
+                allDefaults.forEach { rules[it.key] = it }
+            }
+            else -> {
+                runCatching {
+                    val loaded = json.decodeFromString<List<ThresholdRule>>(file.readText())
+                    loaded.forEach { rules[it.key] = it }
+                }.onFailure {
+                    allDefaults.forEach { rules[it.key] = it }
+                }
+            }
         }
     }
 
@@ -85,7 +97,7 @@ class AlertEngineService(
     }
 
     /**
-     * Standard single-key threshold rule evaluation.
+     * Single-key threshold rule evaluation using clean zero-nested `when` flow.
      */
     private suspend fun evaluateFrame(frame: TelemetryFrame) {
         val rule = rules[frame.key] ?: return
@@ -96,11 +108,12 @@ class AlertEngineService(
         val violatesMin = minVal != null && value < minVal
         val violatesMax = maxVal != null && value > maxVal
         val isViolating = violatesMin || violatesMax
+
         val currentMap = _alerts.value
         val existingAlert = currentMap.values.firstOrNull { it.ruleKey == rule.key && !it.triaged }
 
-        if (isViolating) {
-            if (existingAlert == null) {
+        when {
+            isViolating && existingAlert == null -> {
                 val newAlert = AlertRecord(
                     alertId = UUID.randomUUID().toString(),
                     sessionId = frame.sessionId,
@@ -110,27 +123,24 @@ class AlertEngineService(
                     triaged = false
                 )
                 updateAlertState(newAlert)
-                if (rule.audibleAlert) {
-                    triggerAudibleAlert()
-                }
-            } else if (existingAlert.resolveTimestampMs != null) {
+                if (rule.audibleAlert) triggerAudibleAlert()
+            }
+            isViolating && existingAlert?.resolveTimestampMs != null -> {
                 val reActive = existingAlert.copy(
                     resolveTimestampMs = null,
                     durationMs = 0L,
                     peakValue = maxOf(existingAlert.peakValue, value)
                 )
                 updateAlertState(reActive)
-                if (rule.audibleAlert) {
-                    triggerAudibleAlert()
-                }
-            } else {
+                if (rule.audibleAlert) triggerAudibleAlert()
+            }
+            isViolating && existingAlert != null -> {
                 val updated = existingAlert.copy(
                     peakValue = if (rule.maxValue != null) maxOf(existingAlert.peakValue, value) else minOf(existingAlert.peakValue, value)
                 )
                 updateAlertState(updated)
             }
-        } else {
-            if (existingAlert != null && existingAlert.resolveTimestampMs == null) {
+            !isViolating && existingAlert?.resolveTimestampMs == null && existingAlert != null -> {
                 val resolved = existingAlert.copy(
                     resolveTimestampMs = frame.timestampMs,
                     durationMs = frame.timestampMs - existingAlert.triggerTimestampMs
@@ -141,13 +151,14 @@ class AlertEngineService(
     }
 
     /**
-     * Evaluates multi-signal composite diagnostic rules (Motor Stalling, Cable Disconnection, etc.).
+     * Multi-signal composite diagnostic evaluation (Motor Stalls, Cable Disconnects, CAN Errors, I2C Timeouts).
      */
     private suspend fun evaluateCompositeRules(frame: TelemetryFrame) {
         val ts = frame.timestampMs
         val sessionId = frame.sessionId
 
-        for (m in motorNames) {
+        // 1. Motor Stalling & Disconnect Check across all motors
+        motorNames.forEach { m ->
             val pwr = kotlin.math.abs(recentValues["Hardware/Motors/$m/Power"] ?: recentValues["Hardware/Motors/$m/Voltage"] ?: 0.0)
             val vel = kotlin.math.abs(recentValues["Hardware/Motors/$m/Velocity"] ?: 0.0)
             val current = recentValues["Hardware/Motors/$m/CurrentAmps"] ?: 0.0
@@ -155,23 +166,32 @@ class AlertEngineService(
             val stallKey = "Hardware/Motors/$m/Stall"
             val disconnectKey = "Hardware/Motors/$m/Disconnected"
 
-            // 1. Mechanical Binding / Motor Stall Check:
-            // High power commanded (>0.35), zero velocity (<5.0 ticks/rad/s), and high current draw (>5.0A)
             val isStalled = pwr > 0.35 && vel < 5.0 && current > 5.0
-            val stallRule = rules[stallKey] ?: ThresholdRule(stallKey, "CRITICAL: Motor '$m' Mechanical Binding / Stall!", maxValue = 0.5, audibleAlert = true)
-            rules.putIfAbsent(stallKey, stallRule)
-            evaluateCustomRule(stallKey, isStalled, if (isStalled) 1.0 else 0.0, ts, sessionId, stallRule)
+            val stallRule = rules.getOrPut(stallKey) { ThresholdRule(stallKey, "CRITICAL: Motor '$m' Mechanical Binding / Stall!", maxValue = 0.5, audibleAlert = true) }
+            evaluateRuleState(stallKey, isStalled, if (isStalled) 1.0 else 0.0, ts, sessionId, stallRule)
 
-            // 2. Disconnected Motor Cable / Blown Fuse Check:
-            // High power commanded (>0.35), zero velocity (<5.0), but low current draw (<0.1A)
             val isDisconnected = pwr > 0.35 && vel < 5.0 && current < 0.1 && current >= 0.0
-            val disconnectRule = rules[disconnectKey] ?: ThresholdRule(disconnectKey, "WARNING: Motor '$m' Cable Disconnected!", maxValue = 0.5, audibleAlert = true)
-            rules.putIfAbsent(disconnectKey, disconnectRule)
-            evaluateCustomRule(disconnectKey, isDisconnected, if (isDisconnected) 1.0 else 0.0, ts, sessionId, disconnectRule)
+            val disconnectRule = rules.getOrPut(disconnectKey) { ThresholdRule(disconnectKey, "WARNING: Motor '$m' Cable Disconnected!", maxValue = 0.5, audibleAlert = true) }
+            evaluateRuleState(disconnectKey, isDisconnected, if (isDisconnected) 1.0 else 0.0, ts, sessionId, disconnectRule)
         }
+
+        // 2. CAN Bus Utilization & Error Check
+        val canUtil = recentValues["Hardware/CAN/Utilization"] ?: recentValues["CAN/Utilization"] ?: 0.0
+        val isCanHigh = canUtil > 85.0
+        val canRule = rules.getOrPut("Hardware/CAN/Utilization") { ThresholdRule("Hardware/CAN/Utilization", "CRITICAL: CAN Bus Utilization High (>85%)!", maxValue = 85.0, audibleAlert = true) }
+        evaluateRuleState("Hardware/CAN/Utilization", isCanHigh, canUtil, ts, sessionId, canRule)
+
+        // 3. FTC I2C / Lynx Timeout Check
+        val i2cTimeouts = recentValues["Hardware/I2C/Timeouts"] ?: 0.0
+        val isI2cError = i2cTimeouts > 0.0
+        val i2cRule = rules.getOrPut("Hardware/I2C/Timeouts") { ThresholdRule("Hardware/I2C/Timeouts", "WARNING: FTC I2C / Lynx Bus Timeout!", maxValue = 0.5, audibleAlert = true) }
+        evaluateRuleState("Hardware/I2C/Timeouts", isI2cError, i2cTimeouts, ts, sessionId, i2cRule)
     }
 
-    private suspend fun evaluateCustomRule(
+    /**
+     * Pure zero-nested helper to transition custom alert state.
+     */
+    private suspend fun evaluateRuleState(
         key: String,
         isViolating: Boolean,
         value: Double,
@@ -182,8 +202,8 @@ class AlertEngineService(
         val currentMap = _alerts.value
         val existingAlert = currentMap.values.firstOrNull { it.ruleKey == key && !it.triaged }
 
-        if (isViolating) {
-            if (existingAlert == null) {
+        when {
+            isViolating && existingAlert == null -> {
                 val newAlert = AlertRecord(
                     alertId = UUID.randomUUID().toString(),
                     sessionId = sessionId,
@@ -193,22 +213,18 @@ class AlertEngineService(
                     triaged = false
                 )
                 updateAlertState(newAlert)
-                if (rule.audibleAlert) {
-                    triggerAudibleAlert()
-                }
-            } else if (existingAlert.resolveTimestampMs != null) {
+                if (rule.audibleAlert) triggerAudibleAlert()
+            }
+            isViolating && existingAlert?.resolveTimestampMs != null -> {
                 val reActive = existingAlert.copy(
                     resolveTimestampMs = null,
                     durationMs = 0L,
                     peakValue = maxOf(existingAlert.peakValue, value)
                 )
                 updateAlertState(reActive)
-                if (rule.audibleAlert) {
-                    triggerAudibleAlert()
-                }
+                if (rule.audibleAlert) triggerAudibleAlert()
             }
-        } else {
-            if (existingAlert != null && existingAlert.resolveTimestampMs == null) {
+            !isViolating && existingAlert?.resolveTimestampMs == null && existingAlert != null -> {
                 val resolved = existingAlert.copy(
                     resolveTimestampMs = ts,
                     durationMs = ts - existingAlert.triggerTimestampMs
@@ -247,13 +263,10 @@ class AlertEngineService(
         if (now - lastBeepTime > 1500) {
             lastBeepTime = now
             CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    // Urgent dual-tone beep
+                runCatching {
                     playBeepTone(1000f, 100)
                     delay(50)
                     playBeepTone(1200f, 150)
-                } catch (e: Exception) {
-                    e.printStackTrace()
                 }
             }
         }

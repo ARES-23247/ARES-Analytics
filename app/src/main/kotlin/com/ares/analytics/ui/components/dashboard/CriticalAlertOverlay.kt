@@ -42,10 +42,12 @@ fun CriticalAlertOverlay(
             val isStall = criticalAlert.ruleKey.contains("Stall")
             val isDisconnect = criticalAlert.ruleKey.contains("Disconnected")
             val isLowBattery = criticalAlert.ruleKey.contains("Voltage")
+            val isCanError = criticalAlert.ruleKey.contains("CAN")
+            val isI2cError = criticalAlert.ruleKey.contains("I2C")
 
             val bannerBg = when {
-                isStall -> AresRed.copy(alpha = 0.95f)
-                isLowBattery -> AresGold.copy(alpha = 0.95f)
+                isStall || isCanError -> AresRed.copy(alpha = 0.95f)
+                isLowBattery || isI2cError -> AresGold.copy(alpha = 0.95f)
                 else -> AresRedDark.copy(alpha = 0.95f)
             }
 
@@ -90,6 +92,8 @@ fun CriticalAlertOverlay(
                                 isStall -> "Motor power is ON but wheel velocity is ZERO! Check wheel for mechanical binding, bound screws, or gear lockup immediately!"
                                 isDisconnect -> "Motor is commanded but drawing ZERO current. Check motor cable connections and REV hub fuse!"
                                 isLowBattery -> "Battery voltage is below critical threshold. Swap battery to prevent robot reboot!"
+                                isCanError -> "CAN bus utilization or transmit error detected. Check CAN bus wiring, 120-ohm termination, or packet rates!"
+                                isI2cError -> "FTC I2C / Lynx bus timeout detected. Check REV Hub I2C sensor wiring!"
                                 else -> "Peak Value: %.2f | Rule Key: %s".format(criticalAlert.peakValue, criticalAlert.ruleKey)
                             }
 
