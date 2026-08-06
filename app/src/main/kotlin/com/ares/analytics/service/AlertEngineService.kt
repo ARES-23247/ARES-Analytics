@@ -186,6 +186,27 @@ class AlertEngineService(
         val isI2cError = i2cTimeouts > 0.0
         val i2cRule = rules.getOrPut("Hardware/I2C/Timeouts") { ThresholdRule("Hardware/I2C/Timeouts", "WARNING: FTC I2C / Lynx Bus Timeout!", maxValue = 0.5, audibleAlert = true) }
         evaluateRuleState("Hardware/I2C/Timeouts", isI2cError, i2cTimeouts, ts, sessionId, i2cRule)
+
+        // 4. Over-Temperature Thermal Alert (>70C)
+        motorNames.forEach { m ->
+            val tempC = recentValues["Hardware/Motors/$m/TempC"] ?: 0.0
+            val isOverheat = tempC > 70.0
+            val tempKey = "Hardware/Motors/$m/TempC"
+            val tempRule = rules.getOrPut(tempKey) { ThresholdRule(tempKey, "WARNING: Motor '$m' Overheating (>70°C)!", maxValue = 70.0, audibleAlert = true) }
+            evaluateRuleState(tempKey, isOverheat, tempC, ts, sessionId, tempRule)
+        }
+
+        // 5. Limelight Vision Frame Rate Stale Alert (<5 FPS)
+        val limelightFps = recentValues["Vision/Limelight/FPS"] ?: 30.0
+        val isVisionStale = limelightFps < 5.0
+        val visionRule = rules.getOrPut("Vision/Limelight/FPS") { ThresholdRule("Vision/Limelight/FPS", "WARNING: Limelight Camera Frame Rate Low (<5 FPS)!", minValue = 5.0, audibleAlert = false) }
+        evaluateRuleState("Vision/Limelight/FPS", isVisionStale, limelightFps, ts, sessionId, visionRule)
+
+        // 6. Control Loop Latency Alert (>25ms)
+        val loopMs = recentValues["System/LoopTimeMs"] ?: 10.0
+        val isLoopSlow = loopMs > 25.0
+        val loopRule = rules.getOrPut("System/LoopTimeMs") { ThresholdRule("System/LoopTimeMs", "WARNING: Control Loop Overrun (>25ms)!", maxValue = 25.0, audibleAlert = false) }
+        evaluateRuleState("System/LoopTimeMs", isLoopSlow, loopMs, ts, sessionId, loopRule)
     }
 
     /**
