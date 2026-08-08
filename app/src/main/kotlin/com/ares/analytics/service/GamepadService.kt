@@ -3,6 +3,7 @@ package com.ares.analytics.service
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -72,7 +73,7 @@ class GamepadService {
     val gamepad2State: StateFlow<GamepadState> = _gamepad2State.asStateFlow()
 
     private var pollingJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     /**
 

@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.dp
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.PathPlannerEventMarker
@@ -206,14 +207,11 @@ fun DrawScope.drawHolonomicRotationTargets(
                 val offset = getCanvasOffsetBase(targetWp, w, h, fieldWidthM, fieldHeightM, league)
                 val rectSize = 24.dp.toPx()
                 
-                drawContext.canvas.save()
-                drawContext.transform.rotate(degrees = -target.rotationDegrees.toFloat() - 90f, pivot = offset)
-                
-                drawRect(color = AresAmber.copy(alpha = 0.25f), topLeft = Offset(offset.x - rectSize/2, offset.y - rectSize/2), size = Size(rectSize, rectSize))
-                drawRect(color = AresAmber, topLeft = Offset(offset.x - rectSize/2, offset.y - rectSize/2), size = Size(rectSize, rectSize), style = Stroke(width = 1.5.dp.toPx()))
-                drawLine(color = AresCyan, start = Offset(offset.x + rectSize/2, offset.y - rectSize/2), end = Offset(offset.x + rectSize/2, offset.y + rectSize/2), strokeWidth = 2.dp.toPx())
-                
-                drawContext.canvas.restore()
+                rotate(degrees = -target.rotationDegrees.toFloat() - 90f, pivot = offset) {
+                    drawRect(color = AresAmber.copy(alpha = 0.25f), topLeft = Offset(offset.x - rectSize/2, offset.y - rectSize/2), size = Size(rectSize, rectSize))
+                    drawRect(color = AresAmber, topLeft = Offset(offset.x - rectSize/2, offset.y - rectSize/2), size = Size(rectSize, rectSize), style = Stroke(width = 1.5.dp.toPx()))
+                    drawLine(color = AresCyan, start = Offset(offset.x + rectSize/2, offset.y - rectSize/2), end = Offset(offset.x + rectSize/2, offset.y + rectSize/2), strokeWidth = 2.dp.toPx())
+                }
                 drawCircle(color = AresAmber, radius = 4.dp.toPx(), center = offset)
             }
         }

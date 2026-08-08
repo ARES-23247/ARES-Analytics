@@ -112,6 +112,15 @@ fun MecanumVisualizer(
         }
         val dashEffect = remember { PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f) }
 
+        val wheels = remember(velocities[0], velocities[1], velocities[2], velocities[3], currents[0], currents[1], currents[2], currents[3]) {
+            listOf(
+                WheelData("FL", -1f, -1f, Math.toRadians(45.0), velocities[0], currents[0]),
+                WheelData("FR", 1f, -1f, Math.toRadians(-45.0), velocities[1], currents[1]),
+                WheelData("BL", -1f, 1f, Math.toRadians(-45.0), velocities[2], currents[2]),
+                WheelData("BR", 1f, 1f, Math.toRadians(45.0), velocities[3], currents[3])
+            )
+        }
+
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -133,22 +142,11 @@ fun MecanumVisualizer(
                     style = Stroke(width = 2f, pathEffect = dashEffect)
                 )
 
-                // Wheel definitions: Name, CenterOffset, RollerAngleRad, Speed
-                val wheels = listOf(
-                    // FL: rollers at 45 deg (points top-left to bottom-right)
-                    WheelData("FL", Offset(cx - robotW / 2f, cy - robotH / 2f), Math.toRadians(45.0), velocities[0], currents[0]),
-                    // FR: rollers at -45 deg (points bottom-left to top-right)
-                    WheelData("FR", Offset(cx + robotW / 2f, cy - robotH / 2f), Math.toRadians(-45.0), velocities[1], currents[1]),
-                    // BL: rollers at -45 deg
-                    WheelData("BL", Offset(cx - robotW / 2f, cy + robotH / 2f), Math.toRadians(-45.0), velocities[2], currents[2]),
-                    // BR: rollers at 45 deg
-                    WheelData("BR", Offset(cx + robotW / 2f, cy + robotH / 2f), Math.toRadians(45.0), velocities[3], currents[3])
-                )
-                    val maxAbsSpeed = wheels.maxOfOrNull { Math.abs(it.speed) }?.toFloat() ?: 0f
-                    val speedScale = if (maxAbsSpeed > 2.0f) Math.max(maxAbsSpeed, 100f) else 1.0f
+                val maxAbsSpeed = wheels.maxOfOrNull { Math.abs(it.speed) }?.toFloat() ?: 0f
+                val speedScale = if (maxAbsSpeed > 2.0f) Math.max(maxAbsSpeed, 100f) else 1.0f
 
-                    for (w in wheels) {
-                        val center = w.center
+                for (w in wheels) {
+                    val center = Offset(cx + w.offsetXSign * robotW / 2f, cy + w.offsetYSign * robotH / 2f)
                         val wWidth = 32f
                         val wHeight = 64f
 
@@ -279,26 +277,31 @@ fun MecanumVisualizer(
                 }
             }
 
-        // Details Panel
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(horizontalAlignment = Alignment.Start) {
-                Text("FL: ${"%.2f".format(velocities[0])} rad/s | ${"%.1f".format(currents[0])}A", color = AresTextSecondary, fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-                Text("BL: ${"%.2f".format(velocities[2])} rad/s | ${"%.1f".format(currents[2])}A", color = AresTextSecondary, fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text("FR: ${"%.2f".format(velocities[1])} rad/s | ${"%.1f".format(currents[1])}A", color = AresTextSecondary, fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-                Text("BR: ${"%.2f".format(velocities[3])} rad/s | ${"%.1f".format(currents[3])}A", color = AresTextSecondary, fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-            }
+        MecanumDetailsPanel(velocities = velocities, currents = currents)
+    }
+}
+
+@Composable
+fun MecanumDetailsPanel(velocities: List<Double>, currents: List<Double>) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(horizontalAlignment = Alignment.Start) {
+            Text("FL: ${"%.2f".format(velocities[0])} rad/s | ${"%.1f".format(currents[0])}A", color = AresTextSecondary, fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            Text("BL: ${"%.2f".format(velocities[2])} rad/s | ${"%.1f".format(currents[2])}A", color = AresTextSecondary, fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text("FR: ${"%.2f".format(velocities[1])} rad/s | ${"%.1f".format(currents[1])}A", color = AresTextSecondary, fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            Text("BR: ${"%.2f".format(velocities[3])} rad/s | ${"%.1f".format(currents[3])}A", color = AresTextSecondary, fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
         }
     }
 }
 
 private data class WheelData(
     val name: String,
-    val center: Offset,
+    val offsetXSign: Float,
+    val offsetYSign: Float,
     val rollerAngle: Double,
     val speed: Double,
     val current: Double

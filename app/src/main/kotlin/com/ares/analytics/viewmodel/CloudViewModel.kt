@@ -349,75 +349,84 @@ class CloudViewModel(
                         if (run != null) {
                             val errors = mutableListOf<String>()
                             val downloadedFiles = mutableListOf<File>()
-
-                            logUpload("1/5: Downloading ${run.files.size} raw files from robot at ${getRobotIp()}...")
-                            for (file in run.files) {
-                                try {
-                                    val tempFile = withContext(Dispatchers.IO) {
-                                        val tempDir = File(System.getProperty("java.io.tmpdir"), "ares-raw-upload")
-                                        tempDir.mkdirs()
-                                        val f = File(tempDir, file.name)
-                                        httpClient.prepareGet("http://${getRobotIp()}:5002/api/download?file=${file.name}").execute { response ->
-                                            val channel = response.bodyAsChannel()
-                                            java.io.FileOutputStream(f).use { outputStream ->
-                                                channel.copyTo(outputStream)
-                                            }
-                                        }
-                                        f
-                                    }
-                                    downloadedFiles.add(tempFile)
-                                    logUpload("      -> Downloaded ${file.name} (${tempFile.length() / 1024} KB)")
-                                } catch (e: Exception) {
-                                    errors.add("${file.name}: ${e.message}")
-                                    logUpload("      -> Error downloading ${file.name}: ${e.message}")
-                                }
-                            }
-
-                            if (errors.isEmpty() && downloadedFiles.isNotEmpty()) {
-                                logUpload("2/5: Skipping raw file archival (database sync only)...")
-                                val totalSizeKb = downloadedFiles.sumOf { it.length() } / 1024
-                                logUpload("3/5: Parsing ${downloadedFiles.size} log files (${totalSizeKb} KB) into DuckDB...")
-                                val session = logParserService.parseLogFiles(
-                                    files = downloadedFiles,
-                                    teamId = intent.teamId,
-                                    seasonId = intent.seasonId,
-                                    robotId = intent.robotId
-                                )
-                                logUpload("      -> Parsed session: ${session.sessionId} (${session.durationMs?.let { "${it / 1000}s" } ?: "unknown"} duration)")
-
-                                logUpload("4/5: Pushing DuckDB Parquet blob to Cloud & syncing...")
-                                try {
-                                    syncEngineService.uploadSession(session.sessionId)
-                                    syncEngineService.performDeltaSync(intent.teamId, intent.seasonId)
-                                    logUpload("      -> Cloud sync completed successfully.")
-                                } catch (syncEx: Exception) {
-                                    errors.add("Imported locally but cloud sync failed: ${syncEx.message}")
-                                    logUpload("      -> Cloud sync failed: ${syncEx.message}")
-                                }
-
-                                downloadedFiles.forEach { it.delete() }
-
-                                logUpload("5/5: Deleting remote files from Robot...")
-                                if (errors.isEmpty()) {
+                            try {
+                                logUpload("1/5: Downloading ${run.files.size} raw files from robot at ${getRobotIp()}...")
+                                for (file in run.files) {
                                     try {
-                                        withContext(Dispatchers.IO) {
-                                            for (file in run.files) {
-                                                httpClient.preparePost("http://${getRobotIp()}:5002/api/delete") {
-                                                    parameter("file", file.name)
-                                                }.execute {}
+                                        val tempFile = withContext(Dispatchers.IO) {
+                                            val tempDir = File(System.getProperty("java.io.tmpdir"), "ares-raw-upload")
+                                            tempDir.mkdirs()
+                                            val f = File(tempDir, file.name)
+                                            try {
+                                                httpClient.prepareGet("http://${getRobotIp()}:5002/api/download?file=${file.name}").execute { response ->
+                                                    val channel = response.bodyAsChannel()
+                                                    java.io.FileOutputStream(f).use { outputStream ->
+                                                        channel.copyTo(outputStream)
+                                                    }
+                                                }
+                                                if (f.length() != file.sizeBytes) {
+                                                    throw Exception("Downloaded file size ${f.length()} does not match expected size ${file.sizeBytes}")
+                                                }
+                                                f
+                                            } catch (e: Exception) {
+                                                f.delete()
+                                                throw e
                                             }
                                         }
-                                    } catch (deleteEx: Exception) {
-                                        errors.add("Uploaded successfully but robot cleanup failed: ${deleteEx.message}")
+                                        downloadedFiles.add(tempFile)
+                                        logUpload("      -> Downloaded ${file.name} (${tempFile.length() / 1024} KB)")
+                                    } catch (e: Exception) {
+                                        errors.add("${file.name}: ${e.message}")
+                                        logUpload("      -> Error downloading ${file.name}: ${e.message}")
                                     }
                                 }
 
-                                logUpload("Upload finished! Refreshing UI...")
-                                fetchRobotLogs()
-                                onIntent(CloudIntent.RefreshCloudLogs)
-                            } else {
-                                logUpload("Upload encountered errors. Aborting.")
-                                _state.update { it.copy(errorMessage = "Upload errors:\n" + errors.joinToString("\n"), isUploadingRobotLog = null) }
+                                if (errors.isEmpty() && downloadedFiles.isNotEmpty()) {
+                                    logUpload("2/5: Skipping raw file archival (database sync only)...")
+                                    val totalSizeKb = downloadedFiles.sumOf { it.length() } / 1024
+                                    logUpload("3/5: Parsing ${downloadedFiles.size} log files (${totalSizeKb} KB) into DuckDB...")
+                                    val session = logParserService.parseLogFiles(
+                                        files = downloadedFiles,
+                                        teamId = intent.teamId,
+                                        seasonId = intent.seasonId,
+                                        robotId = intent.robotId
+                                    )
+                                    logUpload("      -> Parsed session: ${session.sessionId} (${session.durationMs?.let { "${it / 1000}s" } ?: "unknown"} duration)")
+
+                                    logUpload("4/5: Pushing DuckDB Parquet blob to Cloud & syncing...")
+                                    try {
+                                        syncEngineService.uploadSession(session.sessionId)
+                                        syncEngineService.performDeltaSync(intent.teamId, intent.seasonId)
+                                        logUpload("      -> Cloud sync completed successfully.")
+                                    } catch (syncEx: Exception) {
+                                        errors.add("Imported locally but cloud sync failed: ${syncEx.message}")
+                                        logUpload("      -> Cloud sync failed: ${syncEx.message}")
+                                    }
+
+                                    logUpload("5/5: Deleting remote files from Robot...")
+                                    if (errors.isEmpty()) {
+                                        try {
+                                            withContext(Dispatchers.IO) {
+                                                for (file in run.files) {
+                                                    httpClient.preparePost("http://${getRobotIp()}:5002/api/delete") {
+                                                        parameter("file", file.name)
+                                                    }.execute {}
+                                                }
+                                            }
+                                        } catch (deleteEx: Exception) {
+                                            errors.add("Uploaded successfully but robot cleanup failed: ${deleteEx.message}")
+                                        }
+                                    }
+
+                                    logUpload("Upload finished! Refreshing UI...")
+                                    fetchRobotLogs()
+                                    onIntent(CloudIntent.RefreshCloudLogs)
+                                } else {
+                                    logUpload("Upload encountered errors. Aborting.")
+                                    _state.update { it.copy(errorMessage = "Upload errors:\n" + errors.joinToString("\n"), isUploadingRobotLog = null) }
+                                }
+                            } finally {
+                                downloadedFiles.forEach { it.delete() }
                             }
                         } else {
                             logUpload("Run not found in local state.")
@@ -439,67 +448,76 @@ class CloudViewModel(
                             logUpload("=== [${index + 1}/${runsToUpload.size}] Uploading Run: ${run.runId} ===")
                             val errors = mutableListOf<String>()
                             val downloadedFiles = mutableListOf<File>()
-
-                            logUpload("Downloading ${run.files.size} raw files from robot...")
-                            for (file in run.files) {
-                                try {
-                                    val tempFile = withContext(Dispatchers.IO) {
-                                        val tempDir = File(System.getProperty("java.io.tmpdir"), "ares-raw-upload")
-                                        tempDir.mkdirs()
-                                        val f = File(tempDir, file.name)
-                                        httpClient.prepareGet("http://${getRobotIp()}:5002/api/download?file=${file.name}").execute { response ->
-                                            val channel = response.bodyAsChannel()
-                                            java.io.FileOutputStream(f).use { outputStream ->
-                                                channel.copyTo(outputStream)
-                                            }
-                                        }
-                                        f
-                                    }
-                                    downloadedFiles.add(tempFile)
-                                    logUpload("  -> Downloaded ${file.name} (${tempFile.length() / 1024} KB)")
-                                } catch (e: Exception) {
-                                    errors.add("${file.name}: ${e.message}")
-                                    logUpload("  -> Error downloading ${file.name}: ${e.message}")
-                                }
-                            }
-
-                            if (errors.isEmpty() && downloadedFiles.isNotEmpty()) {
-                                logUpload("Parsing ${downloadedFiles.size} log files into DuckDB...")
-                                val session = logParserService.parseLogFiles(
-                                    files = downloadedFiles,
-                                    teamId = intent.teamId,
-                                    seasonId = intent.seasonId,
-                                    robotId = intent.robotId
-                                )
-                                logUpload("  -> Parsed session: ${session.sessionId}")
-
-                                logUpload("Pushing DuckDB Parquet blob to Cloud...")
-                                try {
-                                    syncEngineService.uploadSession(session.sessionId)
-                                    logUpload("  -> Cloud upload completed.")
-                                } catch (syncEx: Exception) {
-                                    errors.add("Imported locally but cloud upload failed: ${syncEx.message}")
-                                    logUpload("  -> Cloud upload failed: ${syncEx.message}")
-                                }
-
-                                downloadedFiles.forEach { it.delete() }
-
-                                logUpload("Deleting remote files from Robot...")
-                                if (errors.isEmpty()) {
+                            try {
+                                logUpload("Downloading ${run.files.size} raw files from robot...")
+                                for (file in run.files) {
                                     try {
-                                        withContext(Dispatchers.IO) {
-                                            for (file in run.files) {
-                                                httpClient.preparePost("http://${getRobotIp()}:5002/api/delete") {
-                                                    parameter("file", file.name)
-                                                }.execute {}
+                                        val tempFile = withContext(Dispatchers.IO) {
+                                            val tempDir = File(System.getProperty("java.io.tmpdir"), "ares-raw-upload")
+                                            tempDir.mkdirs()
+                                            val f = File(tempDir, file.name)
+                                            try {
+                                                httpClient.prepareGet("http://${getRobotIp()}:5002/api/download?file=${file.name}").execute { response ->
+                                                    val channel = response.bodyAsChannel()
+                                                    java.io.FileOutputStream(f).use { outputStream ->
+                                                        channel.copyTo(outputStream)
+                                                    }
+                                                }
+                                                if (f.length() != file.sizeBytes) {
+                                                    throw Exception("Downloaded file size ${f.length()} does not match expected size ${file.sizeBytes}")
+                                                }
+                                                f
+                                            } catch (e: Exception) {
+                                                f.delete()
+                                                throw e
                                             }
                                         }
-                                    } catch (deleteEx: Exception) {
-                                        errors.add("Uploaded successfully but robot cleanup failed: ${deleteEx.message}")
+                                        downloadedFiles.add(tempFile)
+                                        logUpload("  -> Downloaded ${file.name} (${tempFile.length() / 1024} KB)")
+                                    } catch (e: Exception) {
+                                        errors.add("${file.name}: ${e.message}")
+                                        logUpload("  -> Error downloading ${file.name}: ${e.message}")
                                     }
                                 }
-                            } else {
-                                logUpload("Run ${run.runId} upload encountered errors. Skipping cleanup.")
+
+                                if (errors.isEmpty() && downloadedFiles.isNotEmpty()) {
+                                    logUpload("Parsing ${downloadedFiles.size} log files into DuckDB...")
+                                    val session = logParserService.parseLogFiles(
+                                        files = downloadedFiles,
+                                        teamId = intent.teamId,
+                                        seasonId = intent.seasonId,
+                                        robotId = intent.robotId
+                                    )
+                                    logUpload("  -> Parsed session: ${session.sessionId}")
+
+                                    logUpload("Pushing DuckDB Parquet blob to Cloud...")
+                                    try {
+                                        syncEngineService.uploadSession(session.sessionId)
+                                        logUpload("  -> Cloud upload completed.")
+                                    } catch (syncEx: Exception) {
+                                        errors.add("Imported locally but cloud upload failed: ${syncEx.message}")
+                                        logUpload("  -> Cloud upload failed: ${syncEx.message}")
+                                    }
+
+                                    logUpload("Deleting remote files from Robot...")
+                                    if (errors.isEmpty()) {
+                                        try {
+                                            withContext(Dispatchers.IO) {
+                                                for (file in run.files) {
+                                                    httpClient.preparePost("http://${getRobotIp()}:5002/api/delete") {
+                                                        parameter("file", file.name)
+                                                    }.execute {}
+                                                }
+                                            }
+                                        } catch (deleteEx: Exception) {
+                                            errors.add("Uploaded successfully but robot cleanup failed: ${deleteEx.message}")
+                                        }
+                                    }
+                                } else {
+                                    logUpload("Run ${run.runId} upload encountered errors. Skipping cleanup.")
+                                }
+                            } finally {
+                                downloadedFiles.forEach { it.delete() }
                             }
                         }
                         logUpload("Batch upload finished! Syncing metadata...")

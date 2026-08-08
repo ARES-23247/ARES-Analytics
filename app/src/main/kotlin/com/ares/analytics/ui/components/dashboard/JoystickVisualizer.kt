@@ -48,9 +48,10 @@ fun JoystickVisualizer(
     val keyboardControlEnabled = keyboardState.enabled
     val gamepad1StateFlow = services?.gamepadService?.gamepad1State
     val gamepad2StateFlow = services?.gamepadService?.gamepad2State
+    val isWindowFocused = androidx.compose.ui.platform.LocalWindowInfo.current.isWindowFocused
 
     // Keyboard/Gamepad publishing loop
-    LaunchedEffect(keyboardControlEnabled) {
+    LaunchedEffect(keyboardControlEnabled, isWindowFocused) {
         if (keyboardControlEnabled && nt4ClientService != null) {
             var heartbeat = 0L
             var lastVx: Double? = null
@@ -73,7 +74,9 @@ fun JoystickVisualizer(
             while (true) {
                 val g1 = gamepad1StateFlow?.value
 
-                val (vx, vy, omega) = if (keyboardState.useGamepad && g1 != null && g1.connected) {
+                val (vx, vy, omega) = if (!isWindowFocused) {
+                    Triple(0.0, 0.0, 0.0)
+                } else if (keyboardState.useGamepad && g1 != null && g1.connected) {
                     val rawY = InputMath.applyDeadband(g1.leftStickY.toDouble(), 0.02)
                     val rawX = InputMath.applyDeadband(g1.leftStickX.toDouble(), 0.02)
                     val rawOmega = InputMath.applyDeadband(g1.rightStickX.toDouble(), 0.02)

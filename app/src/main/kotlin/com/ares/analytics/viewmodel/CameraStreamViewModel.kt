@@ -85,6 +85,7 @@ class CameraStreamViewModel(
     val state: StateFlow<CameraStreamState> = _state.asStateFlow()
     
     private var streamJob: Job? = null
+    private var previousSkiaImage: org.jetbrains.skia.Image? = null
     
     private val httpClient = HttpClient(CIO) {
         install(HttpTimeout) {
@@ -189,7 +190,10 @@ class CameraStreamViewModel(
                                         bos.write(remainder)
 
                                         try {
-                                            val imageBitmap = org.jetbrains.skia.Image.makeFromEncoded(frameBytes).toComposeImageBitmap()
+                                            previousSkiaImage?.close()
+                                            val skiaImage = org.jetbrains.skia.Image.makeFromEncoded(frameBytes)
+                                            previousSkiaImage = skiaImage
+                                            val imageBitmap = skiaImage.toComposeImageBitmap()
                                             _state.update { it.copy(currentFrame = imageBitmap) }
                                         } catch (e: Exception) {
                                             // Ignore

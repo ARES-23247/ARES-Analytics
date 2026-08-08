@@ -46,6 +46,7 @@ class MatchLogRepository(
     private val ephemeralConn: Connection,
     private val dbMutex: Mutex
 ) {
+    private val statementCache = java.util.concurrent.ConcurrentHashMap<String, java.sql.PreparedStatement>()
     /**
      * Executes a raw database operation safely under [dbMutex] on [Dispatchers.IO].
      *
@@ -272,6 +273,7 @@ class MatchLogRepository(
             appender.flush()
         } finally {
             appender.close()
+            conn.createStatement().use { it.execute("CHECKPOINT") }
         }
     }
 
@@ -592,14 +594,14 @@ class MatchLogRepository(
     ) {
         targetConn.autoCommit = false
         try {
-            targetConn.prepareStatement(sql).use { ps ->
-                items.chunked(batchSize).forEach { chunk ->
-                    for (item in chunk) {
-                        bind(ps, item)
-                        ps.addBatch()
-                    }
-                    ps.executeBatch()
+            val cacheKey = "${targetConn.hashCode()}_$sql"
+            val ps = statementCache.getOrPut(cacheKey) { targetConn.prepareStatement(sql) }
+            items.chunked(batchSize).forEach { chunk ->
+                for (item in chunk) {
+                    bind(ps, item)
+                    ps.addBatch()
                 }
+                ps.executeBatch()
             }
             targetConn.commit()
         } catch (e: Exception) {

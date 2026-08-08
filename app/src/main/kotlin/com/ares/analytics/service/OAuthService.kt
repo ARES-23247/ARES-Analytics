@@ -14,11 +14,14 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.awt.Desktop
@@ -134,6 +137,8 @@ data class GithubTokenResponse(
 class OAuthService(
     private val firebaseClientService: FirebaseClientService
 ) {
+    private val refreshMutex = kotlinx.coroutines.sync.Mutex()
+    
     private val _authState = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
@@ -145,9 +150,11 @@ class OAuthService(
 
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
+    private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
     init {
         // Observe FirebaseClientService auth state and map it to AuthState
-        CoroutineScope(Dispatchers.Default).launch {
+        serviceScope.launch {
             firebaseClientService.authState.collect { firebaseState ->
                 when (firebaseState) {
                     is FirebaseAuthState.Unauthenticated -> {
@@ -186,7 +193,7 @@ class OAuthService(
 
         if (firebaseClientService.isDevMode() || googleClientId.isNullOrEmpty() || googleClientId == "mock") {
             // Local dev bypass
-            CoroutineScope(Dispatchers.Default).launch {
+            serviceScope.launch {
                 firebaseClientService.signInWithGoogleToken(
                     googleIdToken = "mock-google-id-token",
                     email = "dev-user@aresrobotics.org",
@@ -252,46 +259,48 @@ class OAuthService(
     }
 
     suspend fun refreshGoogleAccessToken(clientId: String, clientSecret: String?): String? = withContext(Dispatchers.IO) {
-        val saved = firebaseClientService.getSavedAuth() ?: return@withContext null
-        val refreshToken = saved.googleRefreshToken ?: return@withContext saved.googleAccessToken
+        refreshMutex.withLock {
+            val saved = firebaseClientService.getSavedAuth() ?: return@withLock null
+            val refreshToken = saved.googleRefreshToken ?: return@withLock saved.googleAccessToken
 
-        // If not expired yet (with a 2 minute buffer), reuse current access token
-        val expiresAt = saved.googleTokenExpiresAt ?: 0
-        if (System.currentTimeMillis() < expiresAt - 120_000 && !saved.googleAccessToken.isNullOrBlank()) {
-            return@withContext saved.googleAccessToken
-        }
-
-        try {
-            val bodyParams = mutableListOf(
-                "client_id" to clientId,
-                "refresh_token" to refreshToken,
-                "grant_type" to "refresh_token"
-            )
-            if (!clientSecret.isNullOrBlank()) {
-                bodyParams.add("client_secret" to clientSecret)
-            }
-            val response = httpClient.post("https://oauth2.googleapis.com/token") {
-                contentType(ContentType.Application.FormUrlEncoded)
-                setBody(bodyParams.formUrlEncode())
+            // If not expired yet (with a 2 minute buffer), reuse current access token
+            val expiresAt = saved.googleTokenExpiresAt ?: 0
+            if (System.currentTimeMillis() < expiresAt - 120_000 && !saved.googleAccessToken.isNullOrBlank()) {
+                return@withLock saved.googleAccessToken
             }
 
-            if (response.status == HttpStatusCode.OK) {
-                val data = response.body<GoogleTokenResponse>()
-                val newExpiresAt = System.currentTimeMillis() + (data.expires_in * 1000L)
-                val updatedAuth = saved.copy(
-                    googleAccessToken = data.access_token,
-                    googleTokenExpiresAt = newExpiresAt,
-                    googleRefreshToken = data.refresh_token ?: refreshToken // reuse if new one not sent
+            try {
+                val bodyParams = mutableListOf(
+                    "client_id" to clientId,
+                    "refresh_token" to refreshToken,
+                    "grant_type" to "refresh_token"
                 )
-                firebaseClientService.saveAuth(updatedAuth)
-                return@withContext data.access_token
-            } else {
-                println("Failed to refresh Google access token: ${response.bodyAsText()}")
+                if (!clientSecret.isNullOrBlank()) {
+                    bodyParams.add("client_secret" to clientSecret)
+                }
+                val response = httpClient.post("https://oauth2.googleapis.com/token") {
+                    contentType(ContentType.Application.FormUrlEncoded)
+                    setBody(bodyParams.formUrlEncode())
+                }
+
+                if (response.status == HttpStatusCode.OK) {
+                    val data = response.body<GoogleTokenResponse>()
+                    val newExpiresAt = System.currentTimeMillis() + (data.expires_in * 1000L)
+                    val updatedAuth = saved.copy(
+                        googleAccessToken = data.access_token,
+                        googleTokenExpiresAt = newExpiresAt,
+                        googleRefreshToken = data.refresh_token ?: refreshToken // reuse if new one not sent
+                    )
+                    firebaseClientService.saveAuth(updatedAuth)
+                    return@withLock data.access_token
+                } else {
+                    println("Failed to refresh Google access token: ${response.bodyAsText()}")
+                    null
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
                 null
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
         }
     }
 
@@ -409,7 +418,7 @@ class OAuthService(
                             """.trimIndent(),
                             io.ktor.http.ContentType.Text.Html
                         )
-                        CoroutineScope(Dispatchers.Default).launch {
+                        serviceScope.launch {
                             onCodeReceived(code)
                             stopServer()
                         }
@@ -417,7 +426,7 @@ class OAuthService(
                         val msg = error ?: "Unknown auth error"
                         call.respondText("Authentication failed: $msg")
                         _authState.value = AuthState.Error(msg)
-                        CoroutineScope(Dispatchers.Default).launch {
+                        serviceScope.launch {
                             stopServer()
                         }
                     }
@@ -429,7 +438,7 @@ class OAuthService(
     }
 
     private fun launchBrowser(url: String) {
-        CoroutineScope(Dispatchers.IO).launch {
+        serviceScope.launch(Dispatchers.IO) {
             try {
                 if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
                     Desktop.getDesktop().browse(URI(url))

@@ -41,6 +41,8 @@ class ProcessManagerService {
     private val _adbConnected = MutableStateFlow(false)
     val adbConnected: StateFlow<Boolean> = _adbConnected.asStateFlow()
 
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
     private var activeBuildJob: Job? = null
     private var activeLogcatJob: Job? = null
     private var activeSimJob: Job? = null
@@ -57,7 +59,7 @@ class ProcessManagerService {
 
     private fun startAdbMonitoring() {
         adbMonitorJob?.cancel()
-        adbMonitorJob = CoroutineScope(Dispatchers.IO).launch {
+        adbMonitorJob = serviceScope.launch {
             while (isActive) {
                 try {
                     val pb = ProcessBuilder("adb", "devices")
@@ -89,7 +91,7 @@ class ProcessManagerService {
     fun runBuild(projectPath: String, league: League) {
         killActiveBuild()
 
-        activeBuildJob = CoroutineScope(Dispatchers.IO).launch {
+        activeBuildJob = serviceScope.launch {
             _isBuildRunning.value = true
             try {
                 val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
@@ -224,7 +226,7 @@ class ProcessManagerService {
     fun runSimulation(projectPath: String, league: League, simulatorCommand: String? = null) {
         killActiveSim()
 
-        activeSimJob = CoroutineScope(Dispatchers.IO).launch {
+        activeSimJob = serviceScope.launch {
             try {
                 _isSimRunning.value = true
                 _buildOutput.emit("[SYSTEM] Terminating any orphaned simulator processes...")
@@ -285,7 +287,7 @@ class ProcessManagerService {
     fun startLogcat() {
         killActiveLogcat()
 
-        activeLogcatJob = CoroutineScope(Dispatchers.IO).launch {
+        activeLogcatJob = serviceScope.launch {
             try {
                 _logcatOutput.emit("[SYSTEM] Starting ADB logcat stream...")
                 val adb = resolveAdbPath()
@@ -317,7 +319,7 @@ class ProcessManagerService {
     private suspend fun runAdbDeploy(projectPath: String) {
         _buildOutput.emit("[SYSTEM] Auto-deploying to FTC Control Hub...")
         val adb = resolveAdbPath()
-        val connectPb = ProcessBuilder(adb, "connect", "192.168.43.1:5555")
+        val connectPb = ProcessBuilder(adb, "connect", "192.168.43.1:5555").redirectErrorStream(true)
         val connectProc = connectPb.start()
         connectProc.inputStream.close()
         connectProc.errorStream.close()
@@ -337,7 +339,7 @@ class ProcessManagerService {
         if (!apkPath.exists()) {
             apkPath = File(projectPath, "TeamCode/build/outputs/apk/debug/TeamCode-debug.apk")
         }
-        val installPb = ProcessBuilder(adb, "install", "-r", apkPath.absolutePath)
+        val installPb = ProcessBuilder(adb, "install", "-r", apkPath.absolutePath).redirectErrorStream(true)
         val installProc = installPb.start()
         installProc.errorStream.close()
         installProc.outputStream.close()

@@ -89,20 +89,24 @@ fun DrawScope.drawFieldGrid(
 ) {
     val stepX = if (league == League.FTC) fieldWidthM / 6.0 else 1.0
     val stepY = if (league == League.FTC) fieldHeightM / 6.0 else 1.0
+    val gridPath = Path()
     var curX = if (league == League.FTC) -fieldWidthM/2 else 0.0
     while (curX <= fieldWidthM/2 + 0.001) {
         val wp = Waypoint(curX, 0.0)
         val offset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
-        drawLine(color = AresBorder, start = Offset(offset.x, 0f), end = Offset(offset.x, h), strokeWidth = 1f)
+        gridPath.moveTo(offset.x, 0f)
+        gridPath.lineTo(offset.x, h)
         curX += stepX
     }
     var curY = if (league == League.FTC) -fieldHeightM/2 else 0.0
     while (curY <= fieldHeightM/2 + 0.001) {
         val wp = Waypoint(0.0, curY)
         val offset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
-        drawLine(color = AresBorder, start = Offset(0f, offset.y), end = Offset(w, offset.y), strokeWidth = 1f)
+        gridPath.moveTo(0f, offset.y)
+        gridPath.lineTo(w, offset.y)
         curY += stepY
     }
+    drawPath(path = gridPath, color = AresBorder, style = Stroke(width = 1f))
     drawRect(color = AresBorderFocused, style = Stroke(width = 3f))
 
     if (showCostmap) {
@@ -161,6 +165,8 @@ fun DrawScope.drawFtcAllianceStations(
         null -> {}
     }
 }
+
+private val reusablePolygonPath = Path()
 
 /**
 
@@ -266,7 +272,7 @@ fun DrawScope.drawCustomObstacles(
             }
             is Obstacle.Polygon -> {
                 if (obs.vertices.isNotEmpty()) {
-                    val path = Path()
+                    val path = reusablePolygonPath.apply { reset() }
                     val start = getCanvasOffsetBase(Waypoint(obs.vertices.first().x, obs.vertices.first().y), w, h, fieldWidthM, fieldHeightM, league)
                     path.moveTo(start.x, start.y)
                     obs.vertices.drop(1).forEach { pt ->
@@ -389,6 +395,11 @@ fun DrawScope.drawAprilTags(
     league: League,
     textMeasurer: TextMeasurer
 ) {
+    val textStyle = TextStyle(
+        color = Color.White,
+        fontSize = 10.sp,
+        fontWeight = FontWeight.Bold
+    )
     activeAprilTags.forEach { at ->
         val atOffset = getCanvasOffsetBase(Waypoint(at.x, at.y), w, h, fieldWidthM, fieldHeightM, league)
         val rw = (0.15 / fieldWidthM) * w
@@ -425,12 +436,6 @@ fun DrawScope.drawAprilTags(
         
         drawContext.canvas.restore()
         
-        // Display Tag ID Label
-        val textStyle = TextStyle(
-            color = Color.White,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold
-        )
         val labelText = "#${at.tagId}"
         val textLayout = textMeasurer.measure(labelText, textStyle)
         val labelOffset = Offset(
@@ -499,6 +504,9 @@ fun DrawScope.drawFieldWaypoints(
     league: League,
     textMeasurer: TextMeasurer
 ) {
+    val selectedTextStyle = TextStyle(color = AresCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    val unselectedTextStyle = TextStyle(color = Color(0xFF00E676), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+
     fieldWaypoints.forEach { wp ->
         val offset = getCanvasOffsetBase(Waypoint(wp.x, wp.y), w, h, fieldWidthM, fieldHeightM, league)
         val radius = 10.dp.toPx()
@@ -506,11 +514,7 @@ fun DrawScope.drawFieldWaypoints(
         val baseColor = if (isSelected) AresCyan else Color(0xFF00E676) // Cyan when selected, neon green when not
 
         // Waypoint name label
-        val textStyle = TextStyle(
-            color = baseColor,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold
-        )
+        val textStyle = if (isSelected) selectedTextStyle else unselectedTextStyle
         val textLayout = textMeasurer.measure(wp.name, textStyle)
         val textOffset = Offset(
             (offset.x + radius + 6).toFloat(),

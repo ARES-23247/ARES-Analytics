@@ -41,7 +41,7 @@ class AutoImportService(
     private val hootDecoderService: HootDecoderService,
     private val processManagerService: ProcessManagerService,
     private val configProvider: () -> WorkspaceConfig?,
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
     private var job: Job? = null
     private val _importNotifications = MutableSharedFlow<String>(replay = 100)

@@ -292,7 +292,10 @@ class ReplayEngineService(
         val targetTimestamp = timestamps[index]
 
         // Reset incremental cache if we seeked backwards or this is first run
-        val seeked = targetTimestamp < lastTargetTimestamp || lastTargetTimestamp == -1L
+        val seeked = lastTargetTimestamp == -1L || 
+            kotlin.math.abs(targetTimestamp - lastTargetTimestamp) > 1000L ||
+            (if (_speed.value >= 0) targetTimestamp < lastTargetTimestamp else targetTimestamp > lastTargetTimestamp)
+        
         if (seeked) {
             lastFrameIndex = 0
             lastActionIndex = 0

@@ -25,6 +25,7 @@ class TargetScannerService {
     private val _isLiveRobotOnline = MutableStateFlow(false)
     val isLiveRobotOnline: StateFlow<Boolean> = _isLiveRobotOnline.asStateFlow()
 
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var scannerJob: Job? = null
 
     /**
@@ -34,7 +35,7 @@ class TargetScannerService {
      */
     fun startScanning(liveRobotHost: String) {
         scannerJob?.cancel()
-        scannerJob = CoroutineScope(Dispatchers.IO).launch {
+        scannerJob = serviceScope.launch {
             while (isActive) {
                 // Check Local Sim
                 _isLocalSimOnline.value = checkPort("127.0.0.1", 5810)

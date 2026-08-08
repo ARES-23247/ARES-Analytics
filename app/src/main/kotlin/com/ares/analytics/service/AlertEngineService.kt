@@ -68,6 +68,9 @@ class AlertEngineService(
     private val currentBuffers = ConcurrentHashMap<String, ArrayDeque<Double>>()
     private val motorNames = listOf("fl", "fr", "rl", "rr", "bl", "br")
 
+    private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val audioMutex = kotlinx.coroutines.sync.Mutex()
+
     // Active alert state: AlertId -> AlertRecord
     private val _alerts = MutableStateFlow<Map<String, AlertRecord>>(emptyMap())
 
@@ -76,7 +79,7 @@ class AlertEngineService(
      */
     val alerts: StateFlow<List<AlertRecord>> = _alerts
         .map { it.values.toList().sortedByDescending { r -> r.triggerTimestampMs } }
-        .stateIn(CoroutineScope(Dispatchers.Default), SharingStarted.Eagerly, emptyList())
+        .stateIn(serviceScope, SharingStarted.Eagerly, emptyList())
 
     private var engineJob: Job? = null
     private var lastBeepTime = 0L
@@ -130,7 +133,7 @@ class AlertEngineService(
     fun startEngine() {
         engineJob?.cancel()
 
-        engineJob = CoroutineScope(Dispatchers.Default).launch {
+        engineJob = serviceScope.launch {
             nt4ClientService.telemetryFlow.collect { frame ->
                 recentValues[frame.key] = frame.value
                 evaluateFrame(frame)
@@ -350,11 +353,17 @@ class AlertEngineService(
         val now = System.currentTimeMillis()
         if (now - lastBeepTime > 1500) {
             lastBeepTime = now
-            CoroutineScope(Dispatchers.IO).launch {
-                runCatching {
-                    playBeepTone(1000f, 100)
-                    delay(50)
-                    playBeepTone(1200f, 150)
+            serviceScope.launch(Dispatchers.IO) {
+                if (audioMutex.tryLock()) {
+                    try {
+                        runCatching {
+                            playBeepTone(1000f, 100)
+                            delay(50)
+                            playBeepTone(1200f, 150)
+                        }
+                    } finally {
+                        audioMutex.unlock()
+                    }
                 }
             }
         }

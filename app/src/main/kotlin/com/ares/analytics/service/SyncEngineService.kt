@@ -106,23 +106,37 @@ class SyncEngineService(
         val modeStr = "_$mode"
         val descriptiveName = "ARES_Telemetry_${dateStr}${robotStr}${matchStr}${allianceStr}${modeStr}_$sessionId.parquet"
         val tempFile = File(tempDir, descriptiveName)
-        parquetExporterService.exportSessionToParquet(sessionId, tempFile)
-        val updatedSummary = summary.copy(fileSizeBytes = tempFile.length())
-
         try {
+            parquetExporterService.exportSessionToParquet(sessionId, tempFile)
+            val updatedSummary = summary.copy(fileSizeBytes = tempFile.length())
+
             // 2. Locate or create folder structure in Google Drive
             val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
             val sessionsFolderId = googleDriveService.findOrCreateFolder("sessions", rootFolderId)
 
             // 3. Upload Parquet file to sessions/ folder
             val existingParquetId = googleDriveService.findFileContaining(sessionId, sessionsFolderId)
-            googleDriveService.writeFileStreaming(
-                name = descriptiveName,
-                file = tempFile,
-                parentId = sessionsFolderId,
-                mimeType = "application/octet-stream",
-                fileId = existingParquetId
-            )
+            
+            var attempt = 0
+            var success = false
+            var delayMs = 1000L
+            while (attempt < 3 && !success) {
+                try {
+                    googleDriveService.writeFileStreaming(
+                        name = descriptiveName,
+                        file = tempFile,
+                        parentId = sessionsFolderId,
+                        mimeType = "application/octet-stream",
+                        fileId = existingParquetId
+                    )
+                    success = true
+                } catch (e: Exception) {
+                    attempt++
+                    if (attempt >= 3) throw e
+                    kotlinx.coroutines.delay(delayMs)
+                    delayMs *= 2
+                }
+            }
 
             // 4. Update the index.json file
             val indexFileId = googleDriveService.findFile("index.json", rootFolderId)

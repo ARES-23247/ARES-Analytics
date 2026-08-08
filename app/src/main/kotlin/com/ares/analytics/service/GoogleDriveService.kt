@@ -196,26 +196,24 @@ class GoogleDriveService(
             }
         } else {
             // Create a new file with multipart metadata + media content
-            val boundary = "Boundary_${System.currentTimeMillis()}"
             val metadataPart = buildJsonObject {
                 put("name", name)
                 put("parents", buildJsonArray { add(parentId) })
             }.toString()
             val response = httpClient.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart") {
                 header(HttpHeaders.Authorization, "Bearer $token")
-                contentType(ContentType.parse("multipart/related; boundary=$boundary"))
-                
-                // Write raw multipart stream safely using ISO_8859_1 to avoid character decoding loss
                 setBody(
-                    buildString {
-                        append("--$boundary\r\n")
-                        append("Content-Type: application/json; charset=UTF-8\r\n\r\n")
-                        append(metadataPart)
-                        append("\r\n--$boundary\r\n")
-                        append("Content-Type: $mimeType\r\n\r\n")
-                        append(String(bytes, Charsets.ISO_8859_1))
-                        append("\r\n--$boundary--\r\n")
-                    }.toByteArray(Charsets.ISO_8859_1)
+                    io.ktor.client.request.forms.MultiPartFormDataContent(
+                        io.ktor.client.request.forms.formData {
+                            append("metadata", metadataPart, Headers.build {
+                                append(HttpHeaders.ContentType, "application/json; charset=UTF-8")
+                            })
+                            append("file", bytes, Headers.build {
+                                append(HttpHeaders.ContentType, mimeType)
+                            })
+                        },
+                        boundary = "Boundary_${System.currentTimeMillis()}"
+                    )
                 )
             }
 

@@ -63,13 +63,12 @@ fun DashboardScreen(
     // Replay integration
     val replayEngine = services.replayEngineService
     val replayState by replayEngine.state.collectAsState()
-    val replayProgress by replayEngine.progress.collectAsState()
-    val replaySpeed by replayEngine.speed.collectAsState()
     val isReplayMode = state.primarySessionId != null && replayState != ReplayState.STOPPED
     val undismissedAlerts = remember { mutableStateListOf<AlertRecord>() }
     val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
 
     LaunchedEffect(state.alerts) {
+        undismissedAlerts.removeAll { alert -> state.alerts.any { it.alertId == alert.alertId && it.resolveTimestampMs != null } }
         state.alerts.forEach { alert ->
             val isCritical = alert.ruleKey.contains("brownout", ignoreCase = true) ||
                              alert.ruleKey.contains("comms", ignoreCase = true) ||
@@ -281,8 +280,6 @@ fun DashboardScreen(
             ReplayTimelineScrubber(
                 replayEngine = replayEngine,
                 replayState = replayState,
-                progress = if (state.primarySessionId == null && !isReplayActive) 1.0 else replayProgress,
-                speed = replaySpeed,
                 isLiveConnection = state.primarySessionId == null,
                 isReplayActive = isReplayActive,
                 sessionMode = state.sessionMode,
@@ -401,8 +398,6 @@ fun DashboardScreen(
 private fun ReplayTimelineScrubber(
     replayEngine: ReplayEngineService,
     replayState: ReplayState,
-    progress: Double,
-    speed: Double,
     isLiveConnection: Boolean,
     isReplayActive: Boolean,
     sessionMode: SessionMode,
@@ -415,6 +410,9 @@ private fun ReplayTimelineScrubber(
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
+    val rawProgress by replayEngine.progress.collectAsState()
+    val speed by replayEngine.speed.collectAsState()
+    val progress = if (isLiveConnection && !isReplayActive) 1.0 else rawProgress
     val modeColor = when (sessionMode) {
         SessionMode.LIVE_STREAMING -> ModeLive
         SessionMode.LIVE_REWIND -> ModeRewind

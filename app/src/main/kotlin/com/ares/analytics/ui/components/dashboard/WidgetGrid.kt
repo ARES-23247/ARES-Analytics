@@ -86,10 +86,12 @@ fun WidgetGrid(
 
                     Box(
                         modifier = Modifier
-                            .absoluteOffset(
-                                x = x + (offsetX / density).dp,
-                                y = y + (offsetY / density).dp
-                            )
+                            .offset {
+                                IntOffset(
+                                    x = x.roundToPx() + offsetX.roundToInt(),
+                                    y = y.roundToPx() + offsetY.roundToInt()
+                                )
+                            }
                             .size(width = w, height = h)
                             .clip(RoundedCornerShape(12.dp))
                             .background(AresSurface)
@@ -104,9 +106,8 @@ fun WidgetGrid(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(40.dp)
-                                .then(
-                                    if (widget.isLocked) Modifier
-                                    else Modifier.pointerInput(widget) {
+                                .pointerInput(widget) {
+                                    if (!widget.isLocked) {
                                         detectDragGestures(
                                             onDragStart = { isDragging = true },
                                             onDragEnd = {
@@ -136,7 +137,7 @@ fun WidgetGrid(
                                             }
                                         )
                                     }
-                                )
+                                }
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
                             Row(
@@ -189,9 +190,8 @@ fun WidgetGrid(
                             modifier = Modifier
                                 .size(24.dp)
                                 .align(Alignment.BottomEnd)
-                                .then(
-                                    if (widget.isLocked) Modifier
-                                    else Modifier.pointerInput(widget) {
+                                .pointerInput(widget) {
+                                    if (!widget.isLocked) {
                                         detectDragGestures(
                                             onDragStart = { isResizing = true },
                                             onDragEnd = {
@@ -221,7 +221,7 @@ fun WidgetGrid(
                                             }
                                         )
                                     }
-                                )
+                                }
                                 .padding(4.dp),
                             contentAlignment = Alignment.BottomEnd
                         ) {

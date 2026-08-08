@@ -79,14 +79,15 @@ open class Nt4ClientService(
     }
     var serverIp: String = "127.0.0.1"
 
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, e -> e.printStackTrace() })
+
     private val _isConnected = MutableStateFlow(false)
     open val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
     val isReplayActive = MutableStateFlow(false)
 
     private val _telemetryFlow = MutableSharedFlow<TelemetryFrame>(
-        replay = 100,
-
-        extraBufferCapacity = 65536,
+        replay = 0,
+        extraBufferCapacity = 1024,
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
     )
     open val telemetryFlow: SharedFlow<TelemetryFrame> = _telemetryFlow.asSharedFlow()
@@ -164,7 +165,7 @@ open class Nt4ClientService(
     fun start(host: String, teamId: String, seasonId: String, robotId: String, port: Int = 5810) {
         println("[Nt4ClientService] start() called with host=$host, port=$port, teamId=$teamId, seasonId=$seasonId, robotId=$robotId")
         clientJob?.cancel()
-        clientJob = CoroutineScope(Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, e -> e.printStackTrace() }).launch {
+        clientJob = serviceScope.launch {
             try {
                 databaseService.deleteTelemetryFrames("live-telemetry")
             } catch (e: Exception) {
@@ -178,6 +179,7 @@ open class Nt4ClientService(
                 }
             }
 
+            var retryDelay = 1000L
             while (isActive) {
                 var activeHost = host
                 val clientName = "ARES-Analytics-${System.currentTimeMillis()}"
@@ -233,7 +235,7 @@ open class Nt4ClientService(
                               {
                                 "method": "subscribe",
                                 "params": {
-                                  "topics": ["", "ARES", "Tuning"],
+                                  "topics": ["/ARES", "/Drive", "/Hardware", "/Topology", "/Tuning"],
                                   "subuid": 1,
                                   "options": {
                                     "prefix": true,
@@ -265,13 +267,14 @@ open class Nt4ClientService(
                                 } catch (e: Exception) {
                                     break
                                 }
-                                delay(20)
+                                delay(1000)
                             }
                         }
 
                         try {
                             // 3. Read frames
-                            for (frame in incoming) {
+                            while (isActive) {
+                                val frame = withTimeout(5000) { incoming.receive() }
                                 when (frame) {
                                     is Frame.Text -> {
                                         val text = frame.readText()
@@ -295,12 +298,15 @@ open class Nt4ClientService(
                             _isConnected.value = false
                         }
                     }
+                    // Reset on successful connection end
+                    retryDelay = 1000L
                 } catch (e: Exception) {
                     println("[Nt4ClientService] Error connecting to $url: ${e.message}")
                     webSocketSession = null
                     _isConnected.value = false
                     // Backoff delay before reconnect
-                    delay(3000)
+                    delay(retryDelay)
+                    retryDelay = (retryDelay * 2).coerceAtMost(10000L)
                 }
             }
         }
@@ -405,7 +411,7 @@ open class Nt4ClientService(
         clientJob?.cancel()
         _isConnected.value = false
         // Flush remaining frames asynchronously
-        CoroutineScope(Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, e -> e.printStackTrace() }).launch {
+        serviceScope.launch {
             flushPendingFrames()
         }
         synchronized(this) {
@@ -482,8 +488,13 @@ open class Nt4ClientService(
                             val name = params["name"]?.jsonPrimitive?.content ?: continue
                             val id = params["id"]?.jsonPrimitive?.intOrNull ?: continue
                             val type = params["type"]?.jsonPrimitive?.content ?: "double"
+                            val propertiesJson = params["properties"] as? JsonObject
+                            val props = mutableMapOf<String, String>()
+                            propertiesJson?.forEach { (k, v) ->
+                                props[k] = if (v is JsonPrimitive && v.isString) v.content else v.toString()
+                            }
                             println("[Nt4ClientService] Server announced topic: $name (id=$id, type=$type)")
-                            topicMap[id] = Nt4Topic(id, name, type)
+                            topicMap[id] = Nt4Topic(id, name, type, props)
                         }
                         "unannounce" -> {
                             val params = obj["params"] as? JsonObject ?: continue
@@ -516,7 +527,11 @@ open class Nt4ClientService(
         seasonId: String,
         robotId: String
     ) {
-        val messages = com.areslib.networktables.NT4WireProtocol.unpackMessageFrames(bytes)
+        val messages = try {
+            com.areslib.networktables.NT4WireProtocol.unpackMessageFrames(bytes)
+        } catch (e: Exception) {
+            emptyList()
+        }
         binaryFrameCount += messages.size
         val now = System.currentTimeMillis()
         if (now - lastBinaryDiagLog > 2000) {
@@ -563,7 +578,7 @@ open class Nt4ClientService(
                 }
                 val session = _currentSession.value
                 if (session != null) {
-                    CoroutineScope(Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, e -> e.printStackTrace() }).launch {
+                    serviceScope.launch {
                         databaseService.updateSessionLogFilePath(session.sessionId, logFilePath)
                     }
                 }
@@ -601,7 +616,7 @@ open class Nt4ClientService(
                 
                 // Save in DB if session is active
                 if (session != null) {
-                    CoroutineScope(Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, e -> e.printStackTrace() }).launch {
+                    serviceScope.launch {
                         databaseService.insertConsoleMessages(listOf(consoleMsg), sessionId)
                     }
                 }
@@ -615,19 +630,29 @@ open class Nt4ClientService(
             val session = _currentSession.value
             val sessionId = session?.sessionId ?: "live-telemetry"
             val frames = mutableListOf<TelemetryFrame>()
-            val list = when (valueElement) {
-                is JsonArray -> valueElement.map { 
-                    if (it is JsonPrimitive && it.isString) it.content else it.jsonPrimitive.doubleOrNull ?: 0.0 
-                }
-                is List<*> -> valueElement
-                is DoubleArray -> valueElement.toList()
-                is FloatArray -> valueElement.toList()
-                is Array<*> -> valueElement.toList()
-                else -> emptyList<Any?>()
+            
+            val size = when (valueElement) {
+                is JsonArray -> valueElement.size
+                is List<*> -> valueElement.size
+                is DoubleArray -> valueElement.size
+                is FloatArray -> valueElement.size
+                is Array<*> -> valueElement.size
+                else -> 0
             }
             
-            for (idx in list.indices) {
-                val element = list[idx]
+            val sb = StringBuilder(normalizedName).append("/")
+            val baseLen = sb.length
+            
+            for (idx in 0 until size) {
+                val element = when (valueElement) {
+                    is JsonArray -> valueElement[idx]
+                    is List<*> -> valueElement[idx]
+                    is DoubleArray -> valueElement[idx]
+                    is FloatArray -> valueElement[idx]
+                    is Array<*> -> valueElement[idx]
+                    else -> null
+                }
+                
                 val doubleValue = when (element) {
                     is JsonPrimitive -> if (element.isString) element.content.toDoubleOrNull() ?: 0.0 else element.doubleOrNull ?: 0.0
                     is Number -> element.toDouble()
@@ -639,7 +664,8 @@ open class Nt4ClientService(
                     is String -> element
                     else -> null
                 }
-                val frameKey = "$normalizedName/$idx"
+                sb.setLength(baseLen)
+                val frameKey = sb.append(idx).toString()
                 val frame = TelemetryFrame(
                     timestampMs = timestampMs,
                     sessionId = sessionId,

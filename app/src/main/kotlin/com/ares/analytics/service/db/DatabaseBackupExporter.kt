@@ -54,8 +54,9 @@ class DatabaseBackupExporter(
         val absolutePath = file.absolutePath.replace("\\", "/")
         conn.createStatement().use { st ->
             st.execute("""
-                INSERT OR REPLACE INTO telemetry_frames 
+                INSERT INTO telemetry_frames BY NAME 
                 SELECT * FROM read_parquet('$absolutePath')
+                ON CONFLICT (session_id, key, timestamp_ms) DO UPDATE SET value = EXCLUDED.value
             """.trimIndent())
         }
     }

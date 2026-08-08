@@ -50,7 +50,7 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
             dbFile.delete()
         }
         
-        conn = DriverManager.getConnection("jdbc:duckdb:${dbFile.absolutePath}")
+        conn = DriverManager.getConnection("jdbc:duckdb:${dbFile.absolutePath}?memory_limit=1GB&threads=4")
         
         // Ensure parquet extension is loaded for export
         conn.createStatement().use { st ->
@@ -58,7 +58,7 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
             st.execute("LOAD parquet;")
         }
         
-        ephemeralConn = DriverManager.getConnection("jdbc:duckdb:")
+        ephemeralConn = DriverManager.getConnection("jdbc:duckdb:?memory_limit=1GB&threads=4")
         
         schemaManager = SchemaMigrationManager(conn, ephemeralConn)
         matchLogRepo = MatchLogRepository(conn, ephemeralConn, dbMutex)
@@ -113,9 +113,8 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
 
      */
     fun close() {
-        if (!conn.isClosed) {
-            conn.close()
-        }
+        if (!conn.isClosed) { conn.close() }
+        if (!ephemeralConn.isClosed) { ephemeralConn.close() }
     }
 }
 
