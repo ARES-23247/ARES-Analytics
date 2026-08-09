@@ -91,6 +91,7 @@ data class OAuthSavedAuth(
     val googleAccessToken: String,
     val googleRefreshToken: String?,
     val googleTokenExpiresAt: Long?,
+    val googleIdToken: String? = null,
     val uid: String,
     val email: String,
     val displayName: String
@@ -133,6 +134,13 @@ class OAuthService(private val environmentService: EnvironmentService) {
 
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
+    /**
+     * Per-request CSRF `state` value for the OAuth redirect. Set in [startGoogleLogin] /
+     * [startGithubLogin] before booting the callback server and validated in the
+     * `/callback` handler to block login-CSRF (AUDIT H1).
+     */
+    private var expectedState: String? = null
+
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
     private val authFile = File(System.getProperty("user.home"), ".ares-analytics/auth.json")
@@ -154,6 +162,21 @@ class OAuthService(private val environmentService: EnvironmentService) {
             refreshGoogleAccessToken(clientId, config.googleClientSecret)
         } catch (e: Exception) {
             // Best-effort; if refresh fails the user will be prompted to sign in again.
+        }
+        // Restore Authenticated state from persisted credentials. The refresh above persists
+        // a fresh id_token when it actually round-trips; otherwise fall back to the last
+        // persisted id_token. Without this, restarts left _authState stuck in Unauthenticated
+        // because the in-state refresh update only fires when already Authenticated.
+        val restored = getSavedAuth() ?: return
+        val idToken = restored.googleIdToken
+        if (!idToken.isNullOrBlank()) {
+            val payload = decodeIdToken(idToken)
+            _authState.value = AuthState.Authenticated(
+                idToken = idToken,
+                uid = payload.sub.ifBlank { restored.uid },
+                email = payload.email ?: restored.email,
+                displayName = payload.name ?: restored.displayName
+            )
         }
     }
 
@@ -178,6 +201,9 @@ class OAuthService(private val environmentService: EnvironmentService) {
         val codeChallenge = generateCodeChallenge(codeVerifier)
         val callbackPort = 5805
         val redirectUri = "http://localhost:$callbackPort/callback"
+        // Per-request CSRF state parameter (AUDIT H1): unguessable, validated on callback.
+        val state = generateCodeVerifier()
+        expectedState = state
         val loginUrl = "https://accounts.google.com/o/oauth2/v2/auth?" +
                 "client_id=$googleClientId" +
                 "&redirect_uri=${URLEncoder.encode(redirectUri, "UTF-8")}" +
@@ -186,7 +212,8 @@ class OAuthService(private val environmentService: EnvironmentService) {
                 "&access_type=offline" +
                 "&prompt=consent" +
                 "&code_challenge=$codeChallenge" +
-                "&code_challenge_method=S256"
+                "&code_challenge_method=S256" +
+                "&state=$state"
 
         bootCallbackServer(callbackPort) { code ->
             try {
@@ -249,6 +276,7 @@ class OAuthService(private val environmentService: EnvironmentService) {
             googleAccessToken = accessToken,
             googleRefreshToken = refreshToken,
             googleTokenExpiresAt = expiresAt,
+            googleIdToken = idToken,
             uid = uid,
             email = email,
             displayName = name
@@ -293,7 +321,8 @@ class OAuthService(private val environmentService: EnvironmentService) {
                     val updatedAuth = saved.copy(
                         googleAccessToken = data.access_token,
                         googleTokenExpiresAt = newExpiresAt,
-                        googleRefreshToken = data.refresh_token ?: saved.googleRefreshToken
+                        googleRefreshToken = data.refresh_token ?: saved.googleRefreshToken,
+                        googleIdToken = data.id_token.ifBlank { saved.googleIdToken }
                     )
                     saveAuth(updatedAuth)
                     // Refresh also returns a fresh ID token; refresh identity in-state if present.
@@ -329,10 +358,14 @@ class OAuthService(private val environmentService: EnvironmentService) {
         }
         val callbackPort = 5805
         val redirectUri = "http://localhost:$callbackPort/callback"
+        // Per-request CSRF state parameter (AUDIT H1): unguessable, validated on callback.
+        val state = generateCodeVerifier()
+        expectedState = state
         val loginUrl = "https://github.com/login/oauth/authorize?" +
                 "client_id=$githubClientId" +
                 "&redirect_uri=${URLEncoder.encode(redirectUri, "UTF-8")}" +
-                "&scope=read:org"
+                "&scope=read:org" +
+                "&state=$state"
 
         bootCallbackServer(callbackPort) { code ->
             try {
@@ -384,6 +417,16 @@ class OAuthService(private val environmentService: EnvironmentService) {
         try {
             authFile.parentFile?.mkdirs()
             authFile.writeText(Json.encodeToString(auth))
+            // Best-effort OS-level restriction: owner-only read/write (AUDIT H2). POSIX-only;
+            // silently ignored on Windows / unsupported filesystems.
+            try {
+                java.nio.file.Files.setPosixFilePermissions(
+                    authFile.toPath(),
+                    java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")
+                )
+            } catch (e: UnsupportedOperationException) {
+                // Windows / non-POSIX FS — no action possible.
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -394,6 +437,16 @@ class OAuthService(private val environmentService: EnvironmentService) {
         server = embeddedServer(CIO, port = port) {
             routing {
                 get("/callback") {
+                    // Validate the per-request CSRF state parameter (AUDIT H1). The expected
+                    // value is set in startGoogleLogin/startGithubLogin before booting.
+                    val returnedState = call.request.queryParameters["state"]
+                    val expected = expectedState
+                    if (expected == null || returnedState != expected) {
+                        call.respondText("Authentication failed: invalid state parameter (possible CSRF attack).")
+                        _authState.value = AuthState.Error("Invalid OAuth state parameter")
+                        serviceScope.launch { stopServer() }
+                        return@get
+                    }
                     val code = call.request.queryParameters["code"]
                     val error = call.request.queryParameters["error"]
 
