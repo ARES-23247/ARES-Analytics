@@ -51,7 +51,7 @@ class DatabaseBackupExporter(
      * @throws java.sql.SQLException If DuckDB encounters a file read or table insertion error.
      */
     suspend fun importParquet(file: File) = withDbLock {
-        val absolutePath = file.absolutePath.replace("\\", "/")
+        val absolutePath = file.absolutePath.replace("\\", "/").replace("'", "''")
         conn.createStatement().use { st ->
             st.execute("""
                 INSERT INTO telemetry_frames BY NAME 
@@ -72,7 +72,7 @@ class DatabaseBackupExporter(
             for (sessionId in sessionIds) {
                 val tempFile = File.createTempFile("export_", ".parquet")
                 try {
-                    val absolutePath = tempFile.absolutePath.replace("\\", "/")
+                    val absolutePath = tempFile.absolutePath.replace("\\", "/").replace("'", "''")
                     val safeSessionId = sessionId.replace("'", "''")
                     conn.createStatement().use { st ->
                         st.execute("COPY (SELECT * FROM telemetry_frames WHERE session_id = '$safeSessionId') TO '$absolutePath' (FORMAT PARQUET)")

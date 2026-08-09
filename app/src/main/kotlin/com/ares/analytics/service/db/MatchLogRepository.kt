@@ -64,6 +64,15 @@ class MatchLogRepository(
      * @param sql Raw SQL statement string.
      */
     suspend fun executeRaw(sql: String) = withDbLock {
+        val normalized = sql.trim().trimEnd(';').uppercase()
+        val isSelect = normalized.startsWith("SELECT")
+        val forbidden = listOf("DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "TRUNCATE", "EXEC")
+        val hasForbidden = forbidden.any { Regex("\\b$it\\b").containsMatchIn(normalized) }
+        
+        if (!isSelect || hasForbidden) {
+            println("Rejected dangerous SQL: $sql")
+            throw IllegalArgumentException("Raw query rejected: Only read-only SELECT queries are allowed.")
+        }
         conn.createStatement().use { it.execute(sql) }
     }
 

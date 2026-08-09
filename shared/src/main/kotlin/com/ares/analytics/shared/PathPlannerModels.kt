@@ -48,11 +48,7 @@ data class PathPlannerEventMarker(
 
 @Serializable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
+ * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$, angular values in $deg/s$, time in $s$.
  */
 data class PathConstraints(
     val maxVelocity: Double = 3.0,

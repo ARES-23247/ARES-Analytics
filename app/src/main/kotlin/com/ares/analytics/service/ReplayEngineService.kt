@@ -102,9 +102,9 @@ class ReplayEngineService(
     private var lastTargetTimestamp: Long = -1L
     private var lastFrameIndex: Int = 0
     private var lastActionIndex: Int = 0
-    private val valuesMap = mutableMapOf<String, Double>()
+    private val valuesMap = java.util.concurrent.ConcurrentHashMap<String, Double>()
 
-    private val datagramSocket = DatagramSocket()
+    private var datagramSocket: DatagramSocket? = DatagramSocket()
     private val loopbackAddress = InetAddress.getByName("127.0.0.1")
     private val broadcastPort = 5802 // AdvantageScope/dashboard loopback
 
@@ -202,6 +202,10 @@ class ReplayEngineService(
     fun stop() {
         _state.value = ReplayState.STOPPED
         replayJob?.cancel()
+        try {
+            datagramSocket?.close()
+        } catch (e: Exception) {
+        }
         if (timestamps.isNotEmpty()) {
             currentPlayheadMs = startTimestampMs
             _progress.value = 0.0
@@ -380,6 +384,9 @@ class ReplayEngineService(
 
     private fun broadcastTelemetry(frame: ReplayFrame) {
         try {
+            if (datagramSocket == null || datagramSocket!!.isClosed) {
+                datagramSocket = DatagramSocket()
+            }
             val maxChunkSize = 500
             val entries = frame.values.entries.toList()
             for (i in entries.indices step maxChunkSize) {
@@ -387,10 +394,14 @@ class ReplayEngineService(
                 val jsonStr = Json.encodeToString(chunkMap)
                 val bytes = jsonStr.toByteArray()
                 val packet = DatagramPacket(bytes, bytes.size, loopbackAddress, broadcastPort)
-                datagramSocket.send(packet)
+                datagramSocket?.send(packet)
             }
         } catch (e: Exception) {
             // Ignore socket broadcast errors
+        } finally {
+            // If instructions strictly imply closing it after usage
+            // datagramSocket?.close() 
+            // datagramSocket = null
         }
     }
 }

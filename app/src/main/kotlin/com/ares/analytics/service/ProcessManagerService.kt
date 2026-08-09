@@ -162,7 +162,10 @@ class ProcessManagerService {
                     for (pid in pids) {
                         if (pid != ProcessHandle.current().pid()) {
                             ProcessHandle.of(pid).ifPresent { handle ->
-                                handle.destroyForcibly()
+                                val cmdLine = handle.info().commandLine().orElse("")
+                                if (cmdLine.contains("ARES") || cmdLine.contains("areslib") || cmdLine.contains("DesktopSimLauncher")) {
+                                    handle.destroyForcibly()
+                                }
                             }
                         }
                     }
@@ -175,7 +178,12 @@ class ProcessManagerService {
                         while (reader.readLine().also { line = it } != null) {
                             line!!.trim().toLongOrNull()?.let { pid ->
                                 if (pid != ProcessHandle.current().pid()) {
-                                    ProcessHandle.of(pid).ifPresent { it.destroyForcibly() }
+                                    ProcessHandle.of(pid).ifPresent { handle ->
+                                        val cmdLine = handle.info().commandLine().orElse("")
+                                        if (cmdLine.contains("ARES") || cmdLine.contains("areslib") || cmdLine.contains("DesktopSimLauncher")) {
+                                            handle.destroyForcibly()
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -199,11 +207,14 @@ class ProcessManagerService {
                     if (parts.size >= 2) {
                         val pidString = parts[0]
                         val mainClass = parts[1]
-                        if (mainClass.contains("com.areslib.sim") || mainClass.contains("DesktopSimLauncher")) {
+                        if (mainClass == "com.areslib.sim.DesktopSimLauncher") {
                             val pid = pidString.toLongOrNull()
                             if (pid != null && pid != ProcessHandle.current().pid()) {
                                 ProcessHandle.of(pid).ifPresent { handle ->
-                                    handle.destroyForcibly()
+                                    val cmdLine = handle.info().commandLine().orElse("")
+                                    if (cmdLine.contains("ARES") || cmdLine.contains("areslib") || cmdLine.contains("DesktopSimLauncher")) {
+                                        handle.destroyForcibly()
+                                    }
                                 }
                             }
                         }

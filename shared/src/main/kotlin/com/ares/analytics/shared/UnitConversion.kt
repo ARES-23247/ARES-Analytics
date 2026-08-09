@@ -84,7 +84,7 @@ object UnitConversion {
 
      */
     fun convert(value: Double, from: RobotUnit, to: RobotUnit): Double {
-        if (from.category != to.category) return value
+        if (from.category != to.category) throw IllegalArgumentException("Cannot convert from ${from.category} to ${to.category}")
 
         if (from.category == UnitCategory.TEMPERATURE) {
             val celsius = when (from) {

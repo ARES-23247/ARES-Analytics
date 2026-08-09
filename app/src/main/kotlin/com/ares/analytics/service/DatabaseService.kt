@@ -61,7 +61,8 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         conn.createStatement().use { st ->
             st.execute("SET memory_limit='1GB'")
             st.execute("SET threads=4")
-            st.execute("SET temp_directory='${tmpDirFile.absolutePath.replace("\\", "/")}'")
+            val safeTmpDir = tmpDirFile.absolutePath.replace("\\", "/").replace("'", "''")
+            st.execute("SET temp_directory='$safeTmpDir'")
             st.execute("INSTALL parquet;")
             st.execute("LOAD parquet;")
         }
