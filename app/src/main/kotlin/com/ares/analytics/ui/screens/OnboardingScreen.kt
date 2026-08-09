@@ -110,7 +110,8 @@ fun OnboardingScreen(
                     onClientIdChange = { viewModel.handleIntent(OnboardingIntent.UpdateGoogleClientId(it)) },
                     onClientSecretChange = { viewModel.handleIntent(OnboardingIntent.UpdateGoogleClientSecret(it)) },
                     onSignInClick = {
-                        val targetClientId = state.googleClientId.takeIf { it.isNotEmpty() } ?: "mock"
+                        val targetClientId = state.googleClientId.takeIf { it.isNotBlank() }
+                            ?: "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com"
                         val targetClientSecret = state.googleClientSecret.takeIf { it.isNotBlank() }
 
                         oauthService.startGoogleLogin(
