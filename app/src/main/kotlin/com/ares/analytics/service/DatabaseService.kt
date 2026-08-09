@@ -53,15 +53,24 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         }
         
         val appDataDir = dbFile.parentFile?.absolutePath ?: (System.getProperty("user.home") + "/.ares-analytics")
-        conn = DriverManager.getConnection("jdbc:duckdb:${dbFile.absolutePath}?memory_limit=1GB&threads=4;temp_directory='${appDataDir}/duckdb_tmp'")
+        conn = DriverManager.getConnection("jdbc:duckdb:${dbFile.absolutePath}")
         
-        // Ensure parquet extension is loaded for export
+        // Ensure parquet extension is loaded for export and configure DuckDB settings
+        val tmpDirFile = File(appDataDir, "duckdb_tmp")
+        tmpDirFile.mkdirs()
         conn.createStatement().use { st ->
+            st.execute("SET memory_limit='1GB'")
+            st.execute("SET threads=4")
+            st.execute("SET temp_directory='${tmpDirFile.absolutePath.replace("\\", "/")}'")
             st.execute("INSTALL parquet;")
             st.execute("LOAD parquet;")
         }
         
-        ephemeralConn = DriverManager.getConnection("jdbc:duckdb:?memory_limit=1GB&threads=4;temp_directory='${appDataDir}/duckdb_tmp'")
+        ephemeralConn = DriverManager.getConnection("jdbc:duckdb:")
+        ephemeralConn.createStatement().use { st ->
+            st.execute("SET memory_limit='1GB'")
+            st.execute("SET threads=4")
+        }
         
         schemaManager = SchemaMigrationManager(conn, ephemeralConn)
         matchLogRepo = MatchLogRepository(conn, ephemeralConn, dbMutex)

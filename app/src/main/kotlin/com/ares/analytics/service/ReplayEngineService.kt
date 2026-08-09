@@ -56,7 +56,7 @@ data class ReplayFrame(
  */
 class ReplayEngineService(
     private val databaseService: DatabaseService,
-    private val nt4ClientService: Nt4ClientService
+    private val nt4ClientService: Nt4ClientService? = null
 ) {
     private val jsonParser = Json { ignoreUnknownKeys = true }
 

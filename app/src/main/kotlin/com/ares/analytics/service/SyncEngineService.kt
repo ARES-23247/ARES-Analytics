@@ -389,8 +389,9 @@ class SyncEngineService(
         val modelName = config.geminiModel ?: "gemini-1.5-flash"
         val jsonResponse = if (aiMode == "STUDIO") {
             val apiKey = config.geminiApiKey ?: throw IllegalStateException("Gemini API key is not configured in settings")
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent"
             val response = httpClient.post(url) {
+                header("x-goog-api-key", apiKey)
                 contentType(ContentType.Application.Json)
                 setBody(
                     buildJsonObject {
@@ -486,8 +487,9 @@ class SyncEngineService(
         """.trimIndent()
         val jsonResponse = if (aiMode == "STUDIO") {
             val apiKey = config.geminiApiKey ?: throw IllegalStateException("Gemini API key is not configured in settings")
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent"
             val response = httpClient.post(url) {
+                header("x-goog-api-key", apiKey)
                 contentType(ContentType.Application.Json)
                 setBody(
                     buildJsonObject {
@@ -602,8 +604,9 @@ class SyncEngineService(
         """.trimIndent()
         val jsonResponse = if (aiMode == "STUDIO") {
             val apiKey = config.geminiApiKey ?: throw IllegalStateException("Gemini API key is not configured in settings")
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent"
             val response = httpClient.post(url) {
+                header("x-goog-api-key", apiKey)
                 contentType(ContentType.Application.Json)
                 setBody(
                     buildJsonObject {
@@ -661,6 +664,18 @@ class SyncEngineService(
         } catch (e: Exception) {
             return@withContext "I was unable to formulate a SQL query to extract the data. Details: $sanitizedJson"
         }
+        
+        // C3 Fix: Strictly validate that generated SQL is a read-only SELECT or WITH statement
+        val normalizedSql = sqlQuery.trim().trimEnd(';').uppercase()
+        val isReadOnly = (normalizedSql.startsWith("SELECT") || normalizedSql.startsWith("WITH"))
+        val dangerousKeywords = listOf("DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "ATTACH", "INSTALL", "PRAGMA", "COPY", "TRUNCATE", "EXECUTE", "CALL", "VACUUM")
+        val hasDangerousKeyword = dangerousKeywords.any { keyword ->
+            Regex("\\b$keyword\\b").containsMatchIn(normalizedSql)
+        }
+        if (!isReadOnly || hasDangerousKeyword) {
+            return@withContext "Security Error: The generated query contains disallowed modification statements or non-SELECT clauses and was blocked."
+        }
+
         val queryResult = try {
             databaseService.executeQueryRaw(sqlQuery)
         } catch (e: Exception) {
@@ -684,8 +699,9 @@ class SyncEngineService(
         """.trimIndent()
         val finalResponse = if (aiMode == "STUDIO") {
             val apiKey = config.geminiApiKey ?: throw IllegalStateException("Gemini API key is not configured in settings")
-            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+            val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent"
             val response = httpClient.post(url) {
+                header("x-goog-api-key", apiKey)
                 contentType(ContentType.Application.Json)
                 setBody(
                     buildJsonObject {

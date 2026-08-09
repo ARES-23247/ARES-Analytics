@@ -55,6 +55,12 @@ class GcsUploadIntegrationTest {
         `when`(mockCollection.document(anyString())).thenReturn(mockDoc)
         `when`(mockDoc.set(any())).thenReturn(mockFuture)
         `when`(mockFuture.get()).thenReturn(mock(WriteResult::class.java))
+        
+        val mockDocSnapFuture = mock(ApiFuture::class.java) as ApiFuture<DocumentSnapshot>
+        val mockDocSnap = mock(DocumentSnapshot::class.java)
+        `when`(mockDoc.get()).thenReturn(mockDocSnapFuture)
+        `when`(mockDocSnapFuture.get()).thenReturn(mockDocSnap)
+        `when`(mockDocSnap.exists()).thenReturn(false)
         val mockUserCollection = mock(CollectionReference::class.java)
         val mockUserDocRef = mock(DocumentReference::class.java)
         val mockUserFuture = mock(ApiFuture::class.java) as ApiFuture<DocumentSnapshot>

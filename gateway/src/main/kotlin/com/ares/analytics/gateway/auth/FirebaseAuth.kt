@@ -33,18 +33,23 @@ class FirebaseAuthenticationProvider(config: Config) : AuthenticationProvider(co
             return
         }
         val token = authHeader.substring(7)
-
         try {
-            if (System.getenv("MOCK_AUTH") == "true" && token.startsWith("mock-token:")) {
-                val parts = token.split(":")
-                val principal = FirebasePrincipal(
-                    uid = parts.getOrNull(1) ?: "mock-uid",
-                    email = parts.getOrNull(2),
-                    name = parts.getOrNull(3),
-                    teamId = parts.getOrNull(4)
-                )
-                context.principal(principal)
-                return
+            if (System.getenv("MOCK_AUTH") == "true") {
+                val env = System.getenv("ENVIRONMENT") ?: System.getenv("KTOR_ENV") ?: "development"
+                if (env.equals("production", ignoreCase = true)) {
+                    throw IllegalStateException("SECURITY FAIL: MOCK_AUTH is strictly forbidden in production runtime environment!")
+                }
+                if (token.startsWith("mock-token:")) {
+                    val parts = token.split(":")
+                    val principal = FirebasePrincipal(
+                        uid = parts.getOrNull(1) ?: "mock-uid",
+                        email = parts.getOrNull(2),
+                        name = parts.getOrNull(3),
+                        teamId = parts.getOrNull(4)
+                    )
+                    context.principal(principal)
+                    return
+                }
             }
 
             // Verify ID Token via Firebase Admin SDK

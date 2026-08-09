@@ -72,9 +72,16 @@ fun Route.archiveRoutes(
                 val safeSessionId = req.sessionId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
                 val safeTeamId = req.summary.teamId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
 
-                // 1. Save summary metadata to Firestore
+                // 1. Save summary metadata to Firestore after verifying ownership
                 withContext(Dispatchers.IO) {
                     val docRef = db.collection("summaries").document(safeSessionId)
+                    val existingDoc = docRef.get().get()
+                    if (existingDoc.exists()) {
+                        val existingTeamId = existingDoc.getString("teamId")
+                        if (existingTeamId != null && existingTeamId != req.summary.teamId) {
+                            throw IllegalArgumentException("Forbidden: Session ID belongs to a different team.")
+                        }
+                    }
                     docRef.set(req.summary.toMap()).get()
                 }
 
@@ -140,9 +147,17 @@ fun Route.archiveRoutes(
                 val safeSessionId = req.sessionId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
                 val safeTeamId = req.teamId.replace(Regex("[^a-zA-Z0-9_-]"), "_")
 
-                // 1. Delete Firestore summary document
+                // 1. Delete Firestore summary document after verifying ownership
                 withContext(Dispatchers.IO) {
-                    db.collection("summaries").document(safeSessionId).delete().get()
+                    val docRef = db.collection("summaries").document(safeSessionId)
+                    val existingDoc = docRef.get().get()
+                    if (existingDoc.exists()) {
+                        val existingTeamId = existingDoc.getString("teamId")
+                        if (existingTeamId != null && existingTeamId != req.teamId) {
+                            throw IllegalArgumentException("Forbidden: Session ID belongs to a different team.")
+                        }
+                        docRef.delete().get()
+                    }
                 }
 
                 // 2. Delete GCS parquet blob (best-effort, may not exist)

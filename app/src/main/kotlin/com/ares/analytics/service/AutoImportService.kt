@@ -40,12 +40,11 @@ class AutoImportService(
     private val logParserService: LogParserService,
     private val hootDecoderService: HootDecoderService,
     private val processManagerService: ProcessManagerService,
-    private val configProvider: () -> WorkspaceConfig?
-) {
-    private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
+    private val configProvider: () -> WorkspaceConfig?,
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, exception ->
         println("[AUTO-IMPORT] Unhandled exception in background scope: ${exception.message}")
-    }
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
+    })
+) {
     private var job: Job? = null
     private val _importNotifications = MutableSharedFlow<String>(replay = 100)
     val importNotifications: SharedFlow<String> = _importNotifications.asSharedFlow()
@@ -108,7 +107,6 @@ class AutoImportService(
         job?.cancel()
         job = null
         onImportSuccessCallback = null
-        scope.cancel()
     }
 
     private suspend fun importLocalLogs(config: WorkspaceConfig) {
@@ -150,8 +148,12 @@ class AutoImportService(
                         session.sessionId
                     }
 
-                    // Delete the local raw log after successful import to save disk space
-                    file.delete()
+                    // Archive local raw log to logs/imported to preserve source data
+                    val archiveDir = File(config.projectPath, "logs/imported")
+                    archiveDir.mkdirs()
+                    val archivedFile = File(archiveDir, file.name)
+                    if (archivedFile.exists()) archivedFile.delete()
+                    file.renameTo(archivedFile)
                     _importNotifications.emit("[AUTO-IMPORT] Successfully imported ${file.name} (Session ID: ${sessionId.take(8)}...)")
                     
                     // Trigger UI reload
@@ -184,7 +186,7 @@ class AutoImportService(
                     if (isFileInUseOnFtcRobot(adbPath, remotePath)) {
                         continue
                     }
-                    val tempLocalFile = File(System.getProperty("java.io.tmpdir"), filename)
+                    val tempLocalFile = File(localDestDir, filename)
                     
                     try {
                         _importNotifications.emit("[AUTO-IMPORT] Found FTC robot log: $filename. Pulling...")
@@ -199,11 +201,7 @@ class AutoImportService(
                                 session.sessionId
                             }
 
-                            // Delete the temporary local file since it's now in the database
-                            tempLocalFile.delete()
-
-                            // Delete from robot to save disk space
-                            deleteFileFromFtcRobot(adbPath, remotePath)
+                            // Keep imported file safely in logs/imported archive folder
                             _importNotifications.emit("[AUTO-IMPORT] Successfully imported robot log $filename (Session ID: ${sessionId.take(8)}...)")
                             
                             // Trigger UI reload
@@ -211,7 +209,6 @@ class AutoImportService(
                         }
                     } catch (e: Exception) {
                         _importNotifications.emit("[AUTO-IMPORT] Failed to import robot log $filename: ${e.message}")
-                        tempLocalFile.delete()
                         e.printStackTrace()
                     }
                 }
@@ -238,7 +235,7 @@ class AutoImportService(
                     if (isFileInUseOnFrcRobot(host, remotePath)) {
                         continue
                     }
-                    val tempLocalFile = File(System.getProperty("java.io.tmpdir"), filename)
+                    val tempLocalFile = File(localDestDir, filename)
                     
                     try {
                         _importNotifications.emit("[AUTO-IMPORT] Found FRC robot log: $filename. Pulling...")
@@ -253,11 +250,7 @@ class AutoImportService(
                                 session.sessionId
                             }
 
-                            // Delete the temporary local file since it's now in the database
-                            tempLocalFile.delete()
-
-                            // Delete from RoboRIO to save space
-                            deleteFileFromFrcRobot(host, remotePath)
+                            // Keep imported file safely in logs/imported archive folder
                             _importNotifications.emit("[AUTO-IMPORT] Successfully imported RoboRIO log $filename (Session ID: ${sessionId.take(8)}...)")
                             
                             // Trigger UI reload

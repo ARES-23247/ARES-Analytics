@@ -7,12 +7,18 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    // Telemetry parquet logs storage path rules
-    // Expected metadata contains teamId and seasonId matching user claims
+    // Telemetry parquet logs storage path rules with strict team ID tenant isolation
+    match /{teamId}/telemetry/{sessionId} {
+      allow read: if isAuth() && request.auth.token.team_id == teamId;
+      allow write: if isAuth() && request.auth.token.team_id == teamId &&
+        request.resource.size < 50 * 1024 * 1024; // 50MB file size limit
+    }
+
     match /telemetry/{sessionId} {
-      allow read: if isAuth() && request.auth.token.team_id != null;
+      allow read: if isAuth() && (resource == null || resource.metadata.teamId == request.auth.token.team_id);
       allow write: if isAuth() && request.auth.token.team_id != null &&
-        request.resource.size < 50 * 1024 * 1024; // 50MB file size limit to prevent Denial of Wallet
+        request.resource.metadata.teamId == request.auth.token.team_id &&
+        request.resource.size < 50 * 1024 * 1024;
     }
   }
 }

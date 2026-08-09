@@ -86,7 +86,7 @@ open class Nt4ClientService(
     val isReplayActive = MutableStateFlow(false)
 
     private val _telemetryFlow = MutableSharedFlow<TelemetryFrame>(
-        replay = 0,
+        replay = 100,
         extraBufferCapacity = 1024,
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
     )
