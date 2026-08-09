@@ -1,10 +1,11 @@
 import os
 import re
 
+base_dir = os.path.dirname(os.path.abspath(__file__))
 directories = [
-    r"c:\Users\david\dev\robotics\ftc\ARES-Analytics\app\src\main\kotlin\com\ares\analytics",
-    r"c:\Users\david\dev\robotics\ftc\ARES-Analytics\gateway\src\main\kotlin",
-    r"c:\Users\david\dev\robotics\ftc\ARES-Analytics\shared\src\main\kotlin"
+    os.path.join(base_dir, "app", "src", "main", "kotlin", "com", "ares", "analytics"),
+    os.path.join(base_dir, "gateway", "src", "main", "kotlin"),
+    os.path.join(base_dir, "shared", "src", "main", "kotlin")
 ]
 
 kdoc_template = """/**

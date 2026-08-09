@@ -287,7 +287,7 @@ fun FieldCanvas(
                 searchDirs.add(File(projectPath, relDir))
             }
             searchDirs.addAll(listOf(
-                File("c:/Users/david/dev/robotics/ftc/ARES-FTC/TeamCode/src/main/assets/paths"),
+                File(System.getProperty("user.home"), "dev/robotics/ares/ARES-FTC/TeamCode/src/main/assets/paths"),
                 File("../ARES-FTC/TeamCode/src/main/assets/paths"),
                 File("TeamCode/src/main/assets/paths"),
                 File("src/main/assets/paths"),

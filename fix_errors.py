@@ -1,6 +1,6 @@
 import os
 
-DIR = r"c:\Users\david\dev\robotics\ftc\ARES-Analytics\app\src\main\kotlin\com\ares\analytics\ui\components\dashboard"
+DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app", "src", "main", "kotlin", "com", "ares", "analytics", "ui", "components", "dashboard")
 
 files = [
     "BatteryHealthCard.kt",

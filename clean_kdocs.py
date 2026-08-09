@@ -1,7 +1,7 @@
 import os
 import re
 
-target_dir = r'c:\Users\david\dev\robotics\ftc\ARES-Analytics'
+target_dir = os.path.dirname(os.path.abspath(__file__))
 
 lines_to_remove = [
     r'^\s*\*\s*Provides high-performance, Zero-GC operations\.\s*$',

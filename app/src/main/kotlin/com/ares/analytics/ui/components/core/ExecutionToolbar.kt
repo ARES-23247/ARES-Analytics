@@ -229,7 +229,11 @@ fun ExecutionToolbar(
                 onClick = {
                     val ip = targetIp.trim()
                     val argsStr = if (ip == "127.0.0.1") "" else " --args=\"$ip\""
-                    val command = """cd /d c:\Users\david\dev\robotics\ftc\ARESLib-Kotlin && .\gradlew.bat :simulator:runFakeController --console=plain""" + argsStr
+                    val aresLibDir = listOf(
+                        java.io.File("../ARESLib-Kotlin"),
+                        java.io.File(System.getProperty("user.home"), "dev/robotics/ares/ARESLib-Kotlin")
+                    ).firstOrNull { it.exists() }?.canonicalPath ?: "../ARESLib-Kotlin"
+                    val command = """cd /d "$aresLibDir" && .\gradlew.bat :simulator:runFakeController --console=plain""" + argsStr
                     try {
                         ProcessBuilder("cmd.exe", "/c", "start", "cmd.exe", "/k", command).start()
                     } catch (e: Exception) {
