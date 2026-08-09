@@ -240,7 +240,6 @@ fun MainScreen(services: ServiceRegistry) {
             oauthService = services.oauthService,
             syncEngineService = services.syncEngineService,
             environmentService = services.environmentService,
-            firebaseClientService = services.firebaseClientService,
             scope = scope
         )
     }

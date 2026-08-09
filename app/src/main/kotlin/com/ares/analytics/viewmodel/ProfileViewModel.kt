@@ -2,7 +2,6 @@ package com.ares.analytics.viewmodel
 
 import com.ares.analytics.service.AuthState
 import com.ares.analytics.service.EnvironmentService
-import com.ares.analytics.service.FirebaseClientService
 import com.ares.analytics.service.OAuthService
 import com.ares.analytics.service.SyncEngineService
 import com.ares.analytics.shared.RobotProfile
@@ -86,7 +85,7 @@ sealed class ProfileIntent {
 
      */
     data class PerformDeltaSync(val firebaseToken: String) : ProfileIntent()
-    /**
+/**
 
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
 
@@ -129,7 +128,6 @@ class ProfileViewModel(
     private val oauthService: OAuthService,
     private val syncEngineService: SyncEngineService,
     private val environmentService: EnvironmentService,
-    private val firebaseClientService: FirebaseClientService,
     private val scope: CoroutineScope
 ) {
     private val _state = MutableStateFlow(ProfileState())
@@ -164,8 +162,6 @@ class ProfileViewModel(
             when (intent) {
                 is ProfileIntent.LoadConfig -> {
                     val cfg = intent.config
-                    firebaseClientService.apiKey = cfg.firebaseApiKey.takeIf { !it.isNullOrBlank() }
-                        ?: "AIzaSyB4cU7pgHpqoxtqtQalIE4HqZoz3X7bJH0"
                     val remoteProfiles = try {
                         syncEngineService.getRemoteRobotProfiles()
                     } catch (e: Exception) {
@@ -192,9 +188,6 @@ class ProfileViewModel(
                     }
                 }
                 is ProfileIntent.GoogleSignIn -> {
-                    val currentApiKey = _state.value.firebaseApiKey.takeIf { it.isNotBlank() }
-                        ?: "AIzaSyB4cU7pgHpqoxtqtQalIE4HqZoz3X7bJH0"
-                    firebaseClientService.apiKey = currentApiKey
                     val targetClientId = intent.clientId.takeIf { it.isNotBlank() }
                         ?: "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com"
                     val targetClientSecret = _state.value.googleClientSecret.takeIf { it.isNotBlank() }
@@ -235,9 +228,6 @@ class ProfileViewModel(
                         vertexProjectId = intent.vertexProjectId.takeIf { it.isNotBlank() },
                         vertexLocation = intent.vertexLocation.takeIf { it.isNotBlank() }
                     )
-                    firebaseClientService.apiKey = intent.firebaseApiKey.takeIf { it.isNotBlank() }
-                        ?: "AIzaSyB4cU7pgHpqoxtqtQalIE4HqZoz3X7bJH0"
-
                     _state.update {
                         it.copy(
                             config = newConfig,

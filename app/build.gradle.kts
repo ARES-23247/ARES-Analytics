@@ -43,10 +43,6 @@ dependencies {
     implementation("org.ejml:ejml-simple:0.43.1")
     implementation("org.apache.commons:commons-math3:3.6.1")
 
-
-    // Firebase client
-    implementation("com.google.firebase:firebase-admin:9.4.2")
-
     // Logging
     implementation("ch.qos.logback:logback-classic:1.5.12")
 
