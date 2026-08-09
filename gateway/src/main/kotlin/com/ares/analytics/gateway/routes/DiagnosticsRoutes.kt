@@ -13,13 +13,22 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.plugins.ratelimit.*
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import org.slf4j.LoggerFactory
+import kotlin.time.Duration.Companion.seconds
+
+private val vertexAiLogger = LoggerFactory.getLogger("DiagnosticsRoutes")
 
 val projectId = System.getenv("GOOGLE_CLOUD_PROJECT") ?: "ares-analytics"
 val location = System.getenv("GOOGLE_CLOUD_LOCATION") ?: "us-central1"
-val vertexAi = VertexAI(projectId, location)
-val model = GenerativeModel("gemini-1.5-flash", vertexAi)
+// Lazy so the VertexAI client is not constructed until the first diagnostics request.
+// VertexAI is Closeable but is intentionally never closed here — it lives for the process
+// lifetime and closing it on a hot server would break all subsequent requests.
+val vertexAi by lazy { VertexAI(projectId, location) }
+val model by lazy { GenerativeModel("gemini-1.5-flash", vertexAi) }
 
 /**
 
@@ -59,7 +68,9 @@ fun Route.diagnosticsRoutes() {
                         Data Packet:
                         ${Json.encodeToString(ForensicsRequest.serializer(), req)}
                     """.trimIndent()
-                    val response = withContext(Dispatchers.IO) { model.generateContent(prompt) }
+                    val response = withTimeout(60.seconds) {
+                        withContext(Dispatchers.IO) { model.generateContent(prompt) }
+                    }
                     val jsonResponse = ResponseHandler.getText(response) ?: "{}"
                     val sanitizedJson = jsonResponse.replace(Regex("```(?:json)?\\n?(.*?)\\n?```", RegexOption.DOT_MATCHES_ALL), "$1").trim()
 
@@ -76,8 +87,11 @@ fun Route.diagnosticsRoutes() {
                         )
                     }
                     call.respond(parsed)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                call.respond(HttpStatusCode.InternalServerError, "AI diagnostics failed: ${e.message}")
+                vertexAiLogger.error("AI diagnostics failed", e)
+                call.respond(HttpStatusCode.InternalServerError, "AI diagnostics failed")
             }
             }
         }

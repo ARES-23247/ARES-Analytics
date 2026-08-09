@@ -12,6 +12,27 @@ import org.slf4j.LoggerFactory
 
 private val oidcLogger = LoggerFactory.getLogger("GoogleOidcAuth")
 
+/**
+ * Known ARES Google OAuth client ID (the same one the desktop app uses). Used as the
+ * mandatory audience default so that ID tokens minted for any other client are rejected.
+ */
+private const val DEFAULT_OIDC_AUDIENCE =
+    "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com"
+
+private val clientId: String =
+    System.getenv("GOOGLE_OIDC_CLIENT_ID") ?: DEFAULT_OIDC_AUDIENCE
+
+/**
+ * Hoisted, lazily-built verifier. A new `NetHttpTransport()` + `GoogleIdTokenVerifier`
+ * was previously built on every request, re-fetching Google's public certs each time.
+ * This single instance caches the JWK set and is reused for the process lifetime.
+ */
+private val idTokenVerifier by lazy {
+    GoogleIdTokenVerifier.Builder(NetHttpTransport(), GsonFactory.getDefaultInstance())
+        .setAudience(listOf(clientId))
+        .build()
+}
+
 /** Authenticated Google identity extracted from a verified OIDC ID token. */
 data class GooglePrincipal(
     val subject: String,
@@ -21,16 +42,12 @@ data class GooglePrincipal(
 
 /**
  * Verifies a Google OIDC ID token: signature against Google's published certs plus issuer.
- * Audience is checked only when [GOOGLE_OIDC_CLIENT_ID] is set. This is the production
- * default; tests inject a fake via [GoogleOidcAuthenticationProvider.Config.tokenVerifier].
+ * Audience is **always** enforced (defaults to [DEFAULT_OIDC_AUDIENCE] when
+ * `GOOGLE_OIDC_CLIENT_ID` is unset) so a token minted for any other OAuth client is
+ * rejected. Tests inject a fake via [GoogleOidcAuthenticationProvider.Config.tokenVerifier].
  */
 fun verifyGoogleIdToken(idTokenString: String): GooglePrincipal? {
-    val transport = NetHttpTransport()
-    val jsonFactory = GsonFactory.getDefaultInstance()
-    val builder = GoogleIdTokenVerifier.Builder(transport, jsonFactory)
-    val expectedAudience = System.getenv("GOOGLE_OIDC_CLIENT_ID")
-    if (expectedAudience != null) builder.setAudience(listOf(expectedAudience))
-    val token = builder.build().verify(idTokenString) ?: return null
+    val token = idTokenVerifier.verify(idTokenString) ?: return null
     val payload = token.payload
     return GooglePrincipal(
         subject = payload.subject,
