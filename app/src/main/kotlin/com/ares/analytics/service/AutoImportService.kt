@@ -103,6 +103,7 @@ class AutoImportService(
         job?.cancel()
         job = null
         onImportSuccessCallback = null
+        scope.cancel()
     }
 
     private suspend fun importLocalLogs(config: WorkspaceConfig) {

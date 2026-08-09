@@ -234,10 +234,10 @@ fun MecanumVisualizer(
                     }
 
                     // Calculate and draw net force vector in the center using Mecanum forward kinematics
-                    val fl = (wheels.find { it.name.contains("FL", ignoreCase = true) }?.speed ?: 0.0) / speedScale
-                    val fr = (wheels.find { it.name.contains("FR", ignoreCase = true) }?.speed ?: 0.0) / speedScale
-                    val bl = (wheels.find { it.name.contains("BL", ignoreCase = true) || it.name.contains("RL", ignoreCase = true) }?.speed ?: 0.0) / speedScale
-                    val br = (wheels.find { it.name.contains("BR", ignoreCase = true) || it.name.contains("RR", ignoreCase = true) }?.speed ?: 0.0) / speedScale
+                    val fl = (wheels.getOrNull(0)?.speed ?: 0.0) / speedScale
+                    val fr = (wheels.getOrNull(1)?.speed ?: 0.0) / speedScale
+                    val bl = (wheels.getOrNull(2)?.speed ?: 0.0) / speedScale
+                    val br = (wheels.getOrNull(3)?.speed ?: 0.0) / speedScale
                     
                     val netForceX = ((fl + fr + bl + br) / 4.0).toFloat()
                     val netForceY = ((-fl + fr + bl - br) / 4.0).toFloat()

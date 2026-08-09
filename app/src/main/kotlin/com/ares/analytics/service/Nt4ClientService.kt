@@ -119,16 +119,19 @@ open class Nt4ClientService(
     val latestValues = ConcurrentHashMap<String, TelemetryFrame>()
     val telemetryHistory = ConcurrentHashMap<String, java.util.ArrayDeque<TelemetryFrame>>()
 
+    private var cachedActiveTopics: List<String>? = null
+
     /**
-
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
      *
-
      */
     fun getActiveTopics(): List<String> {
-        val fromMap = topicMap.values.map { it.name.removePrefix("/") }
-        return (fromMap + discoveredKeys).distinct().filter { it.isNotEmpty() }.sorted()
+        return cachedActiveTopics ?: run {
+            val fromMap = topicMap.values.map { it.name.removePrefix("/") }
+            val topics = (fromMap + discoveredKeys).distinct().filter { it.isNotEmpty() }.sorted()
+            cachedActiveTopics = topics
+            topics
+        }
     }
 
     private val pendingFrames = java.util.concurrent.ConcurrentLinkedQueue<TelemetryFrame>()
@@ -141,7 +144,9 @@ open class Nt4ClientService(
         }
         if (framesToInsert.isNotEmpty()) {
             try {
-                databaseService.insertTelemetryFrames(framesToInsert)
+                framesToInsert.chunked(100).forEach { chunk ->
+                    databaseService.insertTelemetryFrames(chunk)
+                }
                 val maxTimestamp = framesToInsert.filter { it.sessionId == "live-telemetry" }.maxOfOrNull { it.timestampMs }
                 if (maxTimestamp != null) {
                     val cutoff = maxTimestamp - 300_000
@@ -154,18 +159,18 @@ open class Nt4ClientService(
     }
 
     private var clientJob: Job? = null
+    private val connectionMutex = kotlinx.coroutines.sync.Mutex()
 
     /**
-
      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
      *
-
      */
     fun start(host: String, teamId: String, seasonId: String, robotId: String, port: Int = 5810) {
         println("[Nt4ClientService] start() called with host=$host, port=$port, teamId=$teamId, seasonId=$seasonId, robotId=$robotId")
-        clientJob?.cancel()
-        clientJob = serviceScope.launch {
+        serviceScope.launch {
+            connectionMutex.withLock {
+                clientJob?.cancelAndJoin()
+                clientJob = launch {
             try {
                 databaseService.deleteTelemetryFrames("live-telemetry")
             } catch (e: Exception) {
@@ -310,6 +315,8 @@ open class Nt4ClientService(
                 }
             }
         }
+        }
+        }
     }
 
     private suspend fun sendBinaryUpdate(pubuid: Int, typeId: Byte, valueBytes: ByteArray) {
@@ -350,9 +357,11 @@ open class Nt4ClientService(
         webSocketSession?.send(Frame.Binary(true, buffer))
     }
 
+    private val publishDoubleBuffer = ThreadLocal.withInitial { ByteArray(9) }
+
     suspend fun publishInputDouble(pubuid: Int, value: Double) {
         val bits = java.lang.Double.doubleToRawLongBits(value)
-        val valueBytes = ByteArray(9)
+        val valueBytes = publishDoubleBuffer.get()
         valueBytes[0] = 0xcb.toByte() // MsgPack float64 marker
         valueBytes[1] = (bits shr 56).toByte()
         valueBytes[2] = (bits shr 48).toByte()
@@ -431,7 +440,7 @@ open class Nt4ClientService(
         }
         pendingFrames.add(finalFrame)
         if (!isReplayActive.value) {
-            _telemetryFlow.emit(finalFrame)
+            _telemetryFlow.tryEmit(finalFrame)
         }
     }
 
@@ -493,14 +502,26 @@ open class Nt4ClientService(
                             propertiesJson?.forEach { (k, v) ->
                                 props[k] = if (v is JsonPrimitive && v.isString) v.content else v.toString()
                             }
+                            
+                            val expectedType = when {
+                                name.endsWith("/vx") || name.endsWith("/vy") || name.endsWith("/omega") -> "double"
+                                name.startsWith("ARES/Input/is") -> "boolean"
+                                else -> null
+                            }
+                            if (expectedType != null && type != expectedType) {
+                                println("[Nt4ClientService] WARN: Topic $name announced with type $type, expected $expectedType")
+                            }
+
                             println("[Nt4ClientService] Server announced topic: $name (id=$id, type=$type)")
                             topicMap[id] = Nt4Topic(id, name, type, props)
+                            cachedActiveTopics = null
                         }
                         "unannounce" -> {
                             val params = obj["params"] as? JsonObject ?: continue
                             val id = params["id"]?.jsonPrimitive?.intOrNull ?: continue
                             println("[Nt4ClientService] Server unannounced topic id: $id")
                             topicMap.remove(id)
+                            cachedActiveTopics = null
                         }
                     }
                 } else {
@@ -562,6 +583,7 @@ open class Nt4ClientService(
 
         if (discoveredKeys.add(normalizedName)) {
             println("[Nt4ClientService] Discovered telemetry key: $normalizedName (type=${ntTopic.type})")
+            cachedActiveTopics = null
         }
 
         // Skip input topics that the dashboard publishes — they echo back from the
@@ -687,7 +709,7 @@ open class Nt4ClientService(
                     }
                 }
                 if (!isReplayActive.value) {
-                    _telemetryFlow.emit(frame)
+                    _telemetryFlow.tryEmit(frame)
                 }
                 topicFlows[frame.key]?.value = doubleValue
             }
@@ -732,7 +754,7 @@ open class Nt4ClientService(
             }
         }
         if (!isReplayActive.value) {
-            _telemetryFlow.emit(frame)
+            _telemetryFlow.tryEmit(frame)
         }
         topicFlows[frame.key]?.value = doubleValue
     }
@@ -779,7 +801,7 @@ open class Nt4ClientService(
             value = value
         )
         latestValues[cleanKey] = frame
-        _telemetryFlow.emit(frame)
+        _telemetryFlow.tryEmit(frame)
         topicFlows[cleanKey]?.value = value
         
         publishInputDouble(pubuid, value)

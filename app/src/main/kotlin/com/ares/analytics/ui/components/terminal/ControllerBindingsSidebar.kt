@@ -160,13 +160,30 @@ fun ControllerBindingsSidebar(
     }
 }
 
+object ControllerAssets {
+    var frcImage: androidx.compose.ui.graphics.ImageBitmap? = null
+    var ftcImage: androidx.compose.ui.graphics.ImageBitmap? = null
+
+    fun getImage(league: League): androidx.compose.ui.graphics.ImageBitmap {
+        val resourceName = if (league == League.FRC) "drawable/frc_controller.png" else "drawable/ftc_controller.png"
+        if (league == League.FRC) {
+            if (frcImage == null) {
+                frcImage = useResource(resourceName) { org.jetbrains.skia.Image.makeFromEncoded(it.readBytes()).toComposeImageBitmap() }
+            }
+            return frcImage!!
+        } else {
+            if (ftcImage == null) {
+                ftcImage = useResource(resourceName) { org.jetbrains.skia.Image.makeFromEncoded(it.readBytes()).toComposeImageBitmap() }
+            }
+            return ftcImage!!
+        }
+    }
+}
+
 @Composable
 /**
-
  * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
  *
-
  */
 fun ControllerVisualizer(
     title: String,
@@ -190,10 +207,10 @@ fun ControllerVisualizer(
                 .padding(16.dp),
             contentAlignment = Alignment.Center
         ) {
-            val resourceName = if (league == League.FRC) "drawable/frc_controller.png" else "drawable/ftc_controller.png"
+            val imageBitmap = remember(league) { ControllerAssets.getImage(league) }
             
             Image(
-                painter = BitmapPainter(remember(resourceName) { useResource(resourceName) { org.jetbrains.skia.Image.makeFromEncoded(it.readBytes()).toComposeImageBitmap() } }),
+                painter = BitmapPainter(imageBitmap),
                 contentDescription = "Controller Graphic",
                 modifier = Modifier.fillMaxSize(0.9f), // Increased from 0.8f
                 contentScale = ContentScale.Fit

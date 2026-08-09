@@ -121,6 +121,7 @@ class SchemaMigrationManager(
                 );
                 
                 CREATE INDEX IF NOT EXISTS idx_telemetry_session_time ON telemetry_frames(session_id, timestamp_ms);
+                CREATE INDEX IF NOT EXISTS idx_telemetry_session_id ON telemetry_frames(session_id);
                 
                 CREATE TABLE IF NOT EXISTS session_annotations (
                     annotation_id VARCHAR PRIMARY KEY,

@@ -4,6 +4,8 @@ import com.ares.analytics.shared.*
 import com.ares.analytics.service.db.*
 import kotlinx.coroutines.sync.Mutex
 import java.io.File
+import java.sql.Statement
+import kotlinx.coroutines.sync.withLock
 import java.sql.Connection
 import java.sql.DriverManager
 
@@ -112,9 +114,11 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
      *
 
      */
-    fun close() {
-        if (!conn.isClosed) { conn.close() }
-        if (!ephemeralConn.isClosed) { ephemeralConn.close() }
+    fun close() = kotlinx.coroutines.runBlocking {
+        dbMutex.withLock {
+            if (!conn.isClosed) { conn.close() }
+            if (!ephemeralConn.isClosed) { ephemeralConn.close() }
+        }
     }
 }
 

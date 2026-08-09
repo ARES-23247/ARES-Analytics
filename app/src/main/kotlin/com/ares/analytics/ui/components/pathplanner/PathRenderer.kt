@@ -237,11 +237,25 @@ fun DrawScope.drawActualPathAndDeviations(
     showDeviations: Boolean = false
 ) {
     val actualPathObj = if (pathCache.actualPath != null &&
-        pathCache.actualPoints.size == actualPath.size &&
         pathCache.actualPoints.firstOrNull() == actualPath.firstOrNull() &&
-        pathCache.actualPoints.lastOrNull() == actualPath.lastOrNull() &&
-        pathCache.w == w && pathCache.h == h) {
-        pathCache.actualPath!!
+        pathCache.w == w && pathCache.h == h && pathCache.actualPoints.size <= actualPath.size) {
+        val path = pathCache.actualPath!!
+        if (pathCache.actualLastDrawnIndex < actualPath.size - 1 && pathCache.actualLastDrawnIndex >= 0) {
+            for (i in (pathCache.actualLastDrawnIndex + 1) until actualPath.size) {
+                val offset = getCanvasOffsetBase(actualPath[i], w, h, fieldWidthM, fieldHeightM, league)
+                path.lineTo(offset.x, offset.y)
+            }
+        } else if (pathCache.actualLastDrawnIndex == -1 && actualPath.isNotEmpty()) {
+            val firstOffset = getCanvasOffsetBase(actualPath.first(), w, h, fieldWidthM, fieldHeightM, league)
+            path.moveTo(firstOffset.x, firstOffset.y)
+            for (i in 1 until actualPath.size) {
+                val offset = getCanvasOffsetBase(actualPath[i], w, h, fieldWidthM, fieldHeightM, league)
+                path.lineTo(offset.x, offset.y)
+            }
+        }
+        pathCache.actualLastDrawnIndex = actualPath.size - 1
+        pathCache.actualPoints = actualPath
+        path
     } else {
         val path = Path()
         if (actualPath.isNotEmpty()) {
@@ -253,6 +267,7 @@ fun DrawScope.drawActualPathAndDeviations(
             }
         }
         pathCache.actualPoints = actualPath
+        pathCache.actualLastDrawnIndex = actualPath.size - 1
         pathCache.w = w
         pathCache.h = h
         pathCache.actualPath = path

@@ -60,5 +60,33 @@ class DatabaseBackupExporter(
             """.trimIndent())
         }
     }
-}
 
+    /**
+     * Exports multiple historical sessions into a single ZIP archive containing individual Parquet files.
+     *
+     * @param sessionIds List of session IDs to include in the backup.
+     * @param zipFile Target `.zip` file for the exported archive.
+     */
+    suspend fun exportSessionsToZip(sessionIds: List<String>, zipFile: File) = withDbLock {
+        java.util.zip.ZipOutputStream(java.io.FileOutputStream(zipFile).buffered()).use { zos ->
+            for (sessionId in sessionIds) {
+                val tempFile = File.createTempFile("export_", ".parquet")
+                try {
+                    val absolutePath = tempFile.absolutePath.replace("\\", "/")
+                    val safeSessionId = sessionId.replace("'", "''")
+                    conn.createStatement().use { st ->
+                        st.execute("COPY (SELECT * FROM telemetry_frames WHERE session_id = '$safeSessionId') TO '$absolutePath' (FORMAT PARQUET)")
+                    }
+                    
+                    zos.putNextEntry(java.util.zip.ZipEntry("$sessionId.parquet"))
+                    tempFile.inputStream().use { fis ->
+                        fis.copyTo(zos)
+                    }
+                    zos.closeEntry()
+                } finally {
+                    tempFile.delete()
+                }
+            }
+        }
+    }
+}

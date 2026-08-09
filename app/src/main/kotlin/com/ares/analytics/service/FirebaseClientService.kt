@@ -5,6 +5,7 @@ import com.ares.analytics.shared.AppJson
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -135,6 +136,10 @@ class FirebaseClientService {
     private val httpClient = HttpClient {
         install(ContentNegotiation) {
             json(AppJson)
+        }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 15000
+            connectTimeoutMillis = 15000
         }
     }
 

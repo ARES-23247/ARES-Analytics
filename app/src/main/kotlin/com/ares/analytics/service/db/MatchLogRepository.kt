@@ -336,16 +336,35 @@ class MatchLogRepository(
      * Used for live-telemetry on the ephemeral connection where deduplication matters.
      */
     private fun insertTelemetryFramesJdbc(targetConn: Connection, frames: List<TelemetryFrame>) {
-        executeBatchInsert(targetConn, frames, "INSERT OR REPLACE INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value) VALUES (?, ?, ?, ?, ?)") { ps, frame ->
-            ps.setLong(1, frame.timestampMs)
-            ps.setString(2, frame.sessionId)
-            ps.setString(3, frame.key)
-            ps.setDouble(4, frame.value)
-            if (frame.stringValue != null) {
-                ps.setString(5, frame.stringValue)
-            } else {
-                ps.setNull(5, java.sql.Types.VARCHAR)
+        val duckConn = targetConn.unwrap(org.duckdb.DuckDBConnection::class.java)
+        
+        targetConn.createStatement().use { st ->
+            st.execute("CREATE TEMP TABLE IF NOT EXISTS temp_telemetry_frames (timestamp_ms BIGINT, session_id VARCHAR, key VARCHAR, value DOUBLE, string_value VARCHAR)")
+            st.execute("DELETE FROM temp_telemetry_frames")
+        }
+        
+        val appender = duckConn.createAppender("temp", "temp_telemetry_frames")
+        try {
+            for (frame in frames) {
+                appender.beginRow()
+                appender.append(frame.timestampMs)
+                appender.append(frame.sessionId)
+                appender.append(frame.key)
+                appender.append(frame.value)
+                appender.append(frame.stringValue ?: "")
+                appender.endRow()
             }
+            appender.flush()
+        } finally {
+            appender.close()
+        }
+        
+        targetConn.createStatement().use { st ->
+            st.execute("""
+                INSERT OR REPLACE INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value)
+                SELECT timestamp_ms, session_id, key, value, CASE WHEN string_value = '' THEN NULL ELSE string_value END 
+                FROM temp_telemetry_frames
+            """.trimIndent())
         }
     }
 

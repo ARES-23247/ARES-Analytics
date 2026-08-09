@@ -57,6 +57,7 @@ class PathCacheHolder {
     var splinePath: Path? = null
     var actualPath: Path? = null
     var constraintPaths: List<Path> = emptyList()
+    var actualLastDrawnIndex: Int = -1
     val reusableArrowPath = Path()
     val reusableDiamondPath = Path()
     val reusableXAxisPath = Path()

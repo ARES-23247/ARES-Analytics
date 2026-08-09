@@ -96,9 +96,32 @@ class SummaryEngineService(
             (row.getOrNull(0) ?: "Motor") to (row.getOrNull(1)?.toDoubleOrNull() ?: 0.0)
         }
 
-        // Battery resistance estimation requires sequential row-by-row voltage drop tracking;
-        // not feasible to vectorize without window functions + complex stateful logic.
-        val avgResistance = 0.0
+        // Battery resistance estimation using LAG() window function
+        val batteryResult = databaseService.executeQueryWithParams(
+            """
+            WITH Batt AS (
+                SELECT 
+                    timestamp_ms, 
+                    MAX(CASE WHEN LOWER(key) LIKE '%voltage%' THEN value END) as v,
+                    MAX(CASE WHEN LOWER(key) LIKE '%current%' THEN value END) as i
+                FROM telemetry_frames
+                WHERE session_id = ? AND LOWER(key) LIKE '%battery%'
+                GROUP BY timestamp_ms
+            ),
+            Deltas AS (
+                SELECT 
+                    v - LAG(v) OVER(ORDER BY timestamp_ms) as dv,
+                    i - LAG(i) OVER(ORDER BY timestamp_ms) as di
+                FROM Batt
+                WHERE v IS NOT NULL AND i IS NOT NULL
+            )
+            SELECT AVG(ABS(dv/NULLIF(di, 0))) 
+            FROM Deltas 
+            WHERE ABS(di) > 0.5 AND dv * di < 0
+            """.trimIndent(),
+            listOf(session.sessionId)
+        )
+        val avgResistance = batteryResult.rows.firstOrNull()?.getOrNull(0)?.toDoubleOrNull() ?: 0.0
 
         // Detect OpModes from string_value column
         val opModeResult = databaseService.executeQueryWithParams(

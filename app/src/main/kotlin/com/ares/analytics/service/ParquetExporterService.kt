@@ -47,7 +47,7 @@ class ParquetExporterService(private val databaseService: DatabaseService) {
         
         databaseService.executeRaw("""
             COPY (SELECT * FROM telemetry_frames WHERE session_id = '$sessionId')
-            TO '$absolutePath' (FORMAT PARQUET, COMPRESSION SNAPPY)
+            TO '$absolutePath' (FORMAT PARQUET, COMPRESSION SNAPPY, ROW_GROUP_SIZE 100000)
         """.trimIndent())
     }
 }

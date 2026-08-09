@@ -12,6 +12,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
+import kotlinx.coroutines.flow.Flow
 import com.ares.analytics.ui.components.core.CardHeader
 import com.ares.analytics.ui.components.core.GlassCard
 import com.ares.analytics.ui.components.core.MetricValueBadge
@@ -22,21 +23,45 @@ fun PoseViewerCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    val trueXSim by nt4ClientService.subscribeDouble("ARES/TruePose/0").collectAsState(initial = null)
-    val trueYSim by nt4ClientService.subscribeDouble("ARES/TruePose/1").collectAsState(initial = null)
-    val trueHeadingSim by nt4ClientService.subscribeDouble("ARES/TruePose/2").collectAsState(initial = null)
-    val ekfX by nt4ClientService.subscribeDouble("ARES/EstimatedPose/0").collectAsState(initial = null)
-    val ekfY by nt4ClientService.subscribeDouble("ARES/EstimatedPose/1").collectAsState(initial = null)
-    val ekfHeading by nt4ClientService.subscribeDouble("ARES/EstimatedPose/2").collectAsState(initial = null)
+    val trueXSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/TruePose/0") }
+    val trueXSim by trueXSimFlow.collectAsState(initial = null)
+    
+    val trueYSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/TruePose/1") }
+    val trueYSim by trueYSimFlow.collectAsState(initial = null)
+    
+    val trueHeadingSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/TruePose/2") }
+    val trueHeadingSim by trueHeadingSimFlow.collectAsState(initial = null)
+    
+    val ekxXFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/0") }
+    val ekfX by ekxXFlow.collectAsState(initial = null)
+    
+    val ekfYFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/1") }
+    val ekfY by ekfYFlow.collectAsState(initial = null)
+    
+    val ekfHeadingFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/2") }
+    val ekfHeading by ekfHeadingFlow.collectAsState(initial = null)
+    
     val trueX = trueXSim ?: ekfX
     val trueY = trueYSim ?: ekfY
     val trueHeading = trueHeadingSim ?: ekfHeading
-    val pinpointX by nt4ClientService.subscribeDouble("Drive/Odom_X").collectAsState(initial = null)
-    val pinpointY by nt4ClientService.subscribeDouble("Drive/Odom_Y").collectAsState(initial = null)
-    val pinpointHeading by nt4ClientService.subscribeDouble("Drive/Odom_Heading").collectAsState(initial = null)
-    val visionX by nt4ClientService.subscribeDouble("Vision/Pose_X").collectAsState(initial = null)
-    val visionY by nt4ClientService.subscribeDouble("Vision/Pose_Y").collectAsState(initial = null)
-    val visionHeading by nt4ClientService.subscribeDouble("Vision/Pose_Heading").collectAsState(initial = null)
+    
+    val pinpointXFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Odom_X") }
+    val pinpointX by pinpointXFlow.collectAsState(initial = null)
+    
+    val pinpointYFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Odom_Y") }
+    val pinpointY by pinpointYFlow.collectAsState(initial = null)
+    
+    val pinpointHeadingFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Odom_Heading") }
+    val pinpointHeading by pinpointHeadingFlow.collectAsState(initial = null)
+    
+    val visionXFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Vision/Pose_X") }
+    val visionX by visionXFlow.collectAsState(initial = null)
+    
+    val visionYFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Vision/Pose_Y") }
+    val visionY by visionYFlow.collectAsState(initial = null)
+    
+    val visionHeadingFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Vision/Pose_Heading") }
+    val visionHeading by visionHeadingFlow.collectAsState(initial = null)
     var lastUpdateMs by remember { mutableStateOf<Long?>(null) }
     
     LaunchedEffect(trueX, ekfX, pinpointX) {

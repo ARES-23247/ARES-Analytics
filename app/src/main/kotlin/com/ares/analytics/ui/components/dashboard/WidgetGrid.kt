@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -79,8 +80,8 @@ fun WidgetGrid(
                 var isResizing by remember { mutableStateOf(false) }
                 val builder = widgetBuilders[widget.type]
                 if (builder != null) {
-                    val w = colWidth * widget.colSpan + spacing * (widget.colSpan - 1) + (resizeWidthOffset / density).dp
-                    val h = rowHeight * widget.rowSpan + spacing * (widget.rowSpan - 1) + (resizeHeightOffset / density).dp
+                    val baseW = colWidth * widget.colSpan + spacing * (widget.colSpan - 1)
+                    val baseH = rowHeight * widget.rowSpan + spacing * (widget.rowSpan - 1)
                     val x = colWidth * widget.col + spacing * widget.col
                     val y = rowHeight * widget.row + spacing * widget.row
 
@@ -92,7 +93,21 @@ fun WidgetGrid(
                                     y = y.roundToPx() + offsetY.roundToInt()
                                 )
                             }
-                            .size(width = w, height = h)
+                            .layout { measurable, constraints ->
+                                val curW = (baseW.toPx() + resizeWidthOffset).roundToInt().coerceAtLeast(0)
+                                val curH = (baseH.toPx() + resizeHeightOffset).roundToInt().coerceAtLeast(0)
+                                val placeable = measurable.measure(
+                                    androidx.compose.ui.unit.Constraints(
+                                        minWidth = curW,
+                                        maxWidth = curW,
+                                        minHeight = curH,
+                                        maxHeight = curH
+                                    )
+                                )
+                                layout(placeable.width, placeable.height) {
+                                    placeable.placeRelative(0, 0)
+                                }
+                            }
                             .clip(RoundedCornerShape(12.dp))
                             .background(AresSurface)
                             .border(
