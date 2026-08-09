@@ -21,7 +21,6 @@ data class WorkspaceConfig(
     val toaApiKey: String? = null,
     val tbaApiKey: String? = null,
     val googleClientId: String? = null,
-    val firebaseApiKey: String? = null,
     val googleClientSecret: String? = null,
     val simulatorCommand: String? = null,
     val aiMode: String? = "STUDIO",

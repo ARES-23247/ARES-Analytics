@@ -29,7 +29,6 @@ data class ProfileState(
     val robotProfiles: List<RobotProfile> = emptyList(),
     val syncStatus: String = "",
     val googleClientId: String = "",
-    val firebaseApiKey: String = "",
     val googleClientSecret: String = "",
     val eventCode: String = "",
     val toaApiKey: String = "",
@@ -94,7 +93,6 @@ sealed class ProfileIntent {
      */
     data class UpdateEventSettings(
         val googleClientId: String,
-        val firebaseApiKey: String,
         val googleClientSecret: String,
         val eventCode: String,
         val toaApiKey: String,
@@ -173,7 +171,6 @@ class ProfileViewModel(
                             config = cfg,
                             robotProfiles = remoteProfiles,
                             googleClientId = cfg.googleClientId ?: "",
-                            firebaseApiKey = cfg.firebaseApiKey ?: "",
                             googleClientSecret = cfg.googleClientSecret ?: "",
                             eventCode = cfg.eventCode ?: "",
                             toaApiKey = cfg.toaApiKey ?: "",
@@ -216,7 +213,6 @@ class ProfileViewModel(
                     val currentCfg = _state.value.config ?: return@launch
                     val newConfig = currentCfg.copy(
                         googleClientId = intent.googleClientId.takeIf { it.isNotBlank() },
-                        firebaseApiKey = intent.firebaseApiKey.takeIf { it.isNotBlank() },
                         googleClientSecret = intent.googleClientSecret.takeIf { it.isNotBlank() },
                         eventCode = intent.eventCode.takeIf { it.isNotBlank() },
                         toaApiKey = intent.toaApiKey.takeIf { it.isNotBlank() },
@@ -232,7 +228,6 @@ class ProfileViewModel(
                         it.copy(
                             config = newConfig,
                             googleClientId = intent.googleClientId,
-                            firebaseApiKey = intent.firebaseApiKey,
                             googleClientSecret = intent.googleClientSecret,
                             eventCode = intent.eventCode,
                             toaApiKey = intent.toaApiKey,

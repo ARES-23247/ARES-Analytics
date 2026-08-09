@@ -69,7 +69,6 @@ fun ProfileScreen(
 
     // Optional credential overrides
     var googleClientId by remember(state.googleClientId) { mutableStateOf(state.googleClientId) }
-    var firebaseApiKey by remember(state.firebaseApiKey) { mutableStateOf(state.firebaseApiKey) }
     var googleClientSecret by remember(state.googleClientSecret) { mutableStateOf(state.googleClientSecret) }
     var showAdvanced by remember { mutableStateOf(false) }
 
@@ -232,7 +231,6 @@ fun ProfileScreen(
                             onClick = {
                                 val updatedConfig = config.copy(
                                     googleClientId = googleClientId.takeIf { it.isNotBlank() },
-                                    firebaseApiKey = firebaseApiKey.takeIf { it.isNotBlank() },
                                     googleClientSecret = googleClientSecret.takeIf { it.isNotBlank() }
                                 )
                                 onConfigChanged(updatedConfig)
@@ -305,14 +303,6 @@ fun ProfileScreen(
                         value = googleClientSecret,
                         onValueChange = { googleClientSecret = it },
                         label = { Text("Custom Google Client Secret") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
-                    )
-                    OutlinedTextField(
-                        value = firebaseApiKey,
-                        onValueChange = { firebaseApiKey = it },
-                        label = { Text("Custom Firebase API Key") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
@@ -540,7 +530,6 @@ fun ProfileScreen(
                     league = league,
                     seasonId = seasonId,
                     googleClientId = googleClientId.takeIf { it.isNotBlank() },
-                    firebaseApiKey = firebaseApiKey.takeIf { it.isNotBlank() },
                     googleClientSecret = googleClientSecret.takeIf { it.isNotBlank() },
                     eventCode = eventCode.takeIf { it.isNotBlank() },
                     toaApiKey = toaApiKey.takeIf { it.isNotBlank() },
@@ -558,7 +547,6 @@ fun ProfileScreen(
                 viewModel.onIntent(
                     ProfileIntent.UpdateEventSettings(
                         googleClientId = googleClientId,
-                        firebaseApiKey = firebaseApiKey,
                         googleClientSecret = googleClientSecret,
                         eventCode = eventCode,
                         toaApiKey = toaApiKey,
