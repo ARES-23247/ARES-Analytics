@@ -140,7 +140,7 @@ class ProfileViewModel(
             oauthService.authState.collectLatest { state ->
                 _state.update { it.copy(authState = state) }
                 if (state is AuthState.Authenticated) {
-                    onIntent(ProfileIntent.PerformDeltaSync(state.firebaseToken))
+                    onIntent(ProfileIntent.PerformDeltaSync(state.idToken))
                     try {
                         val remoteProfiles = syncEngineService.getRemoteRobotProfiles()
                         _state.update { it.copy(robotProfiles = remoteProfiles) }

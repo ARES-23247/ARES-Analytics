@@ -256,7 +256,7 @@ fun ProfileScreen(
 
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
-                                onClick = { viewModel.onIntent(ProfileIntent.PerformDeltaSync(auth.firebaseToken)) },
+                                onClick = { viewModel.onIntent(ProfileIntent.PerformDeltaSync(auth.idToken)) },
                                 colors = ButtonDefaults.buttonColors(containerColor = AresCyan)
                             ) {
                                 Text("Sync Google Drive Now", color = AresBackground, fontWeight = FontWeight.Bold)

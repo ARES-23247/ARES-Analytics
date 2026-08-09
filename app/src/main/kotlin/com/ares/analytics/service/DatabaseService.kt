@@ -34,8 +34,10 @@ import java.sql.DriverManager
 class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb") {
     
     private val conn: Connection
+    private val readConn: Connection
     private val ephemeralConn: Connection
     private val dbMutex = Mutex()
+    private val readMutex = Mutex()
     
     private val schemaManager: SchemaMigrationManager
     private val matchLogRepo: MatchLogRepository
@@ -54,6 +56,7 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         
         val appDataDir = dbFile.parentFile?.absolutePath ?: (System.getProperty("user.home") + "/.ares-analytics")
         conn = DriverManager.getConnection("jdbc:duckdb:${dbFile.absolutePath}")
+        readConn = conn.unwrap(org.duckdb.DuckDBConnection::class.java).duplicate()
         
         // Ensure parquet extension is loaded for export and configure DuckDB settings
         val tmpDirFile = File(appDataDir, "duckdb_tmp")
@@ -74,13 +77,14 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         }
         
         schemaManager = SchemaMigrationManager(conn, ephemeralConn)
-        matchLogRepo = MatchLogRepository(conn, ephemeralConn, dbMutex)
+        matchLogRepo = MatchLogRepository(conn, readConn, ephemeralConn, dbMutex, readMutex)
         backupExporter = DatabaseBackupExporter(conn, dbMutex)
         
         schemaManager.runMigrations(isFirstRun, oldDbPath)
     }
 
     suspend fun executeRaw(sql: String) = matchLogRepo.executeRaw(sql)
+    suspend fun executeNativeCsvImport(sql: String) = matchLogRepo.executeNativeCsvImport(sql)
     suspend fun executeQueryRaw(sql: String): QueryResult = matchLogRepo.executeQueryRaw(sql)
     suspend fun executeQueryWithParams(sql: String, params: List<Any>): QueryResult = matchLogRepo.executeQueryWithParams(sql, params)
     suspend fun insertSession(session: Session) = matchLogRepo.insertSession(session)
@@ -128,6 +132,7 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     fun close() = kotlinx.coroutines.runBlocking {
         dbMutex.withLock {
             if (!conn.isClosed) { conn.close() }
+            if (!readConn.isClosed) { readConn.close() }
             if (!ephemeralConn.isClosed) { ephemeralConn.close() }
         }
     }

@@ -108,13 +108,18 @@ class ReplayEngineService(
     private val loopbackAddress = InetAddress.getByName("127.0.0.1")
     private val broadcastPort = 5802 // AdvantageScope/dashboard loopback
 
+    private var currentSessionId: String = ""
+    private var cachedWindowStartMs: Long = -1L
+    private var cachedWindowEndMs: Long = -1L
+
     suspend fun loadSession(sessionId: String) = withContext(Dispatchers.IO) {
         stop()
-        allFrames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
+        currentSessionId = sessionId
+        val frameTimestamps = databaseService.getDistinctTimestamps(sessionId)
         val allActions = databaseService.getActionsForSession(sessionId)
         _sessionActions.value = allActions
 
-        if (allFrames.isEmpty() && allActions.isEmpty()) {
+        if (frameTimestamps.isEmpty() && allActions.isEmpty()) {
             timestamps = emptyList()
             startTimestampMs = 0
             endTimestampMs = 0
@@ -123,10 +128,9 @@ class ReplayEngineService(
             _telemetryDensity.value = emptyList()
             return@withContext
         }
-        val framesTimestamps = allFrames.map { it.timestampMs }
         val actionsTimestamps = allActions.map { it.timestampMs }
         
-        timestamps = (framesTimestamps + actionsTimestamps).distinct().sorted()
+        timestamps = (frameTimestamps + actionsTimestamps).distinct().sorted()
         
         startTimestampMs = timestamps.first()
         endTimestampMs = timestamps.last()
@@ -136,7 +140,7 @@ class ReplayEngineService(
         _sessionStartTimestampMs.value = startTimestampMs
         _sessionDurationMs.value = endTimestampMs - startTimestampMs
 
-        if (allFrames.isNotEmpty()) {
+        if (frameTimestamps.isNotEmpty()) {
             _telemetryDensity.value = databaseService.getTelemetryDensity(sessionId, buckets = 100)
         } else {
             _telemetryDensity.value = emptyList()
@@ -279,6 +283,19 @@ class ReplayEngineService(
 
     private fun updateFrameAtPlayhead() {
         if (timestamps.isEmpty()) return
+
+        if (currentPlayheadMs < cachedWindowStartMs || currentPlayheadMs > cachedWindowEndMs) {
+            runBlocking {
+                val windowStart = (currentPlayheadMs - 2500L).coerceAtLeast(0L)
+                val windowEnd = currentPlayheadMs + 5000L
+                allFrames = databaseService.getTelemetryRange(currentSessionId, windowStart, windowEnd)
+                cachedWindowStartMs = windowStart
+                cachedWindowEndMs = windowEnd
+                lastTargetTimestamp = -1L
+                lastFrameIndex = 0
+                valuesMap.clear()
+            }
+        }
 
         // 1. Calculate progress percent
         val totalDuration = endTimestampMs - startTimestampMs

@@ -43,8 +43,9 @@ class AppSimE2EPipelineTest {
 
             val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
             val stateFlow = MutableStateFlow(FieldViewerState())
-            val topicSubscriber = FieldTopicSubscriber(clientService, scope, stateFlow)
-            val bufferManager = FieldPoseBufferManager(scope, stateFlow)
+            val livePoseFlow = MutableStateFlow(com.ares.analytics.viewmodel.LivePoseState())
+            val topicSubscriber = FieldTopicSubscriber(clientService, scope, stateFlow, livePoseFlow)
+            val bufferManager = FieldPoseBufferManager(scope, stateFlow, livePoseFlow)
 
             clientService.start("127.0.0.1", "23247", "2026", "sim-robot", port = 5818)
 
@@ -72,7 +73,7 @@ class AppSimE2EPipelineTest {
 
             delay(300)
 
-            val currentState = stateFlow.value
+            val currentState = livePoseFlow.value
             val flPower = clientService.latestValues["Hardware/Motors/fl/Power"]?.value ?: 0.0
 
             println("[E2E Pipeline] Current State Pose: ekfX=${currentState.ekfX}, ekfY=${currentState.ekfY}, FL Power: $flPower")

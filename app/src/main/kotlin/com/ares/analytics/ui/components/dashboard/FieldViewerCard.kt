@@ -52,30 +52,31 @@ fun FieldViewerCard(
     val scope = rememberCoroutineScope()
     val viewModel = remember(nt4ClientService) { FieldViewerViewModel(nt4ClientService, scope) }
     val state by viewModel.state.collectAsState()
-    val estimatedPose = if (state.ekfX != null && state.ekfY != null && state.ekfHeading != null) {
-        Waypoint(state.ekfX!!, state.ekfY!!, state.ekfHeading!!)
+    val liveState by viewModel.livePose.collectAsState()
+    val estimatedPose = if (liveState.ekfX != null && liveState.ekfY != null && liveState.ekfHeading != null) {
+        Waypoint(liveState.ekfX!!, liveState.ekfY!!, liveState.ekfHeading!!)
     } else null
-    val odomPose = if (state.odomX != null && state.odomY != null && state.odomHeading != null) {
-        Waypoint(state.odomX!!, state.odomY!!, state.odomHeading!!)
+    val odomPose = if (liveState.odomX != null && liveState.odomY != null && liveState.odomHeading != null) {
+        Waypoint(liveState.odomX!!, liveState.odomY!!, liveState.odomHeading!!)
     } else null
     var showEkfPose by remember { mutableStateOf(true) }
     var showOdomPose by remember { mutableStateOf(true) }
     var showVisionPoses by remember { mutableStateOf(true) }
     var layersMenuExpanded by remember { mutableStateOf(false) }
-    val activeVisionPoses = remember(state.visionPoses, state.visionX, state.visionY, state.visionHeading, state.visionHasTarget) {
+    val activeVisionPoses = remember(liveState.visionPoses, liveState.visionX, liveState.visionY, liveState.visionHeading, liveState.visionHasTarget) {
         val list = mutableListOf<Waypoint>()
-        if (state.visionHasTarget) {
-            val maxIndex = state.visionPoses.keys.maxOrNull() ?: -1
+        if (liveState.visionHasTarget) {
+            val maxIndex = liveState.visionPoses.keys.maxOrNull() ?: -1
             for (i in 0..maxIndex step 3) {
-                val vx = state.visionPoses[i]
-                val vy = state.visionPoses[i + 1]
-                val vh = state.visionPoses[i + 2]
+                val vx = liveState.visionPoses[i]
+                val vy = liveState.visionPoses[i + 1]
+                val vh = liveState.visionPoses[i + 2]
                 if (vx != null && vy != null && vh != null) {
                     list.add(Waypoint(vx, vy, vh))
                 }
             }
-            if (list.isEmpty() && state.visionX != null && state.visionY != null && state.visionHeading != null) {
-                list.add(Waypoint(state.visionX!!, state.visionY!!, state.visionHeading!!))
+            if (list.isEmpty() && liveState.visionX != null && liveState.visionY != null && liveState.visionHeading != null) {
+                list.add(Waypoint(liveState.visionX!!, liveState.visionY!!, liveState.visionHeading!!))
             }
         }
         list
@@ -111,8 +112,8 @@ fun FieldViewerCard(
                     fontSize = 14.sp
                 )
                 Text(
-                    if (state.isConnected) "Connected" else "Offline",
-                    color = if (state.isConnected) AresGreen else AresTextTertiary,
+                    if (liveState.isConnected) "Connected" else "Offline",
+                    color = if (liveState.isConnected) AresGreen else AresTextTertiary,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -322,23 +323,23 @@ fun FieldViewerCard(
                 FieldCanvas(
                     league = league,
                     waypoints = displayWaypoints,
-                    actualPath = if (tracerEnabled) state.poseHistory else listOfNotNull(state.poseHistory.lastOrNull() ?: Waypoint(state.trueX, state.trueY, state.trueHeading)),
+                    actualPath = if (tracerEnabled) state.poseHistory else listOfNotNull(state.poseHistory.lastOrNull() ?: Waypoint(liveState.trueX, liveState.trueY, liveState.trueHeading)),
                     onWaypointsChanged = {},
                     projectPath = projectPath,
                     estimatedPose = estimatedPose,
                     odomPose = odomPose,
                     visionPoses = activeVisionPoses,
-                    showTruePose = state.hasTruePoseData,
+                    showTruePose = liveState.hasTruePoseData,
                     showEkfPose = showEkfPose,
                     showOdomPose = showOdomPose,
                     showVisionPoses = showVisionPoses,
-                    gamePieces = state.liveGamePieces.values.toList(),
+                    gamePieces = liveState.liveGamePieces.values.toList(),
                     showPathControls = false,
                     showObstacleControls = false,
                     showToolbar = false,
                     initialViewRotation = properties["rotation"]?.toFloatOrNull() ?: 0f,
                     onViewRotationChanged = { newRot -> onPropertiesChanged(properties + ("rotation" to newRot.toString())) },
-                    indicatorLightPosition = state.indicatorLights.values.firstOrNull() ?: -1.0,
+                    indicatorLightPosition = liveState.indicatorLights.values.firstOrNull() ?: -1.0,
                     modifier = Modifier.fillMaxSize()
                 )
             }

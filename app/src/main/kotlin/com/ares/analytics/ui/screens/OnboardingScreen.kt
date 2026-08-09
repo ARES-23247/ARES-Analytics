@@ -56,7 +56,7 @@ fun OnboardingScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val authState by oauthService.authState.collectAsState()
-    val token = (authState as? AuthState.Authenticated)?.firebaseToken
+    val token = (authState as? AuthState.Authenticated)?.idToken
 
 
     LaunchedEffect(state.teamId, token) {

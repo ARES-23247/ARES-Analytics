@@ -249,7 +249,7 @@ fun MainScreen(services: ServiceRegistry) {
         com.ares.analytics.viewmodel.CloudViewModel(
             databaseService = services.databaseService,
             syncEngineService = services.syncEngineService,
-            firebaseClientService = services.firebaseClientService,
+            oauthService = services.oauthService,
             nt4ClientService = services.nt4ClientService,
             logParserService = services.logParserService,
             scope = scope

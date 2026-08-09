@@ -3,6 +3,7 @@ package com.ares.analytics.viewmodel.field
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.shared.GamePiece
 import com.ares.analytics.viewmodel.FieldViewerState
+import com.ares.analytics.viewmodel.LivePoseState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -15,12 +16,13 @@ import kotlinx.coroutines.launch
 class FieldTopicSubscriber(
     private val nt4ClientService: Nt4ClientService,
     private val scope: CoroutineScope,
-    private val stateFlow: MutableStateFlow<FieldViewerState>
+    private val stateFlow: MutableStateFlow<FieldViewerState>,
+    private val livePoseFlow: MutableStateFlow<LivePoseState>
 ) {
     init {
         scope.launch {
             nt4ClientService.isConnected.collect { connected ->
-                stateFlow.update { currentState ->
+                livePoseFlow.update { currentState ->
                     currentState.copy(
                         isConnected = connected,
                         visionHasTarget = if (connected) currentState.visionHasTarget else false,
@@ -45,13 +47,13 @@ class FieldTopicSubscriber(
                 // Diagnostic: log every 2 seconds
                 val now2 = System.currentTimeMillis()
                 if (now2 - lastDiagLog > 2000) {
-                    val s = stateFlow.value
+                    val s = livePoseFlow.value
                     println("[FieldTopicSubscriber] DIAG: $frameCount frames received, ekfX=${s.ekfX}, ekfY=${s.ekfY}, trueX=${s.trueX}, trueY=${s.trueY}")
                     lastDiagLog = now2
                     frameCount = 0
                 }
                 
-                stateFlow.update { current ->
+                livePoseFlow.update { current ->
                     var next = current
                     
                     when (key) {
@@ -80,7 +82,6 @@ class FieldTopicSubscriber(
                         "Vision/Pose_X", "Vision/Pose/X" -> if (next.visionHasTarget) next = next.copy(visionX = value)
                         "Vision/Pose_Y", "Vision/Pose/Y" -> if (next.visionHasTarget) next = next.copy(visionY = value)
                         "Vision/Pose_Heading", "Vision/Pose/Heading" -> if (next.visionHasTarget) next = next.copy(visionHeading = value)
-                        "ARES/Input/isRedAlliance" -> next = next.copy(isRedAlliance = value > 0.5)
                     }
 
                     if (key.startsWith("Superstructure/IndicatorLight/")) {
@@ -132,6 +133,10 @@ class FieldTopicSubscriber(
                     }
                     
                     next
+                }
+
+                if (key == "ARES/Input/isRedAlliance") {
+                    stateFlow.update { it.copy(isRedAlliance = value > 0.5) }
                 }
             }
         }

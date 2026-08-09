@@ -51,12 +51,9 @@ import java.io.File
 class SyncEngineService(
     private val databaseService: DatabaseService,
     private val parquetExporterService: ParquetExporterService,
-    private val firebaseClientService: FirebaseClientService,
     private val environmentService: EnvironmentService,
-    private val teamApiService: TeamApiService,
     private val summaryEngineService: SummaryEngineService,
     private val googleDriveService: GoogleDriveService,
-    private val gatewayUrl: String = "https://ares-analytics-gateway-staging-205869391101.us-central1.run.app",
     private val httpClient: HttpClient = HttpClient {
         install(ContentNegotiation) {
             json(AppJson)
@@ -68,14 +65,6 @@ class SyncEngineService(
         }
     }
 ) {
-
-    private fun getActiveToken(overrideToken: String?): String {
-        val token = overrideToken ?: firebaseClientService.getFirebaseToken()
-        if (token == null && firebaseClientService.isDevMode()) {
-            return "mock-token:dev-user@aresrobotics.org:dev-user@aresrobotics.org:ARES Dev User"
-        }
-        return token ?: throw IllegalStateException("User is not authenticated with Firebase")
-    }
 
     /**
      * Uploads a local session's log file to Google Drive.

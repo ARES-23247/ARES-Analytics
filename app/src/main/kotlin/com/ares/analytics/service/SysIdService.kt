@@ -134,10 +134,7 @@ class SysIdService(private val databaseService: DatabaseService) {
         }
 
         return try {
-            val Xt = X.transpose()
-            val XtX = Xt.mult(X)
-            val XtX_inv = XtX.invert()
-            val beta = XtX_inv.mult(Xt).mult(y)
+            val beta = X.pseudoInverse().mult(y)
             val kS = beta.get(0, 0)
             val kV = beta.get(1, 0)
             val kA = beta.get(2, 0)

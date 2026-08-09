@@ -37,8 +37,7 @@ import io.ktor.utils.io.jvm.javaio.copyTo
  */
 class GoogleDriveService(
     private val oauthService: OAuthService,
-    private val environmentService: EnvironmentService,
-    private val firebaseClientService: FirebaseClientService
+    private val environmentService: EnvironmentService
 ) {
     private val httpClient = HttpClient(CIO) {
         install(ContentNegotiation) {

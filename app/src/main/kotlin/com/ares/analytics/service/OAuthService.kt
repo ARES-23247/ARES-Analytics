@@ -1,5 +1,6 @@
 package com.ares.analytics.service
 
+import com.ares.analytics.shared.AppJson
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -23,8 +24,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.awt.Desktop
+import java.io.File
 import java.net.URI
 import java.net.URLEncoder
 import java.security.MessageDigest
@@ -43,13 +46,6 @@ fun generateCodeVerifier(): String {
     return Base64.getUrlEncoder().withoutPadding().encodeToString(codeVerifier)
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun generateCodeChallenge(codeVerifier: String): String {
     val bytes = codeVerifier.toByteArray(Charsets.US_ASCII)
     val messageDigest = MessageDigest.getInstance("SHA-256")
@@ -59,54 +55,19 @@ fun generateCodeChallenge(codeVerifier: String): String {
 }
 
 sealed class AuthState {
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object Unauthenticated : AuthState()
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object Authenticating : AuthState()
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class Authenticated(
-        val firebaseToken: String,
+        val idToken: String,
         val uid: String,
         val email: String,
         val displayName: String,
         val githubToken: String? = null
     ) : AuthState()
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class Error(val message: String) : AuthState()
 }
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class GoogleTokenResponse(
     val access_token: String,
     val id_token: String,
@@ -115,30 +76,52 @@ data class GoogleTokenResponse(
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class GithubTokenResponse(
     val access_token: String,
     val scope: String? = null
 )
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
+ * Persisted Google identity + OAuth tokens, stored at `~/.ares-analytics/auth.json`.
+ * Replaces the former Firebase SavedAuth: no Firebase refresh token, identity comes
+ * straight from the verified Google ID token.
  */
-class OAuthService(
-    private val firebaseClientService: FirebaseClientService
-) {
+@Serializable
+data class OAuthSavedAuth(
+    val googleAccessToken: String,
+    val googleRefreshToken: String?,
+    val googleTokenExpiresAt: Long?,
+    val uid: String,
+    val email: String,
+    val displayName: String
+)
+
+@Serializable
+private data class GoogleIdPayload(
+    val sub: String = "",
+    val email: String? = null,
+    val name: String? = null
+)
+
+/** Decodes (without verifying signature — the gateway verifies) the payload of a Google ID token JWT. */
+private fun decodeIdToken(idToken: String): GoogleIdPayload = try {
+    val payload = idToken.split(".").getOrNull(1) ?: return GoogleIdPayload()
+    val json = String(Base64.getUrlDecoder().decode(payload))
+    AppJson.decodeFromString<GoogleIdPayload>(json)
+} catch (e: Exception) {
+    GoogleIdPayload()
+}
+
+/**
+ * Google-OAuth-first authentication service. Owns the local token store; no Firebase
+ * Identity Toolkit round-trip. The Google ID token returned at login (and on refresh)
+ * carries identity (sub/email/name) and is the credential used to call the gateway's
+ * OIDC-authed endpoints. Google Drive access tokens are refreshed on demand for
+ * [GoogleDriveService].
+ */
+class OAuthService(private val environmentService: EnvironmentService) {
     private val refreshMutex = kotlinx.coroutines.sync.Mutex()
-    
+
     private val _authState = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
@@ -152,52 +135,41 @@ class OAuthService(
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
+    private val authFile = File(System.getProperty("user.home"), ".ares-analytics/auth.json")
+
     init {
-        // Observe FirebaseClientService auth state and map it to AuthState
-        serviceScope.launch {
-            firebaseClientService.authState.collect { firebaseState ->
-                when (firebaseState) {
-                    is FirebaseAuthState.Unauthenticated -> {
-                        _authState.value = AuthState.Unauthenticated
-                    }
-                    is FirebaseAuthState.Authenticating -> {
-                        _authState.value = AuthState.Authenticating
-                    }
-                    is FirebaseAuthState.Authenticated -> {
-                        _authState.value = AuthState.Authenticated(
-                            firebaseToken = firebaseState.firebaseToken,
-                            uid = firebaseState.uid,
-                            email = firebaseState.email,
-                            displayName = firebaseState.displayName,
-                            githubToken = firebaseState.githubToken
-                        )
-                    }
-                    is FirebaseAuthState.Error -> {
-                        _authState.value = AuthState.Error(firebaseState.message)
-                    }
-                }
-            }
+        // On startup, re-establish Authenticated state from persisted Google tokens.
+        serviceScope.launch { loadPersistedAuth() }
+    }
+
+    fun isDevMode(): Boolean = System.getenv("DEV_MODE") == "true"
+
+    private suspend fun loadPersistedAuth() {
+        val saved = getSavedAuth() ?: return
+        val config = environmentService.loadConfig()
+        val clientId = config?.googleClientId
+        if (clientId.isNullOrEmpty()) return
+        // Refresh yields a fresh access_token + id_token; identity is re-derived from the id_token.
+        try {
+            refreshGoogleAccessToken(clientId, config.googleClientSecret)
+        } catch (e: Exception) {
+            // Best-effort; if refresh fails the user will be prompted to sign in again.
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun startGoogleLogin(googleClientId: String?, googleClientSecret: String? = null) {
         if (_authState.value is AuthState.Authenticating) return
         _authState.value = AuthState.Authenticating
 
-        if (firebaseClientService.isDevMode() || googleClientId.isNullOrEmpty() || googleClientId == "mock") {
-            // Local dev bypass
+        if (isDevMode() || googleClientId.isNullOrEmpty() || googleClientId == "mock") {
             serviceScope.launch {
-                firebaseClientService.signInWithGoogleToken(
-                    googleIdToken = "mock-google-id-token",
-                    email = "dev-user@aresrobotics.org",
-                    name = "ARES Dev User"
+                applyGoogleTokens(
+                    idToken = "dev-id-token",
+                    accessToken = "dev-access-token",
+                    refreshToken = null,
+                    expiresIn = 3600,
+                    emailFallback = "dev-user@aresrobotics.org",
+                    nameFallback = "ARES Dev User"
                 )
             }
             return
@@ -235,15 +207,13 @@ class OAuthService(
 
                 if (response.status == HttpStatusCode.OK) {
                     val tokenData = response.body<GoogleTokenResponse>()
-                    val expiresAt = System.currentTimeMillis() + (tokenData.expires_in * 1000L)
-                    // Sign in to Firebase with the obtained Google ID Token
-                    firebaseClientService.signInWithGoogleToken(
-                        googleIdToken = tokenData.id_token,
-                        email = "user@aresrobotics.org", // Firebase signInWithIdp will return actual email
-                        name = "Google User",
-                        googleAccessToken = tokenData.access_token,
-                        googleRefreshToken = tokenData.refresh_token,
-                        googleTokenExpiresAt = expiresAt
+                    applyGoogleTokens(
+                        idToken = tokenData.id_token,
+                        accessToken = tokenData.access_token,
+                        refreshToken = tokenData.refresh_token,
+                        expiresIn = tokenData.expires_in,
+                        emailFallback = "user@aresrobotics.org",
+                        nameFallback = "Google User"
                     )
                 } else {
                     val errorText = response.bodyAsText()
@@ -258,14 +228,48 @@ class OAuthService(
         launchBrowser(loginUrl)
     }
 
+    /**
+     * Centralizes Google token handling: decode identity from the ID token, persist the
+     * access/refresh tokens, and publish [AuthState.Authenticated].
+     */
+    private suspend fun applyGoogleTokens(
+        idToken: String,
+        accessToken: String,
+        refreshToken: String?,
+        expiresIn: Int,
+        emailFallback: String,
+        nameFallback: String
+    ) {
+        val payload = decodeIdToken(idToken)
+        val email = payload.email ?: emailFallback
+        val name = payload.name ?: nameFallback
+        val uid = payload.sub.ifEmpty { "google-$email" }
+        val expiresAt = System.currentTimeMillis() + (expiresIn * 1000L)
+        val saved = OAuthSavedAuth(
+            googleAccessToken = accessToken,
+            googleRefreshToken = refreshToken,
+            googleTokenExpiresAt = expiresAt,
+            uid = uid,
+            email = email,
+            displayName = name
+        )
+        saveAuth(saved)
+        _authState.value = AuthState.Authenticated(
+            idToken = idToken,
+            uid = uid,
+            email = email,
+            displayName = name
+        )
+    }
+
     suspend fun refreshGoogleAccessToken(clientId: String, clientSecret: String?): String? = withContext(Dispatchers.IO) {
         refreshMutex.withLock {
-            val saved = firebaseClientService.getSavedAuth() ?: return@withLock null
+            val saved = getSavedAuth() ?: return@withLock null
             val refreshToken = saved.googleRefreshToken ?: return@withLock saved.googleAccessToken
 
-            // If not expired yet (with a 2 minute buffer), reuse current access token
+            // Reuse current access token if not within 2 minutes of expiry.
             val expiresAt = saved.googleTokenExpiresAt ?: 0
-            if (System.currentTimeMillis() < expiresAt - 120_000 && !saved.googleAccessToken.isNullOrBlank()) {
+            if (System.currentTimeMillis() < expiresAt - 120_000 && saved.googleAccessToken.isNotBlank()) {
                 return@withLock saved.googleAccessToken
             }
 
@@ -289,9 +293,17 @@ class OAuthService(
                     val updatedAuth = saved.copy(
                         googleAccessToken = data.access_token,
                         googleTokenExpiresAt = newExpiresAt,
-                        googleRefreshToken = data.refresh_token ?: refreshToken // reuse if new one not sent
+                        googleRefreshToken = data.refresh_token ?: saved.googleRefreshToken
                     )
-                    firebaseClientService.saveAuth(updatedAuth)
+                    saveAuth(updatedAuth)
+                    // Refresh also returns a fresh ID token; refresh identity in-state if present.
+                    val current = _authState.value
+                    if (current is AuthState.Authenticated && data.id_token.isNotBlank()) {
+                        val payload = decodeIdToken(data.id_token)
+                        _authState.value = current.copy(idToken = data.id_token,
+                            email = payload.email ?: current.email,
+                            displayName = payload.name ?: current.displayName)
+                    }
                     return@withLock data.access_token
                 } else {
                     println("Failed to refresh Google access token: ${response.bodyAsText()}")
@@ -304,23 +316,15 @@ class OAuthService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun startGithubLogin(githubClientId: String?, githubClientSecret: String? = null) {
         val currentAuth = _authState.value
         if (currentAuth !is AuthState.Authenticated) {
-            _authState.value = AuthState.Error("Must sign in with Google/Firebase before linking GitHub")
+            _authState.value = AuthState.Error("Must sign in with Google before linking GitHub")
             return
         }
 
         if (githubClientId.isNullOrEmpty() || githubClientId == "mock") {
-            // Dev bypass for GitHub linking
-            firebaseClientService.linkGitHubToken("mock-github-token")
+            _authState.value = currentAuth.copy(githubToken = "mock-github-token")
             return
         }
         val callbackPort = 5805
@@ -345,7 +349,10 @@ class OAuthService(
 
                 if (response.status == HttpStatusCode.OK) {
                     val tokenData = response.body<GithubTokenResponse>()
-                    firebaseClientService.linkGitHubToken(tokenData.access_token)
+                    val current = _authState.value
+                    if (current is AuthState.Authenticated) {
+                        _authState.value = current.copy(githubToken = tokenData.access_token)
+                    }
                 } else {
                     val errorText = response.bodyAsText()
                     _authState.value = AuthState.Error("Failed to exchange GitHub code: $errorText")
@@ -358,17 +365,28 @@ class OAuthService(
         launchBrowser(loginUrl)
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun logout() {
         _authState.value = AuthState.Unauthenticated
-        firebaseClientService.logout()
+        if (authFile.exists()) authFile.delete()
         stopServer()
+    }
+
+    fun getSavedAuth(): OAuthSavedAuth? {
+        if (!authFile.exists()) return null
+        return try {
+            AppJson.decodeFromString<OAuthSavedAuth>(authFile.readText())
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun saveAuth(auth: OAuthSavedAuth) {
+        try {
+            authFile.parentFile?.mkdirs()
+            authFile.writeText(Json.encodeToString(auth))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     private fun bootCallbackServer(port: Int, onCodeReceived: suspend (String) -> Unit) {
@@ -460,13 +478,6 @@ class OAuthService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun dispose() {
         stopServer()
         try {
@@ -476,4 +487,3 @@ class OAuthService(
         }
     }
 }
-

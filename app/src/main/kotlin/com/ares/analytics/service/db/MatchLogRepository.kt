@@ -43,8 +43,10 @@ import java.sql.ResultSet
  */
 class MatchLogRepository(
     private val conn: Connection,
+    private val readConn: Connection,
     private val ephemeralConn: Connection,
-    private val dbMutex: Mutex
+    private val dbMutex: Mutex,
+    private val readMutex: Mutex
 ) {
     private val statementCache = java.util.concurrent.ConcurrentHashMap<String, java.sql.PreparedStatement>()
     /**
@@ -56,6 +58,10 @@ class MatchLogRepository(
      */
     private suspend fun <T> withDbLock(block: suspend () -> T): T = withContext(Dispatchers.IO) {
         dbMutex.withLock { block() }
+    }
+
+    private suspend fun <T> withReadLock(block: suspend () -> T): T = withContext(Dispatchers.IO) {
+        readMutex.withLock { block() }
     }
 
     /**
@@ -72,6 +78,13 @@ class MatchLogRepository(
         if (!isSelect || hasForbidden) {
             println("Rejected dangerous SQL: $sql")
             throw IllegalArgumentException("Raw query rejected: Only read-only SELECT queries are allowed.")
+        }
+        conn.createStatement().use { it.execute(sql) }
+    }
+
+    suspend fun executeNativeCsvImport(sql: String) = withDbLock {
+        if (!sql.trim().uppercase().startsWith("INSERT INTO TELEMETRY_FRAMES")) {
+            throw IllegalArgumentException("executeNativeCsvImport only allows INSERT INTO telemetry_frames")
         }
         conn.createStatement().use { it.execute(sql) }
     }
@@ -232,8 +245,8 @@ class MatchLogRepository(
         }
     }
 
-    suspend fun getSessionSummary(sessionId: String): SessionSummary? = withDbLock {
-        conn.prepareStatement("SELECT * FROM session_summaries WHERE session_id = ?").use { ps ->
+    suspend fun getSessionSummary(sessionId: String): SessionSummary? = withReadLock {
+        readConn.prepareStatement("SELECT * FROM session_summaries WHERE session_id = ?").use { ps ->
             ps.setString(1, sessionId)
             ps.executeQuery().use { rs ->
                 if (rs.next()) rs.toSessionSummary() else null
@@ -402,8 +415,8 @@ class MatchLogRepository(
         }
     }
 
-    suspend fun getTelemetryRange(sessionId: String, startMs: Long, endMs: Long): List<TelemetryFrame> = withDbLock {
-        val targetConn = if (sessionId == "live-telemetry") ephemeralConn else conn
+    suspend fun getTelemetryRange(sessionId: String, startMs: Long, endMs: Long): List<TelemetryFrame> = withReadLock {
+        val targetConn = if (sessionId == "live-telemetry") ephemeralConn else readConn
         val list = mutableListOf<TelemetryFrame>()
         targetConn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_ms ASC").use { ps ->
             ps.setString(1, sessionId)
@@ -494,9 +507,9 @@ class MatchLogRepository(
         list
     }
 
-    suspend fun getDistinctTimestamps(sessionId: String): List<Long> = withDbLock {
+    suspend fun getDistinctTimestamps(sessionId: String): List<Long> = withReadLock {
         val list = mutableListOf<Long>()
-        conn.prepareStatement("SELECT DISTINCT timestamp_ms FROM telemetry_frames WHERE session_id = ? ORDER BY timestamp_ms ASC").use { ps ->
+        readConn.prepareStatement("SELECT DISTINCT timestamp_ms FROM telemetry_frames WHERE session_id = ? ORDER BY timestamp_ms ASC").use { ps ->
             ps.setString(1, sessionId)
             ps.executeQuery().use { rs ->
                 while (rs.next()) list.add(rs.getLong(1))

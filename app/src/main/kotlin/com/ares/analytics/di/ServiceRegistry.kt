@@ -21,7 +21,6 @@ class ServiceRegistry {
     // ── Tier 0: No dependencies ──────────────────────────────────────────────
     val databaseService by lazy { DatabaseService() }
     val environmentService by lazy { EnvironmentService() }
-    val firebaseClientService by lazy { FirebaseClientService() }
     val processManagerService by lazy { ProcessManagerService() }
     val targetScannerService by lazy { TargetScannerService() }
     val keybindingParserService by lazy { KeybindingParserService() }
@@ -37,7 +36,7 @@ class ServiceRegistry {
     val replayEngineService by lazy { ReplayEngineService(databaseService, nt4ClientService) }
     val sysIdService by lazy { SysIdService(databaseService) }
     val calibrationService by lazy { CalibrationService(databaseService) }
-    val oauthService by lazy { OAuthService(firebaseClientService) }
+    val oauthService by lazy { OAuthService(environmentService) }
     val exportService by lazy { ExportService(databaseService) }
 
     // ── Tier 2: Depend on Tier 0 + Tier 1 ────────────────────────────────────
@@ -45,9 +44,10 @@ class ServiceRegistry {
     val driverAnalysisService by lazy { DriverAnalysisService(databaseService, sysIdService) }
     val summaryEngineService by lazy { SummaryEngineService(databaseService, sysIdService, driverAnalysisService) }
     val hootDecoderService by lazy { HootDecoderService(databaseService, summaryEngineService, sysIdService) }
-    val googleDriveService by lazy { GoogleDriveService(oauthService, environmentService, firebaseClientService) }
+    val firebaseClientService by lazy { FirebaseClientService() }
     val teamApiService by lazy { TeamApiService(firebaseClientService) }
-    val syncEngineService by lazy { SyncEngineService(databaseService, parquetExporterService, firebaseClientService, environmentService, teamApiService, summaryEngineService, googleDriveService) }
+    val googleDriveService by lazy { GoogleDriveService(oauthService, environmentService) }
+    val syncEngineService by lazy { SyncEngineService(databaseService, parquetExporterService, environmentService, summaryEngineService, googleDriveService) }
     val phoenixDiagnosticsService by lazy { PhoenixDiagnosticsService(nt4ClientService) }
     val ftcDashboardService by lazy { FtcDashboardService(nt4ClientService) }
 
@@ -86,14 +86,8 @@ class ServiceRegistry {
         if (lazyFieldInitialized(::syncEngineService)) {
             syncEngineService.close()
         }
-        if (lazyFieldInitialized(::teamApiService)) {
-            teamApiService.close()
-        }
         if (lazyFieldInitialized(::eventApiService)) {
             eventApiService.close()
-        }
-        if (lazyFieldInitialized(::firebaseClientService)) {
-            firebaseClientService.close()
         }
         if (lazyFieldInitialized(::databaseService)) {
             databaseService.close()

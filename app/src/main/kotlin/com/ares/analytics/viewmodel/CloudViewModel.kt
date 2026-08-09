@@ -1,7 +1,8 @@
 package com.ares.analytics.viewmodel
 
 import com.ares.analytics.service.DatabaseService
-import com.ares.analytics.service.FirebaseClientService
+import com.ares.analytics.service.OAuthService
+import com.ares.analytics.service.AuthState
 import com.ares.analytics.service.SyncEngineService
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.LogParserService
@@ -239,7 +240,7 @@ sealed class CloudIntent {
 class CloudViewModel(
     private val databaseService: DatabaseService,
     private val syncEngineService: SyncEngineService,
-    private val firebaseClientService: FirebaseClientService,
+    private val oauthService: OAuthService,
     private val nt4ClientService: Nt4ClientService,
     private val logParserService: LogParserService,
     private val scope: CoroutineScope
@@ -265,7 +266,7 @@ class CloudViewModel(
     }
 
     private fun checkAuth() {
-        val hasToken = firebaseClientService.getFirebaseToken() != null || firebaseClientService.isDevMode()
+        val hasToken = oauthService.authState.value is AuthState.Authenticated
         _state.update { it.copy(isAuthenticated = hasToken) }
     }
 

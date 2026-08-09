@@ -55,7 +55,7 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
         val escapedSessionId = sessionId.replace("'", "''")
         val escapedTimeCol = timeColumnName.replace("'", "''").replace("\"", "\"\"")
 
-        databaseService.executeRaw("""
+        databaseService.executeNativeCsvImport("""
             INSERT INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value)
             SELECT
                 CAST("$escapedTimeCol" AS BIGINT) AS timestamp_ms,

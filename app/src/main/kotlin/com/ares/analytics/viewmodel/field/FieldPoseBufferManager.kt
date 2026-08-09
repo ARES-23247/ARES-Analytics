@@ -2,6 +2,7 @@ package com.ares.analytics.viewmodel.field
 
 import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.viewmodel.FieldViewerState
+import com.ares.analytics.viewmodel.LivePoseState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,7 +14,8 @@ import kotlinx.coroutines.launch
  */
 class FieldPoseBufferManager(
     private val scope: CoroutineScope,
-    private val stateFlow: MutableStateFlow<FieldViewerState>
+    private val stateFlow: MutableStateFlow<FieldViewerState>,
+    private val livePoseFlow: MutableStateFlow<LivePoseState>
 ) {
     private val poseBuffer = ArrayDeque<Waypoint>(150)
 
@@ -21,11 +23,11 @@ class FieldPoseBufferManager(
         scope.launch {
             while (true) {
                 delay(50)
-                val currentState = stateFlow.value
+                val currentLiveState = livePoseFlow.value
                 // Use simulator TruePose if available, otherwise fall back to EKF data from real robot
-                val x = if (currentState.hasTruePoseData) currentState.trueX else (currentState.ekfX ?: currentState.trueX)
-                val y = if (currentState.hasTruePoseData) currentState.trueY else (currentState.ekfY ?: currentState.trueY)
-                val heading = if (currentState.hasTruePoseData) currentState.trueHeading else (currentState.ekfHeading ?: currentState.trueHeading)
+                val x = if (currentLiveState.hasTruePoseData) currentLiveState.trueX else (currentLiveState.ekfX ?: currentLiveState.trueX)
+                val y = if (currentLiveState.hasTruePoseData) currentLiveState.trueY else (currentLiveState.ekfY ?: currentLiveState.trueY)
+                val heading = if (currentLiveState.hasTruePoseData) currentLiveState.trueHeading else (currentLiveState.ekfHeading ?: currentLiveState.trueHeading)
 
                 val lastWp = poseBuffer.lastOrNull()
                 if (lastWp == null || kotlin.math.abs(lastWp.x - x) > 0.01 || kotlin.math.abs(lastWp.y - y) > 0.01) {

@@ -30,7 +30,7 @@ import kotlinx.coroutines.Dispatchers
  *
 
  */
-data class FieldViewerState(
+data class LivePoseState(
     val trueX: Double = 0.0,
     val trueY: Double = 0.0,
     val trueHeading: Double = 0.0,
@@ -47,14 +47,17 @@ data class FieldViewerState(
     val visionHeading: Double? = null,
     val visionPoses: Map<Int, Double> = emptyMap(),
     val visionHasTarget: Boolean = false,
-    val poseHistory: List<Waypoint> = emptyList(),
     val liveGamePieces: Map<Int, GamePiece> = emptyMap(),
     val isConnected: Boolean = false,
+    val indicatorLights: Map<String, Double> = emptyMap()
+)
+
+data class FieldViewerState(
+    val poseHistory: List<Waypoint> = emptyList(),
     val availablePaths: List<String> = emptyList(),
     val selectedPathName: String? = null,
     val selectedPathWaypoints: List<Waypoint> = emptyList(),
-    val isRedAlliance: Boolean = true,
-    val indicatorLights: Map<String, Double> = emptyMap()
+    val isRedAlliance: Boolean = true
 )
 
 sealed class FieldViewerIntent {
@@ -106,8 +109,11 @@ class FieldViewerViewModel(
     private val _state = MutableStateFlow(FieldViewerState())
     val state: StateFlow<FieldViewerState> = _state.asStateFlow()
 
-    private val topicSubscriber = FieldTopicSubscriber(nt4ClientService, scope, _state)
-    private val poseBufferManager = FieldPoseBufferManager(scope, _state)
+    private val _livePose = MutableStateFlow(LivePoseState())
+    val livePose: StateFlow<LivePoseState> = _livePose.asStateFlow()
+
+    private val topicSubscriber = FieldTopicSubscriber(nt4ClientService, scope, _state, _livePose)
+    private val poseBufferManager = FieldPoseBufferManager(scope, _state, _livePose)
     val cameraGestureController = FieldCameraGestureController()
 
     /**

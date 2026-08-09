@@ -239,7 +239,7 @@ class HootDecoderService(
 
         // 3. DuckDB native UNPIVOT import — single SQL pass, no Kotlin-side string parsing
         try {
-            databaseService.executeRaw("""
+            databaseService.executeNativeCsvImport("""
                 INSERT INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value)
                 SELECT
                     CAST(CAST("$escapedTimeCol" AS DOUBLE) * $scale AS BIGINT) AS timestamp_ms,
