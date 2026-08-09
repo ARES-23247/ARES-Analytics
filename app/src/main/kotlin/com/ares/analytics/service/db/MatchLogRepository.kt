@@ -90,37 +90,61 @@ class MatchLogRepository(
     }
 
     
-    suspend fun executeQueryRaw(sql: String): QueryResult = withDbLock {
-        val normalized = sql.trim().trimEnd(';').uppercase()
-        val isSelectOrWith = normalized.startsWith("SELECT") || normalized.startsWith("WITH")
-        val forbidden = listOf("DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "ATTACH", "INSTALL", "PRAGMA", "COPY", "TRUNCATE", "EXECUTE", "CALL", "VACUUM")
-        val hasForbidden = forbidden.any { Regex("\\b$it\\b").containsMatchIn(normalized) }
-        if (!isSelectOrWith || hasForbidden) {
-            throw IllegalArgumentException("Raw query rejected: Only read-only SELECT and WITH queries are allowed.")
+    suspend fun executeQueryRaw(sql: String): QueryResult = withReadLock {
+        // Primary guard: whitelist the first non-whitespace token. Only read-only
+        // statement leaders are permitted. This runs BEFORE any execution.
+        val normalized = sql.trim().trimEnd(';').trim().uppercase()
+        val firstToken = Regex("^[A-Z]+").find(normalized)?.value ?: ""
+        val allowedLeaders = setOf("SELECT", "WITH", "VALUES", "TABLE")
+        if (firstToken !in allowedLeaders) {
+            throw IllegalArgumentException("Raw query rejected: only SELECT/WITH/VALUES/TABLE leaders are allowed (got '$firstToken').")
         }
-        conn.createStatement().use { st ->
-            val hasResultSet = st.execute(sql)
-            if (hasResultSet) {
-                st.resultSet.use { rs ->
-                    val meta = rs.metaData
-                    val colCount = meta.columnCount
-                    val columns = (1..colCount).map { meta.getColumnName(it) }
-                    val rows = mutableListOf<List<String>>()
-                    while (rs.next()) {
-                        val row = (1..colCount).map {
-                            rs.getObject(it)?.toString() ?: "NULL"
+        // Defense-in-depth keyword denylist (expanded): even with a SELECT leader, block
+        // statements that smuggle in writes, side-effects, or exfiltration primitives the
+        // read-only transaction might not fully neutralize (e.g. EXPORT DATABASE).
+        val forbidden = listOf(
+            "DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "ATTACH", "DETACH",
+            "INSTALL", "LOAD", "PRAGMA", "COPY", "TRUNCATE", "EXECUTE", "CALL", "VACUUM",
+            "EXPORT", "SET", "USE", "IMPORT"
+        )
+        val hasForbidden = forbidden.any { Regex("\\b$it\\b").containsMatchIn(normalized) }
+        if (hasForbidden) {
+            throw IllegalArgumentException("Raw query rejected: query contains a disallowed modification/side-effect keyword.")
+        }
+        // Enforce read-only at the engine level: wrap the query in a READ ONLY transaction
+        // so any write attempt (even one that slipped past the token/keyword guards) is
+        // rejected by DuckDB itself. Executed on readConn (separate from the writer conn).
+        readConn.createStatement().use { it.execute("BEGIN TRANSACTION READ ONLY") }
+        try {
+            val result = readConn.createStatement().use { st ->
+                val hasResultSet = st.execute(sql)
+                if (hasResultSet) {
+                    st.resultSet.use { rs ->
+                        val meta = rs.metaData
+                        val colCount = meta.columnCount
+                        val columns = (1..colCount).map { meta.getColumnName(it) }
+                        val rows = mutableListOf<List<String>>()
+                        while (rs.next()) {
+                            val row = (1..colCount).map {
+                                rs.getObject(it)?.toString() ?: "NULL"
+                            }
+                            rows.add(row)
                         }
-                        rows.add(row)
+                        QueryResult(columns, rows)
                     }
-                    QueryResult(columns, rows)
+                } else {
+                    val updateCount = st.updateCount
+                    QueryResult(
+                        columns = listOf("Status"),
+                        rows = listOf(listOf("Command completed successfully. Affected rows: $updateCount"))
+                    )
                 }
-            } else {
-                val updateCount = st.updateCount
-                QueryResult(
-                    columns = listOf("Status"),
-                    rows = listOf(listOf("Command completed successfully. Affected rows: $updateCount"))
-                )
             }
+            readConn.createStatement().use { it.execute("COMMIT") }
+            result
+        } catch (e: Exception) {
+            try { readConn.createStatement().use { it.execute("ROLLBACK") } } catch (_: Exception) {}
+            throw e
         }
     }
     
@@ -519,14 +543,21 @@ class MatchLogRepository(
     }
 
     suspend fun deleteTelemetryFrames(sessionId: String) = withDbLock {
-        conn.prepareStatement("DELETE FROM telemetry_frames WHERE session_id = ?").use { ps ->
+        // Route by sessionId to the correct connection: "live-telemetry" frames live in
+        // ephemeralConn (see insertTelemetryFrames routing). Deleting on `conn` would be a
+        // silent no-op and let the ephemeral buffer grow unbounded.
+        val targetConn = if (sessionId == "live-telemetry") ephemeralConn else conn
+        targetConn.prepareStatement("DELETE FROM telemetry_frames WHERE session_id = ?").use { ps ->
             ps.setString(1, sessionId)
             ps.executeUpdate()
         }
     }
 
     suspend fun pruneTelemetryFrames(sessionId: String, cutoffMs: Long) = withDbLock {
-        conn.prepareStatement("DELETE FROM telemetry_frames WHERE session_id = ? AND timestamp_ms < ?").use { ps ->
+        // Same routing as deleteTelemetryFrames / getTelemetryRange: live frames are in
+        // ephemeralConn, so the 5-min live prune must target that connection.
+        val targetConn = if (sessionId == "live-telemetry") ephemeralConn else conn
+        targetConn.prepareStatement("DELETE FROM telemetry_frames WHERE session_id = ? AND timestamp_ms < ?").use { ps ->
             ps.setString(1, sessionId)
             ps.setLong(2, cutoffMs)
             ps.executeUpdate()

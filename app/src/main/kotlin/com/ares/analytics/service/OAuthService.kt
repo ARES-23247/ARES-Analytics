@@ -16,6 +16,8 @@ import io.ktor.server.routing.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -138,7 +140,12 @@ class OAuthService(private val environmentService: EnvironmentService) {
      * Per-request CSRF `state` value for the OAuth redirect. Set in [startGoogleLogin] /
      * [startGithubLogin] before booting the callback server and validated in the
      * `/callback` handler to block login-CSRF (AUDIT H1).
+     *
+     * Marked `@Volatile`: it is written from the caller thread (startGoogleLogin on the UI
+     * thread) and read from the CIO callback dispatcher; without `@Volatile` the callback
+     * handler could see a stale null and reject a legitimate redirect.
      */
+    @Volatile
     private var expectedState: String? = null
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -156,17 +163,23 @@ class OAuthService(private val environmentService: EnvironmentService) {
         val saved = getSavedAuth() ?: return
         val config = environmentService.loadConfig()
         val clientId = config?.googleClientId
+        // No config (or network-down reading it) → leave Unauthenticated; the UI will
+        // re-prompt once settings exist. Don't crash on startup.
         if (clientId.isNullOrEmpty()) return
-        // Refresh yields a fresh access_token + id_token; identity is re-derived from the id_token.
-        try {
-            refreshGoogleAccessToken(clientId, config.googleClientSecret)
+        // Refresh yields a fresh access_token + id_token; identity is re-derived from the
+        // id_token. Only restore Authenticated when the refresh actually round-tripped —
+        // otherwise a revoked/disabled account would look logged-in while gateway calls 401.
+        val refreshed = try {
+            refreshGoogleAccessToken(clientId, config.googleClientSecret) != null
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            // Best-effort; if refresh fails the user will be prompted to sign in again.
+            // Network-down / Drive outage while refreshing: stay Unauthenticated so the UI
+            // re-prompts rather than falsely advertising an authenticated session.
+            false
         }
-        // Restore Authenticated state from persisted credentials. The refresh above persists
-        // a fresh id_token when it actually round-trips; otherwise fall back to the last
-        // persisted id_token. Without this, restarts left _authState stuck in Unauthenticated
-        // because the in-state refresh update only fires when already Authenticated.
+        if (!refreshed) return
+        // Restore Authenticated state from the freshly-persisted id_token.
         val restored = getSavedAuth() ?: return
         val idToken = restored.googleIdToken
         if (!idToken.isNullOrBlank()) {
@@ -338,6 +351,8 @@ class OAuthService(private val environmentService: EnvironmentService) {
                     println("Failed to refresh Google access token: ${response.bodyAsText()}")
                     null
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 e.printStackTrace()
                 null
@@ -532,6 +547,10 @@ class OAuthService(private val environmentService: EnvironmentService) {
     }
 
     fun dispose() {
+        // Cancel the process-lifetime scope first so loadPersistedAuth / callback
+        // coroutines stop touching httpClient before we close it. Without this, a
+        // in-flight refresh could use a closed client and throw into the void.
+        serviceScope.cancel()
         stopServer()
         try {
             httpClient.close()

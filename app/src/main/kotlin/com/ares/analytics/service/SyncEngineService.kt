@@ -73,6 +73,50 @@ class SyncEngineService(
     private val indexMutex = kotlinx.coroutines.sync.Mutex()
 
     /**
+     * Outcome of reading the remote `index.json`. Distinguishes a *failed* read (Drive
+     * outage / corrupt JSON — must NOT be treated as "remote is empty", or a single
+     * failing byte would let an upload rewrite the index with only the uploaded session)
+     * from a genuinely-absent index (first run — safe to seed fresh).
+     */
+    private sealed class RemoteIndexState {
+        data class Loaded(val summaries: List<SessionSummary>) : RemoteIndexState()
+        object Absent : RemoteIndexState()
+        object Failed : RemoteIndexState()
+    }
+
+    /**
+     * Reads the remote index.json with failure discrimination. Folder creation failure,
+     * file read failure, and JSON parse failure all yield [RemoteIndexState.Failed]; a
+     * missing index.json (first run) yields [RemoteIndexState.Absent].
+     */
+    private suspend fun readRemoteIndexState(): RemoteIndexState = withContext(Dispatchers.IO) {
+        val rootFolderId = try {
+            googleDriveService.findOrCreateFolder("ARES-Analytics")
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return@withContext RemoteIndexState.Failed
+        }
+        val indexFileId = try {
+            googleDriveService.findFile("index.json", rootFolderId)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return@withContext RemoteIndexState.Failed
+        } ?: return@withContext RemoteIndexState.Absent
+        val indexBytes = try {
+            googleDriveService.readFile(indexFileId)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return@withContext RemoteIndexState.Failed
+        }
+        try {
+            RemoteIndexState.Loaded(AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8)))
+        } catch (e: Exception) {
+            e.printStackTrace()
+            RemoteIndexState.Failed
+        }
+    }
+
+    /**
      * Uploads a local session's log file to Google Drive.
      */
     suspend fun uploadSession(sessionId: String, authToken: String? = null) = withContext(Dispatchers.IO) {
@@ -137,13 +181,13 @@ class SyncEngineService(
             //    concurrent uploads cannot clobber each other's entries).
             indexMutex.withLock {
                 val indexFileId = googleDriveService.findFile("index.json", rootFolderId)
+                // If index.json exists but the read or parse fails, propagate the exception
+                // (aborting this upload) rather than falling back to emptyList — rewriting a
+                // 1-element index on a Drive outage would silently wipe the remote manifest.
+                // A genuinely-missing index (first run, fileId == null) seeds empty safely.
                 val indexList = if (indexFileId != null) {
                     val indexBytes = googleDriveService.readFile(indexFileId)
-                    try {
-                        AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
+                    AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
                 } else {
                     emptyList()
                 }
@@ -272,7 +316,16 @@ class SyncEngineService(
      * Syncs local sessions with Google Drive repository.
      */
     suspend fun performDeltaSync(teamId: String, seasonId: String, authToken: String? = null) = withContext(Dispatchers.IO) {
-        val remoteSummaries = getRemoteSummaries()
+        // Use the failure-discriminating reader so a Drive outage / corrupt index.json is
+        // NOT mistaken for "remote is empty" (which would upload one session and rewrite
+        // index.json containing only that session — wiping the real remote manifest).
+        val remoteIndexState = readRemoteIndexState()
+        if (remoteIndexState is RemoteIndexState.Failed) {
+            // Cannot safely determine remote contents this pass; skip the whole sync rather
+            // than risk truncating the remote index. The next successful pass will catch up.
+            return@withContext
+        }
+        val remoteSummaries = (remoteIndexState as? RemoteIndexState.Loaded)?.summaries ?: emptyList()
 
         val localSummaries = databaseService.getAllSessionSummaries()
         val localIds = localSummaries.map { it.sessionId }.toSet()
