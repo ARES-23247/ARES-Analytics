@@ -35,7 +35,8 @@ class Nt4ClientServiceTest {
      * tearDown fun.
      */
     fun tearDown() {
-        nt4ClientService.stop()
+        // stop() is now suspend (it cancelAndJoins the WS loop before closing clients).
+        runBlocking { nt4ClientService.stop() }
         tempDb.delete()
     }
 

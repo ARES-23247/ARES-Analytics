@@ -523,9 +523,6 @@ class MatchLogRepository(
             ps.setString(1, sessionId)
             ps.executeUpdate()
         }
-        conn.createStatement().use { st ->
-            st.execute("VACUUM telemetry_frames")
-        }
     }
 
     suspend fun pruneTelemetryFrames(sessionId: String, cutoffMs: Long) = withDbLock {
@@ -533,9 +530,6 @@ class MatchLogRepository(
             ps.setString(1, sessionId)
             ps.setLong(2, cutoffMs)
             ps.executeUpdate()
-        }
-        conn.createStatement().use { st ->
-            st.execute("VACUUM telemetry_frames")
         }
     }
 
@@ -591,10 +585,6 @@ class MatchLogRepository(
 
     suspend fun associateSessionWithMatch(sessionId: String, matchNumber: Int, allianceColor: String, opponentTeams: List<String>) {
         updateSessionMatchDetails(sessionId, matchNumber, allianceColor)
-    }
-
-    suspend fun updateSessionLogFilePath(sessionId: String, logFilePath: String) = withDbLock {
-        // Log file path no longer supported on DuckDB Session schema
     }
 
     suspend fun insertAlert(alert: AlertRecord) = withDbLock {

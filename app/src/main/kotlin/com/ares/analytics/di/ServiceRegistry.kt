@@ -4,6 +4,7 @@ import com.ares.analytics.service.*
 import com.ares.analytics.service.log.*
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.runBlocking
 
 /**
  * Centralized service registry that lazy-initializes all application services
@@ -62,7 +63,9 @@ class ServiceRegistry {
         }
         // Nt4ClientService.stop() cancels the WebSocket client job
         if (lazyFieldInitialized(::nt4ClientService)) {
-            nt4ClientService.stop()
+            // stop() is now suspend (it cancelAndJoins the WS loop before closing clients);
+            // dispose() is a synchronous shutdown hook, so block until it completes.
+            runBlocking { nt4ClientService.stop() }
         }
         // ProcessManagerService.shutdown() cancels build, sim, logcat, and ADB monitor jobs
         if (lazyFieldInitialized(::processManagerService)) {

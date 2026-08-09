@@ -1,5 +1,9 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 
+// Single source of truth for the application version. Consumed both by the native
+// distribution packaging below and by the generated BuildConfig (see generateBuildConfig).
+val appVersion = "1.0.3"
+
 plugins {
     kotlin("jvm")
     kotlin("plugin.serialization")
@@ -64,6 +68,39 @@ dependencies {
     runtimeOnly("org.lwjgl:lwjgl-glfw:$lwjglVersion:$lwjglNatives")
 }
 
+// Generate BuildConfig.kt from gradle so the update-checker reads the real package version
+// instead of a hand-maintained constant that drifts (AUDIT H12). The hand-maintained
+// app/src/main/kotlin/.../BuildConfig.kt was deleted in favor of this generated file.
+val generatedBuildConfigDir = layout.buildDirectory.dir("generated/buildconfig/src/main/kotlin")
+tasks.register("generateBuildConfig") {
+    val version = appVersion
+    inputs.property("appVersion", version)
+    outputs.dir(generatedBuildConfigDir)
+    doLast {
+        val pkgDir = generatedBuildConfigDir.get().asFile.resolve("com/ares/analytics")
+        pkgDir.mkdirs()
+        pkgDir.resolve("BuildConfig.kt").writeText(
+            """
+            |package com.ares.analytics
+            |
+            |object BuildConfig {
+            |    const val VERSION = "$version"
+            |}
+            """.trimMargin()
+        )
+    }
+}
+
+sourceSets {
+    main {
+        kotlin.srcDir(generatedBuildConfigDir)
+    }
+}
+
+tasks.named("compileKotlin") {
+    dependsOn("generateBuildConfig")
+}
+
 compose.desktop {
     application {
         mainClass = "com.ares.analytics.MainKt"
@@ -72,7 +109,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "ARES-Analytics"
-            packageVersion = "1.0.3"
+            packageVersion = appVersion
             description = "ARES Robotics Mission Control Suite"
             vendor = "ARES Robotics"
             modules("java.sql", "java.naming")

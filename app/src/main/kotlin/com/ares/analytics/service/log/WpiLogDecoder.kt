@@ -39,7 +39,8 @@ class WpiLogDecoder {
     suspend fun parseWpiLog(file: File, sessionId: String, batcher: FrameBatcher) {
         FileInputStream(file).use { fis ->
             val headerBytes = ByteArray(12)
-            if (fis.read(headerBytes) != 12) return
+            // readNBytes blocks until 12 bytes or EOF; a short read means a truncated file.
+            if (fis.readNBytes(headerBytes, 0, 12) != 12) return
             val magic = String(headerBytes, 0, 6)
             if (magic != "WPILOG") return
 
@@ -57,7 +58,7 @@ class WpiLogDecoder {
                 val timestampSize = ((headerByte ushr 4) and 0x03) + 1
                 val recordHeaderSize = entryIdSize + payloadSizeSize + timestampSize
                 val recordHeaderBytes = ByteArray(recordHeaderSize)
-                if (fis.read(recordHeaderBytes) != recordHeaderSize) break
+                if (fis.readNBytes(recordHeaderBytes, 0, recordHeaderSize) != recordHeaderSize) break
                 bytesRead += recordHeaderSize
                 val buffer = ByteBuffer.wrap(recordHeaderBytes).order(ByteOrder.LITTLE_ENDIAN)
                 val entryId = readVariableInt(buffer, entryIdSize)
@@ -65,7 +66,7 @@ class WpiLogDecoder {
                 val timestampMicro = readVariableLong(buffer, timestampSize)
                 val timestampMs = timestampMicro / 1000
                 val payload = ByteArray(payloadSize)
-                if (fis.read(payload) != payloadSize) break
+                if (fis.readNBytes(payload, 0, payloadSize) != payloadSize) break
                 bytesRead += payloadSize
 
                 if (entryId == 0) {

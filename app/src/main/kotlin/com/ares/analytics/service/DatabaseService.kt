@@ -111,7 +111,6 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     suspend fun updateSessionTags(sessionId: String, tags: List<String>) = matchLogRepo.updateSessionTags(sessionId, tags)
     suspend fun updateSessionMatchDetails(sessionId: String, matchNumber: Int?, allianceColor: String?) = matchLogRepo.updateSessionMatchDetails(sessionId, matchNumber, allianceColor)
     suspend fun associateSessionWithMatch(sessionId: String, matchNumber: Int, allianceColor: String, opponentTeams: List<String>) = matchLogRepo.associateSessionWithMatch(sessionId, matchNumber, allianceColor, opponentTeams)
-    suspend fun updateSessionLogFilePath(sessionId: String, logFilePath: String) = matchLogRepo.updateSessionLogFilePath(sessionId, logFilePath)
     suspend fun insertAlert(alert: AlertRecord) = matchLogRepo.insertAlert(alert)
     suspend fun getAlerts(sessionId: String): List<AlertRecord> = matchLogRepo.getAlerts(sessionId)
     suspend fun insertTopology(topology: HardwareTopology) = matchLogRepo.insertTopology(topology)

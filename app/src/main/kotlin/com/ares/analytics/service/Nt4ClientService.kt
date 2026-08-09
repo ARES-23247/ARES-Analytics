@@ -414,13 +414,18 @@ open class Nt4ClientService(
      *
 
      */
-    fun stop() {
-        clientJob?.cancel()
+    suspend fun stop() {
+        // cancelAndJoin (was a fire-and-forget cancel()) so the WebSocket receive/reconnect
+        // loop fully unwinds before the HttpClients are closed below — otherwise the
+        // still-running loop touches a closed client (use-after-close, AUDIT H14).
+        clientJob?.cancelAndJoin()
+        clientJob = null
         _isConnected.value = false
-        // Flush remaining frames asynchronously
-        serviceScope.launch {
-            flushPendingFrames()
-        }
+        webSocketSession = null
+        // Final flush on a dedicated job, awaited before client teardown so no background
+        // work outlives the clients.
+        val flushJob = serviceScope.launch { flushPendingFrames() }
+        flushJob.join()
         synchronized(this) {
             localClient?.close()
             localClient = null
@@ -589,25 +594,9 @@ open class Nt4ClientService(
         // simulator and cause 50Hz recomposition storms across all widgets
         if (normalizedName.startsWith("ARES/Input/")) return
 
-        // Intercept log file path linkage
-        if (normalizedName == "ARES/Session/LogFilePath") {
-            try {
-                val logFilePath = when (valueElement) {
-                    is JsonPrimitive -> valueElement.content
-                    is String -> valueElement
-                    else -> return
-                }
-                val session = _currentSession.value
-                if (session != null) {
-                    serviceScope.launch {
-                        databaseService.updateSessionLogFilePath(session.sessionId, logFilePath)
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            return
-        }
+        // Note: ARES/Session/LogFilePath was previously linked to the session row, but
+        // session↔logfile linkage is no longer tracked (the DuckDB session schema has no
+        // log_file_path column), so the topic is now intentionally ignored.
 
         // Handle topology mapping directly
         if (normalizedName == "Topology/HardwareMap") {
@@ -621,14 +610,17 @@ open class Nt4ClientService(
             return
         }
 
-        // Intercept and handle console log messages
+        // Intercept and handle console log messages. Match a closed set of exact topic
+        // names (case-insensitive equality) instead of a substring test — `contains("log")`
+        // previously misclassified any telemetry topic containing "log" as console output (AUDIT H8).
         val lowerName = normalizedName.lowercase()
-        if (lowerName.contains("console") || lowerName.contains("log") || lowerName.contains("print")) {
+        if (lowerName == "ares/console" || lowerName == "robot/console" ||
+            lowerName == "system/print" || lowerName == "robot/print") {
             try {
                 val text = if (valueElement is JsonPrimitive) valueElement.content else valueElement.toString()
                 val severity = when {
-                    text.contains("[ERROR]", ignoreCase = true) || text.contains("error:", ignoreCase = true) || lowerName.contains("error") -> "ERROR"
-                    text.contains("[WARN]", ignoreCase = true) || text.contains("warning:", ignoreCase = true) || lowerName.contains("warn") -> "WARN"
+                    text.contains("[ERROR]", ignoreCase = true) || text.contains("error:", ignoreCase = true) -> "ERROR"
+                    text.contains("[WARN]", ignoreCase = true) || text.contains("warning:", ignoreCase = true) -> "WARN"
                     else -> "INFO"
                 }
                 val session = _currentSession.value

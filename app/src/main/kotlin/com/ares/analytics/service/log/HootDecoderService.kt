@@ -147,17 +147,38 @@ class HootDecoderService(
             "-f",
             "csv"
         )
+        // Merge stderr into stdout and drain the combined stream on a background thread so a
+        // verbose child cannot fill its OS pipe buffer and deadlock waitFor() (AUDIT H3).
+        pb.redirectErrorStream(true)
         val process = pb.start()
+        val capturedOutput = StringBuilder()
+        val drainThread = Thread {
+            try {
+                process.inputStream.bufferedReader().use { reader ->
+                    var line = reader.readLine()
+                    while (line != null) {
+                        capturedOutput.appendLine(line)
+                        line = reader.readLine()
+                    }
+                }
+            } catch (e: Exception) {
+                // Best-effort drain; do not mask the original failure.
+            }
+        }
+        drainThread.isDaemon = true
+        drainThread.start()
         val finished = process.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)
         if (!finished) {
             process.destroyForcibly()
+            drainThread.join(2000)
             tempCsv.delete()
-            throw IllegalStateException("owlet CLI timed out converting hoot log.")
+            throw IllegalStateException("owlet CLI timed out converting hoot log. Output:\n$capturedOutput")
         }
+        drainThread.join(5000)
         val exitCode = process.exitValue()
         if (exitCode != 0) {
             tempCsv.delete()
-            throw IllegalStateException("owlet CLI failed to convert hoot log. Exit code: $exitCode")
+            throw IllegalStateException("owlet CLI failed to convert hoot log. Exit code: $exitCode. Output:\n$capturedOutput")
         }
         val sessionId = "hoot-${UUID.randomUUID()}"
         

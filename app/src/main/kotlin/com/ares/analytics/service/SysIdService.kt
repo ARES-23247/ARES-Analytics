@@ -58,11 +58,11 @@ class SysIdService(private val databaseService: DatabaseService) {
         velocityKey: String,
         accelerationKey: String
     ): CalculatedSummary {
-        val start = 0L
-        val end = Long.MAX_VALUE
-        val voltages = databaseService.getTelemetryRange(sessionId, start, end).filter { it.key == voltageKey }
-        val velocities = databaseService.getTelemetryRange(sessionId, start, end).filter { it.key == velocityKey }
-        val accelerations = databaseService.getTelemetryRange(sessionId, start, end).filter { it.key == accelerationKey }
+        // Fetch each channel server-side (key-filtered) instead of loading the whole
+        // session three times and filtering in memory (AUDIT H13).
+        val voltages = databaseService.getTelemetryForKey(sessionId, voltageKey)
+        val velocities = databaseService.getTelemetryForKey(sessionId, velocityKey)
+        val accelerations = databaseService.getTelemetryForKey(sessionId, accelerationKey)
 
         if (voltages.isEmpty() || velocities.isEmpty() || accelerations.isEmpty()) {
             return CalculatedSummary()

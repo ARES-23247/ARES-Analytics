@@ -92,6 +92,11 @@ class ReplayEngineService(
     )
     val replayTelemetryFlow: SharedFlow<TelemetryFrame> = _replayTelemetryFlow.asSharedFlow()
 
+    // Process-lifetime scope for replay coroutines. Previously play()/updateFrameAtPlayhead()
+    // spawned unparented CoroutineScope(Dispatchers.Default).launch{} (a fresh, untracked scope
+    // at 50Hz) — those are now parented here and cancelled in stop()/dispose() (AUDIT H6).
+    private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+
     private var replayJob: Job? = null
     private var allFrames: List<TelemetryFrame> = emptyList()
     private var timestamps: List<Long> = emptyList()
@@ -161,7 +166,7 @@ class ReplayEngineService(
         if (_state.value == ReplayState.PLAYING) return
 
         _state.value = ReplayState.PLAYING
-        replayJob = CoroutineScope(Dispatchers.Default).launch {
+        replayJob = serviceScope.launch {
             var lastRealTime = System.currentTimeMillis()
             while (isActive && _state.value == ReplayState.PLAYING) {
                 val nowRealTime = System.currentTimeMillis()
@@ -206,6 +211,7 @@ class ReplayEngineService(
     fun stop() {
         _state.value = ReplayState.STOPPED
         replayJob?.cancel()
+        emitJob?.cancel()
         try {
             datagramSocket?.close()
         } catch (e: Exception) {
@@ -215,6 +221,16 @@ class ReplayEngineService(
             _progress.value = 0.0
             updateFrameAtPlayhead()
         }
+    }
+
+    /**
+     * Final teardown — cancels the process-lifetime [serviceScope]. Use when the replay
+     * engine is being discarded (e.g. ServiceRegistry shutdown). [stop] should be called
+     * for ordinary pause/stop since it leaves [serviceScope] reusable.
+     */
+    fun dispose() {
+        stop()
+        serviceScope.cancel()
     }
 
     /**
@@ -382,7 +398,7 @@ class ReplayEngineService(
         // 3. Emit individual TelemetryFrame objects for dashboard widget consumption
         val sessionId = "replay"
         emitJob?.cancel()
-        emitJob = CoroutineScope(Dispatchers.Default).launch {
+        emitJob = serviceScope.launch {
             for ((key, value) in mapToEmit) {
                 val normalizedKey = key.removePrefix("/")
                 val telemetryFrame = TelemetryFrame(
