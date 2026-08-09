@@ -34,6 +34,11 @@ data class DashboardState(
     val isImporting: Boolean = false,
     val importSuccess: Boolean = false,
     val errorMessage: String? = null,
+    /**
+     * Non-blocking warning set when a local import succeeded but the background cloud
+     * sync (upload/delta) failed (e.g. offline). `null` when sync was clean or not attempted.
+     */
+    val syncWarning: String? = null,
     val availableProfiles: List<String> = emptyList(),
     val savedLiveProfile: String? = null
 )
@@ -300,7 +305,7 @@ class DashboardViewModel(
                     }
                 }
                 is DashboardIntent.ImportLogFiles -> {
-                    _state.update { it.copy(isImporting = true, importSuccess = false, errorMessage = null) }
+                    _state.update { it.copy(isImporting = true, importSuccess = false, errorMessage = null, syncWarning = null) }
                     withContext(Dispatchers.IO) {
                         try {
                             val sessionId = if (intent.files.size == 1 && intent.files.first().name.lowercase().endsWith(".hoot")) {
@@ -319,15 +324,21 @@ class DashboardViewModel(
                                 ).sessionId
                             }
 
-                            // Trigger background cloud sync after successful import
+                            // Trigger background cloud sync after successful import. Surface a
+                            // non-blocking warning if it fails (e.g. offline) instead of
+                            // silently claiming success — previously importSuccess=true implied
+                            // a backup that never happened.
+                            var warning: String? = null
                             try {
                                 syncEngineService.uploadSession(sessionId)
                                 syncEngineService.performDeltaSync(intent.teamId, intent.seasonId)
+                            } catch (syncEx: kotlinx.coroutines.CancellationException) {
+                                throw syncEx
                             } catch (syncEx: Exception) {
-                                // Fallback silently so local usability is unaffected if offline
+                                warning = "Imported locally; cloud sync failed: ${syncEx.message ?: syncEx.javaClass.simpleName}"
                             }
 
-                            _state.update { it.copy(isImporting = false, importSuccess = true) }
+                            _state.update { it.copy(isImporting = false, importSuccess = true, syncWarning = warning) }
                         } catch (e: Exception) {
                             _state.update { it.copy(isImporting = false, errorMessage = e.message ?: "Failed to import log file(s)") }
                         }

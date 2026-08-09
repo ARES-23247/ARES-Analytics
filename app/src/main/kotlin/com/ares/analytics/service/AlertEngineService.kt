@@ -76,9 +76,15 @@ class AlertEngineService(
 
     /**
      * Observable stream of active and historical [AlertRecord]s sorted descending by trigger timestamp.
+     *
+     * [distinctUntilChanged] suppresses identical sorted lists so AlertPanel /
+     * CriticalAlertOverlay only recompose when the alert *content* actually changes — the
+     * engine can mutate `_alerts` at tens of Hz (e.g. peak-value refreshes) but most frames
+     * produce a structurally identical list.
      */
     val alerts: StateFlow<List<AlertRecord>> = _alerts
         .map { it.values.toList().sortedByDescending { r -> r.triggerTimestampMs } }
+        .distinctUntilChanged()
         .stateIn(serviceScope, SharingStarted.Eagerly, emptyList())
 
     private var engineJob: Job? = null

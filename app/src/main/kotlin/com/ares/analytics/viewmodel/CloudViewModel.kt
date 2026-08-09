@@ -540,6 +540,16 @@ class CloudViewModel(
                                 } else {
                                     logUpload("Run ${run.runId} upload encountered errors. Skipping cleanup.")
                                 }
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                // Per-run isolation: a failure here (parse/parse-throw/etc.)
+                                // must NOT abort the remaining runs. Robot-file deletion only
+                                // happened above if this run's local+cloud pipeline fully
+                                // succeeded (errors was empty); a thrown exception skips it.
+                                val msg = "Run ${run.runId} aborted: ${e.message ?: e.javaClass.simpleName}"
+                                errors.add(msg)
+                                logUpload("  -> $msg")
                             } finally {
                                 downloadedFiles.forEach { it.delete() }
                             }

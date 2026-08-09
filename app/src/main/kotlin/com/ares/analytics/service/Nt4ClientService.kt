@@ -39,6 +39,12 @@ import io.ktor.client.engine.okhttp.OkHttp
 open class Nt4ClientService(
     private val databaseService: DatabaseService
 ) {
+    /**
+     * Opt-in verbose NT4 frame logging (e.g. heartbeat hex dumps). Enabled with
+     * `-Dares.debug.nt4=true`. Off by default to avoid the 50Hz allocation + println storm.
+     */
+    private val NT4_DEBUG: Boolean = java.lang.Boolean.getBoolean("ares.debug.nt4")
+
     @Volatile
     private var localClient: HttpClient? = null
     @Volatile
@@ -347,7 +353,10 @@ open class Nt4ClientService(
         // Write value bytes (already MsgPack encoded)
         System.arraycopy(valueBytes, 0, buffer, 14, valueBytes.size)
         
-        if (pubuid == 1010) {
+        // Heartbeat hex-dump is gated behind the `ares.debug.nt4` system property. It ran
+        // unconditionally on every 50Hz heartbeat (pubuid 1010), allocating a joinToString +
+        // String.format per frame and flooding stdout.
+        if (pubuid == 1010 && NT4_DEBUG) {
             val bytesStr = buffer.joinToString("") { String.format("%02x", it) }
             println("[Nt4ClientService] sendBinaryUpdate 1010 (heartbeat): timestampUs=$timestampUs, buffer=$bytesStr")
         }
