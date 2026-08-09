@@ -57,7 +57,7 @@ class EnvironmentService(
                     workspaces = listOf(migratedConfig)
                 )
                 file.parentFile?.mkdirs()
-                file.writeText(json.encodeToString(migratedWorkspaces))
+                writeSecrets(file, json.encodeToString(migratedWorkspaces).toByteArray(Charsets.UTF_8))
                 return@withContext migratedWorkspaces
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -69,8 +69,9 @@ class EnvironmentService(
 
     suspend fun saveWorkspaces(appWorkspaces: AppWorkspaces) = withContext(Dispatchers.IO) {
         val file = File(workspacesPath)
-        file.parentFile?.mkdirs()
-        file.writeText(json.encodeToString(appWorkspaces))
+        // workspaces.json holds secrets (googleClientSecret, geminiApiKey, toaApiKey,
+        // vertexServiceAccountPath) → restrict to owner-only via writeSecrets (AUDIT H2).
+        writeSecrets(file, json.encodeToString(appWorkspaces).toByteArray(Charsets.UTF_8))
     }
 
     suspend fun loadConfig(): WorkspaceConfig? {
@@ -224,3 +225,27 @@ data class AresRobotConfig(
     val name: String = "",
     val league: String = "FTC"
 )
+
+/**
+ * Writes [bytes] to [file], then best-effort restricts the file to owner-only `rw-------`
+ * (AUDIT H2). Used for every file that holds secrets — `workspaces.json` /
+ * `config.json` (googleClientSecret, geminiApiKey, toaApiKey, vertexServiceAccountPath)
+ * and `auth.json` (OAuth tokens). POSIX-only; silently no-ops on Windows / unsupported
+ * filesystems where a `UnsupportedOperationException` is thrown by the JDK.
+ */
+fun writeSecrets(file: File, bytes: ByteArray) {
+    try {
+        file.parentFile?.mkdirs()
+        java.nio.file.Files.write(file.toPath(), bytes)
+        try {
+            java.nio.file.Files.setPosixFilePermissions(
+                file.toPath(),
+                java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")
+            )
+        } catch (e: UnsupportedOperationException) {
+            // Windows / non-POSIX FS — no action possible.
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+}

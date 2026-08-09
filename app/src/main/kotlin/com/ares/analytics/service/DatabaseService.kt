@@ -2,10 +2,19 @@ package com.ares.analytics.service
 
 import com.ares.analytics.shared.*
 import com.ares.analytics.service.db.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.sql.Statement
-import kotlinx.coroutines.sync.withLock
 import java.sql.Connection
 import java.sql.DriverManager
 
@@ -42,7 +51,10 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     private val schemaManager: SchemaMigrationManager
     private val matchLogRepo: MatchLogRepository
     private val backupExporter: DatabaseBackupExporter
-    
+
+    private val checkpointScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private lateinit var checkpointJob: Job
+
     init {
         Class.forName("org.duckdb.DuckDBDriver")
         val oldDbPath = System.getProperty("user.home") + "/.ares-analytics/telemetry.db"
@@ -81,7 +93,19 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         backupExporter = DatabaseBackupExporter(conn, dbMutex)
         
         schemaManager.runMigrations(isFirstRun, oldDbPath)
+
+        // Periodic WAL checkpoint — replaces the per-appender-batch CHECKPOINT that dominated
+        // import time with fsyncs on every frame batch. A 60s cadence bounds WAL growth for
+        // live streaming and bulk import alike; connection close still flushes on shutdown.
+        checkpointJob = checkpointScope.launch {
+            while (isActive) {
+                delay(CHECKPOINT_INTERVAL_MS)
+                runCatching { matchLogRepo.checkpoint() }
+            }
+        }
     }
+
+    suspend fun checkpoint() = matchLogRepo.checkpoint()
 
     suspend fun executeRaw(sql: String) = matchLogRepo.executeRaw(sql)
     suspend fun executeNativeCsvImport(sql: String) = matchLogRepo.executeNativeCsvImport(sql)
@@ -128,12 +152,20 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
      *
 
      */
-    fun close() = kotlinx.coroutines.runBlocking {
+    fun close() = runBlocking {
+        // Stop the periodic checkpoint timer first so it can't fire mid-teardown.
+        checkpointScope.cancel()
         dbMutex.withLock {
+            matchLogRepo.dispose()
             if (!conn.isClosed) { conn.close() }
             if (!readConn.isClosed) { readConn.close() }
             if (!ephemeralConn.isClosed) { ephemeralConn.close() }
         }
+    }
+
+    companion object {
+        /** Periodic CHECKPOINT cadence (ms). */
+        private const val CHECKPOINT_INTERVAL_MS = 60_000L
     }
 }
 

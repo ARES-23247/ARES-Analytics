@@ -122,17 +122,19 @@ private fun decodeIdToken(idToken: String): GoogleIdPayload = try {
  * OIDC-authed endpoints. Google Drive access tokens are refreshed on demand for
  * [GoogleDriveService].
  */
-class OAuthService(private val environmentService: EnvironmentService) {
-    private val refreshMutex = kotlinx.coroutines.sync.Mutex()
-
-    private val _authState = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
-    val authState: StateFlow<AuthState> = _authState.asStateFlow()
-
-    private val httpClient = HttpClient {
+class OAuthService(
+    private val environmentService: EnvironmentService,
+    private val authFilePath: String = System.getProperty("user.home") + "/.ares-analytics/auth.json",
+    private val httpClient: HttpClient = HttpClient {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
         }
     }
+) {
+    private val refreshMutex = kotlinx.coroutines.sync.Mutex()
+
+    private val _authState = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
+    val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
 
@@ -150,7 +152,7 @@ class OAuthService(private val environmentService: EnvironmentService) {
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
-    private val authFile = File(System.getProperty("user.home"), ".ares-analytics/auth.json")
+    private val authFile = File(authFilePath)
 
     init {
         // On startup, re-establish Authenticated state from persisted Google tokens.
@@ -159,7 +161,7 @@ class OAuthService(private val environmentService: EnvironmentService) {
 
     fun isDevMode(): Boolean = System.getenv("DEV_MODE") == "true"
 
-    private suspend fun loadPersistedAuth() {
+    internal suspend fun loadPersistedAuth() {
         val saved = getSavedAuth() ?: return
         val config = environmentService.loadConfig()
         val clientId = config?.googleClientId
@@ -429,22 +431,10 @@ class OAuthService(private val environmentService: EnvironmentService) {
     }
 
     fun saveAuth(auth: OAuthSavedAuth) {
-        try {
-            authFile.parentFile?.mkdirs()
-            authFile.writeText(Json.encodeToString(auth))
-            // Best-effort OS-level restriction: owner-only read/write (AUDIT H2). POSIX-only;
-            // silently ignored on Windows / unsupported filesystems.
-            try {
-                java.nio.file.Files.setPosixFilePermissions(
-                    authFile.toPath(),
-                    java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")
-                )
-            } catch (e: UnsupportedOperationException) {
-                // Windows / non-POSIX FS — no action possible.
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        // Shared writeSecrets helper applies owner-only POSIX perms (AUDIT H2) the same way
+        // EnvironmentService does for workspaces.json — keeps auth.json secret handling in
+        // one place instead of a bespoke try/setPosixFilePermissions block here.
+        writeSecrets(authFile, Json.encodeToString(auth).toByteArray(Charsets.UTF_8))
     }
 
     private fun bootCallbackServer(port: Int, onCodeReceived: suspend (String) -> Unit) {

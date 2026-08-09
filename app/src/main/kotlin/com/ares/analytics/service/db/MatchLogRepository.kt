@@ -65,6 +65,15 @@ class MatchLogRepository(
     }
 
     /**
+     * Final teardown — closes and clears the [statementCache]. Call from [DatabaseService.close]
+     * before closing the underlying connections so cached PreparedStatements don't leak.
+     */
+    fun dispose() {
+        statementCache.values.forEach { runCatching { it.close() } }
+        statementCache.clear()
+    }
+
+    /**
      * Executes an arbitrary SQL execution string (DDL/DML) on the primary connection.
      *
      * @param sql Raw SQL statement string.
@@ -326,8 +335,18 @@ class MatchLogRepository(
             appender.flush()
         } finally {
             appender.close()
-            conn.createStatement().use { it.execute("CHECKPOINT") }
+            // CHECKPOINT intentionally NOT run per batch — a per-batch WAL fsync dominated
+            // import time. Checkpointing is now caller/timer-controlled via [checkpoint]
+            // (DatabaseService runs it on a periodic timer; connection close still flushes).
         }
+    }
+
+    /**
+     * Forces a WAL checkpoint on the persistent connection. Caller/timer-controlled so it
+     * runs once per import job or periodically, not after every appender batch.
+     */
+    suspend fun checkpoint() = withDbLock {
+        conn.createStatement().use { it.execute("CHECKPOINT") }
     }
 
     /**
