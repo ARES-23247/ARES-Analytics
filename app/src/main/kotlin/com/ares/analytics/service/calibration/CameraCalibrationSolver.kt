@@ -272,12 +272,12 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
             val gyro = timeMap[t]?.value ?: continue
             val tagId = tagFrame.value.toInt()
             val tagField = tagMap[tagId] ?: continue
-            val x = getVal(camToTagFrames, t, 0)
-            val y = getVal(camToTagFrames, t, 1)
-            val z = getVal(camToTagFrames, t, 2)
-            val roll = getVal(camToTagFrames, t, 3)
-            val pitch = getVal(camToTagFrames, t, 4)
-            val yaw = getVal(camToTagFrames, t, 5)
+            val x = getVal(camToTagFrames, t)
+            val y = getVal(camToTagFrames, t)
+            val z = getVal(camToTagFrames, t)
+            val roll = getVal(camToTagFrames, t)
+            val pitch = getVal(camToTagFrames, t)
+            val yaw = getVal(camToTagFrames, t)
 
             measurements.add(
                 CalibrationMeasurement(
@@ -526,12 +526,12 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
             val gyro = timeMap[t]?.value ?: continue
             val tagId = tagFrame.value.toInt()
             val tagField = tagMap[tagId] ?: continue
-            val x = getVal(list0, t, 0)
-            val y = getVal(list1, t, 1)
-            val z = getVal(list2, t, 2)
-            val roll = getVal(list3, t, 3)
-            val pitch = getVal(list4, t, 4)
-            val yaw = getVal(list5, t, 5)
+            val x = getVal(list0, t)
+            val y = getVal(list1, t)
+            val z = getVal(list2, t)
+            val roll = getVal(list3, t)
+            val pitch = getVal(list4, t)
+            val yaw = getVal(list5, t)
 
             measurements.add(
                 CalibrationMeasurement(
@@ -553,9 +553,9 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
         solveCameraExtrinsicsWithDiagnostics(measurements)
     }
 
-    private fun getVal(targetList: List<TelemetryFrame>, timestampMs: Long, index: Int): Double {
+    private fun getVal(targetList: List<TelemetryFrame>, timestampMs: Long): Double {
         if (targetList.isEmpty()) return 0.0
-        val targetTime = timestampMs + index
+        val targetTime = timestampMs
         var low = 0
         var high = targetList.size - 1
         var bestFrame = targetList[0]
