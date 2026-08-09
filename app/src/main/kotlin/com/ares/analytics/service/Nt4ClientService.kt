@@ -105,7 +105,6 @@ open class Nt4ClientService(
      */
     suspend fun emitReplayFrame(frame: TelemetryFrame) {
         _telemetryFlow.emit(frame)
-        topicFlows[frame.key]?.value = frame.value
     }
 
     private val _currentSession = MutableStateFlow<Session?>(null)
@@ -134,12 +133,12 @@ open class Nt4ClientService(
         }
     }
 
-    private val pendingFrames = java.util.concurrent.ConcurrentLinkedQueue<TelemetryFrame>()
+    private val pendingFrames = kotlinx.coroutines.channels.Channel<TelemetryFrame>(capacity = 100_000, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
 
     suspend fun flushPendingFrames() {
         val framesToInsert = mutableListOf<TelemetryFrame>()
         while (true) {
-            val frame = pendingFrames.poll() ?: break
+            val frame = pendingFrames.tryReceive().getOrNull() ?: break
             framesToInsert.add(frame)
         }
         if (framesToInsert.isNotEmpty()) {
@@ -207,6 +206,7 @@ open class Nt4ClientService(
                         _isConnected.value = true
                         webSocketSession = this
                         topicMap.clear()
+                        retryDelay = 1000L
 
                         // 1. Announce input topics
                         val announceInputsMsg = """
@@ -272,7 +272,7 @@ open class Nt4ClientService(
                                 } catch (e: Exception) {
                                     break
                                 }
-                                delay(1000)
+                                delay(20)
                             }
                         }
 
@@ -303,8 +303,6 @@ open class Nt4ClientService(
                             _isConnected.value = false
                         }
                     }
-                    // Reset on successful connection end
-                    retryDelay = 1000L
                 } catch (e: Exception) {
                     println("[Nt4ClientService] Error connecting to $url: ${e.message}")
                     webSocketSession = null
@@ -320,7 +318,7 @@ open class Nt4ClientService(
     }
 
     private suspend fun sendBinaryUpdate(pubuid: Int, typeId: Byte, valueBytes: ByteArray) {
-        val timestampUs = System.currentTimeMillis() * 1000L
+        val timestampUs = System.nanoTime() / 1000L
         val size = 14 + valueBytes.size
         val buffer = ByteArray(size)
         
@@ -438,7 +436,7 @@ open class Nt4ClientService(
         } else {
             frame.copy(sessionId = "live-telemetry")
         }
-        pendingFrames.add(finalFrame)
+        pendingFrames.trySend(finalFrame)
         if (!isReplayActive.value) {
             _telemetryFlow.tryEmit(finalFrame)
         }
@@ -551,6 +549,7 @@ open class Nt4ClientService(
         val messages = try {
             com.areslib.networktables.NT4WireProtocol.unpackMessageFrames(bytes)
         } catch (e: Exception) {
+            println("ERROR decoding NT4 binary frame: ${e.message}")
             emptyList()
         }
         binaryFrameCount += messages.size
@@ -711,10 +710,8 @@ open class Nt4ClientService(
                 if (!isReplayActive.value) {
                     _telemetryFlow.tryEmit(frame)
                 }
-                topicFlows[frame.key]?.value = doubleValue
+                pendingFrames.trySend(frame)
             }
-            
-            pendingFrames.addAll(frames)
             return
         }
 
@@ -740,7 +737,7 @@ open class Nt4ClientService(
             stringValue = stringValue
         )
 
-        pendingFrames.add(frame)
+        pendingFrames.trySend(frame)
         latestValues[frame.key] = frame
         val history = telemetryHistory.getOrPut(frame.key) { java.util.ArrayDeque() }
         synchronized(history) {
@@ -756,7 +753,6 @@ open class Nt4ClientService(
         if (!isReplayActive.value) {
             _telemetryFlow.tryEmit(frame)
         }
-        topicFlows[frame.key]?.value = doubleValue
     }
     private var nextPubUid = 2000
     private val dynamicPubUids = ConcurrentHashMap<String, Int>().apply {
@@ -802,7 +798,6 @@ open class Nt4ClientService(
         )
         latestValues[cleanKey] = frame
         _telemetryFlow.tryEmit(frame)
-        topicFlows[cleanKey]?.value = value
         
         publishInputDouble(pubuid, value)
     }
@@ -852,25 +847,12 @@ open class Nt4ClientService(
         )
         latestValues[cleanKey] = frame
         _telemetryFlow.emit(frame)
-        topicFlows[cleanKey]?.value = if (value) 1.0 else 0.0
         
         publishInputBoolean(pubuid, value)
     }
 
 
-    private val topicFlows = ConcurrentHashMap<String, MutableStateFlow<Double>>()
-
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun subscribeDouble(key: String): Flow<Double> {
-        val flow = topicFlows.getOrPut(key) {
-            MutableStateFlow(latestValues[key]?.value ?: 0.0)
-        }
-        return flow.asStateFlow()
+        return telemetryFlow.filter { it.key == key }.map { it.value }
     }
 }

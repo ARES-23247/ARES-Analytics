@@ -64,9 +64,11 @@ fun PoseViewerCard(
     val visionHeading by visionHeadingFlow.collectAsState(initial = null)
     var lastUpdateMs by remember { mutableStateOf<Long?>(null) }
     
-    LaunchedEffect(trueX, ekfX, pinpointX) {
-        if (trueX != null || ekfX != null || pinpointX != null) {
-            lastUpdateMs = System.currentTimeMillis()
+    LaunchedEffect(Unit) {
+        androidx.compose.runtime.snapshotFlow { Triple(trueX, ekfX, pinpointX) }.collect { (tX, eX, pX) ->
+            if (tX != null || eX != null || pX != null) {
+                lastUpdateMs = System.currentTimeMillis()
+            }
         }
     }
 

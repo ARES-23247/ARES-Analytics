@@ -51,15 +51,17 @@ fun MecanumVisualizer(
 
     when {
         currentFrame != null -> {
-            velocities[0] = currentFrame.values["Drive/MotorVelocity_fl"] ?: currentFrame.values["Drive/MotorPower_fl"] ?: currentFrame.values["Hardware/Motors/fl/Velocity"] ?: currentFrame.values["Hardware/Motors/fl/Power"] ?: 0.0
-            velocities[1] = currentFrame.values["Drive/MotorVelocity_fr"] ?: currentFrame.values["Drive/MotorPower_fr"] ?: currentFrame.values["Hardware/Motors/fr/Velocity"] ?: currentFrame.values["Hardware/Motors/fr/Power"] ?: 0.0
-            velocities[2] = currentFrame.values["Drive/MotorVelocity_bl"] ?: currentFrame.values["Drive/MotorPower_bl"] ?: currentFrame.values["Hardware/Motors/bl/Velocity"] ?: currentFrame.values["Hardware/Motors/bl/Power"] ?: currentFrame.values["Hardware/Motors/rl/Velocity"] ?: currentFrame.values["Hardware/Motors/rl/Power"] ?: 0.0
-            velocities[3] = currentFrame.values["Drive/MotorVelocity_br"] ?: currentFrame.values["Drive/MotorPower_br"] ?: currentFrame.values["Hardware/Motors/br/Velocity"] ?: currentFrame.values["Hardware/Motors/br/Power"] ?: currentFrame.values["Hardware/Motors/rr/Velocity"] ?: currentFrame.values["Hardware/Motors/rr/Power"] ?: 0.0
+            SideEffect {
+                velocities[0] = currentFrame.values["Drive/MotorVelocity_fl"] ?: currentFrame.values["Drive/MotorPower_fl"] ?: currentFrame.values["Hardware/Motors/fl/Velocity"] ?: currentFrame.values["Hardware/Motors/fl/Power"] ?: 0.0
+                velocities[1] = currentFrame.values["Drive/MotorVelocity_fr"] ?: currentFrame.values["Drive/MotorPower_fr"] ?: currentFrame.values["Hardware/Motors/fr/Velocity"] ?: currentFrame.values["Hardware/Motors/fr/Power"] ?: 0.0
+                velocities[2] = currentFrame.values["Drive/MotorVelocity_bl"] ?: currentFrame.values["Drive/MotorPower_bl"] ?: currentFrame.values["Hardware/Motors/bl/Velocity"] ?: currentFrame.values["Hardware/Motors/bl/Power"] ?: currentFrame.values["Hardware/Motors/rl/Velocity"] ?: currentFrame.values["Hardware/Motors/rl/Power"] ?: 0.0
+                velocities[3] = currentFrame.values["Drive/MotorVelocity_br"] ?: currentFrame.values["Drive/MotorPower_br"] ?: currentFrame.values["Hardware/Motors/br/Velocity"] ?: currentFrame.values["Hardware/Motors/br/Power"] ?: currentFrame.values["Hardware/Motors/rr/Velocity"] ?: currentFrame.values["Hardware/Motors/rr/Power"] ?: 0.0
 
-            currents[0] = currentFrame.values["Drive/MotorCurrent_fl"] ?: currentFrame.values["Hardware/Motors/fl/CurrentAmps"] ?: 0.0
-            currents[1] = currentFrame.values["Drive/MotorCurrent_fr"] ?: currentFrame.values["Hardware/Motors/fr/CurrentAmps"] ?: 0.0
-            currents[2] = currentFrame.values["Drive/MotorCurrent_bl"] ?: currentFrame.values["Hardware/Motors/bl/CurrentAmps"] ?: currentFrame.values["Hardware/Motors/rl/CurrentAmps"] ?: 0.0
-            currents[3] = currentFrame.values["Drive/MotorCurrent_br"] ?: currentFrame.values["Hardware/Motors/br/CurrentAmps"] ?: currentFrame.values["Hardware/Motors/rr/CurrentAmps"] ?: 0.0
+                currents[0] = currentFrame.values["Drive/MotorCurrent_fl"] ?: currentFrame.values["Hardware/Motors/fl/CurrentAmps"] ?: 0.0
+                currents[1] = currentFrame.values["Drive/MotorCurrent_fr"] ?: currentFrame.values["Hardware/Motors/fr/CurrentAmps"] ?: 0.0
+                currents[2] = currentFrame.values["Drive/MotorCurrent_bl"] ?: currentFrame.values["Hardware/Motors/bl/CurrentAmps"] ?: currentFrame.values["Hardware/Motors/rl/CurrentAmps"] ?: 0.0
+                currents[3] = currentFrame.values["Drive/MotorCurrent_br"] ?: currentFrame.values["Hardware/Motors/br/CurrentAmps"] ?: currentFrame.values["Hardware/Motors/rr/CurrentAmps"] ?: 0.0
+            }
         }
         nt4ClientService != null -> {
             LaunchedEffect(Unit) {
@@ -112,14 +114,7 @@ fun MecanumVisualizer(
         }
         val dashEffect = remember { PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f) }
 
-        val wheels = remember(velocities[0], velocities[1], velocities[2], velocities[3], currents[0], currents[1], currents[2], currents[3]) {
-            listOf(
-                WheelData("FL", -1f, -1f, Math.toRadians(45.0), velocities[0], currents[0]),
-                WheelData("FR", 1f, -1f, Math.toRadians(-45.0), velocities[1], currents[1]),
-                WheelData("BL", -1f, 1f, Math.toRadians(-45.0), velocities[2], currents[2]),
-                WheelData("BR", 1f, 1f, Math.toRadians(45.0), velocities[3], currents[3])
-            )
-        }
+
 
         Box(
             modifier = Modifier
@@ -131,6 +126,13 @@ fun MecanumVisualizer(
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val cx = size.width / 2f
                 val cy = size.height / 2f
+                
+                val wheels = listOf(
+                    WheelData("FL", -1f, -1f, Math.toRadians(45.0), velocities[0], currents[0]),
+                    WheelData("FR", 1f, -1f, Math.toRadians(-45.0), velocities[1], currents[1]),
+                    WheelData("BL", -1f, 1f, Math.toRadians(-45.0), velocities[2], currents[2]),
+                    WheelData("BR", 1f, 1f, Math.toRadians(45.0), velocities[3], currents[3])
+                )
 
                 // Draw robot outline (dashed)
                 val robotW = 160f

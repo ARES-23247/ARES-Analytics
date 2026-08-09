@@ -357,21 +357,32 @@ class CloudViewModel(
                                             val tempDir = File(System.getProperty("java.io.tmpdir"), "ares-raw-upload")
                                             tempDir.mkdirs()
                                             val f = File(tempDir, file.name)
-                                            try {
-                                                httpClient.prepareGet("http://${getRobotIp()}:5002/api/download?file=${file.name}").execute { response ->
-                                                    val channel = response.bodyAsChannel()
-                                                    java.io.FileOutputStream(f).use { outputStream ->
-                                                        channel.copyTo(outputStream)
+                                            var attempt = 0
+                                            var success = false
+                                            var delayMs = 1000L
+                                            while (attempt < 3 && !success) {
+                                                try {
+                                                    httpClient.prepareGet("http://${getRobotIp()}:5002/api/download?file=${file.name}").execute { response ->
+                                                        val channel = response.bodyAsChannel()
+                                                        java.io.FileOutputStream(f).use { outputStream ->
+                                                            channel.copyTo(outputStream)
+                                                        }
                                                     }
+                                                    if (f.length() != file.sizeBytes) {
+                                                        throw Exception("Downloaded file size ${f.length()} does not match expected size ${file.sizeBytes}")
+                                                    }
+                                                    success = true
+                                                } catch (e: Exception) {
+                                                    attempt++
+                                                    if (attempt >= 3) {
+                                                        f.delete()
+                                                        throw e
+                                                    }
+                                                    kotlinx.coroutines.delay(delayMs)
+                                                    delayMs *= 2
                                                 }
-                                                if (f.length() != file.sizeBytes) {
-                                                    throw Exception("Downloaded file size ${f.length()} does not match expected size ${file.sizeBytes}")
-                                                }
-                                                f
-                                            } catch (e: Exception) {
-                                                f.delete()
-                                                throw e
                                             }
+                                            f
                                         }
                                         downloadedFiles.add(tempFile)
                                         logUpload("      -> Downloaded ${file.name} (${tempFile.length() / 1024} KB)")
@@ -456,21 +467,32 @@ class CloudViewModel(
                                             val tempDir = File(System.getProperty("java.io.tmpdir"), "ares-raw-upload")
                                             tempDir.mkdirs()
                                             val f = File(tempDir, file.name)
-                                            try {
-                                                httpClient.prepareGet("http://${getRobotIp()}:5002/api/download?file=${file.name}").execute { response ->
-                                                    val channel = response.bodyAsChannel()
-                                                    java.io.FileOutputStream(f).use { outputStream ->
-                                                        channel.copyTo(outputStream)
+                                            var attempt = 0
+                                            var success = false
+                                            var delayMs = 1000L
+                                            while (attempt < 3 && !success) {
+                                                try {
+                                                    httpClient.prepareGet("http://${getRobotIp()}:5002/api/download?file=${file.name}").execute { response ->
+                                                        val channel = response.bodyAsChannel()
+                                                        java.io.FileOutputStream(f).use { outputStream ->
+                                                            channel.copyTo(outputStream)
+                                                        }
                                                     }
+                                                    if (f.length() != file.sizeBytes) {
+                                                        throw Exception("Downloaded file size ${f.length()} does not match expected size ${file.sizeBytes}")
+                                                    }
+                                                    success = true
+                                                } catch (e: Exception) {
+                                                    attempt++
+                                                    if (attempt >= 3) {
+                                                        f.delete()
+                                                        throw e
+                                                    }
+                                                    kotlinx.coroutines.delay(delayMs)
+                                                    delayMs *= 2
                                                 }
-                                                if (f.length() != file.sizeBytes) {
-                                                    throw Exception("Downloaded file size ${f.length()} does not match expected size ${file.sizeBytes}")
-                                                }
-                                                f
-                                            } catch (e: Exception) {
-                                                f.delete()
-                                                throw e
                                             }
+                                            f
                                         }
                                         downloadedFiles.add(tempFile)
                                         logUpload("  -> Downloaded ${file.name} (${tempFile.length() / 1024} KB)")

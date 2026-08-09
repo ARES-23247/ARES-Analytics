@@ -235,7 +235,20 @@ class SyncEngineService(
         val parquetFileId = googleDriveService.findFileContaining(summary.sessionId, sessionsFolderId)
             ?: throw Exception("Session Parquet file not found on Google Drive for session: ${summary.sessionId}")
         val tempFile = File.createTempFile("cloud_sync_${summary.sessionId}_", ".parquet")
-        googleDriveService.readFileStreaming(parquetFileId, tempFile)
+        var attempt = 0
+        var success = false
+        var delayMs = 1000L
+        while (attempt < 3 && !success) {
+            try {
+                googleDriveService.readFileStreaming(parquetFileId, tempFile)
+                success = true
+            } catch (e: Exception) {
+                attempt++
+                if (attempt >= 3) throw e
+                kotlinx.coroutines.delay(delayMs)
+                delayMs += 1000L
+            }
+        }
 
         try {
             databaseService.importParquet(tempFile)

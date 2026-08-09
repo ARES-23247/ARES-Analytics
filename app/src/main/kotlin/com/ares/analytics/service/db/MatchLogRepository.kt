@@ -494,6 +494,9 @@ class MatchLogRepository(
             ps.setString(1, sessionId)
             ps.executeUpdate()
         }
+        conn.createStatement().use { st ->
+            st.execute("VACUUM telemetry_frames")
+        }
     }
 
     suspend fun pruneTelemetryFrames(sessionId: String, cutoffMs: Long) = withDbLock {
@@ -501,6 +504,9 @@ class MatchLogRepository(
             ps.setString(1, sessionId)
             ps.setLong(2, cutoffMs)
             ps.executeUpdate()
+        }
+        conn.createStatement().use { st ->
+            st.execute("VACUUM telemetry_frames")
         }
     }
 

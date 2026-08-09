@@ -116,26 +116,28 @@ fun FieldCanvas(
     var contextTargetId by remember { mutableStateOf<String?>(null) }
     var contextTargetIndex by remember { mutableStateOf<Int>(-1) }
     val density = LocalDensity.current
-    val splinePoints = remember(waypoints) {
-        if (waypoints.size < 2) emptyList<Waypoint>() else {
-            val list = ArrayList<Waypoint>((waypoints.size - 1) * 30 + 1)
-            val density = 30
-            for (i in 0 until waypoints.size - 1) {
-                val p0 = waypoints[i]
-                val p1 = waypoints[i + 1]
-                val h0 = resolveHeading(waypoints, i)
-                val h1 = resolveHeading(waypoints, i + 1)
-                val v0x = cos(h0) * p0.nextControlLength
-                val v0y = sin(h0) * p0.nextControlLength
-                val v1x = cos(h1) * p1.prevControlLength
-                val v1y = sin(h1) * p1.prevControlLength
+    val splinePoints by remember(waypoints) {
+        derivedStateOf {
+            if (waypoints.size < 2) emptyList<Waypoint>() else {
+                val list = ArrayList<Waypoint>((waypoints.size - 1) * 30 + 1)
+                val density = 30
+                for (i in 0 until waypoints.size - 1) {
+                    val p0 = waypoints[i]
+                    val p1 = waypoints[i + 1]
+                    val h0 = resolveHeading(waypoints, i)
+                    val h1 = resolveHeading(waypoints, i + 1)
+                    val v0x = cos(h0) * p0.nextControlLength
+                    val v0y = sin(h0) * p0.nextControlLength
+                    val v1x = cos(h1) * p1.prevControlLength
+                    val v1y = sin(h1) * p1.prevControlLength
 
-                for (j in 1..density) {
-                    val t = j.toDouble() / density
-                    list.add(Waypoint(cubicHermite(p0.x, v0x, p1.x, v1x, t), cubicHermite(p0.y, v0y, p1.y, v1y, t)))
+                    for (j in 1..density) {
+                        val t = j.toDouble() / density
+                        list.add(Waypoint(cubicHermite(p0.x, v0x, p1.x, v1x, t), cubicHermite(p0.y, v0y, p1.y, v1y, t)))
+                    }
                 }
+                list
             }
-            list
         }
     }
     val eventMarkerPoints = remember(eventMarkers, waypoints) {

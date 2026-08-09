@@ -198,7 +198,7 @@ fun ControllerVisualizer(
             fontSize = 18.sp
         )
         
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(800.dp) // Increased from 600dp
@@ -208,6 +208,7 @@ fun ControllerVisualizer(
             contentAlignment = Alignment.Center
         ) {
             val imageBitmap = remember(league) { ControllerAssets.getImage(league) }
+            val scaleFactor = maxWidth.value / 600f
             
             Image(
                 painter = BitmapPainter(imageBitmap),
@@ -218,7 +219,7 @@ fun ControllerVisualizer(
             
             // Map buttons to approx screen coordinates (offset from center)
             bindings.forEach { binding ->
-                val offset = getButtonOffset(binding.button, league)
+                val offset = getButtonOffset(binding.button, league, scaleFactor)
                 if (offset != null) {
                     Box(
                         modifier = Modifier

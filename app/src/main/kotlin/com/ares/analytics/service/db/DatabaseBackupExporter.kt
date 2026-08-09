@@ -80,7 +80,7 @@ class DatabaseBackupExporter(
                     
                     zos.putNextEntry(java.util.zip.ZipEntry("$sessionId.parquet"))
                     tempFile.inputStream().use { fis ->
-                        fis.copyTo(zos)
+                        fis.copyTo(zos, bufferSize = 256 * 1024)
                     }
                     zos.closeEntry()
                 } finally {

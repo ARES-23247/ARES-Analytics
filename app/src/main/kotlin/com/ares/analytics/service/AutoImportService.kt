@@ -40,9 +40,12 @@ class AutoImportService(
     private val logParserService: LogParserService,
     private val hootDecoderService: HootDecoderService,
     private val processManagerService: ProcessManagerService,
-    private val configProvider: () -> WorkspaceConfig?,
-    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val configProvider: () -> WorkspaceConfig?
 ) {
+    private val exceptionHandler = CoroutineExceptionHandler { _, exception ->
+        println("[AUTO-IMPORT] Unhandled exception in background scope: ${exception.message}")
+    }
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + exceptionHandler)
     private var job: Job? = null
     private val _importNotifications = MutableSharedFlow<String>(replay = 100)
     val importNotifications: SharedFlow<String> = _importNotifications.asSharedFlow()
@@ -83,6 +86,8 @@ class AutoImportService(
                             }
                         }
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     _importNotifications.emit("[AUTO-IMPORT] Error in scan cycle: ${e.message}")
                     e.printStackTrace()

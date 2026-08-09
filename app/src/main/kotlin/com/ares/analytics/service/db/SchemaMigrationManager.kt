@@ -46,18 +46,24 @@ class SchemaMigrationManager(
             try {
                 conn.createStatement().use { st ->
                     try {
-                        st.execute("BEGIN TRANSACTION")
                         st.execute("ATTACH '$oldDbPath' AS sqlite (TYPE SQLITE)")
-                        st.execute("INSERT OR IGNORE INTO sessions SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color FROM sqlite.sessions")
-                        st.execute("INSERT OR IGNORE INTO session_summaries SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, min_battery_voltage, max_ekf_drift, avg_loop_time_ms, p95_loop_time_ms, motor_current_averages, vision_acceptance_rate, avg_cross_track_error, avg_battery_resistance, max_motor_temps, avg_vision_latency_ms, tags, match_number, alliance_color FROM sqlite.session_summaries")
-                        st.execute("INSERT OR IGNORE INTO telemetry_frames SELECT timestamp_ms, session_id, key, value FROM sqlite.telemetry_frames")
-                        st.execute("INSERT OR IGNORE INTO session_annotations SELECT annotation_id, session_id, text, created_at, author_id FROM sqlite.session_annotations")
-                        st.execute("INSERT OR IGNORE INTO alerts SELECT alert_id, session_id, rule_key, trigger_timestamp_ms, resolve_timestamp_ms, duration_ms, peak_value, triaged FROM sqlite.alerts")
-                        st.execute("INSERT OR IGNORE INTO cached_topologies SELECT robot_id, topology_json FROM sqlite.cached_topologies")
-                        st.execute("INSERT OR IGNORE INTO console_messages SELECT timestamp_ms, session_id, text, severity FROM sqlite.console_messages")
-                        st.execute("COMMIT")
+                        st.execute("PRAGMA sqlite.journal_mode=WAL")
+                        st.execute("PRAGMA sqlite.synchronous=NORMAL")
+                        st.execute("BEGIN TRANSACTION")
+                        try {
+                            st.execute("INSERT OR IGNORE INTO sessions SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color FROM sqlite.sessions")
+                            st.execute("INSERT OR IGNORE INTO session_summaries SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, min_battery_voltage, max_ekf_drift, avg_loop_time_ms, p95_loop_time_ms, motor_current_averages, vision_acceptance_rate, avg_cross_track_error, avg_battery_resistance, max_motor_temps, avg_vision_latency_ms, tags, match_number, alliance_color FROM sqlite.session_summaries")
+                            st.execute("INSERT OR IGNORE INTO telemetry_frames SELECT timestamp_ms, session_id, key, value FROM sqlite.telemetry_frames")
+                            st.execute("INSERT OR IGNORE INTO session_annotations SELECT annotation_id, session_id, text, created_at, author_id FROM sqlite.session_annotations")
+                            st.execute("INSERT OR IGNORE INTO alerts SELECT alert_id, session_id, rule_key, trigger_timestamp_ms, resolve_timestamp_ms, duration_ms, peak_value, triaged FROM sqlite.alerts")
+                            st.execute("INSERT OR IGNORE INTO cached_topologies SELECT robot_id, topology_json FROM sqlite.cached_topologies")
+                            st.execute("INSERT OR IGNORE INTO console_messages SELECT timestamp_ms, session_id, text, severity FROM sqlite.console_messages")
+                            st.execute("COMMIT")
+                        } catch (e: Exception) {
+                            st.execute("ROLLBACK")
+                            throw e
+                        }
                     } catch (e: Exception) {
-                        st.execute("ROLLBACK")
                         throw e
                     } finally {
                         try { st.execute("DETACH sqlite") } catch (e: Exception) {}
