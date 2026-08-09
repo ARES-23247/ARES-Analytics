@@ -8,6 +8,7 @@ import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.LogParserService
 import com.ares.analytics.shared.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -325,7 +326,7 @@ class CloudViewModel(
                         }.sortedByDescending { it.summary.createdAt }
 
                         _state.update { it.copy(sessions = sessionsList, cloudLogs = remoteSummaries, isSyncing = false) }
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Failed to load database state") }
                     }
@@ -338,7 +339,7 @@ class CloudViewModel(
                     try {
                         syncEngineService.performDeltaSync(intent.teamId, intent.seasonId)
                         onIntent(CloudIntent.RefreshCloudLogs)
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Sync failed") }
                     }
@@ -373,7 +374,7 @@ class CloudViewModel(
                                                         throw Exception("Downloaded file size ${f.length()} does not match expected size ${file.sizeBytes}")
                                                     }
                                                     success = true
-                                                } catch (e: Exception) {
+                                                } catch (e: CancellationException) { throw e } catch (e: Exception) {
                                                     attempt++
                                                     if (attempt >= 3) {
                                                         f.delete()
@@ -387,7 +388,7 @@ class CloudViewModel(
                                         }
                                         downloadedFiles.add(tempFile)
                                         logUpload("      -> Downloaded ${file.name} (${tempFile.length() / 1024} KB)")
-                                    } catch (e: Exception) {
+                                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                                         errors.add("${file.name}: ${e.message}")
                                         logUpload("      -> Error downloading ${file.name}: ${e.message}")
                                     }
@@ -410,7 +411,7 @@ class CloudViewModel(
                                         syncEngineService.uploadSession(session.sessionId)
                                         syncEngineService.performDeltaSync(intent.teamId, intent.seasonId)
                                         logUpload("      -> Cloud sync completed successfully.")
-                                    } catch (syncEx: Exception) {
+                                    } catch (e: CancellationException) { throw e } catch (syncEx: Exception) {
                                         errors.add("Imported locally but cloud sync failed: ${syncEx.message}")
                                         logUpload("      -> Cloud sync failed: ${syncEx.message}")
                                     }
@@ -425,7 +426,7 @@ class CloudViewModel(
                                                     }.execute {}
                                                 }
                                             }
-                                        } catch (deleteEx: Exception) {
+                                        } catch (e: CancellationException) { throw e } catch (deleteEx: Exception) {
                                             errors.add("Uploaded successfully but robot cleanup failed: ${deleteEx.message}")
                                         }
                                     }
@@ -444,7 +445,7 @@ class CloudViewModel(
                             logUpload("Run not found in local state.")
                             _state.update { it.copy(isUploadingRobotLog = null) }
                         }
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         logUpload("CRITICAL FATAL: ${e.message}")
                         _state.update { it.copy(errorMessage = e.message ?: "Upload failed", isUploadingRobotLog = null) }
@@ -483,7 +484,7 @@ class CloudViewModel(
                                                         throw Exception("Downloaded file size ${f.length()} does not match expected size ${file.sizeBytes}")
                                                     }
                                                     success = true
-                                                } catch (e: Exception) {
+                                                } catch (e: CancellationException) { throw e } catch (e: Exception) {
                                                     attempt++
                                                     if (attempt >= 3) {
                                                         f.delete()
@@ -497,7 +498,7 @@ class CloudViewModel(
                                         }
                                         downloadedFiles.add(tempFile)
                                         logUpload("  -> Downloaded ${file.name} (${tempFile.length() / 1024} KB)")
-                                    } catch (e: Exception) {
+                                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                                         errors.add("${file.name}: ${e.message}")
                                         logUpload("  -> Error downloading ${file.name}: ${e.message}")
                                     }
@@ -517,7 +518,7 @@ class CloudViewModel(
                                     try {
                                         syncEngineService.uploadSession(session.sessionId)
                                         logUpload("  -> Cloud upload completed.")
-                                    } catch (syncEx: Exception) {
+                                    } catch (e: CancellationException) { throw e } catch (syncEx: Exception) {
                                         errors.add("Imported locally but cloud upload failed: ${syncEx.message}")
                                         logUpload("  -> Cloud upload failed: ${syncEx.message}")
                                     }
@@ -532,7 +533,7 @@ class CloudViewModel(
                                                     }.execute {}
                                                 }
                                             }
-                                        } catch (deleteEx: Exception) {
+                                        } catch (e: CancellationException) { throw e } catch (deleteEx: Exception) {
                                             errors.add("Uploaded successfully but robot cleanup failed: ${deleteEx.message}")
                                         }
                                     }
@@ -547,7 +548,7 @@ class CloudViewModel(
                         syncEngineService.performDeltaSync(intent.teamId, intent.seasonId)
                         fetchRobotLogs()
                         onIntent(CloudIntent.RefreshCloudLogs)
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(errorMessage = "Batch upload failed: ${e.message}", isUploadingRobotLog = null) }
                     } finally {
@@ -567,7 +568,7 @@ class CloudViewModel(
                             }
                             fetchRobotLogs()
                         }
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(errorMessage = e.message ?: "Delete request failed") }
                     }
@@ -585,7 +586,7 @@ class CloudViewModel(
                             }
                         }
                         fetchRobotLogs()
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(errorMessage = e.message ?: "Delete request failed") }
                     }
@@ -598,7 +599,7 @@ class CloudViewModel(
                         onIntent(CloudIntent.RefreshCloudLogs)
                     } catch (e: SecurityException) {
                         _state.update { it.copy(isDeletingCloudLog = null, errorMessage = "Permission denied") }
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(isDeletingCloudLog = null, errorMessage = e.message ?: "Delete failed") }
                     }
@@ -608,7 +609,7 @@ class CloudViewModel(
                     try {
                         syncEngineService.uploadSession(intent.sessionId)
                         onIntent(CloudIntent.RefreshCloudLogs)
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Upload failed") }
                     }
@@ -618,7 +619,7 @@ class CloudViewModel(
                     try {
                         syncEngineService.downloadSession(intent.summary)
                         onIntent(CloudIntent.RefreshCloudLogs)
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Download failed") }
                     }
@@ -630,7 +631,7 @@ class CloudViewModel(
                             syncEngineService.downloadSession(summary)
                         }
                         onIntent(CloudIntent.RefreshCloudLogs)
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Batch download failed") }
                     }
@@ -640,7 +641,7 @@ class CloudViewModel(
                     try {
                         databaseService.deleteSession(intent.sessionId)
                         onIntent(CloudIntent.RefreshCloudLogs)
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Local delete failed") }
                     }
@@ -652,7 +653,7 @@ class CloudViewModel(
                             databaseService.deleteSession(sessionId)
                         }
                         onIntent(CloudIntent.RefreshCloudLogs)
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Batch local delete failed") }
                     }
@@ -662,7 +663,7 @@ class CloudViewModel(
                     try {
                         syncEngineService.deleteCloudSession(intent.sessionId, intent.teamId)
                         onIntent(CloudIntent.RefreshCloudLogs)
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Remote delete failed") }
                     }
@@ -674,7 +675,7 @@ class CloudViewModel(
                             syncEngineService.deleteCloudSession(item.first, item.second)
                         }
                         onIntent(CloudIntent.RefreshCloudLogs)
-                    } catch (e: Exception) {
+                    } catch (e: CancellationException) { throw e } catch (e: Exception) {
                         e.printStackTrace()
                         _state.update { it.copy(isSyncing = false, errorMessage = e.message ?: "Batch remote delete failed") }
                     }
@@ -715,9 +716,21 @@ class CloudViewModel(
             }.sortedByDescending { it.lastModifiedMs }
 
             _state.update { it.copy(robotRuns = runs, isFetchingRobotLogs = false) }
-        } catch (e: Exception) {
+        } catch (e: CancellationException) { throw e } catch (e: Exception) {
             e.printStackTrace()
             _state.update { it.copy(robotRuns = emptyList(), isFetchingRobotLogs = false, errorMessage = "Failed to fetch logs: ${e.message}") }
+        }
+    }
+
+    /**
+     * Final teardown — closes the HttpClient owned by this view model. CloudViewModel is
+     * constructed in MainScreen (not ServiceRegistry), so MainScreen's onDispose must call this.
+     */
+    fun dispose() {
+        try {
+            httpClient.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 }

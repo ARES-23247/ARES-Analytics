@@ -253,6 +253,13 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope
         )
     }
+    DisposableEffect(cloudViewModel) {
+        onDispose {
+            // CloudViewModel owns its own HttpClient; close it on screen exit to avoid
+            // leaking the CIO engine + connection pool across navigations.
+            cloudViewModel.dispose()
+        }
+    }
     val subsystemGeneratorViewModel = remember {
         SubsystemGeneratorViewModel(scope = scope)
     }

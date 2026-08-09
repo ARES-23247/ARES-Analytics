@@ -279,4 +279,15 @@ class GoogleDriveService(
             }
         }
     }
+
+    /**
+     * Final teardown — closes the underlying HttpClient. Call from [com.ares.analytics.di.ServiceRegistry].
+     */
+    fun dispose() {
+        try {
+            httpClient.close()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 }

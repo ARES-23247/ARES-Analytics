@@ -71,9 +71,15 @@ class ServiceRegistry {
         if (lazyFieldInitialized(::processManagerService)) {
             processManagerService.shutdown()
         }
-        // ReplayEngineService.stop() cancels the replay playback job
+        // ReplayEngineService.dispose() cancels the replay playback job AND the
+        // process-lifetime serviceScope (stop() leaves the scope leaking).
         if (lazyFieldInitialized(::replayEngineService)) {
-            replayEngineService.stop()
+            replayEngineService.dispose()
+        }
+        // AlertEngineService.dispose() cancels engineJob + audible-alert coroutines so they
+        // don't race DB/connection teardown below.
+        if (lazyFieldInitialized(::alertEngineService)) {
+            alertEngineService.dispose()
         }
         if (lazyFieldInitialized(::phoenixDiagnosticsService)) {
             phoenixDiagnosticsService.dispose()
@@ -86,6 +92,10 @@ class ServiceRegistry {
         }
         if (lazyFieldInitialized(::syncEngineService)) {
             syncEngineService.close()
+        }
+        // GoogleDriveService.dispose() closes its HttpClient (previously leaked).
+        if (lazyFieldInitialized(::googleDriveService)) {
+            googleDriveService.dispose()
         }
         if (lazyFieldInitialized(::eventApiService)) {
             eventApiService.close()
