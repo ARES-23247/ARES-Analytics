@@ -59,7 +59,7 @@ class GoogleDriveService(
     suspend fun findOrCreateFolder(name: String, parentId: String? = null): String = withContext(Dispatchers.IO) {
         val token = getAccessToken()
         val query = if (parentId == null) {
-            "name = '$name' and mimeType = 'application/vnd.google-apps.folder' and 'root' in parents and trashed = false"
+            "name = '$name' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
         } else {
             "name = '$name' and mimeType = 'application/vnd.google-apps.folder' and '$parentId' in parents and trashed = false"
         }
@@ -67,6 +67,8 @@ class GoogleDriveService(
             header(HttpHeaders.Authorization, "Bearer $token")
             parameter("q", query)
             parameter("fields", "files(id)")
+            parameter("supportsAllDrives", "true")
+            parameter("includeItemsFromAllDrives", "true")
         }
 
         if (searchResponse.status != HttpStatusCode.OK) {
@@ -106,6 +108,8 @@ class GoogleDriveService(
             header(HttpHeaders.Authorization, "Bearer $token")
             parameter("q", query)
             parameter("fields", "files(id)")
+            parameter("supportsAllDrives", "true")
+            parameter("includeItemsFromAllDrives", "true")
         }
 
         if (response.status != HttpStatusCode.OK) {
@@ -127,6 +131,8 @@ class GoogleDriveService(
             header(HttpHeaders.Authorization, "Bearer $token")
             parameter("q", query)
             parameter("fields", "files(id)")
+            parameter("supportsAllDrives", "true")
+            parameter("includeItemsFromAllDrives", "true")
         }
 
         if (response.status != HttpStatusCode.OK) {
