@@ -29,7 +29,7 @@ val model = GenerativeModel("gemini-1.5-flash", vertexAi)
 
  */
 fun Route.diagnosticsRoutes() {
-    authenticate("firebase") {
+    authenticate("google") {
         rateLimit(RateLimitName("forensics")) {
             post("/api/diagnostics/forensics") {
                 val req = call.receive<ForensicsRequest>()

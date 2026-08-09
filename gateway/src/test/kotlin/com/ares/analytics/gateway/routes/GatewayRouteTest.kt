@@ -1,6 +1,6 @@
 package com.ares.analytics.gateway.routes
 
-import com.ares.analytics.gateway.auth.firebase
+import com.ares.analytics.gateway.auth.googleOidc
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -52,7 +52,7 @@ class GatewayRouteTest {
                 })
             }
             install(Authentication) {
-                firebase("firebase")
+                googleOidc("google")
             }
             install(RateLimit) {
                 register(RateLimitName("forensics")) {

@@ -33,12 +33,10 @@ dependencies {
     // Coroutines Extensions
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.8.1")
 
-    // Firebase Admin SDK
-    implementation("com.google.firebase:firebase-admin:9.4.2")
+    // Google OIDC ID-token verification
+    implementation("com.google.api-client:google-api-client:2.7.0")
 
     // Google Cloud SDKs
-    implementation("com.google.cloud:google-cloud-storage:2.43.1")
-    implementation("com.google.cloud:google-cloud-firestore:3.27.2")
     implementation("com.google.cloud:google-cloud-vertexai:1.12.0")
 
     // Logging
@@ -59,5 +57,4 @@ ktor {
 
 tasks.test {
     environment("DEV_MODE", "true")
-    environment("MOCK_AUTH", "true")
 }

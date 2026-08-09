@@ -1,12 +1,9 @@
 package com.ares.analytics.gateway
 
-import com.ares.analytics.gateway.auth.firebase
-import com.ares.analytics.gateway.routes.archiveRoutes
-import com.ares.analytics.gateway.routes.authRoutes
+import com.ares.analytics.gateway.auth.googleOidc
 import com.ares.analytics.gateway.routes.diagnosticsRoutes
-import com.google.auth.oauth2.GoogleCredentials
-import com.google.firebase.FirebaseApp
-import com.google.firebase.FirebaseOptions
+import com.ares.analytics.shared.ForensicsRequest
+import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
@@ -14,43 +11,27 @@ import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.cors.routing.*
+import io.ktor.server.plugins.ratelimit.*
+import io.ktor.server.plugins.requestvalidation.*
 import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
-import io.ktor.http.*
-import io.ktor.server.plugins.ratelimit.*
-import io.ktor.server.plugins.requestvalidation.*
-import kotlin.time.Duration.Companion.seconds
-import com.ares.analytics.shared.ForensicsRequest
-import com.ares.analytics.shared.UploadUrlRequest
 import kotlinx.serialization.json.Json
+import kotlin.time.Duration.Companion.seconds
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
+ * Gateway entry point. Slim, forensics-only service: authenticates callers via a
+ * Google OIDC ID token and exposes the Vertex AI pit-forensics endpoint behind rate
+ * limiting. Storage (session logs/summaries) is handled client-side by the desktop
+ * app directly against a shared Google Drive; this gateway no longer touches
+ * Firebase, Firestore, or GCS.
  */
 fun main() {
-    // Disable Netty OpenSSL to force gRPC and Ktor to fall back to the JDK JSSE provider.
-    // This prevents SIGSEGV crashes in netty-tcnative when running inside Google Cloud Run.
+    // Force gRPC and Ktor onto the JDK JSSE provider instead of netty-tcnative OpenSSL,
+    // which SIGSEGVs inside Google Cloud Run.
     System.setProperty("io.netty.handler.ssl.openssl.useOpenssl", "false")
     System.setProperty("io.grpc.netty.shaded.io.netty.handler.ssl.openssl.useOpenssl", "false")
     val port = System.getenv("PORT")?.toIntOrNull() ?: 8080
-
-    // Initialize Firebase Admin SDK using Application Default Credentials
-    try {
-        if (FirebaseApp.getApps().isEmpty()) {
-            val options = FirebaseOptions.builder()
-                .setCredentials(GoogleCredentials.getApplicationDefault())
-                .build()
-            FirebaseApp.initializeApp(options)
-        }
-    } catch (e: Exception) {
-        println("Warning: Firebase Admin SDK initialization failed: ${e.message}")
-        println("Make sure GOOGLE_APPLICATION_CREDENTIALS points to a valid service account JSON if running locally.")
-    }
 
     embeddedServer(Netty, port = port) {
         install(ContentNegotiation) {
@@ -85,26 +66,16 @@ fun main() {
         }
 
         install(Authentication) {
-            firebase("firebase")
+            googleOidc("google")
         }
 
         install(RateLimit) {
             register(RateLimitName("forensics")) {
                 rateLimiter(limit = 5, refillPeriod = 60.seconds)
             }
-            register(RateLimitName("archive")) {
-                rateLimiter(limit = 30, refillPeriod = 60.seconds)
-            }
         }
 
         install(RequestValidation) {
-            validate<UploadUrlRequest> { req ->
-                when {
-                    req.summary.tags.size > 100 -> ValidationResult.Invalid("Payload too large: too many tags")
-                    req.sessionId.contains("..") || req.sessionId.contains("/") || req.sessionId.contains("\\") -> ValidationResult.Invalid("Invalid sessionId: path traversal characters detected")
-                    else -> ValidationResult.Valid
-                }
-            }
             validate<ForensicsRequest> { req ->
                 when {
                     req.alerts.size > 2000 -> ValidationResult.Invalid("Payload too large: max alerts exceeded")
@@ -118,10 +89,6 @@ fun main() {
             get("/healthz") {
                 call.respondText("ok")
             }
-
-            // Register gateway API endpoints
-            authRoutes()
-            archiveRoutes()
             diagnosticsRoutes()
         }
     }.start(wait = true)
