@@ -172,7 +172,7 @@ sealed class OnboardingIntent {
  */
 class OnboardingViewModel(
     private val environmentService: EnvironmentService,
-    private val teamApiService: com.ares.analytics.service.TeamApiService,
+    private val syncEngineService: com.ares.analytics.service.SyncEngineService,
     private val scope: CoroutineScope,
     private val onConfigured: (WorkspaceConfig) -> Unit
 ) {
@@ -208,11 +208,11 @@ class OnboardingViewModel(
                 }
                 is OnboardingIntent.FetchCloudRobots -> {
                     val currentTeamId = _state.value.teamId
-                    if (currentTeamId.isNotEmpty() && intent.token.isNotEmpty()) {
+                    if (currentTeamId.isNotEmpty()) {
                         _state.update { it.copy(isCloudLoading = true) }
                         scope.launch {
                             try {
-                                val robots = teamApiService.fetchTeamRobots(currentTeamId, intent.token)
+                                val robots = syncEngineService.getRemoteRobotProfiles()
                                 _state.update { it.copy(cloudRobots = robots, isCloudLoading = false) }
                             } catch (e: Exception) {
                                 _state.update { it.copy(cloudRobots = emptyList(), isCloudLoading = false) }
@@ -291,7 +291,7 @@ class OnboardingViewModel(
                         )
                         environmentService.saveConfig(config)
                         
-                        // Upload local robot to Firebase
+                        // Register local robot profile in the shared Google Drive
                         try {
                             val profile = com.ares.analytics.shared.RobotProfile(
                                 robotId = currentState.robotId,
@@ -299,9 +299,12 @@ class OnboardingViewModel(
                                 seasonId = currentState.seasonId,
                                 name = currentState.robotName.ifEmpty { "${currentState.robotId} Local Config" }
                             )
-                            teamApiService.addRobotProfile(currentState.teamId, profile)
+                            val existing = syncEngineService.getRemoteRobotProfiles()
+                            if (existing.none { it.robotId == profile.robotId }) {
+                                syncEngineService.saveRemoteRobotProfiles(existing + profile)
+                            }
                         } catch (e: Exception) {
-                            // Silently fail if they aren't signed in, but maybe log it
+                            // Silently fail if not signed in / Drive unreachable
                             e.printStackTrace()
                         }
                         

@@ -17,7 +17,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.AuthState
 import com.ares.analytics.service.OAuthService
-import com.ares.analytics.service.TeamApiService
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.RobotProfile
 import com.ares.analytics.ui.screens.onboarding.AuthStep
@@ -40,7 +39,6 @@ import javax.swing.JFileChooser
  *
  * @param viewModel [OnboardingViewModel] handling state flow and wizard navigation intents.
  * @param oauthService OAuth authentication provider.
- * @param teamApiService Gateway team API client.
  * @param onCancel Callback invoked when onboarding is cancelled.
  * @param modifier Compose modifier for layout.
  *
@@ -49,7 +47,6 @@ import javax.swing.JFileChooser
 @Composable
 fun OnboardingScreen(
     viewModel: OnboardingViewModel,
-    teamApiService: TeamApiService,
     oauthService: OAuthService,
     onCancel: (() -> Unit)? = null,
     modifier: Modifier = Modifier

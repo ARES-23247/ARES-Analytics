@@ -188,14 +188,13 @@ fun MainScreen(services: ServiceRegistry) {
 
     if (currentConfig == null) {
         val onboardingViewModel = remember {
-            OnboardingViewModel(services.environmentService, services.teamApiService, scope) { loaded ->
+            OnboardingViewModel(services.environmentService, services.syncEngineService, scope) { loaded ->
                 mainViewModel.onIntent(MainIntent.SaveConfig(loaded))
             }
         }
         val showCancel = mainState.workspaces.isNotEmpty()
         OnboardingScreen(
             viewModel = onboardingViewModel,
-            teamApiService = services.teamApiService,
             oauthService = services.oauthService,
             onCancel = if (showCancel) { { mainViewModel.onIntent(MainIntent.CancelAddNewWorkspace) } } else null
         )

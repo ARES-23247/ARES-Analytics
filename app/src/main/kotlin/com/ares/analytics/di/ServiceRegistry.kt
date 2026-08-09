@@ -45,7 +45,6 @@ class ServiceRegistry {
     val summaryEngineService by lazy { SummaryEngineService(databaseService, sysIdService, driverAnalysisService) }
     val hootDecoderService by lazy { HootDecoderService(databaseService, summaryEngineService, sysIdService) }
     val firebaseClientService by lazy { FirebaseClientService() }
-    val teamApiService by lazy { TeamApiService(firebaseClientService) }
     val googleDriveService by lazy { GoogleDriveService(oauthService, environmentService) }
     val syncEngineService by lazy { SyncEngineService(databaseService, parquetExporterService, environmentService, summaryEngineService, googleDriveService) }
     val phoenixDiagnosticsService by lazy { PhoenixDiagnosticsService(nt4ClientService) }
