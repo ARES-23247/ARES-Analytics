@@ -49,12 +49,10 @@ class GoogleDriveService(
     private suspend fun getAccessToken(): String {
         val config = environmentService.loadConfig()
             ?: throw IllegalStateException("No active workspace configuration loaded")
-        val clientId = config.googleClientId ?: "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com"
-        val clientSecret = config.googleClientSecret ?: if (clientId == "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com") {
-            "_xLIrcFXWhqNpYO1gwPrlZpkRqOs-XPSCOG".reversed()
-        } else {
-            null
-        }
+        val clientId = config.googleClientId
+            ?: throw IllegalStateException("Google Client ID not configured. Set 'googleClientId' in workspace config.")
+        val clientSecret = config.googleClientSecret
+            ?: throw IllegalStateException("Google Client Secret not configured. Set 'googleClientSecret' in workspace config.")
 
         return oauthService.refreshGoogleAccessToken(clientId, clientSecret)
             ?: throw IllegalStateException("Not logged in to Google. Please authenticate first.")

@@ -198,11 +198,6 @@ class ProfileViewModel(
                     val targetClientId = intent.clientId.takeIf { it.isNotBlank() }
                         ?: "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com"
                     val targetClientSecret = _state.value.googleClientSecret.takeIf { it.isNotBlank() }
-                        ?: if (targetClientId == "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com") {
-                            "_xLIrcFXWhqNpYO1gwPrlZpkRqOs-XPSCOG".reversed()
-                        } else {
-                            null
-                        }
 
                     oauthService.startGoogleLogin(targetClientId, targetClientSecret)
                 }

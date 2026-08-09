@@ -112,9 +112,6 @@ fun OnboardingScreen(
                     onSignInClick = {
                         val targetClientId = state.googleClientId.takeIf { it.isNotEmpty() } ?: "mock"
                         val targetClientSecret = state.googleClientSecret.takeIf { it.isNotBlank() }
-                            ?: if (targetClientId == "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com") {
-                                "_xLIrcFXWhqNpYO1gwPrlZpkRqOs-XPSCOG".reversed()
-                            } else null
 
                         oauthService.startGoogleLogin(
                             googleClientId = targetClientId,
