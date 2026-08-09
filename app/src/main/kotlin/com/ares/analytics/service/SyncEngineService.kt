@@ -16,6 +16,7 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import kotlinx.serialization.encodeToString
 import java.io.File
@@ -65,6 +66,11 @@ class SyncEngineService(
         }
     }
 ) {
+    /**
+     * Serializes index.json read-modify-write sequences so two concurrent uploads (or an
+     * upload + delete) cannot interleave their read/write and clobber each other's entries.
+     */
+    private val indexMutex = kotlinx.coroutines.sync.Mutex()
 
     /**
      * Uploads a local session's log file to Google Drive.
@@ -127,27 +133,30 @@ class SyncEngineService(
                 }
             }
 
-            // 4. Update the index.json file
-            val indexFileId = googleDriveService.findFile("index.json", rootFolderId)
-            val indexList = if (indexFileId != null) {
-                val indexBytes = googleDriveService.readFile(indexFileId)
-                try {
-                    AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
-                } catch (e: Exception) {
+            // 4. Update the index.json file (atomic read-modify-write under indexMutex so
+            //    concurrent uploads cannot clobber each other's entries).
+            indexMutex.withLock {
+                val indexFileId = googleDriveService.findFile("index.json", rootFolderId)
+                val indexList = if (indexFileId != null) {
+                    val indexBytes = googleDriveService.readFile(indexFileId)
+                    try {
+                        AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
+                    } catch (e: Exception) {
+                        emptyList()
+                    }
+                } else {
                     emptyList()
                 }
-            } else {
-                emptyList()
+                val updatedList = indexList.filter { it.sessionId != sessionId } + updatedSummary
+                val updatedIndexBytes = Json.encodeToString<List<SessionSummary>>(updatedList).toByteArray(Charsets.UTF_8)
+                googleDriveService.writeFile(
+                    name = "index.json",
+                    bytes = updatedIndexBytes,
+                    parentId = rootFolderId,
+                    mimeType = "application/json",
+                    fileId = indexFileId
+                )
             }
-            val updatedList = indexList.filter { it.sessionId != sessionId } + updatedSummary
-            val updatedIndexBytes = Json.encodeToString<List<SessionSummary>>(updatedList).toByteArray(Charsets.UTF_8)
-            googleDriveService.writeFile(
-                name = "index.json",
-                bytes = updatedIndexBytes,
-                parentId = rootFolderId,
-                mimeType = "application/json",
-                fileId = indexFileId
-            )
         } finally {
             tempFile.delete()
         }
@@ -265,17 +274,30 @@ class SyncEngineService(
     suspend fun performDeltaSync(teamId: String, seasonId: String, authToken: String? = null) = withContext(Dispatchers.IO) {
         val remoteSummaries = getRemoteSummaries()
 
-        // 3. Filter for active team/season summaries that we do not have locally
         val localSummaries = databaseService.getAllSessionSummaries()
         val localIds = localSummaries.map { it.sessionId }.toSet()
+        val remoteIds = remoteSummaries.map { it.sessionId }.toSet()
+
+        // Download remote sessions missing locally (existing behavior).
         val missingSummaries = remoteSummaries.filter {
             it.teamId == teamId && it.seasonId == seasonId && !localIds.contains(it.sessionId)
         }
-
-        // 4. Download missing parquets and insert summaries
         for (summary in missingSummaries) {
             try {
                 downloadSession(summary)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        // Symmetric branch: upload local sessions missing remotely. Best-effort per
+        // session, scoped to the active team/season so user-triggered sync stays bounded.
+        val localMissingRemote = localSummaries.filter {
+            it.teamId == teamId && it.seasonId == seasonId && !remoteIds.contains(it.sessionId)
+        }
+        for (summary in localMissingRemote) {
+            try {
+                uploadSession(summary.sessionId, authToken)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -758,21 +780,27 @@ class SyncEngineService(
             }
             val indexFileId = googleDriveService.findFile("index.json", rootFolderId)
             if (indexFileId != null) {
-                val indexBytes = googleDriveService.readFile(indexFileId)
-                val indexList = try {
-                    AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
-                } catch (e: Exception) {
-                    emptyList()
+                // Atomic read-modify-write under indexMutex (matches uploadSession).
+                indexMutex.withLock {
+                    val currentId = googleDriveService.findFile("index.json", rootFolderId)
+                    if (currentId != null) {
+                        val indexBytes = googleDriveService.readFile(currentId)
+                        val indexList = try {
+                            AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
+                        } catch (e: Exception) {
+                            emptyList()
+                        }
+                        val updatedList = indexList.filter { it.sessionId != sessionId }
+                        val updatedIndexBytes = Json.encodeToString<List<SessionSummary>>(updatedList).toByteArray(Charsets.UTF_8)
+                        googleDriveService.writeFile(
+                            name = "index.json",
+                            bytes = updatedIndexBytes,
+                            parentId = rootFolderId,
+                            mimeType = "application/json",
+                            fileId = currentId
+                        )
+                    }
                 }
-                val updatedList = indexList.filter { it.sessionId != sessionId }
-                val updatedIndexBytes = Json.encodeToString<List<SessionSummary>>(updatedList).toByteArray(Charsets.UTF_8)
-                googleDriveService.writeFile(
-                    name = "index.json",
-                    bytes = updatedIndexBytes,
-                    parentId = rootFolderId,
-                    mimeType = "application/json",
-                    fileId = indexFileId
-                )
             }
         } catch (e: Exception) {
             e.printStackTrace()

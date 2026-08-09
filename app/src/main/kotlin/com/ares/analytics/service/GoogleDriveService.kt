@@ -16,6 +16,14 @@ import io.ktor.utils.io.streams.*
 import io.ktor.utils.io.jvm.javaio.copyTo
 
 /**
+ * Escapes a literal for use inside a single-quoted segment of a Google Drive API v3
+ * query string. The Drive query language uses `'...'` string literals and escapes a
+ * literal backslash as `\\` and a single quote as `''`. Failing to escape lets a `'` in
+ * a name/substring break out of the literal and inject query clauses (AUDIT M9).
+ */
+private fun escapeDriveQuery(value: String): String = value.replace("\\", "\\\\").replace("'", "''")
+
+/**
  * Service managing Google Drive API v3 interactions for cloud backup of match telemetry logs and session archives.
  *
  * Utilizes OAuth 2.0 PKCE authentication via [OAuthService] to request OAuth access tokens, uploading Parquet and JSONL log files
@@ -57,10 +65,12 @@ class GoogleDriveService(
 
     suspend fun findOrCreateFolder(name: String, parentId: String? = null): String = withContext(Dispatchers.IO) {
         val token = getAccessToken()
+        val escapedName = escapeDriveQuery(name)
         val query = if (parentId == null) {
-            "name = '$name' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+            "name = '$escapedName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
         } else {
-            "name = '$name' and mimeType = 'application/vnd.google-apps.folder' and '$parentId' in parents and trashed = false"
+            val escapedParent = escapeDriveQuery(parentId)
+            "name = '$escapedName' and mimeType = 'application/vnd.google-apps.folder' and '$escapedParent' in parents and trashed = false"
         }
         val searchResponse = httpClient.get("https://www.googleapis.com/drive/v3/files") {
             header(HttpHeaders.Authorization, "Bearer $token")
@@ -102,7 +112,9 @@ class GoogleDriveService(
 
     suspend fun findFile(name: String, parentId: String): String? = withContext(Dispatchers.IO) {
         val token = getAccessToken()
-        val query = "name = '$name' and '$parentId' in parents and trashed = false"
+        val escapedName = escapeDriveQuery(name)
+        val escapedParent = escapeDriveQuery(parentId)
+        val query = "name = '$escapedName' and '$escapedParent' in parents and trashed = false"
         val response = httpClient.get("https://www.googleapis.com/drive/v3/files") {
             header(HttpHeaders.Authorization, "Bearer $token")
             parameter("q", query)
@@ -125,7 +137,9 @@ class GoogleDriveService(
 
     suspend fun findFileContaining(substring: String, parentId: String): String? = withContext(Dispatchers.IO) {
         val token = getAccessToken()
-        val query = "name contains '$substring' and '$parentId' in parents and trashed = false"
+        val escapedSubstring = escapeDriveQuery(substring)
+        val escapedParent = escapeDriveQuery(parentId)
+        val query = "name contains '$escapedSubstring' and '$escapedParent' in parents and trashed = false"
         val response = httpClient.get("https://www.googleapis.com/drive/v3/files") {
             header(HttpHeaders.Authorization, "Bearer $token")
             parameter("q", query)
