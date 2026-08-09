@@ -332,7 +332,10 @@ class AutoImportService(
             proc.outputStream.close()
             val output = proc.inputStream.bufferedReader().use { it.readText() }
             proc.waitFor(10, TimeUnit.SECONDS)
-            output.contains(remotePath) || output.isNotBlank()
+            // Only treat an explicit lsof match on the remote path as "in use". The previous
+            // `|| output.isNotBlank()` short-circuited to true on ANY lsof output (e.g. a
+            // usage banner from a missing binary), blocking every import (AUDIT M11).
+            output.contains(remotePath)
         } catch (e: Exception) {
             false // If lsof fails, assume not in use to avoid blocking
         }

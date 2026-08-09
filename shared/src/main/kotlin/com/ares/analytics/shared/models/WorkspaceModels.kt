@@ -47,20 +47,3 @@ data class RobotProfile(
     val seasonId: String,
     val name: String
 )
-
-@Serializable
-data class TeamRobotsResponse(
-    val robots: List<RobotProfile>
-)
-
-@Serializable
-data class AddRobotRequest(
-    val teamId: String,
-    val robot: RobotProfile
-)
-
-@Serializable
-data class DeleteRobotRequest(
-    val teamId: String,
-    val robotId: String
-)

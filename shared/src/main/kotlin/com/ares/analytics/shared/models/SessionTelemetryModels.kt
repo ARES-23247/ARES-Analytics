@@ -105,6 +105,7 @@ data class ConsoleMessage(
     val severity: String
 )
 
+@Serializable
 data class ControllerBinding(
     val gamepadId: String,
     val button: String,

@@ -33,59 +33,6 @@ data class HardwareTopology(
 )
 
 @Serializable
-data class UploadUrlRequest(
-    val teamId: String,
-    val seasonId: String,
-    val robotId: String,
-    val sessionId: String,
-    val createdAt: Long,
-    val summary: SessionSummary
-)
-
-@Serializable
-data class UploadUrlResponse(
-    val uploadUrl: String,
-    val expiresAt: Long
-)
-
-@Serializable
-data class DownloadUrlResponse(
-    val downloadUrl: String,
-    val expiresAt: Long
-)
-
-@Serializable
-data class SyncRequest(
-    val teamId: String,
-    val seasonId: String,
-    val knownSessionIds: List<String>
-)
-
-@Serializable
-data class SyncResponse(
-    val missingSummaries: List<SessionSummary>
-)
-
-@Serializable
-data class DeleteSessionRequest(
-    val sessionId: String,
-    val teamId: String
-)
-
-@Serializable
-data class RawUploadUrlsRequest(
-    val teamId: String,
-    val runTimestamp: String,
-    val fileNames: List<String>
-)
-
-@Serializable
-data class RawUploadUrlsResponse(
-    val uploadUrls: Map<String, String>,
-    val expiresAt: Long
-)
-
-@Serializable
 data class ForensicsRequest(
     val teamId: String,
     val sessionId: String,
