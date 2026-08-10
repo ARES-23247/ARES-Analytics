@@ -83,6 +83,20 @@ data class TuningSuggestion(
  * signal query is viewport/downsample limited so report generation remains stable for long logs.
  */
 class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRepository) {
+    suspend fun analyzeAgainstRecent(
+        sessionId: String,
+        baselineCount: Int = 3
+    ): OperationResult<AdvancedAnalyticsReport> {
+        val baselineIds = databaseService.getAllSessionSummaries()
+            .asSequence()
+            .filter { it.sessionId != sessionId }
+            .sortedByDescending { it.createdAt }
+            .take(baselineCount.coerceAtLeast(0))
+            .map { it.sessionId }
+            .toList()
+        return analyzeSafely(sessionId, baselineIds)
+    }
+
     suspend fun analyzeSafely(
         sessionId: String,
         baselineSessionIds: List<String> = emptyList()

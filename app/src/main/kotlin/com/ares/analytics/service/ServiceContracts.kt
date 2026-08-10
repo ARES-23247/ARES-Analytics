@@ -14,6 +14,7 @@ sealed interface OperationResult<out T> {
 interface TelemetryAnalyticsRepository {
     suspend fun getSessionTimestampRange(sessionId: String): Pair<Long, Long>?
     suspend fun getSessionSummary(sessionId: String): SessionSummary?
+    suspend fun getAllSessionSummaries(): List<SessionSummary>
     suspend fun getDistinctTelemetryKeys(sessionId: String): List<String>
     suspend fun getTelemetrySeries(
         sessionId: String,

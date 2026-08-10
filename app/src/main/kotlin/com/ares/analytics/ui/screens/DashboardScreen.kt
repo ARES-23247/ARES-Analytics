@@ -221,6 +221,9 @@ fun DashboardScreen(
                 "statistics_panel" to { _, mod ->
                     StatisticsPanel(services.databaseService, state.primarySessionId, mod)
                 },
+                "advanced_analytics" to { _, mod ->
+                    AdvancedAnalyticsCard(services.advancedAnalyticsService, state.primarySessionId, mod)
+                },
                 "control_profiler" to { _, mod ->
                     ControlLoopProfilerCard(services.nt4ClientService, mod)
                 },
