@@ -3,142 +3,221 @@ package com.ares.analytics.ui.components.dashboard
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ShowChart
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ares.analytics.ui.theme.*
+import com.ares.analytics.ui.theme.AresBackground
+import com.ares.analytics.ui.theme.AresBorder
+import com.ares.analytics.ui.theme.AresCyan
+import com.ares.analytics.ui.theme.AresSurface
+import com.ares.analytics.ui.theme.AresSurfaceElevated
+import com.ares.analytics.ui.theme.AresTextPrimary
+import com.ares.analytics.ui.theme.AresTextSecondary
+import com.ares.analytics.ui.theme.AresTextTertiary
+import com.ares.analytics.ui.theme.AresThemeSettings
+
+enum class WidgetCategory(val displayName: String) {
+    RECOMMENDED("Recommended"),
+    LIVE("Live control"),
+    ANALYSIS("Analysis"),
+    DIAGNOSTICS("Diagnostics"),
+    REPLAY("Replay & review"),
+    DEVELOPER("Developer tools")
+}
 
 data class AvailableWidget(
     val type: String,
     val displayName: String,
     val description: String,
-    val icon: ImageVector
-)
-val availableWidgetsList = listOf(
-    AvailableWidget("driver_station", "Driver Station", "Simulated FTC Driver Station to select and run OpModes.", Icons.Default.SportsEsports),
-    AvailableWidget("runs_index", "Recorded Sessions", "List of practice runs, match logs, and annotation tagging.", Icons.Default.History),
-    AvailableWidget("alerts", "Live Alerts", "Real-time warning notifications for battery, motor, and sensors.", Icons.Default.Warning),
-    AvailableWidget("telemetry_chart", "Live Telemetry Chart", "Searchable scrolling multi-channel line chart.", Icons.Default.ShowChart),
-    AvailableWidget("motor_health", "Motor Health", "Motor current draw gauges and stall warnings.", Icons.Default.ElectricBolt),
-    AvailableWidget("vision_quality", "Vision & EKF Quality", "AprilTag verification rates and pose estimator health.", Icons.Default.Camera),
-    AvailableWidget("ai_coach", "AI Forensics Coach", "Vertex AI automated pit-diagnostics coach recommendations.", Icons.Default.Psychology),
-    AvailableWidget("match_schedule", "Match Schedule", "TBA / TOA match schedule calendar & sync integrations.", Icons.Default.EventNote),
-    AvailableWidget("console_viewer", "Robot Console Viewer", "Live print logs and monospaced console history with regex search.", Icons.Default.Terminal),
-    AvailableWidget("swerve_animator", "Swerve Visualizer", "Real-time vector graphics representing target vs actual swerve wheel states.", Icons.Default.DirectionsCar),
-    AvailableWidget("joystick_visualizer", "Gamepad Monitor", "Real-time controller sticks, triggers, and button deflections.", Icons.Default.Gamepad),
-    AvailableWidget("mechanism_visualizer", "Linkage Animator", "Real-time 2D rendering of arm angles and slide height extensions.", Icons.Default.Build),
-    AvailableWidget("mecanum_visualizer", "Mecanum Force Visualizer", "Real-time wheel spin velocities and traction force vectors.", Icons.Default.Settings),
-    AvailableWidget("camera_stream", "Camera Stream", "Live MJPEG video stream from Limelight, PhotonVision, or WPILib.", Icons.Default.Videocam),
-    AvailableWidget("field_viewer", "Field 2D Viewer", "Real-time 2D visualization of the robot's pose on the game field.", Icons.Default.Map),
-    AvailableWidget("pose_viewer", "Robot Pose Tracker", "Real-time numeric coordinate values for EKF, Odometry, and Vision.", Icons.Default.MyLocation),
-    AvailableWidget("trends_card", "Battery Trends", "Multi-session battery voltage degradation trend lines and linear regression.", Icons.Default.TrendingDown),
-    AvailableWidget("battery_health", "Battery Diagnostics", "Real-time battery voltage monitoring and brownout warnings.", Icons.Default.BatteryChargingFull),
-    AvailableWidget("statistics_panel", "Signal Statistics", "Descriptive statistics, error forensics, and distribution histograms.", Icons.Default.Analytics),
-    AvailableWidget("advanced_analytics", "Advanced Analytics", "Session regressions, driver score, diagnostics, heatmaps, and tuning confidence.", Icons.Default.Insights),
-    AvailableWidget("control_profiler", "Control Loop Profiler", "Real-time target vs actual tracking and error plotting for mechanisms.", Icons.Default.Speed),
-    AvailableWidget("state_tracker", "Subsystem State Tracker", "Current state machine states for active subsystems.", Icons.Default.AccountTree),
-    AvailableWidget("system_health", "System Health Monitor", "Control loop frequency, CPU usage, and memory profiling.", Icons.Default.Memory),
-    AvailableWidget("imu_visualizer", "IMU Visualizer", "Robot orientation via roll, pitch, and yaw 3D attitude indicators.", Icons.Default.CompassCalibration),
-    AvailableWidget("power_distribution", "Power Distribution", "Instantaneous current draw per PDP/PDH channel.", Icons.Default.ElectricBolt),
-    AvailableWidget("tuning_card", "Live Tuning Card", "Live variable tuning over NT4.", Icons.Default.Tune),
-    AvailableWidget("ekf_telemetry", "EKF Diagnostics", "Real-time line charts of EKF position drift and covariance.", Icons.Default.ShowChart),
-    AvailableWidget("path_tuning", "Path Tuning Visualizer", "Line chart tracking cross-track and along-track path follower errors.", Icons.Default.Timeline),
-    AvailableWidget("brownout_protection", "Brownout Protection", "Real-time battery sag scaling, state of charge, and brownout warnings.", Icons.Default.BatteryAlert),
-    AvailableWidget("profiling_diagnostics", "Profiling Diagnostics", "Real-time maximum and average loop/subsystem timings.", Icons.Default.HourglassEmpty),
-    AvailableWidget("indicator_lights", "Indicator Lights", "Live RGB indicator light colors from GoBilda PWM lights.", Icons.Default.Lightbulb)
+    val icon: ImageVector,
+    val category: WidgetCategory,
+    val recommended: Boolean = false
 )
 
+val availableWidgetsList = listOf(
+    AvailableWidget("driver_station", "Driver Station", "Select and run FTC OpModes from the dashboard.", Icons.Default.SportsEsports, WidgetCategory.LIVE, true),
+    AvailableWidget("field_viewer", "Field 2D Viewer", "Live robot pose and trajectory on the game field.", Icons.Default.Map, WidgetCategory.LIVE, true),
+    AvailableWidget("telemetry_chart", "Live Telemetry Chart", "Searchable, scrolling multi-channel signal scope.", Icons.AutoMirrored.Filled.ShowChart, WidgetCategory.LIVE, true),
+    AvailableWidget("joystick_visualizer", "Gamepad Monitor", "Controller sticks, triggers, buttons, and command shaping.", Icons.Default.Gamepad, WidgetCategory.LIVE),
+    AvailableWidget("mecanum_visualizer", "Mecanum Visualizer", "Wheel velocity, current, and traction-force vectors.", Icons.Default.Settings, WidgetCategory.LIVE),
+    AvailableWidget("swerve_animator", "Swerve Visualizer", "Target and measured module vectors.", Icons.Default.DirectionsCar, WidgetCategory.LIVE),
+    AvailableWidget("mechanism_visualizer", "Linkage Animator", "Arm, slide, and mechanism motion rendering.", Icons.Default.Build, WidgetCategory.LIVE),
+    AvailableWidget("camera_stream", "Camera Stream", "Limelight, PhotonVision, or WPILib MJPEG feed.", Icons.Default.Videocam, WidgetCategory.LIVE),
+    AvailableWidget("indicator_lights", "Indicator Lights", "Live GoBilda PWM indicator-light state.", Icons.Default.Lightbulb, WidgetCategory.LIVE),
+
+    AvailableWidget("advanced_analytics", "Advanced Analytics", "Regressions, driver score, heatmap, correlations, and tuning confidence.", Icons.Default.Insights, WidgetCategory.ANALYSIS, true),
+    AvailableWidget("statistics_panel", "Signal Statistics", "Distributions, descriptive statistics, and error forensics.", Icons.Default.Analytics, WidgetCategory.ANALYSIS),
+    AvailableWidget("trends_card", "Battery Trends", "Multi-session degradation and regression trends.", Icons.AutoMirrored.Filled.TrendingDown, WidgetCategory.ANALYSIS),
+    AvailableWidget("session_summary", "Session Summary", "Headline metrics for the selected recording.", Icons.Default.Summarize, WidgetCategory.ANALYSIS),
+    AvailableWidget("ai_coach", "AI Forensics Coach", "Evidence-backed pit diagnostics and repair guidance.", Icons.Default.Psychology, WidgetCategory.ANALYSIS),
+    AvailableWidget("vision_quality", "Vision & EKF Quality", "AprilTag acceptance, latency, and estimator quality.", Icons.Default.Camera, WidgetCategory.ANALYSIS),
+    AvailableWidget("motor_health", "Motor Health", "Current draw, thermal risk, and stall warnings.", Icons.Default.ElectricBolt, WidgetCategory.ANALYSIS),
+
+    AvailableWidget("system_health", "Dashboard & Robot Health", "Ingest, query, cache, reconnect, loop, and battery health.", Icons.Default.Memory, WidgetCategory.DIAGNOSTICS, true),
+    AvailableWidget("alerts", "Live Alerts", "Battery, motor, communications, and sensor warnings.", Icons.Default.Warning, WidgetCategory.DIAGNOSTICS, true),
+    AvailableWidget("battery_health", "Battery Diagnostics", "Voltage, state of charge, and brownout risk.", Icons.Default.BatteryChargingFull, WidgetCategory.DIAGNOSTICS),
+    AvailableWidget("power_distribution", "Power Distribution", "Current draw by PDP or PDH channel.", Icons.Default.ElectricBolt, WidgetCategory.DIAGNOSTICS),
+    AvailableWidget("brownout_protection", "Brownout Protection", "Battery-sag scaling and active protection state.", Icons.Default.BatteryAlert, WidgetCategory.DIAGNOSTICS),
+    AvailableWidget("imu_visualizer", "IMU Visualizer", "Roll, pitch, yaw, and attitude health.", Icons.Default.CompassCalibration, WidgetCategory.DIAGNOSTICS),
+    AvailableWidget("ekf_telemetry", "EKF Diagnostics", "Estimator drift, innovation, and covariance.", Icons.Default.QueryStats, WidgetCategory.DIAGNOSTICS),
+    AvailableWidget("control_profiler", "Control Loop Profiler", "Target-versus-actual mechanism error and timing.", Icons.Default.Speed, WidgetCategory.DIAGNOSTICS),
+    AvailableWidget("profiling_diagnostics", "Profiling Diagnostics", "Maximum and average loop/subsystem timings.", Icons.Default.HourglassEmpty, WidgetCategory.DIAGNOSTICS),
+    AvailableWidget("state_tracker", "Subsystem State Tracker", "Current subsystem state-machine states.", Icons.Default.AccountTree, WidgetCategory.DIAGNOSTICS),
+
+    AvailableWidget("runs_index", "Recorded Sessions", "Practice runs, match logs, comparisons, and tags.", Icons.Default.History, WidgetCategory.REPLAY, true),
+    AvailableWidget("pose_viewer", "Robot Pose Tracker", "Numeric EKF, odometry, and vision pose values.", Icons.Default.MyLocation, WidgetCategory.REPLAY),
+    AvailableWidget("match_schedule", "Match Schedule", "TBA/TOA schedule and match association.", Icons.Default.CalendarMonth, WidgetCategory.REPLAY),
+
+    AvailableWidget("console_viewer", "Robot Console", "Live logs with search and severity filtering.", Icons.Default.Terminal, WidgetCategory.DEVELOPER),
+    AvailableWidget("tuning_card", "Live Tuning", "Update exposed robot variables over NT4.", Icons.Default.Tune, WidgetCategory.DEVELOPER),
+    AvailableWidget("path_tuning", "Path Tuning", "Cross-track and along-track controller error.", Icons.Default.Timeline, WidgetCategory.DEVELOPER)
+)
+
+fun filterWidgets(query: String, category: WidgetCategory): List<AvailableWidget> {
+    val normalized = query.trim().lowercase()
+    return availableWidgetsList.filter { widget ->
+        val categoryMatch = if (category == WidgetCategory.RECOMMENDED) widget.recommended else widget.category == category
+        val queryMatch = normalized.isEmpty() || widget.displayName.lowercase().contains(normalized) ||
+            widget.description.lowercase().contains(normalized) || widget.type.lowercase().contains(normalized)
+        categoryMatch && queryMatch
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun WidgetPicker(
-    onDismiss: () -> Unit,
-    onSelectWidget: (String) -> Unit
-) {
+fun WidgetPicker(onDismiss: () -> Unit, onSelectWidget: (String) -> Unit) {
+    var query by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf(WidgetCategory.RECOMMENDED) }
+    val results = remember(query, category) { filterWidgets(query, category) }
+    val touch = AresThemeSettings.touchOptimizedMode
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
-                "Add Widget to Dashboard",
-                color = AresTextPrimary,
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp
-            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Add a dashboard widget", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                    Text("Choose the signal that helps answer your next question.", color = AresTextSecondary, fontSize = 12.sp)
+                }
+                IconButton(onClick = onDismiss, modifier = Modifier.size(if (touch) 48.dp else 40.dp)) {
+                    Icon(Icons.Default.Close, "Close widget picker", tint = AresTextSecondary)
+                }
+            }
         },
         text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(360.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    "Select a telemetry or planning card to add to your custom layout grid:",
-                    color = AresTextSecondary,
-                    fontSize = 12.sp
+            Column(Modifier.fillMaxWidth().height(560.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("Search widgets") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    trailingIcon = if (query.isNotEmpty()) ({
+                        IconButton(onClick = { query = "" }) { Icon(Icons.Default.Clear, "Clear search") }
+                    }) else null
                 )
-
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    items(availableWidgetsList) { widget ->
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(AresSurfaceElevated)
-                                .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
-                                .clickable {
-                                    onSelectWidget(widget.type)
-                                    onDismiss()
-                                }
-                                .padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(widget.icon, contentDescription = null, tint = AresCyan, modifier = Modifier.size(20.dp))
-                                Text(
-                                    widget.displayName,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = AresTextPrimary
-                                )
-                            }
-                            Text(
-                                widget.description,
-                                fontSize = 10.sp,
-                                color = AresTextTertiary,
-                                lineHeight = 14.sp
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    WidgetCategory.entries.forEach { option ->
+                        AssistChip(
+                            onClick = { category = option },
+                            label = { Text(option.displayName) },
+                            leadingIcon = if (category == option) ({ Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }) else null,
+                            colors = AssistChipDefaults.assistChipColors(
+                                containerColor = if (category == option) AresCyan.copy(alpha = 0.15f) else AresSurfaceElevated,
+                                labelColor = if (category == option) AresCyan else AresTextSecondary
+                            ),
+                            border = AssistChipDefaults.assistChipBorder(
+                                enabled = true,
+                                borderColor = if (category == option) AresCyan else AresBorder
                             )
-                        }
+                        )
+                    }
+                }
+                Text("${results.size} ${if (results.size == 1) "widget" else "widgets"}", color = AresTextTertiary, fontSize = 11.sp)
+                if (results.isEmpty()) {
+                    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        Icon(Icons.Default.SearchOff, null, tint = AresTextTertiary, modifier = Modifier.size(40.dp))
+                        Text("No widgets match that search", color = AresTextSecondary)
+                    }
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = if (touch) 290.dp else 250.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        items(results, key = { it.type }) { widget -> WidgetPickerCard(widget, onSelectWidget, onDismiss) }
                     }
                 }
             }
         },
         confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("Cancel", color = AresTextSecondary)
-            }
-        },
+        modifier = Modifier.widthIn(min = 560.dp, max = 1080.dp),
         containerColor = AresSurface,
-        shape = RoundedCornerShape(12.dp)
+        shape = RoundedCornerShape(16.dp)
     )
+}
+
+@Composable
+private fun WidgetPickerCard(widget: AvailableWidget, onSelectWidget: (String) -> Unit, onDismiss: () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(AresSurfaceElevated)
+            .border(1.dp, AresBorder.copy(alpha = 0.7f), RoundedCornerShape(10.dp))
+            .clickable {
+                onSelectWidget(widget.type)
+                onDismiss()
+            }
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Icon(widget.icon, null, tint = AresCyan, modifier = Modifier.size(22.dp))
+            Text(widget.displayName, modifier = Modifier.weight(1f), color = AresTextPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (widget.recommended) {
+                Text("RECOMMENDED", color = AresCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+        Text(widget.description, color = AresTextSecondary, fontSize = 11.sp, lineHeight = 15.sp, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(widget.category.displayName.uppercase(), color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    }
 }

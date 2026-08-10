@@ -73,6 +73,9 @@ include(":gateway")
 // Keep the dashboard and its shared robotics models in lockstep during local
 // development. CI/release builds can still resolve the published artifact when
 // this sibling checkout is absent.
-if (file("../ARESLib-Kotlin").exists()) {
+val useSiblingAresLib = providers.gradleProperty("ares.useSiblingAresLib")
+    .map(String::toBoolean)
+    .getOrElse(true)
+if (useSiblingAresLib && file("../ARESLib-Kotlin").exists()) {
     includeBuild("../ARESLib-Kotlin")
 }

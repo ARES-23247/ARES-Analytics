@@ -564,7 +564,7 @@ fun MainScreen(services: ServiceRegistry) {
                                         onDismissRequest = { dashboardViewModel.onIntent(DashboardIntent.SetProfileExpanded(false)) },
                                         modifier = Modifier.width(200.dp).background(AresSurfaceElevated).border(1.dp, AresBorder)
                                     ) {
-                                        val defaults = listOf("Standard", "Driver Coach", "Programmer", "Pit Crew", "Match Review", "Pit Diagnostics", "Driver Practice")
+                                        val defaults = listOf("Standard", "Driver Coach", "Programmer", "Pit Crew", "Match Review", "Pit Diagnostics", "Driver Practice", "Replay")
                                         dashState.availableProfiles.forEach { profile ->
                                             val isCustom = defaults.none { it.equals(profile, ignoreCase = true) }
                                             DropdownMenuItem(

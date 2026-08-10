@@ -35,6 +35,7 @@ fun SystemHealthCard(
     var brownoutCount by remember { mutableStateOf<Int?>(null) }
     var loopOverruns by remember { mutableStateOf<Int?>(null) }
     val runtimeHealth = dashboardHealthService?.health?.collectAsState()?.value
+    val connected by nt4ClientService.isConnected.collectAsState()
 
     LaunchedEffect(Unit) {
         scope.launch {
@@ -67,7 +68,9 @@ fun SystemHealthCard(
         CardHeader(
             title = "RoboRIO / Control Hub Health",
             icon = Icons.Default.Memory,
-            iconTint = AresGreen
+            iconTint = if (connected) AresGreen else AresTextTertiary,
+            statusText = if (connected) "LIVE" else "OFFLINE",
+            statusColor = if (connected) AresGreen else AresTextTertiary
         )
 
             Row(
@@ -164,7 +167,7 @@ fun SystemHealthCard(
 @Composable
 private fun RuntimeMetric(label: String, value: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, color = AresTextTertiary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         Text(value, color = AresCyan, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
     }
 }

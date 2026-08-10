@@ -93,7 +93,7 @@ data class AresColorPalette(
 fun getAresColors(colorblind: Boolean, highContrast: Boolean): AresColorPalette {
     val textPrimary = Color(0xFFE8ECF4)
     val textSecondary = if (highContrast) Color(0xFFF3F5F9) else Color(0xFF9CA3B4)
-    val textTertiary = if (highContrast) Color(0xFFCAD0DE) else Color(0xFF5A6174)
+    val textTertiary = if (highContrast) Color(0xFFCAD0DE) else Color(0xFF8992A6)
     val green = if (colorblind) Color(0xFF2979FF) else Color(0xFF66BB6A)
     val error = if (colorblind) Color(0xFFFF6D00) else Color(0xFFFF5252)
     val gold = Color(0xFFFFD54F)

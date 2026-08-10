@@ -24,16 +24,32 @@ class LayoutPreferenceServiceTest {
         assertEquals(0, chart.row)
         assertEquals(0, chart.col)
         assertEquals(6, chart.rowSpan)
-        assertEquals(9, chart.colSpan)
+        assertEquals(8, chart.colSpan)
         val driverCoachLayout = service.getDefaultLayout("driver_coach")
         assertTrue(driverCoachLayout.widgets.any { it.type == "joystick_visualizer" })
         val alerts = driverCoachLayout.widgets.first { it.type == "alerts" }
-        assertEquals(6, alerts.row)
-        assertEquals(6, alerts.col)
-        assertEquals(3, alerts.rowSpan)
-        assertEquals(3, alerts.colSpan)
+        assertEquals(5, alerts.row)
+        assertEquals(8, alerts.col)
+        assertEquals(5, alerts.rowSpan)
+        assertEquals(4, alerts.colSpan)
         val pitCrewLayout = service.getDefaultLayout("pit_crew")
         assertTrue(pitCrewLayout.widgets.any { it.type == "ai_coach" })
+        assertTrue(pitCrewLayout.widgets.any { it.type == "advanced_analytics" })
+        assertTrue(service.getDefaultLayout("match_review").widgets.any { it.type == "advanced_analytics" })
+        assertTrue(service.getDefaultLayout("pit_diagnostics").widgets.any { it.type == "system_health" })
+        assertTrue(service.getDefaultLayout("driver_practice").widgets.any { it.type == "field_viewer" })
+
+        service.getAvailableLayouts().forEach { profile ->
+            val widgets = service.getDefaultLayout(profile).widgets
+            assertTrue(widgets.all { it.col >= 0 && it.colSpan > 0 && it.col + it.colSpan <= 12 }, "$profile must fit the 12-column grid")
+            widgets.forEachIndexed { index, widget ->
+                widgets.drop(index + 1).forEach { other ->
+                    val overlaps = widget.col < other.col + other.colSpan && widget.col + widget.colSpan > other.col &&
+                        widget.row < other.row + other.rowSpan && widget.row + widget.rowSpan > other.row
+                    assertTrue(!overlaps, "$profile contains overlapping widgets ${widget.id} and ${other.id}")
+                }
+            }
+        }
     }
 
     @Test

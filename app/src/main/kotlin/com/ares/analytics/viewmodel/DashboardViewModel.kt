@@ -18,6 +18,7 @@ data class DashboardState(
     val currentRoleProfile: String = "Standard",
     val currentLayout: DashboardLayoutConfig? = null,
     val isPickerOpen: Boolean = false,
+    val isLayoutEditing: Boolean = false,
     val profileExpanded: Boolean = false,
     val primarySessionId: String? = null,
     val sessionMode: SessionMode = SessionMode.LIVE_STREAMING,
@@ -41,6 +42,8 @@ sealed class DashboardIntent {
     data class ChangeProfile(val profile: String) : DashboardIntent()
 
     data class SetPickerOpen(val isOpen: Boolean) : DashboardIntent()
+
+    data class SetLayoutEditing(val isEditing: Boolean) : DashboardIntent()
 
     data class SetProfileExpanded(val isExpanded: Boolean) : DashboardIntent()
 
@@ -105,11 +108,14 @@ class DashboardViewModel(
         scope.launch {
             when (intent) {
                 is DashboardIntent.ChangeProfile -> {
-                    _state.update { it.copy(currentRoleProfile = intent.profile, profileExpanded = false) }
+                    _state.update { it.copy(currentRoleProfile = intent.profile, profileExpanded = false, isLayoutEditing = false) }
                     loadLayoutForProfile(intent.profile)
                 }
                 is DashboardIntent.SetPickerOpen -> {
                     _state.update { it.copy(isPickerOpen = intent.isOpen) }
+                }
+                is DashboardIntent.SetLayoutEditing -> {
+                    _state.update { it.copy(isLayoutEditing = intent.isEditing, isPickerOpen = if (intent.isEditing) it.isPickerOpen else false) }
                 }
                 is DashboardIntent.SetProfileExpanded -> {
                     _state.update { it.copy(profileExpanded = intent.isExpanded) }
@@ -275,6 +281,7 @@ class DashboardViewModel(
             "runs_index", "match_schedule" -> Pair(4, 9)
             "mecanum_visualizer", "swerve_animator", "joystick_visualizer", "mechanism_visualizer" -> Pair(4, 6)
             "ai_coach" -> Pair(5, 6)
+            "advanced_analytics" -> Pair(5, 6)
             "alerts", "motor_health", "vision_quality", "battery_health", "system_health", "power_distribution", "indicator_lights" -> Pair(3, 4)
             "statistics_panel", "trends_card", "control_profiler", "state_tracker", "imu_visualizer", "ekf_telemetry", "path_tuning", "profiling_diagnostics" -> Pair(4, 5)
             else -> Pair(3, 3)

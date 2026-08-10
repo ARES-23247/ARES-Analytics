@@ -118,6 +118,14 @@ fun DashboardScreen(
         // Configurable widgets area
         val layout = state.currentLayout
         if (layout != null) {
+            DashboardCommandBar(
+                profileName = state.currentRoleProfile,
+                isEditing = state.isLayoutEditing,
+                onToggleEditing = { viewModel.onIntent(DashboardIntent.SetLayoutEditing(!state.isLayoutEditing)) },
+                onAddWidget = { viewModel.onIntent(DashboardIntent.SetPickerOpen(true)) },
+                onResetLayout = { viewModel.onIntent(DashboardIntent.ResetProfile) },
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+            )
             val builders = mapOf<String, @Composable (WidgetConfig, Modifier) -> Unit>(
                 "driver_station" to { _, mod ->
                     FtcDriverStationWidget(nt4Client = services.nt4ClientService, modifier = mod)
@@ -222,7 +230,12 @@ fun DashboardScreen(
                     StatisticsPanel(services.databaseService, state.primarySessionId, mod)
                 },
                 "advanced_analytics" to { _, mod ->
-                    AdvancedAnalyticsCard(services.advancedAnalyticsService, state.primarySessionId, mod)
+                    AdvancedAnalyticsCard(
+                        analyticsService = services.advancedAnalyticsService,
+                        sessionId = state.primarySessionId,
+                        compareSessionId = state.compareSessionId,
+                        modifier = mod
+                    )
                 },
                 "control_profiler" to { _, mod ->
                     ControlLoopProfilerCard(services.nt4ClientService, mod)
@@ -259,12 +272,12 @@ fun DashboardScreen(
                 }
             )
 
-            WidgetGrid(
+            DashboardWidgetGrid(
                 widgets = layout.widgets,
+                isEditing = state.isLayoutEditing,
                 onLayoutChanged = { newWidgets ->
                     viewModel.onIntent(DashboardIntent.UpdateLayout(newWidgets))
                 },
-                onAddWidget = { viewModel.onIntent(DashboardIntent.SetPickerOpen(true)) },
                 onRemoveWidget = { id ->
                     viewModel.onIntent(DashboardIntent.RemoveWidget(id))
                 },
