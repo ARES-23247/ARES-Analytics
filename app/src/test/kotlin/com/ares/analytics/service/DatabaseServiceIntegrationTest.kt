@@ -3,6 +3,7 @@ package com.ares.analytics.service
 import com.ares.analytics.shared.TelemetryFrame
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
+import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -89,6 +90,40 @@ class DatabaseServiceIntegrationTest {
         withDatabase { database ->
             val result = database.executeQueryRaw("SHOW TABLES")
             assertTrue(result.rows.flatten().contains("telemetry_frames"))
+        }
+    }
+
+    @Test
+    fun `legacy millisecond telemetry schema migrates without data loss`() = runTest {
+        val tempDir = Files.createTempDirectory("ares-database-migration").toFile()
+        val databaseFile = tempDir.resolve("telemetry.duckdb")
+        Class.forName("org.duckdb.DuckDBDriver")
+        DriverManager.getConnection("jdbc:duckdb:${databaseFile.absolutePath}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.execute(
+                    """
+                    CREATE TABLE telemetry_frames (
+                        timestamp_ms BIGINT NOT NULL,
+                        session_id VARCHAR NOT NULL,
+                        key VARCHAR NOT NULL,
+                        value DOUBLE NOT NULL,
+                        string_value VARCHAR,
+                        PRIMARY KEY (session_id, key, timestamp_ms)
+                    )
+                    """.trimIndent()
+                )
+                statement.execute("INSERT INTO telemetry_frames VALUES (42, 'legacy', '/Drive/Velocity', 3.5, NULL)")
+            }
+        }
+
+        val database = DatabaseService(databaseFile.absolutePath)
+        try {
+            val migrated = database.getTelemetryForKey("legacy", "Drive/Velocity").single()
+            assertEquals(42_000L, migrated.timestampUs)
+            assertEquals(3.5, migrated.value)
+        } finally {
+            database.close()
+            tempDir.deleteRecursively()
         }
     }
 

@@ -235,7 +235,7 @@ class SchemaMigrationManager(
                     SELECT
                         timestamp_ms,
                         session_id,
-                        key,
+                        REGEXP_REPLACE(TRIM(key), '^/+', ''),
                         value,
                         $stringValueExpression,
                         timestamp_ms * 1000,

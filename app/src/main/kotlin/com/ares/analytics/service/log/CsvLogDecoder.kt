@@ -98,7 +98,7 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
                 SELECT
                     timestamp_ms,
                     '$escapedSessionId' AS session_id,
-                    REGEXP_REPLACE(key, '^/+', '') AS key,
+                    REGEXP_REPLACE(TRIM(key), '^/+', '') AS key,
                     COALESCE(
                         CASE
                             WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0
@@ -123,7 +123,7 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
                 SELECT
                     CAST("$escapedTimeCol" AS BIGINT) AS timestamp_ms,
                     '$escapedSessionId' AS session_id,
-                    REGEXP_REPLACE(key, '^/+', '') AS key,
+                    REGEXP_REPLACE(TRIM(key), '^/+', '') AS key,
                     COALESCE(
                         CASE
                             WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0

@@ -76,20 +76,45 @@ class DatabaseBackupExporter(
         } else {
             "ROW_NUMBER() OVER ()"
         }
-        conn.createStatement().use { st ->
-            st.execute("""
-                INSERT INTO telemetry_frames
-                    (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
-                SELECT CAST(timestamp_ms AS BIGINT), CAST(session_id AS VARCHAR),
-                    REGEXP_REPLACE(CAST(key AS VARCHAR), '^/+', ''),
-                    COALESCE(TRY_CAST(value AS DOUBLE), 0.0), $stringExpression,
-                    $timestampUsExpression, $sampleOrderExpression
-                FROM read_parquet('$absolutePath')
-                WHERE timestamp_ms IS NOT NULL AND session_id IS NOT NULL AND key IS NOT NULL
-                ON CONFLICT (session_id, key, timestamp_us, sample_order) DO UPDATE SET
-                    value = EXCLUDED.value,
-                    string_value = EXCLUDED.string_value
-            """.trimIndent())
+        val previousAutoCommit = conn.autoCommit
+        conn.autoCommit = false
+        try {
+            conn.createStatement().use { st ->
+                st.execute(
+                    """
+                    DELETE FROM telemetry_frames AS target
+                    USING (
+                        SELECT CAST(session_id AS VARCHAR) AS session_id,
+                            REGEXP_REPLACE(TRIM(CAST(key AS VARCHAR)), '^/+', '') AS key,
+                            $timestampUsExpression AS timestamp_us
+                        FROM read_parquet('$absolutePath')
+                        WHERE timestamp_ms IS NOT NULL AND session_id IS NOT NULL AND key IS NOT NULL
+                    ) AS source
+                    WHERE target.session_id = source.session_id
+                        AND target.key = source.key
+                        AND target.timestamp_us = source.timestamp_us
+                    """.trimIndent()
+                )
+                st.execute("""
+                    INSERT INTO telemetry_frames
+                        (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
+                    SELECT CAST(timestamp_ms AS BIGINT), CAST(session_id AS VARCHAR),
+                        REGEXP_REPLACE(TRIM(CAST(key AS VARCHAR)), '^/+', ''),
+                        COALESCE(TRY_CAST(value AS DOUBLE), 0.0), $stringExpression,
+                        $timestampUsExpression, $sampleOrderExpression
+                    FROM read_parquet('$absolutePath')
+                    WHERE timestamp_ms IS NOT NULL AND session_id IS NOT NULL AND key IS NOT NULL
+                    ON CONFLICT (session_id, key, timestamp_us, sample_order) DO UPDATE SET
+                        value = EXCLUDED.value,
+                        string_value = EXCLUDED.string_value
+                """.trimIndent())
+            }
+            conn.commit()
+        } catch (error: Exception) {
+            conn.rollback()
+            throw error
+        } finally {
+            conn.autoCommit = previousAutoCommit
         }
     }
 

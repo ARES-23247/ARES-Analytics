@@ -266,7 +266,7 @@ class HootDecoderService(
                 SELECT
                     CAST(CAST("$escapedTimeCol" AS DOUBLE) * $scale AS BIGINT) AS timestamp_ms,
                     '$escapedSessionId' AS session_id,
-                    key,
+                    REGEXP_REPLACE(TRIM(key), '^/+', ''),
                     COALESCE(
                         CASE
                             WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0
