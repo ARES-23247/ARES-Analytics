@@ -47,6 +47,7 @@ sealed class TuningIntent {
     object ClearSaveStatus : TuningIntent()
 }
 
+/** Maintains editable tuning values and synchronizes them with robot NT4 topics and source files. */
 class TuningViewModel(
     val nt4ClientService: Nt4ClientService,
     private val scope: CoroutineScope
@@ -60,7 +61,7 @@ class TuningViewModel(
                 val topics = nt4ClientService.getActiveTopics().filter { it.startsWith("Tuning/") }
                 val currentMap = _state.value.variables.toMutableMap()
                 var changed = false
-                
+
                 val activeKeys = mutableSetOf<String>()
 
                 for (topic in topics) {
@@ -82,11 +83,10 @@ class TuningViewModel(
                         val updatedAppVars = currentState.appVariables.toMutableMap()
                         var appVarsChanged = false
                         currentMap.forEach { (k, v) ->
-                            if (currentState.isAutoSaveEnabled || !updatedAppVars.containsKey(k)) {
-                                if (updatedAppVars[k] != v) {
-                                    updatedAppVars[k] = v
-                                    appVarsChanged = true
-                                }
+                            val acceptsRobotValue = currentState.isAutoSaveEnabled || k !in updatedAppVars
+                            if (acceptsRobotValue && updatedAppVars[k] != v) {
+                                updatedAppVars[k] = v
+                                appVarsChanged = true
                             }
                         }
                         if (appVarsChanged && currentState.projectPath.isNotBlank()) {
@@ -98,7 +98,7 @@ class TuningViewModel(
                         )
                     }
                 }
-                
+
                 delay(200) // Poll at 5Hz
             }
         }
@@ -171,7 +171,9 @@ class TuningViewModel(
                         try {
                             nt4ClientService.publishDouble(key, value)
                             count++
-                        } catch (_: Exception) {}
+                        } catch (_: Exception) {
+                            // Continue the batch; the success count intentionally excludes failed topics.
+                        }
                     }
                     _state.update { it.copy(saveStatus = "Pushed $count App values to Robot") }
                 }
@@ -285,7 +287,7 @@ class TuningViewModel(
                     val text = file.readText()
                     val jsonObj = Json.parseToJsonElement(text).jsonObject
                     val count = jsonObj.size
-                    
+
                     val rawTime = file.name.removePrefix("constants_").removeSuffix(".json")
                     val formatted = try {
                         val date = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).parse(rawTime)
@@ -293,7 +295,7 @@ class TuningViewModel(
                     } catch (_: Exception) {
                         rawTime
                     }
-                    
+
                     BackupInfo(
                         filename = file.name,
                         formattedDate = formatted,

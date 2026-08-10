@@ -98,7 +98,7 @@ fun TuningScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Auto-Calibration Board", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = AresTextPrimary)
-                
+
                 // Connection Status
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -189,7 +189,7 @@ fun TuningScreen(
                                     }
                                 }
                             }
-                            
+
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text("Select SysId Test to Run:", fontSize = 11.sp, color = AresTextSecondary)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -245,8 +245,8 @@ fun TuningScreen(
                                 HorizontalDivider(color = AresBorder)
 
                                 Text("Ticks/Meter Encoder Calibration", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AresCyan)
-                                var distText by remember(sysIdState.linearDriveActualDistanceMeters) { 
-                                    mutableStateOf(sysIdState.linearDriveActualDistanceMeters.toString()) 
+                                var distText by remember(sysIdState.linearDriveActualDistanceMeters) {
+                                    mutableStateOf(sysIdState.linearDriveActualDistanceMeters.toString())
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -256,7 +256,7 @@ fun TuningScreen(
                                     Text("Physical Distance Traveled (meters):", fontSize = 12.sp, color = AresTextSecondary)
                                     BasicTextField(
                                         value = distText,
-                                        onValueChange = { 
+                                        onValueChange = {
                                             distText = it
                                             val parsed = it.toDoubleOrNull()
                                             if (parsed != null && parsed > 0.0) {
@@ -513,15 +513,7 @@ private fun LiveTelemetryPlot(samples: List<AlignedDataRow>) {
     }
 }
 
-
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun GainTuningPanel(
     viewModel: TuningViewModel,
     state: com.ares.analytics.viewmodel.TuningState,
@@ -529,11 +521,11 @@ fun GainTuningPanel(
 ) {
     Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Active Gain Tuning", style = MaterialTheme.typography.titleMedium, color = AresTextPrimary)
-        
+
         state.variables.forEach { (key, value) ->
             val (desc, range) = getConstantDescriptionAndRange(key)
             val category = getCustomCategory(key)
-            
+
             Column(modifier = Modifier.padding(vertical = 4.dp)) {
                 Text(category, fontSize = 10.sp, color = AresCyan, fontWeight = FontWeight.Bold)
                 Row(
@@ -548,7 +540,7 @@ fun GainTuningPanel(
                     var textValue by remember(value) { mutableStateOf(value.toString()) }
                     OutlinedTextField(
                         value = textValue,
-                        onValueChange = { 
+                        onValueChange = {
                             textValue = it
                             val parsed = it.toDoubleOrNull()
                             if (parsed != null) {
@@ -578,17 +570,17 @@ private fun getCustomCategory(key: String): String {
             else -> parts[0].replace(Regex("([a-z])([A-Z]+)"), "$1 $2").replaceFirstChar { it.uppercase() }
         }
     }
-    
+
     return when {
-        cleanKey == "pinpointXOffsetMm" || 
-        cleanKey == "pinpointYOffsetMm" || 
-        cleanKey == "pinpointEncoderResolution" || 
+        cleanKey == "pinpointXOffsetMm" ||
+        cleanKey == "pinpointYOffsetMm" ||
+        cleanKey == "pinpointEncoderResolution" ||
         cleanKey == "ticksPerMeter" -> "Pinpoint Odometry"
-        
+
         cleanKey.startsWith("vision") -> "Limelight Vision"
-        
+
         cleanKey.startsWith("odomQ") -> "EKF Position Filter"
-        
+
         else -> "General Drivetrain Constants"
     }
 }

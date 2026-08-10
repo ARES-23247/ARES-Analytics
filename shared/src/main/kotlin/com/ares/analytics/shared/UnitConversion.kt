@@ -1,23 +1,11 @@
 package com.ares.analytics.shared
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Dimensions supported by dashboard display conversion. */
 enum class UnitCategory {
     LENGTH, LINEAR_VELOCITY, ANGLE, ANGULAR_VELOCITY, TIME, VOLTAGE, CURRENT, TEMPERATURE, NONE
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Unit metadata. [factorToBase] converts non-temperature values to the category's SI base unit. */
 enum class RobotUnit(val symbol: String, val category: UnitCategory, val factorToBase: Double) {
     // Length (Base: Meter)
     METER("m", UnitCategory.LENGTH, 1.0),
@@ -58,13 +46,7 @@ enum class RobotUnit(val symbol: String, val category: UnitCategory, val factorT
     KELVIN("K", UnitCategory.TEMPERATURE, 1.0);
 
     companion object {
-        /**
-
-         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-         *
-
-         */
+        /** Looks up either a display symbol or enum name, ignoring case and surrounding whitespace. */
         fun fromSymbol(symbol: String): RobotUnit? {
             val clean = symbol.trim()
             return entries.find { it.symbol.equals(clean, ignoreCase = true) || it.name.equals(clean, ignoreCase = true) }
@@ -72,21 +54,9 @@ enum class RobotUnit(val symbol: String, val category: UnitCategory, val factorT
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Conversion and conservative topic-name inference used by telemetry charts. */
 object UnitConversion {
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
+    /** Converts [value] between units of the same [UnitCategory]. */
     fun convert(value: Double, from: RobotUnit, to: RobotUnit): Double {
         if (from.category != to.category) throw IllegalArgumentException("Cannot convert from ${from.category} to ${to.category}")
 
@@ -108,28 +78,20 @@ object UnitConversion {
         return baseValue / to.factorToBase
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
+    /** Infers a display unit from a telemetry key, or returns `null` when the key is ambiguous. */
     fun detectUnitFromKey(key: String): RobotUnit? {
         val lowerKey = key.lowercase()
+        val isAngular = lowerKey.contains("rot") ||
+            lowerKey.contains("ang") ||
+            lowerKey.contains("omega")
         return when {
             lowerKey.contains("voltage") || lowerKey.contains("volt") -> RobotUnit.VOLT
             lowerKey.contains("current") || lowerKey.contains("amp") -> RobotUnit.AMPERE
             lowerKey.contains("fahrenheit") -> RobotUnit.FAHRENHEIT
             lowerKey.contains("temp") || lowerKey.contains("celsius") -> RobotUnit.CELSIUS
             lowerKey.contains("rpm") -> RobotUnit.RPM
-            lowerKey.contains("velocity") || lowerKey.contains("vel") -> {
-                if (lowerKey.contains("rot") || lowerKey.contains("ang") || lowerKey.contains("omega")) {
-                    RobotUnit.RAD_PER_SEC
-                } else {
-                    RobotUnit.METER_PER_SEC
-                }
-            }
+            (lowerKey.contains("velocity") || lowerKey.contains("vel")) && isAngular -> RobotUnit.RAD_PER_SEC
+            lowerKey.contains("velocity") || lowerKey.contains("vel") -> RobotUnit.METER_PER_SEC
             lowerKey.contains("deg") -> RobotUnit.DEGREE
             lowerKey.contains("rad") -> RobotUnit.RADIAN
             lowerKey.contains("rot") -> RobotUnit.ROTATION

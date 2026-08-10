@@ -208,13 +208,6 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
         solveCameraExtrinsics(measurements)
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun solveCameraExtrinsicsWithDiagnostics(measurements: List<CalibrationMeasurement>): CalibrationDiagnostics {
         if (measurements.isEmpty()) {
             return CalibrationDiagnostics(

@@ -34,48 +34,16 @@ import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.launch
 
 sealed class ForensicsState {
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object Idle : ForensicsState()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object Loading : ForensicsState()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class Success(val response: ForensicsResponse) : ForensicsState()
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class Error(val message: String) : ForensicsState()
 }
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun AiCoachPanel(
     databaseService: DatabaseService,
     syncEngineService: SyncEngineService,

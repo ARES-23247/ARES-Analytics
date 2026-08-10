@@ -37,13 +37,6 @@ import com.ares.analytics.util.IndicatorLightColorMapper
  * Automatically discovers lights as they appear in the telemetry stream.
  */
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun IndicatorLightsCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier

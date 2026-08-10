@@ -2,6 +2,7 @@ package com.ares.analytics.shared.models
 
 import kotlinx.serialization.Serializable
 
+/** Hardware categories exchanged through the serialized `Topology/HardwareMap` NT4 topic. */
 @Serializable
 enum class TopologyNodeType {
     CONTROL_HUB, EXPANSION_HUB, SRS_HUB,
@@ -12,6 +13,7 @@ enum class TopologyNodeType {
     CAN_CODER, PIGEON_IMU, POWER_DISTRIBUTION
 }
 
+/** A node in the robot hardware tree; absent port/CAN fields are not applicable to that node. */
 @Serializable
 data class TopologyNode(
     val id: String,
@@ -26,12 +28,14 @@ data class TopologyNode(
     val metadata: Map<String, String> = emptyMap()
 )
 
+/** Complete hardware tree for one robot. Parent links refer to [TopologyNode.id]. */
 @Serializable
 data class HardwareTopology(
     val robotId: String,
     val nodes: List<TopologyNode> = emptyList()
 )
 
+/** Gateway request for correlating alerts, summary metrics, and the physical hardware tree. */
 @Serializable
 data class ForensicsRequest(
     val teamId: String,
@@ -48,6 +52,7 @@ data class HardwareFaultLocus(
     val interruptedLinkId: String? = null
 )
 
+/** Gateway diagnosis. [confidenceScore] is normalized to the range 0.0 through 1.0. */
 @Serializable
 data class ForensicsResponse(
     val probableRootCause: String,
@@ -57,6 +62,7 @@ data class ForensicsResponse(
     val recommendedActions: List<String> = emptyList()
 )
 
+/** Identified feedforward constants and goodness-of-fit for one SysId analysis. */
 @Serializable
 data class CalculatedSummary(
     val kS: Double = 0.0,
@@ -71,6 +77,7 @@ enum class TransientClassification {
     UNDERDAMPED, OVERDAMPED, CRITICALLY_DAMPED, UNKNOWN
 }
 
+/** Driver-input shaping and measured jitter characteristics; frequency is hertz. */
 @Serializable
 data class DriverProfile(
     val name: String,

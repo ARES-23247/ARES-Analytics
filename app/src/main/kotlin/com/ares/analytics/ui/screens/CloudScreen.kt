@@ -95,9 +95,9 @@ fun CloudScreen(
                 }
 
                 Button(
-                    onClick = { 
+                    onClick = {
                         viewModel.onIntent(CloudIntent.RefreshCloudLogs)
-                        viewModel.onIntent(CloudIntent.PerformDeltaSync(teamId, seasonId)) 
+                        viewModel.onIntent(CloudIntent.PerformDeltaSync(teamId, seasonId))
                     },
                     enabled = !state.isSyncing,
                     colors = ButtonDefaults.buttonColors(containerColor = AresCyan, disabledContainerColor = AresSurfaceElevated)
@@ -114,7 +114,7 @@ fun CloudScreen(
         }
 
         // Error message if any
-        if (state.errorMessage != null) {
+        state.errorMessage?.let { errorMessage ->
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -124,7 +124,7 @@ fun CloudScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(state.errorMessage!!, color = AresTextPrimary, fontSize = 14.sp)
+                Text(errorMessage, color = AresTextPrimary, fontSize = 14.sp)
                 TextButton(onClick = { viewModel.onIntent(CloudIntent.ClearError) }) {
                     Text("Dismiss", color = AresTextPrimary)
                 }
@@ -146,7 +146,7 @@ fun CloudScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("Robot Logs (Local)", color = AresTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    
+
                     if (state.robotRuns.isNotEmpty()) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -169,7 +169,7 @@ fun CloudScreen(
                         }
                     }
                 }
-                
+
                 // Batch Actions
                 if (checkedRobotRuns.isNotEmpty()) {
                     Row(
@@ -187,7 +187,7 @@ fun CloudScreen(
                         ) {
                             Text("Import Selected (${checkedRobotRuns.size})", color = AresBackground, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
-                        
+
                         Button(
                             onClick = {
                                 viewModel.onIntent(CloudIntent.DeleteMultipleRobotRuns(checkedRobotRuns.toList()))
@@ -246,7 +246,7 @@ fun CloudScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text("Database & Google Drive Sync", color = AresTextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    
+
                     if (state.sessions.isNotEmpty()) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -269,7 +269,7 @@ fun CloudScreen(
                         }
                     }
                 }
-                
+
                 // Batch Actions for Sessions
                 if (checkedSessions.isNotEmpty()) {
                     Row(
@@ -294,7 +294,7 @@ fun CloudScreen(
                                 Text("Import Selected (${remoteOnlySummaries.size})", color = AresBackground, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
-                        
+
                         if (localOnlySessionIds.isNotEmpty()) {
                             Button(
                                 onClick = {
@@ -308,7 +308,7 @@ fun CloudScreen(
                                 Text("Del Local (${localOnlySessionIds.size})", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
-                        
+
                         if (remoteSessionIdsAndTeamIds.isNotEmpty()) {
                             Button(
                                 onClick = {
@@ -412,13 +412,6 @@ fun CloudScreen(
 }
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun RobotRunRow(
     run: com.ares.analytics.viewmodel.RobotRun,
     isChecked: Boolean,
@@ -480,13 +473,6 @@ fun RobotRunRow(
 }
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun SessionSyncRow(
     info: com.ares.analytics.viewmodel.SessionSyncInfo,
     isChecked: Boolean,

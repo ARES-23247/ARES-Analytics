@@ -35,7 +35,7 @@ class KeybindingParserService {
             .filter { !it.absolutePath.contains("build") }
             .toList()
         val dslRegex = Regex("""\b([a-zA-Z0-9_]+)\.([a-zA-Z_]+)\.(onPress|onRelease|whilePressed|label)\(\s*"([^"]+)"\s*\)""")
-        
+
         for (file in ktFiles) {
             val lines = file.readLines()
             for ((index, line) in lines.withIndex()) {
@@ -47,12 +47,12 @@ class KeybindingParserService {
                     val description = match.groupValues[4]
                     val gamepadId = if (varName.contains("operator") || varName.contains("2")) "gamepad2" else "gamepad1"
                     val actionLabel = "[$eventType] $description"
-                    
+
                     bindings.add(ControllerBinding(gamepadId, button, actionLabel, file.name, index + 1))
                 }
             }
         }
-        
+
         bindings
     }
 }

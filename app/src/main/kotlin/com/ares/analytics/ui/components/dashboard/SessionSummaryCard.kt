@@ -26,13 +26,6 @@ import kotlinx.coroutines.launch
 import com.ares.analytics.ui.components.core.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun SessionSummaryCard(
     databaseService: DatabaseService,
     sessionId: String?,
@@ -63,21 +56,20 @@ fun SessionSummaryCard(
             iconTint = AresCyan
         )
 
-
-
+        val currentSummary = summary
         when {
             isLoading -> {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text("Loading summary...", color = AresTextTertiary, fontSize = 12.sp)
                 }
             }
-            summary == null -> {
+            currentSummary == null -> {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     Text("Select a session to view aggregate stats.", color = AresTextTertiary, fontSize = 12.sp)
                 }
             }
             else -> {
-                val s = summary!!
+                val s = currentSummary
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
                     horizontalArrangement = Arrangement.spacedBy(16.dp),

@@ -75,13 +75,6 @@ class GamepadService {
     private var pollingJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun start() {
         if (!isInitialized) {
             try {
@@ -123,8 +116,8 @@ class GamepadService {
         stateFlow: MutableStateFlow<GamepadState>
     ) {
         if (!glfwJoystickPresent(joystickId)) {
-            if (stateFlow.value.connected) {
-                stateFlow.update { GamepadState(connected = false) }
+            stateFlow.update { current ->
+                if (current.connected) GamepadState(connected = false) else current
             }
             return
         }
@@ -183,40 +176,26 @@ class GamepadService {
                     rightStickY = applyDeadzone(-ry),
                     leftTrigger = normalizeTrigger(lt),
                     rightTrigger = normalizeTrigger(rt),
-                    a = cap > 0 && buttons!![0] == GLFW_PRESS.toByte(),
-                    b = cap > 1 && buttons!![1] == GLFW_PRESS.toByte(),
-                    x = cap > 2 && buttons!![2] == GLFW_PRESS.toByte(),
-                    y = cap > 3 && buttons!![3] == GLFW_PRESS.toByte(),
-                    leftBumper = cap > 4 && buttons!![4] == GLFW_PRESS.toByte(),
-                    rightBumper = cap > 5 && buttons!![5] == GLFW_PRESS.toByte(),
-                    dpadUp = cap > 10 && buttons!![10] == GLFW_PRESS.toByte(),
-                    dpadDown = cap > 12 && buttons!![12] == GLFW_PRESS.toByte(),
-                    dpadLeft = cap > 13 && buttons!![13] == GLFW_PRESS.toByte(),
-                    dpadRight = cap > 11 && buttons!![11] == GLFW_PRESS.toByte()
+                    a = cap > 0 && buttons?.get(0) == GLFW_PRESS.toByte(),
+                    b = cap > 1 && buttons?.get(1) == GLFW_PRESS.toByte(),
+                    x = cap > 2 && buttons?.get(2) == GLFW_PRESS.toByte(),
+                    y = cap > 3 && buttons?.get(3) == GLFW_PRESS.toByte(),
+                    leftBumper = cap > 4 && buttons?.get(4) == GLFW_PRESS.toByte(),
+                    rightBumper = cap > 5 && buttons?.get(5) == GLFW_PRESS.toByte(),
+                    dpadUp = cap > 10 && buttons?.get(10) == GLFW_PRESS.toByte(),
+                    dpadDown = cap > 12 && buttons?.get(12) == GLFW_PRESS.toByte(),
+                    dpadLeft = cap > 13 && buttons?.get(13) == GLFW_PRESS.toByte(),
+                    dpadRight = cap > 11 && buttons?.get(11) == GLFW_PRESS.toByte()
                 )
             }
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun stop() {
         pollingJob?.cancel()
         pollingJob = null
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun dispose() {
         stop()
         if (isInitialized) {

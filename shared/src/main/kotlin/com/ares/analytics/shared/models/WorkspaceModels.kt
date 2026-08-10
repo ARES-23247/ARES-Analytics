@@ -2,11 +2,18 @@ package com.ares.analytics.shared.models
 
 import kotlinx.serialization.Serializable
 
+/** Robotics league whose source layout and runtime conventions apply to a workspace. */
 @Serializable
 enum class League {
     FTC, FRC
 }
 
+/**
+ * User configuration for one robot project.
+ *
+ * API keys and OAuth client values are local configuration, not safe-to-share
+ * metadata. Callers must redact them from diagnostics and logs.
+ */
 @Serializable
 data class WorkspaceConfig(
     val id: String = "",

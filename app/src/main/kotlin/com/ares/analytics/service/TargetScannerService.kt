@@ -59,13 +59,6 @@ class TargetScannerService {
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun stopScanning() {
         scannerJob?.cancel()
         scannerJob = null

@@ -29,13 +29,6 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun ControlLoopProfilerCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
@@ -78,7 +71,7 @@ fun ControlLoopProfilerCard(
             // Clear history when switching motors
             targetHistory.clear()
             actualHistory.clear()
-            
+
             scope.launch {
                 nt4ClientService.telemetryFlow.collect { frame ->
                     val now = System.currentTimeMillis()
@@ -108,7 +101,7 @@ fun ControlLoopProfilerCard(
                     }
                 }
             }
-            
+
             // Background cleanup loop for periods of inactivity
             scope.launch {
                 while (true) {
@@ -158,13 +151,13 @@ fun ControlLoopProfilerCard(
                     ) {
                         Text(
                             selectedMotor.substringAfterLast("/").takeIf { it.isNotEmpty() } ?: selectedMotor,
-                            color = AresTextSecondary, 
+                            color = AresTextSecondary,
                             fontSize = 12.sp,
                             maxLines = 1
                         )
                         Icon(
-                            imageVector = Icons.Default.ArrowDropDown, 
-                            contentDescription = null, 
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = null,
                             tint = AresTextSecondary,
                             modifier = Modifier.size(16.dp)
                         )
@@ -215,7 +208,9 @@ fun ControlLoopProfilerCard(
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("ERROR", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    val error = if (targetValue != null && actualValue != null) targetValue!! - actualValue!! else null
+                    val error = targetValue?.let { target ->
+                        actualValue?.let { actual -> target - actual }
+                    }
                     Text(
                         text = error?.let { String.format("%.2f", it) } ?: "--",
                         color = if (error != null && kotlin.math.abs(error) > 5.0) AresError else AresGreen,
@@ -224,9 +219,9 @@ fun ControlLoopProfilerCard(
                     )
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -250,11 +245,11 @@ fun ControlLoopProfilerCard(
                     ) {
                         val width = size.width
                         val height = size.height
-                        
+
                         // Determine value range
                         var minValue = Double.MAX_VALUE
                         var maxValue = Double.MIN_VALUE
-                        
+
                         targetHistory.forEach { (_, v) ->
                             if (v < minValue) minValue = v
                             if (v > maxValue) maxValue = v
@@ -263,19 +258,19 @@ fun ControlLoopProfilerCard(
                             if (v < minValue) minValue = v
                             if (v > maxValue) maxValue = v
                         }
-                        
+
                         if (minValue == Double.MAX_VALUE) return@Canvas
                         if (maxValue == minValue) {
                             maxValue = minValue + 1.0
                             minValue = minValue - 1.0
                         }
-                        
+
                         // Add some padding to Y scale
                         val range = maxValue - minValue
                         minValue -= range * 0.1
                         maxValue += range * 0.1
                         val newRange = maxValue - minValue
-                        
+
                         // Draw grid lines
                         val steps = 4
                         for (i in 0..steps) {
@@ -289,20 +284,13 @@ fun ControlLoopProfilerCard(
                         }
                         val now = System.currentTimeMillis()
                         val startTimeMs = now - historyWindowMs
-                        
-                        /**
 
-                         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-                         *
-
-                         */
                         fun mapToOffset(timeMs: Long, value: Double): Offset {
                             val x = ((timeMs - startTimeMs).toFloat() / historyWindowMs.toFloat()) * width
                             val y = height - ((value - minValue) / newRange).toFloat() * height
                             return Offset(x, y)
                         }
-                        
+
                         // Plot Actual (White)
                         if (actualHistory.size > 1) {
                             val path = Path()
@@ -318,7 +306,7 @@ fun ControlLoopProfilerCard(
                             }
                             drawPath(path, color = Color.White, style = Stroke(width = 2.dp.toPx()))
                         }
-                        
+
                         // Plot Target (Cyan)
                         if (targetHistory.size > 1) {
                             val path = Path()

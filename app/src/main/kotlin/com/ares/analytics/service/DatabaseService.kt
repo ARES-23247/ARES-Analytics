@@ -41,13 +41,13 @@ import java.sql.DriverManager
  * @see DatabaseBackupExporter
  */
 class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb") {
-    
+
     private val conn: Connection
     private val readConn: Connection
     private val ephemeralConn: Connection
     private val dbMutex = Mutex()
     private val readMutex = Mutex()
-    
+
     private val schemaManager: SchemaMigrationManager
     private val matchLogRepo: MatchLogRepository
     private val backupExporter: DatabaseBackupExporter
@@ -61,15 +61,15 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         val isFirstRun = !File(dbPath).exists()
         val dbFile = File(dbPath)
         dbFile.parentFile?.mkdirs()
-        
+
         if (dbFile.exists() && dbFile.length() == 0L) {
             dbFile.delete()
         }
-        
+
         val appDataDir = dbFile.parentFile?.absolutePath ?: (System.getProperty("user.home") + "/.ares-analytics")
         conn = DriverManager.getConnection("jdbc:duckdb:${dbFile.absolutePath}")
         readConn = conn.unwrap(org.duckdb.DuckDBConnection::class.java).duplicate()
-        
+
         // Ensure parquet extension is loaded for export and configure DuckDB settings
         val tmpDirFile = File(appDataDir, "duckdb_tmp")
         tmpDirFile.mkdirs()
@@ -81,17 +81,17 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
             st.execute("INSTALL parquet;")
             st.execute("LOAD parquet;")
         }
-        
+
         ephemeralConn = DriverManager.getConnection("jdbc:duckdb:")
         ephemeralConn.createStatement().use { st ->
             st.execute("SET memory_limit='1GB'")
             st.execute("SET threads=4")
         }
-        
+
         schemaManager = SchemaMigrationManager(conn, ephemeralConn)
         matchLogRepo = MatchLogRepository(conn, readConn, ephemeralConn, dbMutex, readMutex)
         backupExporter = DatabaseBackupExporter(conn, dbMutex)
-        
+
         schemaManager.runMigrations(isFirstRun, oldDbPath)
 
         // Periodic WAL checkpoint — replaces the per-appender-batch CHECKPOINT that dominated
@@ -143,18 +143,11 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     suspend fun insertConsoleMessages(messages: List<ConsoleMessage>, sessionId: String) = matchLogRepo.insertConsoleMessages(messages, sessionId)
     suspend fun getConsoleMessages(sessionId: String): List<ConsoleMessage> = matchLogRepo.getConsoleMessages(sessionId)
     suspend fun getTelemetryDensity(sessionId: String, buckets: Int = 100): List<Float> = matchLogRepo.getTelemetryDensity(sessionId, buckets)
-    
+
     suspend fun importParquet(file: File) = backupExporter.importParquet(file)
     suspend fun exportSessionToParquet(sessionId: String, file: File) =
         backupExporter.exportSessionToParquet(sessionId, file)
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun close() = runBlocking {
         // Stop the periodic checkpoint timer first so it can't fire mid-teardown.
         checkpointScope.cancel()
@@ -171,6 +164,4 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         private const val CHECKPOINT_INTERVAL_MS = 60_000L
     }
 }
-
-
 

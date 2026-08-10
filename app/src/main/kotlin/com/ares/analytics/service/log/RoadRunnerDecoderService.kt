@@ -82,13 +82,7 @@ class RoadRunnerDecoderService : BaseLogDecoder() {
         val bytes = file.readBytes()
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
         var offset = 0
-        /**
 
-         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-         *
-
-         */
         fun readString(): String {
             val len = buffer.getInt(offset)
             offset += 4
@@ -97,13 +91,6 @@ class RoadRunnerDecoderService : BaseLogDecoder() {
             return str
         }
 
-        /**
-
-         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-         *
-
-         */
         fun readSchema(): RRSchema {
             val schemaType = buffer.getInt(offset)
             offset += 4
@@ -136,13 +123,6 @@ class RoadRunnerDecoderService : BaseLogDecoder() {
             }
         }
 
-        /**
-
-         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-         *
-
-         */
         fun arraySchemaCount(schema: RRSchema): Int {
             return when (schema) {
                 is StructSchema -> {
@@ -157,13 +137,6 @@ class RoadRunnerDecoderService : BaseLogDecoder() {
             }
         }
 
-        /**
-
-         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-         *
-
-         */
         fun readMsg(schema: RRSchema): Any {
             return when (schema) {
                 is StructSchema -> {
@@ -301,18 +274,13 @@ class RoadRunnerDecoderService : BaseLogDecoder() {
                         // Update timestamp if timestamp is present in log
                         when {
                             (key == "OPMODE_PRE_INIT" || key == "OPMODE_PRE_START" || key == "OPMODE_POST_STOP" || key == "TIMESTAMP") && msg is Long -> {
-                                if (firstRRTimestamp == null) {
-                                    firstRRTimestamp = msg
-                                }
-                                lastTimestampMs = (msg - firstRRTimestamp) / 1_000_000
+                                val origin = firstRRTimestamp ?: msg.also { firstRRTimestamp = it }
+                                lastTimestampMs = (msg - origin) / 1_000_000
                             }
                             msg is Map<*, *> -> {
-                                val ts = msg["timestamp"] as? Long
-                                if (ts != null) {
-                                    if (firstRRTimestamp == null) {
-                                        firstRRTimestamp = ts
-                                    }
-                                    lastTimestampMs = (ts - firstRRTimestamp) / 1_000_000
+                                (msg["timestamp"] as? Long)?.let { timestamp ->
+                                    val origin = firstRRTimestamp ?: timestamp.also { firstRRTimestamp = it }
+                                    lastTimestampMs = (timestamp - origin) / 1_000_000
                                 }
                             }
                         }

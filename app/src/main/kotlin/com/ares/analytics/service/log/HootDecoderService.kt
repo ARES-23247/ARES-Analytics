@@ -181,7 +181,7 @@ class HootDecoderService(
             throw IllegalStateException("owlet CLI failed to convert hoot log. Exit code: $exitCode. Output:\n$capturedOutput")
         }
         val sessionId = "hoot-${UUID.randomUUID()}"
-        
+
         // Parse CSV and batch-insert into DB
         val (firstTime, lastTime, parsedKeys) = parseAndInsertTelemetry(tempCsv, sessionId)
         val durationMs = lastTime - firstTime
@@ -349,7 +349,7 @@ class HootDecoderService(
         durationMs: Long
     ) {
         val motors = mutableMapOf<String, MotorKeys>()
-        
+
         // 1. Detect Motors from voltage and velocity patterns
         for (key in keys) {
             val parts = key.split("/")
@@ -358,13 +358,13 @@ class HootDecoderService(
                 if (last == "voltage" || last == "appliedoutput" || last == "appliedvolts" || last.contains("motorvoltage")) {
                     val name = parts[parts.size - 2]
                     val pathPrefix = parts.dropLast(1).joinToString("/")
-                    val velKey = keys.firstOrNull { 
-                        it.startsWith(pathPrefix) && (it.endsWith("Velocity") || it.endsWith("VelocityRps") || it.lowercase().contains("speed")) 
+                    val velKey = keys.firstOrNull {
+                        it.startsWith(pathPrefix) && (it.endsWith("Velocity") || it.endsWith("VelocityRps") || it.lowercase().contains("speed"))
                     }
                     val currentKey = keys.firstOrNull {
                         it.startsWith(pathPrefix) && (it.endsWith("Current") || it.endsWith("StatorCurrent") || it.lowercase().contains("amps"))
                     }
-                    
+
                     if (velKey != null) {
                         motors[name] = MotorKeys(
                             motorName = name,
@@ -422,7 +422,7 @@ class HootDecoderService(
         for (key in keys) {
             val lowercase = key.lowercase()
             if (lowercase.endsWith("setpoint") || lowercase.contains("setpoint") || lowercase.endsWith("target") || lowercase.contains("target")) {
-                val baseKey = keys.firstOrNull { 
+                val baseKey = keys.firstOrNull {
                     it != key && (key.startsWith(it) || it.startsWith(key.replace("setpoint", "", true).replace("target", "", true)))
                 }
                 if (baseKey != null) {
@@ -481,7 +481,7 @@ class HootDecoderService(
             val currentKey = motor.currentKey ?: continue
             val currents = databaseService.getTelemetryForKey(sessionId, currentKey)
             val velocities = databaseService.getTelemetryForKey(sessionId, motor.velocityKey)
-            
+
             if (currents.isEmpty() || velocities.isEmpty()) continue
             val currentsSorted = currents.sortedBy { it.timestampMs }
             val velocitiesSorted = velocities.sortedBy { it.timestampMs }
@@ -490,7 +490,7 @@ class HootDecoderService(
             var maxStallDurationMs = 0L
             var currentStallDurationMs = 0L
             var lastTimeMs = 0L
-            
+
             for (currFrame in currentsSorted) {
                 val t = currFrame.timestampMs
                 while (velIndex + 1 < velocitiesSorted.size &&
@@ -500,12 +500,12 @@ class HootDecoderService(
                 val velFrame = velocitiesSorted[velIndex]
                 val current = currFrame.value
                 val velocity = velFrame.value
-                
+
                 if (lastTimeMs > 0L) {
                     val dt = (t - lastTimeMs) / 1000.0
                     if (dt > 0.0) {
                         thermalSum += current * current * 0.05 * dt // I^2 * R * dt, R = 0.05 Ohms
-                        
+
                         if (current > 40.0 && abs(velocity) < 0.1) {
                             currentStallDurationMs += (t - lastTimeMs)
                             maxStallDurationMs = maxOf(maxStallDurationMs, currentStallDurationMs)
@@ -558,7 +558,7 @@ class HootDecoderService(
                 }
                 prevTime = f.timestampMs
             }
-            
+
             if (deltas.isEmpty()) continue
             val avg = deltas.average()
             val variance = deltas.map { (it - avg) * (it - avg) }.average()

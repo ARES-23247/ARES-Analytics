@@ -81,13 +81,6 @@ class ProcessManagerService {
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun runBuild(projectPath: String, league: League) {
         killActiveBuild()
 
@@ -115,9 +108,9 @@ class ProcessManagerService {
                 buildProcess = proc
 
                 BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
-                    var line: String?
-                    while (reader.readLine().also { line = it } != null) {
-                        _buildOutput.emit(line!!)
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        _buildOutput.emit(line)
                     }
                 }
                 val exitCode = proc.waitFor()
@@ -147,10 +140,10 @@ class ProcessManagerService {
                     proc.outputStream.close()
                     val pids = mutableSetOf<Long>()
                     proc.inputStream.bufferedReader().use { reader ->
-                        var line: String?
-                        while (reader.readLine().also { line = it } != null) {
-                            if (line!!.contains("LISTENING") && line!!.contains(":$port")) {
-                                val parts = line!!.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+                        while (true) {
+                            val line = reader.readLine() ?: break
+                            if (line.contains("LISTENING") && line.contains(":$port")) {
+                                val parts = line.split("\\s+".toRegex()).filter { it.isNotEmpty() }
                                 if (parts.size >= 5) {
                                     val pidStr = parts[4]
                                     pidStr.toLongOrNull()?.let { pids.add(it) }
@@ -174,9 +167,9 @@ class ProcessManagerService {
                     proc.errorStream.close()
                     proc.outputStream.close()
                     proc.inputStream.bufferedReader().use { reader ->
-                        var line: String?
-                        while (reader.readLine().also { line = it } != null) {
-                            line!!.trim().toLongOrNull()?.let { pid ->
+                        while (true) {
+                            val line = reader.readLine() ?: break
+                            line.trim().toLongOrNull()?.let { pid ->
                                 if (pid != ProcessHandle.current().pid()) {
                                     ProcessHandle.of(pid).ifPresent { handle ->
                                         val cmdLine = handle.info().commandLine().orElse("")
@@ -201,9 +194,9 @@ class ProcessManagerService {
             jpsProc.errorStream.close()
             jpsProc.outputStream.close()
             jpsProc.inputStream.bufferedReader().use { reader ->
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    val parts = line!!.split("\\s+".toRegex()).filter { it.isNotEmpty() }
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    val parts = line.split("\\s+".toRegex()).filter { it.isNotEmpty() }
                     if (parts.size >= 2) {
                         val pidString = parts[0]
                         val mainClass = parts[1]
@@ -227,13 +220,6 @@ class ProcessManagerService {
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun runSimulation(projectPath: String, league: League, simulatorCommand: String? = null) {
         killActiveSim()
 
@@ -244,25 +230,17 @@ class ProcessManagerService {
                 killOrphanedSimulators()
                 val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
                 val userCmd = simulatorCommand?.takeIf { it.isNotBlank() }
-                val cmd = if (userCmd != null) {
-                    if (isWindows) listOf("cmd.exe", "/c") + userCmd.trim().split("\\s+".toRegex())
-                    else userCmd.trim().split("\\s+".toRegex())
-                } else {
-                    val fatJarFile = File(projectPath, "simulator/build/libs/simulator-all.jar")
-                    val javaExe = System.getProperty("java.home") + File.separator + "bin" + File.separator + (if (isWindows) "java.exe" else "java")
-                    if (fatJarFile.exists()) {
-                        listOf(javaExe, "-jar", fatJarFile.absolutePath)
-                    } else if (isWindows) {
-                        when (league) {
-                            League.FTC -> listOf("cmd.exe", "/c", "gradlew.bat", ":TeamCode:runSim")
-                            League.FRC -> listOf("cmd.exe", "/c", "gradlew.bat", "simulateJava")
-                        }
-                    } else {
-                        when (league) {
-                            League.FTC -> listOf("./gradlew", ":TeamCode:runSim")
-                            League.FRC -> listOf("./gradlew", "simulateJava")
-                        }
-                    }
+                val fatJarFile = File(projectPath, "simulator/build/libs/simulator-all.jar")
+                val javaExe = File(System.getProperty("java.home"), "bin/${if (isWindows) "java.exe" else "java"}").path
+                val cmd = when {
+                    userCmd != null && isWindows ->
+                        listOf("cmd.exe", "/c") + userCmd.trim().split("\\s+".toRegex())
+                    userCmd != null -> userCmd.trim().split("\\s+".toRegex())
+                    fatJarFile.exists() -> listOf(javaExe, "-jar", fatJarFile.absolutePath)
+                    isWindows && league == League.FTC -> listOf("cmd.exe", "/c", "gradlew.bat", ":TeamCode:runSim")
+                    isWindows -> listOf("cmd.exe", "/c", "gradlew.bat", "simulateJava")
+                    league == League.FTC -> listOf("./gradlew", ":TeamCode:runSim")
+                    else -> listOf("./gradlew", "simulateJava")
                 }
 
                 _buildOutput.emit("[SYSTEM] Starting Simulation: ${cmd.joinToString(" ")}")
@@ -273,9 +251,9 @@ class ProcessManagerService {
                 simProcess = proc
 
                 BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
-                    var line: String?
-                    while (reader.readLine().also { line = it } != null) {
-                        _buildOutput.emit(line!!)
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        _buildOutput.emit(line)
                     }
                 }
                 val exitCode = proc.waitFor()
@@ -288,13 +266,6 @@ class ProcessManagerService {
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun startLogcat() {
         killActiveLogcat()
 
@@ -308,9 +279,9 @@ class ProcessManagerService {
                 logcatProcess = proc
 
                 BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
-                    var line: String?
-                    while (reader.readLine().also { line = it } != null) {
-                        _logcatOutput.emit(line!!)
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        _logcatOutput.emit(line)
                     }
                 }
             } catch (e: Exception) {
@@ -375,13 +346,6 @@ class ProcessManagerService {
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun killActiveBuild() {
         try {
             buildProcess?.descendants()?.forEach { it.destroyForcibly() }
@@ -395,13 +359,6 @@ class ProcessManagerService {
         _isBuildRunning.value = false
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun killActiveLogcat() {
         logcatProcess?.destroyForcibly()
         logcatProcess = null
@@ -409,13 +366,6 @@ class ProcessManagerService {
         activeLogcatJob = null
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun killActiveSim() {
         try {
             simProcess?.descendants()?.forEach { it.destroyForcibly() }
@@ -429,13 +379,6 @@ class ProcessManagerService {
         _isSimRunning.value = false
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun shutdown() {
         killActiveBuild()
         killActiveLogcat()

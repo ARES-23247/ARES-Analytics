@@ -30,13 +30,6 @@ import com.ares.analytics.shared.League
 import com.ares.analytics.ui.theme.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun ControllerBindingsSidebar(
     isOpen: Boolean,
     league: League,
@@ -80,12 +73,12 @@ fun ControllerBindingsSidebar(
                         color = AresTextPrimary
                     )
                 }
-                
+
                 IconButton(onClick = onClose) {
                     Icon(Icons.Default.Close, contentDescription = "Close", tint = AresTextSecondary)
                 }
             }
-            
+
             HorizontalDivider(color = AresBorder, modifier = Modifier.padding(vertical = 12.dp))
 
             if (bindings.isEmpty()) {
@@ -144,7 +137,7 @@ fun ControllerBindingsSidebar(
                             bindings = gamepad1Bindings
                         )
                     }
-                    
+
                     if (gamepad2Bindings.isNotEmpty()) {
                         ControllerVisualizer(
                             title = "Operator (Gamepad 2)",
@@ -166,25 +159,17 @@ object ControllerAssets {
 
     fun getImage(league: League): androidx.compose.ui.graphics.ImageBitmap {
         val resourceName = if (league == League.FRC) "drawable/frc_controller.png" else "drawable/ftc_controller.png"
-        if (league == League.FRC) {
-            if (frcImage == null) {
-                frcImage = useResource(resourceName) { org.jetbrains.skia.Image.makeFromEncoded(it.readBytes()).toComposeImageBitmap() }
-            }
-            return frcImage!!
-        } else {
-            if (ftcImage == null) {
-                ftcImage = useResource(resourceName) { org.jetbrains.skia.Image.makeFromEncoded(it.readBytes()).toComposeImageBitmap() }
-            }
-            return ftcImage!!
+        return when (league) {
+            League.FRC -> frcImage ?: loadImage(resourceName).also { frcImage = it }
+            League.FTC -> ftcImage ?: loadImage(resourceName).also { ftcImage = it }
         }
     }
+
+    private fun loadImage(resourceName: String): androidx.compose.ui.graphics.ImageBitmap =
+        useResource(resourceName) { org.jetbrains.skia.Image.makeFromEncoded(it.readBytes()).toComposeImageBitmap() }
 }
 
 @Composable
-/**
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- *
- */
 fun ControllerVisualizer(
     title: String,
     league: League,
@@ -197,7 +182,7 @@ fun ControllerVisualizer(
             color = AresCyan,
             fontSize = 18.sp
         )
-        
+
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
@@ -209,14 +194,14 @@ fun ControllerVisualizer(
         ) {
             val imageBitmap = remember(league) { ControllerAssets.getImage(league) }
             val scaleFactor = maxWidth.value / 600f
-            
+
             Image(
                 painter = BitmapPainter(imageBitmap),
                 contentDescription = "Controller Graphic",
                 modifier = Modifier.fillMaxSize(0.9f), // Increased from 0.8f
                 contentScale = ContentScale.Fit
             )
-            
+
             // Map buttons to approx screen coordinates (offset from center)
             bindings.forEach { binding ->
                 val offset = getButtonOffset(binding.button, league, scaleFactor)
@@ -240,13 +225,6 @@ fun ControllerVisualizer(
 }
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun BindingTag(binding: ControllerBinding) {
     Column(
         modifier = Modifier
@@ -278,38 +256,31 @@ private fun getButtonOffset(button: String, league: League, scale: Float = 1.3f)
         "b", "circle" -> Pair(240.dp, 0.dp)
         "x", "square" -> Pair(120.dp, 0.dp)
         "y", "triangle" -> Pair(180.dp, (-60).dp)
-        
+
         "dpadup" -> Pair(if (isXbox) (-90).dp else (-180).dp, if (isXbox) 90.dp else (-60).dp)
         "dpaddown" -> Pair(if (isXbox) (-90).dp else (-180).dp, if (isXbox) 180.dp else 60.dp)
         "dpadleft" -> Pair(if (isXbox) (-135).dp else (-240).dp, if (isXbox) 135.dp else 0.dp)
         "dpadright" -> Pair(if (isXbox) (-45).dp else (-120).dp, if (isXbox) 135.dp else 0.dp)
-        
+
         "left_bumper", "leftbumper" -> Pair((-180).dp, (-210).dp)
         "right_bumper", "rightbumper" -> Pair(180.dp, (-210).dp)
         "left_trigger", "lefttrigger" -> Pair((-180).dp, (-270).dp)
         "right_trigger", "righttrigger" -> Pair(180.dp, (-270).dp)
-        
+
         "start", "options" -> Pair(60.dp, (-90).dp)
         "back", "share" -> Pair((-60).dp, (-90).dp)
         "touchpad" -> Pair(0.dp, (-110).dp)
-        
+
         "left_stick_button", "leftstick", "leftstickx", "leftsticky" -> Pair(if (isXbox) (-180).dp else (-90).dp, if (isXbox) (-60).dp else 90.dp)
         "right_stick_button", "rightstick", "rightstickx", "rightsticky" -> Pair(if (isXbox) 90.dp else 90.dp, 90.dp)
-        
+
         else -> null
     }
-    
+
     return baseOffset?.let { Pair(it.first * scale, it.second * scale) }
 }
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun KeyboardBindingsList() {
     Column(
         modifier = Modifier

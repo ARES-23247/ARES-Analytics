@@ -30,13 +30,6 @@ fun JoystickVisualizer(
 }
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun JoystickVisualizer(
     currentFrame: ReplayFrame?,
     nt4ClientService: Nt4ClientService? = null,
@@ -64,12 +57,11 @@ fun JoystickVisualizer(
             var lastB: Boolean? = null
             var lastX: Boolean? = null
             var lastY: Boolean? = null
-            
+
             // Publish static configurations once
             nt4ClientService.publishBoolean("ARES/Input/isTeleopMode", true)
             nt4ClientService.publishBoolean("ARES/Input/isFieldCentric", false)
             nt4ClientService.publishBoolean("ARES/Input/isRedAlliance", true)
-
 
             while (true) {
                 val g1 = gamepad1StateFlow?.value
@@ -113,16 +105,15 @@ fun JoystickVisualizer(
                 if (vx != lastVx) { nt4ClientService.publishDouble("ARES/Input/vx", vx); lastVx = vx }
                 if (vy != lastVy) { nt4ClientService.publishDouble("ARES/Input/vy", vy); lastVy = vy }
                 if (omega != lastOmega) { nt4ClientService.publishDouble("ARES/Input/omega", omega); lastOmega = omega }
-                
+
                 if (qPressed != lastQ) { nt4ClientService.publishBoolean("ARES/Input/isIntaking", qPressed); lastQ = qPressed }
                 if (ePressed != lastE) { nt4ClientService.publishBoolean("ARES/Input/isFlywheelOn", ePressed); lastE = ePressed }
                 if (shiftPressed != lastShift) { nt4ClientService.publishBoolean("ARES/Input/isTransferring", shiftPressed); lastShift = shiftPressed }
-                
+
                 if (aPressed != lastA) { nt4ClientService.publishBoolean("ARES/Input/isButtonAPressed", aPressed); lastA = aPressed }
                 if (bPressed != lastB) { nt4ClientService.publishBoolean("ARES/Input/isButtonBPressed", bPressed); lastB = bPressed }
                 if (xPressed != lastX) { nt4ClientService.publishBoolean("ARES/Input/isButtonXPressed", xPressed); lastX = xPressed }
                 if (yPressed != lastY) { nt4ClientService.publishBoolean("ARES/Input/isButtonYPressed", yPressed); lastY = yPressed }
-
 
                 kotlinx.coroutines.delay(20)
             }
@@ -174,7 +165,7 @@ fun JoystickVisualizer(
                 }
                 if (nt4ClientService != null) {
                     Button(
-                        onClick = { 
+                        onClick = {
                             when {
                                 !keyboardControlEnabled -> {
                                     keyboardState.enabled = true
@@ -209,8 +200,6 @@ fun JoystickVisualizer(
             }
         }
 
-
-
         Row(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -240,13 +229,6 @@ fun JoystickVisualizer(
 }
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun SingleGamepadVisualizer(
     title: String,
     gamepadId: String,
@@ -508,7 +490,7 @@ fun SingleGamepadVisualizer(
                 drawRect(color = AresSurface, topLeft = Offset(cx - 110f * scale, triggerTop), size = Size(triggerW, triggerH))
                 drawRect(color = if (keyboardControlEnabled) AresGreen else AresCyan, topLeft = Offset(cx - 110f * scale, triggerTop), size = Size(triggerW * lt.toFloat(), triggerH))
                 drawRect(color = AresBorder, topLeft = Offset(cx - 110f * scale, triggerTop), size = Size(triggerW, triggerH), style = Stroke(width = 1.5f * scale))
-                
+
                 drawRect(color = AresSurface, topLeft = Offset(cx + 60f * scale, triggerTop), size = Size(triggerW, triggerH))
                 drawRect(color = if (keyboardControlEnabled) AresGreen else AresCyan, topLeft = Offset(cx + 60f * scale, triggerTop), size = Size(triggerW * rt.toFloat(), triggerH))
                 drawRect(color = AresBorder, topLeft = Offset(cx + 60f * scale, triggerTop), size = Size(triggerW, triggerH), style = Stroke(width = 1.5f * scale))

@@ -13,7 +13,6 @@ import org.duckdb.DuckDBConnection
 import java.sql.Connection
 import java.sql.ResultSet
 
-
 /**
  * Primary repository interface for telemetry persistent storage, DuckDB vectorized queries, and match history.
  *
@@ -83,7 +82,7 @@ class MatchLogRepository(
         val isSelect = normalized.startsWith("SELECT")
         val forbidden = listOf("DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "TRUNCATE", "EXEC")
         val hasForbidden = forbidden.any { Regex("\\b$it\\b").containsMatchIn(normalized) }
-        
+
         if (!isSelect || hasForbidden) {
             println("Rejected dangerous SQL: $sql")
             throw IllegalArgumentException("Raw query rejected: Only read-only SELECT queries are allowed.")
@@ -98,7 +97,6 @@ class MatchLogRepository(
         conn.createStatement().use { it.execute(sql) }
     }
 
-    
     suspend fun executeQueryRaw(sql: String): QueryResult = withReadLock {
         // Primary guard: whitelist the first non-whitespace token. Only read-only
         // statement leaders are permitted. This runs BEFORE any execution.
@@ -152,11 +150,11 @@ class MatchLogRepository(
             readConn.createStatement().use { it.execute("COMMIT") }
             result
         } catch (e: Exception) {
-            try { readConn.createStatement().use { it.execute("ROLLBACK") } } catch (_: Exception) {}
+            runCatching { readConn.createStatement().use { it.execute("ROLLBACK") } }
             throw e
         }
     }
-    
+
     /**
      * Execute a parameterized SQL query and return results as [QueryResult].
      * Use this for queries with user-provided values to prevent SQL injection.
@@ -681,7 +679,8 @@ class MatchLogRepository(
             ps.setString(2, alert.sessionId)
             ps.setString(3, alert.ruleKey)
             ps.setLong(4, alert.triggerTimestampMs)
-            if (alert.resolveTimestampMs != null) ps.setLong(5, alert.resolveTimestampMs!!) else ps.setNull(5, java.sql.Types.BIGINT)
+            alert.resolveTimestampMs?.let { ps.setLong(5, it) }
+                ?: ps.setNull(5, java.sql.Types.BIGINT)
             ps.setLong(6, alert.durationMs)
             ps.setDouble(7, alert.peakValue)
             ps.setLong(8, if (alert.triaged) 1L else 0L)
@@ -769,7 +768,7 @@ class MatchLogRepository(
     private fun ResultSet.toSession(): Session {
         val matchNum = getLong("match_number")
         val matchNumFinal = if (wasNull()) null else matchNum.toInt()
-        
+
         return Session(
             sessionId = getString("session_id"),
             teamId = getString("team_id"),
@@ -786,7 +785,7 @@ class MatchLogRepository(
     private fun ResultSet.toSessionSummary(): SessionSummary {
         val matchNum = getLong("match_number")
         val matchNumFinal = if (wasNull()) null else matchNum.toInt()
-        
+
         return SessionSummary(
             sessionId = getString("session_id"),
             teamId = getString("team_id"),
@@ -835,7 +834,7 @@ class MatchLogRepository(
     private fun ResultSet.toAlertRecord(): AlertRecord {
         val rTime = getLong("resolve_timestamp_ms")
         val rTimeFinal = if (wasNull()) null else rTime
-        
+
         return AlertRecord(
             alertId = getString("alert_id"),
             sessionId = getString("session_id"),
@@ -869,7 +868,7 @@ class MatchLogRepository(
                 }
             }
         }
-        
+
         if (minTime == maxTime || maxTime == 0L) {
             return@withDbLock List(buckets) { 0f }
         }
@@ -877,9 +876,9 @@ class MatchLogRepository(
         val bucketSize = duration.toDouble() / buckets
         val bucketCounts = LongArray(buckets)
         activeConn.prepareStatement("""
-            SELECT CAST((timestamp_ms - ?) / ? AS INTEGER) as bucket_idx, COUNT(*) as cnt 
-            FROM telemetry_frames 
-            WHERE session_id = ? 
+            SELECT CAST((timestamp_ms - ?) / ? AS INTEGER) as bucket_idx, COUNT(*) as cnt
+            FROM telemetry_frames
+            WHERE session_id = ?
             GROUP BY bucket_idx
         """.trimIndent()).use { ps ->
             ps.setLong(1, minTime)
@@ -897,9 +896,8 @@ class MatchLogRepository(
         if (maxCount == 0L) {
              return@withDbLock List(buckets) { 0f }
         }
-        
+
         bucketCounts.map { it.toFloat() / maxCount }
     }
 
-    
 }

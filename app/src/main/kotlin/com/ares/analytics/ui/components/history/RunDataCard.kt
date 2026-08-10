@@ -31,13 +31,6 @@ import java.time.Instant
 import java.time.format.DateTimeFormatter
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun RunDataCard(
     rowDefinition: RowDefinition,
     sessions: List<Session>,

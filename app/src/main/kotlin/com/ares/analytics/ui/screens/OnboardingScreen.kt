@@ -55,7 +55,6 @@ fun OnboardingScreen(
     val authState by oauthService.authState.collectAsState()
     val token = (authState as? AuthState.Authenticated)?.idToken
 
-
     LaunchedEffect(state.teamId, token) {
         if (token != null) {
             viewModel.handleIntent(OnboardingIntent.FetchCloudRobots(token))

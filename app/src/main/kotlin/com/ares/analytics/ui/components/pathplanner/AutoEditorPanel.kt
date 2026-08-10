@@ -31,13 +31,6 @@ import kotlinx.serialization.json.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun AutoEditorPanel(
     state: PathPlannerState,
     projectPath: String?,
@@ -77,9 +70,9 @@ fun AutoEditorPanel(
                 onBrowseClicked = { onIntent(PathPlannerIntent.ToggleBrowser) }
             )
         }
-        
+
         HorizontalDivider(color = AresBorder)
-        
+
         // Command List
         val rootNode = state.currentAutoCommands.firstOrNull()
         val commandsArray = rootNode?.data?.get("commands") as? JsonArray ?: JsonArray(emptyList())
@@ -94,7 +87,7 @@ fun AutoEditorPanel(
                 if (commandObj != null) {
                     val type = commandObj["type"]?.jsonPrimitive?.content ?: "unknown"
                     val dataObj = commandObj["data"] as? JsonObject
-                    
+
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
@@ -150,7 +143,7 @@ fun AutoEditorPanel(
                                     Box(modifier = Modifier.fillMaxWidth()) {
                                         OutlinedTextField(
                                             value = pathName,
-                                            onValueChange = { 
+                                            onValueChange = {
                                                 val newNode = AutoCommandNode("path", buildJsonObject { put("pathName", it) })
                                                 onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
                                             },
@@ -190,7 +183,7 @@ fun AutoEditorPanel(
                                     val waitTimeStr = dataObj?.get("waitTime")?.jsonPrimitive?.content ?: "0.0"
                                     OutlinedTextField(
                                         value = waitTimeStr,
-                                        onValueChange = { 
+                                        onValueChange = {
                                             val num = it.toDoubleOrNull() ?: 0.0
                                             val newNode = AutoCommandNode("wait", buildJsonObject { put("waitTime", num) })
                                             onIntent(PathPlannerIntent.UpdateAutoCommand(index, newNode, projectPath, league))
@@ -345,9 +338,9 @@ fun AutoEditorPanel(
                 }
             }
         }
-        
+
         HorizontalDivider(color = AresBorder)
-        
+
         // High-Contrast Legible Add Command Button
         Box(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Button(
@@ -359,7 +352,7 @@ fun AutoEditorPanel(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Add Command", color = Color.Black, fontWeight = FontWeight.Bold)
             }
-            
+
             DropdownMenu(
                 expanded = expandedAddCommand,
                 onDismissRequest = { expandedAddCommand = false }

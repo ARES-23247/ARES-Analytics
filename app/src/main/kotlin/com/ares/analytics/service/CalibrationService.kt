@@ -56,14 +56,6 @@ data class CalibrationDiagnostics(
     }
 }
 
-
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class CalibrationMeasurement(
     val gyroHeading: Double, // radians (CCW-positive)
     val tagId: Int,
@@ -79,13 +71,6 @@ data class CalibrationMeasurement(
     val targetSpaceYaw: Double
 )
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 class CalibrationService(private val databaseService: DatabaseService) {
 
     private val cameraSolver = CameraCalibrationSolver(databaseService)
@@ -108,13 +93,6 @@ class CalibrationService(private val databaseService: DatabaseService) {
         return cameraSolver.runExtrinsicCalibration(sessionId, cameraIndex)
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun solveCameraExtrinsicsWithDiagnostics(measurements: List<CalibrationMeasurement>): CalibrationDiagnostics {
         return cameraSolver.solveCameraExtrinsicsWithDiagnostics(measurements)
     }
@@ -127,11 +105,4 @@ class CalibrationService(private val databaseService: DatabaseService) {
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class FieldTag(val x: Double, val y: Double, val z: Double)

@@ -23,19 +23,12 @@ import kotlinx.coroutines.launch
 import com.ares.analytics.ui.components.core.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun PowerDistributionCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
-    
+
     // Map of channel name to current in amps
     val currentDraws = remember { mutableStateMapOf<String, Double>() }
     var totalCurrent by remember { mutableStateOf(0.0) }
@@ -46,12 +39,12 @@ fun PowerDistributionCard(
                 val key = frame.key
                 val lowerKey = key.lowercase()
                 val value = frame.value as? Double ?: return@collect
-                
+
                 // Typical paths: /robot/hardware/IntakeMotor/CurrentDraw, PDH/Channel1_Current
                 if (lowerKey.contains("current") && !lowerKey.contains("target")) {
                     val channelName = key.substringAfterLast("/").replace("Current", "").replace("_", "").takeIf { it.isNotEmpty() } ?: key.substringBeforeLast("/").substringAfterLast("/")
                     currentDraws[channelName] = value
-                    
+
                     // Estimate total current if a specific total key isn't provided
                     if (lowerKey.contains("totalcurrent") || lowerKey.contains("total_current")) {
                         totalCurrent = value
@@ -85,8 +78,6 @@ fun PowerDistributionCard(
             }
         )
 
-
-
             if (currentDraws.filterKeys { !it.lowercase().contains("total") }.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxWidth().height(100.dp),
@@ -108,7 +99,7 @@ fun PowerDistributionCard(
                                 modifier = Modifier.width(80.dp),
                                 maxLines = 1
                             )
-                            
+
                             // Visual bar
                             Box(modifier = Modifier.weight(1f).height(12.dp).background(AresSurface, RoundedCornerShape(4.dp))) {
                                 val fraction = (amps / 40.0).coerceIn(0.0, 1.0).toFloat()
@@ -124,7 +115,7 @@ fun PowerDistributionCard(
                                         .background(barColor, RoundedCornerShape(4.dp))
                                 )
                             }
-                            
+
                             Text(
                                 text = String.format("%5.1f A", amps),
                                 color = AresTextPrimary,

@@ -21,13 +21,6 @@ import com.ares.analytics.ui.theme.*
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.SolidColor
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 enum class TargetSelection(val label: String) {
     LIVE_ROBOT("Live Robot"),
     LOCAL_SIM("Local Sim")
@@ -35,13 +28,6 @@ enum class TargetSelection(val label: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun ExecutionToolbar(
     targetSelection: TargetSelection,
     targetIp: String,

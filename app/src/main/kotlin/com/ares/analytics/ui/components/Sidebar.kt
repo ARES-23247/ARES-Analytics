@@ -27,13 +27,6 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.theme.*
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 enum class NavigationTarget(val label: String, val icon: ImageVector) {
     DASHBOARD("Dashboard", Icons.Default.Speed),
     CLOUD("Cloud Sync", Icons.Default.Cloud),
@@ -133,7 +126,7 @@ internal fun Sidebar(
                 ) {
                     ConnectionIndicator(connected = isConnected, label = "NT4")
                 }
-                
+
                 // ADB Connection status indicator (FTC only)
                 if (league == League.FTC) {
                     TooltipBox(

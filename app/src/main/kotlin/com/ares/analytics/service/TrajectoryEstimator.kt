@@ -53,7 +53,7 @@ object TrajectoryEstimator {
         var v: Double = 0.0,
         var t: Double = 0.0
     )
-    
+
     private val pointPool = ThreadLocal.withInitial { ArrayList<SampledPoint>(500) }
 
     /**
@@ -76,16 +76,11 @@ object TrajectoryEstimator {
         goalEndState: GoalEndState?
     ): Trajectory {
         if (waypoints.size < 2) return Trajectory(0.0, emptyList())
-        val sampledPoints = pointPool.get()!!
+        val sampledPoints = requireNotNull(pointPool.get()) {
+            "Trajectory point pool was not initialized for this thread"
+        }
         var pointCount = 0
 
-        /**
-
-         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-         *
-
-         */
         fun getNextPoint(): SampledPoint {
             if (pointCount >= sampledPoints.size) {
                 sampledPoints.add(SampledPoint())
@@ -180,7 +175,7 @@ object TrajectoryEstimator {
         var currentTime = 0.0
         val states = mutableListOf<TrajectoryState>()
         val combinedRotationTargets = mutableListOf<RotationTarget>()
-        
+
         waypoints.forEachIndexed { i, wp ->
             if (wp.rotationDeg != null) {
                 combinedRotationTargets.add(RotationTarget(waypointRelativePos = i.toDouble(), rotationDegrees = wp.rotationDeg))
@@ -294,8 +289,8 @@ object TrajectoryEstimator {
     }
 
     private fun getHeadingAt(
-        relativePos: Double, 
-        rotationTargets: List<RotationTarget>, 
+        relativePos: Double,
+        rotationTargets: List<RotationTarget>,
         waypoints: List<Waypoint>,
         currentPt: SampledPoint,
         prevPt: SampledPoint?,
@@ -317,7 +312,7 @@ object TrajectoryEstimator {
         if (relativePos >= lastTarget.waypointRelativePos) {
             return Math.toRadians(lastTarget.rotationDegrees)
         }
-        
+
         for (i in 0 until sortedTargets.size - 1) {
             val t1 = sortedTargets[i]
             val t2 = sortedTargets[i + 1]
@@ -332,7 +327,7 @@ object TrajectoryEstimator {
                     diff > Math.PI -> diff -= 2 * Math.PI
                     diff <= -Math.PI -> diff += 2 * Math.PI
                 }
-                
+
                 return rad1 + alpha * diff
             }
         }

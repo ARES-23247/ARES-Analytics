@@ -127,13 +127,6 @@ class SysIdService(private val databaseService: DatabaseService) {
         return analyzeRawData(alignedData)
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun analyzeRawData(alignedData: List<AlignedDataRow>): CalculatedSummary {
         val finiteData = alignedData.filter {
             it.voltage.isFinite() && it.velocity.isFinite() && it.accel.isFinite()
@@ -292,13 +285,6 @@ class SysIdService(private val databaseService: DatabaseService) {
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class AlignedDataRow(
     val timestampMs: Long,
     val voltage: Double,
@@ -306,13 +292,6 @@ data class AlignedDataRow(
     val accel: Double
 )
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class FftResult(
     val frequencies: DoubleArray,
     val magnitudes: DoubleArray,

@@ -56,13 +56,6 @@ import java.util.concurrent.ConcurrentHashMap
 
 private val scratchChartPath = Path()
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun buildSignalTree(keys: List<String>): SignalNode {
     val root = SignalNode("", "", false)
     for (topic in keys) {
@@ -81,24 +74,10 @@ fun buildSignalTree(keys: List<String>): SignalNode {
     return root
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class TelemetryPoint(val timestampMs: Long, val value: Double)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun TelemetryChartPanel(
     nt4ClientService: Nt4ClientService,
     properties: Map<String, String>,
@@ -176,12 +155,12 @@ fun TelemetryChartPanel(
 
     // Selected target unit for each key
     val targetUnits = remember { mutableStateMapOf<String, RobotUnit>() }
-    
+
     // Searchable dropdown state
     var dropdownExpanded by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     val activeTopics = remember { mutableStateListOf<String>() }
-    
+
     // Periodically update active topics from NT4 Service
     LaunchedEffect(Unit) {
         while (true) {
@@ -205,7 +184,7 @@ fun TelemetryChartPanel(
                 }
                 val maxWindowSec = timeWindows.maxOrNull() ?: 120
                 val cutoff = now - (maxWindowSec * 1000)
-                
+
                 synchronized(queue) {
                     queue.add(TelemetryPoint(frame.timestampMs, frame.value))
                     while (queue.size > 1 && queue[1].timestampMs < cutoff) {
@@ -257,7 +236,7 @@ fun TelemetryChartPanel(
                     color = AresTextTertiary
                 )
             }
-            
+
             // Window size selector
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -296,7 +275,7 @@ fun TelemetryChartPanel(
                 Button(
                     onClick = { dropdownExpanded = true },
                     colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated),
-                    border = ButtonDefaults.outlinedButtonBorder,
+                    border = ButtonDefaults.outlinedButtonBorder(enabled = true),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                 ) {
                     Icon(Icons.Default.Add, contentDescription = null, tint = AresCyan, modifier = Modifier.size(16.dp))
@@ -358,7 +337,7 @@ fun TelemetryChartPanel(
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (isTreeVisible) AresCyan else AresSurfaceElevated
                 ),
-                border = ButtonDefaults.outlinedButtonBorder,
+                border = ButtonDefaults.outlinedButtonBorder(enabled = true),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Icon(
@@ -387,7 +366,7 @@ fun TelemetryChartPanel(
                     val detectedUnit = UnitConversion.detectUnitFromKey(key)
                     val targetUnit = targetUnits[key] ?: detectedUnit
                     var unitMenuExpanded by remember { mutableStateOf(false) }
-                    
+
                     Box {
                         Row(
                             modifier = Modifier
@@ -525,7 +504,7 @@ fun TelemetryChartPanel(
                         val _tick = liveTime
                         val width = size.width
                         val height = size.height
- 
+
                     // 1. Draw Grid Lines
                     val gridLinesX = 5
                     val gridLinesY = 4
@@ -537,12 +516,12 @@ fun TelemetryChartPanel(
                         val y = height * i / gridLinesY
                         drawLine(color = AresBorder, start = Offset(0f, y), end = Offset(width, y), strokeWidth = 1f)
                     }
- 
+
                     // 2. Compute Global Bounds (Y-axis auto-scaling)
                     var tempMinY = Double.MAX_VALUE
                     var tempMaxY = -Double.MAX_VALUE
                     var hasData = false
- 
+
                     selectedKeys.forEach { key ->
                         val deque = telemetryData[key]
                         val points = if (deque != null) synchronized(deque) { deque.toList() } else emptyList()
@@ -561,7 +540,7 @@ fun TelemetryChartPanel(
                             }
                         }
                     }
- 
+
                     // Handle edge cases
                     when {
                         !hasData -> {
@@ -582,7 +561,7 @@ fun TelemetryChartPanel(
 
                     minY = tempMinY
                     maxY = tempMaxY
- 
+
                     // 4. Plot each active channel
                     selectedKeys.forEachIndexed { channelIdx, key ->
                         val deque = telemetryData[key]
@@ -596,13 +575,6 @@ fun TelemetryChartPanel(
                             val maxX = now
                             val path = scratchChartPath.apply { reset() }
 
-                            /**
-
-                             * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-                             *
-
-                             */
                             fun getPy(value: Double): Float {
                                 val converted = if (detectedUnit != null && targetUnit != null) {
                                     UnitConversion.convert(value, detectedUnit, targetUnit)
@@ -634,7 +606,7 @@ fun TelemetryChartPanel(
                                 val xPct = (pt.timestampMs - minX).toFloat() / (maxX - minX)
                                 val px = xPct * width
                                 val py = getPy(pt.value)
-                                
+
                                 if (isFirst) {
                                     path.moveTo(px, py)
                                     isFirst = false
@@ -653,7 +625,7 @@ fun TelemetryChartPanel(
                                     path.lineTo(width, py)
                                 }
                             }
- 
+
                             drawPath(
                                 path = path,
                                 color = color,
@@ -687,8 +659,8 @@ fun TelemetryChartPanel(
             }
         }
     }
-        
-    if (draggedKey != null) {
+
+    draggedKey?.let { key ->
             Box(
                 modifier = Modifier
                     .offset { IntOffset((dragOffset.x - parentWindowOffset.x).toInt() - 20, (dragOffset.y - parentWindowOffset.y).toInt() - 20) }
@@ -696,7 +668,7 @@ fun TelemetryChartPanel(
                     .padding(vertical = 4.dp, horizontal = 8.dp)
             ) {
                 Text(
-                    text = draggedKey!!.split("/").last(),
+                    text = key.substringAfterLast('/'),
                     color = AresBackground,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
@@ -705,6 +677,3 @@ fun TelemetryChartPanel(
         }
     }
 }
-
-
-

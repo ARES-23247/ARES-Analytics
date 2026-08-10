@@ -9,13 +9,6 @@ import androidx.compose.ui.unit.TextUnit
 import com.ares.analytics.ui.theme.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun AresTextField(
     value: String,
     onValueChange: (String) -> Unit,

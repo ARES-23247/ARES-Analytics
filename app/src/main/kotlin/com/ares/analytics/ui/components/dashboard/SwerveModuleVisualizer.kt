@@ -28,13 +28,6 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun SwerveModuleVisualizer(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
@@ -193,7 +186,7 @@ private fun ModuleCard(
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(name, color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            
+
             // Speed visualization progress bar
             Box(
                 modifier = Modifier

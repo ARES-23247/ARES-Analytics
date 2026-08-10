@@ -28,13 +28,6 @@ import kotlinx.coroutines.launch
 import com.ares.analytics.ui.components.core.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun TrendsCard(
     databaseService: DatabaseService,
     modifier: Modifier = Modifier
@@ -66,8 +59,6 @@ fun TrendsCard(
             iconTint = AresGold,
             showDivider = false
         )
-
-
 
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),

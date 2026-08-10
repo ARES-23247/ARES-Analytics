@@ -54,13 +54,6 @@ class VideoSyncService(private val replayEngineService: ReplayEngineService) {
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun loadVideo(file: File) {
         _videoFile.value = file
         // Mock video duration based on file size if no metadata decoder is available
@@ -69,68 +62,26 @@ class VideoSyncService(private val replayEngineService: ReplayEngineService) {
         _currentVideoTimeMs.value = 0L
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun setVideoDuration(durationMs: Long) {
         _videoDurationMs.value = durationMs
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun alignTimestamp(videoTimeMs: Long, logTimeMs: Long) {
         _logOffsetMs.value = logTimeMs - videoTimeMs
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun adjustOffset(deltaMs: Long) {
         _logOffsetMs.value += deltaMs
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun play() {
         replayEngineService.play()
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun pause() {
         replayEngineService.pause()
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun seekVideo(videoTimeMs: Long) {
         val clamped = videoTimeMs.coerceIn(0L, _videoDurationMs.value)
         _currentVideoTimeMs.value = clamped
@@ -147,13 +98,6 @@ class VideoSyncService(private val replayEngineService: ReplayEngineService) {
         replayEngineService.scrubTo(percentage.coerceIn(0.0, 1.0))
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun dispose() {
         syncJob?.cancel()
         serviceScope.cancel()

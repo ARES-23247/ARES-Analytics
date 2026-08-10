@@ -20,20 +20,13 @@ import com.ares.analytics.viewmodel.CameraStreamIntent
 import com.ares.analytics.viewmodel.CameraStreamViewModel
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun CameraStreamCard(
     properties: Map<String, String>,
     onPropertiesChanged: (Map<String, String>) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
-    val viewModel = remember(properties["streamUrl"]) { 
+    val viewModel = remember(properties["streamUrl"]) {
         CameraStreamViewModel(properties["streamUrl"], scope)
     }
     val state by viewModel.state.collectAsState()
@@ -80,7 +73,7 @@ fun CameraStreamCard(
                         Text("• ERROR", color = AresRed, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 }
-                
+
                 IconButton(
                     onClick = { viewModel.onIntent(CameraStreamIntent.SetConfiguring(!state.isConfiguring)) },
                     modifier = Modifier.size(24.dp)
@@ -96,6 +89,8 @@ fun CameraStreamCard(
                 modifier = Modifier.fillMaxSize().background(AresBackground),
                 contentAlignment = Alignment.Center
             ) {
+                val currentFrame = state.currentFrame
+                val currentError = state.errorMessage
                 when {
                     state.isConfiguring -> {
                         // Config Panel
@@ -129,10 +124,10 @@ fun CameraStreamCard(
                             }
                         }
                     }
-                    state.currentFrame != null -> {
+                    currentFrame != null -> {
                         // Video Feed
                         Image(
-                            bitmap = state.currentFrame!!,
+                            bitmap = currentFrame,
                             contentDescription = "Live Video",
                             modifier = Modifier.fillMaxSize()
                         )
@@ -140,9 +135,9 @@ fun CameraStreamCard(
                     else -> {
                         // Loading or Error State
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (state.errorMessage != null) {
+                            if (currentError != null) {
                                 Icon(Icons.Default.VideocamOff, contentDescription = null, tint = AresRed, modifier = Modifier.size(32.dp))
-                                Text(state.errorMessage!!, color = AresRed, fontSize = 12.sp)
+                                Text(currentError, color = AresRed, fontSize = 12.sp)
                             } else {
                                 CircularProgressIndicator(color = AresCyan, modifier = Modifier.size(32.dp))
                                 Text("Connecting to stream...", color = AresTextSecondary, fontSize = 12.sp)

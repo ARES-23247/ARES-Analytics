@@ -23,6 +23,10 @@ import io.ktor.utils.io.jvm.javaio.copyTo
  */
 private fun escapeDriveQuery(value: String): String = value.replace("\\", "\\\\").replace("'", "''")
 
+private fun JsonElement.requiredDriveId(context: String): String =
+    ((this as? JsonObject)?.get("id") as? JsonPrimitive)?.contentOrNull
+        ?: throw IllegalStateException("Google Drive returned $context without a file id")
+
 /**
  * Service managing Google Drive API v3 interactions for cloud backup of match telemetry logs and session archives.
  *
@@ -85,9 +89,7 @@ class GoogleDriveService(
         }
         val searchResult = searchResponse.body<JsonObject>()
         val files = searchResult["files"]?.jsonArray
-        if (files != null && files.isNotEmpty()) {
-            return@withContext files[0].jsonObject["id"]!!.jsonPrimitive.content
-        }
+        files?.firstOrNull()?.let { return@withContext it.requiredDriveId("a folder search result") }
 
         // Create new folder
         val createBody = buildJsonObject {
@@ -106,8 +108,7 @@ class GoogleDriveService(
         if (createResponse.status != HttpStatusCode.OK) {
             throw Exception("Failed to create folder: ${createResponse.bodyAsText()}")
         }
-        val createdObj = createResponse.body<JsonObject>()
-        createdObj["id"]!!.jsonPrimitive.content
+        createResponse.body<JsonObject>().requiredDriveId("a created folder")
     }
 
     suspend fun findFile(name: String, parentId: String): String? = withContext(Dispatchers.IO) {
@@ -127,12 +128,8 @@ class GoogleDriveService(
             throw Exception("Failed to search file: ${response.bodyAsText()}")
         }
         val searchResult = response.body<JsonObject>()
-        val files = searchResult["files"]?.jsonArray
-        if (files != null && files.isNotEmpty()) {
-            files[0].jsonObject["id"]!!.jsonPrimitive.content
-        } else {
-            null
-        }
+        searchResult["files"]?.jsonArray?.firstOrNull()
+            ?.requiredDriveId("a file search result")
     }
 
     suspend fun findFileContaining(substring: String, parentId: String): String? = withContext(Dispatchers.IO) {
@@ -152,12 +149,8 @@ class GoogleDriveService(
             throw Exception("Failed to search file: ${response.bodyAsText()}")
         }
         val searchResult = response.body<JsonObject>()
-        val files = searchResult["files"]?.jsonArray
-        if (files != null && files.isNotEmpty()) {
-            files[0].jsonObject["id"]!!.jsonPrimitive.content
-        } else {
-            null
-        }
+        searchResult["files"]?.jsonArray?.firstOrNull()
+            ?.requiredDriveId("a file search result")
     }
 
     suspend fun readFile(fileId: String): ByteArray = withContext(Dispatchers.IO) {
@@ -235,8 +228,7 @@ class GoogleDriveService(
             if (response.status != HttpStatusCode.OK) {
                 throw Exception("Failed to upload multipart file: ${response.bodyAsText()}")
             }
-            val created = response.body<JsonObject>()
-            created["id"]!!.jsonPrimitive.content
+            response.body<JsonObject>().requiredDriveId("an uploaded file")
         }
     }
 

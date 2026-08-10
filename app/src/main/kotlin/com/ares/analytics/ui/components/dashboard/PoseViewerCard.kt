@@ -25,45 +25,45 @@ fun PoseViewerCard(
 ) {
     val trueXSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/TruePose/0") }
     val trueXSim by trueXSimFlow.collectAsState(initial = null)
-    
+
     val trueYSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/TruePose/1") }
     val trueYSim by trueYSimFlow.collectAsState(initial = null)
-    
+
     val trueHeadingSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/TruePose/2") }
     val trueHeadingSim by trueHeadingSimFlow.collectAsState(initial = null)
-    
+
     val ekxXFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/0") }
     val ekfX by ekxXFlow.collectAsState(initial = null)
-    
+
     val ekfYFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/1") }
     val ekfY by ekfYFlow.collectAsState(initial = null)
-    
+
     val ekfHeadingFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/2") }
     val ekfHeading by ekfHeadingFlow.collectAsState(initial = null)
-    
+
     val trueX = trueXSim ?: ekfX
     val trueY = trueYSim ?: ekfY
     val trueHeading = trueHeadingSim ?: ekfHeading
-    
+
     val pinpointXFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Odom_X") }
     val pinpointX by pinpointXFlow.collectAsState(initial = null)
-    
+
     val pinpointYFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Odom_Y") }
     val pinpointY by pinpointYFlow.collectAsState(initial = null)
-    
+
     val pinpointHeadingFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Odom_Heading") }
     val pinpointHeading by pinpointHeadingFlow.collectAsState(initial = null)
-    
+
     val visionXFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Vision/Pose_X") }
     val visionX by visionXFlow.collectAsState(initial = null)
-    
+
     val visionYFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Vision/Pose_Y") }
     val visionY by visionYFlow.collectAsState(initial = null)
-    
+
     val visionHeadingFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Vision/Pose_Heading") }
     val visionHeading by visionHeadingFlow.collectAsState(initial = null)
     var lastUpdateMs by remember { mutableStateOf<Long?>(null) }
-    
+
     LaunchedEffect(Unit) {
         androidx.compose.runtime.snapshotFlow { Triple(trueX, ekfX, pinpointX) }.collect { (tX, eX, pX) ->
             if (tX != null || eX != null || pX != null) {

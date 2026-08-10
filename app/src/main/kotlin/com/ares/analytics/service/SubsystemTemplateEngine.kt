@@ -168,7 +168,7 @@ object SubsystemTemplateEngine {
             methods.append("""
                 override fun setVoltage(voltage: Double) {
                     val power = (voltage / 12.0).coerceIn(-1.0, 1.0)
-                    try { motor?.power = power } catch (_: Exception) {}
+                    try { motor?.power = power } catch (_: Exception) { /* Optional hardware is fail-safe. */ }
                 }
             """.trimIndent()).append("\n")
 
@@ -192,7 +192,7 @@ object SubsystemTemplateEngine {
                         methods.append("""
                             override fun set${capHwName}Voltage(volts: Double) {
                                 val power = (volts / 12.0).coerceIn(-1.0, 1.0)
-                                try { ${hwName}Motor?.power = power } catch (_: Exception) {}
+                                try { ${hwName}Motor?.power = power } catch (_: Exception) { /* Optional hardware is fail-safe. */ }
                             }
                         """.trimIndent()).append("\n\n")
 
@@ -202,7 +202,7 @@ object SubsystemTemplateEngine {
                         fields.append("    private val ${hwName}Servo: Servo? = try { hardwareMap.get(Servo::class.java, \"$hwName\") } catch (_: Exception) { null }\n")
                         methods.append("""
                             override fun set${capHwName}Position(position: Double) {
-                                try { ${hwName}Servo?.position = position.coerceIn(0.0, 1.0) } catch (_: Exception) {}
+                                try { ${hwName}Servo?.position = position.coerceIn(0.0, 1.0) } catch (_: Exception) { /* Optional hardware is fail-safe. */ }
                             }
                         """.trimIndent()).append("\n\n")
                     }
@@ -210,7 +210,7 @@ object SubsystemTemplateEngine {
                         fields.append("    private val ${hwName}CRServo: CRServo? = try { hardwareMap.get(CRServo::class.java, \"$hwName\") } catch (_: Exception) { null }\n")
                         methods.append("""
                             override fun set${capHwName}Position(position: Double) {
-                                try { ${hwName}CRServo?.power = position.coerceIn(-1.0, 1.0) } catch (_: Exception) {}
+                                try { ${hwName}CRServo?.power = position.coerceIn(-1.0, 1.0) } catch (_: Exception) { /* Optional hardware is fail-safe. */ }
                             }
                         """.trimIndent()).append("\n\n")
                         safeBody.append("        set${capHwName}Position(0.0)\n")

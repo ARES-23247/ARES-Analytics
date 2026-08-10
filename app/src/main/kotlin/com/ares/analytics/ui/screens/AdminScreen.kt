@@ -54,13 +54,6 @@ fun AdminScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     val isAuthenticated = authState is AuthState.Authenticated
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun refreshRobots() {
         if (!isAuthenticated) return
         scope.launch {
@@ -68,7 +61,7 @@ fun AdminScreen(
             errorMessage = null
             try {
                 var profiles = syncEngineService.getRemoteRobotProfiles()
-                
+
                 // If local active robot is missing from the list, register it automatically
                 if (profiles.none { it.robotId == config.robotId }) {
                     val localRobot = RobotProfile(
@@ -81,7 +74,7 @@ fun AdminScreen(
                     syncEngineService.saveRemoteRobotProfiles(updated)
                     profiles = updated
                 }
-                
+
                 robotProfiles = profiles
             } catch (e: Exception) {
                 errorMessage = "Failed to load robot registry from Google Drive: ${e.message}"
@@ -196,15 +189,16 @@ fun AdminScreen(
             )
         }
 
+        val currentError = errorMessage
         when {
             isLoading -> {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = AresCyan)
                 }
             }
-            errorMessage != null -> {
+            currentError != null -> {
                 Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(errorMessage!!, color = AresError)
+                    Text(currentError, color = AresError)
                 }
             }
             robotProfiles.isEmpty() -> {
@@ -296,7 +290,7 @@ fun AdminScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("This robot profile will be synced to Google Drive and shared with all team members.", color = AresTextSecondary, fontSize = 11.sp)
-                    
+
                     OutlinedTextField(
                         value = robotId,
                         onValueChange = { robotId = it.filter { c -> c.isLetterOrDigit() || c == '-' } },

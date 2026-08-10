@@ -2,11 +2,14 @@ package com.ares.analytics.service
 
 import com.ares.analytics.shared.TelemetryFrame
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
+import java.nio.ByteBuffer
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -132,7 +135,7 @@ class Nt4ClientServiceTest {
             ]
         """.trimIndent()
         val results = mutableListOf<TelemetryFrame>()
-        
+
         // Let's capture the emitted frames from telemetryFlow
         val job = launch {
             nt4ClientService.telemetryFlow.collect {
@@ -145,10 +148,10 @@ class Nt4ClientServiceTest {
         job.cancel()
 
         assertEquals(3, results.size)
-        
+
         assertEquals("Drive/EstimatedPose/0", results[0].key)
         assertEquals(1.5, results[0].value)
-        
+
         assertEquals("Drive/EstimatedPose/1", results[1].key)
         assertEquals(-2.5, results[1].value)
 
@@ -182,6 +185,57 @@ class Nt4ClientServiceTest {
         assertEquals(0xcf.toByte(), encoded[5], "timestamp uint64 marker")
         assertEquals(1.toByte(), encoded[14], "NT4 type id")
         assertTrue(encoded.takeLast(2).toByteArray().contentEquals(byteArrayOf(0xca.toByte(), 0xfe.toByte())))
+    }
+
+    @Test
+    fun `analytics publisher is decoded by the shared NT4 wire codec`() {
+        val encodedDouble = ByteBuffer.allocate(9)
+            .put(0xcb.toByte())
+            .putDouble(6.25)
+            .array()
+        val encoded = nt4ClientService.encodeNt4BinaryUpdate(
+            pubuid = 1010,
+            timestampUs = 2_500_000L,
+            typeId = 1,
+            valueBytes = encodedDouble
+        )
+
+        val decoded = com.areslib.networktables.NT4WireProtocol.unpackMessageFrames(encoded)
+
+        assertEquals(1, decoded.size)
+        assertEquals(1010L, decoded.single().topicId)
+        assertEquals(2_500_000L, decoded.single().timestampUs)
+        assertEquals(1, decoded.single().typeId)
+        assertEquals(6.25, decoded.single().value)
+    }
+
+    @Test
+    fun `shared NT4 server wire frame is consumed by analytics`() = runBlocking {
+        nt4ClientService.topicMap[42] = com.ares.analytics.service.nt4.Nt4Topic(
+            id = 42,
+            name = "/Drive/Pose_X",
+            type = "double"
+        )
+        val received = async(start = CoroutineStart.UNDISPATCHED) {
+            nt4ClientService.telemetryFlow.first()
+        }
+
+        nt4ClientService.handleIncomingBinary(
+            bytes = com.areslib.networktables.NT4WireProtocol.encodeValueMessage(
+                topicId = 42L,
+                timestampUs = 3_000_000L,
+                typeId = 1,
+                value = 2.75
+            ),
+            teamId = "team-1",
+            seasonId = "season-1",
+            robotId = "robot-1"
+        )
+        val frame = withTimeout(2_000) { received.await() }
+
+        assertEquals("Drive/Pose_X", frame.key)
+        assertEquals(3_000L, frame.timestampMs)
+        assertEquals(2.75, frame.value)
     }
 
     @Test

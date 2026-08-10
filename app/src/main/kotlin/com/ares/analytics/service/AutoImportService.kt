@@ -59,13 +59,6 @@ class AutoImportService(
     private val sourceObservations = java.util.concurrent.ConcurrentHashMap<String, SourceSnapshot>()
     private val importedFingerprintCaches = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun start(onImportSuccess: () -> Unit) {
         onImportSuccessCallback = onImportSuccess
         job?.cancel()
@@ -104,13 +97,6 @@ class AutoImportService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun stop() {
         job?.cancel()
         job = null
@@ -134,7 +120,7 @@ class AutoImportService(
 
             for (file in files) {
                 if (file.isDirectory) continue
-                
+
                 val sourceId = "local:${file.absoluteFile.toPath().normalize()}"
                 val snapshot = SourceSnapshot(file.length(), file.lastModified())
                 if (!observeStableSource(sourceId, snapshot)) {
@@ -167,7 +153,7 @@ class AutoImportService(
 
                     markFingerprintImported(manifest, fingerprint)
                     _importNotifications.emit("[AUTO-IMPORT] Successfully imported ${file.name} (Session ID: ${sessionId.take(8)}...)")
-                    
+
                     // Trigger UI reload
                     onImportSuccessCallback?.invoke()
                 } catch (e: Exception) {
@@ -199,13 +185,13 @@ class AutoImportService(
                     val fingerprint = sourceFingerprint(sourceId, snapshot)
                     val manifest = File(localDestDir, IMPORT_MANIFEST_NAME)
                     if (isFingerprintImported(manifest, fingerprint)) continue
-                    
+
                     // Check if file is still being written to by ARESDataLogger
                     if (isFileInUseOnFtcRobot(adbPath, remotePath)) {
                         continue
                     }
                     val tempLocalFile = File(localDestDir, ".$fingerprint.partial")
-                    
+
                     try {
                         _importNotifications.emit("[AUTO-IMPORT] Found FTC robot log: $filename. Pulling...")
                         if (pullFileFromFtcRobot(adbPath, remotePath, tempLocalFile)) {
@@ -230,7 +216,7 @@ class AutoImportService(
                             markFingerprintImported(manifest, fingerprint)
                             // Keep imported file safely in logs/imported archive folder
                             _importNotifications.emit("[AUTO-IMPORT] Successfully imported robot log $filename (Session ID: ${sessionId.take(8)}...)")
-                            
+
                             // Trigger UI reload
                             onImportSuccessCallback?.invoke()
                         }
@@ -269,7 +255,7 @@ class AutoImportService(
                         continue
                     }
                     val tempLocalFile = File(localDestDir, ".$fingerprint.partial")
-                    
+
                     try {
                         _importNotifications.emit("[AUTO-IMPORT] Found FRC robot log: $filename. Pulling...")
                         if (pullFileFromFrcRobot(host, remotePath, tempLocalFile)) {
@@ -294,7 +280,7 @@ class AutoImportService(
                             markFingerprintImported(manifest, fingerprint)
                             // Keep imported file safely in logs/imported archive folder
                             _importNotifications.emit("[AUTO-IMPORT] Successfully imported RoboRIO log $filename (Session ID: ${sessionId.take(8)}...)")
-                            
+
                             // Trigger UI reload
                             onImportSuccessCallback?.invoke()
                         }

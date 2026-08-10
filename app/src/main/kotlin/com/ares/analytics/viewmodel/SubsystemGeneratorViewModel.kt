@@ -75,6 +75,7 @@ sealed class SubsystemGeneratorIntent {
     object ClearResult : SubsystemGeneratorIntent()
 }
 
+/** Collects a subsystem schema and delegates source generation to [SubsystemTemplateEngine]. */
 class SubsystemGeneratorViewModel(
     private val scope: CoroutineScope
 ) {

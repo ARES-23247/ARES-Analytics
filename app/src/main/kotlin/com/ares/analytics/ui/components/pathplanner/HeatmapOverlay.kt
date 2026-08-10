@@ -6,13 +6,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import com.ares.analytics.shared.League
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 object HeatmapOverlay {
     // Stateful grid for accumulation
     private val globalCounts = Array(100) { IntArray(100) }
@@ -20,13 +13,6 @@ object HeatmapOverlay {
     private var lastPathSize = 0
     private var lastFirstPoint: Waypoint? = null
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun resetHeatmap() {
         for (i in globalCounts.indices) {
             for (j in globalCounts[i].indices) {
@@ -38,13 +24,6 @@ object HeatmapOverlay {
         lastFirstPoint = null
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun drawHeatmap(
         drawScope: DrawScope,
         actualPath: List<Waypoint>,
@@ -61,7 +40,7 @@ object HeatmapOverlay {
         }
         val width = drawScope.size.width
         val height = drawScope.size.height
-        
+
         // If the path seems completely new (e.g. simulation reset), clear the heatmap
         if (lastPathSize > actualPath.size || (actualPath.isNotEmpty() && lastFirstPoint != actualPath.first())) {
             resetHeatmap()
@@ -69,7 +48,7 @@ object HeatmapOverlay {
 
         // Add only the NEW points to the heatmap
         val startIndex = if (lastPathSize <= actualPath.size && lastFirstPoint == actualPath.firstOrNull()) lastPathSize else 0
-        
+
         for (i in startIndex until actualPath.size) {
             val wp = actualPath[i]
             val pctX = if (league == League.FTC) {

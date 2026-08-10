@@ -23,13 +23,6 @@ import kotlinx.coroutines.launch
 import com.ares.analytics.ui.components.core.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun SystemHealthCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
@@ -45,7 +38,7 @@ fun SystemHealthCard(
             nt4ClientService.telemetryFlow.collect { frame ->
                 val key = frame.key.lowercase()
                 val value = frame.value
-                
+
                 when {
                     key.contains("looptime") || key.contains("loop_time") -> {
                         loopTimeMs = value as? Double
@@ -74,8 +67,6 @@ fun SystemHealthCard(
             iconTint = AresGreen
         )
 
-
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -83,7 +74,7 @@ fun SystemHealthCard(
                 // Loop Time
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("LOOP TIME", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    val hz = if (loopTimeMs != null && loopTimeMs!! > 0) 1000.0 / loopTimeMs!! else 0.0
+                    val hz = loopTimeMs?.takeIf { it > 0.0 }?.let { 1000.0 / it } ?: 0.0
                     val loopColor = when {
                         hz < 35.0 -> AresError
                         hz < 45.0 -> AresGold
@@ -102,7 +93,7 @@ fun SystemHealthCard(
                         fontSize = 12.sp
                     )
                 }
-                
+
                 // Overruns
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("OVERRUNS", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)

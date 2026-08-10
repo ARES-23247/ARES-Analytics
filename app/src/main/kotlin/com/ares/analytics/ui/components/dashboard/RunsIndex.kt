@@ -32,13 +32,6 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun RunsIndex(
     databaseService: DatabaseService,
     primarySessionId: String?,
@@ -58,13 +51,6 @@ fun RunsIndex(
     var batteryLabel by remember { mutableStateOf("A") }
 
     // Helper function to reload sessions list
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun reloadSessions() {
         scope.launch {
             sessions = databaseService.getSessions()
@@ -241,7 +227,7 @@ fun RunsIndex(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Session ID: ${session.sessionId.take(8)}...", fontSize = 11.sp, color = AresTextTertiary)
-                    
+
                     OutlinedTextField(
                         value = annotationText,
                         onValueChange = { annotationText = it },
@@ -295,7 +281,7 @@ fun RunsIndex(
                         if (batteryLabel.isNotEmpty()) {
                             cleanTags.add("battery-$batteryLabel")
                         }
-                        
+
                         scope.launch {
                             val annotation = SessionAnnotation(
                                 annotationId = java.util.UUID.randomUUID().toString(),
@@ -306,7 +292,7 @@ fun RunsIndex(
                             )
                             databaseService.insertAnnotation(annotation)
                             databaseService.updateSessionTags(session.sessionId, cleanTags)
-                            
+
                             editingSession = null
                             reloadSessions()
                         }

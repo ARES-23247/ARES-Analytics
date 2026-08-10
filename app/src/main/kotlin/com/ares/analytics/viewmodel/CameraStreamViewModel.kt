@@ -15,13 +15,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import java.io.ByteArrayOutputStream
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class CameraStreamState(
     val streamUrl: String = "http://10.0.0.2:1181/stream.mjpg",
     val isConfiguring: Boolean = false,
@@ -31,47 +24,17 @@ data class CameraStreamState(
 )
 
 sealed class CameraStreamIntent {
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetConfiguring(val isConfiguring: Boolean) : CameraStreamIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateStreamUrl(val streamUrl: String) : CameraStreamIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object Connect : CameraStreamIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object Disconnect : CameraStreamIntent()
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Owns one MJPEG connection and publishes only complete decoded JPEG frames to Compose. */
 class CameraStreamViewModel(
     initialStreamUrl: String?,
     private val scope: CoroutineScope
@@ -83,30 +46,23 @@ class CameraStreamViewModel(
         )
     )
     val state: StateFlow<CameraStreamState> = _state.asStateFlow()
-    
+
     private var streamJob: Job? = null
     private var previousSkiaImage: org.jetbrains.skia.Image? = null
-    
+
     private val httpClient = HttpClient(CIO) {
         install(HttpTimeout) {
             requestTimeoutMillis = Long.MAX_VALUE
             socketTimeoutMillis = Long.MAX_VALUE
         }
     }
-    
+
     init {
         if (initialStreamUrl != null) {
             startStreaming()
         }
     }
-    
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun onIntent(intent: CameraStreamIntent) {
         when (intent) {
             is CameraStreamIntent.SetConfiguring -> {
@@ -124,28 +80,21 @@ class CameraStreamViewModel(
             }
         }
     }
-    
+
     private fun stopStreaming() {
         streamJob?.cancel()
         streamJob = null
         _state.update { it.copy(isConnected = false, currentFrame = null) }
     }
-    
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun close() {
         stopStreaming()
         httpClient.close()
     }
-    
+
     private fun startStreaming() {
         streamJob?.cancel()
-        
+
         streamJob = scope.launch(Dispatchers.IO) {
             var retryDelayMs = 1000L
             while (isActive) {
@@ -154,7 +103,7 @@ class CameraStreamViewModel(
                     delay(1000)
                     continue
                 }
-                
+
                 _state.update { it.copy(isConnected = false, errorMessage = null) }
 
                 try {
@@ -212,7 +161,7 @@ class CameraStreamViewModel(
                 } finally {
                     _state.update { it.copy(isConnected = false) }
                 }
-                
+
                 if (isActive && !_state.value.isConfiguring) {
                     delay(retryDelayMs)
                     retryDelayMs = (retryDelayMs * 1.5).toLong().coerceAtMost(5000L)

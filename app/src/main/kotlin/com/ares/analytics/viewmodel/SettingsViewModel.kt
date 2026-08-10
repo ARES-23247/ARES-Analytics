@@ -12,13 +12,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class SettingsState(
     val config: WorkspaceConfig? = null,
     val theme: String = "Dark", // "System", "Light", "Dark"
@@ -31,79 +24,25 @@ data class SettingsState(
 )
 
 sealed class SettingsIntent {
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class LoadSettings(val config: WorkspaceConfig) : SettingsIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SaveConfig(val config: WorkspaceConfig) : SettingsIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateTheme(val theme: String) : SettingsIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetAudibleAlertsEnabled(val enabled: Boolean) : SettingsIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetAutoCheckUpdates(val enabled: Boolean) : SettingsIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetAutoSyncEnabled(val enabled: Boolean) : SettingsIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object ClearDatabase : SettingsIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object ClearSaveStatus : SettingsIntent()
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Applies application preferences and delegates persistence to [EnvironmentService]. */
 class SettingsViewModel(
     private val databaseService: DatabaseService,
     private val environmentService: EnvironmentService,
@@ -112,13 +51,6 @@ class SettingsViewModel(
     private val _state = MutableStateFlow(SettingsState())
     val state: StateFlow<SettingsState> = _state.asStateFlow()
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun onIntent(intent: SettingsIntent) {
         scope.launch {
             when (intent) {

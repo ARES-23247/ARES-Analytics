@@ -31,13 +31,6 @@ private class RunningStats {
     var count: Long = 0L
     var max: Double = 0.0
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun update(value: Double) {
         current = value
         sum += value
@@ -47,13 +40,6 @@ private class RunningStats {
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun reset() {
         current = 0.0
         sum = 0.0
@@ -65,19 +51,12 @@ private class RunningStats {
 }
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun ProfilingDiagnosticsCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
-    
+
     // Concurrent map to hold running stats for each profiling key
     val statsMap = remember { ConcurrentHashMap<String, RunningStats>() }
     // State trigger to force recomposition when stats update
@@ -122,8 +101,6 @@ fun ProfilingDiagnosticsCard(
                 }
             }
         )
-
-
 
             // Table Header
             Row(
@@ -170,7 +147,7 @@ fun ProfilingDiagnosticsCard(
                             name.equals("Total", ignoreCase = true) -> AresCyan
                             else -> AresTextPrimary
                         }
-                        
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

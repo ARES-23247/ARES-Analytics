@@ -2,6 +2,7 @@ package com.ares.analytics.shared.models
 
 import kotlinx.serialization.Serializable
 
+/** Selects whether dashboard frames come from the robot, the rewind buffer, or persisted storage. */
 @Serializable
 enum class SessionMode {
     LIVE_STREAMING,
@@ -9,6 +10,7 @@ enum class SessionMode {
     HISTORICAL_REPLAY
 }
 
+/** Persisted recording identity. [createdAt] and [durationMs] are milliseconds. */
 @Serializable
 data class Session(
     val sessionId: String,
@@ -22,6 +24,11 @@ data class Session(
     val allianceColor: String? = null
 )
 
+/**
+ * Precomputed session metrics used by history and cloud indexes.
+ * Voltage is volts, drift/cross-track error are meters, temperatures are Celsius,
+ * current is amperes, and every `*Ms` field is milliseconds.
+ */
 @Serializable
 data class SessionSummary(
     val sessionId: String,
@@ -56,6 +63,12 @@ data class SessionAnnotation(
     val authorId: String? = null
 )
 
+/**
+ * One topic update on a session timeline.
+ *
+ * [value] is always populated for columnar storage. For textual topics,
+ * [stringValue] is authoritative and [value] is only a numeric placeholder.
+ */
 @Serializable
 data class TelemetryFrame(
     val timestampMs: Long,
@@ -114,6 +127,7 @@ data class ControllerBinding(
     val lineNumber: Int
 )
 
+/** Sampled field trajectory state: seconds, meters, CCW-positive radians, and meters/second. */
 @Serializable
 data class TrajectoryState(
     val timeSeconds: Double,

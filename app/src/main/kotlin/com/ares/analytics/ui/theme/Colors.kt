@@ -6,13 +6,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 
 // ── Theme State Holder ───────────────────────────────────────────────────────
-/**
 
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 object AresThemeSettings {
     var colorblindMode by mutableStateOf(false)
     var highContrastMode by mutableStateOf(false)
@@ -59,13 +53,6 @@ val AresDeviationMedium: Color get() = AresThemeSettings.currentColors.deviation
 val AresDeviationHigh: Color get() = AresThemeSettings.currentColors.deviationHigh
 
 // ── Color Palette Generator ──────────────────────────────────────────────────
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class AresColorPalette(
     val background: Color,
     val surface: Color,
@@ -103,13 +90,6 @@ data class AresColorPalette(
     val deviationHigh: Color
 )
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun getAresColors(colorblind: Boolean, highContrast: Boolean): AresColorPalette {
     val textPrimary = Color(0xFFE8ECF4)
     val textSecondary = if (highContrast) Color(0xFFF3F5F9) else Color(0xFF9CA3B4)

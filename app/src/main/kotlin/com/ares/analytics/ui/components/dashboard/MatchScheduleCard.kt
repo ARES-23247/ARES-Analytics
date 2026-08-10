@@ -24,13 +24,6 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun MatchScheduleCard(
     matches: List<MatchInfo>,
     currentTeamId: String,

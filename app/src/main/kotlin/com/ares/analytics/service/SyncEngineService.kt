@@ -3,7 +3,6 @@ package com.ares.analytics.service
 
 import com.ares.analytics.shared.AppJson
 
-
 import com.ares.analytics.shared.*
 import io.ktor.client.*
 import io.ktor.client.call.body
@@ -155,7 +154,7 @@ class SyncEngineService(
 
             // 3. Upload Parquet file to sessions/ folder
             val existingParquetId = googleDriveService.findFileContaining(sessionId, sessionsFolderId)
-            
+
             var attempt = 0
             var success = false
             var delayMs = 1000L
@@ -390,7 +389,7 @@ class SyncEngineService(
         signatureInstance.update(input.toByteArray(Charsets.UTF_8))
         val signatureBytes = signatureInstance.sign()
         val signatureBase64 = encoder.encodeToString(signatureBytes)
-        
+
         return "$input.$signatureBase64"
     }
 
@@ -401,7 +400,7 @@ class SyncEngineService(
         val clientEmail = parsedJson["client_email"]?.jsonPrimitive?.content ?: throw IllegalArgumentException("Missing client_email")
         val privateKeyPem = parsedJson["private_key"]?.jsonPrimitive?.content ?: throw IllegalArgumentException("Missing private_key")
         val tokenUri = parsedJson["token_uri"]?.jsonPrimitive?.content ?: "https://oauth2.googleapis.com/token"
-        
+
         val jwt = createGcpJwt(clientEmail, privateKeyPem, tokenUri)
         val response = httpClient.post(tokenUri) {
             contentType(ContentType.Application.FormUrlEncoded)
@@ -429,13 +428,13 @@ class SyncEngineService(
         val prompt = """
             You are ARES Pit Forensics AI, a diagnostic copilot for FTC/FRC robotics teams.
             Analyze the following telemetry packet containing session statistics, triggered threshold alerts, motor currents, EKF positioning drift, and hardware topology.
-            
+
             Identify the most likely hardware failure (e.g., loose CAN bus wire, brownout, battery sag, motor stall, camera disconnection, pinpoint encoder drift).
-            
+
             Respond ONLY with a JSON object conforming exactly to this schema:
             {
               "probableRootCause": "Detailed description of what failed and why",
-              "confidenceScore": 0.85, 
+              "confidenceScore": 0.85,
               "cascadingNodesAffected": ["node_id_1", "node_id_2"],
               "hardwareFaultLocus": {
                 "failedNodeId": "id of the primary node that failed",
@@ -536,17 +535,17 @@ class SyncEngineService(
         val prompt = """
             You are ARES Pit Coach AI, a diagnostic copilot for FTC/FRC robotics teams.
             You are helping the team debug their robot using the following telemetry, alerts, and forensics context.
-            
+
             Diagnostics Context:
             - Team: ${request.teamId}
             - Session: ${request.sessionId}
             - Alerts: ${request.alerts.joinToString { it.ruleKey }}
-            
+
             Conversation History:
             $historyStr
-            
+
             Analyze the context and answer the user's question. Provide specific, concise, actionable advice (e.g. recommend PID tuning changes, check specific cables, calibrate sensors) for a robotics student. Use markdown formatting.
-            
+
             User's Question: $userQuestion
         """.trimIndent()
         val jsonResponse = if (aiMode == "STUDIO") {
@@ -618,7 +617,7 @@ class SyncEngineService(
         val schemaPrompt = """
             You are ARES SQL Data Analyst, a diagnostic agent for a robotics team telemetry database.
             We run on DuckDB.
-            
+
             Database Tables:
             1. `sessions`:
                - `session_id` VARCHAR (PRIMARY KEY)
@@ -663,7 +662,7 @@ class SyncEngineService(
               "sql": "SELECT ... FROM session_summaries ..."
             }
             Do NOT run modifying queries (INSERT, UPDATE, DELETE, DROP). Keep it strictly read-only.
-            
+
             User's Question: $userQuestion
         """.trimIndent()
         val jsonResponse = if (aiMode == "STUDIO") {
@@ -728,7 +727,7 @@ class SyncEngineService(
         } catch (e: Exception) {
             return@withContext "I was unable to formulate a SQL query to extract the data. Details: $sanitizedJson"
         }
-        
+
         // C3 Fix: Strictly validate that generated SQL is a read-only SELECT or WITH statement
         val normalizedSql = sqlQuery.trim().trimEnd(';').uppercase()
         val isReadOnly = (normalizedSql.startsWith("SELECT") || normalizedSql.startsWith("WITH"))
@@ -746,19 +745,19 @@ class SyncEngineService(
             return@withContext "Failed to execute generated SQL query:\n```sql\n$sqlQuery\n```\nError: ${e.message}"
         }
         val summaryPrompt = """
-            You are ARES SQL Data Analyst. 
+            You are ARES SQL Data Analyst.
             The user asked: "$userQuestion"
-            
+
             To answer it, we ran this SQL query:
             ```sql
             $sqlQuery
             ```
-            
+
             And got these results:
             Columns: ${queryResult.columns.joinToString(", ")}
             Rows:
             ${queryResult.rows.joinToString("\n") { it.joinToString(", ") }}
-            
+
             Write a clear, concise, and helpful summary answering the user's question based on the retrieved data. Use markdown formatting. Mention match numbers or averages clearly.
         """.trimIndent()
         val finalResponse = if (aiMode == "STUDIO") {
@@ -816,7 +815,7 @@ class SyncEngineService(
             val resObj = response.body<JsonObject>()
             resObj["candidates"]?.jsonArray?.get(0)?.jsonObject?.get("content")?.jsonObject?.get("parts")?.jsonArray?.get(0)?.jsonObject?.get("text")?.jsonPrimitive?.content ?: ""
         }
-        
+
         finalResponse
     }
 
@@ -862,13 +861,6 @@ class SyncEngineService(
         databaseService.deleteSession(sessionId)
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun close() {
         httpClient.close()
     }

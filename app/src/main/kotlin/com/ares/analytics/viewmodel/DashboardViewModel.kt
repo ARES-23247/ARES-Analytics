@@ -14,13 +14,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class DashboardState(
     val currentRoleProfile: String = "Standard",
     val currentLayout: DashboardLayoutConfig? = null,
@@ -44,127 +37,37 @@ data class DashboardState(
 )
 
 sealed class DashboardIntent {
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class ChangeProfile(val profile: String) : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetPickerOpen(val isOpen: Boolean) : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetProfileExpanded(val isExpanded: Boolean) : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SelectPrimarySession(val sessionId: String?) : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetSessionMode(val mode: SessionMode) : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SelectCompareSession(val sessionId: String?) : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateLayout(val newWidgets: List<WidgetConfig>) : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class AddWidget(val type: String) : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class RemoveWidget(val widgetId: String) : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object ResetProfile : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class ImportLogFiles(val files: List<File>, val teamId: String, val seasonId: String, val robotId: String) : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object ClearImportSuccess : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SaveLayoutAs(val profileName: String) : DashboardIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteLayout(val profileName: String) : DashboardIntent()
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Coordinates dashboard profiles, live/replay session selection, layouts, and log imports. */
 class DashboardViewModel(
     private val databaseService: DatabaseService,
     private val nt4ClientService: Nt4ClientService,
@@ -198,13 +101,6 @@ class DashboardViewModel(
         refreshAvailableProfiles()
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun onIntent(intent: DashboardIntent) {
         scope.launch {
             when (intent) {
@@ -220,7 +116,7 @@ class DashboardViewModel(
                 }
                 is DashboardIntent.SelectPrimarySession -> {
                     val newMode = if (intent.sessionId == null) SessionMode.LIVE_STREAMING else SessionMode.HISTORICAL_REPLAY
-                    
+
                     if (intent.sessionId != null) {
                         scope.launch {
                             val historicalAlerts = databaseService.getAlerts(intent.sessionId)

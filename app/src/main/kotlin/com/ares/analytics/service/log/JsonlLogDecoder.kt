@@ -112,8 +112,8 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
                         val payloadJson = payload?.toString() ?: "{}"
 
                         if (timestampMs > 0L) {
-                            if (timestampMs < minTimestamp) minTimestamp = timestampMs
-                            if (timestampMs > maxTimestamp) maxTimestamp = timestampMs
+                            minTimestamp = minOf(minTimestamp, timestampMs)
+                            maxTimestamp = maxOf(maxTimestamp, timestampMs)
 
                             actions.add(RobotActionRecord(
                                 timestampMs = timestampMs,

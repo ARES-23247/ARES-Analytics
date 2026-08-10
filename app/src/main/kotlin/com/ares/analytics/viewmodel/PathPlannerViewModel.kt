@@ -2,7 +2,6 @@ package com.ares.analytics.viewmodel
 
 import com.ares.analytics.shared.AppJson
 
-
 import com.ares.analytics.service.TrajectoryEstimator
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.pathplanner.Waypoint
@@ -19,22 +18,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.*
 import java.io.File
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class PathPreview(val name: String, val trajectory: Trajectory?)
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class PathPlannerState(
     val pathName: String = "autonomous_route",
     val availablePaths: List<String> = emptyList(),
@@ -60,7 +45,7 @@ data class PathPlannerState(
     val trajectory: Trajectory? = null,
     val isPlaying: Boolean = false,
     val playbackTime: Double = 0.0,
-    
+
     // Auto Editor specific state
     val activeEditorMode: String = "Path", // "Path" or "Auto"
     val availableAutos: List<String> = emptyList(),
@@ -69,7 +54,7 @@ data class PathPlannerState(
     val contextAutoName: String? = null,
     val contextTrajectory: Trajectory? = null,
     val contextWaypoints: List<Waypoint> = emptyList(),
-    
+
     // Browser specific state
     val showBrowser: Boolean = false,
     val availablePathPreviews: List<PathPreview> = emptyList(),
@@ -77,398 +62,119 @@ data class PathPlannerState(
 )
 
 sealed class PathPlannerIntent {
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class LoadPath(val projectPath: String?, val league: League) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class FetchAvailablePaths(val projectPath: String?, val league: League) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SavePath(val projectPath: String?, val league: League) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class CreateNewPath(val name: String = "new_path") : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class CreateNewAuto(val name: String = "new_auto") : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object OptimizePath : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdatePathName(val name: String) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateEditorMode(val mode: String) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateWaypoints(val newWaypoints: List<Waypoint>) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateWaypoint(val index: Int, val waypoint: Waypoint) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class AddWaypoint(val waypoint: Waypoint) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteWaypoint(val index: Int) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SelectWaypoint(val index: Int?) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateToolMode(val mode: String) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateGlobalConstraints(val constraints: PathConstraints) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateStartingState(val state: IdealStartingState?) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateEndState(val state: GoalEndState?) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateReversed(val reversed: Boolean) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateUseDefaultConstraints(val useDefault: Boolean) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateViewRotation(val viewRotation: Float) : PathPlannerIntent()
-    
+
     // Browser
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object ToggleBrowser : PathPlannerIntent()
-    
+
     // Playback
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object TogglePlayback : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SeekPlayback(val timeSeconds: Double) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object StopPlayback : PathPlannerIntent()
-    
+
     // Event Markers
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class AddEventMarker(val marker: PathPlannerEventMarker) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateEventMarker(val index: Int, val marker: PathPlannerEventMarker) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateEventMarkers(val markers: List<PathPlannerEventMarker>) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteEventMarker(val index: Int) : PathPlannerIntent()
-    
+
     // Rotation Targets
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class AddRotationTarget(val target: RotationTarget) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateRotationTarget(val index: Int, val target: RotationTarget) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateRotationTargets(val targets: List<RotationTarget>) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteRotationTarget(val index: Int) : PathPlannerIntent()
-    
+
     // Point Towards Zones
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class AddPointTowardsZone(val zone: PointTowardsZone) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdatePointTowardsZone(val index: Int, val zone: PointTowardsZone) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeletePointTowardsZone(val index: Int) : PathPlannerIntent()
 
     // Constraint Zones
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class AddConstraintZone(val zone: ConstraintsZone) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateConstraintZone(val index: Int, val zone: ConstraintsZone) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteConstraintZone(val index: Int) : PathPlannerIntent()
-    
+
     // Auto Editor
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class LoadAuto(val projectPath: String?, val league: League) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SaveAuto(val projectPath: String?, val league: League) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateAutoStartingPose(val pose: AutoStartingPose?) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class AddAutoCommand(val node: AutoCommandNode, val projectPath: String?, val league: League) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class RemoveAutoCommand(val index: Int, val projectPath: String?, val league: League) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class MoveAutoCommand(val fromIndex: Int, val direction: Int, val projectPath: String?, val league: League) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateAutoCommand(val index: Int, val node: AutoCommandNode, val projectPath: String?, val league: League) : PathPlannerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateContextAuto(val autoName: String?, val projectPath: String?, val league: League) : PathPlannerIntent()
     data class DeletePath(val name: String, val projectPath: String?, val league: League) : PathPlannerIntent()
     data class DeleteAuto(val name: String, val projectPath: String?, val league: League) : PathPlannerIntent()
 }
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
+ * State owner for interactive path/auto editing.
+ * Geometry uses meters and CCW-positive radians internally; serialized PathPlanner rotations are degrees.
  */
 class PathPlannerViewModel(
     private val scope: CoroutineScope
@@ -499,13 +205,6 @@ class PathPlannerViewModel(
         onIntent(PathPlannerIntent.UpdateContextAuto(autoName, projectPath, league))
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun onIntent(intent: PathPlannerIntent) {
         if (isModifyingIntent(intent)) {
             undoRedoManager.saveSnapshot()
@@ -532,7 +231,7 @@ class PathPlannerViewModel(
                 is PathPlannerIntent.UpdateReversed -> _state.update { it.copy(reversed = intent.reversed) }
                 is PathPlannerIntent.UpdateUseDefaultConstraints -> _state.update { it.copy(useDefaultConstraints = intent.useDefault) }
                 is PathPlannerIntent.UpdateViewRotation -> _state.update { it.copy(viewRotation = intent.viewRotation) }
-                
+
                 is PathPlannerIntent.TogglePlayback -> {
                     val currentlyPlaying = _state.value.isPlaying
                     if (currentlyPlaying) {
@@ -563,17 +262,17 @@ class PathPlannerViewModel(
                 }
                 is PathPlannerIntent.SeekPlayback -> _state.update { it.copy(playbackTime = intent.timeSeconds.coerceIn(0.0, _state.value.estimatedDuration)) }
                 is PathPlannerIntent.StopPlayback -> _state.update { it.copy(isPlaying = false, playbackTime = 0.0) }
-                
+
                 is PathPlannerIntent.AddEventMarker -> _state.update { it.copy(eventMarkers = it.eventMarkers + intent.marker) }
                 is PathPlannerIntent.UpdateEventMarker -> _state.update { val l = it.eventMarkers.toMutableList(); l[intent.index] = intent.marker; it.copy(eventMarkers = l) }
                 is PathPlannerIntent.UpdateEventMarkers -> _state.update { it.copy(eventMarkers = intent.markers) }
                 is PathPlannerIntent.DeleteEventMarker -> _state.update { val l = it.eventMarkers.toMutableList(); l.removeAt(intent.index); it.copy(eventMarkers = l) }
-                
+
                 is PathPlannerIntent.AddRotationTarget -> _state.update { it.copy(rotationTargets = it.rotationTargets + intent.target) }
                 is PathPlannerIntent.UpdateRotationTarget -> _state.update { val l = it.rotationTargets.toMutableList(); l[intent.index] = intent.target; it.copy(rotationTargets = l) }
                 is PathPlannerIntent.UpdateRotationTargets -> { _state.update { it.copy(rotationTargets = intent.targets) }; recalculateDuration() }
                 is PathPlannerIntent.DeleteRotationTarget -> _state.update { val l = it.rotationTargets.toMutableList(); l.removeAt(intent.index); it.copy(rotationTargets = l) }
-                
+
                 is PathPlannerIntent.AddPointTowardsZone -> _state.update { it.copy(pointTowardsZones = it.pointTowardsZones + intent.zone) }
                 is PathPlannerIntent.UpdatePointTowardsZone -> _state.update { val l = it.pointTowardsZones.toMutableList(); l[intent.index] = intent.zone; it.copy(pointTowardsZones = l) }
                 is PathPlannerIntent.DeletePointTowardsZone -> _state.update { val l = it.pointTowardsZones.toMutableList(); l.removeAt(intent.index); it.copy(pointTowardsZones = l) }

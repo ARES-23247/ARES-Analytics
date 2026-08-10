@@ -105,15 +105,15 @@ class EnvironmentService(
 
     suspend fun verifyJavaEnvironment(): JavaEnvResult = withContext(Dispatchers.IO) {
         val javaHome = System.getenv("JAVA_HOME")
-        val javaExe = if (!javaHome.isNullOrEmpty()) {
-            if (System.getProperty("os.name").contains("win", ignoreCase = true)) {
-                "$javaHome\\bin\\java.exe"
-            } else {
-                "$javaHome/bin/java"
-            }
+        val executableName = if (System.getProperty("os.name").contains("win", ignoreCase = true)) {
+            "java.exe"
         } else {
-            "java" // Fallback to PATH
+            "java"
         }
+        val javaExe = javaHome
+            ?.takeIf(String::isNotBlank)
+            ?.let { File(it, "bin/$executableName").path }
+            ?: "java"
 
         if (javaExe != "java" && !File(javaExe).exists()) {
             return@withContext JavaEnvResult(false, "java executable not found at $javaExe")
@@ -160,13 +160,6 @@ class EnvironmentService(
         League.FTC
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun getDefaultNt4Host(league: League, teamId: String): String {
         return when (league) {
             League.FTC -> "192.168.43.1"
@@ -198,26 +191,12 @@ class EnvironmentService(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class JavaEnvResult(
     val isValid: Boolean,
     val message: String
 )
 
 @kotlinx.serialization.Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class AresRobotConfig(
     val teamId: String,
     val seasonId: String,

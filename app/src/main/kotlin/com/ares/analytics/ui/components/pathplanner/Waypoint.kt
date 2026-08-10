@@ -1,12 +1,5 @@
 package com.ares.analytics.ui.components.pathplanner
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class Waypoint(
     val x: Double,
     val y: Double,

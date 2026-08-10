@@ -27,13 +27,6 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun MechanismVisualizer(
     currentFrame: ReplayFrame?,
     nt4ClientService: Nt4ClientService? = null,

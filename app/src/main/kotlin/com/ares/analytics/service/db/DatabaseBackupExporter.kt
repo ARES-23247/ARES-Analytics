@@ -55,7 +55,7 @@ class DatabaseBackupExporter(
         val absolutePath = file.absolutePath.replace("\\", "/").replace("'", "''")
         conn.createStatement().use { st ->
             st.execute("""
-                INSERT INTO telemetry_frames BY NAME 
+                INSERT INTO telemetry_frames BY NAME
                 SELECT * FROM read_parquet('$absolutePath')
                 ON CONFLICT (session_id, key, timestamp_ms) DO UPDATE SET
                     value = EXCLUDED.value,
@@ -98,7 +98,7 @@ class DatabaseBackupExporter(
                     conn.createStatement().use { st ->
                         st.execute("COPY (SELECT * FROM telemetry_frames WHERE session_id = '$safeSessionId') TO '$absolutePath' (FORMAT PARQUET)")
                     }
-                    
+
                     val safeEntryName = sessionId.replace(Regex("[^A-Za-z0-9._-]"), "_")
                     zos.putNextEntry(java.util.zip.ZipEntry("$safeEntryName.parquet"))
                     tempFile.inputStream().use { fis ->

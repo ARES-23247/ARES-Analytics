@@ -23,19 +23,12 @@ import kotlinx.coroutines.launch
 import com.ares.analytics.ui.components.core.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun StateMachineTrackerCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
-    
+
     // Map of Subsystem Name -> Current State String
     val activeStates = remember { mutableStateMapOf<String, String>() }
 
@@ -62,8 +55,6 @@ fun StateMachineTrackerCard(
             icon = Icons.Default.AccountTree,
             iconTint = AresCyan
         )
-
-
 
             if (activeStates.isEmpty()) {
                 Box(

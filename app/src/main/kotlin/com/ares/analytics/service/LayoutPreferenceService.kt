@@ -41,13 +41,6 @@ data class DashboardLayoutConfig(
     val widgets: List<WidgetConfig>
 )
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 class LayoutPreferenceService(
     private val baseDir: String = System.getProperty("user.home") + "/.ares-analytics/layouts"
 ) {
@@ -79,13 +72,6 @@ class LayoutPreferenceService(
         getDefaultLayout(profileName)
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun getDefaultLayout(profileName: String): DashboardLayoutConfig {
         return when (profileName.lowercase().replace(" ", "_")) {
             "driver_coach" -> DashboardLayoutConfig(
@@ -135,13 +121,6 @@ class LayoutPreferenceService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun getSavedLayouts(): List<String> {
         val dir = File(baseDir)
         if (!dir.exists()) return emptyList()
@@ -151,13 +130,6 @@ class LayoutPreferenceService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun getAvailableLayouts(): List<String> {
         val defaults = listOf("Standard", "Driver Coach", "Programmer", "Pit Crew", "Match Review", "Pit Diagnostics", "Driver Practice")
         val saved = getSavedLayouts()

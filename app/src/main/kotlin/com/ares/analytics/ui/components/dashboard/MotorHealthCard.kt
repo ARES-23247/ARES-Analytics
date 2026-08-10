@@ -32,13 +32,6 @@ import kotlinx.coroutines.launch
 import com.ares.analytics.ui.components.core.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun MotorHealthCard(
     databaseService: DatabaseService,
     sessionId: String?,
@@ -46,7 +39,7 @@ fun MotorHealthCard(
 ) {
     val scope = rememberCoroutineScope()
     var currentFrames by remember { mutableStateOf<List<TelemetryFrame>>(emptyList()) }
-    
+
     LaunchedEffect(sessionId) {
         if (sessionId != null) {
             while (isActive) {
@@ -70,20 +63,19 @@ fun MotorHealthCard(
             iconTint = AresGold
         )
 
-
         if (currentFrames.isEmpty()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text("Select a session with current telemetry to view motor logs.", color = AresTextTertiary, fontSize = 12.sp)
             }
         } else {
             val grouped = currentFrames.groupBy { it.key }
-            
+
             Column(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 // Render top 2 motor current charts
                 grouped.entries.take(2).forEach { (motorKey, frames) ->
                     val motorName = motorKey.split("/").lastOrNull()?.replace("current", "", ignoreCase = true) ?: "Motor"
                     Text(motorName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AresTextSecondary)
-                    
+
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         MotorCurrentChart(frames = frames.sortedBy { it.timestampMs })
                     }

@@ -45,13 +45,6 @@ private val AresShapes = Shapes(
 )
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun AresTheme(
     colorblindMode: Boolean = false,
     highContrastMode: Boolean = false,

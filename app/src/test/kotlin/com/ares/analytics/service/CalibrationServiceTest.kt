@@ -84,7 +84,7 @@ class CalibrationServiceTest {
         assertEquals(targetDx, diag.pose.x, 0.05)
         assertEquals(targetDy, diag.pose.y, 0.05)
         assertEquals(targetYaw, diag.pose.yaw, 0.05)
-        
+
         // Assert standard errors are non-negative and reasonably sized
         assertEquals(6, diag.standardErrors.size)
         diag.standardErrors.forEach { se ->

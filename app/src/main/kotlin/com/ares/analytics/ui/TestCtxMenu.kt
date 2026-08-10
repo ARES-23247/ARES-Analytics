@@ -7,13 +7,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun test() {
     DropdownMenu(expanded = true, onDismissRequest = {}, offset = DpOffset(0.dp, 0.dp)) {
         DropdownMenuItem(onClick = {}) { Text("Hello") }

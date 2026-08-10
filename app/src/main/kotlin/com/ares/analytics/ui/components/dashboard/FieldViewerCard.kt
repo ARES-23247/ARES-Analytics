@@ -33,14 +33,11 @@ import com.areslib.math.geometry.Rotation2d
 import com.areslib.math.coordinate.AllianceMirroring
 import com.areslib.math.coordinate.FieldSymmetry
 
+private fun waypointOrNull(x: Double?, y: Double?, headingRad: Double?): Waypoint? {
+    return Waypoint(x ?: return null, y ?: return null, headingRad ?: return null)
+}
+
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun FieldViewerCard(
     nt4ClientService: Nt4ClientService,
     league: League,
@@ -53,12 +50,8 @@ fun FieldViewerCard(
     val viewModel = remember(nt4ClientService) { FieldViewerViewModel(nt4ClientService, scope) }
     val state by viewModel.state.collectAsState()
     val liveState by viewModel.livePose.collectAsState()
-    val estimatedPose = if (liveState.ekfX != null && liveState.ekfY != null && liveState.ekfHeading != null) {
-        Waypoint(liveState.ekfX!!, liveState.ekfY!!, liveState.ekfHeading!!)
-    } else null
-    val odomPose = if (liveState.odomX != null && liveState.odomY != null && liveState.odomHeading != null) {
-        Waypoint(liveState.odomX!!, liveState.odomY!!, liveState.odomHeading!!)
-    } else null
+    val estimatedPose = waypointOrNull(liveState.ekfX, liveState.ekfY, liveState.ekfHeading)
+    val odomPose = waypointOrNull(liveState.odomX, liveState.odomY, liveState.odomHeading)
     var showEkfPose by remember { mutableStateOf(true) }
     var showOdomPose by remember { mutableStateOf(true) }
     var showVisionPoses by remember { mutableStateOf(true) }
@@ -71,12 +64,11 @@ fun FieldViewerCard(
                 val vx = liveState.visionPoses[i]
                 val vy = liveState.visionPoses[i + 1]
                 val vh = liveState.visionPoses[i + 2]
-                if (vx != null && vy != null && vh != null) {
-                    list.add(Waypoint(vx, vy, vh))
-                }
+                waypointOrNull(vx, vy, vh)?.let(list::add)
             }
-            if (list.isEmpty() && liveState.visionX != null && liveState.visionY != null && liveState.visionHeading != null) {
-                list.add(Waypoint(liveState.visionX!!, liveState.visionY!!, liveState.visionHeading!!))
+            if (list.isEmpty()) {
+                waypointOrNull(liveState.visionX, liveState.visionY, liveState.visionHeading)
+                    ?.let(list::add)
             }
         }
         list
@@ -117,7 +109,7 @@ fun FieldViewerCard(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )
-                
+
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     var menuExpanded by remember { mutableStateOf(false) }
                     Box {

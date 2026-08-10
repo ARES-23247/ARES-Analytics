@@ -30,13 +30,6 @@ import kotlin.math.sin
 import com.ares.analytics.ui.components.core.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun IMUVisualizerCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
@@ -50,12 +43,12 @@ fun IMUVisualizerCard(
         nt4ClientService.telemetryFlow.collect { frame ->
             val key = frame.key
             val value = frame.value as? Double ?: return@collect
-            
+
             when {
                 key.endsWith("IMU/Roll") || key.endsWith("IMU/roll") -> roll = value
                 key.endsWith("IMU/Pitch") || key.endsWith("IMU/pitch") -> pitch = value
                 key.endsWith("IMU/Yaw") || key.endsWith("IMU/yaw") || key.endsWith("Drive/Pose_Heading") -> yaw = value
-                
+
                 // Fallbacks if team puts IMU on different prefix
                 key.endsWith("Robot/Roll") || key.endsWith("Robot/roll") -> roll = value
                 key.endsWith("Robot/Pitch") || key.endsWith("Robot/pitch") -> pitch = value
@@ -86,8 +79,6 @@ fun IMUVisualizerCard(
             }
         )
 
-
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
@@ -95,7 +86,7 @@ fun IMUVisualizerCard(
                 // Roll
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("ROLL", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    val rColor = if (roll != null && kotlin.math.abs(roll!!) > 15.0) AresError else AresTextPrimary
+                    val rColor = if (roll?.let { kotlin.math.abs(it) > 15.0 } == true) AresError else AresTextPrimary
                     Text(
                         text = roll?.let { String.format("%.1f°", Math.toDegrees(it)) } ?: "--",
                         color = rColor,
@@ -104,11 +95,11 @@ fun IMUVisualizerCard(
                         fontWeight = FontWeight.Bold
                     )
                 }
-                
+
                 // Pitch
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("PITCH", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    val pColor = if (pitch != null && kotlin.math.abs(pitch!!) > 15.0) AresError else AresTextPrimary
+                    val pColor = if (pitch?.let { kotlin.math.abs(it) > 15.0 } == true) AresError else AresTextPrimary
                     Text(
                         text = pitch?.let { String.format("%.1f°", Math.toDegrees(it)) } ?: "--",
                         color = pColor,
@@ -130,9 +121,9 @@ fun IMUVisualizerCard(
                     )
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             // Simple visualizer for heading
             Box(
                 modifier = Modifier
@@ -147,13 +138,13 @@ fun IMUVisualizerCard(
                     val cx = size.width / 2f
                     val cy = size.height / 2f
                     val radius = size.width / 2f - 4f
-                    
+
                     // Draw compass circle
                     drawCircle(color = AresSurface, radius = radius, center = Offset(cx, cy))
                     drawCircle(color = AresBorder, radius = radius, center = Offset(cx, cy), style = Stroke(width = 2f))
-                    
-                    if (yaw != null) {
-                        val yawDeg = Math.toDegrees(yaw!!).toFloat()
+
+                    yaw?.let { yawRadians ->
+                        val yawDeg = Math.toDegrees(yawRadians).toFloat()
                         rotate(degrees = -yawDeg, pivot = Offset(cx, cy)) {
                             // Draw robot arrow pointing up
                             val arrowW = 20f
@@ -170,7 +161,7 @@ fun IMUVisualizerCard(
                                 size = Size(arrowW, arrowH * 0.3f)
                             )
                         }
-                    } else {
+                    } ?: run {
                         drawCircle(color = AresTextTertiary, radius = 4f, center = Offset(cx, cy))
                     }
                 }

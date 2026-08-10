@@ -24,13 +24,6 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun SwerveVisualizer(
     currentFrame: ReplayFrame?,
     modifier: Modifier = Modifier
@@ -128,7 +121,7 @@ fun SwerveVisualizer(
                     // Draw velocity vector arrow
                     val maxArrowLen = 60f
                     val arrowLen = (velocity * 12f).toFloat().coerceIn(-maxArrowLen, maxArrowLen)
-                    
+
                     // Steer vector line (adjusted by -90 degrees to align with CCW field coordinates)
                     val steerAngle = -angleRad - Math.PI / 2.0
                     val endX = center.x + arrowLen * cos(steerAngle).toFloat()

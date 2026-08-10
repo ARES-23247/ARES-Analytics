@@ -41,7 +41,7 @@ class SchemaMigrationManager(
     fun runMigrations(isFirstRun: Boolean, oldDbPath: String) {
         createSchemaSync(conn)
         createSchemaSync(ephemeralConn)
-        
+
         if (isFirstRun && File(oldDbPath).exists()) {
             val safeOldDbPath = oldDbPath.replace("'", "''")
             try {
@@ -65,7 +65,7 @@ class SchemaMigrationManager(
                     } catch (e: Exception) {
                         throw e
                     } finally {
-                        try { st.execute("DETACH legacy_sqlite") } catch (_: Exception) {}
+                        runCatching { st.execute("DETACH legacy_sqlite") }
                     }
                 }
             } catch (e: Exception) {
@@ -73,7 +73,7 @@ class SchemaMigrationManager(
             }
         }
     }
-    
+
     /**
      * Executes DDL `CREATE TABLE IF NOT EXISTS` queries synchronously on the specified JDBC connection.
      *
@@ -93,7 +93,7 @@ class SchemaMigrationManager(
                     match_number BIGINT,
                     alliance_color VARCHAR
                 );
-                
+
                 CREATE TABLE IF NOT EXISTS session_summaries (
                     session_id VARCHAR PRIMARY KEY,
                     team_id VARCHAR NOT NULL,
@@ -115,7 +115,7 @@ class SchemaMigrationManager(
                     match_number BIGINT,
                     alliance_color VARCHAR
                 );
-                
+
                 CREATE TABLE IF NOT EXISTS telemetry_frames (
                     timestamp_ms BIGINT NOT NULL,
                     session_id VARCHAR NOT NULL,
@@ -124,10 +124,10 @@ class SchemaMigrationManager(
                     string_value VARCHAR,
                     PRIMARY KEY (session_id, key, timestamp_ms)
                 );
-                
+
                 CREATE INDEX IF NOT EXISTS idx_telemetry_session_time ON telemetry_frames(session_id, timestamp_ms);
                 CREATE INDEX IF NOT EXISTS idx_telemetry_session_id ON telemetry_frames(session_id);
-                
+
                 CREATE TABLE IF NOT EXISTS session_annotations (
                     annotation_id VARCHAR PRIMARY KEY,
                     session_id VARCHAR NOT NULL,
@@ -135,7 +135,7 @@ class SchemaMigrationManager(
                     created_at BIGINT NOT NULL,
                     author_id VARCHAR
                 );
-                
+
                 CREATE TABLE IF NOT EXISTS alerts (
                     alert_id VARCHAR PRIMARY KEY,
                     session_id VARCHAR NOT NULL,
@@ -146,7 +146,7 @@ class SchemaMigrationManager(
                     peak_value DOUBLE NOT NULL DEFAULT 0.0,
                     triaged BIGINT NOT NULL DEFAULT 0
                 );
-                
+
                 CREATE TABLE IF NOT EXISTS console_messages (
                     timestamp_ms BIGINT NOT NULL,
                     session_id VARCHAR NOT NULL,
@@ -154,12 +154,12 @@ class SchemaMigrationManager(
                     severity VARCHAR NOT NULL,
                     PRIMARY KEY (session_id, timestamp_ms, text)
                 );
-                
+
                 CREATE TABLE IF NOT EXISTS cached_topologies (
                     robot_id VARCHAR PRIMARY KEY,
                     topology_json VARCHAR NOT NULL
                 );
-                
+
                 CREATE TABLE IF NOT EXISTS robot_actions (
                     timestamp_ms BIGINT NOT NULL,
                     session_id VARCHAR NOT NULL,
@@ -171,7 +171,7 @@ class SchemaMigrationManager(
                     payload_json VARCHAR NOT NULL
                 );
             """.trimIndent())
-            
+
             try {
                 st.execute("ALTER TABLE telemetry_frames ADD COLUMN string_value VARCHAR;")
             } catch (e: Exception) {

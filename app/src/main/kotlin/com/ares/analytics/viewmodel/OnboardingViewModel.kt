@@ -11,13 +11,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class OnboardingState(
     val projectPath: String = "",
     val teamId: String = "",
@@ -41,135 +34,39 @@ data class OnboardingState(
 )
 
 sealed class OnboardingIntent {
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateProjectPath(val projectPath: String) : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateTeamId(val teamId: String) : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateSeasonId(val seasonId: String) : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateRobotId(val robotId: String) : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateRobotName(val robotName: String) : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateLeague(val league: League) : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateNt4Host(val nt4Host: String) : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateGoogleClientId(val googleClientId: String) : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateGoogleClientSecret(val googleClientSecret: String) : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateSimulatorCommand(val simulatorCommand: String) : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateSelectedOptionText(val text: String) : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class FetchCloudRobots(val token: String) : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object DetectLeague : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object VerifyJava : OnboardingIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object SubmitConfig : OnboardingIntent()
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Builds and validates a workspace configuration before making it the active workspace. */
 class OnboardingViewModel(
     private val environmentService: EnvironmentService,
     private val syncEngineService: com.ares.analytics.service.SyncEngineService,
@@ -183,13 +80,6 @@ class OnboardingViewModel(
         handleIntent(OnboardingIntent.VerifyJava)
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun handleIntent(intent: OnboardingIntent) {
         scope.launch {
             when (intent) {
@@ -290,7 +180,7 @@ class OnboardingViewModel(
                             simulatorCommand = currentState.simulatorCommand.takeIf { it.isNotEmpty() }
                         )
                         environmentService.saveConfig(config)
-                        
+
                         // Register local robot profile in the shared Google Drive
                         try {
                             val profile = com.ares.analytics.shared.RobotProfile(
@@ -307,7 +197,7 @@ class OnboardingViewModel(
                             // Silently fail if not signed in / Drive unreachable
                             e.printStackTrace()
                         }
-                        
+
                         _state.update { it.copy(isSaving = false, saveSuccess = true) }
                         onConfigured(config)
                     } catch (e: Exception) {

@@ -6,37 +6,24 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import org.ejml.simple.SimpleMatrix
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Runs feedforward regression and transient classification for the selected mechanism. */
 class SysIdRegressionSolver(
     private val nt4ClientService: Nt4ClientService,
     private val _state: MutableStateFlow<SysIdState>
 ) {
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun runCalibrationAnalysis(calibrationType: String, data: List<DoubleArray>) {
         if (data.size < 10) {
             _state.update { it.copy(errorMessage = "Not enough calibration data collected (minimum 10 points)") }
             return
         }
-        
+
         try {
             when (calibrationType) {
                 "PINPOINT_SPIN" -> {
                     val n = data.size
                     val A = SimpleMatrix(2 * n, 4)
                     val b = SimpleMatrix(2 * n, 1)
-                    
+
                     for (i in 0 until n) {
                         val row = data[i]
                         val x = row[1]
@@ -44,10 +31,10 @@ class SysIdRegressionSolver(
                         val heading = row[3]
                         val cosT = kotlin.math.cos(heading)
                         val sinT = kotlin.math.sin(heading)
-                        
+
                         A.setRow(2 * i, 0, 1.0, 0.0, cosT, -sinT)
                         A.setRow(2 * i + 1, 0, 0.0, 1.0, sinT, cosT)
-                        
+
                         b.set(2 * i, 0, x)
                         b.set(2 * i + 1, 0, y)
                     }
@@ -56,7 +43,7 @@ class SysIdRegressionSolver(
                     val dyMeters = beta.get(3, 0)
                     val deltaXOffsetMm = dxMeters * 1000.0
                     val deltaYOffsetMm = dyMeters * 1000.0
-                    
+
                     _state.update {
                         it.copy(
                             recommendedPinpointXOffsetMm = deltaXOffsetMm,
@@ -71,7 +58,7 @@ class SysIdRegressionSolver(
                     var lastHeading = data[0][5]
                     val unwrappedHeadings = DoubleArray(n)
                     unwrappedHeadings[0] = 0.0
-                    
+
                     for (i in 1 until n) {
                         val currentHeading = data[i][5]
                         var diff = currentHeading - lastHeading
@@ -87,7 +74,7 @@ class SysIdRegressionSolver(
                     val fr0 = data[0][2]
                     val rl0 = data[0][3]
                     val rr0 = data[0][4]
-                    
+
                     for (i in 0 until n) {
                         val fl = data[i][1] - fl0
                         val fr = data[i][2] - fr0
@@ -95,14 +82,14 @@ class SysIdRegressionSolver(
                         val rr = data[i][4] - rr0
                         val y = -fl + fr - rl + rr
                         val x = 4.0 * unwrappedHeadings[i]
-                        
+
                         sumXY += x * y
                         sumX2 += x * x
                     }
                     val k = if (sumX2 > 1e-6) sumXY / sumX2 else 0.45
                     val wheelBase = nt4ClientService.latestValues["Tuning/wheelBaseMeters"]?.value ?: 0.45
                     val recTrackWidth = 2.0 * k - wheelBase
-                    
+
                     _state.update {
                         it.copy(
                             recommendedTrackWidthMeters = recTrackWidth,
@@ -118,14 +105,14 @@ class SysIdRegressionSolver(
                     var varX = 0.0
                     var varY = 0.0
                     var varHeading = 0.0
-                    
+
                     for (row in data) {
                         val dx = row[1] - meanX
                         val dy = row[2] - meanY
                         var dHeading = row[3] - meanHeading
                         while (dHeading < -kotlin.math.PI) dHeading += 2 * kotlin.math.PI
                         while (dHeading > kotlin.math.PI) dHeading -= 2 * kotlin.math.PI
-                        
+
                         varX += dx * dx
                         varY += dy * dy
                         varHeading += dHeading * dHeading
@@ -133,7 +120,7 @@ class SysIdRegressionSolver(
                     val stdX = kotlin.math.sqrt(varX / (n - 1))
                     val stdY = kotlin.math.sqrt(varY / (n - 1))
                     val stdHeading = kotlin.math.sqrt(varHeading / (n - 1))
-                    
+
                     _state.update {
                         it.copy(
                             recommendedVisionStdDevsX = stdX,
@@ -148,11 +135,11 @@ class SysIdRegressionSolver(
                     val lastDisplacement = data.lastOrNull()?.get(1) ?: 0.0
                     val reportedDisplacement = lastDisplacement - firstDisplacement
                     val actualDistance = _state.value.linearDriveActualDistanceMeters
-                    
+
                     if (actualDistance > 0.1 && reportedDisplacement > 0.05) {
                         val currentTicks = nt4ClientService.latestValues["Tuning/ticksPerMeter"]?.value ?: 2000.0
                         val recTicks = currentTicks * (reportedDisplacement / actualDistance)
-                        
+
                         _state.update {
                             it.copy(
                                 recommendedTicksPerMeter = recTicks,

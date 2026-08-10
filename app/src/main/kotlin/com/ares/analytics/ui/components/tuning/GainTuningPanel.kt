@@ -209,7 +209,7 @@ fun GainTuningPanel(
         } else {
             // Group by custom categories
             val grouped = allKeys.groupBy { getCustomCategory(it) }
-            
+
             LazyVerticalStaggeredGrid(
                 columns = StaggeredGridCells.Adaptive(minSize = 360.dp),
                 modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -249,13 +249,13 @@ fun GainTuningPanel(
                             keys.sorted().forEach { constKey ->
                                 val parts = constKey.removePrefix("Tuning/").split("/")
                                 val displayName = if (parts.size > 1) parts.drop(1).joinToString("/") else parts[0]
-                                
+
                                 val robotVal = state.variables[constKey]
                                 val appVal = state.appVariables[constKey]
-                                
+
                                 val isSynced = robotVal != null && appVal != null && kotlin.math.abs(robotVal - appVal) < 1e-5
                                 val isDiff = robotVal != null && appVal != null && kotlin.math.abs(robotVal - appVal) >= 1e-5
-                                
+
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically,
@@ -424,18 +424,18 @@ private fun getCustomCategory(key: String): String {
             else -> parts[0].replace(Regex("([a-z])([A-Z]+)"), "$1 $2").replaceFirstChar { it.uppercase() }
         }
     }
-    
+
     // Top-level variables
     return when {
-        cleanKey == "pinpointXOffsetMm" || 
-        cleanKey == "pinpointYOffsetMm" || 
-        cleanKey == "pinpointEncoderResolution" || 
+        cleanKey == "pinpointXOffsetMm" ||
+        cleanKey == "pinpointYOffsetMm" ||
+        cleanKey == "pinpointEncoderResolution" ||
         cleanKey == "ticksPerMeter" -> "Pinpoint Odometry"
-        
+
         cleanKey.startsWith("vision") -> "Limelight Vision"
-        
+
         cleanKey.startsWith("odomQ") -> "EKF Position Filter"
-        
+
         else -> "General Drivetrain Constants"
     }
 }

@@ -17,37 +17,17 @@ import com.areslib.math.geometry.Translation2d
 import com.areslib.math.geometry.Rotation2d
 import com.areslib.math.wrapAngle
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 enum class EditorMode {
     SELECT, ADD_WAYPOINT, DRAW_POLYGON, DRAW_CIRCLE, DRAW_RECTANGLE, PLACE_GAME_PIECE, PLACE_APRILTAG, PLACE_FIELD_WAYPOINT, ERASER
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class PointTowardsZoneRenderData(
     val target: Waypoint,
     val splinePoints: List<Waypoint>
 )
 
 // Precomputed Cache Data Structures for zero-allocation rendering performance
-/**
 
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 class PathCacheHolder {
     var splinePoints: List<Waypoint> = emptyList()
     var actualPoints: List<Waypoint> = emptyList()
@@ -72,13 +52,7 @@ class PathCacheHolder {
 }
 
 // Convert coordinates base models
-/**
 
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun getCanvasOffsetBase(
     wp: Waypoint,
     canvasW: Float,
@@ -98,13 +72,6 @@ fun getCanvasOffsetBase(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun getRobotCoordBase(
     offset: Offset,
     canvasW: Float,
@@ -124,21 +91,14 @@ fun getRobotCoordBase(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun getTransformedCanvasOffset(
-    wp: Waypoint, 
-    w: Float, 
-    h: Float, 
-    fieldWidthM: Double, 
-    fieldHeightM: Double, 
-    league: League, 
-    zoomScale: Float, 
+    wp: Waypoint,
+    w: Float,
+    h: Float,
+    fieldWidthM: Double,
+    fieldHeightM: Double,
+    league: League,
+    zoomScale: Float,
     panOffset: Offset,
     viewRotationDeg: Float = 0f
 ): Offset {
@@ -159,21 +119,14 @@ fun getTransformedCanvasOffset(
     return Offset(x, y)
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun getRobotCoordFromScreen(
-    screenOffset: Offset, 
-    w: Float, 
-    h: Float, 
-    fieldWidthM: Double, 
-    fieldHeightM: Double, 
-    league: League, 
-    zoomScale: Float, 
+    screenOffset: Offset,
+    w: Float,
+    h: Float,
+    fieldWidthM: Double,
+    fieldHeightM: Double,
+    league: League,
+    zoomScale: Float,
     panOffset: Offset,
     viewRotationDeg: Float = 0f
 ): Waypoint {
@@ -254,7 +207,7 @@ fun getDragDeltaInFieldCoords(
         dxPx = rotatedX
         dyPx = rotatedY
     }
-    
+
     return if (league == League.FTC) {
         val dx = -(dyPx / canvasH) * fieldH / zoomScale
         val dy = -(dxPx / canvasW) * fieldW / zoomScale
@@ -266,13 +219,6 @@ fun getDragDeltaInFieldCoords(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun cubicHermite(p0: Double, v0: Double, p1: Double, v1: Double, t: Double): Double {
     val t2 = t * t
     val t3 = t2 * t
@@ -283,13 +229,6 @@ fun cubicHermite(p0: Double, v0: Double, p1: Double, v1: Double, t: Double): Dou
     return h00 * p0 + h10 * v0 + h01 * p1 + h11 * v1
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun getPositionOnSpline(pos: Double, waypoints: List<Waypoint>): Waypoint {
     if (waypoints.isEmpty()) return Waypoint(0.0, 0.0)
     if (waypoints.size == 1) return waypoints.first()
@@ -310,13 +249,6 @@ fun getPositionOnSpline(pos: Double, waypoints: List<Waypoint>): Waypoint {
     return Waypoint(point.x, point.y)
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun getClosestSplinePosition(
     mouseOffset: Offset,
     waypoints: List<Waypoint>,
@@ -330,7 +262,7 @@ fun getClosestSplinePosition(
     var bestPos = 0.0
     var minDistSq = Float.MAX_VALUE
     val maxPos = (waypoints.size - 1).toDouble()
-    
+
     // Sample the spline densely to find closest projection
     val steps = (waypoints.size - 1) * 40
     for (k in 0..steps) {
@@ -348,13 +280,6 @@ fun getClosestSplinePosition(
     return bestPos
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 private val scratchXArrowPath = Path()
 private val scratchYArrowPath = Path()
 

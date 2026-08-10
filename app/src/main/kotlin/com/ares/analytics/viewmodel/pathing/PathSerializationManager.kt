@@ -4,6 +4,7 @@ import com.ares.analytics.shared.*
 import com.ares.analytics.service.TrajectoryEstimator
 import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.ui.components.pathplanner.resolveHeading
+import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.viewmodel.PathPreview
 import com.ares.analytics.viewmodel.PathPlannerState
 import kotlinx.coroutines.CoroutineScope
@@ -24,7 +25,10 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
- * Handles serialization, parsing, path file loading, auto file loading, and disk persistence.
+ * Owns PathPlanner serialization, preview generation, and robot-project persistence.
+ *
+ * Disk work runs on [Dispatchers.IO]. FTC saves are additionally pushed to the
+ * Robot Controller through ADB; a failed push does not discard the local file.
  */
 class PathSerializationManager(
     private val scope: CoroutineScope,
@@ -35,15 +39,8 @@ class PathSerializationManager(
     fun fetchAvailablePaths(projectPath: String?, league: League) {
         if (projectPath.isNullOrBlank()) return
         scope.launch(Dispatchers.IO) {
-            val pathsDir = File(projectPath, if (league == League.FTC) {
-                if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
-                else "src/main/assets/pathplanner/paths"
-            } else "src/main/deploy/pathplanner/paths")
-
-            val autosDir = File(projectPath, if (league == League.FTC) {
-                if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/autos"
-                else "src/main/assets/pathplanner/autos"
-            } else "src/main/deploy/pathplanner/autos")
+            val pathsDir = ProjectLayout.pathPlannerPathsDirectory(projectPath, league)
+            val autosDir = ProjectLayout.pathPlannerAutosDirectory(projectPath, league)
 
             val pathFiles = pathsDir.listFiles { _, name -> name.endsWith(".path") }?.map { it.nameWithoutExtension }?.sorted() ?: emptyList()
             val autoFiles = autosDir.listFiles { _, name -> name.endsWith(".auto") }?.map { it.nameWithoutExtension }?.sorted() ?: emptyList()
@@ -71,12 +68,7 @@ class PathSerializationManager(
         scope.launch(Dispatchers.IO) {
             val s = stateFlow.value
             val targetPathName = pathNameOverride ?: s.pathName
-            val relativeDir = if (league == League.FTC) {
-                if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
-                else "src/main/assets/pathplanner/paths"
-            } else "src/main/deploy/pathplanner/paths"
-
-            val file = File(File(projectPath, relativeDir), "$targetPathName.path")
+            val file = File(ProjectLayout.pathPlannerPathsDirectory(projectPath, league), "$targetPathName.path")
             if (!file.exists()) {
                 stateFlow.update { it.copy(saveStatus = "Path file $targetPathName.path does not exist") }
                 return@launch
@@ -132,12 +124,7 @@ class PathSerializationManager(
         scope.launch(Dispatchers.IO) {
             val s = stateFlow.value
             val targetAutoName = autoNameOverride ?: s.pathName
-            val relativeDir = if (league == League.FTC) {
-                if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/autos"
-                else "src/main/assets/pathplanner/autos"
-            } else "src/main/deploy/pathplanner/autos"
-
-            val file = File(File(projectPath, relativeDir), "$targetAutoName.auto")
+            val file = File(ProjectLayout.pathPlannerAutosDirectory(projectPath, league), "$targetAutoName.auto")
             if (!file.exists()) {
                 stateFlow.update { it.copy(saveStatus = "Auto file $targetAutoName.auto does not exist") }
                 return@launch
@@ -163,13 +150,7 @@ class PathSerializationManager(
 
     fun loadPathTrajectory(pathName: String, projectPath: String, league: League): Trajectory? {
         try {
-            val relativeDir = if (league == League.FTC) {
-                if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
-                else "src/main/assets/pathplanner/paths"
-            } else {
-                "src/main/deploy/pathplanner/paths"
-            }
-            val targetDir = File(projectPath, relativeDir)
+            val targetDir = ProjectLayout.pathPlannerPathsDirectory(projectPath, league)
             val file = File(targetDir, "$pathName.path")
             if (!file.exists()) return null
             val pathFile = AppJson.decodeFromString<PathPlannerFile>(file.readText())
@@ -200,13 +181,7 @@ class PathSerializationManager(
 
     fun loadPathWaypoints(pathName: String, projectPath: String, league: League): List<Waypoint>? {
         try {
-            val relativeDir = if (league == League.FTC) {
-                if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
-                else "src/main/assets/pathplanner/paths"
-            } else {
-                "src/main/deploy/pathplanner/paths"
-            }
-            val targetDir = File(projectPath, relativeDir)
+            val targetDir = ProjectLayout.pathPlannerPathsDirectory(projectPath, league)
             val file = File(targetDir, "$pathName.path")
             if (!file.exists()) return null
             val pathFile = AppJson.decodeFromString<PathPlannerFile>(file.readText())
@@ -229,13 +204,7 @@ class PathSerializationManager(
 
     fun loadAutoTrajectory(autoName: String, projectPath: String, league: League): Trajectory? {
         try {
-            val relativeDir = if (league == League.FTC) {
-                if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/autos"
-                else "src/main/assets/pathplanner/autos"
-            } else {
-                "src/main/deploy/pathplanner/autos"
-            }
-            val targetDir = File(projectPath, relativeDir)
+            val targetDir = ProjectLayout.pathPlannerAutosDirectory(projectPath, league)
             val file = File(targetDir, "$autoName.auto")
             if (!file.exists()) return null
             val autoFile = AppJson.decodeFromString<AutoFile>(file.readText())
@@ -243,8 +212,8 @@ class PathSerializationManager(
 
             fun extractPaths(node: AutoCommandNode) {
                 if (node.type == "path") {
-                    val pName = node.data["pathName"]?.let { 
-                        if (it is JsonPrimitive && it.isString) it.content else null 
+                    val pName = node.data["pathName"]?.let {
+                        if (it is JsonPrimitive && it.isString) it.content else null
                     }
                     if (!pName.isNullOrEmpty()) {
                         pathNames.add(pName)
@@ -255,7 +224,9 @@ class PathSerializationManager(
                     try {
                         val childNode = AppJson.decodeFromJsonElement(AutoCommandNode.serializer(), jsonElement)
                         extractPaths(childNode)
-                    } catch (e: Exception) {}
+                    } catch (_: Exception) {
+                        // Keep usable path commands when one nested auto command is malformed.
+                    }
                 }
             }
             extractPaths(autoFile.command)
@@ -271,7 +242,7 @@ class PathSerializationManager(
                     totalTime += traj.durationSeconds
                 }
             }
-            
+
             return if (combinedStates.isNotEmpty()) Trajectory(totalTime, combinedStates) else null
         } catch (e: Exception) {
             return null
@@ -287,8 +258,8 @@ class PathSerializationManager(
 
             fun extractPaths(node: AutoCommandNode) {
                 if (node.type == "path") {
-                    val pathName = node.data["pathName"]?.let { 
-                        if (it is JsonPrimitive && it.isString) it.content else null 
+                    val pathName = node.data["pathName"]?.let {
+                        if (it is JsonPrimitive && it.isString) it.content else null
                     }
                     if (!pathName.isNullOrEmpty()) {
                         pathNames.add(pathName)
@@ -299,7 +270,9 @@ class PathSerializationManager(
                     try {
                         val childNode = AppJson.decodeFromJsonElement(AutoCommandNode.serializer(), jsonElement)
                         extractPaths(childNode)
-                    } catch (e: Exception) {}
+                    } catch (_: Exception) {
+                        // Keep usable path commands when one nested auto command is malformed.
+                    }
                 }
             }
             extractPaths(root)
@@ -373,32 +346,27 @@ class PathSerializationManager(
                 reversed = s.reversed,
                 useDefaultConstraints = s.useDefaultConstraints
             )
-            val json = Json { 
+            val json = Json {
                 prettyPrint = true
                 encodeDefaults = false
             }
             val serialized = json.encodeToString(pathFile)
-            val relativeDir = if (league == League.FTC) {
-                "TeamCode/src/main/assets/pathplanner/paths"
-            } else {
-                "src/main/deploy/pathplanner/paths"
-            }
-            val targetDir = File(projectPath, relativeDir)
+            val targetDir = ProjectLayout.pathPlannerPathsDirectory(projectPath, league)
             targetDir.mkdirs()
             val targetFile = File(targetDir, "${s.pathName}.path")
             targetFile.writeText(serialized)
 
-            if (league == League.FTC) {
-                val pushed = pushFileToRobot(targetFile, "/sdcard/FIRST/paths", "${s.pathName}.path")
-                if (pushed) {
-                    stateFlow.update { it.copy(saveStatus = "Saved locally & pushed to robot!") }
+            val saveStatus = when (league) {
+                League.FTC -> if (pushFileToRobot(targetFile, "/sdcard/FIRST/paths", "${s.pathName}.path")) {
+                    "Saved locally & pushed to robot!"
                 } else {
-                    stateFlow.update { it.copy(saveStatus = "Saved locally (robot push failed/no connection)") }
+                    "Saved locally (robot push failed/no connection)"
                 }
-            } else {
-                stateFlow.update { it.copy(saveStatus = "Saved to ${targetFile.name}!") }
+
+                League.FRC -> "Saved to ${targetFile.name}!"
             }
-            
+            stateFlow.update { it.copy(saveStatus = saveStatus) }
+
             if (s.contextAutoName != null) {
                 updateContextAuto(s.contextAutoName, projectPath, league)
             }
@@ -410,12 +378,7 @@ class PathSerializationManager(
     suspend fun saveAuto(projectPath: String, league: League) = withContext(Dispatchers.IO) {
         val s = stateFlow.value
         try {
-            val relativeDir = if (league == League.FTC) {
-                "TeamCode/src/main/assets/pathplanner/autos"
-            } else {
-                "src/main/deploy/pathplanner/autos"
-            }
-            val targetDir = File(projectPath, relativeDir)
+            val targetDir = ProjectLayout.pathPlannerAutosDirectory(projectPath, league)
             targetDir.mkdirs()
             val rootCmd = s.currentAutoCommands.firstOrNull() ?: AutoCommandNode("sequential")
             val autoFile = AutoFile(
@@ -499,9 +462,7 @@ class PathSerializationManager(
 
     suspend fun deletePath(name: String, projectPath: String?, league: League) = withContext(Dispatchers.IO) {
         if (projectPath.isNullOrEmpty()) return@withContext
-        val relativeDir = if (league == League.FTC) "TeamCode/src/main/assets/pathplanner/paths" else "src/main/deploy/pathplanner/paths"
-        val file = File(File(projectPath, relativeDir), "$name.path")
-        if (file.exists()) file.delete()
+        File(ProjectLayout.pathPlannerPathsDirectory(projectPath, league), "$name.path").delete()
         if (league == League.FTC) {
             deleteFileFromRobot("/sdcard/FIRST/paths/$name.path")
         }
@@ -510,9 +471,7 @@ class PathSerializationManager(
 
     suspend fun deleteAuto(name: String, projectPath: String?, league: League) = withContext(Dispatchers.IO) {
         if (projectPath.isNullOrEmpty()) return@withContext
-        val relativeDir = if (league == League.FTC) "TeamCode/src/main/assets/pathplanner/autos" else "src/main/deploy/pathplanner/autos"
-        val file = File(File(projectPath, relativeDir), "$name.auto")
-        if (file.exists()) file.delete()
+        File(ProjectLayout.pathPlannerAutosDirectory(projectPath, league), "$name.auto").delete()
         if (league == League.FTC) {
             deleteFileFromRobot("/sdcard/FIRST/autos/$name.auto")
         }

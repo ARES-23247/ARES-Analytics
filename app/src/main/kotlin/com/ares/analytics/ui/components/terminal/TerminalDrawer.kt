@@ -28,13 +28,6 @@ import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.launch
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun TerminalDrawer(
     processManagerService: ProcessManagerService,
     projectPath: String,
@@ -269,7 +262,7 @@ private fun parseAnsi(input: String): androidx.compose.ui.text.AnnotatedString {
             } else {
                 input.substring(mIndex + 1, nextEsc)
             }
-            
+
             if (style != androidx.compose.ui.text.SpanStyle()) {
                 pushStyle(style)
                 append(textSegment)
@@ -277,7 +270,7 @@ private fun parseAnsi(input: String): androidx.compose.ui.text.AnnotatedString {
             } else {
                 append(textSegment)
             }
-            
+
             currentIndex = mIndex + 1 + textSegment.length
         }
     }
@@ -300,19 +293,19 @@ private fun getAnsiColor(code: Int, bright: Boolean): Color {
 private fun get256Color(index: Int): Color {
     if (index in 0..7) return getAnsiColor(index, false)
     if (index in 8..15) return getAnsiColor(index - 8, true)
-    
+
     if (index in 16..231) {
         val r = ((index - 16) / 36) * 51
         val g = (((index - 16) % 36) / 6) * 51
         val b = ((index - 16) % 6) * 51
         return Color(r, g, b)
     }
-    
+
     if (index in 232..255) {
         val gray = (index - 232) * 10 + 8
         return Color(gray, gray, gray)
     }
-    
+
     return AresTextPrimary
 }
 

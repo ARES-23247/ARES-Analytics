@@ -33,25 +33,12 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
 // ── Global Drag & Drop Manager ──────────────────────────────────────────────
-/**
 
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 object DragDropManager {
     var draggedSignalKey by mutableStateOf<String?>(null)
     var dragOffset by mutableStateOf(Offset.Zero)
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 class SignalNode(
     val name: String,
     val fullPath: String,
@@ -64,13 +51,6 @@ class SignalNode(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun SignalTreePanel(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
@@ -79,7 +59,7 @@ fun SignalTreePanel(
     val activeTopics = remember { mutableStateListOf<String>() }
     val liveValues = remember { mutableStateMapOf<String, Double>() }
     var searchQuery by remember { mutableStateOf("") }
-    
+
     // Track expanded folders: fullPath -> Boolean
     val expandedStates = remember { mutableStateMapOf<String, Boolean>() }
 
@@ -131,16 +111,9 @@ fun SignalTreePanel(
     }
 
     // Flatten tree to visible items based on expansion state
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun getVisibleItems(node: SignalNode, depth: Int): List<Pair<SignalNode, Int>> {
         val items = mutableListOf<Pair<SignalNode, Int>>()
-        
+
         // Sort children alphabetically
         val sortedChildren = node.children.values.sortedBy { it.name }
         for (child in sortedChildren) {
@@ -242,13 +215,6 @@ fun SignalTreePanel(
 }
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun SignalTreeRow(
     node: SignalNode,
     depth: Int,

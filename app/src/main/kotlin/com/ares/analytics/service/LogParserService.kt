@@ -233,8 +233,8 @@ class LogParserService(
             batcher.flush()
 
             if (batcher.frameCount > 0) {
-                if (batcher.minTimestamp < globalMinTimestamp) globalMinTimestamp = batcher.minTimestamp
-                if (batcher.maxTimestamp > globalMaxTimestamp) globalMaxTimestamp = batcher.maxTimestamp
+                globalMinTimestamp = minOf(globalMinTimestamp, batcher.minTimestamp)
+                globalMaxTimestamp = maxOf(globalMaxTimestamp, batcher.maxTimestamp)
             }
         }
         val baseSession = Session(
@@ -260,7 +260,7 @@ class LogParserService(
         }
         val summary = summaryEngineService.generateSummary(finalSession)
         databaseService.insertSessionSummary(summary)
-        
+
         return@withContext finalSession
     }
 

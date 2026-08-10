@@ -22,13 +22,6 @@ import com.ares.analytics.ui.theme.*
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun FieldCanvasToolbar(
     showPathControls: Boolean,
     showObstacleControls: Boolean,
@@ -96,7 +89,7 @@ fun FieldCanvasToolbar(
                     Icon(Icons.Default.Polyline, contentDescription = "Draw Free Form Obstacle")
                 }
             }
-                
+
             if (showObstacleControls && editorMode == EditorMode.DRAW_POLYGON && currentPolygonPoints.isNotEmpty()) {
                 TextButton(
                     onClick = {
@@ -272,13 +265,6 @@ fun FieldCanvasToolbar(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun TooltipButton(
     tooltipText: String,
     onClick: () -> Unit,

@@ -28,24 +28,10 @@ import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 enum class DsState {
     INIT, START, STOP
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 enum class MatchState {
     IDLE, AUTO_INIT, AUTO_RUNNING, TRANSITION, TELEOP_INIT, TELEOP_RUNNING
 }
@@ -57,13 +43,6 @@ private var cachedDsState: DsState = DsState.STOP
 private var cachedMatchState: MatchState = MatchState.IDLE
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun FtcDriverStationWidget(
     nt4Client: Nt4ClientService,
     modifier: Modifier = Modifier
@@ -73,7 +52,7 @@ fun FtcDriverStationWidget(
     var selectedTeleOpMode by remember { mutableStateOf(cachedSelectedTeleOpMode) }
     var dsState by remember { mutableStateOf(cachedDsState) }
     var matchState by remember { mutableStateOf(cachedMatchState) }
-    
+
     // Save to cache whenever changed
     cachedSelectedOpMode = selectedOpMode
     cachedSelectedAutoOpMode = selectedAutoOpMode
@@ -81,19 +60,19 @@ fun FtcDriverStationWidget(
     cachedDsState = dsState
     cachedMatchState = matchState
     var matchTimeRemaining by remember { mutableIntStateOf(0) }
-    var teleOps by remember { 
+    var teleOps by remember {
         mutableStateOf(
             nt4Client.latestValues["ARES/DriverStation/TeleOpList"]?.stringValue?.let {
                 try { Json.decodeFromString<List<String>>(it) } catch(e: Exception) { emptyList() }
             } ?: emptyList()
-        ) 
+        )
     }
-    var autos by remember { 
+    var autos by remember {
         mutableStateOf(
             nt4Client.latestValues["ARES/DriverStation/AutonomousList"]?.stringValue?.let {
                 try { Json.decodeFromString<List<String>>(it) } catch(e: Exception) { emptyList() }
             } ?: emptyList()
-        ) 
+        )
     }
     val telemetryLines = remember { mutableStateListOf<String>() }
     var isAutoExpanded by remember { mutableStateOf(false) }
@@ -104,7 +83,7 @@ fun FtcDriverStationWidget(
     LaunchedEffect(matchTimeRemaining) {
         nt4Client.publishDouble("ARES/DriverStation/MatchTimeRemaining", matchTimeRemaining.toDouble())
     }
-    
+
     LaunchedEffect(matchState) {
         nt4Client.publishString("ARES/DriverStation/MatchState", matchState.name)
         when (matchState) {
@@ -170,7 +149,6 @@ fun FtcDriverStationWidget(
         }
     }
 
-
     // Listen to NT4 topics
     LaunchedEffect(nt4Client) {
         launch {
@@ -203,7 +181,7 @@ fun FtcDriverStationWidget(
             }
 
         }
-        
+
         // Listen to telemetry lines which arrive as .../Telemetry/0, 1, 2...
         launch {
             nt4Client.telemetryFlow.filter { it.key.startsWith("ARES/DriverStation/Telemetry") }.collect { frame ->
@@ -373,7 +351,6 @@ fun FtcDriverStationWidget(
             }
         }
 
-
         Spacer(modifier = Modifier.height(16.dp))
 
         // Match Start Button
@@ -409,11 +386,11 @@ fun FtcDriverStationWidget(
         ) {
             Button(
                 onClick = {
-                    if (selectedOpMode != null) {
+                    selectedOpMode?.let { opMode ->
                         dsState = DsState.INIT
                         telemetryLines.clear()
                         scope.launch {
-                            nt4Client.publishString("ARES/DriverStation/SelectedOpMode", selectedOpMode!!)
+                            nt4Client.publishString("ARES/DriverStation/SelectedOpMode", opMode)
                             nt4Client.publishString("ARES/DriverStation/Command", "INIT")
                         }
                     }
@@ -427,9 +404,9 @@ fun FtcDriverStationWidget(
             ) {
                 Text("INIT", fontWeight = FontWeight.Bold)
             }
-            
+
             Spacer(modifier = Modifier.width(8.dp))
-            
+
             Button(
                 onClick = {
                     dsState = DsState.START
@@ -446,9 +423,9 @@ fun FtcDriverStationWidget(
             ) {
                 Icon(Icons.Default.PlayArrow, contentDescription = null)
             }
-            
+
             Spacer(modifier = Modifier.width(8.dp))
-            
+
             Button(
                 onClick = {
                     dsState = DsState.STOP
@@ -469,8 +446,6 @@ fun FtcDriverStationWidget(
             }
         }
 
-
-
         Spacer(modifier = Modifier.height(16.dp))
 
         // Telemetry View
@@ -482,13 +457,13 @@ fun FtcDriverStationWidget(
                 .padding(8.dp)
         ) {
             val listState = rememberLazyListState()
-            
+
             LaunchedEffect(telemetryLines.size) {
                 if (telemetryLines.isNotEmpty()) {
                     listState.animateScrollToItem(telemetryLines.size - 1)
                 }
             }
-            
+
             LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                 items(telemetryLines) { line ->
                     Text(

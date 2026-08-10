@@ -53,50 +53,19 @@ class UpdateCheckerService(
     private val serviceScope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 ) {
     sealed class UpdateState {
-        /**
 
-         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-         *
-
-         */
         object Checking : UpdateState()
-        /**
 
-         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-         *
-
-         */
         object UpToDate : UpdateState()
-        /**
 
-         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-         *
-
-         */
         data class UpdateAvailable(val latestVersion: String, val downloadUrl: String, val releaseNotes: String?) : UpdateState()
-        /**
 
-         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-         *
-
-         */
         data class Error(val message: String) : UpdateState()
     }
 
     private val _updateState = MutableStateFlow<UpdateState>(UpdateState.UpToDate)
     val updateState: StateFlow<UpdateState> = _updateState
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun checkForUpdates() {
         serviceScope.launch {
             _updateState.value = UpdateState.Checking
@@ -125,13 +94,6 @@ class UpdateCheckerService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun dispose() {
         serviceScope.coroutineContext.cancelChildren()
     }

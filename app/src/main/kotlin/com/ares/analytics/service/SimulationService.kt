@@ -31,14 +31,6 @@ data class SimPolygon(val vertices: List<SimPoint>) {
     }
 }
 
-
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 class SimulationService {
 
     private val random = Random()
@@ -56,24 +48,10 @@ class SimulationService {
         )))
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun addObstacle(polygon: SimPolygon) {
         obstacles.add(polygon)
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun clearObstacles() {
         obstacles.clear()
     }
@@ -175,13 +153,6 @@ class SimulationService {
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class SyntheticVisionResult(
     val distance: Double,
     val relativeAngleRad: Double,

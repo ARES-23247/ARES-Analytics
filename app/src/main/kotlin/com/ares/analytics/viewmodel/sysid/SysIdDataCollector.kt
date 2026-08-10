@@ -11,13 +11,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.*
 import java.util.concurrent.ConcurrentHashMap
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Collects live or imported SysId samples and normalizes them into regression-ready rows. */
 class SysIdDataCollector(
     private val nt4ClientService: Nt4ClientService,
     private val sysIdService: SysIdService,
@@ -27,13 +21,6 @@ class SysIdDataCollector(
 ) {
     private val dataBuffer = ConcurrentHashMap<Long, DoubleArray>()
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun startCollecting() {
         // Collect connection status
         scope.launch {
@@ -51,14 +38,14 @@ class SysIdDataCollector(
                         val wasRunning = _state.value.isRoutineRunning
                         val isRunning = status.isNotEmpty() && status != "NONE"
                         val prevCalibration = _state.value.activeCalibration
-                        
-                        _state.update { 
+
+                        _state.update {
                             it.copy(
                                 isRoutineRunning = isRunning,
                                 activeCalibration = if (isRunning) status else it.activeCalibration
-                            ) 
+                            )
                         }
-                        
+
                         if (wasRunning && !isRunning) {
                             // Routine/Calibration just completed!
                             val finalCalibration = prevCalibration
@@ -89,7 +76,7 @@ class SysIdDataCollector(
                                 "TRACK_WIDTH_SPIN" -> 5
                                 else -> 4
                             }
-                            
+
                             if (idx == expectedMaxIdx) {
                                 val completedArr = dataBuffer[t]
                                 if (completedArr != null) {
@@ -133,28 +120,14 @@ class SysIdDataCollector(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun clearBuffer() {
         dataBuffer.clear()
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun parseLogFile(fileContent: String): List<AlignedDataRow> {
         val rows = mutableListOf<AlignedDataRow>()
         val lines = fileContent.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }
-        
+
         if (lines.none()) return emptyList()
         val firstLine = lines.first()
         if (firstLine.startsWith("{")) {
@@ -162,7 +135,7 @@ class SysIdDataCollector(
             for (line in lines) {
                 try {
                     val element = Json.parseToJsonElement(line).jsonObject
-                    
+
                     // Scenario A: Check if the log contains the flattened SysId/Data array directly
                     val sysIdData = element["SysId/Data"] ?: element["SysId_Data"] ?: element["sysid_data"]
                     if (sysIdData != null) {
@@ -177,27 +150,29 @@ class SysIdDataCollector(
                             continue
                         }
                     }
-                    
+
                     // Scenario B: Check for individual fields
-                    val t = element["TimestampMs"]?.jsonPrimitive?.longOrNull 
-                        ?: element["timestamp"]?.jsonPrimitive?.longOrNull 
-                        ?: element["time"]?.jsonPrimitive?.longOrNull 
+                    val t = element["TimestampMs"]?.jsonPrimitive?.longOrNull
+                        ?: element["timestamp"]?.jsonPrimitive?.longOrNull
+                        ?: element["time"]?.jsonPrimitive?.longOrNull
                         ?: continue
-                    val volt = element["voltage"]?.jsonPrimitive?.doubleOrNull 
-                        ?: element["Voltage"]?.jsonPrimitive?.doubleOrNull 
-                        ?: element["Drive/Voltage"]?.jsonPrimitive?.doubleOrNull 
+                    val volt = element["voltage"]?.jsonPrimitive?.doubleOrNull
+                        ?: element["Voltage"]?.jsonPrimitive?.doubleOrNull
+                        ?: element["Drive/Voltage"]?.jsonPrimitive?.doubleOrNull
                         ?: continue
-                    val vel = element["velocity"]?.jsonPrimitive?.doubleOrNull 
-                        ?: element["Velocity"]?.jsonPrimitive?.doubleOrNull 
-                        ?: element["Drive/Velocity"]?.jsonPrimitive?.doubleOrNull 
+                    val vel = element["velocity"]?.jsonPrimitive?.doubleOrNull
+                        ?: element["Velocity"]?.jsonPrimitive?.doubleOrNull
+                        ?: element["Drive/Velocity"]?.jsonPrimitive?.doubleOrNull
                         ?: continue
-                    val accel = element["acceleration"]?.jsonPrimitive?.doubleOrNull 
-                        ?: element["Acceleration"]?.jsonPrimitive?.doubleOrNull 
-                        ?: element["Drive/Acceleration"]?.jsonPrimitive?.doubleOrNull 
+                    val accel = element["acceleration"]?.jsonPrimitive?.doubleOrNull
+                        ?: element["Acceleration"]?.jsonPrimitive?.doubleOrNull
+                        ?: element["Drive/Acceleration"]?.jsonPrimitive?.doubleOrNull
                         ?: 0.0
-                        
+
                     rows.add(AlignedDataRow(t, volt, vel, accel))
-                } catch (_: Exception) {}
+                } catch (_: Exception) {
+                    // Skip an individual malformed JSON row and continue collecting usable samples.
+                }
             }
         } else {
             // CSV Format
@@ -206,7 +181,7 @@ class SysIdDataCollector(
             val voltCol = header.indexOfFirst { it.contains("volt") || it == "v" || it == "u" }
             val velCol = header.indexOfFirst { it.contains("vel") || it.contains("speed") || it == "omega" }
             val accelCol = header.indexOfFirst { it.contains("accel") || it == "a" }
-            
+
             if (voltCol != -1 && velCol != -1) {
                 var index = 0
                 for (line in lines.drop(1)) {
@@ -216,14 +191,16 @@ class SysIdDataCollector(
                         val volt = cols[voltCol].toDoubleOrNull() ?: continue
                         val vel = cols[velCol].toDoubleOrNull() ?: continue
                         val accel = if (accelCol != -1 && accelCol < cols.size) cols[accelCol].toDoubleOrNull() ?: 0.0 else 0.0
-                        
+
                         rows.add(AlignedDataRow(t, volt, vel, accel))
                         index++
-                    } catch (_: Exception) {}
+                    } catch (_: Exception) {
+                        // Skip an individual malformed CSV row and continue collecting usable samples.
+                    }
                 }
             }
         }
-        
+
         // If acceleration is missing (all 0.0), approximate as numerical derivative
         if (rows.isNotEmpty() && rows.all { it.accel == 0.0 }) {
             val approxRows = mutableListOf<AlignedDataRow>()
@@ -239,7 +216,7 @@ class SysIdDataCollector(
             }
             return approxRows
         }
-        
+
         return rows
     }
 }

@@ -30,13 +30,6 @@ import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class TelemetryRow(
     val timestampMs: Long,
     val values: Map<String, Double?>
@@ -44,13 +37,6 @@ data class TelemetryRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DataTablePanel(
     databaseService: DatabaseService,
     replayEngineService: ReplayEngineService,
@@ -139,7 +125,7 @@ fun DataTablePanel(
                 closestIndex = -closestIndex - 2
             }
             closestIndex = closestIndex.coerceIn(0, telemetryRows.size - 1)
-            
+
             // Check if active row is currently visible, if not scroll to it
             val visibleInfo = listState.layoutInfo.visibleItemsInfo
             val isVisible = visibleInfo.any { it.index == closestIndex }

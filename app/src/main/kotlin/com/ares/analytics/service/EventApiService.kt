@@ -12,7 +12,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.*
 
-
 /**
  * Tournament match schedule and alliance configuration retrieved from official event APIs (The Blue Alliance / FIRST API).
  *
@@ -72,7 +71,7 @@ class EventApiService(
                             val blueAllianceObj = alliances?.get("blue")?.jsonObject
                             val blueTeams = blueAllianceObj?.get("team_keys")?.jsonArray?.map { it.jsonPrimitive.content.removePrefix("frc") } ?: emptyList()
                             val time = obj["time"]?.jsonPrimitive?.longOrNull?.let { it * 1000 } // convert to ms
-                            
+
                             MatchInfo(
                                 matchNumber = matchNumber,
                                 compLevel = if (compLevel == "qm") "quals" else "elims",
@@ -113,7 +112,7 @@ class EventApiService(
                             val participants = obj["participants"]?.jsonArray ?: JsonArray(emptyList())
                             val redTeams = mutableListOf<String>()
                             val blueTeams = mutableListOf<String>()
-                            
+
                             participants.forEach { partElement ->
                                 val pObj = partElement.jsonObject
                                 val teamKey = pObj["team_key"]?.jsonPrimitive?.content ?: ""
@@ -155,13 +154,6 @@ class EventApiService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun close() {
         httpClient.close()
     }

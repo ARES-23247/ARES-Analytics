@@ -20,13 +20,6 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.pow
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawPlannedSpline(
     pathCache: PathCacheHolder,
     splinePoints: List<Waypoint>,
@@ -37,8 +30,9 @@ fun DrawScope.drawPlannedSpline(
     fieldHeightM: Double,
     league: League
 ) {
-    val splinePath = if (pathCache.splinePath != null && pathCache.splinePoints === splinePoints && pathCache.w == w && pathCache.h == h) {
-        pathCache.splinePath!!
+    val cachedSplinePath = pathCache.splinePath
+    val splinePath = if (cachedSplinePath != null && pathCache.splinePoints === splinePoints && pathCache.w == w && pathCache.h == h) {
+        cachedSplinePath
     } else {
         val path = pathCache.splinePath?.apply { reset() } ?: Path()
         if (splinePoints.isNotEmpty()) {
@@ -60,13 +54,6 @@ fun DrawScope.drawPlannedSpline(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawEventMarkers(
     waypoints: List<Waypoint>,
     eventMarkerPoints: List<Waypoint>,
@@ -102,13 +89,6 @@ fun DrawScope.drawEventMarkers(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawConstraintZones(
     pathCache: PathCacheHolder,
     waypoints: List<Waypoint>,
@@ -142,13 +122,6 @@ fun DrawScope.drawConstraintZones(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawPointTowardsZones(
     pathCache: PathCacheHolder,
     waypoints: List<Waypoint>,
@@ -162,12 +135,12 @@ fun DrawScope.drawPointTowardsZones(
     if (waypoints.size >= 2) {
         pointTowardsZoneRenderData.forEach { data ->
             val targetOffset = getCanvasOffsetBase(data.target, w, h, fieldWidthM, fieldHeightM, league)
-            
+
             drawCircle(color = AresCyan.copy(alpha = 0.3f), radius = 12.dp.toPx(), center = targetOffset)
             drawCircle(color = AresCyan, radius = 6.dp.toPx(), center = targetOffset, style = Stroke(width = 2.dp.toPx()))
             drawLine(color = AresCyan, start = Offset(targetOffset.x - 10.dp.toPx(), targetOffset.y), end = Offset(targetOffset.x + 10.dp.toPx(), targetOffset.y), strokeWidth = 1.5.dp.toPx())
             drawLine(color = AresCyan, start = Offset(targetOffset.x, targetOffset.y - 10.dp.toPx()), end = Offset(targetOffset.x, targetOffset.y + 10.dp.toPx()), strokeWidth = 1.5.dp.toPx())
-            
+
             data.splinePoints.forEach { wp ->
                 val splineOffset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
                 drawLine(
@@ -182,13 +155,6 @@ fun DrawScope.drawPointTowardsZones(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawHolonomicRotationTargets(
     waypoints: List<Waypoint>,
     rotationTargets: List<RotationTarget>,
@@ -206,7 +172,7 @@ fun DrawScope.drawHolonomicRotationTargets(
             if (kotlin.math.abs(target.waypointRelativePos) < 1e-3) {
                 val offset = getCanvasOffsetBase(targetWp, w, h, fieldWidthM, fieldHeightM, league)
                 val rectSize = 24.dp.toPx()
-                
+
                 rotate(degrees = -target.rotationDegrees.toFloat() - 90f, pivot = offset) {
                     drawRect(color = AresAmber.copy(alpha = 0.25f), topLeft = Offset(offset.x - rectSize/2, offset.y - rectSize/2), size = Size(rectSize, rectSize))
                     drawRect(color = AresAmber, topLeft = Offset(offset.x - rectSize/2, offset.y - rectSize/2), size = Size(rectSize, rectSize), style = Stroke(width = 1.5.dp.toPx()))
@@ -218,13 +184,6 @@ fun DrawScope.drawHolonomicRotationTargets(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawActualPathAndDeviations(
     pathCache: PathCacheHolder,
     actualPath: List<Waypoint>,
@@ -236,10 +195,11 @@ fun DrawScope.drawActualPathAndDeviations(
     league: League,
     showDeviations: Boolean = false
 ) {
-    val actualPathObj = if (pathCache.actualPath != null &&
+    val cachedActualPath = pathCache.actualPath
+    val actualPathObj = if (cachedActualPath != null &&
         pathCache.actualPoints.firstOrNull() == actualPath.firstOrNull() &&
         pathCache.w == w && pathCache.h == h && pathCache.actualPoints.size <= actualPath.size) {
-        val path = pathCache.actualPath!!
+        val path = cachedActualPath
         if (pathCache.actualLastDrawnIndex < actualPath.size - 1 && pathCache.actualLastDrawnIndex >= 0) {
             for (i in (pathCache.actualLastDrawnIndex + 1) until actualPath.size) {
                 val offset = getCanvasOffsetBase(actualPath[i], w, h, fieldWidthM, fieldHeightM, league)
@@ -273,7 +233,7 @@ fun DrawScope.drawActualPathAndDeviations(
         pathCache.actualPath = path
         path
     }
-    
+
     if (actualPath.size >= 2) {
         drawPath(path = actualPathObj, color = AresPathActual, style = Stroke(width = 3f))
 
@@ -297,9 +257,9 @@ fun DrawScope.drawActualPathAndDeviations(
                 val plannedOffset = getCanvasOffsetBase(closestWp, w, h, fieldWidthM, fieldHeightM, league)
                 val deviationM = minDistance
                 val deviationColor = when {
-                    deviationM < 0.02 -> AresGreen 
-                    deviationM < 0.05 -> AresAmber 
-                    else -> AresRed               
+                    deviationM < 0.02 -> AresGreen
+                    deviationM < 0.05 -> AresAmber
+                    else -> AresRed
                 }
                 drawLine(color = deviationColor, start = actualOffset, end = plannedOffset, strokeWidth = 1.5f)
             }
@@ -307,13 +267,6 @@ fun DrawScope.drawActualPathAndDeviations(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawContextPath(
     pathCache: PathCacheHolder,
     contextPath: List<Waypoint>,
@@ -359,13 +312,6 @@ fun DrawScope.drawContextPath(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawRobotRepresentations(
     pathCache: PathCacheHolder,
     actualPath: List<Waypoint>,
@@ -388,7 +334,7 @@ fun DrawScope.drawRobotRepresentations(
     if (activeRobotWp != null && showTruePose) {
         val robotOffset = getCanvasOffsetBase(activeRobotWp, w, h, fieldWidthM, fieldHeightM, league)
         val robotSizePx = ((0.45 / fieldWidthM) * w).toFloat()
-        
+
         drawContext.canvas.save()
         drawContext.transform.rotate(degrees = -Math.toDegrees(activeRobotWp.headingRad ?: 0.0).toFloat() - 90f, pivot = robotOffset)
         drawRect(color = AresCyan.copy(alpha = 0.2f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
@@ -436,7 +382,7 @@ fun DrawScope.drawRobotRepresentations(
     if (estimatedPose != null && showEkfPose) {
         val robotOffset = getCanvasOffsetBase(estimatedPose, w, h, fieldWidthM, fieldHeightM, league)
         val robotSizePx = ((0.45 / fieldWidthM) * w).toFloat()
-        
+
         drawContext.canvas.save()
         drawContext.transform.rotate(degrees = -Math.toDegrees(estimatedPose.headingRad ?: 0.0).toFloat() - 90f, pivot = robotOffset)
 
@@ -444,7 +390,7 @@ fun DrawScope.drawRobotRepresentations(
         val cameraOffsetPx = ((0.18 / fieldWidthM) * w).toFloat()
         val rangePx = ((4.0 / fieldWidthM) * w).toFloat()
         val fovCenter = Offset(robotOffset.x + cameraOffsetPx, robotOffset.y)
-        
+
         drawArc(
             color = AresGold.copy(alpha = 0.08f),
             startAngle = -30f,
@@ -480,7 +426,7 @@ fun DrawScope.drawRobotRepresentations(
     if (odomPose != null && showOdomPose) {
         val robotOffset = getCanvasOffsetBase(odomPose, w, h, fieldWidthM, fieldHeightM, league)
         val robotSizePx = ((0.45 / fieldWidthM) * w).toFloat()
-        
+
         drawContext.canvas.save()
         drawContext.transform.rotate(degrees = -Math.toDegrees(odomPose.headingRad ?: 0.0).toFloat() - 90f, pivot = robotOffset)
         drawRect(color = AresGreen.copy(alpha = 0.15f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
@@ -500,7 +446,7 @@ fun DrawScope.drawRobotRepresentations(
     if (playbackPose != null) {
         val robotOffset = getCanvasOffsetBase(playbackPose, w, h, fieldWidthM, fieldHeightM, league)
         val robotSizePx = ((0.45 / fieldWidthM) * w).toFloat()
-        
+
         drawContext.canvas.save()
         drawContext.transform.rotate(degrees = -Math.toDegrees(playbackPose.headingRad ?: 0.0).toFloat() - 90f, pivot = robotOffset)
         drawRect(color = AresCyan.copy(alpha = 0.3f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
@@ -521,7 +467,7 @@ fun DrawScope.drawRobotRepresentations(
         visionPoses.forEach { pose ->
             val robotOffset = getCanvasOffsetBase(pose, w, h, fieldWidthM, fieldHeightM, league)
             val robotSizePx = ((0.45 / fieldWidthM) * w).toFloat()
-            
+
             drawContext.canvas.save()
             drawContext.transform.rotate(degrees = -Math.toDegrees(pose.headingRad ?: 0.0).toFloat() - 90f, pivot = robotOffset)
             drawRect(color = AresGold.copy(alpha = 0.15f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
@@ -540,13 +486,6 @@ fun DrawScope.drawRobotRepresentations(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawWaypoints(
     pathCache: PathCacheHolder,
     waypoints: List<Waypoint>,
@@ -617,7 +556,7 @@ fun DrawScope.drawWaypoints(
         // --- Prev tangent heading handle ---
         val prevHandleMeters = Waypoint(wp.x + wp.prevControlLength * cos(resolvedHeading + Math.PI), wp.y + wp.prevControlLength * sin(resolvedHeading + Math.PI))
         val prevArrowEnd = getCanvasOffsetBase(prevHandleMeters, w, h, fieldWidthM, fieldHeightM, league)
-        
+
         drawLine(color = color.copy(alpha = tangentAlpha), start = offset, end = prevArrowEnd, strokeWidth = if (hasExplicitHeading) 2.dp.toPx() else 1.dp.toPx())
         val prevHandleColor = when {
             isSelected && isDraggingPrevHeading -> AresCyan

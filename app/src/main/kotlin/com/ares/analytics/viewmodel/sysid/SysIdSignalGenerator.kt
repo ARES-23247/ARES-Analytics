@@ -7,13 +7,7 @@ import com.areslib.control.assist.SysIdRoutine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Publishes SysId routine commands and calibration controls through NT4. */
 class SysIdSignalGenerator(
     private val nt4ClientService: Nt4ClientService,
     private val _state: MutableStateFlow<SysIdState>
@@ -24,7 +18,7 @@ class SysIdSignalGenerator(
             nt4ClientService.publishDouble("Tuning/driverDeadbandExponent", recommendedExponent)
             val slewVal = if (recommendedSlewRate == Double.MAX_VALUE) 999.0 else recommendedSlewRate
             nt4ClientService.publishDouble("Tuning/driverSlewRateLimit", slewVal)
-            
+
             _state.update {
                 it.copy(exportStatus = "Successfully applied! 🎉")
             }

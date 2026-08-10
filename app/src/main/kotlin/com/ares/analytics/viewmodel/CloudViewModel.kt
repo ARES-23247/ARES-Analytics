@@ -32,13 +32,6 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class RobotLogFileInfo(
     val name: String,
     val sizeBytes: Long,
@@ -48,13 +41,6 @@ data class RobotLogFileInfo(
     val isActive: Boolean? = false
 )
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class RobotRun(
     val runId: String,
     val files: List<RobotLogFileInfo>,
@@ -65,26 +51,12 @@ data class RobotRun(
     val isActive: Boolean = false
 )
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class SessionSyncInfo(
     val summary: SessionSummary,
     val isLocal: Boolean,
     val isRemote: Boolean
 )
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class CloudState(
     val sessions: List<SessionSyncInfo> = emptyList(),
     val cloudLogs: List<SessionSummary> = emptyList(),
@@ -99,144 +71,45 @@ data class CloudState(
 )
 
 sealed class CloudIntent {
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object RefreshCloudLogs : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object RefreshRobotLogs : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class PerformDeltaSync(val teamId: String, val seasonId: String) : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UploadRobotRun(val runId: String, val teamId: String, val seasonId: String, val robotId: String) : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UploadMultipleRobotRuns(val runIds: List<String>, val teamId: String, val seasonId: String, val robotId: String) : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteRobotRun(val runId: String) : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteMultipleRobotRuns(val runIds: List<String>) : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteCloudLog(val sessionId: String, val teamId: String) : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object ClearError : CloudIntent()
 
     // Database / Cloud Sync Manager Intents
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UploadSession(val sessionId: String) : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DownloadSession(val summary: SessionSummary) : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DownloadMultipleSessions(val summaries: List<SessionSummary>) : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteSessionLocal(val sessionId: String) : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteMultipleLocalSessions(val sessionIds: List<String>) : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteSessionRemote(val sessionId: String, val teamId: String) : CloudIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteMultipleRemoteSessions(val sessionIdsAndTeamIds: List<Pair<String, String>>) : CloudIntent()
 }
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
+ * Orchestrates local sessions, robot-hosted logs, and cloud synchronization.
+ * Robot downloads are temporary: data is parsed locally and uploaded before remote cleanup.
  */
 class CloudViewModel(
     private val databaseService: DatabaseService,
@@ -281,13 +154,6 @@ class CloudViewModel(
         _state.update { it.copy(uploadLogs = it.uploadLogs + message) }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun onIntent(intent: CloudIntent) {
         scope.launch {
             when (intent) {

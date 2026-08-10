@@ -24,13 +24,6 @@ import com.ares.analytics.viewmodel.PathPlannerIntent
 import com.ares.analytics.viewmodel.PathPlannerState
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun PathBrowserPanel(
     state: PathPlannerState,
     league: League,
@@ -58,7 +51,7 @@ fun PathBrowserPanel(
                 Text("Close Browser", color = AresTextPrimary)
             }
         }
-        
+
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 340.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp),

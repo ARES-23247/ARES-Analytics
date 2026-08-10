@@ -5,13 +5,10 @@ import com.ares.analytics.service.FrameBatcher
 import java.io.File
 
 /**
- * Service for decoding Apache Parquet columnar binary telemetry log files into DuckDB database tables.
+ * Reserved adapter for direct Parquet log import.
  *
- * Provides specialized binary decoding routines for reading structured Parquet records containing
- * `(timestamp_ms, session_id, key, value, string_value)` time-series channels.
- *
- * ### Thread Safety & Performance Guarantees:
- * Operates asynchronously on `Dispatchers.IO`. Utilizes zero-copy columnar data buffering when streaming frames into [FrameBatcher].
+ * Direct decoding is not implemented or registered with [com.ares.analytics.service.LogParserService].
+ * Calling [parseParquetLog] fails explicitly so a future caller cannot report a successful empty import.
  *
  * @param databaseService Primary DuckDB persistence service.
  *
@@ -28,8 +25,8 @@ class ParquetLogDecoder(private val databaseService: DatabaseService) {
      * @param batcher Destination telemetry frame channel buffer.
      */
     suspend fun parseParquetLog(file: File, sessionId: String, batcher: FrameBatcher) {
-        // TODO: Implement Parquet binary decoding here. 
-        // Example logic would go here once Parquet support is required.
+        throw UnsupportedOperationException(
+            "Direct Parquet log decoding is not implemented; use the database Parquet import/export path"
+        )
     }
 }
-

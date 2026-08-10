@@ -21,13 +21,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class SysIdState(
     val sessionId: String? = null,
     val summary: CalculatedSummary? = null,
@@ -35,13 +28,13 @@ data class SysIdState(
     val exportStatus: String = "",
     val isLoading: Boolean = false,
     val errorMessage: String? = null,
-    
+
     // Robot connection and live routines
     val isRobotConnected: Boolean = false,
     val isRoutineRunning: Boolean = false,
     val selectedMechanism: SysIdMechanism = SysIdMechanism.LINEAR,
     val liveSamples: List<AlignedDataRow> = emptyList(),
-    
+
     // Standalone file upload analysis
     val localAnalysisResult: CalculatedSummary? = null,
     val fileAnalysisError: String? = null,
@@ -62,121 +55,43 @@ data class SysIdState(
 )
 
 sealed class SysIdIntent {
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class LoadSession(val sessionId: String?) : SysIdIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class ApplyToRobotCode(
         val recommendedExponent: Double,
         val recommendedSlewRate: Double,
         val projectPath: String
     ) : SysIdIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object ClearExportStatus : SysIdIntent()
-    
+
     // Live routine controls
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetMechanism(val mechanism: SysIdMechanism) : SysIdIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class StartRoutine(val routine: SysIdRoutine) : SysIdIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object StopRoutine : SysIdIntent()
-    
+
     // Standalone log analysis
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class LoadLocalLogFile(val fileContent: String) : SysIdIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object ClearLocalAnalysis : SysIdIntent()
 
     // New Auto-Tuning/Calibration intents
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class StartCalibration(val calibrationType: String) : SysIdIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object StopCalibration : SysIdIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetLinearDriveDistance(val distance: Double) : SysIdIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class ApplyCalibration(val calibrationType: String) : SysIdIntent()
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Coordinates SysId signal generation, frame collection, regression, and optional source updates. */
 class SysIdViewModel(
     private val databaseService: DatabaseService,
     private val sysIdService: SysIdService,
@@ -195,13 +110,6 @@ class SysIdViewModel(
         dataCollector.startCollecting()
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun onIntent(intent: SysIdIntent) {
         scope.launch {
             when (intent) {

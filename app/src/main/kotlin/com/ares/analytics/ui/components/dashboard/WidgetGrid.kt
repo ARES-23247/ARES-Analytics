@@ -32,13 +32,6 @@ import androidx.compose.ui.platform.LocalDensity
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun WidgetGrid(
     widgets: List<WidgetConfig>,
     onLayoutChanged: (List<WidgetConfig>) -> Unit,
@@ -165,7 +158,7 @@ fun WidgetGrid(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     IconButton(
-                                        onClick = { 
+                                        onClick = {
                                             val updated = widgets.map {
                                                 if (it.id == widget.id) it.copy(isLocked = !it.isLocked) else it
                                             }
@@ -174,9 +167,9 @@ fun WidgetGrid(
                                         modifier = Modifier.size(24.dp)
                                     ) {
                                         Icon(
-                                            if (widget.isLocked) Icons.Default.Lock else Icons.Default.LockOpen, 
-                                            contentDescription = "Toggle Lock", 
-                                            tint = if (widget.isLocked) AresCyan else AresTextTertiary, 
+                                            if (widget.isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
+                                            contentDescription = "Toggle Lock",
+                                            tint = if (widget.isLocked) AresCyan else AresTextTertiary,
                                             modifier = Modifier.size(16.dp)
                                         )
                                     }
@@ -288,13 +281,6 @@ private fun resolveOverlaps(widgets: List<WidgetConfig>, activeWidgetId: String)
     resolved.addAll(lockedOthers)
 
     // Helper to check overlap
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun hasOverlap(w: WidgetConfig): Boolean {
         return resolved.any { placed ->
             val overlapX = w.col < placed.col + placed.colSpan && w.col + w.colSpan > placed.col

@@ -4,22 +4,8 @@ import com.ares.analytics.shared.Session
 import com.ares.analytics.shared.SessionSummary
 import com.ares.analytics.ui.screens.RowDefinition
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 object RunDataDictionary {
-    
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun canonicalizeMotorName(name: String): String {
         return when (name.lowercase()) {
             "bl" -> "rl"
@@ -30,13 +16,6 @@ object RunDataDictionary {
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun getDiagnosticValue(diag: Map<String, Double>, canonicalMotor: String, param: String): Double? {
         val namesToCheck = when (canonicalMotor) {
             "rl" -> listOf("rl", "bl")
@@ -52,13 +31,6 @@ object RunDataDictionary {
         return null
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun getMotorCurrentAverage(summary: SessionSummary?, canonicalMotor: String): Double? {
         if (summary == null) return null
         val namesToCheck = when (canonicalMotor) {
@@ -75,20 +47,13 @@ object RunDataDictionary {
         return null
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun buildBaseRowDefinitions(): List<RowDefinition> {
         return listOf(
             RowDefinition("Match Number", "Session Info", { session, _, _ -> session.matchNumber?.toString() ?: "N/A" }),
             RowDefinition("Alliance", "Session Info", { session, _, _ -> session.allianceColor ?: "N/A" }),
             RowDefinition("Tags", "Session Info", { session, _, _ -> session.tags.joinToString(", ") }),
             RowDefinition("Duration (s)", "Session Info", { _, summary, _ -> summary?.let { String.format("%.1fs", it.durationMs / 1000.0) } ?: "N/A" }, { _, summary, _ -> summary?.durationMs?.toDouble()?.div(1000.0) }),
-            
+
             // Health
             RowDefinition("Min Battery Voltage (V)", "System Health", { _, summary, _ -> summary?.let { String.format("%.2fV", it.minBatteryVoltage) } ?: "N/A" }, { _, summary, _ -> summary?.minBatteryVoltage }, { it < 9.5 }),
             RowDefinition("Battery Resistance (Ω)", "System Health", { _, summary, _ -> summary?.let { String.format("%.3f Ω", it.avgBatteryResistance) } ?: "N/A" }, { _, summary, _ -> summary?.avgBatteryResistance }, { it > 0.15 }),
@@ -131,13 +96,6 @@ object RunDataDictionary {
         )
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun buildMotorCurrentRows(allMotorNames: List<String>): List<RowDefinition> {
         return allMotorNames.map { motor ->
             RowDefinition(
@@ -153,13 +111,6 @@ object RunDataDictionary {
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun buildMotorSysIdRows(allMotorNames: List<String>): List<RowDefinition> {
         return allMotorNames.flatMap { motor ->
             listOf(

@@ -40,13 +40,6 @@ class FtcDashboardService(
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var session: WebSocketSession? = null
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun start(host: String = "192.168.43.1", port: Int = 8000) {
         wsJob?.cancel()
         wsJob = serviceScope.launch {
@@ -56,7 +49,7 @@ class FtcDashboardService(
                     client.webSocket(url) {
                         session = this
                         _isConnected.value = true
-                        
+
                         for (frame in incoming) {
                             if (frame is Frame.Text) {
                                 val text = frame.readText()
@@ -84,7 +77,7 @@ class FtcDashboardService(
                     val dataObj = data.jsonObject
                     val telemetryObj = dataObj["telemetry"]?.jsonObject ?: return
                     val now = System.currentTimeMillis()
-                    
+
                     for ((key, value) in telemetryObj) {
                         val doubleVal = value.jsonPrimitive.doubleOrNull ?: continue
                         val frame = TelemetryFrame(
@@ -102,13 +95,6 @@ class FtcDashboardService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun sendConfigUpdate(configJson: String) {
         val wsSession = session
         if (wsSession != null && wsSession.isActive) {
@@ -128,26 +114,12 @@ class FtcDashboardService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun stop() {
         wsJob?.cancel()
         session = null
         _isConnected.value = false
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun dispose() {
         stop()
         serviceScope.cancel()

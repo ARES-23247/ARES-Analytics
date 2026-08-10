@@ -60,7 +60,7 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                 // Get tables using SHOW TABLES
                 val tablesRes = databaseService.executeQueryRaw("SHOW TABLES;")
                 tablesList = tablesRes.rows.flatten()
-                
+
                 // Get file size
                 val file = File(databaseService.dbPath)
                 if (file.exists()) {
@@ -139,7 +139,7 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
             // DB File Info
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("DATABASE FILE", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -150,7 +150,9 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                                 val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
                                 val selection = java.awt.datatransfer.StringSelection(databaseService.dbPath)
                                 clipboard.setContents(selection, selection)
-                            } catch (_: Exception) {}
+                            } catch (_: Exception) {
+                                // Clipboard integration is optional in headless or restricted desktops.
+                            }
                         }
                         .padding(8.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -191,7 +193,7 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text("TABLES", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                
+
                 if (tablesList.isEmpty()) {
                     Text("No tables found.", color = AresTextTertiary, fontSize = 11.sp)
                 } else {
@@ -243,7 +245,7 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                     "Match Summary" to "SELECT match_number, alliance_color, duration_ms FROM sessions WHERE match_number IS NOT NULL LIMIT 20;",
                     "Telemetry Frames Count" to "SELECT COUNT(*), session_id FROM telemetry_frames GROUP BY session_id LIMIT 10;"
                 )
-                
+
                 presets.forEach { (label, sql) ->
                     OutlinedButton(
                         onClick = {
@@ -361,6 +363,8 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                     .border(1.dp, AresBorder, RoundedCornerShape(12.dp))
                     .padding(16.dp)
             ) {
+                val currentError = errorMessage
+                val currentResult = queryResult
                 when {
                     isLoading -> {
                         CircularProgressIndicator(
@@ -368,7 +372,7 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                             modifier = Modifier.align(Alignment.Center)
                         )
                     }
-                    errorMessage != null -> {
+                    currentError != null -> {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -386,15 +390,15 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                                 Text("SQL Query Failed", color = AresError, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             }
                             Text(
-                                text = errorMessage!!,
+                                text = currentError,
                                 color = AresTextPrimary,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 12.sp
                             )
                         }
                     }
-                    queryResult != null -> {
-                        val result = queryResult!!
+                    currentResult != null -> {
+                        val result = currentResult
                         Column(modifier = Modifier.fillMaxSize()) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
@@ -414,7 +418,7 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                                     fontWeight = FontWeight.Medium
                                 )
                             }
-                            
+
                             if (result.rows.isEmpty()) {
                                 Box(
                                     modifier = Modifier.weight(1f).fillMaxWidth(),

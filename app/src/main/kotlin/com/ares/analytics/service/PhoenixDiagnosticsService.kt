@@ -31,25 +31,11 @@ data class PhoenixDevice(
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class PhoenixTelemetryResponse(
     val deviceId: String,
     val signals: Map<String, Double>
 )
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 class PhoenixDiagnosticsService(
     private val nt4ClientService: Nt4ClientService,
     private val httpClient: HttpClient = HttpClient {
@@ -64,13 +50,6 @@ class PhoenixDiagnosticsService(
     private var pollJob: Job? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun start(host: String = "localhost", port: Int = 1250, pollIntervalMs: Long = 100) {
         pollJob?.cancel()
         pollJob = serviceScope.launch {
@@ -80,7 +59,7 @@ class PhoenixDiagnosticsService(
                         if (devicesResponse.status == HttpStatusCode.OK) {
                             _isConnected.value = true
                             val devices = devicesResponse.body<List<PhoenixDevice>>()
-                            
+
                             for (device in devices) {
                                 httpClient.prepareGet("http://$host:$port/device/${device.id}/telemetry").execute { telResponse ->
                                     if (telResponse.status == HttpStatusCode.OK) {
@@ -110,25 +89,11 @@ class PhoenixDiagnosticsService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun stop() {
         pollJob?.cancel()
         _isConnected.value = false
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun dispose() {
         stop()
         serviceScope.cancel()

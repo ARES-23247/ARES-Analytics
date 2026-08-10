@@ -74,7 +74,7 @@ fun DashboardScreen(
                              alert.ruleKey.contains("comms", ignoreCase = true) ||
                              alert.ruleKey.contains("can", ignoreCase = true) ||
                              alert.ruleKey.contains("battery", ignoreCase = true)
-            
+
             if (isCritical && undismissedAlerts.none { it.alertId == alert.alertId }) {
                 undismissedAlerts.add(alert)
             }
@@ -114,8 +114,6 @@ fun DashboardScreen(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-
-
 
         // Configurable widgets area
         val layout = state.currentLayout
@@ -184,9 +182,9 @@ fun DashboardScreen(
                 },
                 "joystick_visualizer" to { _, mod ->
                     JoystickVisualizer(
-                        currentFrame = null, 
-                        nt4ClientService = services.nt4ClientService, 
-                        services = services, 
+                        currentFrame = null,
+                        nt4ClientService = services.nt4ClientService,
+                        services = services,
                         onOpenKeybindings = onOpenKeybindings,
                         modifier = mod
                     )

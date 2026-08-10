@@ -36,37 +36,16 @@ import kotlin.math.max
 import kotlin.math.pow
 import kotlin.math.sqrt
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 enum class TimeFilter {
     FULL, AUTO, TELEOP, ENABLED
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 enum class AnalysisMode {
     SINGLE, MULTI_NORMAL, ABSOLUTE_ERROR, RELATIVE_ERROR
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun StatisticsPanel(
     databaseService: DatabaseService,
     sessionId: String?,
@@ -99,10 +78,10 @@ fun StatisticsPanel(
                 try {
                     val allFrames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
                     availableKeys = allFrames.map { it.key }.distinct().sorted()
-                    stateFrames = allFrames.filter { 
-                        it.key.contains("state", ignoreCase = true) || 
-                        it.key.contains("mode", ignoreCase = true) || 
-                        it.key.contains("enabled", ignoreCase = true) 
+                    stateFrames = allFrames.filter {
+                        it.key.contains("state", ignoreCase = true) ||
+                        it.key.contains("mode", ignoreCase = true) ||
+                        it.key.contains("enabled", ignoreCase = true)
                     }
                     if (selectedKey1 == null || !availableKeys.contains(selectedKey1)) {
                         selectedKey1 = availableKeys.firstOrNull()
@@ -124,15 +103,14 @@ fun StatisticsPanel(
 
     // Fetch telemetry data for selected keys
     LaunchedEffect(sessionId, selectedKey1, selectedKey2) {
-        if (sessionId != null && selectedKey1 != null) {
-            scope.launch {
-                telemetry1 = databaseService.getTelemetryForKey(sessionId, selectedKey1!!)
-                telemetry2 = if (selectedKey2 != null) {
-                    databaseService.getTelemetryForKey(sessionId, selectedKey2!!)
-                } else {
-                    emptyList()
-                }
-            }
+        val activeSessionId = sessionId ?: return@LaunchedEffect
+        val primaryKey = selectedKey1 ?: return@LaunchedEffect
+        val comparisonKey = selectedKey2
+        scope.launch {
+            telemetry1 = databaseService.getTelemetryForKey(activeSessionId, primaryKey)
+            telemetry2 = comparisonKey?.let {
+                databaseService.getTelemetryForKey(activeSessionId, it)
+            } ?: emptyList()
         }
     }
 
@@ -164,13 +142,7 @@ fun StatisticsPanel(
     }
 
     // Helper: Interpolation for aligning Signal 2 to Signal 1 timestamps
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun interpolate(t: Long, times: List<Long>, values: List<Double>): Double {
         if (times.isEmpty()) return 0.0
         val idx = times.binarySearch(t)
@@ -188,13 +160,6 @@ fun StatisticsPanel(
     }
 
     // Filter telemetry based on active TimeFilter
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun filterTelemetry(raw: List<TelemetryFrame>): List<TelemetryFrame> {
         if (raw.isEmpty()) return emptyList()
         val startMs = raw.first().timestampMs
@@ -294,13 +259,6 @@ fun StatisticsPanel(
             val stdDevVal = sqrt(variance)
 
             // Percentiles
-            /**
-
-             * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-             *
-
-             */
             fun getPercentile(p: Double): Double {
                 val index = (p * (n - 1))
                 val lower = index.toInt()

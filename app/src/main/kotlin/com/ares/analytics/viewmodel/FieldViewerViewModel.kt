@@ -6,6 +6,7 @@ import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.viewmodel.field.FieldPoseBufferManager
 import com.ares.analytics.viewmodel.field.FieldTopicSubscriber
 import com.ares.analytics.viewmodel.field.FieldCameraGestureController
+import com.ares.analytics.util.ProjectLayout
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,13 +24,7 @@ import com.ares.analytics.shared.GamePiece
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Latest live field measurements, expressed in meters and CCW-positive radians. */
 data class LivePoseState(
     val trueX: Double = 0.0,
     val trueY: Double = 0.0,
@@ -52,6 +47,7 @@ data class LivePoseState(
     val indicatorLights: Map<String, Double> = emptyMap()
 )
 
+/** User-controlled field-view state; pose samples are kept separately in [LivePoseState]. */
 data class FieldViewerState(
     val poseHistory: List<Waypoint> = emptyList(),
     val availablePaths: List<String> = emptyList(),
@@ -61,46 +57,19 @@ data class FieldViewerState(
 )
 
 sealed class FieldViewerIntent {
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class FetchAvailablePaths(val projectPath: String?, val league: League) : FieldViewerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SelectPath(val pathName: String?, val projectPath: String?, val league: League) : FieldViewerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object ClearTrace : FieldViewerIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object ToggleAlliance : FieldViewerIntent()
 }
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
+ * Coordinates live NT4 pose data, trace buffering, and PathPlanner previews.
+ * File access is dispatched to [Dispatchers.IO]; state is exposed as immutable flows.
  */
 class FieldViewerViewModel(
     private val nt4ClientService: Nt4ClientService,
@@ -116,13 +85,6 @@ class FieldViewerViewModel(
     private val poseBufferManager = FieldPoseBufferManager(scope, _state, _livePose)
     val cameraGestureController = FieldCameraGestureController()
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun onIntent(intent: FieldViewerIntent) {
         scope.launch {
             when (intent) {
@@ -146,15 +108,8 @@ class FieldViewerViewModel(
         if (projectPath.isNullOrEmpty()) return
         withContext(Dispatchers.IO) {
             try {
-                val relativePathsDir = if (league == League.FTC) {
-                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
-                    else "src/main/assets/pathplanner/paths"
-                } else {
-                    "src/main/deploy/pathplanner/paths"
-                }
-                val relativeAutosDir = relativePathsDir.replace("/paths", "/autos").replace("\\paths", "\\autos")
-                val pathsTargetDir = File(projectPath, relativePathsDir)
-                val autosTargetDir = File(projectPath, relativeAutosDir)
+                val pathsTargetDir = ProjectLayout.pathPlannerPathsDirectory(projectPath, league)
+                val autosTargetDir = ProjectLayout.pathPlannerAutosDirectory(projectPath, league)
                 val pathFiles = if (pathsTargetDir.exists() && pathsTargetDir.isDirectory) {
                     pathsTargetDir.listFiles { _, name -> name.endsWith(".path") }?.map { "[Path] ${it.nameWithoutExtension}" } ?: emptyList()
                 } else emptyList()
@@ -177,15 +132,8 @@ class FieldViewerViewModel(
         if (projectPath.isNullOrEmpty()) return
         withContext(Dispatchers.IO) {
             try {
-                val relativePathsDir = if (league == League.FTC) {
-                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/pathplanner/paths"
-                    else "src/main/assets/pathplanner/paths"
-                } else {
-                    "src/main/deploy/pathplanner/paths"
-                }
-                val relativeAutosDir = relativePathsDir.replace("/paths", "/autos").replace("\\paths", "\\autos")
-                val pathsTargetDir = File(projectPath, relativePathsDir)
-                val autosTargetDir = File(projectPath, relativeAutosDir)
+                val pathsTargetDir = ProjectLayout.pathPlannerPathsDirectory(projectPath, league)
+                val autosTargetDir = ProjectLayout.pathPlannerAutosDirectory(projectPath, league)
                 val json = AppJson
                 val loadedWps = mutableListOf<Waypoint>()
 
@@ -196,13 +144,6 @@ class FieldViewerViewModel(
                         val content = autoFile.readText()
                         val auto = json.decodeFromString<AutoFile>(content)
                         val extractedPaths = mutableListOf<String>()
-                        /**
-
-                         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-                         *
-
-                         */
                         fun collectPaths(node: AutoCommandNode) {
                             if (node.type == "path") {
                                 node.data["pathName"]?.let {
@@ -216,7 +157,9 @@ class FieldViewerViewModel(
                                             try {
                                                 val subNode = json.decodeFromJsonElement<AutoCommandNode>(element)
                                                 collectPaths(subNode)
-                                            } catch (e: Exception) {}
+                                            } catch (_: Exception) {
+                                                // A malformed child command does not invalidate other paths in the auto.
+                                            }
                                         }
                                     }
                                 }

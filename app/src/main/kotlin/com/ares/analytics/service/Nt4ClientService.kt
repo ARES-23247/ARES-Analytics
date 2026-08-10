@@ -61,7 +61,7 @@ open class Nt4ClientService(
                 }
             }
         }
-        return client!!
+        return requireNotNull(client)
     }
 
     private fun getOrCreateRemoteClient(): HttpClient {
@@ -75,7 +75,7 @@ open class Nt4ClientService(
                 }
             }
         }
-        return client!!
+        return requireNotNull(client)
     }
 
     /** Select the appropriate engine based on target host */
@@ -126,10 +126,6 @@ open class Nt4ClientService(
 
     private var cachedActiveTopics: List<String>? = null
 
-    /**
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     *
-     */
     fun getActiveTopics(): List<String> {
         return cachedActiveTopics ?: run {
             val fromMap = topicMap.values.map { it.name.removePrefix("/") }
@@ -173,16 +169,15 @@ open class Nt4ClientService(
             }
             repeat(chunk.size) { retryFrames.removeFirst() }
             if (liveBatch) {
-                val chunkMax = chunk.maxOfOrNull { it.timestampMs }
-                if (chunkMax != null && (latestLiveTimestamp == null || chunkMax > latestLiveTimestamp!!)) {
-                    latestLiveTimestamp = chunkMax
+                chunk.maxOfOrNull(TelemetryFrame::timestampMs)?.let { chunkMax ->
+                    latestLiveTimestamp = maxOf(latestLiveTimestamp ?: Long.MIN_VALUE, chunkMax)
                 }
             }
         }
 
-        if (latestLiveTimestamp != null) {
+        latestLiveTimestamp?.let { newestTimestamp ->
             try {
-                databaseService.pruneTelemetryFrames(LIVE_SESSION_ID, latestLiveTimestamp!! - 300_000)
+                databaseService.pruneTelemetryFrames(LIVE_SESSION_ID, newestTimestamp - 300_000)
             } catch (e: Exception) {
                 // Pruning is maintenance, not persistence. Frames were committed successfully.
                 e.printStackTrace()
@@ -204,10 +199,6 @@ open class Nt4ClientService(
     private var clientJob: Job? = null
     private val connectionMutex = kotlinx.coroutines.sync.Mutex()
 
-    /**
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-     *
-     */
     fun start(host: String, teamId: String, seasonId: String, robotId: String, port: Int = 5810) {
         println("[Nt4ClientService] start() called with host=$host, port=$port, teamId=$teamId, seasonId=$seasonId, robotId=$robotId")
         serviceScope.launch {
@@ -345,7 +336,9 @@ open class Nt4ClientService(
                                     closeReason.await()
                                 }
                                 println("[Nt4ClientService] Connection to $url closed. Reason: ${reason?.message} (Code: ${reason?.code})")
-                            } catch (_: Exception) {}
+                            } catch (_: Exception) {
+                                // The reconnect loop owns cleanup even when the close handshake is unavailable.
+                            }
                             webSocketSession = null
                             _isConnected.value = false
                         }
@@ -445,7 +438,7 @@ open class Nt4ClientService(
         val valueBytes = ByteArray(headerBytes.size + strBytes.size)
         System.arraycopy(headerBytes, 0, valueBytes, 0, headerBytes.size)
         System.arraycopy(strBytes, 0, valueBytes, headerBytes.size, strBytes.size)
-        
+
         sendBinaryUpdate(pubuid, 4.toByte(), valueBytes)
     }
 
@@ -468,13 +461,6 @@ open class Nt4ClientService(
         sendBinaryUpdate(pubuid, 2.toByte(), valueBytes)
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     suspend fun stop() {
         // cancelAndJoin (was a fire-and-forget cancel()) so the WebSocket receive/reconnect
         // loop fully unwinds before the HttpClients are closed below — otherwise the
@@ -569,7 +555,7 @@ open class Nt4ClientService(
                             propertiesJson?.forEach { (k, v) ->
                                 props[k] = if (v is JsonPrimitive && v.isString) v.content else v.toString()
                             }
-                            
+
                             val expectedType = when {
                                 name.endsWith("/vx") || name.endsWith("/vy") || name.endsWith("/omega") -> "double"
                                 name.startsWith("ARES/Input/is") -> "boolean"
@@ -637,7 +623,6 @@ open class Nt4ClientService(
         }
     }
 
-
     private suspend fun dispatchValue(
         ntTopic: Nt4Topic,
         valueElement: Any?,
@@ -690,7 +675,7 @@ open class Nt4ClientService(
                 val session = _currentSession.value
                 val sessionId = session?.sessionId ?: "live-telemetry"
                 val consoleMsg = ConsoleMessage(timestampMs, text, severity)
-                
+
                 // Save in DB if session is active
                 if (session != null) {
                     serviceScope.launch {
@@ -705,7 +690,7 @@ open class Nt4ClientService(
 
         if (valueElement is JsonArray || valueElement is List<*> || valueElement is DoubleArray || valueElement is FloatArray || valueElement is Array<*>) {
             val frames = mutableListOf<TelemetryFrame>()
-            
+
             val size = when (valueElement) {
                 is JsonArray -> valueElement.size
                 is List<*> -> valueElement.size
@@ -714,10 +699,10 @@ open class Nt4ClientService(
                 is Array<*> -> valueElement.size
                 else -> 0
             }
-            
+
             val sb = StringBuilder(normalizedName).append("/")
             val baseLen = sb.length
-            
+
             for (idx in 0 until size) {
                 val element = when (valueElement) {
                     is JsonArray -> valueElement[idx]
@@ -727,7 +712,7 @@ open class Nt4ClientService(
                     is Array<*> -> valueElement[idx]
                     else -> null
                 }
-                
+
                 val (doubleValue, stringValue) = coerceTelemetryValue(element)
                 sb.setLength(baseLen)
                 val frameKey = sb.append(idx).toString()
@@ -831,7 +816,7 @@ open class Nt4ClientService(
         )
         latestValues[cleanKey] = frame
         _telemetryFlow.emit(frame)
-        
+
         publishInputDouble(pubuid, value)
     }
 
@@ -856,7 +841,7 @@ open class Nt4ClientService(
         )
         latestValues[cleanKey] = frame
         _telemetryFlow.emit(frame)
-        
+
         publishInputString(pubuid, value)
     }
 
@@ -880,10 +865,9 @@ open class Nt4ClientService(
         )
         latestValues[cleanKey] = frame
         _telemetryFlow.emit(frame)
-        
+
         publishInputBoolean(pubuid, value)
     }
-
 
     fun subscribeDouble(key: String): Flow<Double> {
         return telemetryFlow.filter { it.key == key }.map { it.value }

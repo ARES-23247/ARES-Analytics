@@ -41,7 +41,7 @@ class HootDecoderServiceTest {
         // Verify bounds (0.0s -> 0ms, 0.04s -> 40ms)
         assertEquals(0L, firstTime)
         assertEquals(40L, lastTime)
-        
+
         // Verify keys
         assertTrue(keys.contains("/Drive/MotorFL/Voltage"))
         assertTrue(keys.contains("/Drive/MotorFL/Velocity"))

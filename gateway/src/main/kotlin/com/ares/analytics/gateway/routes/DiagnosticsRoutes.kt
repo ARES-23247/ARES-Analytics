@@ -22,38 +22,32 @@ import kotlin.time.Duration.Companion.seconds
 
 private val vertexAiLogger = LoggerFactory.getLogger("DiagnosticsRoutes")
 
-val projectId = System.getenv("GOOGLE_CLOUD_PROJECT") ?: "ares-analytics"
-val location = System.getenv("GOOGLE_CLOUD_LOCATION") ?: "us-central1"
+private val projectId = System.getenv("GOOGLE_CLOUD_PROJECT") ?: "ares-analytics"
+private val location = System.getenv("GOOGLE_CLOUD_LOCATION") ?: "us-central1"
 // Lazy so the VertexAI client is not constructed until the first diagnostics request.
 // VertexAI is Closeable but is intentionally never closed here — it lives for the process
 // lifetime and closing it on a hot server would break all subsequent requests.
-val vertexAi by lazy { VertexAI(projectId, location) }
-val model by lazy { GenerativeModel("gemini-1.5-flash", vertexAi) }
+private val vertexAi by lazy { VertexAI(projectId, location) }
+private val model by lazy { GenerativeModel("gemini-1.5-flash", vertexAi) }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Registers the authenticated, per-user-rate-limited pit-forensics endpoint. */
 fun Route.diagnosticsRoutes() {
     authenticate("google") {
         rateLimit(RateLimitName("forensics")) {
             post("/api/diagnostics/forensics") {
                 val req = call.receive<ForensicsRequest>()
 
-            try {
-                val prompt = """
+                try {
+                    val prompt = """
                         You are ARES Pit Forensics AI, a diagnostic copilot for FTC/FRC robotics teams.
                         Analyze the following telemetry packet containing session statistics, triggered threshold alerts, motor currents, EKF positioning drift, and hardware topology.
-                        
+
                         Identify the most likely hardware failure (e.g., loose CAN bus wire, brownout, battery sag, motor stall, camera disconnection, pinpoint encoder drift).
-                        
+
                         Respond ONLY with a JSON object conforming exactly to this schema:
                         {
                           "probableRootCause": "Detailed description of what failed and why",
-                          "confidenceScore": 0.85, 
+                          "confidenceScore": 0.85,
                           "cascadingNodesAffected": ["node_id_1", "node_id_2"],
                           "hardwareFaultLocus": {
                             "failedNodeId": "id of the primary node that failed",
@@ -87,12 +81,12 @@ fun Route.diagnosticsRoutes() {
                         )
                     }
                     call.respond(parsed)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                vertexAiLogger.error("AI diagnostics failed", e)
-                call.respond(HttpStatusCode.InternalServerError, "AI diagnostics failed")
-            }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    vertexAiLogger.error("AI diagnostics failed", e)
+                    call.respond(HttpStatusCode.InternalServerError, "AI diagnostics failed")
+                }
             }
         }
     }

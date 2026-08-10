@@ -33,6 +33,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import com.ares.analytics.shared.*
+import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.ui.theme.*
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -47,13 +48,6 @@ private val jsonFormatter: Json = Json { prettyPrint = true; ignoreUnknownKeys =
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun FieldCanvas(
     league: League,
     waypoints: List<Waypoint>,
@@ -213,57 +207,44 @@ fun FieldCanvas(
     val activeGamePieces = gamePieces ?: localGamePieces
     val activeAprilTags = aprilTags ?: localAprilTags
     val activeFieldWaypoints = fieldWaypoints ?: localFieldWaypoints
-    val updateObstacles: (List<Obstacle>) -> Unit = { newObstacles ->
-        if (onObstaclesChanged != null) onObstaclesChanged(newObstacles)
-        else { localObstacles.clear(); localObstacles.addAll(newObstacles) }
-        if (!projectPath.isNullOrEmpty()) {
+    val persistFieldData: (String, String) -> Unit = { fileName, content ->
+        projectPath?.takeIf(String::isNotBlank)?.let { path ->
             try {
-                val targetDir = File(projectPath, if (league == League.FTC) {
-                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths" else "src/main/assets/paths"
-                } else "src/main/deploy/paths")
+                val targetDir = ProjectLayout.fieldDataDirectory(path, league)
                 targetDir.mkdirs()
-                File(targetDir, "obstacles.json").writeText(jsonFormatter.encodeToString(newObstacles))
-            } catch (e: Exception) { e.printStackTrace() }
+                File(targetDir, fileName).writeText(content)
+            } catch (error: Exception) {
+                error.printStackTrace()
+            }
         }
+    }
+    val updateObstacles: (List<Obstacle>) -> Unit = { newObstacles ->
+        onObstaclesChanged?.invoke(newObstacles) ?: run {
+            localObstacles.clear()
+            localObstacles.addAll(newObstacles)
+        }
+        persistFieldData("obstacles.json", jsonFormatter.encodeToString(newObstacles))
     }
     val updateGamePieces: (List<GamePiece>) -> Unit = { newPieces ->
-        if (onGamePiecesChanged != null) onGamePiecesChanged(newPieces)
-        else { localGamePieces.clear(); localGamePieces.addAll(newPieces) }
-        if (!projectPath.isNullOrEmpty()) {
-            try {
-                val targetDir = File(projectPath, if (league == League.FTC) {
-                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths" else "src/main/assets/paths"
-                } else "src/main/deploy/paths")
-                targetDir.mkdirs()
-                File(targetDir, "game_pieces.json").writeText(jsonFormatter.encodeToString(newPieces))
-            } catch (e: Exception) { e.printStackTrace() }
+        onGamePiecesChanged?.invoke(newPieces) ?: run {
+            localGamePieces.clear()
+            localGamePieces.addAll(newPieces)
         }
+        persistFieldData("game_pieces.json", jsonFormatter.encodeToString(newPieces))
     }
     val updateAprilTags: (List<AprilTagPlacement>) -> Unit = { newTags ->
-        if (onAprilTagsChanged != null) onAprilTagsChanged(newTags)
-        else { localAprilTags.clear(); localAprilTags.addAll(newTags) }
-        if (!projectPath.isNullOrEmpty()) {
-            try {
-                val targetDir = File(projectPath, if (league == League.FTC) {
-                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths" else "src/main/assets/paths"
-                } else "src/main/deploy/paths")
-                targetDir.mkdirs()
-                File(targetDir, "apriltags.json").writeText(jsonFormatter.encodeToString(newTags))
-            } catch (e: Exception) { e.printStackTrace() }
+        onAprilTagsChanged?.invoke(newTags) ?: run {
+            localAprilTags.clear()
+            localAprilTags.addAll(newTags)
         }
+        persistFieldData("apriltags.json", jsonFormatter.encodeToString(newTags))
     }
     val updateFieldWaypoints: (List<FieldWaypoint>) -> Unit = { newWps ->
-        if (onFieldWaypointsChanged != null) onFieldWaypointsChanged(newWps)
-        else { localFieldWaypoints.clear(); localFieldWaypoints.addAll(newWps) }
-        if (!projectPath.isNullOrEmpty()) {
-            try {
-                val targetDir = File(projectPath, if (league == League.FTC) {
-                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths" else "src/main/assets/paths"
-                } else "src/main/deploy/paths")
-                targetDir.mkdirs()
-                File(targetDir, "field_waypoints.json").writeText(jsonFormatter.encodeToString(newWps))
-            } catch (e: Exception) { e.printStackTrace() }
+        onFieldWaypointsChanged?.invoke(newWps) ?: run {
+            localFieldWaypoints.clear()
+            localFieldWaypoints.addAll(newWps)
         }
+        persistFieldData("field_waypoints.json", jsonFormatter.encodeToString(newWps))
     }
     val currentPolygonPoints = remember { mutableStateListOf<PathPoint>() }
     val currentWaypoints by rememberUpdatedState(waypoints)
@@ -281,10 +262,7 @@ fun FieldCanvas(
         try {
             val searchDirs = mutableListOf<File>()
             if (!projectPath.isNullOrEmpty()) {
-                val relDir = if (league == League.FTC) {
-                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths" else "src/main/assets/paths"
-                } else "src/main/deploy/paths"
-                searchDirs.add(File(projectPath, relDir))
+                searchDirs.add(ProjectLayout.fieldDataDirectory(projectPath, league))
             }
             searchDirs.addAll(listOf(
                 File(System.getProperty("user.home"), "dev/robotics/ares/ARES-FTC/TeamCode/src/main/assets/paths"),
@@ -317,17 +295,14 @@ fun FieldCanvas(
             }
 
             if (!projectPath.isNullOrEmpty()) {
-                val imgDir = if (league == League.FTC) {
-                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets" else "src/main/assets"
-                } else "src/main/deploy"
-                val imgFile = File(File(projectPath, imgDir), "field_image.png")
+                val assetsDirectory = ProjectLayout.assetsDirectory(projectPath, league)
+                val imgFile = File(assetsDirectory, "field_image.png")
                 localFieldImage = if (imgFile.exists()) org.jetbrains.skia.Image.makeFromEncoded(imgFile.readBytes()).toComposeImageBitmap() else null
-                val confFile = File(File(projectPath, imgDir), "field_image_config.json")
+                val confFile = File(assetsDirectory, "field_image_config.json")
                 localFieldImageConfig = if (confFile.exists()) Json.decodeFromString(confFile.readText()) else FieldImageConfig()
             }
         } catch (e: Exception) { e.printStackTrace() }
     }
-
 
     Column(modifier = modifier.fillMaxSize()) {
         if (showToolbar) {
@@ -351,7 +326,7 @@ fun FieldCanvas(
                 showCostmap = showCostmap,
                 onShowCostmapChanged = { showCostmap = it },
                 viewRotation = viewRotation,
-                onViewRotationChanged = { 
+                onViewRotationChanged = {
                     viewRotation = it
                     onViewRotationChanged?.invoke(it)
                 }
@@ -382,19 +357,12 @@ fun FieldCanvas(
                             when (editorMode) {
                                  EditorMode.SELECT -> {
                                      var hitIdx = -1; var hitHeading = false; var hitPrevHeading = false; var hitRotation = false
-                                     
+
                                      // Convert press position to base canvas space (before zoom/pan/rotate transform).
                                      // This matches the coordinate system used by PathRenderer.drawWaypoints.
                                      val basePress = getBaseCanvasFromScreen(pressOffset, w, h, zoomScale, panOffset, viewRotation)
-                                     
+
                                      // Helper: compute rotation handle position in base canvas space (matches PathRenderer draw code)
-                                     /**
-
-                                      * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-                                      *
-
-                                      */
                                      fun rotHandleBase(wpBaseOffset: Offset, wp: Waypoint): Offset {
                                          val rotAngleRad = Math.toRadians(-(wp.rotationDeg ?: 0.0) - 90.0)
                                          val rotHandleLenPx = 30.dp.toPx()
@@ -403,17 +371,17 @@ fun FieldCanvas(
                                              wpBaseOffset.y + rotHandleLenPx * sin(rotAngleRad).toFloat()
                                          )
                                      }
-                                     
+
                                      // Scale-aware hit threshold: fixed screen-size radius divided by zoom
                                      // so clickability doesn't shrink when zoomed out
                                      val hitRadiusPx = 15.dp.toPx() / zoomScale
                                      val rotHitRadiusPx = 18.dp.toPx() / zoomScale
-                                     
+
                                      // 1. Prioritize handles of the ALREADY selected waypoint (if any)
                                      if (selectedWaypointIndex in currentWaypoints.indices) {
                                          val wp = currentWaypoints[selectedWaypointIndex]
                                          val wpBase = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
-                                         
+
                                          // Heading handle (tangent arrowhead)
                                          val selHeading = resolveHeading(currentWaypoints, selectedWaypointIndex)
                                          val headingWp = Waypoint(wp.x + wp.nextControlLength * cos(selHeading), wp.y + wp.nextControlLength * sin(selHeading))
@@ -421,14 +389,14 @@ fun FieldCanvas(
                                          if (sqrt((basePress.x - headingBase.x).pow(2) + (basePress.y - headingBase.y).pow(2)) < hitRadiusPx) {
                                              hitIdx = selectedWaypointIndex; hitHeading = true
                                          }
-                                         
+
                                          // Prev Heading handle
                                          val prevHeadingWp = Waypoint(wp.x + wp.prevControlLength * cos(selHeading + Math.PI), wp.y + wp.prevControlLength * sin(selHeading + Math.PI))
                                          val prevHeadingBase = getCanvasOffsetBase(prevHeadingWp, w, h, fieldWidthM, fieldHeightM, league)
                                          if (hitIdx == -1 && sqrt((basePress.x - prevHeadingBase.x).pow(2) + (basePress.y - prevHeadingBase.y).pow(2)) < hitRadiusPx) {
                                              hitIdx = selectedWaypointIndex; hitPrevHeading = true
                                          }
-                                         
+
                                          // Rotation handle (green diamond)
                                          if (hitIdx == -1) {
                                              val rotBase = rotHandleBase(wpBase, wp)
@@ -437,7 +405,7 @@ fun FieldCanvas(
                                              }
                                          }
                                      }
-                                     
+
                                      // 2. Check all waypoint center dots
                                      if (hitIdx == -1) {
                                          for (i in currentWaypoints.indices) {
@@ -447,7 +415,7 @@ fun FieldCanvas(
                                              }
                                          }
                                      }
-                                     
+
                                      // 3. Check other waypoints' handles (heading + rotation)
                                      if (hitIdx == -1) {
                                          for (i in currentWaypoints.indices) {
@@ -503,7 +471,7 @@ fun FieldCanvas(
                                     isDraggingHeading = hitIdx != -1 && hitHeading
                                     isDraggingPrevHeading = hitIdx != -1 && hitPrevHeading
                                     isDraggingRotation = hitIdx != -1 && hitRotation
-                                    
+
                                     selectedFieldWaypointId = hitFieldWpId
                                     isDraggingFieldWaypoint = hitFieldWpId != null && hitFieldWpCenter
                                     isDraggingFieldWaypointHeading = hitFieldWpId != null && hitFieldWpHeading
@@ -513,8 +481,8 @@ fun FieldCanvas(
                                              selectedObstacleId = null; selectedAprilTagId = null; selectedGamePieceId = null
                                              onItemSelected?.invoke(hitFieldWpId, "FieldWaypoint")
                                              if (hitFieldWpCenter) {
-                                                 val wp = currentActiveFieldWaypoints.find { it.id == hitFieldWpId }!!
-                                                 dragInitialPos = Waypoint(wp.x, wp.y)
+                                                 currentActiveFieldWaypoints.find { it.id == hitFieldWpId }
+                                                     ?.let { dragInitialPos = Waypoint(it.x, it.y) }
                                              }
                                          }
                                          hitIdx != -1 || hitEventIdx != -1 -> {
@@ -554,16 +522,16 @@ fun FieldCanvas(
                                              } else {
                                                  val hitAt = currentActiveAprilTags.minByOrNull { sqrt((clickCoord.x - it.x).pow(2) + (clickCoord.y - it.y).pow(2)) }?.takeIf { sqrt((clickCoord.x - it.x).pow(2) + (clickCoord.y - it.y).pow(2)) < 0.3 }
                                                  selectedAprilTagId = hitAt?.id
-                                                 if (selectedAprilTagId != null) {
-                                                     onItemSelected?.invoke(selectedAprilTagId, "AprilTag")
-                                                     dragInitialPos = Waypoint(hitAt!!.x, hitAt.y)
-                                                 } else {
+                                                 hitAt?.let { aprilTag ->
+                                                     onItemSelected?.invoke(aprilTag.id, "AprilTag")
+                                                     dragInitialPos = Waypoint(aprilTag.x, aprilTag.y)
+                                                 } ?: run {
                                                      val hitGp = currentActiveGamePieces.minByOrNull { sqrt((clickCoord.x - it.x).pow(2) + (clickCoord.y - it.y).pow(2)) }?.takeIf { sqrt((clickCoord.x - it.x).pow(2) + (clickCoord.y - it.y).pow(2)) < 0.2 }
                                                      selectedGamePieceId = hitGp?.id
-                                                     if (selectedGamePieceId != null) {
-                                                         onItemSelected?.invoke(selectedGamePieceId, "GamePiece")
-                                                         dragInitialPos = Waypoint(hitGp!!.x, hitGp.y)
-                                                     } else onItemSelected?.invoke(null, null)
+                                                     hitGp?.let { gamePiece ->
+                                                         onItemSelected?.invoke(gamePiece.id, "GamePiece")
+                                                         dragInitialPos = Waypoint(gamePiece.x, gamePiece.y)
+                                                     } ?: onItemSelected?.invoke(null, null)
                                                  }
                                              }
                                          }
@@ -586,13 +554,6 @@ fun FieldCanvas(
                                     val dragAmount = change.positionChange()
                                     accumulatedDragPx += dragAmount
                                     change.consume()
-                                    /**
-
-                                     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-                                     *
-
-                                     */
                                     fun snap(v: Double) = if (isShiftPressed) kotlin.math.round(v * 10.0) / 10.0 else v
                                     val totalDelta = getDragDeltaInFieldCoords(accumulatedDragPx, w, h, fieldWidthM, fieldHeightM, league, zoomScale)
                                      when {
@@ -828,7 +789,6 @@ fun FieldCanvas(
                 val w = size.width
                 val h = size.height
 
-
                 drawContext.canvas.save()
                 // Apply view rotation around the canvas center (replaces Modifier.rotate)
                 if (viewRotation != 0f) {
@@ -839,7 +799,7 @@ fun FieldCanvas(
 
                 drawFieldBackground(activeImage, activeConfig, w, h)
                 if (showHeatmap) HeatmapOverlay.drawHeatmap(this, actualPath, fieldWidthM, fieldHeightM, league)
-                
+
                 drawFieldGrid(w, h, fieldWidthM, fieldHeightM, league, showCostmap = showCostmap)
                 drawFtcAllianceStations(w, h, fieldWidthM, fieldHeightM, league, activeConfig)
                 if (league == League.FTC) drawCoordinateAxes(w, h, fieldWidthM, fieldHeightM, league, textMeasurer)

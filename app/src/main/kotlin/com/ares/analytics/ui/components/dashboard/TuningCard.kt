@@ -23,13 +23,6 @@ import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun TuningCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
@@ -56,8 +49,7 @@ fun TuningCard(
             showDivider = false
         )
 
-            
-            Column(
+Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .verticalScroll(rememberScrollState()),
@@ -92,7 +84,7 @@ private data class TuningGroup(
 @Composable
 private fun TuningRow(nt4ClientService: Nt4ClientService, name: String) {
     val ntKey = "Tuning/$name"
-    
+
     // Create state that updates when the value from NT4 changes, but also allows local edits
     val ntValue = nt4ClientService.subscribeDouble(ntKey).collectAsState(initial = 0.0)
     var textValue by remember(ntValue.value) { mutableStateOf(ntValue.value.toString()) }
@@ -109,7 +101,7 @@ private fun TuningRow(nt4ClientService: Nt4ClientService, name: String) {
             fontWeight = FontWeight.Medium,
             modifier = Modifier.weight(1f)
         )
-        
+
         OutlinedTextField(
             value = textValue,
             onValueChange = { newValue ->

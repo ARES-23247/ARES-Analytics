@@ -16,13 +16,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class ProfileState(
     val authState: AuthState = AuthState.Unauthenticated,
     val config: WorkspaceConfig? = null,
@@ -44,53 +37,17 @@ data class ProfileState(
 )
 
 sealed class ProfileIntent {
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class LoadConfig(val config: WorkspaceConfig) : ProfileIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class GoogleSignIn(val clientId: String) : ProfileIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class LinkGitHub(val clientId: String) : ProfileIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object SignOut : ProfileIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class PerformDeltaSync(val firebaseToken: String) : ProfileIntent()
-/**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateEventSettings(
         val googleClientId: String,
         val googleClientSecret: String,
@@ -105,23 +62,11 @@ sealed class ProfileIntent {
         val vertexLocation: String,
         val onConfigChanged: (WorkspaceConfig) -> Unit
     ) : ProfileIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object ClearSyncStatus : ProfileIntent()
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Manages account linking, event settings, and explicit cloud synchronization actions. */
 class ProfileViewModel(
     private val oauthService: OAuthService,
     private val syncEngineService: SyncEngineService,
@@ -148,13 +93,6 @@ class ProfileViewModel(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun onIntent(intent: ProfileIntent) {
         scope.launch {
             when (intent) {

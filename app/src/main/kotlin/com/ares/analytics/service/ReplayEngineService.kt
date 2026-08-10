@@ -142,14 +142,14 @@ class ReplayEngineService(
             return@withContext
         }
         val actionsTimestamps = allActions.map { it.timestampMs }
-        
+
         timestamps = (frameTimestamps + actionsTimestamps).distinct().sorted()
-        
+
         startTimestampMs = timestamps.first()
         endTimestampMs = timestamps.last()
         currentPlayheadMs = startTimestampMs
         _progress.value = 0.0
-        
+
         _sessionStartTimestampMs.value = startTimestampMs
         _sessionDurationMs.value = endTimestampMs - startTimestampMs
 
@@ -162,13 +162,6 @@ class ReplayEngineService(
         updateFrameAtPlayhead()
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun play() {
         if (timestamps.isEmpty()) return
         if (_state.value == ReplayState.PLAYING) return
@@ -196,26 +189,12 @@ class ReplayEngineService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun pause() {
         if (_state.value != ReplayState.PLAYING) return
         _state.value = ReplayState.PAUSED
         replayJob?.cancel()
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun stop() {
         _state.value = ReplayState.STOPPED
         replayJob?.cancel()
@@ -246,24 +225,10 @@ class ReplayEngineService(
         datagramSocket = null
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun setSpeed(newSpeed: Double) {
         _speed.value = newSpeed
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun stepForward() {
         if (timestamps.isEmpty()) return
         pause()
@@ -275,13 +240,6 @@ class ReplayEngineService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun stepBackward() {
         if (timestamps.isEmpty()) return
         pause()
@@ -293,13 +251,6 @@ class ReplayEngineService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun scrubTo(percentage: Double) {
         if (timestamps.isEmpty()) return
         val clamped = percentage.coerceIn(0.0, 1.0)
@@ -357,10 +308,10 @@ class ReplayEngineService(
         val targetTimestamp = timestamps[index]
 
         // Reset incremental cache if we seeked backwards or this is first run
-        val seeked = lastTargetTimestamp == -1L || 
+        val seeked = lastTargetTimestamp == -1L ||
             kotlin.math.abs(targetTimestamp - lastTargetTimestamp) > 1000L ||
             (if (_speed.value >= 0) targetTimestamp < lastTargetTimestamp else targetTimestamp > lastTargetTimestamp)
-        
+
         if (seeked) {
             lastFrameIndex = 0
             lastActionIndex = 0
@@ -400,7 +351,7 @@ class ReplayEngineService(
                     val x = payloadObj["xMeters"]?.let { if (it is JsonPrimitive) it.doubleOrNull else null }
                     val y = payloadObj["yMeters"]?.let { if (it is JsonPrimitive) it.doubleOrNull else null }
                     val heading = payloadObj["headingRadians"]?.let { if (it is JsonPrimitive) it.doubleOrNull else null }
-                    
+
                     if (x != null) {
                         valuesMap["ARES/EstimatedPose/0"] = x
                         valuesMap["Drive/Odom_X"] = x
@@ -477,7 +428,7 @@ class ReplayEngineService(
 
     private fun broadcastTelemetry(frame: ReplayFrame) {
         try {
-            if (datagramSocket == null || datagramSocket!!.isClosed) {
+            if (datagramSocket?.isClosed != false) {
                 datagramSocket = DatagramSocket()
             }
             val maxChunkSize = 500
@@ -493,7 +444,7 @@ class ReplayEngineService(
             // Ignore socket broadcast errors
         } finally {
             // If instructions strictly imply closing it after usage
-            // datagramSocket?.close() 
+            // datagramSocket?.close()
             // datagramSocket = null
         }
     }

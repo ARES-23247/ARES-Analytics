@@ -10,9 +10,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
 
-/**
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
- */
+/** Reduces normalized NT4 topic updates into the field viewer's live-pose state. */
 class FieldTopicSubscriber(
     private val nt4ClientService: Nt4ClientService,
     private val scope: CoroutineScope,
@@ -38,12 +36,12 @@ class FieldTopicSubscriber(
         scope.launch {
             var frameCount = 0L
             var lastDiagLog = System.currentTimeMillis()
-            
+
             nt4ClientService.telemetryFlow.conflate().collect { frame ->
                 val key = frame.key
                 val value = frame.value
                 frameCount++
-                
+
                 // Diagnostic: log every 2 seconds
                 val now2 = System.currentTimeMillis()
                 if (now2 - lastDiagLog > 2000) {
@@ -52,10 +50,10 @@ class FieldTopicSubscriber(
                     lastDiagLog = now2
                     frameCount = 0
                 }
-                
+
                 livePoseFlow.update { current ->
                     var next = current
-                    
+
                     when (key) {
                         "ARES/TruePose/0" -> next = next.copy(trueX = value, hasTruePoseData = true)
                         "ARES/TruePose/1" -> next = next.copy(trueY = value, hasTruePoseData = true)
@@ -93,19 +91,19 @@ class FieldTopicSubscriber(
                         }
                     }
 
-                    if (key.startsWith("Vision/PoseArray/") || key.startsWith("AdvantageScope/VisionPose/")) {
-                        if (next.visionHasTarget) {
-                            val idx = key.substringAfterLast("/").toIntOrNull()
-                            if (idx != null) {
-                                if (next.visionPoses[idx] != value) {
-                                    val newPoses = next.visionPoses.toMutableMap()
-                                    newPoses[idx] = value
-                                    next = next.copy(visionPoses = newPoses)
-                                }
-                            }
-                        } else if (next.visionPoses.isNotEmpty()) {
-                            next = next.copy(visionPoses = emptyMap())
+                    val isVisionPoseElement = key.startsWith("Vision/PoseArray/") ||
+                        key.startsWith("AdvantageScope/VisionPose/")
+                    when {
+                        !isVisionPoseElement -> Unit
+                        !next.visionHasTarget -> {
+                            if (next.visionPoses.isNotEmpty()) next = next.copy(visionPoses = emptyMap())
                         }
+
+                        else -> key.substringAfterLast("/").toIntOrNull()
+                            ?.takeIf { next.visionPoses[it] != value }
+                            ?.let { index ->
+                                next = next.copy(visionPoses = next.visionPoses + (index to value))
+                            }
                     }
 
                     if (key.startsWith("ARES/GamePieces/")) {
@@ -125,13 +123,13 @@ class FieldTopicSubscriber(
                                 1 -> currentPiece.copy(y = value)
                                 else -> currentPiece
                             }
-                            
+
                             val newPieces = next.liveGamePieces.toMutableMap()
                             newPieces[pieceIdx] = updatedPiece
                             next = next.copy(liveGamePieces = newPieces)
                         }
                     }
-                    
+
                     next
                 }
 
@@ -142,4 +140,3 @@ class FieldTopicSubscriber(
         }
     }
 }
-

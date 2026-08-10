@@ -27,7 +27,7 @@ class AutoImportServiceTest {
         val summaryEngineService = SummaryEngineService(databaseService, sysIdService, driverAnalysisService)
         val logParserService = LogParserService(databaseService, summaryEngineService)
         val hootDecoderService = HootDecoderService(databaseService, summaryEngineService, sysIdService)
-        
+
         // Mock ProcessManagerService
         val processManagerService = ProcessManagerService()
 
@@ -83,7 +83,7 @@ class AutoImportServiceTest {
 
         // Verify the file was imported and moved
         assertTrue(importSuccessCalled, "onImportSuccess was not called")
-        
+
         assertTrue(!mockLog.exists(), "Original log file was not deleted/moved")
 
         // Verify session was inserted into database

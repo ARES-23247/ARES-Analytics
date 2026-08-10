@@ -26,18 +26,11 @@ import kotlinx.coroutines.flow.collect
 import com.ares.analytics.ui.components.core.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun EKFTelemetryCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    
+
     // Ring buffers for chart data (last 200 points)
     val maxPoints = 200
     val driftXHistory = remember { mutableStateListOf<Double>() }
@@ -67,7 +60,7 @@ fun EKFTelemetryCard(
                             currentCovX = arr[0]
                             currentCovY = arr[1]
                             currentCovTheta = arr[2]
-                            
+
                             if (covXHistory.size >= maxPoints) covXHistory.removeAt(0)
                             covXHistory.add(currentCovX)
                         }
@@ -95,29 +88,21 @@ fun EKFTelemetryCard(
                 )
             }
         )
-        
+
         Spacer(Modifier.height(16.dp))
 
-            
             Box(modifier = Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(8.dp)).background(AresBackground).border(1.dp, AresBorder, RoundedCornerShape(8.dp))) {
                 Canvas(modifier = Modifier.fillMaxSize().padding(8.dp)) {
                     val w = size.width
                     val h = size.height
-                    
+
                     // Draw center zero-line
                     drawLine(color = AresBorder, start = Offset(0f, h / 2f), end = Offset(w, h / 2f), strokeWidth = 1f)
-                    
+
                     if (driftXHistory.isEmpty()) return@Canvas
                     val pointSpacing = w / (maxPoints - 1)
                     val maxAbsValue = 0.5f // Scale +/- 0.5 meters
-                    
-                    /**
 
-                     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-                     *
-
-                     */
                     fun drawLineChart(data: List<Double>, color: Color, stroke: Float = 2f) {
                         val path = Path()
                         data.forEachIndexed { index, value ->
@@ -125,18 +110,18 @@ fun EKFTelemetryCard(
                             // Map value to Y (-maxAbsValue -> h, maxAbsValue -> 0)
                             val normalizedY = (value.toFloat() / maxAbsValue).coerceIn(-1f, 1f)
                             val y = h / 2f - (normalizedY * (h / 2f))
-                            
+
                             if (index == 0) path.moveTo(x, y)
                             else path.lineTo(x, y)
                         }
                         drawPath(path, color, style = Stroke(width = stroke))
                     }
-                    
+
                     drawLineChart(driftXHistory, AresCyan, 2f)
                     drawLineChart(driftYHistory, AresError, 2f)
                 }
             }
-            
+
             Spacer(Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

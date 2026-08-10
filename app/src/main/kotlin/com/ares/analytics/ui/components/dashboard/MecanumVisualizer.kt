@@ -31,13 +31,6 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun MecanumVisualizer(
     currentFrame: ReplayFrame? = null,
     nt4ClientService: Nt4ClientService? = null,
@@ -73,7 +66,7 @@ fun MecanumVisualizer(
                         "Drive/MotorVelocity_fr", "Drive/MotorPower_fr", "Hardware/Motors/fr/Velocity", "Hardware/Motors/fr/Power" -> velocities[1] = value
                         "Drive/MotorVelocity_bl", "Drive/MotorPower_bl", "Drive/MotorVelocity_rl", "Drive/MotorPower_rl", "Hardware/Motors/bl/Velocity", "Hardware/Motors/bl/Power", "Hardware/Motors/rl/Velocity", "Hardware/Motors/rl/Power" -> velocities[2] = value
                         "Drive/MotorVelocity_br", "Drive/MotorPower_br", "Drive/MotorVelocity_rr", "Drive/MotorPower_rr", "Hardware/Motors/br/Velocity", "Hardware/Motors/br/Power", "Hardware/Motors/rr/Velocity", "Hardware/Motors/rr/Power" -> velocities[3] = value
-                        
+
                         "Drive/MotorCurrent_fl", "Hardware/Motors/fl/CurrentAmps" -> currents[0] = value
                         "Drive/MotorCurrent_fr", "Hardware/Motors/fr/CurrentAmps" -> currents[1] = value
                         "Drive/MotorCurrent_bl", "Drive/MotorCurrent_rl", "Hardware/Motors/bl/CurrentAmps", "Hardware/Motors/rl/CurrentAmps" -> currents[2] = value
@@ -114,8 +107,6 @@ fun MecanumVisualizer(
         }
         val dashEffect = remember { PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f) }
 
-
-
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -126,7 +117,7 @@ fun MecanumVisualizer(
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val cx = size.width / 2f
                 val cy = size.height / 2f
-                
+
                 val wheels = listOf(
                     WheelData("FL", -1f, -1f, Math.toRadians(45.0), velocities[0], currents[0]),
                     WheelData("FR", 1f, -1f, Math.toRadians(-45.0), velocities[1], currents[1]),
@@ -240,10 +231,10 @@ fun MecanumVisualizer(
                     val fr = (wheels.getOrNull(1)?.speed ?: 0.0) / speedScale
                     val bl = (wheels.getOrNull(2)?.speed ?: 0.0) / speedScale
                     val br = (wheels.getOrNull(3)?.speed ?: 0.0) / speedScale
-                    
+
                     val netForceX = ((fl + fr + bl + br) / 4.0).toFloat()
                     val netForceY = ((-fl + fr + bl - br) / 4.0).toFloat()
-                    
+
                     val netMagnitude = Math.sqrt((netForceX * netForceX + netForceY * netForceY).toDouble()).toFloat()
                     if (netMagnitude > 0.05f) {
                         val maxNetArrowLen = 100f

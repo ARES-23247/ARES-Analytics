@@ -21,13 +21,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class AvailableWidget(
     val type: String,
     val displayName: String,
@@ -68,13 +61,6 @@ val availableWidgetsList = listOf(
 )
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun WidgetPicker(
     onDismiss: () -> Unit,
     onSelectWidget: (String) -> Unit

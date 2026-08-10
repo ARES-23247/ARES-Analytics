@@ -2,14 +2,12 @@ package com.ares.analytics.shared
 
 import kotlinx.serialization.Serializable
 
-@Serializable
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
+ * Serializable subset of the PathPlanner 2025 file schema used by the editor.
+ * Linear values are meters, linear rates are meters/second-based, and PathPlanner
+ * rotation/angular-rate fields are degrees-based unless their name says otherwise.
  */
+@Serializable
 data class PathPlannerWaypoint(
     val anchor: PathPoint,
     val prevControl: PathPoint?,
@@ -19,26 +17,12 @@ data class PathPlannerWaypoint(
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class PathPlannerCommand(
     val type: String = "named",
     val name: String
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class PathPlannerEventMarker(
     val name: String,
     val waypointRelativePos: Double,
@@ -47,9 +31,6 @@ data class PathPlannerEventMarker(
 )
 
 @Serializable
-/**
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$, angular values in $deg/s$, time in $s$.
- */
 data class PathConstraints(
     val maxVelocity: Double = 3.0,
     val maxAcceleration: Double = 3.0,
@@ -60,52 +41,24 @@ data class PathConstraints(
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class GoalEndState(
     val velocity: Double = 0.0,
     val rotation: Double = 0.0
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class IdealStartingState(
     val velocity: Double = 0.0,
     val rotation: Double = 0.0
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class RotationTarget(
     val waypointRelativePos: Double,
     val rotationDegrees: Double
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class ConstraintsZone(
     val name: String = "Constraints Zone",
     val minWaypointRelativePos: Double,
@@ -114,13 +67,6 @@ data class ConstraintsZone(
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class PointTowardsZone(
     val name: String = "Point Towards Zone",
     val fieldPosition: PathPoint,
@@ -130,13 +76,6 @@ data class PointTowardsZone(
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class PathPlannerFile(
     val version: String = "2025.0",
     val waypoints: List<PathPlannerWaypoint>,
@@ -152,26 +91,12 @@ data class PathPlannerFile(
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class AutoCommandNode(
     val type: String,
     val data: kotlinx.serialization.json.JsonObject = kotlinx.serialization.json.JsonObject(emptyMap())
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class AutoFile(
     val version: String = "1.0",
     val startingPose: AutoStartingPose? = null,
@@ -179,26 +104,12 @@ data class AutoFile(
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class AutoStartingPose(
     val position: AutoPosition,
     val rotation: Double
 )
 
 @Serializable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class AutoPosition(
     val x: Double,
     val y: Double

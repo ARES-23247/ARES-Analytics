@@ -374,7 +374,6 @@ fun MainScreen(services: ServiceRegistry) {
                 onToggleTerminal = { mainViewModel.onIntent(MainIntent.SetTerminalOpen(!isTerminalOpen)) }
             )
 
-
             // ── Content Area ─────────────────────────────────────────────────
             Box(
                 modifier = Modifier
@@ -538,7 +537,7 @@ fun MainScreen(services: ServiceRegistry) {
                             if (activeNav == NavigationTarget.DASHBOARD) {
                                 val dashState by dashboardViewModel.state.collectAsState()
                                 var newLayoutName by remember { mutableStateOf("") }
-                                
+
                                 // Profile Selection
                                 Box {
                                     TextButton(onClick = { dashboardViewModel.onIntent(DashboardIntent.SetProfileExpanded(true)) }) {
@@ -586,7 +585,7 @@ fun MainScreen(services: ServiceRegistry) {
                                         }
                                     }
                                 }
-                                
+
                                 // Save Layout Input
                                 BasicTextField(
                                     value = newLayoutName,

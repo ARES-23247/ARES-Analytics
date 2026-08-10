@@ -154,7 +154,7 @@ fun WaypointCard(
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
             )
-            
+
             OutlinedTextField(
                 value = rotationText,
                 onValueChange = { newValue ->
@@ -194,7 +194,7 @@ fun WaypointCard(
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
                 colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
             )
-            
+
             OutlinedTextField(
                 value = nextLengthText,
                 onValueChange = { newValue ->

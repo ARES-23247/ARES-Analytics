@@ -5,7 +5,6 @@ import com.ares.analytics.service.FrameBatcher
 import com.ares.analytics.shared.TelemetryFrame
 import java.io.File
 
-
 /**
  * Service for decoding CSV-formatted telemetry log files into DuckDB database frames.
  *
@@ -34,8 +33,7 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
         const val EXTRA_FIELDS_COLUMN = "_ExtraFieldsJson"
     }
 
-
-    /**
+/**
      * Imports a CSV file directly into DuckDB using native `read_csv_auto` + `UNPIVOT`,
      * bypassing all Kotlin-side string parsing and TelemetryFrame object allocation.
      * This is ~10-50× faster than the streaming Kotlin parser for large CSV files.

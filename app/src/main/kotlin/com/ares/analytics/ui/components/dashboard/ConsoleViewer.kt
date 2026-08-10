@@ -35,13 +35,6 @@ import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun ConsoleViewer(
     services: ServiceRegistry,
     widgetConfig: WidgetConfig,
@@ -82,8 +75,8 @@ fun ConsoleViewer(
     val replayFrame by services.replayEngineService.currentFrame.collectAsState()
     val replayState by services.replayEngineService.state.collectAsState()
     val displayMessages = remember(allMessages, replayFrame, replayState, isReplayMode) {
-        if (isReplayMode && replayState != ReplayState.STOPPED && replayFrame != null) {
-            val playheadMs = replayFrame!!.timestampMs
+        val playheadMs = replayFrame?.timestampMs
+        if (isReplayMode && replayState != ReplayState.STOPPED && playheadMs != null) {
             allMessages.filter { it.timestampMs <= playheadMs }
         } else {
             allMessages

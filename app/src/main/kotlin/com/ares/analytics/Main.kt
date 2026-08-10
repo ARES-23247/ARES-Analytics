@@ -14,13 +14,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.Key
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Starts the single-instance Compose desktop application and owns process-level cleanup. */
 fun main() {
     // Disable Java Assistive Technology check to prevent crash on Windows systems with screen readers active
     System.setProperty("javax.accessibility.assistive_technologies", "")
@@ -39,9 +33,7 @@ fun main() {
 
     if (lock == null) {
         System.err.println("[ARES-Analytics] App is already running (failed to acquire app.lock). Exiting.")
-        try {
-            randomAccessFile.close()
-        } catch (e: Exception) {}
+        runCatching(randomAccessFile::close)
         java.lang.System.exit(0)
         return
     }
@@ -49,10 +41,10 @@ fun main() {
     // Keep the file resources open to hold the lock for the JVM lifetime
     // We add a shutdown hook to release it cleanly, though the OS does this automatically on exit
     Runtime.getRuntime().addShutdownHook(Thread {
-        try {
+        runCatching {
             lock.release()
             randomAccessFile.close()
-        } catch (e: Exception) {}
+        }.onFailure(Throwable::printStackTrace)
     })
 
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
@@ -95,7 +87,6 @@ fun main() {
                 val state = services.keyboardDriveState
                 if (state.enabled) {
                     val isDown = keyEvent.type == KeyEventType.KeyDown
-                    val isUp = keyEvent.type == KeyEventType.KeyUp
                     when (keyEvent.key) {
                         Key.W -> { state.isWPressed = isDown; true }
                         Key.S -> { state.isSPressed = isDown; true }
@@ -124,5 +115,3 @@ fun main() {
         }
     }
 }
-
-

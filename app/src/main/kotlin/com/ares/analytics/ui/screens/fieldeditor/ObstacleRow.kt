@@ -90,7 +90,7 @@ fun ObstacleRow(
             }
             Text(details, fontSize = 10.sp, color = AresTextSecondary)
             Spacer(modifier = Modifier.height(4.dp))
-            
+
             // Color picker dots
             Row(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -252,7 +252,7 @@ fun ObstacleRow(
                     Spacer(modifier = Modifier.height(4.dp))
                     Text("Vertices:", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = AresTextSecondary)
                     Spacer(modifier = Modifier.height(2.dp))
-                    
+
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -303,7 +303,7 @@ fun ObstacleRow(
                                         modifier = Modifier.weight(1f),
                                         textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                                     )
-                                    
+
                                     IconButton(
                                         onClick = {
                                             val updatedVertices = obs.vertices.toMutableList()
@@ -323,7 +323,7 @@ fun ObstacleRow(
                                 }
                             }
                         }
-                        
+
                         TextButton(
                             onClick = {
                                 val updatedVertices = obs.vertices.toMutableList()

@@ -3,6 +3,7 @@ package com.ares.analytics.viewmodel
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.ares.analytics.shared.*
+import com.ares.analytics.util.ProjectLayout
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,13 +17,7 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Immutable editor state for field geometry and its optional background image. */
 data class FieldEditorState(
     val fieldImage: ImageBitmap? = null,
     val fieldImageConfig: FieldImageConfig = FieldImageConfig(),
@@ -37,222 +32,65 @@ data class FieldEditorState(
 )
 
 sealed class FieldEditorIntent {
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class LoadConfig(val projectPath: String?, val league: League) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SaveObstacles(val projectPath: String?, val league: League) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SaveGamePieces(val projectPath: String?, val league: League) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class ImportFieldImage(val imageFile: File, val projectPath: String?, val league: League) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateFieldImageConfig(val config: FieldImageConfig, val projectPath: String?, val league: League) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class AddObstacle(val obstacle: Obstacle) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateObstacle(val index: Int, val obstacle: Obstacle) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteObstacle(val index: Int) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class AddGamePiece(val piece: GamePiece) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateGamePiece(val index: Int, val piece: GamePiece) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteGamePiece(val index: Int) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SaveAprilTags(val projectPath: String?, val league: League) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class AddAprilTag(val tag: AprilTagPlacement) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateAprilTag(val index: Int, val tag: AprilTagPlacement) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteAprilTag(val index: Int) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SaveFieldWaypoints(val projectPath: String?, val league: League) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class AddFieldWaypoint(val waypoint: FieldWaypoint) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class UpdateFieldWaypoint(val index: Int, val waypoint: FieldWaypoint) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class DeleteFieldWaypoint(val index: Int) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SelectElement(val elementId: String?) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     object ClearSaveStatus : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetObstacles(val obstacles: List<Obstacle>) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetGamePieces(val gamePieces: List<GamePiece>) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetAprilTags(val tags: List<AprilTagPlacement>) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class SetFieldWaypoints(val waypoints: List<FieldWaypoint>) : FieldEditorIntent()
-    /**
 
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     data class ImportFmap(val fmapContent: String, val projectPath: String?, val league: League) : FieldEditorIntent()
 }
 
 /**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
+ * Loads and persists field assets for the selected robot workspace.
  *
-
+ * Coordinates are stored in meters. Image rotation and field-waypoint headings
+ * are degrees because those values are edited directly by users.
  */
 class FieldEditorViewModel(
     private val scope: CoroutineScope
@@ -260,13 +98,6 @@ class FieldEditorViewModel(
     private val _state = MutableStateFlow(FieldEditorState())
     val state: StateFlow<FieldEditorState> = _state.asStateFlow()
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun onIntent(intent: FieldEditorIntent) {
         scope.launch {
             when (intent) {
@@ -277,43 +108,32 @@ class FieldEditorViewModel(
                     if (!projectPath.isNullOrEmpty()) {
                         try {
                             withContext(Dispatchers.IO) {
-                                val relativePathsDir = if (league == League.FTC) {
-                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths"
-                                    else "src/main/assets/paths"
-                                } else {
-                                    "src/main/deploy/paths"
-                                }
-                                val obsFile = File(File(projectPath, relativePathsDir), "obstacles.json")
+                                val fieldDataDirectory = ProjectLayout.fieldDataDirectory(projectPath, league)
+                                val obsFile = File(fieldDataDirectory, "obstacles.json")
                                 val loadedObstacles = if (obsFile.exists()) {
                                     Json.decodeFromString<List<Obstacle>>(obsFile.readText())
                                 } else {
                                     emptyList()
                                 }
-                                val gpFile = File(File(projectPath, relativePathsDir), "game_pieces.json")
+                                val gpFile = File(fieldDataDirectory, "game_pieces.json")
                                 val loadedGamePieces = if (gpFile.exists()) {
                                     Json.decodeFromString<List<GamePiece>>(gpFile.readText())
                                 } else {
                                     emptyList()
                                 }
-                                val atFile = File(File(projectPath, relativePathsDir), "apriltags.json")
+                                val atFile = File(fieldDataDirectory, "apriltags.json")
                                 val loadedAprilTags = if (atFile.exists()) {
                                     Json.decodeFromString<List<AprilTagPlacement>>(atFile.readText())
                                 } else {
                                     emptyList()
                                 }
-                                val wpFile = File(File(projectPath, relativePathsDir), "field_waypoints.json")
+                                val wpFile = File(fieldDataDirectory, "field_waypoints.json")
                                 val loadedFieldWaypoints = if (wpFile.exists()) {
                                     Json.decodeFromString<List<FieldWaypoint>>(wpFile.readText())
                                 } else {
                                     emptyList()
                                 }
-                                val relativeDir = if (league == League.FTC) {
-                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets"
-                                    else "src/main/assets"
-                                } else {
-                                    "src/main/deploy"
-                                }
-                                val targetDir = File(projectPath, relativeDir)
+                                val targetDir = ProjectLayout.assetsDirectory(projectPath, league)
                                 val imgFile = File(targetDir, "field_image.png")
                                 val loadedBitmap = if (imgFile.exists()) {
                                     org.jetbrains.skia.Image.makeFromEncoded(imgFile.readBytes()).toComposeImageBitmap()
@@ -355,13 +175,7 @@ class FieldEditorViewModel(
                     if (!projectPath.isNullOrEmpty()) {
                         try {
                             withContext(Dispatchers.IO) {
-                                val relativeDir = if (league == League.FTC) {
-                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths"
-                                    else "src/main/assets/paths"
-                                } else {
-                                    "src/main/deploy/paths"
-                                }
-                                val targetDir = File(projectPath, relativeDir)
+                                val targetDir = ProjectLayout.fieldDataDirectory(projectPath, league)
                                 targetDir.mkdirs()
                                 val targetFile = File(targetDir, "obstacles.json")
                                 val jsonFormat = Json { prettyPrint = true }
@@ -380,13 +194,7 @@ class FieldEditorViewModel(
                     if (!projectPath.isNullOrEmpty()) {
                         try {
                             withContext(Dispatchers.IO) {
-                                val relativeDir = if (league == League.FTC) {
-                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths"
-                                    else "src/main/assets/paths"
-                                } else {
-                                    "src/main/deploy/paths"
-                                }
-                                val targetDir = File(projectPath, relativeDir)
+                                val targetDir = ProjectLayout.fieldDataDirectory(projectPath, league)
                                 targetDir.mkdirs()
                                 val targetFile = File(targetDir, "game_pieces.json")
                                 val jsonFormat = Json { prettyPrint = true }
@@ -404,13 +212,7 @@ class FieldEditorViewModel(
                     if (!projectPath.isNullOrEmpty()) {
                         try {
                             withContext(Dispatchers.IO) {
-                                val relativeDir = if (league == League.FTC) {
-                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets"
-                                    else "src/main/assets"
-                                } else {
-                                    "src/main/deploy"
-                                }
-                                val targetDir = File(projectPath, relativeDir)
+                                val targetDir = ProjectLayout.assetsDirectory(projectPath, league)
                                 targetDir.mkdirs()
                                 val targetFile = File(targetDir, "field_image.png")
                                 intent.imageFile.copyTo(targetFile, overwrite = true)
@@ -430,13 +232,7 @@ class FieldEditorViewModel(
                     if (!projectPath.isNullOrEmpty()) {
                         try {
                             withContext(Dispatchers.IO) {
-                                val relativeDir = if (league == League.FTC) {
-                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets"
-                                    else "src/main/assets"
-                                } else {
-                                    "src/main/deploy"
-                                }
-                                val targetDir = File(projectPath, relativeDir)
+                                val targetDir = ProjectLayout.assetsDirectory(projectPath, league)
                                 targetDir.mkdirs()
                                 val configFile = File(targetDir, "field_image_config.json")
                                 val jsonFormat = Json { prettyPrint = true }
@@ -487,13 +283,7 @@ class FieldEditorViewModel(
                     if (!projectPath.isNullOrEmpty()) {
                         try {
                             withContext(Dispatchers.IO) {
-                                val relativeDir = if (league == League.FTC) {
-                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths"
-                                    else "src/main/assets/paths"
-                                } else {
-                                    "src/main/deploy/paths"
-                                }
-                                val targetDir = File(projectPath, relativeDir)
+                                val targetDir = ProjectLayout.fieldDataDirectory(projectPath, league)
                                 targetDir.mkdirs()
                                 val targetFile = File(targetDir, "apriltags.json")
                                 val jsonFormat = Json { prettyPrint = true }
@@ -543,13 +333,7 @@ class FieldEditorViewModel(
                     if (!projectPath.isNullOrEmpty()) {
                         try {
                             withContext(Dispatchers.IO) {
-                                val relativeDir = if (league == League.FTC) {
-                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths"
-                                    else "src/main/assets/paths"
-                                } else {
-                                    "src/main/deploy/paths"
-                                }
-                                val targetDir = File(projectPath, relativeDir)
+                                val targetDir = ProjectLayout.fieldDataDirectory(projectPath, league)
                                 targetDir.mkdirs()
                                 val targetFile = File(targetDir, "field_waypoints.json")
                                 val jsonFormat = Json { prettyPrint = true }
@@ -608,13 +392,7 @@ class FieldEditorViewModel(
                             _state.update { it.copy(aprilTags = placements) }
 
                             withContext(Dispatchers.IO) {
-                                val relativeDir = if (league == League.FTC) {
-                                    if (File(projectPath, "TeamCode/src/main/assets").exists()) "TeamCode/src/main/assets/paths"
-                                    else "src/main/assets/paths"
-                                } else {
-                                    "src/main/deploy/paths"
-                                }
-                                val targetDir = File(projectPath, relativeDir)
+                                val targetDir = ProjectLayout.fieldDataDirectory(projectPath, league)
                                 targetDir.mkdirs()
                                 val targetFile = File(targetDir, "apriltags.json")
                                 val jsonFormat = Json { prettyPrint = true }

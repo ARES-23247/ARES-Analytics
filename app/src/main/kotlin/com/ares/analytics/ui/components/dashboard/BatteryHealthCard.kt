@@ -34,7 +34,7 @@ fun BatteryHealthCard(
         if (sessionId != null) {
             while (isActive) {
                 val allTelemetry = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
-                voltageFrames = allTelemetry.filter { 
+                voltageFrames = allTelemetry.filter {
                     val lower = it.key.lowercase()
                     lower.contains("voltage") || lower.contains("battery")
                 }

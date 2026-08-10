@@ -54,13 +54,6 @@ class RlogDecoderService : BaseLogDecoder() {
         val keyIDs = mutableMapOf<Int, String>()
         val keyTypes = mutableMapOf<Int, String>()
 
-        /**
-
-         * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-         *
-
-         */
         fun readString(length: Int): String {
             val str = String(bytes, offset, length, Charsets.UTF_8)
             offset += length

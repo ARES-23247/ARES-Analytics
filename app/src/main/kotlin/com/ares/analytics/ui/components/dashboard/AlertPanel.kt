@@ -28,13 +28,6 @@ import kotlinx.coroutines.launch
 import kotlin.math.sin
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun AlertPanel(
     alertEngineService: AlertEngineService,
     modifier: Modifier = Modifier

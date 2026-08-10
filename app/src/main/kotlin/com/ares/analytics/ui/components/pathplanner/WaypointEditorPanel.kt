@@ -17,13 +17,6 @@ import com.ares.analytics.viewmodel.PathPlannerIntent
 import com.ares.analytics.viewmodel.PathPlannerState
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun WaypointEditorPanel(
     state: PathPlannerState,
     projectPath: String?,
@@ -51,7 +44,7 @@ fun WaypointEditorPanel(
                     playbackTime = state.playbackTime,
                     estimatedDuration = state.estimatedDuration,
                     onPathNameChange = { onIntent(PathPlannerIntent.UpdatePathName(it)) },
-                    onPathSelected = { 
+                    onPathSelected = {
                         onIntent(PathPlannerIntent.UpdatePathName(it))
                         onIntent(PathPlannerIntent.LoadPath(projectPath, league))
                     },
@@ -63,12 +56,12 @@ fun WaypointEditorPanel(
                     onBrowseClicked = { onIntent(PathPlannerIntent.ToggleBrowser) }
                 )
             }
-            
+
             item {
                 var contextDropdownExpanded by remember { mutableStateOf(false) }
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp)) {
                     Text("Background Auto Overlay", fontSize = 11.sp, color = AresTextSecondary, fontWeight = FontWeight.Bold, modifier = Modifier.padding(bottom = 4.dp))
-                    
+
                     @OptIn(ExperimentalMaterial3Api::class)
                     ExposedDropdownMenuBox(
                         expanded = contextDropdownExpanded,
@@ -108,7 +101,7 @@ fun WaypointEditorPanel(
                     }
                 }
             }
-            
+
             // WAYPOINTS
             item {
                 CollapsibleSection(title = "Waypoints", badgeCount = state.waypoints.size) {

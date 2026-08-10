@@ -7,24 +7,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlin.math.hypot
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
+/** Applies waypoint-specific intents without coupling list-edit mechanics to the main view model. */
 class WaypointController(
     private val stateFlow: MutableStateFlow<PathPlannerState>,
     private val onWaypointsChanged: () -> Unit
 ) {
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun handleIntent(intent: PathPlannerIntent): Boolean {
         when (intent) {
             is PathPlannerIntent.UpdateWaypoints -> {

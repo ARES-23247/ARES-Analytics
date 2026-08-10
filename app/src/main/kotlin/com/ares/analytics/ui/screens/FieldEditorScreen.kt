@@ -65,13 +65,6 @@ fun FieldEditorScreen(
     val fieldWidthM = if (state.fieldImageConfig.widthMeters > 0.0) state.fieldImageConfig.widthMeters else (if (league == League.FTC) 3.65 else 16.5)
     val fieldHeightM = if (state.fieldImageConfig.heightMeters > 0.0) state.fieldImageConfig.heightMeters else (if (league == League.FTC) 3.65 else 8.2)
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun mirrorObstacleX(obs: Obstacle, fieldWidth: Double, league: League): Obstacle {
         return when (obs) {
             is Obstacle.Circle -> {
@@ -91,13 +84,6 @@ fun FieldEditorScreen(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun mirrorObstacleY(obs: Obstacle, fieldHeight: Double, league: League): Obstacle {
         return when (obs) {
             is Obstacle.Circle -> {
@@ -251,7 +237,7 @@ fun FieldEditorScreen(
 
                 if (league == League.FTC) {
                     HorizontalDivider(color = AresBorder)
-                    
+
                     Text("FTC Coordinate System", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = AresTextPrimary)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -392,7 +378,7 @@ fun FieldEditorScreen(
                             }
                         }
                     }
-                    
+
                     if (!obstaclesCollapsed || state.selectedElement != null) {
                         state.obstacles.forEachIndexed { index, obs ->
                             if (state.selectedElement == null || state.selectedElement == obs.id) {

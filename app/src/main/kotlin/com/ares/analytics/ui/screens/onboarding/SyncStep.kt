@@ -248,9 +248,9 @@ fun SyncStep(
                     modifier = Modifier.weight(1f)
                 )
             }
-            
+
             Spacer(Modifier.height(12.dp))
-            
+
             AresTextField(
                 value = simulatorCommand,
                 onValueChange = onSimulatorCommandChange,
@@ -286,9 +286,9 @@ fun SyncStep(
                     modifier = Modifier.weight(1f)
                 )
             }
-            
+
             Spacer(Modifier.height(12.dp))
-            
+
             AresTextField(
                 value = simulatorCommand,
                 onValueChange = onSimulatorCommandChange,

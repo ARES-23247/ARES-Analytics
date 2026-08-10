@@ -130,9 +130,10 @@ fun RunHistoryScreen(
         isLoading = true
         withContext(Dispatchers.IO) {
             val list = databaseService.getSessions().sortedBy { it.createdAt }
-            val sums = list.associate { it.sessionId to databaseService.getSessionSummary(it.sessionId) }
-                .filterValues { it != null }
-                .mapValues { it.value!! }
+            val sums = list.mapNotNull { session ->
+                databaseService.getSessionSummary(session.sessionId)
+                    ?.let { summary -> session.sessionId to summary }
+            }.toMap()
             val diags = list.associate { session ->
                 session.sessionId to databaseService.getDiagnosticsTelemetry(session.sessionId).associate { it.key to it.value }
             }
@@ -535,7 +536,3 @@ fun RunHistoryScreen(
         )
     }
 }
-
-
-
-

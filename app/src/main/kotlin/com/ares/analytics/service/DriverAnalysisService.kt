@@ -61,22 +61,8 @@ class DriverAnalysisService(
         }
     }
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun getProfiles(): List<DriverProfile> = profiles.values.toList()
 
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun getProfile(name: String): DriverProfile? = profiles[name]
 
     suspend fun saveProfile(profile: DriverProfile) = withContext(Dispatchers.IO) {
@@ -123,8 +109,7 @@ class DriverAnalysisService(
             profile.slewRateLimit.isFinite() && profile.slewRateLimit > 0.0 &&
             profile.jitterPeakFrequencyHz.isFinite() && profile.jitterAmplitude.isFinite()
 
-
-    /**
+/**
      * Sweeps gamepad telemetry keys (X, Y, Omega) to detect 8-12Hz jitter and recommends a profile.
      */
     suspend fun analyzeDriverJitter(
@@ -226,13 +211,6 @@ class DriverAnalysisService(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 data class DriverProfileAnalysisResult(
     val hasJitter: Boolean,
     val peakFrequencyHz: Double,

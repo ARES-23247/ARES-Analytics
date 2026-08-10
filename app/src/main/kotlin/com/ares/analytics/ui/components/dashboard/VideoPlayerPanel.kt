@@ -32,13 +32,6 @@ import javax.swing.filechooser.FileNameExtensionFilter
 import kotlin.math.sin
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun VideoPlayerPanel(
     videoSyncService: VideoSyncService,
     replayEngineService: ReplayEngineService,
@@ -53,13 +46,6 @@ fun VideoPlayerPanel(
     val currentFrame by replayEngineService.currentFrame.collectAsState()
 
     // Calculate formatted times
-    /**
-
-     * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
-     *
-
-     */
     fun formatTime(ms: Long): String {
         val totalSecs = ms / 1000
         val minutes = totalSecs / 60
@@ -142,7 +128,7 @@ fun VideoPlayerPanel(
                     // Simulated Camera Static / Scanlines based on timestamp
                     val t = currentVideoTimeMs.toDouble() / 1000.0
                     val isPlaying = replayState == ReplayState.PLAYING
-                    
+
                     // Draw outer border / lens bounds
                     drawRect(
                         color = AresBorder,
@@ -180,7 +166,7 @@ fun VideoPlayerPanel(
                     // Draw a visual representation of the robot moving
                     val rx = cx + (poseX * 80).toFloat()
                     val ry = cy - (poseY * 80).toFloat()
-                    
+
                     if (rx in 0f..width && ry in 0f..height) {
                         drawCircle(
                             color = AresCyanGlow,

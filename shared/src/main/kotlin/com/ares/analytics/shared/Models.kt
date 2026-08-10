@@ -1,7 +1,8 @@
 package com.ares.analytics.shared
 
 import kotlinx.serialization.Serializable
-// Re-export all domain model definitions from subpackage for 100% backward compatibility
+
+// Keep these aliases while callers migrate to shared.models; removing them is a source-breaking change.
 import com.ares.analytics.shared.models.*
 
 typealias League = com.ares.analytics.shared.models.League
@@ -32,13 +33,18 @@ typealias CalculatedSummary = com.ares.analytics.shared.models.CalculatedSummary
 typealias TransientClassification = com.ares.analytics.shared.models.TransientClassification
 typealias DriverProfile = com.ares.analytics.shared.models.DriverProfile
 
-// Path Planner Obstacles & Field Models
+/** A point in field coordinates, in meters. */
 @Serializable
 data class PathPoint(val x: Double, val y: Double)
 
+/** FTC field rendering convention selected by the user-authored field image. */
 @Serializable
 enum class FTCCoordinateSystem { DIAMOND, SQUARE }
 
+/**
+ * Describes how `field_image.png` maps to field coordinates.
+ * Crop values are normalized fractions; dimensions are meters and rotation is degrees.
+ */
 @Serializable
 data class FieldImageConfig(
     val imagePath: String = "",
@@ -52,6 +58,10 @@ data class FieldImageConfig(
     val ftcCoordinateSystem: FTCCoordinateSystem = FTCCoordinateSystem.DIAMOND
 )
 
+/**
+ * Editable field collision geometry. Positions and dimensions are meters;
+ * [Rectangle.rotation] is degrees counter-clockwise in field coordinates.
+ */
 @Serializable
 sealed class Obstacle {
     abstract val id: String
@@ -93,6 +103,7 @@ sealed class Obstacle {
     ) : Obstacle()
 }
 
+/** User-authored game-piece placement in field coordinates (meters). */
 @Serializable
 data class GamePiece(
     val id: String,
@@ -103,6 +114,7 @@ data class GamePiece(
     val locked: Boolean = false
 )
 
+/** AprilTag placement in meters with a CCW-positive yaw in degrees. */
 @Serializable
 data class AprilTagPlacement(
     val id: String,
@@ -114,6 +126,7 @@ data class AprilTagPlacement(
     val locked: Boolean = false
 )
 
+/** Named field pose in meters with a CCW-positive heading in degrees. */
 @Serializable
 data class FieldWaypoint(
     val id: String,

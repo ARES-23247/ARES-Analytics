@@ -31,13 +31,6 @@ import kotlinx.coroutines.launch
 import com.ares.analytics.ui.components.core.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun VisionQualityCard(
     databaseService: DatabaseService,
     sessionId: String?,
@@ -66,7 +59,6 @@ fun VisionQualityCard(
             icon = Icons.Default.Visibility,
             iconTint = AresCyan
         )
-
 
         if (visionFrames.isEmpty()) {
             Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -102,19 +94,19 @@ private fun VisionInnovationChart(frames: List<TelemetryFrame>) {
         drawLine(color = AresBorder, start = Offset(0f, center), end = Offset(w, center), strokeWidth = 1.5f)
         val threshYTop = center - (0.05 / maxInnovation * (h / 2f)).toFloat()
         val threshYBottom = center + (0.05 / maxInnovation * (h / 2f)).toFloat()
-        
+
         // Threshold line at 5cm (dashed warning line)
         drawLine(
-            color = AresAmber.copy(alpha = 0.5f), 
-            start = Offset(0f, threshYTop), 
-            end = Offset(w, threshYTop), 
+            color = AresAmber.copy(alpha = 0.5f),
+            start = Offset(0f, threshYTop),
+            end = Offset(w, threshYTop),
             strokeWidth = 1f,
             pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
         )
         drawLine(
-            color = AresAmber.copy(alpha = 0.5f), 
-            start = Offset(0f, threshYBottom), 
-            end = Offset(w, threshYBottom), 
+            color = AresAmber.copy(alpha = 0.5f),
+            start = Offset(0f, threshYBottom),
+            end = Offset(w, threshYBottom),
             strokeWidth = 1f,
             pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
         )

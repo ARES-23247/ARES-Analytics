@@ -26,13 +26,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.geometry.CornerRadius
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawFieldBackground(
     activeImage: ImageBitmap?,
     activeConfig: FieldImageConfig,
@@ -72,13 +65,6 @@ fun DrawScope.drawFieldBackground(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawFieldGrid(
     w: Float,
     h: Float,
@@ -115,7 +101,7 @@ fun DrawScope.drawFieldGrid(
         val robotRadiusPxY = (robotRadius / fieldHeightM) * h
         val insetOffset = Offset(robotRadiusPxX.toFloat(), robotRadiusPxY.toFloat())
         val insetSize = Size((w - 2.0 * robotRadiusPxX).toFloat(), (h - 2.0 * robotRadiusPxY).toFloat())
-        
+
         drawRect(
             color = AresRed.copy(alpha = 0.25f),
             topLeft = insetOffset,
@@ -125,13 +111,6 @@ fun DrawScope.drawFieldGrid(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawFtcAllianceStations(
     w: Float,
     h: Float,
@@ -144,7 +123,7 @@ fun DrawScope.drawFtcAllianceStations(
     val strokeW = 12f
     val redColor = AresRed.copy(alpha = 0.7f)
     val blueColor = AresCyan.copy(alpha = 0.7f)
-    
+
     when (activeConfig.ftcCoordinateSystem) {
         com.ares.analytics.shared.FTCCoordinateSystem.SQUARE -> {
             val redStart = getCanvasOffsetBase(Waypoint(-fieldWidthM/2, -fieldHeightM/2), w, h, fieldWidthM, fieldHeightM, league)
@@ -162,19 +141,11 @@ fun DrawScope.drawFtcAllianceStations(
             val blueEnd = getCanvasOffsetBase(Waypoint(fieldWidthM/2, fieldHeightM/2), w, h, fieldWidthM, fieldHeightM, league)
             drawLine(blueColor, start = blueStart, end = blueEnd, strokeWidth = strokeW)
         }
-        null -> {}
     }
 }
 
 private val reusablePolygonPath = Path()
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawCustomObstacles(
     activeObstacles: List<Obstacle>,
     w: Float,
@@ -208,7 +179,7 @@ fun DrawScope.drawCustomObstacles(
                 val centerWp = Waypoint(obs.centerX, obs.centerY)
                 val centerOffset = getCanvasOffsetBase(centerWp, w, h, fieldWidthM, fieldHeightM, league)
                 val radiusPx = (obs.radius / fieldWidthM) * w
-                
+
                 if (showCostmap) {
                     val inflatedRadius = radiusPx + robotRadiusPx
                     drawCircle(color = costmapFillColor, radius = inflatedRadius.toFloat(), center = centerOffset)
@@ -235,17 +206,17 @@ fun DrawScope.drawCustomObstacles(
                     rw = (obs.width / fieldWidthM) * w
                     rh = (obs.height / fieldHeightM) * h
                 }
-                
+
                 if (showCostmap) {
                     val inflatedRw = rw + 2.0 * robotRadiusPx
                     val inflatedRh = rh + 2.0 * robotRadiusPx
-                    
+
                     drawContext.canvas.save()
-                    val drawRot = -obs.rotation.toFloat() 
+                    val drawRot = -obs.rotation.toFloat()
                     drawContext.transform.rotate(drawRot, pivot = centerOffset)
                     val rectOffset = Offset((centerOffset.x - inflatedRw / 2).toFloat(), (centerOffset.y - inflatedRh / 2).toFloat())
                     val roundedCorner = androidx.compose.ui.geometry.CornerRadius(robotRadiusPx.toFloat(), robotRadiusPx.toFloat())
-                    
+
                     drawRoundRect(
                         color = costmapFillColor,
                         topLeft = rectOffset,
@@ -263,7 +234,7 @@ fun DrawScope.drawCustomObstacles(
                 }
 
                 drawContext.canvas.save()
-                val drawRot = -obs.rotation.toFloat() 
+                val drawRot = -obs.rotation.toFloat()
                 drawContext.transform.rotate(drawRot, pivot = centerOffset)
                 val rectOffset = Offset((centerOffset.x - rw / 2).toFloat(), (centerOffset.y - rh / 2).toFloat())
                 drawRect(color = fillColor, topLeft = rectOffset, size = Size(rw.toFloat(), rh.toFloat()))
@@ -280,7 +251,7 @@ fun DrawScope.drawCustomObstacles(
                         path.lineTo(offset.x, offset.y)
                     }
                     path.close()
-                    
+
                     if (showCostmap) {
                         drawPath(
                             path = path,
@@ -311,13 +282,6 @@ fun DrawScope.drawCustomObstacles(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawGamePieces(
     activeGamePieces: List<GamePiece>,
     w: Float,
@@ -379,13 +343,6 @@ fun DrawScope.drawGamePieces(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawAprilTags(
     activeAprilTags: List<com.ares.analytics.shared.AprilTagPlacement>,
     w: Float,
@@ -404,7 +361,7 @@ fun DrawScope.drawAprilTags(
         val atOffset = getCanvasOffsetBase(Waypoint(at.x, at.y), w, h, fieldWidthM, fieldHeightM, league)
         val rw = (0.15 / fieldWidthM) * w
         val rh = (0.15 / fieldHeightM) * h
-        
+
         drawContext.canvas.save()
         drawContext.transform.rotate(degrees = -at.yawDegrees.toFloat(), pivot = atOffset)
         val rectOffset = Offset((atOffset.x - rw/2).toFloat(), (atOffset.y - rh/2).toFloat())
@@ -413,7 +370,7 @@ fun DrawScope.drawAprilTags(
         val innerW = rw - 4
         val innerH = rh - 4
         drawRect(color = Color.Black, topLeft = innerOffset, size = Size(innerW.toFloat(), innerH.toFloat()))
-        
+
         // Stylized AprilTag inner pattern
         val blockW = innerW / 6.0
         val blockH = innerH / 6.0
@@ -433,23 +390,23 @@ fun DrawScope.drawAprilTags(
                 size = Size(blockW.toFloat(), blockH.toFloat())
             )
         }
-        
+
         drawContext.canvas.restore()
-        
+
         val labelText = "#${at.tagId}"
         val textLayout = textMeasurer.measure(labelText, textStyle)
         val labelOffset = Offset(
             (atOffset.x - textLayout.size.width / 2f).toFloat(),
             (atOffset.y - rh/2 - textLayout.size.height - 4).toFloat()
         )
-        
+
         drawRoundRect(
             color = Color(0xCC212121),
             topLeft = Offset(labelOffset.x - 4, labelOffset.y - 2),
             size = Size((textLayout.size.width + 8).toFloat(), (textLayout.size.height + 4).toFloat()),
             cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
         )
-        
+
         drawText(
             textMeasurer = textMeasurer,
             text = labelText,
@@ -459,13 +416,6 @@ fun DrawScope.drawAprilTags(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawActivePolygonPoints(
     currentPolygonPoints: List<PathPoint>,
     w: Float,
@@ -487,13 +437,6 @@ fun DrawScope.drawActivePolygonPoints(
     }
 }
 
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun DrawScope.drawFieldWaypoints(
     fieldWaypoints: List<com.ares.analytics.shared.FieldWaypoint>,
     selectedId: String?,
@@ -520,14 +463,14 @@ fun DrawScope.drawFieldWaypoints(
             (offset.x + radius + 6).toFloat(),
             (offset.y - textLayout.size.height / 2f).toFloat()
         )
-        
+
         drawRoundRect(
             color = Color(0xCC212121),
             topLeft = Offset(textOffset.x - 3, textOffset.y - 1),
             size = Size((textLayout.size.width + 6).toFloat(), (textLayout.size.height + 2).toFloat()),
             cornerRadius = CornerRadius(2.dp.toPx(), 2.dp.toPx())
         )
-        
+
         drawText(
             textMeasurer = textMeasurer,
             text = wp.name,

@@ -20,13 +20,6 @@ import kotlinx.coroutines.launch
 import com.ares.analytics.ui.components.core.*
 
 @Composable
-/**
-
- * Physical units: Distances in $m$, angles in $rad$, velocities in $m/s$ or $rad/s$, time in $s$.
-
- *
-
- */
 fun BrownoutProtectionCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
@@ -69,15 +62,13 @@ fun BrownoutProtectionCard(
             statusColor = stateColor
         )
 
-
-
         MetricRow(
             label = "Power Scale",
             value = "${(powerScale * 100).toInt()}%"
         )
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             LinearProgressIndicator(
                 progress = { powerScale.toFloat().coerceIn(0f, 1f) },
                 modifier = Modifier
@@ -103,7 +94,7 @@ fun BrownoutProtectionCard(
                         fontWeight = FontWeight.Bold
                     )
                 }
-                
+
                 Column(horizontalAlignment = Alignment.End) {
                     Text("Brownout Trips", color = AresTextSecondary)
                     Text(
