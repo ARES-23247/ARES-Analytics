@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.double
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.junit.Assume.assumeTrue
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertTrue
@@ -12,8 +13,14 @@ import kotlin.test.assertTrue
 class DashboardPerformanceBaselineTest {
     @Test
     fun `smoke report stays within checked in performance baseline`() {
-        val reportDirectory = File(requireNotNull(System.getProperty("ares.validation.reportDir")))
-        val baselineFile = File(requireNotNull(System.getProperty("ares.validation.baselineFile")))
+        val reportDirectoryProperty = System.getProperty("ares.validation.reportDir")
+        val baselineFileProperty = System.getProperty("ares.validation.baselineFile")
+        assumeTrue(
+            "Run :app:dashboardPerformanceBaseline to provide the smoke report and baseline.",
+            reportDirectoryProperty != null && baselineFileProperty != null
+        )
+        val reportDirectory = File(requireNotNull(reportDirectoryProperty))
+        val baselineFile = File(requireNotNull(baselineFileProperty))
         val reportFile = reportDirectory.resolve("dashboard-validation-smoke.json")
         require(reportFile.isFile) { "Smoke report was not generated at ${reportFile.absolutePath}" }
         require(baselineFile.isFile) { "Performance baseline is missing at ${baselineFile.absolutePath}" }

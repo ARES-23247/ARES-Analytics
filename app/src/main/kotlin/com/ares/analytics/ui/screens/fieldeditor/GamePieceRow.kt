@@ -21,6 +21,7 @@ import com.ares.analytics.shared.GamePiece
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.components.forms.AresTextField
 import com.ares.analytics.ui.theme.*
+import com.ares.analytics.viewmodel.field.FieldMeasurementUnit
 
 /**
  * UI row component for editing game piece initial field locations $(x, y, z)$ in meters ($m$).
@@ -40,9 +41,11 @@ fun GamePieceRow(
     index: Int,
     gp: GamePiece,
     league: League,
+    measurementUnit: FieldMeasurementUnit = FieldMeasurementUnit.METERS,
     onUpdate: (Int, GamePiece) -> Unit,
     onDelete: (Int) -> Unit
 ) {
+    val unitLabel = measurementUnit.abbreviation
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -92,26 +95,26 @@ fun GamePieceRow(
             }
             Spacer(modifier = Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                var gpXText by remember(gp.id, gp.x) { mutableStateOf(gp.x.toString()) }
+                var gpXText by remember(gp.id, gp.x, measurementUnit) { mutableStateOf(measurementUnit.fromMeters(gp.x).toString()) }
                 AresTextField(
                     value = gpXText,
                     onValueChange = { newVal ->
                         gpXText = newVal
-                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, gp.copy(x = parsed)) }
+                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, gp.copy(x = measurementUnit.toMeters(parsed))) }
                     },
-                    label = "X (m)",
+                    label = "X ($unitLabel)",
                     labelFontSize = 9.sp,
                     modifier = Modifier.weight(1f),
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                 )
-                var gpYText by remember(gp.id, gp.y) { mutableStateOf(gp.y.toString()) }
+                var gpYText by remember(gp.id, gp.y, measurementUnit) { mutableStateOf(measurementUnit.fromMeters(gp.y).toString()) }
                 AresTextField(
                     value = gpYText,
                     onValueChange = { newVal ->
                         gpYText = newVal
-                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, gp.copy(y = parsed)) }
+                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, gp.copy(y = measurementUnit.toMeters(parsed))) }
                     },
-                    label = "Y (m)",
+                    label = "Y ($unitLabel)",
                     labelFontSize = 9.sp,
                     modifier = Modifier.weight(1f),
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)

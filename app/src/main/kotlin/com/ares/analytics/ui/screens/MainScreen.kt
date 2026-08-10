@@ -221,7 +221,7 @@ fun MainScreen(services: ServiceRegistry) {
         )
     }
     val fieldEditorViewModel = remember {
-        FieldEditorViewModel(scope = scope)
+        FieldEditorViewModel(scope = scope, nt4ClientService = services.nt4ClientService)
     }
     val sysIdViewModel = remember {
         SysIdViewModel(

@@ -11,7 +11,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.sign
 
 data class AutoTunerPIDFGains(
     val kP: Double,
@@ -77,6 +76,8 @@ class AutoTunerService(
         val rSquared: Double,
         val stepMetrics: StepResponseMetrics,
         val warnings: List<String>,
+        val dataQuality: AutoTuningDataQuality,
+        val safetyEnvelope: MechanismGainEnvelope,
         val topicValues: Map<String, Double>,
         val studentApproved: Boolean = false
     )
@@ -92,6 +93,7 @@ class AutoTunerService(
         samples: List<AlignedDataRow>,
         source: String = "live-nt4"
     ): TuningRecommendation? {
+        val dataQuality = AutoTuningSafetyPolicy.assessData(mechanism, samples)
         val finite = samples.asSequence()
             .filter { it.voltage.isFinite() && it.velocity.isFinite() && it.accel.isFinite() }
             .sortedBy { it.timestampMs }
@@ -101,7 +103,10 @@ class AutoTunerService(
         val summary = sysIdService.analyzeRawData(finite)
         val metrics = identifyStepResponse(finite)
         val gains = calculateImcGains(metrics)
-        val warnings = mutableListOf<String>()
+        val envelope = AutoTuningSafetyPolicy.envelopeFor(mechanism)
+        val envelopeViolations = envelope.violations(summary.kS, summary.kV, summary.kA, gains)
+        val warnings = dataQuality.warnings.toMutableList()
+        warnings += dataQuality.blockers
 
         if (summary.rSquared < MIN_REVIEW_R2) warnings += "Feedforward fit is below the minimum R² of $MIN_REVIEW_R2."
         if (!metrics.isUsable) warnings += "No clean step response was found; feedback gains were not recommended."
@@ -112,13 +117,14 @@ class AutoTunerService(
             warnings += "The dataset does not cover both directions."
         }
 
-        val sampleScore = (finite.size / 100.0).coerceIn(0.0, 1.0)
+        warnings += envelopeViolations
         val confidence = (0.60 * summary.rSquared.coerceIn(0.0, 1.0) +
-            0.20 * metrics.modelFit.coerceIn(0.0, 1.0) + 0.20 * sampleScore).coerceIn(0.0, 1.0)
+            0.20 * metrics.modelFit.coerceIn(0.0, 1.0) + 0.20 * dataQuality.score).coerceIn(0.0, 1.0)
         val physicallyValid = summary.kS.isFinite() && summary.kV.isFinite() && summary.kA.isFinite() &&
             summary.kV > 0.0 && summary.kA >= 0.0
         val quality = when {
-            !physicallyValid || summary.rSquared < MIN_REJECT_R2 -> RecommendationQuality.REJECTED
+            !dataQuality.passed || envelopeViolations.isNotEmpty() || !metrics.isUsable ||
+                !physicallyValid || summary.rSquared < MIN_REJECT_R2 -> RecommendationQuality.REJECTED
             confidence >= READY_CONFIDENCE && metrics.isUsable -> RecommendationQuality.READY
             else -> RecommendationQuality.REVIEW_REQUIRED
         }
@@ -140,6 +146,8 @@ class AutoTunerService(
             rSquared = summary.rSquared,
             stepMetrics = metrics,
             warnings = warnings,
+            dataQuality = dataQuality,
+            safetyEnvelope = envelope,
             topicValues = topicValues
         )
         _currentRecommendation.value = recommendation
@@ -160,7 +168,12 @@ class AutoTunerService(
     }
 
     suspend fun approveAndApplyGains(rec: TuningRecommendation) {
-        if (rec.quality == RecommendationQuality.REJECTED || rec.topicValues.isEmpty()) {
+        val envelopeViolations = rec.safetyEnvelope.violations(
+            rec.recommendedkS, rec.recommendedkV, rec.recommendedkA, rec.recommendedGains
+        )
+        if (rec.quality == RecommendationQuality.REJECTED || !rec.dataQuality.passed ||
+            envelopeViolations.isNotEmpty() || rec.topicValues.isEmpty()
+        ) {
             _applyState.value = TuningApplyState(TuningApplyPhase.FAILED, "Rejected recommendations cannot be applied.")
             return
         }

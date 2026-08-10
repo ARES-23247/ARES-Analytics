@@ -1,6 +1,7 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.TelemetryFrame
+import com.ares.analytics.shared.TelemetryMetricCatalog
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -44,11 +45,8 @@ class TelemetryStore(
     private val lastAcceptedAtMs = AtomicLong()
 
     suspend fun accept(frame: TelemetryFrame, notifyConsumers: Boolean = true): TelemetryFrame {
-        val canonicalFrame = if (frame.key.startsWith('/')) {
-            frame.copy(key = frame.key.removePrefix("/"))
-        } else {
-            frame
-        }
+        val canonicalKey = canonical(frame.key)
+        val canonicalFrame = if (canonicalKey == frame.key) frame else frame.copy(key = canonicalKey)
         latestFrames[canonicalFrame.key] = canonicalFrame
 
         val history = frameHistory.computeIfAbsent(canonicalFrame.key) { ArrayDeque() }
@@ -102,7 +100,7 @@ class TelemetryStore(
         lastAcceptedAtMs.set(0)
     }
 
-    private fun canonical(topic: String): String = topic.removePrefix("/")
+    private fun canonical(topic: String): String = TelemetryMetricCatalog.normalizeTopic(topic)
 }
 
 data class TelemetryStoreMetrics(

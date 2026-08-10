@@ -11,10 +11,10 @@ class TelemetryStoreTest {
     @Test
     fun `indexes canonical topics and isolates subscriptions`() = runTest {
         val store = TelemetryStore()
-        store.accept(frame("/Drive/Pose_X", 1_000, 2.5))
+        store.accept(frame("  ///Drive/Pose_X", 1_000, 2.5))
         store.accept(frame("Drive/Pose_Y", 1_001, 3.5))
 
-        assertEquals("Drive/Pose_X", store.observe("/Drive/Pose_X").value?.key)
+        assertEquals("Drive/Pose_X", store.observe("///Drive/Pose_X").value?.key)
         assertEquals(2.5, store.latest("Drive/Pose_X")?.value)
         assertEquals("Drive/Pose_X", store.observe(setOf("Drive/Pose_X")).first().key)
     }

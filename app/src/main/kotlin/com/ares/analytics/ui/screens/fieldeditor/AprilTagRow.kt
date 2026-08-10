@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.shared.AprilTagPlacement
 import com.ares.analytics.ui.components.forms.AresTextField
 import com.ares.analytics.ui.theme.*
+import com.ares.analytics.viewmodel.field.FieldMeasurementUnit
 
 /**
  * UI row component for editing 3D AprilTag placement parameters in the field layout editor.
@@ -43,9 +44,11 @@ import com.ares.analytics.ui.theme.*
 fun AprilTagRow(
     index: Int,
     at: AprilTagPlacement,
+    measurementUnit: FieldMeasurementUnit = FieldMeasurementUnit.METERS,
     onUpdate: (Int, AprilTagPlacement) -> Unit,
     onDelete: (Int) -> Unit
 ) {
+    val unitLabel = measurementUnit.abbreviation
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -69,14 +72,14 @@ fun AprilTagRow(
                     modifier = Modifier.weight(1f),
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                 )
-                var tagZText by remember(at.id, at.z) { mutableStateOf(at.z.toString()) }
+                var tagZText by remember(at.id, at.z, measurementUnit) { mutableStateOf(measurementUnit.fromMeters(at.z).toString()) }
                 AresTextField(
                     value = tagZText,
                     onValueChange = { newVal ->
                         tagZText = newVal
-                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(z = parsed)) }
+                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(z = measurementUnit.toMeters(parsed))) }
                     },
-                    label = "Z (m)",
+                    label = "Z ($unitLabel)",
                     labelFontSize = 9.sp,
                     modifier = Modifier.weight(1f),
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
@@ -96,26 +99,26 @@ fun AprilTagRow(
             }
             Spacer(modifier = Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                var tagXText by remember(at.id, at.x) { mutableStateOf(at.x.toString()) }
+                var tagXText by remember(at.id, at.x, measurementUnit) { mutableStateOf(measurementUnit.fromMeters(at.x).toString()) }
                 AresTextField(
                     value = tagXText,
                     onValueChange = { newVal ->
                         tagXText = newVal
-                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(x = parsed)) }
+                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(x = measurementUnit.toMeters(parsed))) }
                     },
-                    label = "X (m)",
+                    label = "X ($unitLabel)",
                     labelFontSize = 9.sp,
                     modifier = Modifier.weight(1f),
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                 )
-                var tagYText by remember(at.id, at.y) { mutableStateOf(at.y.toString()) }
+                var tagYText by remember(at.id, at.y, measurementUnit) { mutableStateOf(measurementUnit.fromMeters(at.y).toString()) }
                 AresTextField(
                     value = tagYText,
                     onValueChange = { newVal ->
                         tagYText = newVal
-                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(y = parsed)) }
+                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(y = measurementUnit.toMeters(parsed))) }
                     },
-                    label = "Y (m)",
+                    label = "Y ($unitLabel)",
                     labelFontSize = 9.sp,
                     modifier = Modifier.weight(1f),
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
