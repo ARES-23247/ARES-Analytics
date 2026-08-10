@@ -33,17 +33,24 @@ class LogParserServiceTest {
             {"timestampMs": 1040, "voltage": 12.3, "velocity": 2.3}
         """.trimIndent()
         tempFile.writeText(jsonLines)
-        val session = logParser.parseLogFile(
+        val imported = logParser.parseLogFileWithReport(
             file = tempFile,
             teamId = "23247",
             seasonId = "2026",
             robotId = "ares-bot",
             tags = listOf("jsonl-test")
         )
+        val session = imported.session
 
         assertEquals("23247", session.teamId)
         assertEquals(40L, session.durationMs) // 1040 - 1000 = 40ms
         assertTrue(session.tags.contains("jsonl-test"))
+        assertEquals(ImportStatus.SUCCESS, imported.report.status)
+        assertEquals(6L, imported.report.acceptedRecords)
+        assertEquals(listOf("velocity", "voltage"), imported.report.detectedTopics)
+        assertEquals(1000L, imported.report.minTimestampMs)
+        assertEquals(1040L, imported.report.maxTimestampMs)
+        assertEquals(64, imported.report.sourceSha256.length)
 
         // Query telemetry from database
         val frames = databaseService.getTelemetryRange(session.sessionId, 0L, Long.MAX_VALUE).filter { !it.key.startsWith("Diagnostics/") }

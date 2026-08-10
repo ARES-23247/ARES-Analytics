@@ -1,12 +1,14 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.service.log.*
+import com.ares.analytics.shared.AppJsonPretty
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.serialization.encodeToString
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
@@ -109,10 +111,7 @@ class AutoImportService(
 
         for (dir in logsDirs) {
             if (!dir.exists() || !dir.isDirectory) continue
-            val files = dir.listFiles { _, name ->
-                val lower = name.lowercase()
-                lower.endsWith(".wpilog") || lower.endsWith(".jsonl") || lower.endsWith(".csv") || lower.endsWith(".hoot")
-            } ?: continue
+            val files = dir.listFiles { _, name -> isSupportedLog(name) } ?: continue
             for (file in files) {
                 if (file.isDirectory) continue
 
@@ -126,7 +125,9 @@ class AutoImportService(
                 val archiveDir = File(config.projectPath, "logs/imported")
                 archiveDir.mkdirs()
                 val manifest = File(archiveDir, IMPORT_MANIFEST_NAME)
-                if (isFingerprintImported(manifest, fingerprint)) continue
+                val quarantineManifest = quarantineManifest(config)
+                if (isFingerprintImported(manifest, fingerprint) || isFingerprintImported(quarantineManifest, fingerprint)) continue
+                val archivedFile = File(archiveDir, "${fingerprint.take(12)}_${file.name}")
 
                 try {
                     _importNotifications.emit("[AUTO-IMPORT] Found local log: ${file.name}. Importing...")
@@ -134,18 +135,21 @@ class AutoImportService(
                     if (file.name.lowercase().startsWith("sim_")) {
                         baseTags.add("simulated")
                     }
-                    val archivedFile = File(archiveDir, "${fingerprint.take(12)}_${file.name}")
                     copyStableLocalFile(file, archivedFile, snapshot)
-                    val sessionId = if (file.name.endsWith(".hoot", ignoreCase = true)) {
-                        hootDecoderService.importHootLog(archivedFile, config.teamId, config.seasonId, config.robotId)
+                    val result = if (file.name.endsWith(".hoot", ignoreCase = true)) {
+                        val sessionId = hootDecoderService.importHootLog(archivedFile, config.teamId, config.seasonId, config.robotId)
+                        sessionId to logParserService.buildImportReport(archivedFile, sessionId, decoderOverride = "hoot")
+                            .copy(sourceName = file.name)
                     } else {
-                        val session = logParserService.parseLogFile(
+                        val imported = logParserService.parseLogFileWithReport(
                             archivedFile, config.teamId, config.seasonId, config.robotId,
                             tags = baseTags
                         )
-                        session.sessionId
+                        imported.session.sessionId to imported.report.copy(sourceName = file.name)
                     }
+                    val (sessionId, report) = result
 
+                    writeImportReport(archivedFile, report)
                     markFingerprintImported(manifest, fingerprint)
                     if (!file.delete()) {
                         _importNotifications.emit(
@@ -157,6 +161,10 @@ class AutoImportService(
                     // Trigger UI reload
                     onImportSuccessCallback?.invoke()
                 } catch (e: Exception) {
+                    if (archivedFile.exists()) {
+                        runCatching { quarantineFailedImport(config, archivedFile, fingerprint, e, file.name) }
+                            .onFailure { e.addSuppressed(it) }
+                    }
                     _importNotifications.emit("[AUTO-IMPORT] Failed to import local log ${file.name}: ${e.message}")
                     e.printStackTrace()
                 }
@@ -177,14 +185,15 @@ class AutoImportService(
             val filesOnRobot = listFilesOnFtcRobot(adbPath, robotDir)
             for (filename in filesOnRobot) {
                 val lower = filename.lowercase()
-                if (lower.endsWith(".wpilog") || lower.endsWith(".jsonl") || lower.endsWith(".csv") || lower.endsWith(".hoot")) {
+                if (isSupportedLog(lower)) {
                     val remotePath = "$robotDir$filename"
                     val sourceId = "ftc:$remotePath"
                     val snapshot = getFtcFileSnapshot(adbPath, remotePath) ?: continue
                     if (!observeStableSource(sourceId, snapshot)) continue
                     val fingerprint = sourceFingerprint(sourceId, snapshot)
                     val manifest = File(localDestDir, IMPORT_MANIFEST_NAME)
-                    if (isFingerprintImported(manifest, fingerprint)) continue
+                    val quarantineManifest = quarantineManifest(config)
+                    if (isFingerprintImported(manifest, fingerprint) || isFingerprintImported(quarantineManifest, fingerprint)) continue
 
                     // Check if file is still being written to by ARESDataLogger
                     if (isFileInUseOnFtcRobot(adbPath, remotePath)) {
@@ -203,16 +212,20 @@ class AutoImportService(
                             }
                             val archivedFile = File(localDestDir, "${fingerprint.take(12)}_$filename")
                             Files.move(tempLocalFile.toPath(), archivedFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                            val sessionId = if (lower.endsWith(".hoot")) {
-                                hootDecoderService.importHootLog(archivedFile, config.teamId, config.seasonId, config.robotId)
+                            val result = if (lower.endsWith(".hoot")) {
+                                val sessionId = hootDecoderService.importHootLog(archivedFile, config.teamId, config.seasonId, config.robotId)
+                                sessionId to logParserService.buildImportReport(archivedFile, sessionId, decoderOverride = "hoot")
+                                    .copy(sourceName = filename)
                             } else {
-                                val session = logParserService.parseLogFile(
+                                val imported = logParserService.parseLogFileWithReport(
                                     archivedFile, config.teamId, config.seasonId, config.robotId,
                                     tags = listOf("auto-import", "robot-log")
                                 )
-                                session.sessionId
+                                imported.session.sessionId to imported.report.copy(sourceName = filename)
                             }
+                            val (sessionId, report) = result
 
+                            writeImportReport(archivedFile, report)
                             markFingerprintImported(manifest, fingerprint)
                             // Keep imported file safely in logs/imported archive folder
                             _importNotifications.emit("[AUTO-IMPORT] Successfully imported robot log $filename (Session ID: ${sessionId.take(8)}...)")
@@ -221,6 +234,11 @@ class AutoImportService(
                             onImportSuccessCallback?.invoke()
                         }
                     } catch (e: Exception) {
+                        val archivedFile = File(localDestDir, "${fingerprint.take(12)}_$filename")
+                        if (archivedFile.exists()) {
+                            runCatching { quarantineFailedImport(config, archivedFile, fingerprint, e, filename) }
+                                .onFailure { e.addSuppressed(it) }
+                        }
                         _importNotifications.emit("[AUTO-IMPORT] Failed to import robot log $filename: ${e.message}")
                         e.printStackTrace()
                     }
@@ -241,14 +259,15 @@ class AutoImportService(
             val filesOnRobot = listFilesOnFrcRobot(host, robotDir)
             for (filename in filesOnRobot) {
                 val lower = filename.lowercase()
-                if (lower.endsWith(".wpilog") || lower.endsWith(".jsonl") || lower.endsWith(".csv") || lower.endsWith(".hoot")) {
+                if (isSupportedLog(lower)) {
                     val remotePath = "$robotDir$filename"
                     val sourceId = "frc:$host:$remotePath"
                     val snapshot = getFrcFileSnapshot(host, remotePath) ?: continue
                     if (!observeStableSource(sourceId, snapshot)) continue
                     val fingerprint = sourceFingerprint(sourceId, snapshot)
                     val manifest = File(localDestDir, IMPORT_MANIFEST_NAME)
-                    if (isFingerprintImported(manifest, fingerprint)) continue
+                    val quarantineManifest = quarantineManifest(config)
+                    if (isFingerprintImported(manifest, fingerprint) || isFingerprintImported(quarantineManifest, fingerprint)) continue
 
                     // Check if file is still being written to by DataLogManager
                     if (isFileInUseOnFrcRobot(host, remotePath)) {
@@ -267,16 +286,20 @@ class AutoImportService(
                             }
                             val archivedFile = File(localDestDir, "${fingerprint.take(12)}_$filename")
                             Files.move(tempLocalFile.toPath(), archivedFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                            val sessionId = if (lower.endsWith(".hoot")) {
-                                hootDecoderService.importHootLog(archivedFile, config.teamId, config.seasonId, config.robotId)
+                            val result = if (lower.endsWith(".hoot")) {
+                                val sessionId = hootDecoderService.importHootLog(archivedFile, config.teamId, config.seasonId, config.robotId)
+                                sessionId to logParserService.buildImportReport(archivedFile, sessionId, decoderOverride = "hoot")
+                                    .copy(sourceName = filename)
                             } else {
-                                val session = logParserService.parseLogFile(
+                                val imported = logParserService.parseLogFileWithReport(
                                     archivedFile, config.teamId, config.seasonId, config.robotId,
                                     tags = listOf("auto-import", "robot-log")
                                 )
-                                session.sessionId
+                                imported.session.sessionId to imported.report.copy(sourceName = filename)
                             }
+                            val (sessionId, report) = result
 
+                            writeImportReport(archivedFile, report)
                             markFingerprintImported(manifest, fingerprint)
                             // Keep imported file safely in logs/imported archive folder
                             _importNotifications.emit("[AUTO-IMPORT] Successfully imported RoboRIO log $filename (Session ID: ${sessionId.take(8)}...)")
@@ -285,6 +308,11 @@ class AutoImportService(
                             onImportSuccessCallback?.invoke()
                         }
                     } catch (e: Exception) {
+                        val archivedFile = File(localDestDir, "${fingerprint.take(12)}_$filename")
+                        if (archivedFile.exists()) {
+                            runCatching { quarantineFailedImport(config, archivedFile, fingerprint, e, filename) }
+                                .onFailure { e.addSuppressed(it) }
+                        }
                         _importNotifications.emit("[AUTO-IMPORT] Failed to import RoboRIO log $filename: ${e.message}")
                         tempLocalFile.delete()
                         e.printStackTrace()
@@ -489,6 +517,49 @@ class AutoImportService(
         }
     }
 
+    internal fun quarantineFailedImport(
+        config: WorkspaceConfig,
+        archivedFile: File,
+        fingerprint: String,
+        failure: Throwable,
+        sourceName: String = archivedFile.name
+    ): File {
+        val quarantineDir = File(config.projectPath, "logs/quarantine")
+        quarantineDir.mkdirs()
+        val quarantinedFile = File(quarantineDir, archivedFile.name)
+        Files.move(archivedFile.toPath(), quarantinedFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        val report = logParserService.buildRejectedImportReport(quarantinedFile, failure)
+            .copy(sourceName = sourceName)
+        writeImportReport(quarantinedFile, report)
+        markFingerprintImported(File(quarantineDir, QUARANTINE_MANIFEST_NAME), fingerprint)
+        return quarantinedFile
+    }
+
+    internal fun writeImportReport(logFile: File, report: ImportReport): File {
+        val reportFile = File(logFile.parentFile, logFile.name + IMPORT_REPORT_SUFFIX)
+        val temporaryFile = File(reportFile.parentFile, ".${reportFile.name}.tmp")
+        temporaryFile.writeText(AppJsonPretty.encodeToString(report))
+        try {
+            Files.move(
+                temporaryFile.toPath(),
+                reportFile.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            Files.move(temporaryFile.toPath(), reportFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+        return reportFile
+    }
+
+    private fun quarantineManifest(config: WorkspaceConfig): File =
+        File(config.projectPath, "logs/quarantine/$QUARANTINE_MANIFEST_NAME")
+
+    private fun isSupportedLog(name: String): Boolean {
+        val lower = name.lowercase()
+        return SUPPORTED_EXTENSIONS.any(lower::endsWith)
+    }
+
     private fun copyStableLocalFile(source: File, destination: File, expected: SourceSnapshot) {
         destination.parentFile?.mkdirs()
         Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
@@ -579,5 +650,11 @@ class AutoImportService(
 
     companion object {
         internal const val IMPORT_MANIFEST_NAME = ".auto-import-index"
+        internal const val QUARANTINE_MANIFEST_NAME = ".auto-import-quarantine-index"
+        internal const val IMPORT_REPORT_SUFFIX = ".import-report.json"
+        private val SUPPORTED_EXTENSIONS = setOf(
+            ".wpilog", ".wpilogxz", ".jsonl", ".csv", ".parquet", ".hoot",
+            ".dslog", ".rlog", ".revlog", ".log"
+        )
     }
 }
