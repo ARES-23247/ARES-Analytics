@@ -40,6 +40,7 @@ class ServiceRegistry {
     val calibrationService by lazy { CalibrationService(databaseService) }
     val oauthService by lazy { OAuthService(environmentService) }
     val exportService by lazy { ExportService(databaseService) }
+    val advancedAnalyticsService by lazy { AdvancedAnalyticsService(databaseService) }
 
     // ── Tier 2: Depend on Tier 0 + Tier 1 ────────────────────────────────────
     val alertEngineService by lazy { AlertEngineService(databaseService, nt4ClientService) }
