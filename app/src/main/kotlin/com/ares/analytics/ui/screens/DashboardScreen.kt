@@ -120,7 +120,11 @@ fun DashboardScreen(
         if (layout != null) {
             DashboardCommandBar(
                 profileName = state.currentRoleProfile,
+                availableProfiles = state.availableProfiles,
                 isEditing = state.isLayoutEditing,
+                onSelectProfile = { viewModel.onIntent(DashboardIntent.ChangeProfile(it)) },
+                onSaveLayoutAs = { viewModel.onIntent(DashboardIntent.SaveLayoutAs(it)) },
+                onDeleteProfile = { viewModel.onIntent(DashboardIntent.DeleteLayout(it)) },
                 onToggleEditing = { viewModel.onIntent(DashboardIntent.SetLayoutEditing(!state.isLayoutEditing)) },
                 onAddWidget = { viewModel.onIntent(DashboardIntent.SetPickerOpen(true)) },
                 onResetLayout = { viewModel.onIntent(DashboardIntent.ResetProfile) },

@@ -6,8 +6,6 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -28,7 +26,9 @@ import com.ares.analytics.service.AutoImportService
 import com.ares.analytics.service.MatchInfo
 import com.ares.analytics.service.UpdateCheckerService
 import com.ares.analytics.shared.*
+import com.ares.analytics.ui.components.CommandPalette
 import com.ares.analytics.ui.components.NavigationTarget
+import com.ares.analytics.ui.components.SectionNavigationBar
 import com.ares.analytics.ui.components.Sidebar
 import com.ares.analytics.ui.components.core.TargetSelection
 import com.ares.analytics.ui.components.core.ExecutionToolbar
@@ -73,6 +73,7 @@ fun MainScreen(services: ServiceRegistry) {
     val parsedBindings = mainState.parsedBindings
     val showUpdateBanner = mainState.showUpdateBanner
     val updateState by services.updateCheckerService.updateState.collectAsState()
+    var commandPaletteOpen by remember { mutableStateOf(false) }
 
     // Trigger update check on startup
     LaunchedEffect(Unit) {
@@ -346,15 +347,22 @@ fun MainScreen(services: ServiceRegistry) {
                             true
                         }
                         Key.K -> {
-                            services.processManagerService.killActiveBuild()
-                            services.processManagerService.killActiveSim()
+                            if (keyEvent.isShiftPressed) {
+                                services.processManagerService.killActiveBuild()
+                                services.processManagerService.killActiveSim()
+                            } else {
+                                commandPaletteOpen = true
+                            }
                             true
                         }
                         else -> false
                     }
-                } else if (keyEvent.key == Key.Escape && keyEvent.type == KeyEventType.KeyDown && isTerminalOpen) {
-                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(false))
-                    true
+                } else if (keyEvent.key == Key.Escape && keyEvent.type == KeyEventType.KeyDown) {
+                    when {
+                        commandPaletteOpen -> { commandPaletteOpen = false; true }
+                        isTerminalOpen -> { mainViewModel.onIntent(MainIntent.SetTerminalOpen(false)); true }
+                        else -> false
+                    }
                 } else if (ks.enabled) {
                     val isPressed = keyEvent.type == KeyEventType.KeyDown
                     when (keyEvent.key) {
@@ -386,6 +394,7 @@ fun MainScreen(services: ServiceRegistry) {
                 isSimRunning = isSimRunning,
                 league = currentConfig.league,
                 onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) },
+                onOpenCommandPalette = { commandPaletteOpen = true },
                 onToggleTerminal = { mainViewModel.onIntent(MainIntent.SetTerminalOpen(!isTerminalOpen)) }
             )
 
@@ -544,127 +553,12 @@ fun MainScreen(services: ServiceRegistry) {
                             }
                         )
 
-                        // Dashboard Config
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (activeNav == NavigationTarget.DASHBOARD) {
-                                val dashState by dashboardViewModel.state.collectAsState()
-                                var newLayoutName by remember { mutableStateOf("") }
-
-                                // Profile Selection
-                                Box {
-                                    TextButton(onClick = { dashboardViewModel.onIntent(DashboardIntent.SetProfileExpanded(true)) }) {
-                                        Text(dashState.currentRoleProfile, color = AresCyan, fontWeight = FontWeight.Bold)
-                                        Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = AresCyan)
-                                    }
-                                    DropdownMenu(
-                                        expanded = dashState.profileExpanded,
-                                        onDismissRequest = { dashboardViewModel.onIntent(DashboardIntent.SetProfileExpanded(false)) },
-                                        modifier = Modifier.width(200.dp).background(AresSurfaceElevated).border(1.dp, AresBorder)
-                                    ) {
-                                        val defaults = listOf("Standard", "Driver Coach", "Programmer", "Pit Crew", "Match Review", "Pit Diagnostics", "Driver Practice", "Replay")
-                                        dashState.availableProfiles.forEach { profile ->
-                                            val isCustom = defaults.none { it.equals(profile, ignoreCase = true) }
-                                            DropdownMenuItem(
-                                                text = {
-                                                    Row(
-                                                        modifier = Modifier.fillMaxWidth(),
-                                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        Text(profile, color = AresTextPrimary)
-                                                        if (isCustom) {
-                                                            IconButton(
-                                                                onClick = {
-                                                                    dashboardViewModel.onIntent(DashboardIntent.DeleteLayout(profile))
-                                                                },
-                                                                modifier = Modifier.size(24.dp)
-                                                            ) {
-                                                                Icon(
-                                                                    imageVector = Icons.Default.Delete,
-                                                                    contentDescription = "Delete Layout",
-                                                                    tint = AresRed,
-                                                                    modifier = Modifier.size(16.dp)
-                                                                )
-                                                            }
-                                                        }
-                                                    }
-                                                },
-                                                onClick = {
-                                                    dashboardViewModel.onIntent(DashboardIntent.ChangeProfile(profile))
-                                                    dashboardViewModel.onIntent(DashboardIntent.SetProfileExpanded(false))
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // Save Layout Input
-                                BasicTextField(
-                                    value = newLayoutName,
-                                    onValueChange = { newLayoutName = it },
-                                    singleLine = true,
-                                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary),
-                                    cursorBrush = SolidColor(AresCyan),
-                                    modifier = Modifier
-                                        .width(130.dp)
-                                        .height(38.dp)
-                                        .background(AresSurfaceElevated, RoundedCornerShape(6.dp))
-                                        .border(1.dp, if (newLayoutName.isNotEmpty()) AresCyan else AresBorder, RoundedCornerShape(6.dp)),
-                                    decorationBox = { innerTextField ->
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .padding(horizontal = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Box(modifier = Modifier.weight(1f)) {
-                                                if (newLayoutName.isEmpty()) {
-                                                    Text(
-                                                        text = "Layout Name",
-                                                        fontSize = 11.sp,
-                                                        color = AresTextTertiary
-                                                    )
-                                                }
-                                                innerTextField()
-                                            }
-                                        }
-                                    }
-                                )
-
-                                // Save Button
-                                Button(
-                                    onClick = {
-                                        if (newLayoutName.trim().isNotEmpty()) {
-                                            dashboardViewModel.onIntent(DashboardIntent.SaveLayoutAs(newLayoutName.trim()))
-                                            newLayoutName = ""
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
-                                    shape = RoundedCornerShape(6.dp)
-                                ) {
-                                    Icon(Icons.Default.Save, contentDescription = null, tint = AresBackground, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Save Layout", color = AresBackground, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                }
-
-                                // Reset Profile
-                                Button(
-                                    onClick = {
-                                        dashboardViewModel.onIntent(DashboardIntent.ResetProfile)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = AresBorder),
-                                    shape = RoundedCornerShape(6.dp)
-                                ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, tint = AresTextPrimary, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(4.dp))
-                                    Text("Reset Profile", color = AresTextPrimary, fontSize = 12.sp)
-                                }
-                            }
-                        }
                     }
+
+                    SectionNavigationBar(
+                        activeTarget = activeNav,
+                        onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) }
+                    )
 
                     // ── Screen Router ────────────────────────────────────────
                     Box(modifier = Modifier.weight(1f)) {
@@ -804,6 +698,14 @@ fun MainScreen(services: ServiceRegistry) {
                     )
                 }
             }
+        }
+
+        if (commandPaletteOpen) {
+            CommandPalette(
+                developerMode = currentConfig.developerMode,
+                onDismiss = { commandPaletteOpen = false },
+                onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) }
+            )
         }
 
         // ── Update Notification Banner ──────────────────────────────────────────

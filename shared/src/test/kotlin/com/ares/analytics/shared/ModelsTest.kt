@@ -4,6 +4,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -32,6 +33,7 @@ class ModelsTest {
         assertEquals(config.league, decoded.league)
         assertEquals(config.nt4Host, decoded.nt4Host)
         assertEquals("my-gcp-client-id", decoded.googleClientId)
+        assertFalse(decoded.developerMode)
     }
 
     @Test

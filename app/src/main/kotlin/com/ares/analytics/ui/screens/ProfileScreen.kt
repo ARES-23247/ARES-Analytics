@@ -69,6 +69,7 @@ fun ProfileScreen(
     var colorblindMode by remember(config.colorblindMode) { mutableStateOf(config.colorblindMode) }
     var highContrastMode by remember(config.highContrastMode) { mutableStateOf(config.highContrastMode) }
     var touchOptimizedMode by remember(config.touchOptimizedMode) { mutableStateOf(config.touchOptimizedMode) }
+    var developerMode by remember(config.developerMode) { mutableStateOf(config.developerMode) }
 
     // Optional credential overrides
     var googleClientId by remember(state.googleClientId) { mutableStateOf(state.googleClientId) }
@@ -552,6 +553,24 @@ fun ProfileScreen(
                         colors = SwitchDefaults.colors(checkedThumbColor = AresCyan, checkedTrackColor = AresCyanGlow)
                     )
                 }
+
+                HorizontalDivider(color = AresBorder.copy(alpha = 0.6f))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Developer Tools", color = AresTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Shows Database, KDoc Explorer, and Subsystem Generator in the command palette.", color = AresTextSecondary, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = developerMode,
+                        onCheckedChange = { developerMode = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = AresCyan, checkedTrackColor = AresCyanGlow)
+                    )
+                }
             }
         }
 
@@ -578,7 +597,8 @@ fun ProfileScreen(
                     vertexLocation = vertexLocation.takeIf { it.isNotBlank() },
                     colorblindMode = colorblindMode,
                     highContrastMode = highContrastMode,
-                    touchOptimizedMode = touchOptimizedMode
+                    touchOptimizedMode = touchOptimizedMode,
+                    developerMode = developerMode
                 )
                 // MainViewModel owns the single persisted workspace update.
                 onConfigChanged(newConfig)

@@ -19,7 +19,6 @@ data class DashboardState(
     val currentLayout: DashboardLayoutConfig? = null,
     val isPickerOpen: Boolean = false,
     val isLayoutEditing: Boolean = false,
-    val profileExpanded: Boolean = false,
     val primarySessionId: String? = null,
     val sessionMode: SessionMode = SessionMode.LIVE_STREAMING,
     val compareSessionId: String? = null,
@@ -44,8 +43,6 @@ sealed class DashboardIntent {
     data class SetPickerOpen(val isOpen: Boolean) : DashboardIntent()
 
     data class SetLayoutEditing(val isEditing: Boolean) : DashboardIntent()
-
-    data class SetProfileExpanded(val isExpanded: Boolean) : DashboardIntent()
 
     data class SelectPrimarySession(val sessionId: String?) : DashboardIntent()
 
@@ -108,7 +105,7 @@ class DashboardViewModel(
         scope.launch {
             when (intent) {
                 is DashboardIntent.ChangeProfile -> {
-                    _state.update { it.copy(currentRoleProfile = intent.profile, profileExpanded = false, isLayoutEditing = false) }
+                    _state.update { it.copy(currentRoleProfile = intent.profile, isLayoutEditing = false) }
                     loadLayoutForProfile(intent.profile)
                 }
                 is DashboardIntent.SetPickerOpen -> {
@@ -116,9 +113,6 @@ class DashboardViewModel(
                 }
                 is DashboardIntent.SetLayoutEditing -> {
                     _state.update { it.copy(isLayoutEditing = intent.isEditing, isPickerOpen = if (intent.isEditing) it.isPickerOpen else false) }
-                }
-                is DashboardIntent.SetProfileExpanded -> {
-                    _state.update { it.copy(profileExpanded = intent.isExpanded) }
                 }
                 is DashboardIntent.SelectPrimarySession -> {
                     val newMode = if (intent.sessionId == null) SessionMode.LIVE_STREAMING else SessionMode.HISTORICAL_REPLAY

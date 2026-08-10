@@ -39,6 +39,8 @@ data class WorkspaceConfig(
     val colorblindMode: Boolean = false,
     val highContrastMode: Boolean = false,
     val touchOptimizedMode: Boolean = false,
+    /** Exposes advanced code, database, and scaffolding tools in navigation search. */
+    val developerMode: Boolean = false,
     /** Bumper-to-bumper robot length used for field-boundary validation. */
     val robotLengthMeters: Double? = null,
     /** Bumper-to-bumper robot width used for field-boundary validation. */

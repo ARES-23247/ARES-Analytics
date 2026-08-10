@@ -241,7 +241,7 @@ fun ExecutionToolbar(
         val isAnyRunning = isBuildRunning || isSimRunning
         TooltipBox(
             positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-            tooltip = { PlainTooltip { Text("Kill Active Process (Ctrl+K)") } },
+            tooltip = { PlainTooltip { Text("Kill Active Process (Ctrl+Shift+K)") } },
             state = rememberTooltipState()
         ) {
             IconButton(
