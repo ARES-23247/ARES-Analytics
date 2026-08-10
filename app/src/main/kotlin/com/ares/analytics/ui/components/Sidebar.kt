@@ -29,6 +29,7 @@ import com.ares.analytics.ui.theme.*
 
 enum class NavigationTarget(val label: String, val icon: ImageVector) {
     DASHBOARD("Dashboard", Icons.Default.Speed),
+    IMPORT_CENTER("Log Imports", Icons.Default.FolderOpen),
     CLOUD("Cloud Sync", Icons.Default.Cloud),
     PATH_PLANNER("Auto Builder", Icons.Default.Route),
     FIELD_EDITOR("Field Editor", Icons.Default.Layers),

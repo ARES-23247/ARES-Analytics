@@ -74,6 +74,51 @@ class AutoAuthoringAcceptanceTest {
         }
     }
 
+    @Test
+    fun `student can discover actions and deploy the same native format to FRC`() {
+        val project = Files.createTempDirectory("ares-frc-auto-authoring-").toFile()
+        try {
+            createFrcRobotProject(project)
+            val scan = AutoCapabilityScanner().scan(project.path, League.FRC)
+            assertTrue(scan.warnings.isEmpty(), scan.warnings.joinToString())
+            assertEquals(
+                setOf("intake.collect", "shooter.feedWhenReady"),
+                scan.catalog.map { it.key.value }.toSet()
+            )
+
+            val robot = RobotDimensions(lengthMeters = 0.80, widthMeters = 0.80)
+            val routine = AutoRoutine(
+                documentId = "frc-score-example",
+                name = "FRC score example",
+                startingPose = AutoPose(2.0, 2.0, 0.0),
+                steps = listOf(
+                    AutoStep.drive(
+                        AutoDriveStep(
+                            target = AutoPose(3.5, 2.5, 0.0),
+                            preset = TrajectoryPreset.SAFE,
+                            markers = listOf(
+                                com.areslib.auto.AutoMarker(0.4, "intake.collect")
+                            ),
+                            arrivalCommands = listOf("shooter.feedWhenReady")
+                        )
+                    )
+                )
+            )
+            assertTrue(validateAutoFieldBounds(routine, League.FRC, robot).isEmpty())
+            assertTrue(referencedCommands(routine).all { key -> scan.catalog.any { it.key.value == key } })
+
+            val saved = AresAutoRepository().save(project.path, League.FRC, routine)
+            val deployDirectory = File(project, "src/main/deploy/ares/autos")
+            assertTrue(File(deployDirectory, "frc-score-example.aresauto").isFile)
+            assertEquals(
+                saved.routine,
+                AresAutoFileLoader.load(routine.documentId, listOf(deployDirectory))
+            )
+        } finally {
+            project.deleteRecursively()
+        }
+    }
+
     private fun createRobotProject(project: File) {
         File(project, "TeamCode/src/main/java/example/AutoActions.kt").apply {
             parentFile.mkdirs()
@@ -103,6 +148,43 @@ class AutoAuthoringAcceptanceTest {
                       "displayName": "Lights green",
                       "description": "Shows that the robot is ready.",
                       "category": "Indicators"
+                    }
+                  ]
+                }
+                """.trimIndent()
+            )
+        }
+    }
+
+    private fun createFrcRobotProject(project: File) {
+        File(project, "src/main/kotlin/example/FrcAutoActions.kt").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                package example
+                import com.areslib.pathing.CommandKey
+                val intakeCollect = CommandKey("intake.collect")
+                """.trimIndent()
+            )
+        }
+        File(project, "src/main/deploy/ares/auto-capabilities.json").apply {
+            parentFile.mkdirs()
+            writeText(
+                """
+                {
+                  "schemaVersion": 1,
+                  "actions": [
+                    {
+                      "key": "intake.collect",
+                      "displayName": "Collect note",
+                      "description": "Deploys and runs the intake.",
+                      "category": "Intake"
+                    },
+                    {
+                      "key": "shooter.feedWhenReady",
+                      "displayName": "Shoot when ready",
+                      "description": "Waits for flywheel readiness before feeding.",
+                      "category": "Shooter"
                     }
                   ]
                 }

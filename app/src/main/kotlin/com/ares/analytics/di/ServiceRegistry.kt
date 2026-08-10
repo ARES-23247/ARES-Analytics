@@ -40,6 +40,7 @@ class ServiceRegistry {
     val calibrationService by lazy { CalibrationService(databaseService) }
     val oauthService by lazy { OAuthService(environmentService) }
     val exportService by lazy { ExportService(databaseService) }
+    val advancedAnalyticsService by lazy { AdvancedAnalyticsService(databaseService) }
 
     // ── Tier 2: Depend on Tier 0 + Tier 1 ────────────────────────────────────
     val alertEngineService by lazy { AlertEngineService(databaseService, nt4ClientService) }
@@ -50,6 +51,9 @@ class ServiceRegistry {
     val syncEngineService by lazy { SyncEngineService(databaseService, parquetExporterService, environmentService, summaryEngineService, googleDriveService) }
     val phoenixDiagnosticsService by lazy { PhoenixDiagnosticsService(nt4ClientService) }
     val ftcDashboardService by lazy { FtcDashboardService(nt4ClientService) }
+    val dashboardHealthService by lazy {
+        DashboardHealthService(nt4ClientService.telemetryStore, databaseService.metrics, nt4ClientService, replayEngineService)
+    }
 
     /**
      * Tears down services that hold coroutine scopes or background jobs.
@@ -75,7 +79,7 @@ class ServiceRegistry {
         // ReplayEngineService.dispose() cancels the replay playback job AND the
         // process-lifetime serviceScope (stop() leaves the scope leaking).
         if (lazyFieldInitialized(::replayEngineService)) {
-            replayEngineService.dispose()
+            runBlocking { replayEngineService.disposeAndJoin() }
         }
         // AlertEngineService.dispose() cancels engineJob + audible-alert coroutines so they
         // don't race DB/connection teardown below.
@@ -87,6 +91,9 @@ class ServiceRegistry {
         }
         if (lazyFieldInitialized(::ftcDashboardService)) {
             ftcDashboardService.dispose()
+        }
+        if (lazyFieldInitialized(::dashboardHealthService)) {
+            dashboardHealthService.dispose()
         }
         if (lazyFieldInitialized(::oauthService)) {
             oauthService.dispose()

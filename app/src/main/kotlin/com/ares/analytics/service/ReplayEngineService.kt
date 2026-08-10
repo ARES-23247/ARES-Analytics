@@ -40,6 +40,25 @@ data class ReplayFrame(
     val stringValues: Map<String, String> = emptyMap()
 )
 
+fun interface ReplayClock {
+    fun nowMs(): Long
+}
+
+object SystemReplayClock : ReplayClock {
+    override fun nowMs(): Long = System.currentTimeMillis()
+}
+
+data class ReplayCacheMetrics(
+    val windowStartMs: Long = -1,
+    val windowEndMs: Long = -1,
+    val cachedFrames: Int = 0,
+    val hasPrefetchedWindow: Boolean = false,
+    val windowLoads: Long = 0,
+    val prefetchHits: Long = 0,
+    val truncatedWindows: Long = 0,
+    val droppedEmissionFrames: Long = 0
+)
+
 /**
  * High-performance match log replay and frame scrubbing engine.
  *
@@ -58,7 +77,9 @@ data class ReplayFrame(
  */
 class ReplayEngineService(
     private val databaseService: DatabaseService,
-    private val nt4ClientService: Nt4ClientService? = null
+    private val nt4ClientService: Nt4ClientService? = null,
+    private val clock: ReplayClock = SystemReplayClock,
+    replayDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
     private val jsonParser = Json { ignoreUnknownKeys = true }
 
@@ -86,6 +107,9 @@ class ReplayEngineService(
     private val _sessionDurationMs = MutableStateFlow(0L)
     val sessionDurationMs: StateFlow<Long> = _sessionDurationMs.asStateFlow()
 
+    private val _cacheMetrics = MutableStateFlow(ReplayCacheMetrics())
+    val cacheMetrics: StateFlow<ReplayCacheMetrics> = _cacheMetrics.asStateFlow()
+
     // Replay telemetry flow — emits individual TelemetryFrame objects for dashboard widget consumption
     private val _replayTelemetryFlow = MutableSharedFlow<TelemetryFrame>(
         replay = 100,
@@ -97,7 +121,7 @@ class ReplayEngineService(
     // Process-lifetime scope for replay coroutines. Previously play()/updateFrameAtPlayhead()
     // spawned unparented CoroutineScope(Dispatchers.Default).launch{} (a fresh, untracked scope
     // at 50Hz) — those are now parented here and cancelled in stop()/dispose() (AUDIT H6).
-    private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val serviceScope = CoroutineScope(replayDispatcher + SupervisorJob())
 
     private var replayJob: Job? = null
     private var allFrames: List<TelemetryFrame> = emptyList()
@@ -121,6 +145,12 @@ class ReplayEngineService(
     private var currentSessionId: String = ""
     private var cachedWindowStartMs: Long = -1L
     private var cachedWindowEndMs: Long = -1L
+    @Volatile private var prefetchedWindow: ReplayWindow? = null
+    private var prefetchJob: Job? = null
+    private var windowLoadCount = 0L
+    private var prefetchHitCount = 0L
+    private var truncatedWindowCount = 0L
+    private var droppedEmissionFrameCount = 0L
 
     suspend fun loadSession(sessionId: String) = withContext(Dispatchers.IO) {
         stop()
@@ -168,10 +198,10 @@ class ReplayEngineService(
 
         _state.value = ReplayState.PLAYING
         replayJob = serviceScope.launch {
-            var lastRealTime = System.currentTimeMillis()
+            var lastRealTime = clock.nowMs()
             while (isActive && _state.value == ReplayState.PLAYING) {
-                val nowRealTime = System.currentTimeMillis()
-                val deltaReal = nowRealTime - lastRealTime
+                val nowRealTime = clock.nowMs()
+                val deltaReal = (nowRealTime - lastRealTime).coerceAtLeast(0L)
                 lastRealTime = nowRealTime
                 val deltaPlayback = (deltaReal * _speed.value).toLong()
                 currentPlayheadMs += deltaPlayback
@@ -199,6 +229,7 @@ class ReplayEngineService(
         _state.value = ReplayState.STOPPED
         replayJob?.cancel()
         emitJob?.cancel()
+        prefetchJob?.cancel()
         try {
             datagramSocket?.close()
         } catch (e: Exception) {
@@ -216,8 +247,15 @@ class ReplayEngineService(
      * for ordinary pause/stop since it leaves [serviceScope] reusable.
      */
     fun dispose() {
+        runBlocking { disposeAndJoin() }
+    }
+
+    suspend fun disposeAndJoin() {
         stop()
         serviceScope.cancel()
+        replayJob?.cancelAndJoin()
+        emitJob?.cancelAndJoin()
+        prefetchJob?.cancelAndJoin()
         try {
             datagramSocket?.close()
         } catch (_: Exception) {
@@ -264,33 +302,7 @@ class ReplayEngineService(
     private fun updateFrameAtPlayhead(emitTelemetry: Boolean = true, broadcast: Boolean = true) {
         if (timestamps.isEmpty()) return
 
-        if (currentPlayheadMs < cachedWindowStartMs || currentPlayheadMs > cachedWindowEndMs) {
-            runBlocking {
-                val windowStart = (currentPlayheadMs - 2500L).coerceAtLeast(0L)
-                val windowEnd = currentPlayheadMs + 5000L
-                val baselineFrames = databaseService.getLatestTelemetryBefore(currentSessionId, windowStart)
-                allFrames = databaseService.getTelemetryRange(currentSessionId, windowStart, windowEnd)
-                cachedWindowStartMs = windowStart
-                cachedWindowEndMs = windowEnd
-                lastTargetTimestamp = -1L
-                lastFrameIndex = 0
-                valuesMap.clear()
-                windowBaseline.clear()
-                stringValuesMap.clear()
-                windowStringBaseline.clear()
-                for (frame in baselineFrames) {
-                    windowBaseline[frame.key] = frame.value
-                    val stringValue = frame.stringValue
-                    if (stringValue != null) {
-                        windowStringBaseline[frame.key] = stringValue
-                    } else {
-                        windowStringBaseline.remove(frame.key)
-                    }
-                }
-                valuesMap.putAll(windowBaseline)
-                stringValuesMap.putAll(windowStringBaseline)
-            }
-        }
+        if (currentPlayheadMs < cachedWindowStartMs || currentPlayheadMs > cachedWindowEndMs) ensureReplayWindow()
 
         // 1. Calculate progress percent
         val totalDuration = endTimestampMs - startTimestampMs
@@ -393,6 +405,7 @@ class ReplayEngineService(
         // 3. Emit individual TelemetryFrame objects for dashboard widget consumption
         if (emitTelemetry) {
             val sessionId = "replay"
+            if (emitJob?.isActive == true) droppedEmissionFrameCount += mapToEmit.size
             emitJob?.cancel()
             emitJob = serviceScope.launch {
                 for ((key, value) in mapToEmit) {
@@ -407,6 +420,7 @@ class ReplayEngineService(
                     _replayTelemetryFlow.emit(telemetryFrame)
                 }
             }
+            publishCacheMetrics()
         }
 
         // 4. Re-broadcast via UDP loopback for AdvantageScope / telemetry viewer compatibility
@@ -414,6 +428,7 @@ class ReplayEngineService(
     }
 
     private fun resetReplayCache() {
+        prefetchJob?.cancel()
         allFrames = emptyList()
         cachedWindowStartMs = -1L
         cachedWindowEndMs = -1L
@@ -424,6 +439,92 @@ class ReplayEngineService(
         windowBaseline.clear()
         stringValuesMap.clear()
         windowStringBaseline.clear()
+        prefetchedWindow = null
+        windowLoadCount = 0
+        prefetchHitCount = 0
+        truncatedWindowCount = 0
+        droppedEmissionFrameCount = 0
+        _cacheMetrics.value = ReplayCacheMetrics()
+    }
+
+    private fun ensureReplayWindow() {
+        val readyPrefetch = prefetchedWindow?.takeIf { currentPlayheadMs in it.startMs..it.endMs }
+        val window = if (readyPrefetch != null) {
+            prefetchedWindow = null
+            prefetchHitCount++
+            readyPrefetch
+        } else {
+            runBlocking(Dispatchers.IO) { loadWindowCenteredAt(currentPlayheadMs) }
+        }
+        applyWindow(window)
+        scheduleForwardPrefetch(window)
+    }
+
+    private suspend fun loadWindowCenteredAt(playheadMs: Long): ReplayWindow {
+        val start = (playheadMs - WINDOW_HISTORY_MS).coerceAtLeast(startTimestampMs)
+        val end = (playheadMs + WINDOW_LOOKAHEAD_MS).coerceAtMost(endTimestampMs)
+        return loadWindow(start, end)
+    }
+
+    private suspend fun loadWindow(startMs: Long, endMs: Long): ReplayWindow {
+        val baseline = databaseService.getLatestTelemetryBefore(currentSessionId, startMs)
+        val frames = databaseService.getTelemetryRangeBatched(
+            currentSessionId,
+            startMs,
+            endMs,
+            limit = MAX_CACHED_FRAMES.toLong(),
+            offset = 0
+        )
+        windowLoadCount++
+        if (frames.size == MAX_CACHED_FRAMES) truncatedWindowCount++
+        return ReplayWindow(startMs, endMs, baseline, frames)
+    }
+
+    private fun applyWindow(window: ReplayWindow) {
+        allFrames = window.frames
+        cachedWindowStartMs = window.startMs
+        cachedWindowEndMs = window.endMs
+        lastTargetTimestamp = -1L
+        lastFrameIndex = 0
+        valuesMap.clear()
+        windowBaseline.clear()
+        stringValuesMap.clear()
+        windowStringBaseline.clear()
+        for (frame in window.baseline) {
+            windowBaseline[frame.key] = frame.value
+            frame.stringValue?.let { windowStringBaseline[frame.key] = it }
+        }
+        valuesMap.putAll(windowBaseline)
+        stringValuesMap.putAll(windowStringBaseline)
+        publishCacheMetrics()
+    }
+
+    private fun scheduleForwardPrefetch(window: ReplayWindow) {
+        if (window.endMs >= endTimestampMs) return
+        prefetchJob?.cancel()
+        val sessionAtSchedule = currentSessionId
+        val nextStart = window.endMs + 1
+        val nextEnd = (nextStart + WINDOW_HISTORY_MS + WINDOW_LOOKAHEAD_MS).coerceAtMost(endTimestampMs)
+        prefetchJob = serviceScope.launch(Dispatchers.IO) {
+            val loaded = loadWindow(nextStart, nextEnd)
+            if (currentSessionId == sessionAtSchedule) {
+                prefetchedWindow = loaded
+                publishCacheMetrics()
+            }
+        }
+    }
+
+    private fun publishCacheMetrics() {
+        _cacheMetrics.value = ReplayCacheMetrics(
+            windowStartMs = cachedWindowStartMs,
+            windowEndMs = cachedWindowEndMs,
+            cachedFrames = allFrames.size,
+            hasPrefetchedWindow = prefetchedWindow != null,
+            windowLoads = windowLoadCount,
+            prefetchHits = prefetchHitCount,
+            truncatedWindows = truncatedWindowCount,
+            droppedEmissionFrames = droppedEmissionFrameCount
+        )
     }
 
     private fun broadcastTelemetry(frame: ReplayFrame) {
@@ -447,5 +548,18 @@ class ReplayEngineService(
             // datagramSocket?.close()
             // datagramSocket = null
         }
+    }
+
+    private data class ReplayWindow(
+        val startMs: Long,
+        val endMs: Long,
+        val baseline: List<TelemetryFrame>,
+        val frames: List<TelemetryFrame>
+    )
+
+    companion object {
+        private const val WINDOW_HISTORY_MS = 2_500L
+        private const val WINDOW_LOOKAHEAD_MS = 5_000L
+        private const val MAX_CACHED_FRAMES = 200_000
     }
 }

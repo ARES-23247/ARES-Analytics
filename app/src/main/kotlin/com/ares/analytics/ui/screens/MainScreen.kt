@@ -221,7 +221,7 @@ fun MainScreen(services: ServiceRegistry) {
         )
     }
     val fieldEditorViewModel = remember {
-        FieldEditorViewModel(scope = scope)
+        FieldEditorViewModel(scope = scope, nt4ClientService = services.nt4ClientService)
     }
     val sysIdViewModel = remember {
         SysIdViewModel(
@@ -255,6 +255,18 @@ fun MainScreen(services: ServiceRegistry) {
             logParserService = services.logParserService,
             scope = scope
         )
+    }
+    val importCenterViewModel = remember(currentConfig.projectPath) {
+        ImportCenterViewModel(
+            archiveService = com.ares.analytics.service.ImportArchiveService(),
+            projectPath = currentConfig.projectPath ?: "",
+            scope = scope
+        )
+    }
+    LaunchedEffect(autoImportService, importCenterViewModel) {
+        autoImportService.importNotifications.collect {
+            importCenterViewModel.onIntent(ImportCenterIntent.Refresh)
+        }
     }
     DisposableEffect(cloudViewModel) {
         onDispose {
@@ -714,6 +726,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 teamId = currentConfig.teamId,
                                 seasonId = currentConfig.seasonId
                             )
+                            NavigationTarget.IMPORT_CENTER -> ImportCenterScreen(importCenterViewModel)
                             NavigationTarget.FIELD_EDITOR -> FieldEditorScreen(
                                 viewModel = fieldEditorViewModel,
                                 league = currentConfig.league,

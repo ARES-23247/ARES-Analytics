@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
+import java.security.MessageDigest
 import java.util.UUID
 
 /**
@@ -52,6 +53,42 @@ class LogParserService(
         matchNumber: Int? = null,
         allianceColor: String? = null,
         tags: List<String> = emptyList()
+    ): Session = parseLogFileWithReport(
+        file, teamId, seasonId, robotId, matchNumber, allianceColor, tags
+    ).session
+
+    suspend fun parseLogFileWithReport(
+        file: File,
+        teamId: String,
+        seasonId: String,
+        robotId: String,
+        matchNumber: Int? = null,
+        allianceColor: String? = null,
+        tags: List<String> = emptyList()
+    ): LogImportResult = withContext(Dispatchers.IO) {
+        require(file.isFile) { "Log file does not exist: ${file.absolutePath}" }
+        val sourceSize = file.length()
+        val sourceSha256 = sha256(file)
+        val session = parseLogFileInternal(
+            file, teamId, seasonId, robotId, matchNumber, allianceColor, tags
+        )
+        val report = buildImportReport(file, session.sessionId, sourceSize, sourceSha256)
+        if (report.acceptedRecords == 0L) {
+            val failure = IllegalArgumentException("Log contained no importable records: ${file.name}")
+            cleanupFailedImport(session.sessionId, failure)
+            throw failure
+        }
+        LogImportResult(session, report)
+    }
+
+    private suspend fun parseLogFileInternal(
+        file: File,
+        teamId: String,
+        seasonId: String,
+        robotId: String,
+        matchNumber: Int?,
+        allianceColor: String?,
+        tags: List<String>
     ): Session = withContext(Dispatchers.IO) {
         val sessionId = UUID.randomUUID().toString()
         val createdAt = file.lastModified()
@@ -178,6 +215,52 @@ class LogParserService(
         }
     }
 
+    internal suspend fun buildImportReport(
+        file: File,
+        sessionId: String,
+        sourceSizeBytes: Long = file.length(),
+        sourceSha256: String = sha256(file),
+        decoderOverride: String? = null
+    ): ImportReport {
+        val telemetryRecords = databaseService.countTelemetryFrames(sessionId)
+        val actions = databaseService.getActionsForSession(sessionId)
+        val actionRecords = actions.size.toLong()
+        val acceptedRecords = telemetryRecords + actionRecords
+        val telemetryRange = databaseService.getSessionTimestampRange(sessionId)
+        val minTimestampMs = telemetryRange?.first ?: actions.minOfOrNull { it.timestampMs }
+        val maxTimestampMs = telemetryRange?.second ?: actions.maxOfOrNull { it.timestampMs }
+        val warnings = buildList {
+            if (telemetryRecords == 0L && actionRecords > 0L) add("Action log contains no telemetry frames")
+            add("Rejected-record count is unavailable for the ${decoderOverride ?: decoderName(file)} decoder")
+        }
+        return ImportReport(
+            sourceName = file.name,
+            sourceSha256 = sourceSha256,
+            sourceSizeBytes = sourceSizeBytes,
+            decoder = decoderOverride ?: decoderName(file),
+            status = if (acceptedRecords > 0L) ImportStatus.SUCCESS else ImportStatus.REJECTED,
+            sessionId = sessionId,
+            acceptedRecords = acceptedRecords,
+            detectedTopics = databaseService.getDistinctTelemetryKeys(sessionId),
+            minTimestampMs = minTimestampMs,
+            maxTimestampMs = maxTimestampMs,
+            warnings = warnings
+        )
+    }
+
+    internal fun buildRejectedImportReport(
+        file: File,
+        error: Throwable,
+        decoderOverride: String? = null
+    ): ImportReport = ImportReport(
+        sourceName = file.name,
+        sourceSha256 = sha256(file),
+        sourceSizeBytes = file.length(),
+        decoder = decoderOverride ?: decoderName(file),
+        status = ImportStatus.REJECTED,
+        error = error.message ?: error::class.simpleName ?: "Import failed"
+    )
+
     suspend fun parseLogFiles(
         files: List<File>,
         teamId: String,
@@ -297,5 +380,35 @@ class LogParserService(
         } catch (cleanupFailure: Throwable) {
             failure.addSuppressed(cleanupFailure)
         }
+    }
+
+    internal fun decoderName(file: File): String {
+        val name = file.name.lowercase()
+        return when {
+            name.endsWith(".wpilogxz") -> "wpilog-xz"
+            name.startsWith("action_log_") && name.endsWith(".jsonl") -> "action-jsonl"
+            name.endsWith(".wpilog") -> "wpilog"
+            name.endsWith(".jsonl") -> "jsonl"
+            name.endsWith(".csv") -> "csv"
+            name.endsWith(".parquet") -> "parquet"
+            name.endsWith(".dslog") || name.endsWith(".dsevents") -> "driver-station"
+            name.endsWith(".rlog") -> "rlog"
+            name.endsWith(".revlog") -> "revlog"
+            name.endsWith(".log") -> "road-runner"
+            else -> file.extension.lowercase().ifEmpty { "unknown" }
+        }
+    }
+
+    internal fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 }

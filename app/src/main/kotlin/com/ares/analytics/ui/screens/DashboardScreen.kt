@@ -221,6 +221,9 @@ fun DashboardScreen(
                 "statistics_panel" to { _, mod ->
                     StatisticsPanel(services.databaseService, state.primarySessionId, mod)
                 },
+                "advanced_analytics" to { _, mod ->
+                    AdvancedAnalyticsCard(services.advancedAnalyticsService, state.primarySessionId, mod)
+                },
                 "control_profiler" to { _, mod ->
                     ControlLoopProfilerCard(services.nt4ClientService, mod)
                 },
@@ -228,7 +231,7 @@ fun DashboardScreen(
                     StateMachineTrackerCard(services.nt4ClientService, mod)
                 },
                 "system_health" to { _, mod ->
-                    SystemHealthCard(services.nt4ClientService, mod)
+                    SystemHealthCard(services.nt4ClientService, services.dashboardHealthService, mod)
                 },
                 "imu_visualizer" to { _, mod ->
                     IMUVisualizerCard(services.nt4ClientService, mod)

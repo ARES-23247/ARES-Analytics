@@ -28,17 +28,6 @@ on:
         options:
           - smoke
           - soak
-          - hardware
-      hardware_host:
-        description: NT4 target reachable from the self-hosted runner
-        required: false
-        default: 192.168.43.1
-        type: string
-      hardware_port:
-        description: NT4 port
-        required: false
-        default: '5810'
-        type: string
 
 permissions:
   contents: read
@@ -74,15 +63,21 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Run dashboard smoke validation
+      - name: Run dashboard smoke and baseline validation
         working-directory: ARES-Analytics
-        run: ./gradlew :app:dashboardSmoke --no-daemon
+        run: ./gradlew :app:dashboardPerformanceBaseline --no-daemon
+
+      - name: Publish validation summary
+        if: always()
+        working-directory: ARES-Analytics
+        run: test ! -f app/build/reports/dashboard-validation/dashboard-validation-smoke.md || cat app/build/reports/dashboard-validation/dashboard-validation-smoke.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload validation reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: dashboard-validation-smoke
+          retention-days: 90
           if-no-files-found: warn
           path: |
             ARES-Analytics/app/build/reports/dashboard-validation/**
@@ -124,53 +119,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: dashboard-validation-soak
+          retention-days: 90
           if-no-files-found: warn
           path: |
             ARES-Analytics/app/build/reports/dashboard-validation/**
             ARES-Analytics/app/build/reports/tests/dashboardSoak/**
             ARES-Analytics/app/build/test-results/dashboardSoak/**
-
-  hardware:
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.profile == 'hardware'
-    name: Physical target telemetry validation
-    runs-on: [self-hosted, ares-hardware]
-    timeout-minutes: 15
-    steps:
-      - name: Checkout ARESLib-Kotlin
-        uses: actions/checkout@v4
-        with:
-          repository: ARES-23247/ARESLib-Kotlin
-          path: ARESLib-Kotlin
-
-      - name: Checkout ARES-Analytics
-        uses: actions/checkout@v4
-        with:
-          path: ARES-Analytics
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: zulu
-          java-version: '17'
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Validate physical NT4 target
-        working-directory: ARES-Analytics
-        shell: pwsh
-        run: >-
-          .\gradlew.bat :app:dashboardHardware --no-daemon
-          "-Pvalidation.hardwareHost=${{ inputs.hardware_host }}"
-          "-Pvalidation.hardwarePort=${{ inputs.hardware_port }}"
-
-      - name: Upload hardware validation report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: dashboard-validation-hardware
-          if-no-files-found: warn
-          path: |
-            ARES-Analytics/app/build/reports/dashboard-validation/**
-            ARES-Analytics/app/build/reports/tests/dashboardHardware/**
-            ARES-Analytics/app/build/test-results/dashboardHardware/**

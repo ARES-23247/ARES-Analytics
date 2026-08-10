@@ -1,10 +1,11 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.service.log.*
+import com.ares.analytics.shared.AppJson
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.decodeFromString
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -85,6 +86,14 @@ class AutoImportServiceTest {
         assertEquals(1, sessions.size)
         assertEquals("1234", sessions[0].teamId)
         assertEquals("ares-test", sessions[0].robotId)
+        val reports = File(logsDir, "imported").listFiles { file ->
+            file.name.endsWith(AutoImportService.IMPORT_REPORT_SUFFIX)
+        }.orEmpty()
+        assertEquals(1, reports.size)
+        val report = AppJson.decodeFromString<ImportReport>(reports.single().readText())
+        assertEquals(ImportStatus.SUCCESS, report.status)
+        assertEquals(4L, report.acceptedRecords)
+        assertEquals(listOf("velocity", "voltage"), report.detectedTopics)
 
         // Recreate the exact same source identity and restart the service. The durable
         // manifest must prevent a second session even though in-memory observations are new.
@@ -107,5 +116,78 @@ class AutoImportServiceTest {
         tempProjectDir.deleteRecursively()
         tempDb.delete()
         processManagerService.shutdown()
+    }
+
+    @Test
+    fun `quarantine persists rejection and suppresses the same fingerprint`() = runBlocking {
+        val tempDb = File.createTempFile("auto_quarantine_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val summaryEngineService = SummaryEngineService(
+            databaseService,
+            sysIdService,
+            DriverAnalysisService(databaseService, sysIdService)
+        )
+        val logParserService = LogParserService(databaseService, summaryEngineService)
+        val processManagerService = ProcessManagerService()
+        val projectDir = File(System.getProperty("java.io.tmpdir"), "ares_quarantine_test_${System.nanoTime()}")
+        val logsDir = File(projectDir, "logs").apply { mkdirs() }
+        val sourceFile = File(logsDir, "bad.csv").apply { writeText("not,a,valid,log") }
+        val config = WorkspaceConfig(
+            teamId = "1234",
+            seasonId = "2026",
+            robotId = "ares-test",
+            projectPath = projectDir.absolutePath,
+            league = League.FTC
+        )
+        val service = AutoImportService(
+            logParserService,
+            HootDecoderService(databaseService, summaryEngineService, sysIdService),
+            processManagerService,
+            configProvider = { config },
+            scope = this,
+            scanIntervalMs = 25L
+        )
+        service.start { error("Rejected imports must not trigger the success callback") }
+        val quarantineDir = File(projectDir, "logs/quarantine")
+        var attempts = 0
+        while (quarantineDir.listFiles().orEmpty().none { it.name.endsWith(AutoImportService.IMPORT_REPORT_SUFFIX) } && attempts < 100) {
+            kotlinx.coroutines.delay(25)
+            attempts++
+        }
+        service.stop()
+
+        assertTrue(sourceFile.exists(), "Rejected source should remain available for repair")
+        val quarantined = quarantineDir.listFiles().orEmpty().single { it.name.endsWith("bad.csv") }
+        val manifest = File(quarantineDir, AutoImportService.QUARANTINE_MANIFEST_NAME)
+        assertTrue(manifest.isFile)
+        val reportFile = File(quarantineDir, quarantined.name + AutoImportService.IMPORT_REPORT_SUFFIX)
+        val report = AppJson.decodeFromString<ImportReport>(reportFile.readText())
+        assertEquals(ImportStatus.REJECTED, report.status)
+        assertEquals("bad.csv", report.sourceName)
+        assertTrue(report.error.orEmpty().contains("no timestamp column"))
+        assertEquals(0L, report.acceptedRecords)
+        assertTrue(databaseService.getSessions().isEmpty())
+
+        val reportModifiedAt = reportFile.lastModified()
+        val restarted = AutoImportService(
+            logParserService,
+            HootDecoderService(databaseService, summaryEngineService, sysIdService),
+            processManagerService,
+            configProvider = { config },
+            scope = this,
+            scanIntervalMs = 25L
+        )
+        restarted.start { error("Quarantined fingerprint was retried as a success") }
+        kotlinx.coroutines.delay(200)
+        restarted.stop()
+        assertEquals(reportModifiedAt, reportFile.lastModified(), "same rejected fingerprint was retried")
+        assertEquals(1, quarantineDir.listFiles().orEmpty().count { it.name.endsWith(AutoImportService.IMPORT_REPORT_SUFFIX) })
+
+        databaseService.close()
+        processManagerService.shutdown()
+        projectDir.deleteRecursively()
+        tempDb.delete()
+        Unit
     }
 }

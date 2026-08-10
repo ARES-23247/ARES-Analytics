@@ -12,6 +12,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.focusable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -20,18 +21,32 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.shared.*
-import com.ares.analytics.ui.components.pathplanner.FieldCanvas
 import com.ares.analytics.ui.screens.fieldeditor.AprilTagRow
+import com.ares.analytics.ui.screens.fieldeditor.FieldEditorCommandBar
+import com.ares.analytics.ui.screens.fieldeditor.FieldLayoutCanvas
+import com.ares.analytics.ui.screens.fieldeditor.FieldPrefabPalette
+import com.ares.analytics.ui.screens.fieldeditor.FieldValidationPanel
 import com.ares.analytics.ui.screens.fieldeditor.GamePieceRow
 import com.ares.analytics.ui.screens.fieldeditor.ObstacleRow
 import com.ares.analytics.ui.screens.fieldeditor.FieldWaypointRow
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.FieldEditorIntent
 import com.ares.analytics.viewmodel.FieldEditorViewModel
+import com.ares.analytics.viewmodel.field.FieldEditorLayout
 
 /**
  * Visual field layout and obstacle configuration editor screen for FTC ($3.6576 \times 3.6576\text{ m}$) and FRC ($16.541 \times 8.211\text{ m}$) game fields.
@@ -44,7 +59,7 @@ import com.ares.analytics.viewmodel.FieldEditorViewModel
  * @param projectPath The root directory path for saving/loading configuration files.
  *
  * @see com.ares.analytics.viewmodel.FieldEditorViewModel
- * @see com.ares.analytics.ui.components.pathplanner.FieldCanvas
+ * @see com.ares.analytics.ui.screens.fieldeditor.FieldLayoutCanvas
  */
 @Composable
 fun FieldEditorScreen(
@@ -54,9 +69,11 @@ fun FieldEditorScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
-    LaunchedEffect(projectPath) {
+    LaunchedEffect(projectPath, league) {
         viewModel.onIntent(FieldEditorIntent.LoadConfig(projectPath, league))
     }
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
     var showCropBoundaries by remember { mutableStateOf(false) }
     var obstaclesCollapsed by remember { mutableStateOf(false) }
     var gamePiecesCollapsed by remember { mutableStateOf(false) }
@@ -104,7 +121,32 @@ fun FieldEditorScreen(
     }
 
     Row(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                val command = event.isCtrlPressed || event.isMetaPressed
+                val spacing = state.gridSpacingMeters * if (event.isShiftPressed) 10.0 else 1.0
+                when {
+                    command && event.key == Key.Z && event.isShiftPressed -> viewModel.onIntent(FieldEditorIntent.Redo)
+                    command && event.key == Key.Z -> viewModel.onIntent(FieldEditorIntent.Undo)
+                    command && event.key == Key.Y -> viewModel.onIntent(FieldEditorIntent.Redo)
+                    command && event.key == Key.C -> viewModel.onIntent(FieldEditorIntent.CopySelection)
+                    command && event.key == Key.V -> viewModel.onIntent(FieldEditorIntent.PasteSelection)
+                    command && event.key == Key.D -> viewModel.onIntent(FieldEditorIntent.DuplicateSelection)
+                    command && event.key == Key.A -> viewModel.onIntent(FieldEditorIntent.SelectAll)
+                    command && event.key == Key.S -> viewModel.onIntent(FieldEditorIntent.SaveDocument)
+                    event.key == Key.Delete || event.key == Key.Backspace -> viewModel.onIntent(FieldEditorIntent.DeleteSelection)
+                    event.key == Key.DirectionLeft -> viewModel.onIntent(FieldEditorIntent.NudgeSelection(-spacing, 0.0))
+                    event.key == Key.DirectionRight -> viewModel.onIntent(FieldEditorIntent.NudgeSelection(spacing, 0.0))
+                    event.key == Key.DirectionUp -> viewModel.onIntent(FieldEditorIntent.NudgeSelection(0.0, spacing))
+                    event.key == Key.DirectionDown -> viewModel.onIntent(FieldEditorIntent.NudgeSelection(0.0, -spacing))
+                    else -> return@onKeyEvent false
+                }
+                true
+            },
         horizontalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         // Left side controls
@@ -295,6 +337,18 @@ fun FieldEditorScreen(
                     }
                 }
 
+                HorizontalDivider(color = AresBorder)
+                FieldPrefabPalette(
+                    league = league,
+                    onAddPrefab = { viewModel.onIntent(FieldEditorIntent.AddPrefab(it)) }
+                )
+
+                HorizontalDivider(color = AresBorder)
+                FieldValidationPanel(
+                    issues = state.validationIssues,
+                    onSelectIssue = { viewModel.onIntent(FieldEditorIntent.SelectElements(it)) }
+                )
+
                 // Drawn Obstacles Section
                 if (state.obstacles.isNotEmpty()) {
                     HorizontalDivider(color = AresBorder)
@@ -387,6 +441,7 @@ fun FieldEditorScreen(
                                         fieldWidthM = fieldWidthM,
                                         fieldHeightM = fieldHeightM,
                                         league = league,
+                                        measurementUnit = state.measurementUnit,
                                         onUpdate = { i, updated ->
                                             viewModel.onIntent(FieldEditorIntent.UpdateObstacle(i, updated))
                                         },
@@ -436,6 +491,7 @@ fun FieldEditorScreen(
                                     index = index,
                                     gp = gp,
                                     league = league,
+                                    measurementUnit = state.measurementUnit,
                                     onUpdate = { i, updated ->
                                         viewModel.onIntent(FieldEditorIntent.UpdateGamePiece(i, updated))
                                     },
@@ -508,6 +564,7 @@ fun FieldEditorScreen(
                             AprilTagRow(
                                 index = index,
                                 at = at,
+                                measurementUnit = state.measurementUnit,
                                 onUpdate = { i, updated ->
                                     viewModel.onIntent(FieldEditorIntent.UpdateAprilTag(i, updated))
                                 },
@@ -549,6 +606,7 @@ fun FieldEditorScreen(
                                 FieldWaypointRow(
                                     index = index,
                                     wp = wp,
+                                    measurementUnit = state.measurementUnit,
                                 onUpdate = { i, updated ->
                                     viewModel.onIntent(FieldEditorIntent.UpdateFieldWaypoint(i, updated))
                                 },
@@ -563,37 +621,55 @@ fun FieldEditorScreen(
             }
         }
 
-        // Right side canvas
-        Box(
-            modifier = Modifier.weight(1f).fillMaxHeight().border(1.dp, AresBorder, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp))
+        Column(
+            modifier = Modifier.weight(1f).fillMaxHeight(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            FieldCanvas(
-                league = league,
-                waypoints = emptyList(),
-                actualPath = emptyList(),
-                onWaypointsChanged = {},
-                projectPath = projectPath,
-                showPathControls = false,
-                showObstacleControls = true,
-                fieldImage = state.fieldImage,
-                fieldImageConfig = state.fieldImageConfig,
-                obstacles = state.obstacles,
-                onObstaclesChanged = {
-                    viewModel.onIntent(FieldEditorIntent.SetObstacles(it))
-                },
-                gamePieces = state.gamePieces,
-                onGamePiecesChanged = {
-                    viewModel.onIntent(FieldEditorIntent.SetGamePieces(it))
-                },
-                aprilTags = state.aprilTags,
-                onAprilTagsChanged = {
-                    viewModel.onIntent(FieldEditorIntent.SetAprilTags(it))
-                },
-                fieldWaypoints = state.fieldWaypoints,
-                onFieldWaypointsChanged = {
-                    viewModel.onIntent(FieldEditorIntent.SetFieldWaypoints(it))
-                }
+            FieldEditorCommandBar(
+                selectionCount = state.selectedElementIds.size,
+                canUndo = state.canUndo,
+                canRedo = state.canRedo,
+                clipboardCount = state.clipboardCount,
+                snapEnabled = state.snapEnabled,
+                gridSpacingMeters = state.gridSpacingMeters,
+                unit = state.measurementUnit,
+                simulatorStatus = state.simulatorStatus,
+                onUndo = { viewModel.onIntent(FieldEditorIntent.Undo) },
+                onRedo = { viewModel.onIntent(FieldEditorIntent.Redo) },
+                onCopy = { viewModel.onIntent(FieldEditorIntent.CopySelection) },
+                onPaste = { viewModel.onIntent(FieldEditorIntent.PasteSelection) },
+                onDuplicate = { viewModel.onIntent(FieldEditorIntent.DuplicateSelection) },
+                onDelete = { viewModel.onIntent(FieldEditorIntent.DeleteSelection) },
+                onSelectAll = { viewModel.onIntent(FieldEditorIntent.SelectAll) },
+                onSnapChanged = { viewModel.onIntent(FieldEditorIntent.SetSnapEnabled(it)) },
+                onGridSpacingChanged = { viewModel.onIntent(FieldEditorIntent.SetGridSpacing(it)) },
+                onUnitChanged = { viewModel.onIntent(FieldEditorIntent.SetMeasurementUnit(it)) },
+                onPushToSimulator = { viewModel.onIntent(FieldEditorIntent.PushToSimulator) },
+                onStartSimulator = { viewModel.onIntent(FieldEditorIntent.StartSimulator) },
+                onPauseSimulator = { viewModel.onIntent(FieldEditorIntent.PauseSimulator) },
+                onResetSimulator = { viewModel.onIntent(FieldEditorIntent.ResetSimulator) }
             )
+            Box(
+                modifier = Modifier.weight(1f).fillMaxWidth().border(1.dp, AresBorder, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp))
+            ) {
+                FieldLayoutCanvas(
+                    league = league,
+                    fieldImage = state.fieldImage,
+                    fieldImageConfig = state.fieldImageConfig,
+                    layout = FieldEditorLayout(
+                        obstacles = state.obstacles,
+                        gamePieces = state.gamePieces,
+                        aprilTags = state.aprilTags,
+                        fieldWaypoints = state.fieldWaypoints
+                    ),
+                    selectedIds = state.selectedElementIds,
+                    snapEnabled = state.snapEnabled,
+                    gridSpacingMeters = state.gridSpacingMeters,
+                    validationIssues = state.validationIssues,
+                    onSelectionChanged = { ids, additive -> viewModel.onIntent(FieldEditorIntent.SelectElements(ids, additive)) },
+                    onLayoutChanged = { viewModel.onIntent(FieldEditorIntent.SetLayout(it)) }
+                )
+            }
         }
     }
 }

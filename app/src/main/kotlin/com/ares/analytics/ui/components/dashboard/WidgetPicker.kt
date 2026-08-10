@@ -47,6 +47,7 @@ val availableWidgetsList = listOf(
     AvailableWidget("trends_card", "Battery Trends", "Multi-session battery voltage degradation trend lines and linear regression.", Icons.Default.TrendingDown),
     AvailableWidget("battery_health", "Battery Diagnostics", "Real-time battery voltage monitoring and brownout warnings.", Icons.Default.BatteryChargingFull),
     AvailableWidget("statistics_panel", "Signal Statistics", "Descriptive statistics, error forensics, and distribution histograms.", Icons.Default.Analytics),
+    AvailableWidget("advanced_analytics", "Advanced Analytics", "Session regressions, driver score, diagnostics, heatmaps, and tuning confidence.", Icons.Default.Insights),
     AvailableWidget("control_profiler", "Control Loop Profiler", "Real-time target vs actual tracking and error plotting for mechanisms.", Icons.Default.Speed),
     AvailableWidget("state_tracker", "Subsystem State Tracker", "Current state machine states for active subsystems.", Icons.Default.AccountTree),
     AvailableWidget("system_health", "System Health Monitor", "Control loop frequency, CPU usage, and memory profiling.", Icons.Default.Memory),

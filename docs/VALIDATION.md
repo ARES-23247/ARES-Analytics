@@ -10,6 +10,12 @@ Run the PR-sized smoke profile:
 .\gradlew.bat :app:dashboardSmoke
 ```
 
+Run smoke plus the checked-in performance-regression baseline (the CI gate):
+
+```powershell
+.\gradlew.bat :app:dashboardPerformanceBaseline
+```
+
 Run the 30-minute-equivalent soak profile:
 
 ```powershell
@@ -37,6 +43,7 @@ app/build/reports/dashboard-validation/dashboard-validation-<profile>.json
 ```
 
 The JSON report is suitable for trend ingestion. The Markdown report summarizes configuration, measured results, and budget violations.
+CI retains both formats for 90 days and publishes the Markdown report in the GitHub Actions job summary. The baseline gate reads `config/dashboard-performance-baseline.json`; update it only after reviewing an intentional performance change on comparable hardware.
 
 ## What is validated
 
@@ -102,13 +109,12 @@ Supported properties are:
 
 `.github/workflows/dashboard-validation.yml` runs:
 
-- `dashboardSmoke` for relevant pull requests and pushes to `master`.
+- `dashboardPerformanceBaseline` (which runs `dashboardSmoke` first) for relevant pull requests and pushes to `master`.
 - `dashboardSoak` nightly and when manually selected through `workflow_dispatch`.
-- `dashboardHardware` when manually selected on a Windows runner labeled `self-hosted` and `ares-hardware`.
 - Report and JUnit artifact upload even when a budget fails.
 
 The workflow checks out `ARESLib-Kotlin` beside `ARES-Analytics`, matching the composite-build layout used by local development.
 
 ## Optional physical hardware check
 
-The normal hosted pipeline cannot reproduce radio congestion, Control Hub storage pressure, RoboRIO CPU contention, or field-network policies. Register a Windows GitHub Actions runner on the driver-station laptop with the `ares-hardware` label to enable the manual hardware profile. The runner must already be connected to the robot network. The task observes live NT4 traffic for 30 seconds by default, checks frame/topic minimums and required keys, persists the received data, and uploads its report.
+The hosted pipeline cannot reproduce radio congestion, Control Hub storage pressure, RoboRIO CPU contention, or field-network policies. Run `dashboardHardware` manually from the driver-station laptop while it is connected to the robot network. The task observes live NT4 traffic for 30 seconds by default, checks frame/topic minimums and required keys, persists the received data, and writes its report locally. No self-hosted GitHub runner is required.

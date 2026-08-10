@@ -2,6 +2,7 @@ package com.ares.analytics.service.db
 
 import com.ares.analytics.shared.*
 import com.ares.analytics.service.QueryResult
+import com.ares.analytics.service.DatabaseMetrics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -47,7 +48,8 @@ class MatchLogRepository(
     private val ephemeralConn: Connection,
     private val ephemeralReadConn: Connection,
     private val dbMutex: Mutex,
-    private val readMutex: Mutex
+    private val readMutex: Mutex,
+    private val metrics: DatabaseMetrics
 ) {
     private val statementCache = java.util.concurrent.ConcurrentHashMap<String, java.sql.PreparedStatement>()
     private val nextSampleOrder = AtomicLong()
@@ -65,11 +67,21 @@ class MatchLogRepository(
      * @return Result produced by [block].
      */
     private suspend fun <T> withDbLock(block: suspend () -> T): T = withContext(Dispatchers.IO) {
-        dbMutex.withLock { block() }
+        val started = metrics.nowNanos()
+        try {
+            dbMutex.withLock { block() }
+        } finally {
+            metrics.recordWrite(metrics.nowNanos() - started)
+        }
     }
 
     private suspend fun <T> withReadLock(block: suspend () -> T): T = withContext(Dispatchers.IO) {
-        readMutex.withLock { block() }
+        val started = metrics.nowNanos()
+        try {
+            readMutex.withLock { block() }
+        } finally {
+            metrics.recordRead(metrics.nowNanos() - started)
+        }
     }
 
     /**
@@ -557,6 +569,122 @@ class MatchLogRepository(
             }
         }
         list
+    }
+
+    /**
+     * Returns a plot-ready numeric series bounded by [maxPoints]. DuckDB performs min/max
+     * aggregation per viewport bucket so short spikes remain visible without materializing the
+     * complete session in the desktop process.
+     */
+    suspend fun getTelemetrySeries(
+        sessionId: String,
+        key: String,
+        startMs: Long,
+        endMs: Long,
+        maxPoints: Int
+    ): List<TelemetryFrame> = withReadLock {
+        require(endMs >= startMs) { "endMs must be greater than or equal to startMs" }
+        require(maxPoints >= 2) { "maxPoints must be at least 2" }
+        val bucketCount = (maxPoints / 2).coerceAtLeast(1)
+        val durationMs = (endMs - startMs + 1).coerceAtLeast(1)
+        val bucketWidthMs = kotlin.math.ceil(durationMs.toDouble() / bucketCount).toLong().coerceAtLeast(1)
+        val normalizedKey = TelemetryMetricCatalog.normalizeTopic(key)
+        val points = mutableListOf<TelemetryFrame>()
+        val sql = """
+            WITH bucketed AS (
+                SELECT
+                    FLOOR((timestamp_ms - ?) / ?)::BIGINT AS bucket_id,
+                    MIN(value) AS min_value,
+                    ARG_MIN(timestamp_ms, value) AS min_timestamp_ms,
+                    ARG_MIN(timestamp_us, value) AS min_timestamp_us,
+                    ARG_MIN(sample_order, value) AS min_sample_order,
+                    MAX(value) AS max_value,
+                    ARG_MAX(timestamp_ms, value) AS max_timestamp_ms,
+                    ARG_MAX(timestamp_us, value) AS max_timestamp_us,
+                    ARG_MAX(sample_order, value) AS max_sample_order
+                FROM telemetry_frames
+                WHERE session_id = ? AND key = ? AND timestamp_ms BETWEEN ? AND ?
+                GROUP BY bucket_id
+            ), plot_points AS (
+                SELECT min_timestamp_ms AS timestamp_ms, min_value AS value,
+                       min_timestamp_us AS timestamp_us, min_sample_order AS sample_order
+                FROM bucketed
+                UNION ALL
+                SELECT max_timestamp_ms, max_value, max_timestamp_us, max_sample_order
+                FROM bucketed
+                WHERE max_timestamp_us <> min_timestamp_us
+                   OR max_sample_order <> min_sample_order
+                   OR max_value <> min_value
+            )
+            SELECT timestamp_ms, value, timestamp_us, sample_order
+            FROM plot_points
+            ORDER BY timestamp_us ASC, sample_order ASC
+            LIMIT ?
+        """.trimIndent()
+        readConnectionFor(sessionId).prepareStatement(sql).use { ps ->
+            ps.setLong(1, startMs)
+            ps.setLong(2, bucketWidthMs)
+            ps.setString(3, sessionId)
+            ps.setString(4, normalizedKey)
+            ps.setLong(5, startMs)
+            ps.setLong(6, endMs)
+            ps.setInt(7, maxPoints)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) {
+                    points.add(
+                        TelemetryFrame(
+                            timestampMs = rs.getLong("timestamp_ms"),
+                            sessionId = sessionId,
+                            key = normalizedKey,
+                            value = rs.getDouble("value"),
+                            timestampUs = rs.getLong("timestamp_us"),
+                            sampleOrder = rs.getLong("sample_order")
+                        )
+                    )
+                }
+            }
+        }
+        points
+    }
+
+    /** A bounded, ordered table page for a set of visible telemetry columns. */
+    suspend fun getTelemetryPageForKeys(
+        sessionId: String,
+        keys: List<String>,
+        startMs: Long,
+        endMs: Long,
+        limit: Int,
+        offset: Long
+    ): List<TelemetryFrame> = withReadLock {
+        require(endMs >= startMs) { "endMs must be greater than or equal to startMs" }
+        require(limit in 1..50_000) { "limit must be between 1 and 50000" }
+        require(offset >= 0) { "offset must not be negative" }
+        if (keys.isEmpty()) return@withReadLock emptyList()
+
+        val normalizedKeys = keys.distinct().map(TelemetryMetricCatalog::normalizeTopic)
+        val placeholders = normalizedKeys.joinToString(",") { "?" }
+        val sql = """
+            SELECT * FROM telemetry_frames
+            WHERE session_id = ?
+              AND key IN ($placeholders)
+              AND timestamp_ms BETWEEN ? AND ?
+            ORDER BY timestamp_us ASC, sample_order ASC
+            LIMIT ? OFFSET ?
+        """.trimIndent()
+        val frames = mutableListOf<TelemetryFrame>()
+        readConnectionFor(sessionId).prepareStatement(sql).use { ps ->
+            var parameter = 1
+            ps.setString(parameter++, sessionId)
+            normalizedKeys.forEach { ps.setString(parameter++, it) }
+            ps.setLong(parameter++, startMs)
+            ps.setLong(parameter++, endMs)
+            ps.setInt(parameter++, limit)
+            ps.setLong(parameter, offset)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) frames.add(rs.toTelemetryFrame())
+            }
+        }
+        frames
     }
 
     suspend fun getDiagnosticsTelemetry(sessionId: String): List<TelemetryFrame> = withDbLock {

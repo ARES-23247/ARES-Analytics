@@ -127,15 +127,13 @@ fun TelemetryChartPanel(
             val queue = telemetryData.getOrPut(key) { ArrayDeque() }
             synchronized(queue) {
                 if (queue.isEmpty()) {
-                    val history = nt4ClientService.telemetryHistory[key]
-                    if (history != null) {
-                        synchronized(history) {
-                            history.forEach { frame ->
-                                queue.add(TelemetryPoint(frame.timestampMs, frame.value))
-                            }
+                    val history = nt4ClientService.telemetryStore.history(key)
+                    if (history.isNotEmpty()) {
+                        history.forEach { frame ->
+                            queue.add(TelemetryPoint(frame.timestampMs, frame.value))
                         }
                     } else {
-                        val latest = nt4ClientService.latestValues[key]
+                        val latest = nt4ClientService.telemetryStore.latest(key)
                         if (latest != null) {
                             queue.add(TelemetryPoint(latest.timestampMs, latest.value))
                         }
@@ -172,9 +170,10 @@ fun TelemetryChartPanel(
     }
 
     // Subscribe to telemetry Flow
-    LaunchedEffect(Unit) {
-        nt4ClientService.telemetryFlow.collect { frame ->
-            if (selectedKeys.contains(frame.key)) {
+    LaunchedEffect(selectedKeys.toList()) {
+        val observedKeys = selectedKeys.toSet()
+        if (observedKeys.isNotEmpty()) {
+            nt4ClientService.telemetryStore.observe(observedKeys).collect { frame ->
                 val queue = telemetryData.getOrPut(frame.key) { ArrayDeque() }
                 val now = frame.timestampMs
                 val offset = now - System.currentTimeMillis()

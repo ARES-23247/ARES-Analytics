@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.shared.FieldWaypoint
 import com.ares.analytics.ui.components.forms.AresTextField
 import com.ares.analytics.ui.theme.*
+import com.ares.analytics.viewmodel.field.FieldMeasurementUnit
 
 /**
  * UI component row for configuring target field waypoint coordinates $(x, y)$ and heading $(\theta)$ in the field layout editor.
@@ -37,9 +38,11 @@ import com.ares.analytics.ui.theme.*
 fun FieldWaypointRow(
     index: Int,
     wp: FieldWaypoint,
+    measurementUnit: FieldMeasurementUnit = FieldMeasurementUnit.METERS,
     onUpdate: (Int, FieldWaypoint) -> Unit,
     onDelete: (Int) -> Unit
 ) {
+    val unitLabel = measurementUnit.abbreviation
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -64,26 +67,26 @@ fun FieldWaypointRow(
             )
             Spacer(modifier = Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                var wpXText by remember(wp.id, wp.x) { mutableStateOf(wp.x.toString()) }
+                var wpXText by remember(wp.id, wp.x, measurementUnit) { mutableStateOf(measurementUnit.fromMeters(wp.x).toString()) }
                 AresTextField(
                     value = wpXText,
                     onValueChange = { newVal ->
                         wpXText = newVal
-                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, wp.copy(x = parsed)) }
+                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, wp.copy(x = measurementUnit.toMeters(parsed))) }
                     },
-                    label = "X (m)",
+                    label = "X ($unitLabel)",
                     labelFontSize = 9.sp,
                     modifier = Modifier.weight(1f),
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                 )
-                var wpYText by remember(wp.id, wp.y) { mutableStateOf(wp.y.toString()) }
+                var wpYText by remember(wp.id, wp.y, measurementUnit) { mutableStateOf(measurementUnit.fromMeters(wp.y).toString()) }
                 AresTextField(
                     value = wpYText,
                     onValueChange = { newVal ->
                         wpYText = newVal
-                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, wp.copy(y = parsed)) }
+                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, wp.copy(y = measurementUnit.toMeters(parsed))) }
                     },
-                    label = "Y (m)",
+                    label = "Y ($unitLabel)",
                     labelFontSize = 9.sp,
                     modifier = Modifier.weight(1f),
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)

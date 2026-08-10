@@ -223,7 +223,22 @@ fun TuningScreen(
                         if (recommendation != null) {
                             HorizontalDivider(color = AresBorder)
                             Text("Measured-Plant Recommendation", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AresCyan)
+                            ParamRow("Safety status", recommendation.quality.name.replace('_', ' '))
                             ParamRow("Confidence", String.format("%.1f%%", recommendation.confidence * 100.0))
+                            ParamRow("Data quality", String.format("%.1f%%", recommendation.dataQuality.score * 100.0))
+                            ParamRow(
+                                "Capture coverage",
+                                "${recommendation.dataQuality.sampleCount} samples / " +
+                                    String.format("%.2fs", recommendation.dataQuality.durationMs / 1000.0)
+                            )
+                            ParamRow(
+                                "Telemetry cadence",
+                                String.format(
+                                    "%.1fms median / %dms max gap",
+                                    recommendation.dataQuality.medianPeriodMs,
+                                    recommendation.dataQuality.maximumGapMs
+                                )
+                            )
                             ParamRow("Feedback kP / kI / kD", String.format("%.4f / %.4f / %.4f",
                                 recommendation.recommendedGains.kP,
                                 recommendation.recommendedGains.kI,

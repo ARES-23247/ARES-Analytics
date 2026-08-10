@@ -13,6 +13,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
@@ -26,6 +27,10 @@ class HardwareDashboardValidationTest {
 
     @Test
     fun `physical target streams usable dashboard telemetry`() = runBlocking {
+        assumeTrue(
+            "Set -Dares.validation.hardwareEnabled=true to run physical NT4 validation.",
+            property("hardwareEnabled", "false").equals("true", ignoreCase = true)
+        )
         val host = property("hardwareHost", "192.168.43.1")
         val port = property("hardwarePort", "5810").toInt()
         val observationSeconds = property("hardwareObservationSeconds", "30").toInt()

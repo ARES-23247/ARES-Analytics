@@ -22,6 +22,7 @@ import com.ares.analytics.shared.Obstacle
 import com.ares.analytics.shared.PathPoint
 import com.ares.analytics.ui.components.forms.AresTextField
 import com.ares.analytics.ui.theme.*
+import com.ares.analytics.viewmodel.field.FieldMeasurementUnit
 
 /**
  * UI row editor component for field obstacles (rectangles, circles, custom polygons).
@@ -52,12 +53,16 @@ fun ObstacleRow(
     fieldWidthM: Double,
     fieldHeightM: Double,
     league: League,
+    measurementUnit: FieldMeasurementUnit = FieldMeasurementUnit.METERS,
     onUpdate: (Int, Obstacle) -> Unit,
     onDelete: (Int) -> Unit,
     onAdd: (Obstacle) -> Unit,
     onMirrorX: (Obstacle, Double, League) -> Obstacle,
     onMirrorY: (Obstacle, Double, League) -> Obstacle
 ) {
+    fun display(meters: Double): String = measurementUnit.fromMeters(meters).toString()
+    fun meters(value: String): Double? = value.toDoubleOrNull()?.let(measurementUnit::toMeters)
+    val unitLabel = measurementUnit.abbreviation
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -84,8 +89,8 @@ fun ObstacleRow(
             )
             Spacer(modifier = Modifier.height(2.dp))
             val details = when (obs) {
-                is Obstacle.Circle -> "Circle | r=${String.format("%.2fm", obs.radius)}"
-                is Obstacle.Rectangle -> "Rect | ${String.format("%.2fm", obs.width)}x${String.format("%.2fm", obs.height)} @ ${String.format("%.0f°", obs.rotation)}"
+                is Obstacle.Circle -> "Circle | r=${String.format("%.2f%s", measurementUnit.fromMeters(obs.radius), unitLabel)}"
+                is Obstacle.Rectangle -> "Rect | ${String.format("%.2f%s", measurementUnit.fromMeters(obs.width), unitLabel)}x${String.format("%.2f%s", measurementUnit.fromMeters(obs.height), unitLabel)} @ ${String.format("%.0f°", obs.rotation)}"
                 is Obstacle.Polygon -> "Poly | ${obs.vertices.size} vertices"
             }
             Text(details, fontSize = 10.sp, color = AresTextSecondary)
@@ -140,74 +145,74 @@ fun ObstacleRow(
             when (obs) {
                 is Obstacle.Circle -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        var cxText by remember(obs.id, obs.centerX) { mutableStateOf(obs.centerX.toString()) }
+                        var cxText by remember(obs.id, obs.centerX, measurementUnit) { mutableStateOf(display(obs.centerX)) }
                         AresTextField(
                             value = cxText,
                             onValueChange = { newVal ->
                                 cxText = newVal
-                                newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, obs.copy(centerX = parsed)) }
+                                meters(newVal)?.let { parsed -> onUpdate(index, obs.copy(centerX = parsed)) }
                             },
-                            label = "X (m)",
+                            label = "X ($unitLabel)",
                             labelFontSize = 9.sp,
                             modifier = Modifier.weight(1f),
                             textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                         )
-                        var cyText by remember(obs.id, obs.centerY) { mutableStateOf(obs.centerY.toString()) }
+                        var cyText by remember(obs.id, obs.centerY, measurementUnit) { mutableStateOf(display(obs.centerY)) }
                         AresTextField(
                             value = cyText,
                             onValueChange = { newVal ->
                                 cyText = newVal
-                                newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, obs.copy(centerY = parsed)) }
+                                meters(newVal)?.let { parsed -> onUpdate(index, obs.copy(centerY = parsed)) }
                             },
-                            label = "Y (m)",
+                            label = "Y ($unitLabel)",
                             labelFontSize = 9.sp,
                             modifier = Modifier.weight(1f),
                             textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    var radiusText by remember(obs.id, obs.radius) { mutableStateOf(obs.radius.toString()) }
+                    var radiusText by remember(obs.id, obs.radius, measurementUnit) { mutableStateOf(display(obs.radius)) }
                     AresTextField(
                         value = radiusText,
                         onValueChange = { newVal ->
                             radiusText = newVal
-                            newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, obs.copy(radius = parsed)) }
+                            meters(newVal)?.let { parsed -> onUpdate(index, obs.copy(radius = parsed)) }
                         },
-                        label = "Radius (m)",
+                        label = "Radius ($unitLabel)",
                         labelFontSize = 9.sp,
                         textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                     )
                 }
                 is Obstacle.Rectangle -> {
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        var cxText by remember(obs.id, obs.centerX) { mutableStateOf(obs.centerX.toString()) }
+                        var cxText by remember(obs.id, obs.centerX, measurementUnit) { mutableStateOf(display(obs.centerX)) }
                         AresTextField(
                             value = cxText,
                             onValueChange = { newVal ->
                                 cxText = newVal
-                                newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, obs.copy(centerX = parsed)) }
+                                meters(newVal)?.let { parsed -> onUpdate(index, obs.copy(centerX = parsed)) }
                             },
-                            label = "X (m)",
+                            label = "X ($unitLabel)",
                             labelFontSize = 9.sp,
                             modifier = Modifier.weight(1f),
                             textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                         )
-                        var cyText by remember(obs.id, obs.centerY) { mutableStateOf(obs.centerY.toString()) }
+                        var cyText by remember(obs.id, obs.centerY, measurementUnit) { mutableStateOf(display(obs.centerY)) }
                         AresTextField(
                             value = cyText,
                             onValueChange = { newVal ->
                                 cyText = newVal
-                                newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, obs.copy(centerY = parsed)) }
+                                meters(newVal)?.let { parsed -> onUpdate(index, obs.copy(centerY = parsed)) }
                             },
-                            label = "Y (m)",
+                            label = "Y ($unitLabel)",
                             labelFontSize = 9.sp,
                             modifier = Modifier.weight(1f),
                             textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    var rectWText by remember(obs.id, obs.width) { mutableStateOf(obs.width.toString()) }
-                    var rectHText by remember(obs.id, obs.height) { mutableStateOf(obs.height.toString()) }
+                    var rectWText by remember(obs.id, obs.width, measurementUnit) { mutableStateOf(display(obs.width)) }
+                    var rectHText by remember(obs.id, obs.height, measurementUnit) { mutableStateOf(display(obs.height)) }
                     var rotationText by remember(obs.id, obs.rotation) { mutableStateOf(obs.rotation.toString()) }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -217,9 +222,9 @@ fun ObstacleRow(
                             value = rectWText,
                             onValueChange = { newVal ->
                                 rectWText = newVal
-                                newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, obs.copy(width = parsed)) }
+                                meters(newVal)?.let { parsed -> onUpdate(index, obs.copy(width = parsed)) }
                             },
-                            label = "W (m)",
+                            label = "W ($unitLabel)",
                             labelFontSize = 9.sp,
                             modifier = Modifier.weight(1f),
                             textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
@@ -228,9 +233,9 @@ fun ObstacleRow(
                             value = rectHText,
                             onValueChange = { newVal ->
                                 rectHText = newVal
-                                newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, obs.copy(height = parsed)) }
+                                meters(newVal)?.let { parsed -> onUpdate(index, obs.copy(height = parsed)) }
                             },
-                            label = "H (m)",
+                            label = "H ($unitLabel)",
                             labelFontSize = 9.sp,
                             modifier = Modifier.weight(1f),
                             textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
@@ -271,34 +276,34 @@ fun ObstacleRow(
                                         color = AresTextTertiary,
                                         modifier = Modifier.width(20.dp)
                                     )
-                                    var vxText by remember(obs.id, vIdx, vertex.x) { mutableStateOf(vertex.x.toString()) }
+                                    var vxText by remember(obs.id, vIdx, vertex.x, measurementUnit) { mutableStateOf(display(vertex.x)) }
                                     AresTextField(
                                         value = vxText,
                                         onValueChange = { newVal ->
                                             vxText = newVal
-                                            newVal.toDoubleOrNull()?.let { parsed ->
+                                            meters(newVal)?.let { parsed ->
                                                 val updatedVertices = obs.vertices.toMutableList()
                                                 updatedVertices[vIdx] = PathPoint(parsed, vertex.y)
                                                 onUpdate(index, obs.copy(vertices = updatedVertices))
                                             }
                                         },
-                                        label = "X (m)",
+                                        label = "X ($unitLabel)",
                                         labelFontSize = 8.sp,
                                         modifier = Modifier.weight(1f),
                                         textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                                     )
-                                    var vyText by remember(obs.id, vIdx, vertex.y) { mutableStateOf(vertex.y.toString()) }
+                                    var vyText by remember(obs.id, vIdx, vertex.y, measurementUnit) { mutableStateOf(display(vertex.y)) }
                                     AresTextField(
                                         value = vyText,
                                         onValueChange = { newVal ->
                                             vyText = newVal
-                                            newVal.toDoubleOrNull()?.let { parsed ->
+                                            meters(newVal)?.let { parsed ->
                                                 val updatedVertices = obs.vertices.toMutableList()
                                                 updatedVertices[vIdx] = PathPoint(vertex.x, parsed)
                                                 onUpdate(index, obs.copy(vertices = updatedVertices))
                                             }
                                         },
-                                        label = "Y (m)",
+                                        label = "Y ($unitLabel)",
                                         labelFontSize = 8.sp,
                                         modifier = Modifier.weight(1f),
                                         textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
