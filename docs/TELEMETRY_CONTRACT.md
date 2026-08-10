@@ -7,7 +7,7 @@ This is the integration contract between ARESLib, the FTC/FRC season repositorie
 - Transport: NetworkTables 4 over WebSocket, normally port `5810`.
 - Subprotocol: `v4.1.networktables.first.wpi.edu`.
 - Control messages: JSON arrays containing `publish`, `unpublish`, `subscribe`, `unsubscribe`, `announce`, or `unannounce` messages.
-- Value updates: MessagePack outer array of update tuples. Each tuple is `[topic-or-publisher-id, timestamp, type-id, value]`.
+- Value updates: a MessagePack stream of four-element arrays. Each array is `[topic-or-publisher-id, timestamp, type-id, value]`; multiple arrays are concatenated in one WebSocket frame without an outer batch array.
 - Publisher IDs and subscriber IDs are scoped to one WebSocket connection.
 - Topic names are normalized without leading `/` for storage and matching.
 - An existing topic's declared wire type is immutable for its lifetime.
@@ -44,7 +44,6 @@ The dashboard canvas uses `canvasX = -fieldY` and `canvasY = -fieldX`. The robot
 | `Drive/Pose_X` | `double` | fused/EKF field X |
 | `Drive/Pose_Y` | `double` | fused/EKF field Y |
 | `Drive/Pose_Heading` | `double` | canonical fused heading |
-| `Drive/Drive_Heading` | `double` | legacy heading alias, normalized to `Drive/Pose_Heading` by ARESLib helpers |
 | `ARES/EstimatedPose` | `double[]` | `[x, y, heading]` fused or simulator pose |
 | `ARES/EstimatedPose/0` | `double` | pose X compatibility scalar |
 | `ARES/EstimatedPose/1` | `double` | pose Y compatibility scalar |

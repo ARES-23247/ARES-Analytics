@@ -66,9 +66,9 @@ fun PathBrowserPanel(
                         .clickable {
                             onIntent(PathPlannerIntent.UpdatePathName(preview.name))
                             if (state.activeEditorMode == "Path") {
-                                onIntent(PathPlannerIntent.LoadPath(projectPath, league))
+                                onIntent(PathPlannerIntent.LoadPath(projectPath, league, preview.name))
                             } else {
-                                onIntent(PathPlannerIntent.LoadAuto(projectPath, league))
+                                onIntent(PathPlannerIntent.LoadAuto(projectPath, league, preview.name))
                             }
                             onIntent(PathPlannerIntent.ToggleBrowser)
                         },

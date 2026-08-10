@@ -75,7 +75,11 @@ data class TelemetryFrame(
     val sessionId: String,
     val key: String,
     val value: Double,
-    val stringValue: String? = null
+    val stringValue: String? = null,
+    /** Original source timestamp. Defaults to millisecond precision for legacy decoders. */
+    val timestampUs: Long = timestampMs * 1_000L,
+    /** Stable order for samples that share a source timestamp and topic. */
+    val sampleOrder: Long = 0L
 )
 
 @Serializable

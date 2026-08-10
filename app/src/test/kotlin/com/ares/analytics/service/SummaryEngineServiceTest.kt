@@ -50,6 +50,7 @@ class SummaryEngineServiceTest {
             TelemetryFrame(1200L, session.sessionId, "Hardware/Motors/fr/CurrentAmps", 7.0),
             TelemetryFrame(1100L, session.sessionId, "/Vision/AcceptanceRate", 0.95),
             TelemetryFrame(1200L, session.sessionId, "/Vision/AcceptanceRate", 0.85),
+            TelemetryFrame(1200L, session.sessionId, "Path/Error_CrossTrack", -0.15),
             TelemetryFrame(1200L, session.sessionId, "/Robot/OpMode", 0.0, "AUTO")
         )
 
@@ -63,6 +64,7 @@ class SummaryEngineServiceTest {
         assertEquals(10.0, summary.motorCurrentAverages["MotorFL"])
         assertEquals(7.0, summary.motorCurrentAverages["fr"])
         assertEquals(0.90, summary.visionAcceptanceRate, 0.01)
+        assertEquals(0.15, summary.avgCrossTrackError, 0.001)
         assertEquals(3, summary.tags.size)
         assertTrue(summary.tags.contains("battery-A"))
         assertTrue(summary.tags.contains("AUTO"))

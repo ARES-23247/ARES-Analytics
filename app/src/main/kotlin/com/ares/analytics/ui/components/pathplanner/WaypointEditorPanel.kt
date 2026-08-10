@@ -44,10 +44,9 @@ fun WaypointEditorPanel(
                     playbackTime = state.playbackTime,
                     estimatedDuration = state.estimatedDuration,
                     onPathNameChange = { onIntent(PathPlannerIntent.UpdatePathName(it)) },
-                    onPathSelected = {
-                        onIntent(PathPlannerIntent.UpdatePathName(it))
-                        onIntent(PathPlannerIntent.LoadPath(projectPath, league))
-                    },
+                onPathSelected = {
+                    onIntent(PathPlannerIntent.LoadPath(projectPath, league, it))
+                },
                     onCreateNewPath = { onIntent(PathPlannerIntent.CreateNewPath()) },
                     onSavePath = { onIntent(PathPlannerIntent.SavePath(projectPath, league)) },
                     onTogglePlayback = { onIntent(PathPlannerIntent.TogglePlayback) },

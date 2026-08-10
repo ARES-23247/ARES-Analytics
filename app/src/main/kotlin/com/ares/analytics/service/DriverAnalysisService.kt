@@ -1,6 +1,7 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.DriverProfile
+import com.ares.analytics.shared.TelemetryMetricCatalog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -114,11 +115,11 @@ class DriverAnalysisService(
      */
     suspend fun analyzeDriverJitter(
         sessionId: String,
-        gamepadXKey: String = "/Gamepad1/LeftX",
-        gamepadYKey: String = "/Gamepad1/LeftY"
+        gamepadXKey: String = TelemetryMetricCatalog.GAMEPAD_LEFT_X.canonicalKey,
+        gamepadYKey: String = TelemetryMetricCatalog.GAMEPAD_LEFT_Y.canonicalKey
     ): DriverProfileAnalysisResult = withContext(Dispatchers.Default) {
-        val xFrames = databaseService.getTelemetryForKey(sessionId, gamepadXKey)
-        val yFrames = databaseService.getTelemetryForKey(sessionId, gamepadYKey)
+        val xFrames = getTelemetryForTopic(sessionId, gamepadXKey)
+        val yFrames = getTelemetryForTopic(sessionId, gamepadYKey)
 
         val analyses = listOf(xFrames, yFrames).mapNotNull { analyzeSignal(it) }
         if (analyses.isEmpty()) {
@@ -158,6 +159,16 @@ class DriverAnalysisService(
             recommendedSlewRate = recommendedSlew,
             message = msg
         )
+    }
+
+    private suspend fun getTelemetryForTopic(
+        sessionId: String,
+        requestedKey: String
+    ): List<com.ares.analytics.shared.TelemetryFrame> {
+        val canonicalKey = TelemetryMetricCatalog.normalizeTopic(requestedKey)
+        val canonicalFrames = databaseService.getTelemetryForKey(sessionId, canonicalKey)
+        if (canonicalFrames.isNotEmpty()) return canonicalFrames
+        return databaseService.getTelemetryForKey(sessionId, "/$canonicalKey")
     }
 
     private fun analyzeSignal(frames: List<com.ares.analytics.shared.TelemetryFrame>): SignalSpectrum? {

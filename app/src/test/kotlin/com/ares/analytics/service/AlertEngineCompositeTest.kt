@@ -46,4 +46,18 @@ class AlertEngineCompositeTest {
             assertFalse(stallAlert!!.triaged)
         }
     }
+
+    @Test
+    fun `ratio based canonical CAN utilization triggers alert`() = runBlocking {
+        mockNt4Service.emitReplayFrame(
+            TelemetryFrame(100L, "can-session", "Diagnostics/CANBus/CAN2/Utilization", 0.91)
+        )
+
+        kotlinx.coroutines.delay(250)
+
+        val canAlert = alertService.alerts.value.firstOrNull {
+            it.sessionId == "can-session" && it.ruleKey == "Diagnostics/CANBus/CAN2/Utilization"
+        }
+        assertNotNull(canAlert)
+    }
 }

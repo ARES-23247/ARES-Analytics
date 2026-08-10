@@ -1,9 +1,12 @@
 package com.ares.analytics.service
 
+import com.ares.analytics.shared.RobotActionRecord
+import com.ares.analytics.shared.Session
 import kotlinx.coroutines.test.runTest
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -90,5 +93,62 @@ class LogParserServiceTest {
 
         tempFile.delete()
         tempDb.delete()
+    }
+
+    @Test
+    fun `failed multi-file import removes already inserted frames`() = runTest {
+        val tempDb = File.createTempFile("log_cleanup_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val summaryEngineService = SummaryEngineService(
+            databaseService,
+            sysIdService,
+            DriverAnalysisService(databaseService, sysIdService)
+        )
+        val logParser = LogParserService(databaseService, summaryEngineService)
+        val validCsv = File.createTempFile("partial_import", ".csv").apply {
+            writeText("timestamp,value\n1000,1.0\n1020,2.0")
+            deleteOnExit()
+        }
+        val unsupported = File.createTempFile("partial_import", ".unsupported").apply { deleteOnExit() }
+
+        assertFailsWith<IllegalArgumentException> {
+            logParser.parseLogFiles(
+                listOf(validCsv, unsupported),
+                teamId = "23247",
+                seasonId = "2026",
+                robotId = "ares-bot"
+            )
+        }
+
+        assertTrue(databaseService.getSessions().isEmpty())
+        val frameCount = databaseService.executeQueryRaw("SELECT COUNT(*) FROM telemetry_frames")
+        assertEquals("0", frameCount.rows.single().single())
+        databaseService.close()
+    }
+
+    @Test
+    fun `deleting a session also deletes its robot actions`() = runTest {
+        val tempDb = File.createTempFile("session_delete_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sessionId = "delete-actions-session"
+        databaseService.insertSession(Session(sessionId, "23247", "2026", "ares-bot", 1L))
+        databaseService.insertRobotActionsBulk(
+            listOf(
+                RobotActionRecord(
+                    timestampMs = 1L,
+                    sessionId = sessionId,
+                    runId = "run",
+                    robotId = "ares-bot",
+                    actionType = "Drive",
+                    payloadJson = "{}"
+                )
+            )
+        )
+
+        assertEquals(1, databaseService.getActionsForSession(sessionId).size)
+        databaseService.deleteSession(sessionId)
+        assertTrue(databaseService.getActionsForSession(sessionId).isEmpty())
+        databaseService.close()
     }
 }

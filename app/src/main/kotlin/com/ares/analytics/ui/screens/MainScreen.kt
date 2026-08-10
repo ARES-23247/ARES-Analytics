@@ -78,13 +78,13 @@ fun MainScreen(services: ServiceRegistry) {
     LaunchedEffect(Unit) {
         services.updateCheckerService.checkForUpdates()
     }
+    val currentConfigProvider = rememberUpdatedState(config)
     val autoImportService = remember {
         AutoImportService(
-            databaseService = services.databaseService,
             logParserService = services.logParserService,
             hootDecoderService = services.hootDecoderService,
             processManagerService = services.processManagerService,
-            configProvider = { config }
+            configProvider = { currentConfigProvider.value }
         )
     }
 
@@ -215,7 +215,10 @@ fun MainScreen(services: ServiceRegistry) {
         )
     }
     val pathPlannerViewModel = remember {
-        PathPlannerViewModel(scope = scope)
+        PathPlannerViewModel(
+            scope = scope,
+            nt4ClientService = services.nt4ClientService
+        )
     }
     val fieldEditorViewModel = remember {
         FieldEditorViewModel(scope = scope)
@@ -225,6 +228,7 @@ fun MainScreen(services: ServiceRegistry) {
             databaseService = services.databaseService,
             sysIdService = services.sysIdService,
             driverAnalysisService = services.driverAnalysisService,
+            autoTunerService = services.autoTunerService,
             nt4ClientService = services.nt4ClientService,
             scope = scope
         )
@@ -681,7 +685,30 @@ fun MainScreen(services: ServiceRegistry) {
                             NavigationTarget.PATH_PLANNER -> PathPlannerScreen(
                                 viewModel = pathPlannerViewModel,
                                 league = currentConfig.league,
-                                projectPath = currentConfig.projectPath
+                                projectPath = currentConfig.projectPath,
+                                robotDimensions = com.ares.analytics.viewmodel.pathing.RobotDimensions(
+                                    lengthMeters = currentConfig.robotLengthMeters
+                                        ?: com.ares.analytics.viewmodel.pathing.RobotDimensions
+                                            .defaultFor(currentConfig.league).lengthMeters,
+                                    widthMeters = currentConfig.robotWidthMeters
+                                        ?: com.ares.analytics.viewmodel.pathing.RobotDimensions
+                                            .defaultFor(currentConfig.league).widthMeters
+                                ),
+                                onProjectPathChanged = { selectedPath ->
+                                    mainViewModel.onIntent(
+                                        MainIntent.SaveConfig(currentConfig.copy(projectPath = selectedPath))
+                                    )
+                                },
+                                onRobotDimensionsChanged = { dimensions ->
+                                    mainViewModel.onIntent(
+                                        MainIntent.SaveConfig(
+                                            currentConfig.copy(
+                                                robotLengthMeters = dimensions.lengthMeters,
+                                                robotWidthMeters = dimensions.widthMeters
+                                            )
+                                        )
+                                    )
+                                }
                             )
                             NavigationTarget.CLOUD -> CloudScreen(
                                 viewModel = cloudViewModel,

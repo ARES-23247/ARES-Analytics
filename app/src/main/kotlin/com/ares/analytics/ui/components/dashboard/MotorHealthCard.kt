@@ -43,9 +43,10 @@ fun MotorHealthCard(
     LaunchedEffect(sessionId) {
         if (sessionId != null) {
             while (isActive) {
-                // Fetch motor current telemetry keys
-                val allTelemetry = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
-                currentFrames = allTelemetry.filter { it.key.lowercase().contains("current") }
+                currentFrames = databaseService.getTelemetryForKeyPatterns(
+                    sessionId,
+                    listOf("Hardware/Motors/%/Current%")
+                )
                 if (sessionId != "live-telemetry") break
                 delay(1000)
             }

@@ -30,7 +30,7 @@ import com.ares.analytics.ui.theme.*
 enum class NavigationTarget(val label: String, val icon: ImageVector) {
     DASHBOARD("Dashboard", Icons.Default.Speed),
     CLOUD("Cloud Sync", Icons.Default.Cloud),
-    PATH_PLANNER("Path Planner", Icons.Default.Route),
+    PATH_PLANNER("Auto Builder", Icons.Default.Route),
     FIELD_EDITOR("Field Editor", Icons.Default.Layers),
     ACADEMY("ARES Academy", Icons.Default.School),
     KDOC_VIEWER("KDoc Explorer", Icons.Default.Book),

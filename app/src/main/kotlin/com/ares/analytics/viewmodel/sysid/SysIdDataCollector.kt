@@ -3,6 +3,8 @@ package com.ares.analytics.viewmodel.sysid
 import com.ares.analytics.service.AlignedDataRow
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.SysIdService
+import com.ares.analytics.service.AutoTunerService
+import com.ares.analytics.service.TuningApplyPhase
 import com.ares.analytics.viewmodel.SysIdState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,6 +17,7 @@ import java.util.concurrent.ConcurrentHashMap
 class SysIdDataCollector(
     private val nt4ClientService: Nt4ClientService,
     private val sysIdService: SysIdService,
+    private val autoTunerService: AutoTunerService,
     private val _state: MutableStateFlow<SysIdState>,
     private val scope: CoroutineScope,
     private val regressionSolver: SysIdRegressionSolver
@@ -57,7 +60,17 @@ class SysIdDataCollector(
                                 val samples = _state.value.liveSamples
                                 if (samples.isNotEmpty()) {
                                     val summary = sysIdService.analyzeRawData(samples)
-                                    _state.update { it.copy(summary = summary) }
+                                    val recommendation = autoTunerService.analyzeSamples(
+                                        mechanism = _state.value.selectedMechanism,
+                                        samples = samples,
+                                        source = "live-nt4"
+                                    )
+                                    _state.update { it.copy(summary = summary, tuningRecommendation = recommendation) }
+                                    if (recommendation != null &&
+                                        autoTunerService.applyState.value.phase == TuningApplyPhase.APPLIED_AWAITING_VALIDATION
+                                    ) {
+                                        autoTunerService.validateOrRollback(recommendation)
+                                    }
                                 }
                             }
                         }

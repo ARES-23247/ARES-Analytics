@@ -29,7 +29,6 @@ import java.util.concurrent.TimeUnit
  * ### Thread Safety & Performance Guarantees:
  * Executes in a cancellable background coroutine on [Dispatchers.IO]. Pushes notifications to a shared event flow [importNotifications].
  *
- * @param databaseService Primary DuckDB telemetry database service.
  * @param logParserService Central log parser service.
  * @param hootDecoderService Decoder service for CTRE `.hoot` logs.
  * @param processManagerService Service monitoring ADB connection status.
@@ -40,7 +39,6 @@ import java.util.concurrent.TimeUnit
  * @see ProcessManagerService
  */
 class AutoImportService(
-    private val databaseService: DatabaseService,
     private val logParserService: LogParserService,
     private val hootDecoderService: HootDecoderService,
     private val processManagerService: ProcessManagerService,
@@ -51,7 +49,7 @@ class AutoImportService(
     private val scanIntervalMs: Long = 5_000L
 ) {
     private var job: Job? = null
-    private val _importNotifications = MutableSharedFlow<String>(replay = 100)
+    private val _importNotifications = MutableSharedFlow<String>(extraBufferCapacity = 100)
     val importNotifications: SharedFlow<String> = _importNotifications.asSharedFlow()
 
     private var onImportSuccessCallback: (() -> Unit)? = null
@@ -115,9 +113,6 @@ class AutoImportService(
                 val lower = name.lowercase()
                 lower.endsWith(".wpilog") || lower.endsWith(".jsonl") || lower.endsWith(".csv") || lower.endsWith(".hoot")
             } ?: continue
-            val importedDir = File(dir, "imported")
-            importedDir.mkdirs()
-
             for (file in files) {
                 if (file.isDirectory) continue
 
@@ -140,7 +135,7 @@ class AutoImportService(
                         baseTags.add("simulated")
                     }
                     val archivedFile = File(archiveDir, "${fingerprint.take(12)}_${file.name}")
-                    archiveStableLocalFile(file, archivedFile, snapshot)
+                    copyStableLocalFile(file, archivedFile, snapshot)
                     val sessionId = if (file.name.endsWith(".hoot", ignoreCase = true)) {
                         hootDecoderService.importHootLog(archivedFile, config.teamId, config.seasonId, config.robotId)
                     } else {
@@ -152,6 +147,11 @@ class AutoImportService(
                     }
 
                     markFingerprintImported(manifest, fingerprint)
+                    if (!file.delete()) {
+                        _importNotifications.emit(
+                            "[AUTO-IMPORT] Imported ${file.name}; source could not be removed and will be ignored by fingerprint"
+                        )
+                    }
                     _importNotifications.emit("[AUTO-IMPORT] Successfully imported ${file.name} (Session ID: ${sessionId.take(8)}...)")
 
                     // Trigger UI reload
@@ -338,24 +338,6 @@ class AutoImportService(
         readSnapshotFromProcess(ProcessBuilder(adbPath, "shell", "stat", "-c", "%s:%Y", remotePath))
     }
 
-    private suspend fun deleteFileFromFtcRobot(adbPath: String, remotePath: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val pb = ProcessBuilder(adbPath, "shell", "rm", remotePath)
-            val proc = pb.start()
-            proc.inputStream.close()
-            proc.errorStream.close()
-            proc.outputStream.close()
-            val finished = proc.waitFor(10, TimeUnit.SECONDS)
-            if (!finished) {
-                proc.destroyForcibly()
-                return@withContext false
-            }
-            proc.exitValue() == 0
-        } catch (e: Exception) {
-            false
-        }
-    }
-
     private suspend fun isFileInUseOnFtcRobot(adbPath: String, remotePath: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val pb = ProcessBuilder(adbPath, "shell", "lsof", remotePath)
@@ -378,13 +360,7 @@ class AutoImportService(
     private suspend fun listFilesOnFrcRobot(host: String, directory: String): List<String> = withContext(Dispatchers.IO) {
         try {
             val pb = ProcessBuilder(
-                "ssh",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "ConnectTimeout=3",
-                "-o", "BatchMode=yes",
-                "lvuser@$host",
-                "ls $directory"
+                listOf("ssh") + sshOptions(3) + listOf("lvuser@$host", "ls ${shellQuote(directory)}")
             )
             val proc = pb.start()
             proc.errorStream.close()
@@ -406,13 +382,8 @@ class AutoImportService(
     private suspend fun pullFileFromFrcRobot(host: String, remotePath: String, localFile: File): Boolean = withContext(Dispatchers.IO) {
         try {
             val pb = ProcessBuilder(
-                "scp",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "ConnectTimeout=5",
-                "-o", "BatchMode=yes",
-                "lvuser@$host:$remotePath",
-                localFile.absolutePath
+                listOf("scp") + sshOptions(5) +
+                    listOf("lvuser@$host:${shellQuote(remotePath)}", localFile.absolutePath)
             )
             val proc = pb.start()
             proc.inputStream.close()
@@ -432,53 +403,17 @@ class AutoImportService(
     private suspend fun getFrcFileSnapshot(host: String, remotePath: String): SourceSnapshot? = withContext(Dispatchers.IO) {
         readSnapshotFromProcess(
             ProcessBuilder(
-                "ssh",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "ConnectTimeout=3",
-                "-o", "BatchMode=yes",
-                "lvuser@$host",
-                "stat -c '%s:%Y' -- ${shellQuote(remotePath)}"
+                listOf("ssh") + sshOptions(3) +
+                    listOf("lvuser@$host", "stat -c '%s:%Y' -- ${shellQuote(remotePath)}")
             )
         )
-    }
-
-    private suspend fun deleteFileFromFrcRobot(host: String, remotePath: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val pb = ProcessBuilder(
-                "ssh",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "ConnectTimeout=3",
-                "-o", "BatchMode=yes",
-                "lvuser@$host",
-                "rm $remotePath"
-            )
-            val proc = pb.start()
-            proc.inputStream.close()
-            proc.errorStream.close()
-            proc.outputStream.close()
-            val finished = proc.waitFor(10, TimeUnit.SECONDS)
-            if (!finished) {
-                proc.destroyForcibly()
-                return@withContext false
-            }
-            proc.exitValue() == 0
-        } catch (e: Exception) {
-            false
-        }
     }
 
     private suspend fun isFileInUseOnFrcRobot(host: String, remotePath: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val pb = ProcessBuilder(
-                "ssh",
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "ConnectTimeout=3",
-                "-o", "BatchMode=yes",
-                "lvuser@$host",
-                "fuser $remotePath"
+                listOf("ssh") + sshOptions(3) +
+                    listOf("lvuser@$host", "fuser ${shellQuote(remotePath)}")
             )
             val proc = pb.start()
             proc.inputStream.close()
@@ -554,23 +489,21 @@ class AutoImportService(
         }
     }
 
-    private fun archiveStableLocalFile(source: File, destination: File, expected: SourceSnapshot) {
+    private fun copyStableLocalFile(source: File, destination: File, expected: SourceSnapshot) {
         destination.parentFile?.mkdirs()
-        try {
-            Files.move(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            return
-        } catch (_: Exception) {
-            Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            val afterCopy = SourceSnapshot(source.length(), source.lastModified())
-            if (afterCopy != expected || destination.length() != expected.size) {
-                destination.delete()
-                throw java.io.IOException("Log changed while it was being archived")
-            }
-            // The archive is durable. Best-effort source removal is safe; if an OS refuses
-            // because a writer still owns the file, the persisted fingerprint prevents reimport.
-            source.delete()
+        Files.copy(source.toPath(), destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        val afterCopy = SourceSnapshot(source.length(), source.lastModified())
+        if (afterCopy != expected || destination.length() != expected.size) {
+            destination.delete()
+            throw java.io.IOException("Log changed while it was being copied")
         }
     }
+
+    private fun sshOptions(connectTimeoutSeconds: Int): List<String> = listOf(
+        "-o", "StrictHostKeyChecking=yes",
+        "-o", "ConnectTimeout=$connectTimeoutSeconds",
+        "-o", "BatchMode=yes"
+    )
 
     private fun readSnapshotFromProcess(processBuilder: ProcessBuilder): SourceSnapshot? {
         return try {
@@ -634,11 +567,10 @@ class AutoImportService(
     }
 
     private fun getDefaultFrcHost(teamId: String): String {
-        val teamNumber = teamId.filter { it.isDigit() }
-        return if (teamNumber.length in 1..4) {
-            val padded = teamNumber.padStart(4, '0')
-            val te = padded.substring(0, 2).toInt()
-            val am = padded.substring(2, 4).toInt()
+        val teamNumber = teamId.filter(Char::isDigit).toIntOrNull()
+        return if (teamNumber != null && teamNumber in 1..25_599) {
+            val te = teamNumber / 100
+            val am = teamNumber % 100
             "10.$te.$am.2"
         } else {
             "10.0.0.2"

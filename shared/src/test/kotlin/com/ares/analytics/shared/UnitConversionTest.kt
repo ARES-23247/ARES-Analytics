@@ -17,7 +17,7 @@ class UnitConversionTest {
     @Test
     fun `canonical telemetry key units use internal radians and milliseconds`() {
         assertEquals(RobotUnit.METER_PER_SEC, UnitConversion.detectUnitFromKey("Drive/Velocity"))
-        assertEquals(RobotUnit.RADIAN, UnitConversion.detectUnitFromKey("Drive/Drive_Heading"))
+        assertEquals(RobotUnit.RADIAN, UnitConversion.detectUnitFromKey("Drive/Pose_Heading"))
         assertEquals(RobotUnit.RADIAN, UnitConversion.detectUnitFromKey("Vision/YawRad"))
         assertEquals(RobotUnit.MILLISECOND, UnitConversion.detectUnitFromKey("Profiling/LoopTimeMs"))
     }

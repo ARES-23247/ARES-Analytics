@@ -45,6 +45,7 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     private val conn: Connection
     private val readConn: Connection
     private val ephemeralConn: Connection
+    private val ephemeralReadConn: Connection
     private val dbMutex = Mutex()
     private val readMutex = Mutex()
 
@@ -87,9 +88,10 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
             st.execute("SET memory_limit='1GB'")
             st.execute("SET threads=4")
         }
+        ephemeralReadConn = ephemeralConn.unwrap(org.duckdb.DuckDBConnection::class.java).duplicate()
 
         schemaManager = SchemaMigrationManager(conn, ephemeralConn)
-        matchLogRepo = MatchLogRepository(conn, readConn, ephemeralConn, dbMutex, readMutex)
+        matchLogRepo = MatchLogRepository(conn, readConn, ephemeralConn, ephemeralReadConn, dbMutex, readMutex)
         backupExporter = DatabaseBackupExporter(conn, dbMutex)
 
         schemaManager.runMigrations(isFirstRun, oldDbPath)
@@ -126,6 +128,9 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     suspend fun getTelemetryRangeBatched(sessionId: String, startMs: Long, endMs: Long, limit: Long, offset: Long): List<TelemetryFrame> = matchLogRepo.getTelemetryRangeBatched(sessionId, startMs, endMs, limit, offset)
     suspend fun countTelemetryFrames(sessionId: String): Long = matchLogRepo.countTelemetryFrames(sessionId)
     suspend fun getTelemetryForKey(sessionId: String, key: String): List<TelemetryFrame> = matchLogRepo.getTelemetryForKey(sessionId, key)
+    suspend fun getDistinctTelemetryKeys(sessionId: String): List<String> = matchLogRepo.getDistinctTelemetryKeys(sessionId)
+    suspend fun getTelemetryForKeyPatterns(sessionId: String, patterns: List<String>): List<TelemetryFrame> =
+        matchLogRepo.getTelemetryForKeyPatterns(sessionId, patterns)
     suspend fun getDiagnosticsTelemetry(sessionId: String): List<TelemetryFrame> = matchLogRepo.getDiagnosticsTelemetry(sessionId)
     suspend fun getTelemetryForFilters(sessionId: String, keys: List<String>, prefixes: List<String>): List<TelemetryFrame> = matchLogRepo.getTelemetryForFilters(sessionId, keys, prefixes)
     suspend fun getDistinctTimestamps(sessionId: String): List<Long> = matchLogRepo.getDistinctTimestamps(sessionId)
@@ -145,6 +150,8 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     suspend fun getTelemetryDensity(sessionId: String, buckets: Int = 100): List<Float> = matchLogRepo.getTelemetryDensity(sessionId, buckets)
 
     suspend fun importParquet(file: File) = backupExporter.importParquet(file)
+    suspend fun importParquetAsSession(file: File, sessionId: String) =
+        backupExporter.importParquetAsSession(file, sessionId)
     suspend fun exportSessionToParquet(sessionId: String, file: File) =
         backupExporter.exportSessionToParquet(sessionId, file)
 
@@ -155,6 +162,7 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
             matchLogRepo.dispose()
             if (!conn.isClosed) { conn.close() }
             if (!readConn.isClosed) { readConn.close() }
+            if (!ephemeralReadConn.isClosed) { ephemeralReadConn.close() }
             if (!ephemeralConn.isClosed) { ephemeralConn.close() }
         }
     }
@@ -164,4 +172,3 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         private const val CHECKPOINT_INTERVAL_MS = 60_000L
     }
 }
-

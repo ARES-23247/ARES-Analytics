@@ -1,14 +1,15 @@
 package com.ares.analytics.service.log
 
 import com.ares.analytics.service.DatabaseService
-import com.ares.analytics.service.FrameBatcher
+import com.ares.analytics.service.db.DatabaseBackupExporter
 import java.io.File
 
 /**
- * Reserved adapter for direct Parquet log import.
+ * DuckDB-backed adapter for direct Parquet telemetry import.
  *
- * Direct decoding is not implemented or registered with [com.ares.analytics.service.LogParserService].
- * Calling [parseParquetLog] fails explicitly so a future caller cannot report a successful empty import.
+ * Rows are ingested natively without materializing the full trace on the JVM heap. The source
+ * session identity is ignored and every frame is assigned to the session created by
+ * [com.ares.analytics.service.LogParserService].
  *
  * @param databaseService Primary DuckDB persistence service.
  *
@@ -22,11 +23,10 @@ class ParquetLogDecoder(private val databaseService: DatabaseService) {
      *
      * @param file Target `.parquet` file.
      * @param sessionId Session identifier string.
-     * @param batcher Destination telemetry frame channel buffer.
+     * @return Imported row count and timestamp range.
      */
-    suspend fun parseParquetLog(file: File, sessionId: String, batcher: FrameBatcher) {
-        throw UnsupportedOperationException(
-            "Direct Parquet log decoding is not implemented; use the database Parquet import/export path"
-        )
-    }
+    suspend fun parseParquetLog(
+        file: File,
+        sessionId: String
+    ): DatabaseBackupExporter.ParquetImportResult = databaseService.importParquetAsSession(file, sessionId)
 }

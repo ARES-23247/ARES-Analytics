@@ -38,7 +38,11 @@ data class WorkspaceConfig(
     val vertexLocation: String? = "us-central1",
     val colorblindMode: Boolean = false,
     val highContrastMode: Boolean = false,
-    val touchOptimizedMode: Boolean = false
+    val touchOptimizedMode: Boolean = false,
+    /** Bumper-to-bumper robot length used for field-boundary validation. */
+    val robotLengthMeters: Double? = null,
+    /** Bumper-to-bumper robot width used for field-boundary validation. */
+    val robotWidthMeters: Double? = null
 )
 
 @Serializable

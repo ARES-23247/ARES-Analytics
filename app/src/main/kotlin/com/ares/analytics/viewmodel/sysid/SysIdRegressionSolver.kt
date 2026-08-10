@@ -5,6 +5,7 @@ import com.ares.analytics.viewmodel.SysIdState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import org.ejml.simple.SimpleMatrix
+import com.areslib.tuning.TuningTopics
 
 /** Runs feedforward regression and transient classification for the selected mechanism. */
 class SysIdRegressionSolver(
@@ -87,7 +88,7 @@ class SysIdRegressionSolver(
                         sumX2 += x * x
                     }
                     val k = if (sumX2 > 1e-6) sumXY / sumX2 else 0.45
-                    val wheelBase = nt4ClientService.latestValues["Tuning/wheelBaseMeters"]?.value ?: 0.45
+                    val wheelBase = nt4ClientService.latestValues[TuningTopics.DRIVE_WHEEL_BASE]?.value ?: 0.45
                     val recTrackWidth = 2.0 * k - wheelBase
 
                     _state.update {
@@ -137,7 +138,7 @@ class SysIdRegressionSolver(
                     val actualDistance = _state.value.linearDriveActualDistanceMeters
 
                     if (actualDistance > 0.1 && reportedDisplacement > 0.05) {
-                        val currentTicks = nt4ClientService.latestValues["Tuning/ticksPerMeter"]?.value ?: 2000.0
+                        val currentTicks = nt4ClientService.latestValues[TuningTopics.FTC_TICKS_PER_METER]?.value ?: 2000.0
                         val recTicks = currentTicks * (reportedDisplacement / actualDistance)
 
                         _state.update {

@@ -71,6 +71,7 @@ class WpiLogDecoder {
                             definition = definition,
                             payload = payload,
                             timestampMs = timestampMicros / MICROS_PER_MILLISECOND,
+                            timestampUs = timestampMicros,
                             sessionId = sessionId,
                             batcher = batcher
                         )
@@ -116,15 +117,16 @@ class WpiLogDecoder {
         definition: EntryDefinition,
         payload: ByteArray,
         timestampMs: Long,
+        timestampUs: Long,
         sessionId: String,
         batcher: FrameBatcher
     ) {
         val buffer = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN)
         suspend fun addNumber(key: String, value: Double) {
-            batcher.add(TelemetryFrame(timestampMs, sessionId, key, value))
+            batcher.add(TelemetryFrame(timestampMs, sessionId, key, value, timestampUs = timestampUs))
         }
         suspend fun addString(key: String, value: String) {
-            batcher.add(TelemetryFrame(timestampMs, sessionId, key, 0.0, value))
+            batcher.add(TelemetryFrame(timestampMs, sessionId, key, 0.0, value, timestampUs = timestampUs))
         }
 
         when (definition.type) {

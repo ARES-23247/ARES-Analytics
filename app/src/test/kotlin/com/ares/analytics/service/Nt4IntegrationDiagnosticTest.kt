@@ -21,7 +21,7 @@ class Nt4IntegrationDiagnosticTest {
         // 2. Publish server topics
         NT4Server.publishTopic("Drive/Pose_X", 1.25)
         NT4Server.publishTopic("Drive/Pose_Y", 2.50)
-        NT4Server.publishTopic("Drive/Drive_Heading", 0.785)
+        NT4Server.publishTopic("Drive/Pose_Heading", 0.785)
         NT4Server.publishTopic("ARES/DriverStation/TeleOpList", "[\"com.areslib.ftc.hardware.AresHardwareTestOpMode\"]")
         NT4Server.publishTopic("ARES/DriverStation/AutonomousList", "[\"com.areslib.ftc.hardware.AresHardwareTestOpMode\"]")
         NT4Server.publishTopic("Hardware/Motors/fl/Power", 0.8)

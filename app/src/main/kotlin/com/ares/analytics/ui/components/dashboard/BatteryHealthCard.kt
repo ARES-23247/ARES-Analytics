@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.shared.TelemetryFrame
+import com.ares.analytics.shared.TelemetryMetricCatalog
 import com.ares.analytics.ui.components.core.CardHeader
 import com.ares.analytics.ui.components.core.ChartContainer
 import com.ares.analytics.ui.components.core.ChartSeries
@@ -33,11 +34,11 @@ fun BatteryHealthCard(
     LaunchedEffect(sessionId) {
         if (sessionId != null) {
             while (isActive) {
-                val allTelemetry = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
-                voltageFrames = allTelemetry.filter {
-                    val lower = it.key.lowercase()
-                    lower.contains("voltage") || lower.contains("battery")
-                }
+                voltageFrames = databaseService.getTelemetryForFilters(
+                    sessionId,
+                    TelemetryMetricCatalog.BATTERY_VOLTAGE.keys.toList(),
+                    emptyList()
+                )
                 if (sessionId != "live-telemetry") break
                 delay(1000)
             }

@@ -35,16 +35,15 @@ import androidx.compose.ui.unit.dp
 import com.ares.analytics.shared.*
 import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.ui.theme.*
-import kotlinx.serialization.decodeFromString
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import com.ares.analytics.viewmodel.pathing.RobotDimensions
+import com.areslib.math.coordinate.CoordinateTransformers
+import com.ares.analytics.viewmodel.field.FieldDocumentMapper
+import com.areslib.state.RobotFieldDocument
 import java.io.File
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
-
-private val jsonFormatter: Json = Json { prettyPrint = true; ignoreUnknownKeys = true; isLenient = true }
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
@@ -93,10 +92,13 @@ fun FieldCanvas(
     onViewRotationChanged: ((Float) -> Unit)? = null,
     showToolbar: Boolean = true,
     indicatorLightPosition: Double = -1.0,
+    autoGoalMode: Boolean = false,
+    robotDimensions: RobotDimensions = RobotDimensions.defaultFor(league),
     modifier: Modifier = Modifier
 ) {
     var localFieldImage by remember { mutableStateOf<ImageBitmap?>(null) }
     var localFieldImageConfig by remember { mutableStateOf(FieldImageConfig()) }
+    var localFieldConfigLoaded by remember { mutableStateOf(false) }
     var isDraggingHeading by remember { mutableStateOf(false) }
     var isDraggingPrevHeading by remember { mutableStateOf(false) }
     var isDraggingRotation by remember { mutableStateOf(false) }
@@ -110,9 +112,9 @@ fun FieldCanvas(
     var contextTargetId by remember { mutableStateOf<String?>(null) }
     var contextTargetIndex by remember { mutableStateOf<Int>(-1) }
     val density = LocalDensity.current
-    val splinePoints by remember(waypoints) {
+    val splinePoints by remember(waypoints, autoGoalMode) {
         derivedStateOf {
-            if (waypoints.size < 2) emptyList<Waypoint>() else {
+            if (autoGoalMode || waypoints.size < 2) emptyList<Waypoint>() else {
                 val list = ArrayList<Waypoint>((waypoints.size - 1) * 30 + 1)
                 val density = 30
                 for (i in 0 until waypoints.size - 1) {
@@ -182,8 +184,21 @@ fun FieldCanvas(
     }
     val activeImage = fieldImage ?: localFieldImage
     val activeConfig = fieldImageConfig ?: localFieldImageConfig
-    val fieldWidthM = if (activeConfig.widthMeters > 0.0) activeConfig.widthMeters else (if (league == League.FTC) 3.65 else 16.5)
-    val fieldHeightM = if (activeConfig.heightMeters > 0.0) activeConfig.heightMeters else (if (league == League.FTC) 3.65 else 8.2)
+    val useConfiguredFieldSize = fieldImageConfig != null || localFieldConfigLoaded
+    val fieldWidthM = if (useConfiguredFieldSize && activeConfig.widthMeters > 0.0) {
+        activeConfig.widthMeters
+    } else if (league == League.FTC) {
+        CoordinateTransformers.FTC_FIELD_SIZE
+    } else {
+        CoordinateTransformers.FRC_FIELD_LENGTH
+    }
+    val fieldHeightM = if (useConfiguredFieldSize && activeConfig.heightMeters > 0.0) {
+        activeConfig.heightMeters
+    } else if (league == League.FTC) {
+        CoordinateTransformers.FTC_FIELD_SIZE
+    } else {
+        CoordinateTransformers.FRC_FIELD_WIDTH
+    }
     var editorMode by remember { mutableStateOf(EditorMode.SELECT) }
     var selectedWaypointIndex by remember { mutableStateOf(-1) }
     var selectedEventMarkerIndex by remember { mutableStateOf(-1) }
@@ -207,44 +222,29 @@ fun FieldCanvas(
     val activeGamePieces = gamePieces ?: localGamePieces
     val activeAprilTags = aprilTags ?: localAprilTags
     val activeFieldWaypoints = fieldWaypoints ?: localFieldWaypoints
-    val persistFieldData: (String, String) -> Unit = { fileName, content ->
-        projectPath?.takeIf(String::isNotBlank)?.let { path ->
-            try {
-                val targetDir = ProjectLayout.fieldDataDirectory(path, league)
-                targetDir.mkdirs()
-                File(targetDir, fileName).writeText(content)
-            } catch (error: Exception) {
-                error.printStackTrace()
-            }
-        }
-    }
     val updateObstacles: (List<Obstacle>) -> Unit = { newObstacles ->
         onObstaclesChanged?.invoke(newObstacles) ?: run {
             localObstacles.clear()
             localObstacles.addAll(newObstacles)
         }
-        persistFieldData("obstacles.json", jsonFormatter.encodeToString(newObstacles))
     }
     val updateGamePieces: (List<GamePiece>) -> Unit = { newPieces ->
         onGamePiecesChanged?.invoke(newPieces) ?: run {
             localGamePieces.clear()
             localGamePieces.addAll(newPieces)
         }
-        persistFieldData("game_pieces.json", jsonFormatter.encodeToString(newPieces))
     }
     val updateAprilTags: (List<AprilTagPlacement>) -> Unit = { newTags ->
         onAprilTagsChanged?.invoke(newTags) ?: run {
             localAprilTags.clear()
             localAprilTags.addAll(newTags)
         }
-        persistFieldData("apriltags.json", jsonFormatter.encodeToString(newTags))
     }
     val updateFieldWaypoints: (List<FieldWaypoint>) -> Unit = { newWps ->
         onFieldWaypointsChanged?.invoke(newWps) ?: run {
             localFieldWaypoints.clear()
             localFieldWaypoints.addAll(newWps)
         }
-        persistFieldData("field_waypoints.json", jsonFormatter.encodeToString(newWps))
     }
     val currentPolygonPoints = remember { mutableStateListOf<PathPoint>() }
     val currentWaypoints by rememberUpdatedState(waypoints)
@@ -260,46 +260,25 @@ fun FieldCanvas(
 
     LaunchedEffect(projectPath) {
         try {
-            val searchDirs = mutableListOf<File>()
             if (!projectPath.isNullOrEmpty()) {
-                searchDirs.add(ProjectLayout.fieldDataDirectory(projectPath, league))
-            }
-            searchDirs.addAll(listOf(
-                File(System.getProperty("user.home"), "dev/robotics/ares/ARES-FTC/TeamCode/src/main/assets/paths"),
-                File("../ARES-FTC/TeamCode/src/main/assets/paths"),
-                File("TeamCode/src/main/assets/paths"),
-                File("src/main/assets/paths"),
-                File("../src/main/assets/paths")
-            ))
-
-            for (dir in searchDirs) {
-                if (dir.exists()) {
-                    val fObs = File(dir, "obstacles.json")
-                    if (fObs.exists()) {
-                        try { updateObstacles(jsonFormatter.decodeFromString(fObs.readText())) } catch (e: Exception) { e.printStackTrace() }
+                val documentFile = ProjectLayout.fieldDefinitionFile(projectPath, league)
+                if (documentFile.isFile) {
+                    val document = RobotFieldDocument.decode(documentFile.readText())
+                    if (obstacles == null) updateObstacles(FieldDocumentMapper.obstacles(document))
+                    if (gamePieces == null) updateGamePieces(FieldDocumentMapper.gamePieces(document))
+                    if (aprilTags == null) updateAprilTags(FieldDocumentMapper.aprilTags(document))
+                    if (fieldWaypoints == null) updateFieldWaypoints(FieldDocumentMapper.fieldWaypoints(document))
+                    if (fieldImageConfig == null) {
+                        localFieldImageConfig = FieldDocumentMapper.image(document)
+                        localFieldConfigLoaded = true
                     }
-                    val fGp = File(dir, "game_pieces.json")
-                    if (fGp.exists()) {
-                        try { updateGamePieces(jsonFormatter.decodeFromString(fGp.readText())) } catch (e: Exception) { e.printStackTrace() }
-                    }
-                    val fAt = File(dir, "apriltags.json")
-                    if (fAt.exists()) {
-                        try { updateAprilTags(jsonFormatter.decodeFromString(fAt.readText())) } catch (e: Exception) { e.printStackTrace() }
-                    }
-                    val fWp = File(dir, "field_waypoints.json")
-                    if (fWp.exists()) {
-                        try { updateFieldWaypoints(jsonFormatter.decodeFromString(fWp.readText())) } catch (e: Exception) { e.printStackTrace() }
-                    }
-                    if (fObs.exists() || fGp.exists()) break
                 }
-            }
 
-            if (!projectPath.isNullOrEmpty()) {
                 val assetsDirectory = ProjectLayout.assetsDirectory(projectPath, league)
                 val imgFile = File(assetsDirectory, "field_image.png")
-                localFieldImage = if (imgFile.exists()) org.jetbrains.skia.Image.makeFromEncoded(imgFile.readBytes()).toComposeImageBitmap() else null
-                val confFile = File(assetsDirectory, "field_image_config.json")
-                localFieldImageConfig = if (confFile.exists()) Json.decodeFromString(confFile.readText()) else FieldImageConfig()
+                if (fieldImage == null) {
+                    localFieldImage = if (imgFile.exists()) org.jetbrains.skia.Image.makeFromEncoded(imgFile.readBytes()).toComposeImageBitmap() else null
+                }
             }
         } catch (e: Exception) { e.printStackTrace() }
     }
@@ -339,7 +318,7 @@ fun FieldCanvas(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(AresSurface)
-                    .pointerInput(Unit) {
+                    .pointerInput(autoGoalMode) {
                         // Accumulated pixel-space drag for the entire gesture
                         var accumulatedDragPx = Offset.Zero
                         // Initial positions captured at press for absolute positioning
@@ -378,7 +357,7 @@ fun FieldCanvas(
                                      val rotHitRadiusPx = 18.dp.toPx() / zoomScale
 
                                      // 1. Prioritize handles of the ALREADY selected waypoint (if any)
-                                     if (selectedWaypointIndex in currentWaypoints.indices) {
+                                     if (!autoGoalMode && selectedWaypointIndex in currentWaypoints.indices) {
                                          val wp = currentWaypoints[selectedWaypointIndex]
                                          val wpBase = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
 
@@ -417,7 +396,7 @@ fun FieldCanvas(
                                      }
 
                                      // 3. Check other waypoints' handles (heading + rotation)
-                                     if (hitIdx == -1) {
+                                     if (hitIdx == -1 && !autoGoalMode) {
                                          for (i in currentWaypoints.indices) {
                                              if (i == selectedWaypointIndex) continue
                                              val wp = currentWaypoints[i]
@@ -814,39 +793,56 @@ fun FieldCanvas(
                     drawContextPath(pathCache, contextPath, contextWaypoints, w, h, fieldWidthM, fieldHeightM, league)
                 }
 
-                drawPlannedSpline(pathCache, splinePoints, waypoints, w, h, fieldWidthM, fieldHeightM, league)
-                drawEventMarkers(waypoints, eventMarkerPoints, w, h, fieldWidthM, fieldHeightM, league, selectedEventMarkerIndex)
-                drawConstraintZones(pathCache, waypoints, constraintZoneSplines, w, h, fieldWidthM, fieldHeightM, league)
-                drawPointTowardsZones(pathCache, waypoints, pointTowardsZoneRenderData, w, h, fieldWidthM, fieldHeightM, league)
-                drawHolonomicRotationTargets(waypoints, combinedRotationTargets, combinedRotationTargetPoints, w, h, fieldWidthM, fieldHeightM, league)
+                if (!autoGoalMode) {
+                    drawPlannedSpline(pathCache, splinePoints, waypoints, w, h, fieldWidthM, fieldHeightM, league)
+                    drawEventMarkers(waypoints, eventMarkerPoints, w, h, fieldWidthM, fieldHeightM, league, selectedEventMarkerIndex)
+                    drawConstraintZones(pathCache, waypoints, constraintZoneSplines, w, h, fieldWidthM, fieldHeightM, league)
+                    drawPointTowardsZones(pathCache, waypoints, pointTowardsZoneRenderData, w, h, fieldWidthM, fieldHeightM, league)
+                    drawHolonomicRotationTargets(waypoints, combinedRotationTargets, combinedRotationTargetPoints, w, h, fieldWidthM, fieldHeightM, league)
+                }
 
                 drawActualPathAndDeviations(pathCache, actualPath, waypoints, w, h, fieldWidthM, fieldHeightM, league)
-                drawRobotRepresentations(
-                    pathCache = pathCache,
-                    actualPath = actualPath,
-                    estimatedPose = estimatedPose,
-                    playbackPose = playbackPose,
-                    visionPoses = visionPoses,
-                    odomPose = odomPose,
-                    showTruePose = showTruePose,
-                    showEkfPose = showEkfPose,
-                    showOdomPose = showOdomPose,
-                    showVisionPoses = showVisionPoses,
-                    w = w,
-                    h = h,
-                    fieldWidthM = fieldWidthM,
-                    fieldHeightM = fieldHeightM,
-                    league = league,
-                    indicatorLightPosition = indicatorLightPosition
-                )
-                drawWaypoints(pathCache, waypoints, selectedWaypointIndex, isDraggingHeading, isDraggingPrevHeading, w, h, fieldWidthM, fieldHeightM, league, combinedRotationTargets, isDraggingRotation)
+                if (autoGoalMode) {
+                    drawAutoGoals(
+                        pathCache = pathCache,
+                        waypoints = waypoints,
+                        selectedWaypointIndex = selectedWaypointIndex,
+                        playbackPose = playbackPose,
+                        robotDimensions = robotDimensions,
+                        w = w,
+                        h = h,
+                        fieldWidthM = fieldWidthM,
+                        fieldHeightM = fieldHeightM,
+                        league = league
+                    )
+                } else {
+                    drawRobotRepresentations(
+                        pathCache = pathCache,
+                        actualPath = actualPath,
+                        estimatedPose = estimatedPose,
+                        playbackPose = playbackPose,
+                        visionPoses = visionPoses,
+                        odomPose = odomPose,
+                        showTruePose = showTruePose,
+                        showEkfPose = showEkfPose,
+                        showOdomPose = showOdomPose,
+                        showVisionPoses = showVisionPoses,
+                        w = w,
+                        h = h,
+                        fieldWidthM = fieldWidthM,
+                        fieldHeightM = fieldHeightM,
+                        league = league,
+                        indicatorLightPosition = indicatorLightPosition
+                    )
+                    drawWaypoints(pathCache, waypoints, selectedWaypointIndex, isDraggingHeading, isDraggingPrevHeading, w, h, fieldWidthM, fieldHeightM, league, combinedRotationTargets, isDraggingRotation)
+                }
 
                 drawContext.canvas.restore()
             }
             }
 
             FieldCanvasContextMenu(
-                expanded = contextMenuExpanded,
+                expanded = contextMenuExpanded && !autoGoalMode,
                 onDismissRequest = { contextMenuExpanded = false },
                 offset = contextMenuOffset,
                 targetType = contextTargetType,

@@ -6,7 +6,10 @@ import com.ares.analytics.service.DriverProfileAnalysisResult
 import com.ares.analytics.service.SysIdService
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.AlignedDataRow
+import com.ares.analytics.service.AutoTunerService
+import com.ares.analytics.service.TuningApplyState
 import com.ares.analytics.shared.CalculatedSummary
+import com.ares.analytics.shared.TelemetryMetricCatalog
 import com.areslib.control.assist.SysIdMechanism
 import com.areslib.control.assist.SysIdRoutine
 import com.ares.analytics.viewmodel.sysid.SysIdDataCollector
@@ -17,6 +20,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -38,6 +42,8 @@ data class SysIdState(
     // Standalone file upload analysis
     val localAnalysisResult: CalculatedSummary? = null,
     val fileAnalysisError: String? = null,
+    val tuningRecommendation: AutoTunerService.TuningRecommendation? = null,
+    val tuningApplyState: TuningApplyState = TuningApplyState(),
 
     // New Auto-Tuning/Calibration features
     val activeCalibration: String = "NONE", // "NONE", "PINPOINT_SPIN", "TRACK_WIDTH_SPIN", "VISION_CALIBRATION", "LINEAR_DRIVE"
@@ -89,6 +95,10 @@ sealed class SysIdIntent {
     data class SetLinearDriveDistance(val distance: Double) : SysIdIntent()
 
     data class ApplyCalibration(val calibrationType: String) : SysIdIntent()
+
+    data class ApproveRecommendation(val recommendation: AutoTunerService.TuningRecommendation) : SysIdIntent()
+
+    object RollbackRecommendation : SysIdIntent()
 }
 
 /** Coordinates SysId signal generation, frame collection, regression, and optional source updates. */
@@ -96,6 +106,7 @@ class SysIdViewModel(
     private val databaseService: DatabaseService,
     private val sysIdService: SysIdService,
     private val driverAnalysisService: DriverAnalysisService,
+    private val autoTunerService: AutoTunerService,
     val nt4ClientService: Nt4ClientService,
     private val scope: CoroutineScope
 ) {
@@ -103,11 +114,16 @@ class SysIdViewModel(
     val state: StateFlow<SysIdState> = _state.asStateFlow()
 
     private val regressionSolver = SysIdRegressionSolver(nt4ClientService, _state)
-    private val dataCollector = SysIdDataCollector(nt4ClientService, sysIdService, _state, scope, regressionSolver)
+    private val dataCollector = SysIdDataCollector(nt4ClientService, sysIdService, autoTunerService, _state, scope, regressionSolver)
     private val signalGenerator = SysIdSignalGenerator(nt4ClientService, _state)
 
     init {
         dataCollector.startCollecting()
+        scope.launch {
+            autoTunerService.applyState.collect { workflow ->
+                _state.update { it.copy(tuningApplyState = workflow) }
+            }
+        }
     }
 
     fun onIntent(intent: SysIdIntent) {
@@ -121,9 +137,9 @@ class SysIdViewModel(
                             withContext(Dispatchers.IO) {
                                 val summaryResult = sysIdService.analyzeMotorData(
                                     sessionId = sessionId,
-                                    voltageKey = "/Drive/Voltage",
-                                    velocityKey = "/Drive/Velocity",
-                                    accelerationKey = "/Drive/Acceleration"
+                                    voltageKey = TelemetryMetricCatalog.DRIVE_VOLTAGE.canonicalKey,
+                                    velocityKey = TelemetryMetricCatalog.DRIVE_VELOCITY.canonicalKey,
+                                    accelerationKey = TelemetryMetricCatalog.DRIVE_ACCELERATION.canonicalKey
                                 )
                                 val jitterResult = driverAnalysisService.analyzeDriverJitter(
                                     sessionId = sessionId
@@ -192,6 +208,12 @@ class SysIdViewModel(
                 }
                 is SysIdIntent.ApplyCalibration -> {
                     signalGenerator.applyCalibration(intent.calibrationType)
+                }
+                is SysIdIntent.ApproveRecommendation -> {
+                    autoTunerService.approveAndApplyGains(intent.recommendation)
+                }
+                is SysIdIntent.RollbackRecommendation -> {
+                    autoTunerService.rollback()
                 }
             }
         }

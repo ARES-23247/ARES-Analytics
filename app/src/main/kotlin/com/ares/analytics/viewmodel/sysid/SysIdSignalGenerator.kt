@@ -4,6 +4,7 @@ import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.viewmodel.SysIdState
 import com.areslib.control.assist.SysIdMechanism
 import com.areslib.control.assist.SysIdRoutine
+import com.areslib.tuning.TuningTopics
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -15,9 +16,9 @@ class SysIdSignalGenerator(
     suspend fun applyToRobotCode(recommendedExponent: Double, recommendedSlewRate: Double) {
         _state.update { it.copy(exportStatus = "Applying to robot over NT4...") }
         try {
-            nt4ClientService.publishDouble("Tuning/driverDeadbandExponent", recommendedExponent)
+            nt4ClientService.publishDouble(TuningTopics.DRIVER_DEADBAND_EXPONENT, recommendedExponent)
             val slewVal = if (recommendedSlewRate == Double.MAX_VALUE) 999.0 else recommendedSlewRate
-            nt4ClientService.publishDouble("Tuning/driverSlewRateLimit", slewVal)
+            nt4ClientService.publishDouble(TuningTopics.DRIVER_SLEW_RATE_LIMIT, slewVal)
 
             _state.update {
                 it.copy(exportStatus = "Successfully applied! 🎉")
@@ -72,15 +73,15 @@ class SysIdSignalGenerator(
                     val x = _state.value.recommendedPinpointXOffsetMm
                     val y = _state.value.recommendedPinpointYOffsetMm
                     if (x != null && y != null) {
-                        nt4ClientService.publishDouble("Tuning/pinpointXOffsetMm", x)
-                        nt4ClientService.publishDouble("Tuning/pinpointYOffsetMm", y)
+                        nt4ClientService.publishDouble(TuningTopics.PINPOINT_X_OFFSET, x)
+                        nt4ClientService.publishDouble(TuningTopics.PINPOINT_Y_OFFSET, y)
                         _state.update { it.copy(exportStatus = "Applied Pinpoint Offsets! 🎉") }
                     }
                 }
                 "TRACK_WIDTH_SPIN" -> {
                     val tw = _state.value.recommendedTrackWidthMeters
                     if (tw != null) {
-                        nt4ClientService.publishDouble("Tuning/trackWidthMeters", tw)
+                        nt4ClientService.publishDouble(TuningTopics.DRIVE_TRACK_WIDTH, tw)
                         _state.update { it.copy(exportStatus = "Applied Track Width! 🎉") }
                     }
                 }
@@ -89,16 +90,16 @@ class SysIdSignalGenerator(
                     val sy = _state.value.recommendedVisionStdDevsY
                     val sh = _state.value.recommendedVisionStdDevsHeading
                     if (sx != null && sy != null && sh != null) {
-                        nt4ClientService.publishDouble("Tuning/visionStdDevsX", sx)
-                        nt4ClientService.publishDouble("Tuning/visionStdDevsY", sy)
-                        nt4ClientService.publishDouble("Tuning/visionStdDevsHeading", sh)
+                        nt4ClientService.publishDouble(TuningTopics.VISION_STD_DEVS_X, sx)
+                        nt4ClientService.publishDouble(TuningTopics.VISION_STD_DEVS_Y, sy)
+                        nt4ClientService.publishDouble(TuningTopics.VISION_STD_DEVS_HEADING, sh)
                         _state.update { it.copy(exportStatus = "Applied Vision Std Devs! 🎉") }
                     }
                 }
                 "LINEAR_DRIVE" -> {
                     val ticks = _state.value.recommendedTicksPerMeter
                     if (ticks != null) {
-                        nt4ClientService.publishDouble("Tuning/ticksPerMeter", ticks)
+                        nt4ClientService.publishDouble(TuningTopics.FTC_TICKS_PER_METER, ticks)
                         _state.update { it.copy(exportStatus = "Applied Ticks Per Meter! 🎉") }
                     }
                 }

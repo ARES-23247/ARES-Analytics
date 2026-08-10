@@ -10,15 +10,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * AutoImportServiceTest class.
- */
+/** Integration tests for durable, duplicate-safe local log import. */
 class AutoImportServiceTest {
 
     @Test
-    /**
-     * testLocalLogsAutoImport fun.
-     */
     fun testLocalLogsAutoImport() = runBlocking {
         val tempDb = File.createTempFile("auto_import_db", ".db").apply { deleteOnExit() }
         val databaseService = DatabaseService(tempDb.absolutePath)
@@ -55,7 +50,6 @@ class AutoImportServiceTest {
         )
         var importSuccessCalled = false
         val autoImportService = AutoImportService(
-            databaseService = databaseService,
             logParserService = logParserService,
             hootDecoderService = hootDecoderService,
             processManagerService = processManagerService,
@@ -97,7 +91,6 @@ class AutoImportServiceTest {
         mockLog.writeText(mockContents)
         mockLog.setLastModified(originalLastModified)
         val restarted = AutoImportService(
-            databaseService = databaseService,
             logParserService = logParserService,
             hootDecoderService = hootDecoderService,
             processManagerService = processManagerService,

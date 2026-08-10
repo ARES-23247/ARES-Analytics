@@ -65,10 +65,10 @@ fun DataTablePanel(
             isLoading = true
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
                 try {
-                    val allFrames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
-                    availableKeys = allFrames.map { it.key }.distinct().sorted()
-                    startTimestampMs = allFrames.minOfOrNull { it.timestampMs } ?: 0L
-                    endTimestampMs = allFrames.maxOfOrNull { it.timestampMs } ?: 0L
+                    availableKeys = databaseService.getDistinctTelemetryKeys(sessionId)
+                    val timestampRange = databaseService.getSessionTimestampRange(sessionId)
+                    startTimestampMs = timestampRange?.first ?: 0L
+                    endTimestampMs = timestampRange?.second ?: 0L
 
                     // Auto-select first few keys as default columns
                     selectedKeys.clear()

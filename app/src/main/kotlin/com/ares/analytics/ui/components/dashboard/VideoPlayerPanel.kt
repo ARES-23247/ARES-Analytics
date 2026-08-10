@@ -159,7 +159,7 @@ fun VideoPlayerPanel(
                     val poseX = currentFrame?.values?.get("Drive/Pose_X") ?: 0.0
                     val poseY = currentFrame?.values?.get("Drive/Pose_Y") ?: 0.0
                     val heading = currentFrame?.values?.get("Drive/Pose_Heading")
-                        ?: currentFrame?.values?.get("Drive/Drive_Heading")
+                        ?: currentFrame?.values?.get("Drive/Pose_Heading")
                         ?: currentFrame?.values?.get("ARES/EstimatedPose/2")
                         ?: 0.0
 

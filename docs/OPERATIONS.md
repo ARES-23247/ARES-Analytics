@@ -88,7 +88,12 @@ The mDNS or team address depends on team configuration. The conventional team ad
 
 ```powershell
 Test-NetConnection 10.TE.AM.2 -Port 5810
+ssh lvuser@10.TE.AM.2 true
 ```
+
+Automatic SCP import requires the RoboRIO host key in the user's normal `known_hosts` file. Verify
+the fingerprint on the first interactive SSH connection; Analytics deliberately refuses unknown or
+changed host keys instead of bypassing SSH identity checks.
 
 Do not diagnose a disconnected robot from stale dashboard values. Target changes clear topic metadata, latest values, live history, and pending database frames by design.
 

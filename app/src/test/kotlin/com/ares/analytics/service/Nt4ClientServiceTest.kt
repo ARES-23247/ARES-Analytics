@@ -171,7 +171,7 @@ class Nt4ClientServiceTest {
     }
 
     @Test
-    fun `binary publish uses NT4 outer update array`() {
+    fun `binary publish uses the standard NT4 tuple stream`() {
         val encoded = nt4ClientService.encodeNt4BinaryUpdate(
             pubuid = 1001,
             timestampUs = 0x0102030405060708L,
@@ -179,11 +179,10 @@ class Nt4ClientServiceTest {
             valueBytes = byteArrayOf(0xca.toByte(), 0xfe.toByte())
         )
 
-        assertEquals(0x91.toByte(), encoded[0], "single-update batch header")
-        assertEquals(0x94.toByte(), encoded[1], "four-element update tuple header")
-        assertEquals(0xcd.toByte(), encoded[2], "pubuid uint16 marker")
-        assertEquals(0xcf.toByte(), encoded[5], "timestamp uint64 marker")
-        assertEquals(1.toByte(), encoded[14], "NT4 type id")
+        assertEquals(0x94.toByte(), encoded[0], "four-element update tuple header")
+        assertEquals(0xcd.toByte(), encoded[1], "pubuid uint16 marker")
+        assertEquals(0xcf.toByte(), encoded[4], "timestamp uint64 marker")
+        assertEquals(1.toByte(), encoded[13], "NT4 type id")
         assertTrue(encoded.takeLast(2).toByteArray().contentEquals(byteArrayOf(0xca.toByte(), 0xfe.toByte())))
     }
 

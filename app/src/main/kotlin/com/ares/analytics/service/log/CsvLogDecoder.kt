@@ -42,15 +42,17 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
      * "time" or "timestamp" in its name) and remaining columns as telemetry keys.
      */
     suspend fun parseCsvLogNative(file: File, sessionId: String) {
+        require(file.isFile) { "CSV log does not exist: ${file.absolutePath}" }
         val absolutePath = file.absolutePath.replace("\\", "/").replace("'", "''")
 
         // Detect the timestamp column name from the header
         val headerLine = file.bufferedReader(Charsets.UTF_8).use { it.readLine() }
-            ?: return
+            ?: throw IllegalArgumentException("CSV log ${file.name} is empty")
         val headers = headerLine.split(",").map { it.trim() }
         val timeColumnName = headers.firstOrNull {
             it.contains("time", ignoreCase = true) || it.contains("timestamp", ignoreCase = true)
-        } ?: return
+        } ?: throw IllegalArgumentException("CSV log ${file.name} has no timestamp column")
+        val frameCountBefore = databaseService.countTelemetryFrames(sessionId)
 
         // Use DuckDB's native CSV reader with UNPIVOT to convert wide-format CSV
         // directly into the long-format telemetry_frames schema in a single SQL pass.
@@ -63,7 +65,8 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
 
         val importSql = if (hasExtraFields) {
             """
-                INSERT INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value)
+                INSERT INTO telemetry_frames
+                    (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
                 WITH raw AS (
                     SELECT * FROM read_csv_auto('$absolutePath', header=true, ignore_errors=true, all_varchar=true)
                 ), regular_fields AS (
@@ -95,7 +98,7 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
                 SELECT
                     timestamp_ms,
                     '$escapedSessionId' AS session_id,
-                    key,
+                    REGEXP_REPLACE(key, '^/+', '') AS key,
                     COALESCE(
                         CASE
                             WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0
@@ -107,17 +110,20 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
                     CASE
                         WHEN LOWER(CAST(value AS VARCHAR)) IN ('true', 'false') THEN NULL
                         WHEN TRY_CAST(value AS DOUBLE) IS NULL THEN CAST(value AS VARCHAR)
-                    END AS string_value
+                    END AS string_value,
+                    timestamp_ms * 1000 AS timestamp_us,
+                    0 AS sample_order
                 FROM all_fields
                 WHERE value IS NOT NULL AND CAST(value AS VARCHAR) != ''
             """.trimIndent()
         } else {
             """
-                INSERT INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value)
+                INSERT INTO telemetry_frames
+                    (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
                 SELECT
                     CAST("$escapedTimeCol" AS BIGINT) AS timestamp_ms,
                     '$escapedSessionId' AS session_id,
-                    key,
+                    REGEXP_REPLACE(key, '^/+', '') AS key,
                     COALESCE(
                         CASE
                             WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0
@@ -129,7 +135,9 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
                     CASE
                         WHEN LOWER(CAST(value AS VARCHAR)) IN ('true', 'false') THEN NULL
                         WHEN TRY_CAST(value AS DOUBLE) IS NULL THEN CAST(value AS VARCHAR)
-                    END AS string_value
+                    END AS string_value,
+                    CAST("$escapedTimeCol" AS BIGINT) * 1000 AS timestamp_us,
+                    0 AS sample_order
                 FROM (
                     SELECT * FROM read_csv_auto('$absolutePath', header=true, ignore_errors=true, all_varchar=true)
                 ) UNPIVOT (
@@ -140,6 +148,8 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
         }
 
         databaseService.executeNativeCsvImport(importSql)
+        val importedFrames = databaseService.countTelemetryFrames(sessionId) - frameCountBefore
+        require(importedFrames > 0L) { "CSV log ${file.name} contained no usable telemetry frames" }
     }
 
     /**

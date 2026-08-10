@@ -26,7 +26,9 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.AuthState
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
+import com.ares.analytics.ui.components.core.chooseProjectDirectory
 import com.ares.analytics.ui.theme.*
+import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.viewmodel.ProfileIntent
 import com.ares.analytics.viewmodel.ProfileViewModel
 
@@ -62,6 +64,7 @@ fun ProfileScreen(
     var robotName by remember(config.robotName) { mutableStateOf(config.robotName) }
     var league by remember(config.league) { mutableStateOf(config.league) }
     var seasonId by remember(config.seasonId) { mutableStateOf(config.seasonId) }
+    var projectPath by remember(config.projectPath) { mutableStateOf(config.projectPath) }
     var robotMenuExpanded by remember { mutableStateOf(false) }
     var colorblindMode by remember(config.colorblindMode) { mutableStateOf(config.colorblindMode) }
     var highContrastMode by remember(config.highContrastMode) { mutableStateOf(config.highContrastMode) }
@@ -114,6 +117,38 @@ fun ProfileScreen(
                     Text("Workspace Active Robot Profile", fontWeight = FontWeight.Bold, color = AresTextPrimary, fontSize = 15.sp)
                 }
                 Text("Specify your active team identity or select from Google Drive synchronized robot profiles.", color = AresTextSecondary, fontSize = 11.sp)
+
+                val projectPathError = remember(projectPath, league) {
+                    ProjectLayout.validationError(projectPath, league)
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = projectPath,
+                        onValueChange = { projectPath = it },
+                        label = { Text("Robot project directory") },
+                        supportingText = {
+                            Text(projectPathError ?: "Robot source, autos, field data, and build files use this folder.")
+                        },
+                        isError = projectPathError != null,
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = AresCyan,
+                            unfocusedBorderColor = AresBorder
+                        )
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            chooseProjectDirectory(projectPath)?.let { projectPath = it.path }
+                        }
+                    ) {
+                        Text("Browse…")
+                    }
+                }
 
                 // Shared Roster Dropdown (if loaded)
                 if (state.robotProfiles.isNotEmpty()) {
@@ -529,6 +564,7 @@ fun ProfileScreen(
                     robotName = robotName,
                     league = league,
                     seasonId = seasonId,
+                    projectPath = projectPath,
                     googleClientId = googleClientId.takeIf { it.isNotBlank() },
                     googleClientSecret = googleClientSecret.takeIf { it.isNotBlank() },
                     eventCode = eventCode.takeIf { it.isNotBlank() },
@@ -564,6 +600,7 @@ fun ProfileScreen(
                 onConfigChanged(newConfig)
             },
             colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+            enabled = ProjectLayout.validationError(projectPath, league) == null,
             modifier = Modifier.fillMaxWidth().height(if (touchOptimizedMode) 56.dp else 48.dp)
         ) {
             Text("Save Profile & Settings", color = AresBackground, fontWeight = FontWeight.Bold, fontSize = if (touchOptimizedMode) 18.sp else 16.sp)

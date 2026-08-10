@@ -3,9 +3,7 @@ package com.ares.analytics.service
 import com.ares.analytics.shared.League
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
-import java.io.BufferedReader
 import java.io.File
-import java.io.InputStreamReader
 
 /**
  * Service managing external OS process lifecycle execution for Gradle builds, ADB logcat streams, and physics simulators.
@@ -107,7 +105,7 @@ class ProcessManagerService {
                 val proc = pb.start()
                 buildProcess = proc
 
-                BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
+                proc.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                     while (true) {
                         val line = reader.readLine() ?: break
                         _buildOutput.emit(line)
@@ -128,114 +126,19 @@ class ProcessManagerService {
         }
     }
 
-    private fun killOrphanedSimulators() {
-        // 1. Clean by Port
-        val portsToClean = listOf(5810, 1735)
-        val isWindows = System.getProperty("os.name").lowercase().contains("windows")
-        for (port in portsToClean) {
-            try {
-                if (isWindows) {
-                    val proc = ProcessBuilder("cmd.exe", "/c", "netstat -ano").start()
-                    proc.errorStream.close()
-                    proc.outputStream.close()
-                    val pids = mutableSetOf<Long>()
-                    proc.inputStream.bufferedReader().use { reader ->
-                        while (true) {
-                            val line = reader.readLine() ?: break
-                            if (line.contains("LISTENING") && line.contains(":$port")) {
-                                val parts = line.split("\\s+".toRegex()).filter { it.isNotEmpty() }
-                                if (parts.size >= 5) {
-                                    val pidStr = parts[4]
-                                    pidStr.toLongOrNull()?.let { pids.add(it) }
-                                }
-                            }
-                        }
-                    }
-                    proc.waitFor()
-                    for (pid in pids) {
-                        if (pid != ProcessHandle.current().pid()) {
-                            ProcessHandle.of(pid).ifPresent { handle ->
-                                val cmdLine = handle.info().commandLine().orElse("")
-                                if (cmdLine.contains("ARES") || cmdLine.contains("areslib") || cmdLine.contains("DesktopSimLauncher")) {
-                                    handle.destroyForcibly()
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    val proc = ProcessBuilder("sh", "-c", "lsof -t -i :$port").start()
-                    proc.errorStream.close()
-                    proc.outputStream.close()
-                    proc.inputStream.bufferedReader().use { reader ->
-                        while (true) {
-                            val line = reader.readLine() ?: break
-                            line.trim().toLongOrNull()?.let { pid ->
-                                if (pid != ProcessHandle.current().pid()) {
-                                    ProcessHandle.of(pid).ifPresent { handle ->
-                                        val cmdLine = handle.info().commandLine().orElse("")
-                                        if (cmdLine.contains("ARES") || cmdLine.contains("areslib") || cmdLine.contains("DesktopSimLauncher")) {
-                                            handle.destroyForcibly()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    proc.waitFor()
-                }
-            } catch (e: Exception) {
-                // Ignore
-            }
-        }
-
-        // 2. Clean by JPS (fallback/redundancy)
-        try {
-            val jpsProc = ProcessBuilder("jps", "-l").start()
-            jpsProc.errorStream.close()
-            jpsProc.outputStream.close()
-            jpsProc.inputStream.bufferedReader().use { reader ->
-                while (true) {
-                    val line = reader.readLine() ?: break
-                    val parts = line.split("\\s+".toRegex()).filter { it.isNotEmpty() }
-                    if (parts.size >= 2) {
-                        val pidString = parts[0]
-                        val mainClass = parts[1]
-                        if (mainClass == "com.areslib.sim.DesktopSimLauncher") {
-                            val pid = pidString.toLongOrNull()
-                            if (pid != null && pid != ProcessHandle.current().pid()) {
-                                ProcessHandle.of(pid).ifPresent { handle ->
-                                    val cmdLine = handle.info().commandLine().orElse("")
-                                    if (cmdLine.contains("ARES") || cmdLine.contains("areslib") || cmdLine.contains("DesktopSimLauncher")) {
-                                        handle.destroyForcibly()
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            jpsProc.waitFor()
-        } catch (e: Exception) {
-            // Ignore
-        }
-    }
-
     fun runSimulation(projectPath: String, league: League, simulatorCommand: String? = null) {
         killActiveSim()
 
         activeSimJob = serviceScope.launch {
             try {
                 _isSimRunning.value = true
-                _buildOutput.emit("[SYSTEM] Terminating any orphaned simulator processes...")
-                killOrphanedSimulators()
                 val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
                 val userCmd = simulatorCommand?.takeIf { it.isNotBlank() }
                 val fatJarFile = File(projectPath, "simulator/build/libs/simulator-all.jar")
                 val javaExe = File(System.getProperty("java.home"), "bin/${if (isWindows) "java.exe" else "java"}").path
                 val cmd = when {
-                    userCmd != null && isWindows ->
-                        listOf("cmd.exe", "/c") + userCmd.trim().split("\\s+".toRegex())
-                    userCmd != null -> userCmd.trim().split("\\s+".toRegex())
+                    userCmd != null && isWindows -> listOf("cmd.exe", "/d", "/s", "/c", userCmd)
+                    userCmd != null -> listOf("sh", "-c", userCmd)
                     fatJarFile.exists() -> listOf(javaExe, "-jar", fatJarFile.absolutePath)
                     isWindows && league == League.FTC -> listOf("cmd.exe", "/c", "gradlew.bat", ":TeamCode:runSim")
                     isWindows -> listOf("cmd.exe", "/c", "gradlew.bat", "simulateJava")
@@ -250,7 +153,7 @@ class ProcessManagerService {
                 val proc = pb.start()
                 simProcess = proc
 
-                BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
+                proc.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                     while (true) {
                         val line = reader.readLine() ?: break
                         _buildOutput.emit(line)
@@ -278,7 +181,7 @@ class ProcessManagerService {
                 val proc = pb.start()
                 logcatProcess = proc
 
-                BufferedReader(InputStreamReader(proc.inputStream)).use { reader ->
+                proc.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                     while (true) {
                         val line = reader.readLine() ?: break
                         _logcatOutput.emit(line)
@@ -384,6 +287,7 @@ class ProcessManagerService {
         killActiveLogcat()
         killActiveSim()
         adbMonitorJob?.cancel()
+        serviceScope.cancel()
     }
 }
 

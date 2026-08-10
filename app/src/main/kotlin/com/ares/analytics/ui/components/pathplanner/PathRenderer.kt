@@ -15,10 +15,111 @@ import com.ares.analytics.shared.PathPlannerEventMarker
 import com.ares.analytics.shared.RotationTarget
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.util.IndicatorLightColorMapper
+import com.ares.analytics.viewmodel.pathing.RobotDimensions
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.pow
+
+/**
+ * Renders native auto destinations as physical robot footprints with one unambiguous heading.
+ * Legacy tangent and holonomic-rotation handles intentionally do not appear in this mode.
+ */
+fun DrawScope.drawAutoGoals(
+    pathCache: PathCacheHolder,
+    waypoints: List<Waypoint>,
+    selectedWaypointIndex: Int,
+    playbackPose: Waypoint?,
+    robotDimensions: RobotDimensions,
+    w: Float,
+    h: Float,
+    fieldWidthM: Double,
+    fieldHeightM: Double,
+    league: League
+) {
+    val dimensions = robotDimensions.normalized()
+    waypoints.forEachIndexed { index, waypoint ->
+        drawAutoFootprint(
+            pathCache = pathCache,
+            pose = waypoint,
+            dimensions = dimensions,
+            color = when {
+                index == selectedWaypointIndex -> AresAmber
+                index == 0 -> AresCyan
+                else -> AresGreen
+            },
+            fillAlpha = if (index == 0) 0.16f else 0.10f,
+            w = w,
+            h = h,
+            fieldWidthM = fieldWidthM,
+            fieldHeightM = fieldHeightM,
+            league = league
+        )
+    }
+    playbackPose?.let { pose ->
+        drawAutoFootprint(
+            pathCache = pathCache,
+            pose = pose,
+            dimensions = dimensions,
+            color = AresGold,
+            fillAlpha = 0.28f,
+            w = w,
+            h = h,
+            fieldWidthM = fieldWidthM,
+            fieldHeightM = fieldHeightM,
+            league = league
+        )
+    }
+}
+
+private fun DrawScope.drawAutoFootprint(
+    pathCache: PathCacheHolder,
+    pose: Waypoint,
+    dimensions: RobotDimensions,
+    color: Color,
+    fillAlpha: Float,
+    w: Float,
+    h: Float,
+    fieldWidthM: Double,
+    fieldHeightM: Double,
+    league: League
+) {
+    val center = getCanvasOffsetBase(pose, w, h, fieldWidthM, fieldHeightM, league)
+    val pixelsPerMeter = minOf(w / fieldWidthM.toFloat(), h / fieldHeightM.toFloat())
+    val lengthPx = dimensions.lengthMeters.toFloat() * pixelsPerMeter
+    val widthPx = dimensions.widthMeters.toFloat() * pixelsPerMeter
+    val headingRadians = pose.rotationDeg?.let(Math::toRadians) ?: pose.headingRad ?: 0.0
+    val canvasHeading = -Math.toDegrees(headingRadians).toFloat() - if (league == League.FTC) 90f else 0f
+
+    rotate(canvasHeading, pivot = center) {
+        val topLeft = Offset(center.x - lengthPx / 2f, center.y - widthPx / 2f)
+        drawRect(color.copy(alpha = fillAlpha), topLeft, Size(lengthPx, widthPx))
+        drawRect(
+            color = color,
+            topLeft = topLeft,
+            size = Size(lengthPx, widthPx),
+            style = Stroke(width = 2.dp.toPx())
+        )
+        val frontX = center.x + lengthPx / 2f
+        drawLine(
+            color = AresAmber,
+            start = Offset(frontX, center.y - widthPx / 2f),
+            end = Offset(frontX, center.y + widthPx / 2f),
+            strokeWidth = 3.dp.toPx()
+        )
+        val arrowSize = minOf(lengthPx, widthPx) * 0.20f
+        val arrow = pathCache.reusableArrowPath.apply {
+            reset()
+            moveTo(frontX + arrowSize, center.y)
+            lineTo(frontX, center.y - arrowSize * 0.6f)
+            lineTo(frontX, center.y + arrowSize * 0.6f)
+            close()
+        }
+        drawPath(arrow, AresAmber)
+    }
+    drawCircle(color = color, radius = 5.dp.toPx(), center = center)
+    drawCircle(color = AresBackground, radius = 2.dp.toPx(), center = center)
+}
 
 fun DrawScope.drawPlannedSpline(
     pathCache: PathCacheHolder,

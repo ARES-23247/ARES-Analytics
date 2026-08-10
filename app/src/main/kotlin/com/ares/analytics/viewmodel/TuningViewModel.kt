@@ -13,6 +13,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 import java.io.File
+import com.areslib.tuning.TuningTopics
 
 data class BackupInfo(
     val filename: String,
@@ -58,17 +59,20 @@ class TuningViewModel(
     init {
         scope.launch {
             while (isActive) {
-                val topics = nt4ClientService.getActiveTopics().filter { it.startsWith("Tuning/") }
+                val topics = nt4ClientService.getActiveTopics().filter {
+                    it.startsWith("Tuning/") && it != TuningTopics.SCHEMA_VERSION_TOPIC
+                }
                 val currentMap = _state.value.variables.toMutableMap()
                 var changed = false
 
                 val activeKeys = mutableSetOf<String>()
 
                 for (topic in topics) {
-                    activeKeys.add(topic)
+                    val canonicalTopic = TuningTopics.canonicalize(topic)
+                    activeKeys.add(canonicalTopic)
                     val value = nt4ClientService.latestValues[topic]?.value ?: 0.0
-                    if (currentMap[topic] != value) {
-                        currentMap[topic] = value
+                    if (currentMap[canonicalTopic] != value) {
+                        currentMap[canonicalTopic] = value
                         changed = true
                     }
                 }
@@ -317,7 +321,11 @@ class TuningViewModel(
         return try {
             val text = file.readText()
             val jsonObj = Json.parseToJsonElement(text).jsonObject
-            jsonObj.mapValues { it.value.jsonPrimitive.double }
+            jsonObj.mapNotNull { (key, value) ->
+                value.jsonPrimitive.doubleOrNull?.takeIf { it.isFinite() }?.let {
+                    TuningTopics.canonicalize(key) to it
+                }
+            }.toMap()
         } catch (e: Exception) {
             emptyMap()
         }

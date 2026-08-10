@@ -47,37 +47,59 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
      * @param sessionId Target session ID string.
      * @param batcher Destination telemetry frame batch buffer.
      */
-    suspend fun parseJsonlLog(file: File, sessionId: String, batcher: FrameBatcher) {
+    suspend fun parseJsonlLog(file: File, sessionId: String, batcher: FrameBatcher): Int {
+        var acceptedFrames = 0
+        var rejectedLines = 0
         file.bufferedReader(Charsets.UTF_8).use { reader ->
             while (true) {
                 val line = reader.readLine() ?: break
                 val trimmed = line.trim()
                 if (trimmed.isNotEmpty()) {
                     try {
-                        val obj = Json.parseToJsonElement(trimmed) as? JsonObject ?: continue
+                        val obj = Json.parseToJsonElement(trimmed) as? JsonObject
+                        if (obj == null) {
+                            rejectedLines++
+                            continue
+                        }
                         // Look for timestamp
                         val timestampMs = obj["timestampMs"]?.jsonPrimitive?.longOrNull
                             ?: obj["time"]?.jsonPrimitive?.longOrNull
                             ?: obj["timestamp"]?.jsonPrimitive?.longOrNull
 
-                        if (timestampMs != null) {
-                            for ((key, value) in obj) {
-                                if (key == "timestampMs" || key == "time" || key == "timestamp") continue
-                                val doubleVal = value.jsonPrimitive.doubleOrNull
-                                if (doubleVal != null) {
-                                    batcher.add(TelemetryFrame(timestampMs, sessionId, key, doubleVal))
-                                } else if (value.jsonPrimitive.isString || value.jsonPrimitive.booleanOrNull != null) {
-                                    val strVal = value.jsonPrimitive.content
-                                    batcher.add(TelemetryFrame(timestampMs, sessionId, key, 0.0, strVal))
+                        if (timestampMs == null) {
+                            rejectedLines++
+                            continue
+                        }
+                        for ((key, value) in obj) {
+                            if (key == "timestampMs" || key == "time" || key == "timestamp") continue
+                            val primitive = value as? JsonPrimitive ?: continue
+                            val doubleVal = primitive.doubleOrNull
+                            val booleanVal = primitive.booleanOrNull
+                            when {
+                                doubleVal != null -> {
+                                    batcher.add(TelemetryFrame(timestampMs, sessionId, key.trimStart('/'), doubleVal))
+                                    acceptedFrames++
+                                }
+                                booleanVal != null -> {
+                                    batcher.add(TelemetryFrame(timestampMs, sessionId, key.trimStart('/'), if (booleanVal) 1.0 else 0.0))
+                                    acceptedFrames++
+                                }
+                                primitive.isString -> {
+                                    batcher.add(TelemetryFrame(timestampMs, sessionId, key.trimStart('/'), 0.0, primitive.content))
+                                    acceptedFrames++
                                 }
                             }
                         }
                     } catch (e: Exception) {
-                        // Ignore bad lines
+                        rejectedLines++
                     }
                 }
             }
         }
+        require(acceptedFrames > 0) {
+            "JSONL log ${file.name} contained no usable telemetry frames ($rejectedLines rejected lines)"
+        }
+        return acceptedFrames
     }
 
     suspend fun parseActionLogJsonl(file: File, sessionId: String): ActionLogMetadata? {
@@ -133,7 +155,7 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
             }
         }
 
-        if (actions.isEmpty()) return null
+        require(actions.isNotEmpty()) { "Action log ${file.name} contained no usable actions" }
 
         databaseService.insertRobotActionsBulk(actions)
 

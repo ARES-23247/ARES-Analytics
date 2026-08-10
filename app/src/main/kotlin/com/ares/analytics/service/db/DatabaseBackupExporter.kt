@@ -32,6 +32,13 @@ class DatabaseBackupExporter(
     private val conn: Connection,
     private val dbMutex: Mutex
 ) {
+    /** Result of importing a Parquet trace under a caller-owned session identity. */
+    data class ParquetImportResult(
+        val frameCount: Long,
+        val minTimestampMs: Long?,
+        val maxTimestampMs: Long?
+    )
+
     /**
      * Helper suspend function executing a database operation under mutual exclusion lock on the IO thread context.
      *
@@ -52,17 +59,131 @@ class DatabaseBackupExporter(
      * @throws java.sql.SQLException If DuckDB encounters a file read or table insertion error.
      */
     suspend fun importParquet(file: File) = withDbLock {
-        val absolutePath = file.absolutePath.replace("\\", "/").replace("'", "''")
+        val absolutePath = sqlLiteral(file.canonicalPath.replace("\\", "/"))
+        val columns = parquetColumns(absolutePath)
+        val required = setOf("timestamp_ms", "session_id", "key", "value")
+        require((required - columns).isEmpty()) {
+            "Parquet telemetry log is missing required columns: ${(required - columns).sorted().joinToString()}"
+        }
+        val stringExpression = if ("string_value" in columns) "CAST(string_value AS VARCHAR)" else "NULL"
+        val timestampUsExpression = if ("timestamp_us" in columns) {
+            "COALESCE(TRY_CAST(timestamp_us AS BIGINT), CAST(timestamp_ms AS BIGINT) * 1000)"
+        } else {
+            "CAST(timestamp_ms AS BIGINT) * 1000"
+        }
+        val sampleOrderExpression = if ("sample_order" in columns) {
+            "COALESCE(TRY_CAST(sample_order AS BIGINT), ROW_NUMBER() OVER ())"
+        } else {
+            "ROW_NUMBER() OVER ()"
+        }
         conn.createStatement().use { st ->
             st.execute("""
-                INSERT INTO telemetry_frames BY NAME
-                SELECT * FROM read_parquet('$absolutePath')
-                ON CONFLICT (session_id, key, timestamp_ms) DO UPDATE SET
+                INSERT INTO telemetry_frames
+                    (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
+                SELECT CAST(timestamp_ms AS BIGINT), CAST(session_id AS VARCHAR),
+                    REGEXP_REPLACE(CAST(key AS VARCHAR), '^/+', ''),
+                    COALESCE(TRY_CAST(value AS DOUBLE), 0.0), $stringExpression,
+                    $timestampUsExpression, $sampleOrderExpression
+                FROM read_parquet('$absolutePath')
+                WHERE timestamp_ms IS NOT NULL AND session_id IS NOT NULL AND key IS NOT NULL
+                ON CONFLICT (session_id, key, timestamp_us, sample_order) DO UPDATE SET
                     value = EXCLUDED.value,
                     string_value = EXCLUDED.string_value
             """.trimIndent())
         }
     }
+
+    /**
+     * Imports a user-selected Parquet telemetry trace and remaps every row to [sessionId].
+     *
+     * Required source columns are `timestamp_ms`, `key`, and `value`; `string_value` is optional.
+     * A source `session_id` is deliberately ignored so imported backups cannot overwrite or merge
+     * with an unrelated local session. Schema validation occurs before the transaction writes rows.
+     */
+    suspend fun importParquetAsSession(file: File, sessionId: String): ParquetImportResult = withDbLock {
+        require(file.isFile) { "Parquet log does not exist: ${file.absolutePath}" }
+        require(file.extension.equals("parquet", ignoreCase = true)) {
+            "Expected a .parquet telemetry log: ${file.name}"
+        }
+
+        val safePath = sqlLiteral(file.canonicalPath.replace("\\", "/"))
+        val columns = parquetColumns(safePath)
+        val required = setOf("timestamp_ms", "key", "value")
+        val missing = required - columns
+        require(missing.isEmpty()) {
+            "Parquet telemetry log is missing required columns: ${missing.sorted().joinToString()}"
+        }
+
+        val safeSessionId = sqlLiteral(sessionId)
+        val stringExpression = if ("string_value" in columns) {
+            "CAST(string_value AS VARCHAR)"
+        } else {
+            "NULL"
+        }
+        val timestampUsExpression = if ("timestamp_us" in columns) {
+            "COALESCE(TRY_CAST(timestamp_us AS BIGINT), CAST(timestamp_ms AS BIGINT) * 1000)"
+        } else {
+            "CAST(timestamp_ms AS BIGINT) * 1000"
+        }
+        val sampleOrderExpression = if ("sample_order" in columns) {
+            "COALESCE(TRY_CAST(sample_order AS BIGINT), ROW_NUMBER() OVER ())"
+        } else {
+            "ROW_NUMBER() OVER ()"
+        }
+        val previousAutoCommit = conn.autoCommit
+        conn.autoCommit = false
+        try {
+            conn.createStatement().use { statement ->
+                statement.execute(
+                    """
+                    INSERT INTO telemetry_frames
+                        (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
+                    SELECT
+                        CAST(timestamp_ms AS BIGINT),
+                        '$safeSessionId',
+                        REGEXP_REPLACE(CAST(key AS VARCHAR), '^/+', ''),
+                        COALESCE(TRY_CAST(value AS DOUBLE), 0.0),
+                        $stringExpression,
+                        $timestampUsExpression,
+                        $sampleOrderExpression
+                    FROM read_parquet('$safePath')
+                    WHERE timestamp_ms IS NOT NULL AND key IS NOT NULL
+                    ON CONFLICT (session_id, key, timestamp_us, sample_order) DO UPDATE SET
+                        value = EXCLUDED.value,
+                        string_value = EXCLUDED.string_value
+                    """.trimIndent()
+                )
+            }
+            val result = conn.prepareStatement(
+                "SELECT COUNT(*), MIN(timestamp_ms), MAX(timestamp_ms) FROM telemetry_frames WHERE session_id = ?"
+            ).use { statement ->
+                statement.setString(1, sessionId)
+                statement.executeQuery().use { rows ->
+                    rows.next()
+                    val count = rows.getLong(1)
+                    val min = rows.getLong(2).takeUnless { rows.wasNull() }
+                    val max = rows.getLong(3).takeUnless { rows.wasNull() }
+                    ParquetImportResult(count, min, max)
+                }
+            }
+            conn.commit()
+            result
+        } catch (error: Exception) {
+            conn.rollback()
+            throw error
+        } finally {
+            conn.autoCommit = previousAutoCommit
+        }
+    }
+
+    private fun parquetColumns(safePath: String): Set<String> =
+        conn.createStatement().use { statement ->
+            statement.executeQuery("DESCRIBE SELECT * FROM read_parquet('$safePath')").use { result ->
+                buildSet {
+                    while (result.next()) add(result.getString(1).lowercase())
+                }
+            }
+        }
 
     /**
      * Exports one session through a narrowly scoped, internally escaped COPY statement.

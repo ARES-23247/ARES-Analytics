@@ -261,7 +261,8 @@ class HootDecoderService(
         // 3. DuckDB native UNPIVOT import — single SQL pass, no Kotlin-side string parsing
         try {
             databaseService.executeNativeCsvImport("""
-                INSERT INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value)
+                INSERT INTO telemetry_frames
+                    (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
                 SELECT
                     CAST(CAST("$escapedTimeCol" AS DOUBLE) * $scale AS BIGINT) AS timestamp_ms,
                     '$escapedSessionId' AS session_id,
@@ -277,7 +278,9 @@ class HootDecoderService(
                     CASE
                         WHEN LOWER(CAST(value AS VARCHAR)) IN ('true', 'false') THEN NULL
                         WHEN TRY_CAST(value AS DOUBLE) IS NULL THEN CAST(value AS VARCHAR)
-                    END AS string_value
+                    END AS string_value,
+                    CAST(CAST("$escapedTimeCol" AS DOUBLE) * $scale * 1000 AS BIGINT) AS timestamp_us,
+                    ROW_NUMBER() OVER () AS sample_order
                 FROM (
                     SELECT * FROM read_csv_auto('$absolutePath', header=true, ignore_errors=true, all_varchar=true)
                 ) UNPIVOT (

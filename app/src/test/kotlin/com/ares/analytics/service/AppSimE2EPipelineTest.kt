@@ -32,7 +32,7 @@ class AppSimE2EPipelineTest {
             NT4Server.publishTopic("ARES/EstimatedPose/2", 0.50)
             NT4Server.publishTopic("Drive/Pose_X", 1.25)
             NT4Server.publishTopic("Drive/Pose_Y", 0.75)
-            NT4Server.publishTopic("Drive/Drive_Heading", 0.50)
+            NT4Server.publishTopic("Drive/Pose_Heading", 0.50)
             NT4Server.publishTopic("Hardware/Motors/fl/Power", 0.85)
             NT4Server.publishTopic("ARES/DriverStation/TeleOpList", "[\"com.areslib.ftc.hardware.AresHardwareTestOpMode\"]")
 

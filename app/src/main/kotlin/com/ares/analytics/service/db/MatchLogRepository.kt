@@ -12,6 +12,7 @@ import org.duckdb.DuckDBAppender
 import org.duckdb.DuckDBConnection
 import java.sql.Connection
 import java.sql.ResultSet
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Primary repository interface for telemetry persistent storage, DuckDB vectorized queries, and match history.
@@ -44,10 +45,18 @@ class MatchLogRepository(
     private val conn: Connection,
     private val readConn: Connection,
     private val ephemeralConn: Connection,
+    private val ephemeralReadConn: Connection,
     private val dbMutex: Mutex,
     private val readMutex: Mutex
 ) {
     private val statementCache = java.util.concurrent.ConcurrentHashMap<String, java.sql.PreparedStatement>()
+    private val nextSampleOrder = AtomicLong()
+
+    private fun readConnectionFor(sessionId: String): Connection =
+        if (sessionId == "live-telemetry") ephemeralReadConn else readConn
+
+    private fun storageOrder(frame: TelemetryFrame): Long =
+        if (frame.sampleOrder != 0L) frame.sampleOrder else nextSampleOrder.incrementAndGet()
     /**
      * Executes a raw database operation safely under [dbMutex] on [Dispatchers.IO].
      *
@@ -102,9 +111,9 @@ class MatchLogRepository(
         // statement leaders are permitted. This runs BEFORE any execution.
         val normalized = sql.trim().trimEnd(';').trim().uppercase()
         val firstToken = Regex("^[A-Z]+").find(normalized)?.value ?: ""
-        val allowedLeaders = setOf("SELECT", "WITH", "VALUES", "TABLE")
+        val allowedLeaders = setOf("SELECT", "WITH", "VALUES", "TABLE", "SHOW", "DESCRIBE", "EXPLAIN")
         if (firstToken !in allowedLeaders) {
-            throw IllegalArgumentException("Raw query rejected: only SELECT/WITH/VALUES/TABLE leaders are allowed (got '$firstToken').")
+            throw IllegalArgumentException("Raw query rejected: only read-only query leaders are allowed (got '$firstToken').")
         }
         // Defense-in-depth keyword denylist (expanded): even with a SELECT leader, block
         // statements that smuggle in writes, side-effects, or exfiltration primitives the
@@ -159,8 +168,8 @@ class MatchLogRepository(
      * Execute a parameterized SQL query and return results as [QueryResult].
      * Use this for queries with user-provided values to prevent SQL injection.
      */
-    suspend fun executeQueryWithParams(sql: String, params: List<Any>): QueryResult = withDbLock {
-        conn.prepareStatement(sql).use { ps ->
+    suspend fun executeQueryWithParams(sql: String, params: List<Any>): QueryResult = withReadLock {
+        readConn.prepareStatement(sql).use { ps ->
             params.forEachIndexed { index, param ->
                 when (param) {
                     is String -> ps.setString(index + 1, param)
@@ -223,29 +232,30 @@ class MatchLogRepository(
     }
 
     suspend fun deleteSession(sessionId: String) = withDbLock {
-        conn.prepareStatement("DELETE FROM sessions WHERE session_id = ?").use { ps ->
-            ps.setString(1, sessionId)
-            ps.executeUpdate()
-        }
-        conn.prepareStatement("DELETE FROM session_summaries WHERE session_id = ?").use { ps ->
-            ps.setString(1, sessionId)
-            ps.executeUpdate()
-        }
-        conn.prepareStatement("DELETE FROM telemetry_frames WHERE session_id = ?").use { ps ->
-            ps.setString(1, sessionId)
-            ps.executeUpdate()
-        }
-        conn.prepareStatement("DELETE FROM session_annotations WHERE session_id = ?").use { ps ->
-            ps.setString(1, sessionId)
-            ps.executeUpdate()
-        }
-        conn.prepareStatement("DELETE FROM alerts WHERE session_id = ?").use { ps ->
-            ps.setString(1, sessionId)
-            ps.executeUpdate()
-        }
-        conn.prepareStatement("DELETE FROM console_messages WHERE session_id = ?").use { ps ->
-            ps.setString(1, sessionId)
-            ps.executeUpdate()
+        val previousAutoCommit = conn.autoCommit
+        try {
+            conn.autoCommit = false
+            val sessionOwnedTables = arrayOf(
+                "session_summaries",
+                "telemetry_frames",
+                "session_annotations",
+                "alerts",
+                "console_messages",
+                "robot_actions",
+                "sessions"
+            )
+            for (table in sessionOwnedTables) {
+                conn.prepareStatement("DELETE FROM $table WHERE session_id = ?").use { ps ->
+                    ps.setString(1, sessionId)
+                    ps.executeUpdate()
+                }
+            }
+            conn.commit()
+        } catch (e: Exception) {
+            conn.rollback()
+            throw e
+        } finally {
+            conn.autoCommit = previousAutoCommit
         }
     }
 
@@ -342,11 +352,13 @@ class MatchLogRepository(
                 appender.beginRow()
                 appender.append(frame.timestampMs)
                 appender.append(frame.sessionId)
-                appender.append(frame.key)
+                appender.append(TelemetryMetricCatalog.normalizeTopic(frame.key))
                 appender.append(frame.value)
                 // DuckDBAppender maps a nullable String to SQL NULL. Empty string is a
                 // legitimate telemetry value and must remain distinguishable from null.
                 appender.append(frame.stringValue)
+                appender.append(frame.timestampUs)
+                appender.append(storageOrder(frame))
                 appender.endRow()
             }
             appender.flush()
@@ -428,20 +440,22 @@ class MatchLogRepository(
         targetConn.prepareStatement(
             """
                 INSERT OR REPLACE INTO telemetry_frames
-                    (timestamp_ms, session_id, key, value, string_value)
-                VALUES (?, ?, ?, ?, ?)
+                    (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
             """.trimIndent()
         ).use { statement ->
             frames.forEachIndexed { index, frame ->
                 statement.setLong(1, frame.timestampMs)
                 statement.setString(2, frame.sessionId)
-                statement.setString(3, frame.key)
+                statement.setString(3, TelemetryMetricCatalog.normalizeTopic(frame.key))
                 statement.setDouble(4, frame.value)
                 if (frame.stringValue == null) {
                     statement.setNull(5, java.sql.Types.VARCHAR)
                 } else {
                     statement.setString(5, frame.stringValue)
                 }
+                statement.setLong(6, frame.timestampUs)
+                statement.setLong(7, storageOrder(frame))
                 statement.addBatch()
 
                 // Bound driver-side batch memory during sustained live telemetry.
@@ -456,8 +470,8 @@ class MatchLogRepository(
      * or null if no frames exist. Used after DuckDB native CSV import to compute
      * session duration without holding frames in application memory.
      */
-    suspend fun getSessionTimestampRange(sessionId: String): Pair<Long, Long>? = withDbLock {
-        conn.prepareStatement("SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM telemetry_frames WHERE session_id = ?").use { ps ->
+    suspend fun getSessionTimestampRange(sessionId: String): Pair<Long, Long>? = withReadLock {
+        readConnectionFor(sessionId).prepareStatement("SELECT MIN(timestamp_ms), MAX(timestamp_ms) FROM telemetry_frames WHERE session_id = ?").use { ps ->
             ps.setString(1, sessionId)
             ps.executeQuery().use { rs ->
                 if (rs.next()) {
@@ -470,9 +484,9 @@ class MatchLogRepository(
     }
 
     suspend fun getTelemetryRange(sessionId: String, startMs: Long, endMs: Long): List<TelemetryFrame> = withReadLock {
-        val targetConn = if (sessionId == "live-telemetry") ephemeralConn else readConn
+        val targetConn = readConnectionFor(sessionId)
         val list = mutableListOf<TelemetryFrame>()
-        targetConn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_ms ASC").use { ps ->
+        targetConn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_us ASC, sample_order ASC").use { ps ->
             ps.setString(1, sessionId)
             ps.setLong(2, startMs)
             ps.setLong(3, endMs)
@@ -488,15 +502,15 @@ class MatchLogRepository(
      * Replay uses this as the latched-state baseline when it loads a bounded window.
      */
     suspend fun getLatestTelemetryBefore(sessionId: String, timestampMs: Long): List<TelemetryFrame> = withReadLock {
-        val targetConn = if (sessionId == "live-telemetry") ephemeralConn else readConn
+        val targetConn = readConnectionFor(sessionId)
         val list = mutableListOf<TelemetryFrame>()
         targetConn.prepareStatement(
             """
-            SELECT timestamp_ms, session_id, key, value, string_value
+            SELECT timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order
             FROM telemetry_frames
             WHERE session_id = ? AND timestamp_ms < ?
-            QUALIFY ROW_NUMBER() OVER (PARTITION BY key ORDER BY timestamp_ms DESC) = 1
-            ORDER BY timestamp_ms ASC
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY key ORDER BY timestamp_us DESC, sample_order DESC) = 1
+            ORDER BY timestamp_us ASC, sample_order ASC
             """.trimIndent()
         ).use { ps ->
             ps.setString(1, sessionId)
@@ -508,10 +522,10 @@ class MatchLogRepository(
         list
     }
 
-    suspend fun getTelemetryRangeBatched(sessionId: String, startMs: Long, endMs: Long, limit: Long, offset: Long): List<TelemetryFrame> = withDbLock {
-        val targetConn = if (sessionId == "live-telemetry") ephemeralConn else conn
+    suspend fun getTelemetryRangeBatched(sessionId: String, startMs: Long, endMs: Long, limit: Long, offset: Long): List<TelemetryFrame> = withReadLock {
+        val targetConn = readConnectionFor(sessionId)
         val list = mutableListOf<TelemetryFrame>()
-        targetConn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_ms ASC LIMIT ? OFFSET ?").use { ps ->
+        targetConn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND timestamp_ms BETWEEN ? AND ? ORDER BY timestamp_us ASC, sample_order ASC LIMIT ? OFFSET ?").use { ps ->
             ps.setString(1, sessionId)
             ps.setLong(2, startMs)
             ps.setLong(3, endMs)
@@ -524,8 +538,8 @@ class MatchLogRepository(
         list
     }
 
-    suspend fun countTelemetryFrames(sessionId: String): Long = withDbLock {
-        conn.prepareStatement("SELECT COUNT(*) FROM telemetry_frames WHERE session_id = ?").use { ps ->
+    suspend fun countTelemetryFrames(sessionId: String): Long = withReadLock {
+        readConnectionFor(sessionId).prepareStatement("SELECT COUNT(*) FROM telemetry_frames WHERE session_id = ?").use { ps ->
             ps.setString(1, sessionId)
             ps.executeQuery().use { rs ->
                 if (rs.next()) rs.getLong(1) else 0L
@@ -533,11 +547,11 @@ class MatchLogRepository(
         }
     }
 
-    suspend fun getTelemetryForKey(sessionId: String, key: String): List<TelemetryFrame> = withDbLock {
+    suspend fun getTelemetryForKey(sessionId: String, key: String): List<TelemetryFrame> = withReadLock {
         val list = mutableListOf<TelemetryFrame>()
-        conn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND key = ? ORDER BY timestamp_ms ASC").use { ps ->
+        readConnectionFor(sessionId).prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND key = ? ORDER BY timestamp_us ASC, sample_order ASC").use { ps ->
             ps.setString(1, sessionId)
-            ps.setString(2, key)
+            ps.setString(2, TelemetryMetricCatalog.normalizeTopic(key))
             ps.executeQuery().use { rs ->
                 while (rs.next()) list.add(rs.toTelemetryFrame())
             }
@@ -555,7 +569,7 @@ class MatchLogRepository(
         }
         list
     }
-    suspend fun getTelemetryForFilters(sessionId: String, keys: List<String>, prefixes: List<String>): List<TelemetryFrame> = withDbLock {
+    suspend fun getTelemetryForFilters(sessionId: String, keys: List<String>, prefixes: List<String>): List<TelemetryFrame> = withReadLock {
         val list = mutableListOf<TelemetryFrame>()
         val queryBuilder = StringBuilder("SELECT * FROM telemetry_frames WHERE session_id = ?")
         val conditions = mutableListOf<String>()
@@ -564,20 +578,20 @@ class MatchLogRepository(
             conditions.add("key IN ($placeholders)")
         }
         if (prefixes.isNotEmpty()) {
-            val likeConditions = prefixes.joinToString(" OR ") { "key LIKE ?" }
+            val likeConditions = prefixes.joinToString(" OR ") { "LOWER(key) LIKE LOWER(?)" }
             conditions.add("($likeConditions)")
         }
-        if (conditions.isEmpty()) return@withDbLock list
-        queryBuilder.append(" AND (").append(conditions.joinToString(" OR ")).append(") ORDER BY timestamp_ms ASC")
+        if (conditions.isEmpty()) return@withReadLock list
+        queryBuilder.append(" AND (").append(conditions.joinToString(" OR ")).append(") ORDER BY timestamp_us ASC, sample_order ASC")
 
-        conn.prepareStatement(queryBuilder.toString()).use { ps ->
+        readConnectionFor(sessionId).prepareStatement(queryBuilder.toString()).use { ps ->
             ps.setString(1, sessionId)
             var idx = 2
             for (k in keys) {
-                ps.setString(idx++, k)
+                ps.setString(idx++, TelemetryMetricCatalog.normalizeTopic(k))
             }
             for (p in prefixes) {
-                ps.setString(idx++, p)
+                ps.setString(idx++, TelemetryMetricCatalog.normalizeTopic(p))
             }
             ps.executeQuery().use { rs ->
                 while (rs.next()) list.add(rs.toTelemetryFrame())
@@ -586,9 +600,25 @@ class MatchLogRepository(
         list
     }
 
+    suspend fun getDistinctTelemetryKeys(sessionId: String): List<String> = withReadLock {
+        val keys = mutableListOf<String>()
+        readConnectionFor(sessionId).prepareStatement(
+            "SELECT DISTINCT key FROM telemetry_frames WHERE session_id = ? ORDER BY key"
+        ).use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) keys.add(rs.getString(1))
+            }
+        }
+        keys
+    }
+
+    suspend fun getTelemetryForKeyPatterns(sessionId: String, patterns: List<String>): List<TelemetryFrame> =
+        getTelemetryForFilters(sessionId, emptyList(), patterns)
+
     suspend fun getDistinctTimestamps(sessionId: String): List<Long> = withReadLock {
         val list = mutableListOf<Long>()
-        readConn.prepareStatement("SELECT DISTINCT timestamp_ms FROM telemetry_frames WHERE session_id = ? ORDER BY timestamp_ms ASC").use { ps ->
+        readConnectionFor(sessionId).prepareStatement("SELECT DISTINCT timestamp_ms FROM telemetry_frames WHERE session_id = ? ORDER BY timestamp_ms ASC").use { ps ->
             ps.setString(1, sessionId)
             ps.executeQuery().use { rs ->
                 while (rs.next()) list.add(rs.getLong(1))
@@ -817,7 +847,9 @@ class MatchLogRepository(
             sessionId = getString("session_id"),
             key = getString("key"),
             value = getDouble("value"),
-            stringValue = sValFinal
+            stringValue = sValFinal,
+            timestampUs = getLong("timestamp_us"),
+            sampleOrder = getLong("sample_order")
         )
     }
 

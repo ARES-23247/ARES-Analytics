@@ -7,7 +7,6 @@ import com.ares.analytics.viewmodel.LivePoseState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.launch
 
 /** Reduces normalized NT4 topic updates into the field viewer's live-pose state. */
@@ -37,7 +36,7 @@ class FieldTopicSubscriber(
             var frameCount = 0L
             var lastDiagLog = System.currentTimeMillis()
 
-            nt4ClientService.telemetryFlow.conflate().collect { frame ->
+            nt4ClientService.telemetryFlow.collect { frame ->
                 val key = frame.key
                 val value = frame.value
                 frameCount++
@@ -60,11 +59,11 @@ class FieldTopicSubscriber(
                         "ARES/TruePose/2" -> next = next.copy(simHeading = value, trueHeading = value, hasTruePoseData = true)
                         "ARES/EstimatedPose/0", "Drive/Pose_X" -> next = next.copy(ekfX = value)
                         "ARES/EstimatedPose/1", "Drive/Pose_Y" -> next = next.copy(ekfY = value)
-                        "ARES/EstimatedPose/2", "Drive/Pose_Heading", "Drive/Drive_Heading" -> next = next.copy(ekfHeading = value)
+                        "ARES/EstimatedPose/2", "Drive/Pose_Heading" -> next = next.copy(ekfHeading = value)
 
-                        "Drive/Odom_X", "pinpoint_x", "pinpoint/x" -> next = next.copy(odomX = value)
-                        "Drive/Odom_Y", "pinpoint_y", "pinpoint/y" -> next = next.copy(odomY = value)
-                        "Drive/Odom_Heading", "pinpoint_heading", "pinpoint/heading" -> next = next.copy(odomHeading = value)
+                        "Drive/Odom_X" -> next = next.copy(odomX = value)
+                        "Drive/Odom_Y" -> next = next.copy(odomY = value)
+                        "Drive/Odom_Heading" -> next = next.copy(odomHeading = value)
                         "Vision/HasTarget" -> {
                             val hasTarget = value > 0.5
                             next = next.copy(visionHasTarget = hasTarget)
@@ -77,9 +76,9 @@ class FieldTopicSubscriber(
                                 )
                             }
                         }
-                        "Vision/Pose_X", "Vision/Pose/X" -> if (next.visionHasTarget) next = next.copy(visionX = value)
-                        "Vision/Pose_Y", "Vision/Pose/Y" -> if (next.visionHasTarget) next = next.copy(visionY = value)
-                        "Vision/Pose_Heading", "Vision/Pose/Heading" -> if (next.visionHasTarget) next = next.copy(visionHeading = value)
+                        "Vision/Pose_X" -> if (next.visionHasTarget) next = next.copy(visionX = value)
+                        "Vision/Pose_Y" -> if (next.visionHasTarget) next = next.copy(visionY = value)
+                        "Vision/Pose_Heading" -> if (next.visionHasTarget) next = next.copy(visionHeading = value)
                     }
 
                     if (key.startsWith("Superstructure/IndicatorLight/")) {

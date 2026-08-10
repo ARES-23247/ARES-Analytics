@@ -274,7 +274,7 @@ fun FieldEditorScreen(
 
                 Button(
                     onClick = {
-                        viewModel.onIntent(FieldEditorIntent.UpdateFieldImageConfig(state.fieldImageConfig, projectPath, league))
+                        viewModel.onIntent(FieldEditorIntent.SaveDocument)
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
                     modifier = Modifier.fillMaxWidth()
@@ -348,7 +348,6 @@ fun FieldEditorScreen(
                                             }
                                         }
                                         viewModel.onIntent(FieldEditorIntent.SetObstacles(state.obstacles + copies))
-                                        viewModel.onIntent(FieldEditorIntent.SaveObstacles(projectPath, league))
                                     },
                                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                                 ) {
@@ -367,7 +366,6 @@ fun FieldEditorScreen(
                                             }
                                         }
                                         viewModel.onIntent(FieldEditorIntent.SetObstacles(state.obstacles + copies))
-                                        viewModel.onIntent(FieldEditorIntent.SaveObstacles(projectPath, league))
                                     },
                                     contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                                 ) {
@@ -391,15 +389,12 @@ fun FieldEditorScreen(
                                         league = league,
                                         onUpdate = { i, updated ->
                                             viewModel.onIntent(FieldEditorIntent.UpdateObstacle(i, updated))
-                                            viewModel.onIntent(FieldEditorIntent.SaveObstacles(projectPath, league))
                                         },
                                         onDelete = { i ->
                                             viewModel.onIntent(FieldEditorIntent.DeleteObstacle(i))
-                                            viewModel.onIntent(FieldEditorIntent.SaveObstacles(projectPath, league))
                                         },
                                         onAdd = { copy ->
                                             viewModel.onIntent(FieldEditorIntent.AddObstacle(copy))
-                                            viewModel.onIntent(FieldEditorIntent.SaveObstacles(projectPath, league))
                                         },
                                         onMirrorX = ::mirrorObstacleX,
                                         onMirrorY = ::mirrorObstacleY
@@ -443,11 +438,9 @@ fun FieldEditorScreen(
                                     league = league,
                                     onUpdate = { i, updated ->
                                         viewModel.onIntent(FieldEditorIntent.UpdateGamePiece(i, updated))
-                                        viewModel.onIntent(FieldEditorIntent.SaveGamePieces(projectPath, league))
                                     },
                                     onDelete = { i ->
                                         viewModel.onIntent(FieldEditorIntent.DeleteGamePiece(i))
-                                        viewModel.onIntent(FieldEditorIntent.SaveGamePieces(projectPath, league))
                                     }
                                 )
                             }
@@ -517,11 +510,9 @@ fun FieldEditorScreen(
                                 at = at,
                                 onUpdate = { i, updated ->
                                     viewModel.onIntent(FieldEditorIntent.UpdateAprilTag(i, updated))
-                                    viewModel.onIntent(FieldEditorIntent.SaveAprilTags(projectPath, league))
                                 },
                                 onDelete = { i ->
                                     viewModel.onIntent(FieldEditorIntent.DeleteAprilTag(i))
-                                    viewModel.onIntent(FieldEditorIntent.SaveAprilTags(projectPath, league))
                                 }
                             )
                         }
@@ -558,13 +549,11 @@ fun FieldEditorScreen(
                                 FieldWaypointRow(
                                     index = index,
                                     wp = wp,
-                                    onUpdate = { i, updated ->
-                                        viewModel.onIntent(FieldEditorIntent.UpdateFieldWaypoint(i, updated))
-                                        viewModel.onIntent(FieldEditorIntent.SaveFieldWaypoints(projectPath, league))
-                                    },
-                                    onDelete = { i ->
-                                        viewModel.onIntent(FieldEditorIntent.DeleteFieldWaypoint(i))
-                                        viewModel.onIntent(FieldEditorIntent.SaveFieldWaypoints(projectPath, league))
+                                onUpdate = { i, updated ->
+                                    viewModel.onIntent(FieldEditorIntent.UpdateFieldWaypoint(i, updated))
+                                },
+                                onDelete = { i ->
+                                    viewModel.onIntent(FieldEditorIntent.DeleteFieldWaypoint(i))
                                     }
                                 )
                             }
@@ -603,7 +592,6 @@ fun FieldEditorScreen(
                 fieldWaypoints = state.fieldWaypoints,
                 onFieldWaypointsChanged = {
                     viewModel.onIntent(FieldEditorIntent.SetFieldWaypoints(it))
-                    viewModel.onIntent(FieldEditorIntent.SaveFieldWaypoints(projectPath, league))
                 }
             )
         }

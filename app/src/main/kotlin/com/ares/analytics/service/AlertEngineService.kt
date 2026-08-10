@@ -1,6 +1,7 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.AlertRecord
+import com.ares.analytics.shared.TelemetryMetricCatalog
 import com.ares.analytics.shared.ThresholdRule
 import com.ares.analytics.shared.TelemetryFrame
 import kotlinx.coroutines.*
@@ -63,9 +64,12 @@ class AlertEngineService(
     private val thresholdsPath: String = System.getProperty("user.home") + "/.ares-analytics/thresholds.json"
 ) {
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
+    /** Rules are indexed by transport-normalized topic while preserving the configured key in alerts. */
     private val rules = ConcurrentHashMap<String, ThresholdRule>()
-    private val recentValues = ConcurrentHashMap<String, Double>()
-    private val currentBuffers = ConcurrentHashMap<String, ArrayDeque<Double>>()
+    /** Last values are isolated per recording so a new session cannot inherit stale hardware state. */
+    private val recentValues = ConcurrentHashMap<String, ConcurrentHashMap<String, Double>>()
+    /** One-second current windows, isolated by session and motor. */
+    private val currentBuffers = ConcurrentHashMap<String, ArrayDeque<TimedCurrentSample>>()
     private val motorNames = listOf("fl", "fr", "rl", "rr", "bl", "br")
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -98,12 +102,10 @@ class AlertEngineService(
     private fun loadRules() {
         val file = File(thresholdsPath)
         val defaultRules = listOf(
-            ThresholdRule("/Drive/Voltage", "Low Battery Voltage (<10.5V)", minValue = 10.5, audibleAlert = true),
-            ThresholdRule("/Drive/EkfDrift", "High EKF Position Drift (>0.20m)", maxValue = 0.20, audibleAlert = true),
-            ThresholdRule("/LoopTimeMs", "Robot Loop Time Spike (>25ms)", maxValue = 25.0, audibleAlert = false),
-            ThresholdRule("/Drive/MotorCurrentMax", "Motor Current Spike (>15A)", maxValue = 15.0, audibleAlert = true),
-            ThresholdRule("Hardware/CAN/Utilization", "CRITICAL: CAN Bus Utilization High (>85%)!", maxValue = 85.0, audibleAlert = true),
-            ThresholdRule("Hardware/CAN/TxErrors", "CRITICAL: CAN Bus Transmit Error Detected!", maxValue = 0.5, audibleAlert = true),
+            ThresholdRule(TelemetryMetricCatalog.BATTERY_VOLTAGE.canonicalKey, "Low Battery Voltage (<10.5V)", minValue = 10.5, audibleAlert = true),
+            ThresholdRule("Drive/EKF_Drift_X", "High EKF X Drift (>0.20m)", maxValue = 0.20, audibleAlert = true),
+            ThresholdRule("Drive/EKF_Drift_Y", "High EKF Y Drift (>0.20m)", maxValue = 0.20, audibleAlert = true),
+            ThresholdRule(TelemetryMetricCatalog.LOOP_TIME.canonicalKey, "Robot Loop Time Spike (>25ms)", maxValue = 25.0, audibleAlert = false),
             ThresholdRule("Hardware/I2C/Timeouts", "WARNING: FTC I2C / Lynx Bus Timeout!", maxValue = 0.5, audibleAlert = true)
         )
 
@@ -120,14 +122,14 @@ class AlertEngineService(
             !file.exists() -> {
                 file.parentFile?.mkdirs()
                 file.writeText(json.encodeToString(allDefaults))
-                allDefaults.forEach { rules[it.key] = it }
+                allDefaults.forEach(::registerRule)
             }
             else -> {
                 runCatching {
                     val loaded = json.decodeFromString<List<ThresholdRule>>(file.readText())
-                    loaded.forEach { rules[it.key] = it }
+                    loaded.forEach(::registerRule)
                 }.onFailure {
-                    allDefaults.forEach { rules[it.key] = it }
+                    allDefaults.forEach(::registerRule)
                 }
             }
         }
@@ -141,9 +143,10 @@ class AlertEngineService(
 
         engineJob = serviceScope.launch {
             nt4ClientService.telemetryFlow.collect { frame ->
-                recentValues[frame.key] = frame.value
+                val normalizedKey = normalizeTopic(frame.key)
+                recentValues.getOrPut(frame.sessionId) { ConcurrentHashMap() }[normalizedKey] = frame.value
                 evaluateFrame(frame)
-                evaluateCompositeRules(frame)
+                evaluateCompositeRules(frame, normalizedKey)
             }
         }
     }
@@ -172,7 +175,7 @@ class AlertEngineService(
      * @param frame Incoming telemetry frame containing topic key and double value.
      */
     private suspend fun evaluateFrame(frame: TelemetryFrame) {
-        val rule = rules[frame.key] ?: return
+        val rule = rules[normalizeTopic(frame.key)] ?: return
         val value = frame.value
 
         val minVal = rule.minValue
@@ -185,7 +188,9 @@ class AlertEngineService(
         // _alerts.update lambda so a concurrent triage/clear/resolve cannot interleave and
         // clobber a just-added or just-triaged alert.
         val outcome = commitAlertTransition { current ->
-            val existingAlert = current.values.firstOrNull { it.ruleKey == rule.key && !it.triaged }
+            val existingAlert = current.values.firstOrNull {
+                it.sessionId == frame.sessionId && normalizeTopic(it.ruleKey) == normalizeTopic(rule.key) && !it.triaged
+            }
             when {
                 isViolating && existingAlert == null -> AlertOutcome(
                     alert = AlertRecord(
@@ -231,48 +236,73 @@ class AlertEngineService(
      *
      * @param frame Current telemetry frame being processed.
      */
-    private suspend fun evaluateCompositeRules(frame: TelemetryFrame) {
+    private suspend fun evaluateCompositeRules(frame: TelemetryFrame, normalizedFrameKey: String) {
+        if (!isCompositeSignal(normalizedFrameKey)) return
         val ts = frame.timestampMs
         val sessionId = frame.sessionId
+        val sessionValues = recentValues[sessionId] ?: return
 
         // 1. Motor Stalling & Disconnect Check across all motors using 1.0-second moving average
-        motorNames.forEach { m ->
-            val pwr = kotlin.math.abs(recentValues["Hardware/Motors/$m/Power"] ?: recentValues["Hardware/Motors/$m/Voltage"] ?: 0.0)
-            val vel = kotlin.math.abs(recentValues["Hardware/Motors/$m/Velocity"] ?: 0.0)
-            val current = recentValues["Hardware/Motors/$m/CurrentAmps"] ?: 0.0
+        if (normalizedFrameKey.startsWith("Hardware/Motors/")) motorNames.forEach { m ->
+            val pwr = kotlin.math.abs(sessionValues["Hardware/Motors/$m/Power"] ?: sessionValues["Hardware/Motors/$m/Voltage"] ?: 0.0)
+            val vel = kotlin.math.abs(sessionValues["Hardware/Motors/$m/Velocity"] ?: 0.0)
+            val currentKey = "Hardware/Motors/$m/CurrentAmps"
+            val current = sessionValues[currentKey] ?: 0.0
 
-            val buf = currentBuffers.getOrPut(m) { ArrayDeque() }
-            buf.addLast(current)
-            if (buf.size > 20) buf.removeFirst()
-            val avgCurrent = if (buf.isNotEmpty()) buf.average() else current
+            val bufferKey = "$sessionId\u0000$m"
+            val buf = currentBuffers.getOrPut(bufferKey) { ArrayDeque() }
+            if (normalizedFrameKey == currentKey) {
+                buf.addLast(TimedCurrentSample(ts, current))
+            }
+            while (buf.isNotEmpty() && ts - buf.first().timestampMs > CURRENT_WINDOW_MS) {
+                buf.removeFirst()
+            }
+            val hasCurrentSample = buf.isNotEmpty()
+            val avgCurrent = if (hasCurrentSample) buf.sumOf { it.amps } / buf.size else 0.0
 
             val stallKey = "Hardware/Motors/$m/Stall"
             val disconnectKey = "Hardware/Motors/$m/Disconnected"
 
-            val isStalled = pwr > 0.35 && vel < 5.0 && avgCurrent > 5.0
+            val isStalled = hasCurrentSample && pwr > 0.35 && vel < 5.0 && avgCurrent > 5.0
             val stallRule = rules.getOrPut(stallKey) { ThresholdRule(stallKey, "CRITICAL: Motor '$m' Mechanical Binding / Stall!", maxValue = 0.5, audibleAlert = true) }
             evaluateRuleState(stallKey, isStalled, if (isStalled) 1.0 else 0.0, ts, sessionId, stallRule)
 
-            val isDisconnected = pwr > 0.35 && vel < 5.0 && avgCurrent < 0.1 && avgCurrent >= 0.0
+            val isDisconnected = hasCurrentSample && pwr > 0.35 && vel < 5.0 && avgCurrent < 0.1 && avgCurrent >= 0.0
             val disconnectRule = rules.getOrPut(disconnectKey) { ThresholdRule(disconnectKey, "WARNING: Motor '$m' Cable Disconnected!", maxValue = 0.5, audibleAlert = true) }
             evaluateRuleState(disconnectKey, isDisconnected, if (isDisconnected) 1.0 else 0.0, ts, sessionId, disconnectRule)
         }
 
         // 2. CAN Bus Utilization & Error Check
-        val canUtil = recentValues["Hardware/CAN/Utilization"] ?: recentValues["CAN/Utilization"] ?: 0.0
-        val isCanHigh = canUtil > 85.0
-        val canRule = rules.getOrPut("Hardware/CAN/Utilization") { ThresholdRule("Hardware/CAN/Utilization", "CRITICAL: CAN Bus Utilization High (>85%)!", maxValue = 85.0, audibleAlert = true) }
-        evaluateRuleState("Hardware/CAN/Utilization", isCanHigh, canUtil, ts, sessionId, canRule)
+        if ((normalizedFrameKey.startsWith("Diagnostics/CANBus/") && normalizedFrameKey.endsWith("/Utilization")) ||
+            normalizedFrameKey == "Hardware/CAN/Utilization" || normalizedFrameKey == "CAN/Utilization"
+        ) {
+        val canEntry = sessionValues.entries
+            .filter { it.key.startsWith("Diagnostics/CANBus/") && it.key.endsWith("/Utilization") }
+            .maxByOrNull { it.value }
+        val canKey = canEntry?.key ?: "Diagnostics/CANBus/Utilization"
+        val canUtil = canEntry?.value
+            ?: sessionValues["Hardware/CAN/Utilization"]
+            ?: sessionValues["CAN/Utilization"]
+            ?: 0.0
+        val canThreshold = if (canUtil <= 1.5) 0.85 else 85.0
+        val isCanHigh = canUtil > canThreshold
+        val canRule = rules.getOrPut(canKey) {
+            ThresholdRule(canKey, "CRITICAL: CAN Bus Utilization High!", maxValue = canThreshold, audibleAlert = true)
+        }
+        evaluateRuleState(canKey, isCanHigh, canUtil, ts, sessionId, canRule)
+        }
 
         // 3. FTC I2C / Lynx Timeout Check
-        val i2cTimeouts = recentValues["Hardware/I2C/Timeouts"] ?: 0.0
+        if (normalizedFrameKey == "Hardware/I2C/Timeouts") {
+        val i2cTimeouts = sessionValues["Hardware/I2C/Timeouts"] ?: 0.0
         val isI2cError = i2cTimeouts > 0.0
         val i2cRule = rules.getOrPut("Hardware/I2C/Timeouts") { ThresholdRule("Hardware/I2C/Timeouts", "WARNING: FTC I2C / Lynx Bus Timeout!", maxValue = 0.5, audibleAlert = true) }
         evaluateRuleState("Hardware/I2C/Timeouts", isI2cError, i2cTimeouts, ts, sessionId, i2cRule)
+        }
 
         // 4. Over-Temperature Thermal Alert (>70C)
-        motorNames.forEach { m ->
-            val tempC = recentValues["Hardware/Motors/$m/TempC"] ?: 0.0
+        if (normalizedFrameKey.startsWith("Hardware/Motors/")) motorNames.forEach { m ->
+            val tempC = sessionValues["Hardware/Motors/$m/TempC"] ?: 0.0
             val isOverheat = tempC > 70.0
             val tempKey = "Hardware/Motors/$m/TempC"
             val tempRule = rules.getOrPut(tempKey) { ThresholdRule(tempKey, "WARNING: Motor '$m' Overheating (>70°C)!", maxValue = 70.0, audibleAlert = true) }
@@ -280,17 +310,32 @@ class AlertEngineService(
         }
 
         // 5. Limelight Vision Frame Rate Stale Alert (<5 FPS)
-        val limelightFps = recentValues["Vision/Limelight/FPS"] ?: 30.0
+        if (normalizedFrameKey == "Vision/Limelight/FPS") {
+        val limelightFps = sessionValues["Vision/Limelight/FPS"] ?: 30.0
         val isVisionStale = limelightFps < 5.0
         val visionRule = rules.getOrPut("Vision/Limelight/FPS") { ThresholdRule("Vision/Limelight/FPS", "WARNING: Limelight Camera Frame Rate Low (<5 FPS)!", minValue = 5.0, audibleAlert = false) }
         evaluateRuleState("Vision/Limelight/FPS", isVisionStale, limelightFps, ts, sessionId, visionRule)
+        }
 
         // 6. Control Loop Latency Alert (>25ms)
-        val loopMs = recentValues["System/LoopTimeMs"] ?: 10.0
+        if (normalizedFrameKey in TelemetryMetricCatalog.LOOP_TIME.keys) {
+        val loopMs = TelemetryMetricCatalog.LOOP_TIME.keys.firstNotNullOfOrNull(sessionValues::get)
+            ?: 10.0
         val isLoopSlow = loopMs > 25.0
-        val loopRule = rules.getOrPut("System/LoopTimeMs") { ThresholdRule("System/LoopTimeMs", "WARNING: Control Loop Overrun (>25ms)!", maxValue = 25.0, audibleAlert = false) }
-        evaluateRuleState("System/LoopTimeMs", isLoopSlow, loopMs, ts, sessionId, loopRule)
+        val loopKey = TelemetryMetricCatalog.LOOP_TIME.canonicalKey
+        val loopRule = rules.getOrPut(loopKey) { ThresholdRule(loopKey, "WARNING: Control Loop Overrun (>25ms)!", maxValue = 25.0, audibleAlert = false) }
+        evaluateRuleState(loopKey, isLoopSlow, loopMs, ts, sessionId, loopRule)
+        }
     }
+
+    private fun isCompositeSignal(key: String): Boolean =
+        key.startsWith("Hardware/Motors/") ||
+            key.startsWith("Diagnostics/CANBus/") ||
+            key == "Hardware/CAN/Utilization" ||
+            key == "CAN/Utilization" ||
+            key == "Hardware/I2C/Timeouts" ||
+            key == "Vision/Limelight/FPS" ||
+            key in TelemetryMetricCatalog.LOOP_TIME.keys
 
     /**
      * Pure zero-nested helper to transition custom alert state. Lookup + update are atomic.
@@ -304,7 +349,9 @@ class AlertEngineService(
         rule: ThresholdRule
     ) {
         val outcome = commitAlertTransition { current ->
-            val existingAlert = current.values.firstOrNull { it.ruleKey == key && !it.triaged }
+            val existingAlert = current.values.firstOrNull {
+                it.sessionId == sessionId && normalizeTopic(it.ruleKey) == normalizeTopic(key) && !it.triaged
+            }
             when {
                 isViolating && existingAlert == null -> AlertOutcome(
                     alert = AlertRecord(
@@ -344,6 +391,8 @@ class AlertEngineService(
      * lambda: the new [alert] to store and whether an audible beep should fire after commit.
      */
     private class AlertOutcome(val alert: AlertRecord, val shouldBeep: Boolean)
+
+    private data class TimedCurrentSample(val timestampMs: Long, val amps: Double)
 
     /**
      * Atomically applies an alert transition. [compute] receives the current snapshot and
@@ -437,6 +486,16 @@ class AlertEngineService(
      * @return Human-readable display string.
      */
     fun getRuleDisplayName(key: String): String {
-        return rules[key]?.displayName ?: key
+        return rules[normalizeTopic(key)]?.displayName ?: key
+    }
+
+    private fun registerRule(rule: ThresholdRule) {
+        rules[normalizeTopic(rule.key)] = rule
+    }
+
+    private fun normalizeTopic(key: String): String = TelemetryMetricCatalog.normalizeTopic(key)
+
+    private companion object {
+        const val CURRENT_WINDOW_MS = 1_000L
     }
 }

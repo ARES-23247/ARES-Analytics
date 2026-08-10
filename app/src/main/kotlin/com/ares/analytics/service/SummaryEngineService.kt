@@ -3,6 +3,7 @@ package com.ares.analytics.service
 import com.ares.analytics.shared.Session
 import com.ares.analytics.shared.SessionSummary
 import com.ares.analytics.shared.TelemetryFrame
+import com.ares.analytics.shared.TelemetryMetricCatalog
 import com.ares.analytics.service.AlignedDataRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -50,7 +51,7 @@ class SummaryEngineService(
                 MAX(CASE WHEN LOWER(key) LIKE '%drift%' OR LOWER(key) LIKE '%poseerror%' THEN ABS(value) END) AS max_ekf_drift,
                 AVG(CASE WHEN LOWER(key) LIKE '%looptime%' OR LOWER(key) LIKE '%loop_time%' THEN value END) AS avg_loop_time,
                 AVG(CASE WHEN LOWER(key) LIKE '%vision%' AND (LOWER(key) LIKE '%acceptance%' OR LOWER(key) LIKE '%accepted%') THEN value END) AS vision_acceptance_rate,
-                AVG(CASE WHEN LOWER(key) LIKE '%crosstrack%' OR LOWER(key) LIKE '%xte%' THEN ABS(value) END) AS avg_cross_track,
+                AVG(CASE WHEN LOWER(key) LIKE '%crosstrack%' OR LOWER(key) LIKE '%cross_track%' OR LOWER(key) LIKE '%xte%' THEN ABS(value) END) AS avg_cross_track,
                 AVG(CASE WHEN LOWER(key) LIKE '%vision%' AND LOWER(key) LIKE '%latency%' THEN value END) AS avg_vision_latency
             FROM telemetry_frames WHERE session_id = ?
             """.trimIndent(),
@@ -172,16 +173,14 @@ class SummaryEngineService(
         try {
             val allFrames = databaseService.getTelemetryForFilters(
                 sessionId = session.sessionId,
-                keys = listOf(
-                    "/Drive/Voltage", "Drive/Voltage",
-                    "/Drive/Velocity", "Drive/Velocity",
-                    "/Drive/Acceleration", "Drive/Acceleration",
-                    "Drive/Velocity_Omega", "/Drive/Velocity_Omega",
-                    "Robot/BatteryVoltage", "/Robot/BatteryVoltage",
-                    "Battery/Voltage", "/Battery/Voltage",
-                    "Robot/LoopTimeMs", "/Robot/LoopTimeMs",
-                    "Profiling/LoopTime_ms", "/Profiling/LoopTime_ms"
-                ),
+                keys = buildList {
+                    addAll(TelemetryMetricCatalog.DRIVE_VOLTAGE.keys)
+                    addAll(TelemetryMetricCatalog.DRIVE_VELOCITY.keys)
+                    addAll(TelemetryMetricCatalog.DRIVE_ACCELERATION.keys)
+                    add("Drive/Velocity_Omega")
+                    addAll(TelemetryMetricCatalog.BATTERY_VOLTAGE.keys)
+                    addAll(TelemetryMetricCatalog.LOOP_TIME.keys)
+                },
                 prefixes = listOf("Diagnostics/%", "Hardware/Motors/%")
             )
             if (allFrames.isEmpty()) return resolvedTags
@@ -200,7 +199,7 @@ class SummaryEngineService(
                     }
                 }
             }
-            val minVoltage = allFrames.filter { it.key.lowercase().contains("battery") && it.key.lowercase().contains("volt") }
+            val minVoltage = allFrames.filter { it.key in TelemetryMetricCatalog.BATTERY_VOLTAGE.keys }
                 .map { it.value }
                 .minOrNull() ?: 12.0
 
@@ -208,13 +207,19 @@ class SummaryEngineService(
             framesToInsert.add(TelemetryFrame(session.createdAt, session.sessionId, "Diagnostics/System/CommsLosses", commsLosses.toDouble()))
 
             // CANbus status, motor faults, and brownout calculations
-            val canFrames = allFrames.filter { it.key.startsWith("Diagnostics/CAN/") || it.key.startsWith("Diagnostics/CANBus/") }
+            val canFrames = allFrames.filter {
+                val key = it.key.removePrefix("/")
+                key.startsWith("Diagnostics/CAN/") || key.startsWith("Diagnostics/CANBus/")
+            }
             val maxBusUtil = canFrames.filter { it.key.endsWith("BusUtilization") || it.key.endsWith("Utilization") }.maxOfOrNull { it.value } ?: 0.0
             val totalErrorCount = canFrames.filter { it.key.endsWith("ErrorCount") }.maxOfOrNull { it.value } ?: 0.0
             val totalBusOffs = canFrames.filter { it.key.endsWith("BusOffs") || it.key.endsWith("BusOffCount") }.maxOfOrNull { it.value } ?: 0.0
             val maxSignalLatency = canFrames.filter { it.key.endsWith("SignalLatencyMs") }.maxOfOrNull { it.value } ?: 0.0
             val brownoutCount = allFrames.filter { it.key == "Diagnostics/Power/BrownoutCount" }.maxOfOrNull { it.value } ?: 0.0
-            val motorFaultFrames = allFrames.filter { it.key.startsWith("Diagnostics/Motor/") && it.key.endsWith("/Faults") }
+            val motorFaultFrames = allFrames.filter {
+                val key = it.key.removePrefix("/")
+                key.startsWith("Diagnostics/Motor/") && key.endsWith("/Faults")
+            }
             val hasMotorFaults = motorFaultFrames.any { it.value > 0.0 }
 
             framesToInsert.add(TelemetryFrame(session.createdAt, session.sessionId, "Diagnostics/System/MaxCANBusUtilization", maxBusUtil))
@@ -237,9 +242,9 @@ class SummaryEngineService(
             }
 
             // 1. Drivetrain SysId Characterization
-            val voltages = allFrames.filter { it.key == "/Drive/Voltage" || it.key == "Drive/Voltage" }
-            val velocities = allFrames.filter { it.key == "/Drive/Velocity" || it.key == "Drive/Velocity" }
-            val accelerations = allFrames.filter { it.key == "/Drive/Acceleration" || it.key == "Drive/Acceleration" }
+            val voltages = allFrames.filter { it.key in TelemetryMetricCatalog.DRIVE_VOLTAGE.keys }
+            val velocities = allFrames.filter { it.key in TelemetryMetricCatalog.DRIVE_VELOCITY.keys }
+            val accelerations = allFrames.filter { it.key in TelemetryMetricCatalog.DRIVE_ACCELERATION.keys }
 
             if (voltages.isNotEmpty() && velocities.isNotEmpty()) {
                 val alignedData = mutableListOf<AlignedDataRow>()

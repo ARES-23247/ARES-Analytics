@@ -29,7 +29,7 @@ import java.util.Locale
 /**
  * Primary telemetry analytics dashboard screen displaying real-time robot visualization cards.
  *
- * Coordinates live telemetry streams over NT4 (`ARES/EstimatedPose`, `Drive/Pose_X`, `Drive/Pose_Y`, `Drive/Drive_Heading`),
+ * Coordinates live telemetry streams over NT4 (`ARES/EstimatedPose`, `Drive/Pose_X`, `Drive/Pose_Y`, `Drive/Pose_Heading`),
  * rendering Mecanum drive motor currents ($A$) / powers ($-1.0 \dots 1.0$), 2D field canvas trajectories, system alerts, and AI strategy advice.
  *
  * ### Field Canvas Axis Coordinate Transform:

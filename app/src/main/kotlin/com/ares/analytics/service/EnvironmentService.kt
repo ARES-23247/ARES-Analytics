@@ -3,6 +3,7 @@ package com.ares.analytics.service
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.shared.AppWorkspaces
+import com.ares.analytics.util.ProjectLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -41,7 +42,14 @@ class EnvironmentService(
 
         if (file.exists()) {
             try {
-                return@withContext json.decodeFromString<AppWorkspaces>(file.readText())
+                val saved = json.decodeFromString<AppWorkspaces>(file.readText())
+                val resolved = saved.copy(
+                    workspaces = saved.workspaces.map(::resolveMovedRobotProject)
+                )
+                if (resolved != saved) {
+                    writeSecrets(file, json.encodeToString(resolved).toByteArray(Charsets.UTF_8))
+                }
+                return@withContext resolved
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -66,6 +74,43 @@ class EnvironmentService(
 
         AppWorkspaces(activeWorkspaceId = null, workspaces = emptyList())
     }
+
+    /**
+     * Repairs a workspace path after a repository was moved while leaving an old asset-only
+     * directory behind. A migration is applied only when one nearby repository has matching
+     * checked-in robot identity, so multiple robots can never be selected by filename guessing.
+     */
+    private fun resolveMovedRobotProject(config: WorkspaceConfig): WorkspaceConfig {
+        val configuredRoot = runCatching { File(config.projectPath).canonicalFile }.getOrNull()
+            ?: return config
+        if (ProjectLayout.containsRobotSource(configuredRoot, config.league)) return config
+
+        val searchRoot = configuredRoot.parentFile?.parentFile ?: return config
+        val matches = runCatching {
+            searchRoot.walkTopDown()
+                .maxDepth(PROJECT_SEARCH_DEPTH)
+                .onFail { _, _ -> }
+                .filter { it.isFile && it.name == ARES_ROBOT_FILE }
+                .mapNotNull { identityFile ->
+                    val candidate = identityFile.parentFile?.canonicalFile ?: return@mapNotNull null
+                    val identity = runCatching {
+                        json.decodeFromString<AresRobotConfig>(identityFile.readText())
+                    }.getOrNull() ?: return@mapNotNull null
+                    candidate.takeIf {
+                        identity.matches(config) && ProjectLayout.containsRobotSource(candidate, config.league)
+                    }
+                }
+                .distinctBy(File::getPath)
+                .toList()
+        }.getOrDefault(emptyList())
+
+        return matches.singleOrNull()?.let { config.copy(projectPath = it.path) } ?: config
+    }
+
+    private fun AresRobotConfig.matches(config: WorkspaceConfig): Boolean =
+        teamId == config.teamId &&
+            robotId.equals(config.robotId, ignoreCase = true) &&
+            league.equals(config.league.name, ignoreCase = true)
 
     suspend fun saveWorkspaces(appWorkspaces: AppWorkspaces) = withContext(Dispatchers.IO) {
         val file = File(workspacesPath)
@@ -204,6 +249,9 @@ data class AresRobotConfig(
     val name: String = "",
     val league: String = "FTC"
 )
+
+private const val ARES_ROBOT_FILE = ".ares-robot.json"
+private const val PROJECT_SEARCH_DEPTH = 4
 
 /**
  * Writes [bytes] to [file], then best-effort restricts the file to owner-only `rw-------`

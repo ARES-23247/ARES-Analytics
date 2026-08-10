@@ -30,6 +30,8 @@ import com.ares.analytics.viewmodel.TuningViewModel
 import com.ares.analytics.viewmodel.SysIdIntent
 import com.ares.analytics.viewmodel.SysIdViewModel
 import com.ares.analytics.service.AlignedDataRow
+import com.ares.analytics.service.RecommendationQuality
+import com.ares.analytics.service.TuningApplyPhase
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import com.areslib.control.assist.SysIdMechanism
@@ -216,6 +218,37 @@ fun TuningScreen(
                             ParamRow("Velocity Constant (kV)", String.format("%.4f V/(m/s)", summary.kV))
                             ParamRow("Acceleration Constant (kA)", String.format("%.4f V/(m/s²)", summary.kA))
                             ParamRow("OLS Fit Quality (R²)", String.format("%.2f%%", summary.rSquared * 100))
+                        }
+                        val recommendation = sysIdState.tuningRecommendation
+                        if (recommendation != null) {
+                            HorizontalDivider(color = AresBorder)
+                            Text("Measured-Plant Recommendation", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AresCyan)
+                            ParamRow("Confidence", String.format("%.1f%%", recommendation.confidence * 100.0))
+                            ParamRow("Feedback kP / kI / kD", String.format("%.4f / %.4f / %.4f",
+                                recommendation.recommendedGains.kP,
+                                recommendation.recommendedGains.kI,
+                                recommendation.recommendedGains.kD
+                            ))
+                            recommendation.warnings.forEach { warning ->
+                                Text(warning, color = AresAmber, fontSize = 10.sp)
+                            }
+                            when (sysIdState.tuningApplyState.phase) {
+                                TuningApplyPhase.APPLIED_AWAITING_VALIDATION -> {
+                                    Text("Applied. Run the same routine again to validate; unstable results roll back automatically.", color = AresAmber, fontSize = 10.sp)
+                                    OutlinedButton(onClick = { sysIdViewModel.onIntent(SysIdIntent.RollbackRecommendation) }) {
+                                        Text("Rollback Now")
+                                    }
+                                }
+                                TuningApplyPhase.VALIDATED -> Text(sysIdState.tuningApplyState.message, color = AresGreen, fontSize = 10.sp)
+                                TuningApplyPhase.ROLLED_BACK, TuningApplyPhase.FAILED ->
+                                    Text(sysIdState.tuningApplyState.message, color = AresError, fontSize = 10.sp)
+                                else -> Button(
+                                    enabled = recommendation.quality != RecommendationQuality.REJECTED,
+                                    onClick = { sysIdViewModel.onIntent(SysIdIntent.ApproveRecommendation(recommendation)) }
+                                ) {
+                                    Text(if (recommendation.quality == RecommendationQuality.REVIEW_REQUIRED) "Review & Apply" else "Approve & Apply")
+                                }
+                            }
                         }
                     }
                     1 -> { // Pinpoint Offset & Ticks/m Tab

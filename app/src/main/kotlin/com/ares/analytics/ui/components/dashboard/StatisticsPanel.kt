@@ -76,13 +76,11 @@ fun StatisticsPanel(
             isLoading = true
             scope.launch {
                 try {
-                    val allFrames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
-                    availableKeys = allFrames.map { it.key }.distinct().sorted()
-                    stateFrames = allFrames.filter {
-                        it.key.contains("state", ignoreCase = true) ||
-                        it.key.contains("mode", ignoreCase = true) ||
-                        it.key.contains("enabled", ignoreCase = true)
-                    }
+                    availableKeys = databaseService.getDistinctTelemetryKeys(sessionId)
+                    stateFrames = databaseService.getTelemetryForKeyPatterns(
+                        sessionId,
+                        listOf("%state%", "%mode%", "%enabled%")
+                    )
                     if (selectedKey1 == null || !availableKeys.contains(selectedKey1)) {
                         selectedKey1 = availableKeys.firstOrNull()
                     }

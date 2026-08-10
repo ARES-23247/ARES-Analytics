@@ -117,6 +117,8 @@ open class Nt4ClientService(
     val currentSession: StateFlow<Session?> = _currentSession.asStateFlow()
 
     private var webSocketSession: DefaultClientWebSocketSession? = null
+    @Volatile private var serverTimeOffsetUs: Long? = null
+    @Volatile private var bestClockRoundTripUs: Long = Long.MAX_VALUE
 
     // Topic ID to Topic Name mapping
     internal val topicMap = ConcurrentHashMap<Int, Nt4Topic>()
@@ -243,6 +245,8 @@ open class Nt4ClientService(
                         _isConnected.value = true
                         webSocketSession = this
                         topicMap.clear()
+                        serverTimeOffsetUs = null
+                        bestClockRoundTripUs = Long.MAX_VALUE
                         retryDelay = 1000L
 
                         // 1. Announce input topics
@@ -296,8 +300,21 @@ open class Nt4ClientService(
                                 if (key.startsWith("ARES/Input/") || key.startsWith("ARES/DriverStation/") || key.startsWith("SysId/")) {
                                     continue
                                 }
-                                val announceMsg = "[{\"method\": \"publish\", \"params\": {\"name\": \"$key\", \"pubuid\": $id, \"type\": \"double\"}}]"
-                                send(Frame.Text(announceMsg))
+                                send(Frame.Text(buildPublishMessage(key, id, "double")))
+                            }
+                        }
+
+                        // Establish the NT4 server-time offset before publishing controls. NT4
+                        // value timestamps are always in the server time base; System.nanoTime()
+                        // alone is only meaningful on this laptop.
+                        val clockSyncJob = launch {
+                            while (isActive) {
+                                try {
+                                    sendTimeSyncRequest()
+                                } catch (_: Exception) {
+                                    break
+                                }
+                                delay(1_000)
                             }
                         }
 
@@ -331,6 +348,8 @@ open class Nt4ClientService(
                                 }
                             }
                         } finally {
+                            clockSyncJob.cancel()
+                            heartbeatJob.cancel()
                             try {
                                 val reason = withContext(NonCancellable) {
                                     closeReason.await()
@@ -340,6 +359,7 @@ open class Nt4ClientService(
                                 // The reconnect loop owns cleanup even when the close handshake is unavailable.
                             }
                             webSocketSession = null
+                            serverTimeOffsetUs = null
                             _isConnected.value = false
                         }
                     }
@@ -358,7 +378,8 @@ open class Nt4ClientService(
     }
 
     private suspend fun sendBinaryUpdate(pubuid: Int, typeId: Byte, valueBytes: ByteArray) {
-        val timestampUs = System.nanoTime() / 1000L
+        val offsetUs = serverTimeOffsetUs ?: return
+        val timestampUs = localMonotonicTimeUs() + offsetUs
         val buffer = encodeNt4BinaryUpdate(pubuid, timestampUs, typeId, valueBytes)
 
         // Heartbeat hex-dump is gated behind the `ares.debug.nt4` system property. It ran
@@ -378,36 +399,63 @@ open class Nt4ClientService(
         typeId: Byte,
         valueBytes: ByteArray
     ): ByteArray {
-        val buffer = ByteArray(15 + valueBytes.size)
+        require(pubuid in 0..0xffff) { "publisher UID must fit an unsigned 16-bit NT4 ID" }
+        val buffer = ByteArray(14 + valueBytes.size)
 
-        // NT4 binary messages are a MsgPack array of update tuples. Even a single
-        // update therefore needs the outer array header followed by the 4-tuple.
-        buffer[0] = 0x91.toByte()
-        buffer[1] = 0x94.toByte()
+        // NT4 binary frames are streams of complete 4-tuples, without an outer batch array.
+        buffer[0] = 0x94.toByte()
 
         // Write pubuid (encoded as MsgPack uint16)
-        buffer[2] = 0xcd.toByte()
-        buffer[3] = (pubuid shr 8).toByte()
-        buffer[4] = pubuid.toByte()
+        buffer[1] = 0xcd.toByte()
+        buffer[2] = (pubuid shr 8).toByte()
+        buffer[3] = pubuid.toByte()
 
         // Write timestampUs (encoded as MsgPack uint64)
-        buffer[5] = 0xcf.toByte()
-        buffer[6] = (timestampUs shr 56).toByte()
-        buffer[7] = (timestampUs shr 48).toByte()
-        buffer[8] = (timestampUs shr 40).toByte()
-        buffer[9] = (timestampUs shr 32).toByte()
-        buffer[10] = (timestampUs shr 24).toByte()
-        buffer[11] = (timestampUs shr 16).toByte()
-        buffer[12] = (timestampUs shr 8).toByte()
-        buffer[13] = timestampUs.toByte()
+        buffer[4] = 0xcf.toByte()
+        buffer[5] = (timestampUs shr 56).toByte()
+        buffer[6] = (timestampUs shr 48).toByte()
+        buffer[7] = (timestampUs shr 40).toByte()
+        buffer[8] = (timestampUs shr 32).toByte()
+        buffer[9] = (timestampUs shr 24).toByte()
+        buffer[10] = (timestampUs shr 16).toByte()
+        buffer[11] = (timestampUs shr 8).toByte()
+        buffer[12] = timestampUs.toByte()
 
         // Write typeId (encoded as positive fixint since typeId < 128)
-        buffer[14] = typeId
+        buffer[13] = typeId
 
         // Write value bytes (already MsgPack encoded)
-        System.arraycopy(valueBytes, 0, buffer, 15, valueBytes.size)
+        System.arraycopy(valueBytes, 0, buffer, 14, valueBytes.size)
         return buffer
     }
+
+    private fun buildPublishMessage(name: String, pubUid: Int, type: String): String =
+        buildJsonArray {
+            add(buildJsonObject {
+                put("method", "publish")
+                put("params", buildJsonObject {
+                    put("name", name)
+                    put("pubuid", pubUid)
+                    put("type", type)
+                })
+            })
+        }.toString()
+
+    private suspend fun sendTimeSyncRequest() {
+        val sentAtUs = localMonotonicTimeUs()
+        val buffer = ByteArray(13)
+        buffer[0] = 0x94.toByte() // four-element NT4 tuple
+        buffer[1] = 0xff.toByte() // reserved RTT topic ID (-1)
+        buffer[2] = 0x00 // request timestamp is always zero
+        buffer[3] = 0x02 // int type
+        buffer[4] = 0xd3.toByte() // signed int64 client timestamp value
+        for (index in 0 until 8) {
+            buffer[5 + index] = (sentAtUs shr (56 - index * 8)).toByte()
+        }
+        webSocketSession?.send(Frame.Binary(true, buffer))
+    }
+
+    private fun localMonotonicTimeUs(): Long = System.nanoTime() / 1_000L
 
     private val publishDoubleBuffer = ThreadLocal.withInitial { ByteArray(9) }
 
@@ -582,9 +630,10 @@ open class Nt4ClientService(
                     val topicId = obj["topic"]?.jsonPrimitive?.intOrNull ?: continue
                     val valueElement = obj["value"] ?: continue
                     val ntTopic = topicMap[topicId] ?: continue
-                    val timestampMs = (obj["time"]?.jsonPrimitive?.longOrNull ?: System.currentTimeMillis() * 1000) / 1000
+                    val timestampUs = obj["time"]?.jsonPrimitive?.longOrNull ?: System.currentTimeMillis() * 1_000
+                    val timestampMs = timestampUs / 1_000
 
-                    dispatchValue(ntTopic, valueElement, timestampMs, teamId, seasonId, robotId)
+                    dispatchValue(ntTopic, valueElement, timestampMs, timestampUs, teamId, seasonId, robotId)
                 }
             }
         } catch (e: Exception) {
@@ -615,10 +664,21 @@ open class Nt4ClientService(
             binaryFrameCount = 0
         }
         for (msg in messages) {
-            val timestampMs = msg.timestampUs / 1000
+            if (msg.topicId == -1L) {
+                val sentAtUs = (msg.value as? Number)?.toLong() ?: continue
+                val receivedAtUs = localMonotonicTimeUs()
+                val roundTripUs = receivedAtUs - sentAtUs
+                if (roundTripUs >= 0 && roundTripUs < bestClockRoundTripUs) {
+                    bestClockRoundTripUs = roundTripUs
+                    serverTimeOffsetUs = msg.timestampUs + roundTripUs / 2L - receivedAtUs
+                }
+                continue
+            }
+            val timestampUs = if (msg.timestampUs <= 1L) System.currentTimeMillis() * 1_000L else msg.timestampUs
+            val timestampMs = timestampUs / 1_000L
             val ntTopic = topicMap[msg.topicId.toInt()]
             if (ntTopic != null) {
-                dispatchValue(ntTopic, msg.value, timestampMs, teamId, seasonId, robotId)
+                dispatchValue(ntTopic, msg.value, timestampMs, timestampUs, teamId, seasonId, robotId)
             }
         }
     }
@@ -627,6 +687,7 @@ open class Nt4ClientService(
         ntTopic: Nt4Topic,
         valueElement: Any?,
         timestampMs: Long,
+        timestampUs: Long,
         teamId: String,
         seasonId: String,
         robotId: String
@@ -722,7 +783,8 @@ open class Nt4ClientService(
                         sessionId = _currentSession.value?.sessionId ?: LIVE_SESSION_ID,
                         key = frameKey,
                         value = doubleValue,
-                        stringValue = stringValue
+                        stringValue = stringValue,
+                        timestampUs = timestampUs
                     ).also { pendingFrames.send(it) }
                 }
                 frames.add(frame)
@@ -753,7 +815,8 @@ open class Nt4ClientService(
                 sessionId = _currentSession.value?.sessionId ?: LIVE_SESSION_ID,
                 key = normalizedName,
                 value = doubleValue,
-                stringValue = stringValue
+                stringValue = stringValue,
+                timestampUs = timestampUs
             ).also { pendingFrames.send(it) }
         }
         latestValues[frame.key] = frame
@@ -797,17 +860,16 @@ open class Nt4ClientService(
     private val dynamicPubMutex = kotlinx.coroutines.sync.Mutex()
 
     suspend fun publishDouble(key: String, value: Double) {
+        val cleanKey = key.removePrefix("/")
         val pubuid = dynamicPubMutex.withLock {
-            var id = dynamicPubUids[key]
+            var id = dynamicPubUids[cleanKey]
             if (id == null) {
                 id = nextPubUid++
-                dynamicPubUids[key] = id
-                val announceMsg = "[{\"method\": \"publish\", \"params\": {\"name\": \"$key\", \"pubuid\": $id, \"type\": \"double\"}}]"
-                webSocketSession?.send(Frame.Text(announceMsg))
+                dynamicPubUids[cleanKey] = id
+                webSocketSession?.send(Frame.Text(buildPublishMessage(cleanKey, id, "double")))
             }
             id
         }
-        val cleanKey = key.removePrefix("/")
         val frame = TelemetryFrame(
             timestampMs = System.currentTimeMillis(),
             sessionId = _currentSession.value?.sessionId ?: "live-telemetry",
@@ -821,17 +883,16 @@ open class Nt4ClientService(
     }
 
     suspend fun publishString(key: String, value: String) {
+        val cleanKey = key.removePrefix("/")
         val pubuid = dynamicPubMutex.withLock {
-            var id = dynamicPubUids[key]
+            var id = dynamicPubUids[cleanKey]
             if (id == null) {
                 id = nextPubUid++
-                dynamicPubUids[key] = id
-                val announceMsg = "[{\"method\": \"publish\", \"params\": {\"name\": \"$key\", \"pubuid\": $id, \"type\": \"string\"}}]"
-                webSocketSession?.send(Frame.Text(announceMsg))
+                dynamicPubUids[cleanKey] = id
+                webSocketSession?.send(Frame.Text(buildPublishMessage(cleanKey, id, "string")))
             }
             id
         }
-        val cleanKey = key.removePrefix("/")
         val frame = TelemetryFrame(
             timestampMs = System.currentTimeMillis(),
             sessionId = _currentSession.value?.sessionId ?: "live-telemetry",
@@ -846,17 +907,16 @@ open class Nt4ClientService(
     }
 
     suspend fun publishBoolean(key: String, value: Boolean) {
+        val cleanKey = key.removePrefix("/")
         val pubuid = dynamicPubMutex.withLock {
-            var id = dynamicPubUids[key]
+            var id = dynamicPubUids[cleanKey]
             if (id == null) {
                 id = nextPubUid++
-                dynamicPubUids[key] = id
-                val announceMsg = "[{\"method\": \"publish\", \"params\": {\"name\": \"$key\", \"pubuid\": $id, \"type\": \"boolean\"}}]"
-                webSocketSession?.send(Frame.Text(announceMsg))
+                dynamicPubUids[cleanKey] = id
+                webSocketSession?.send(Frame.Text(buildPublishMessage(cleanKey, id, "boolean")))
             }
             id
         }
-        val cleanKey = key.removePrefix("/")
         val frame = TelemetryFrame(
             timestampMs = System.currentTimeMillis(),
             sessionId = _currentSession.value?.sessionId ?: "live-telemetry",

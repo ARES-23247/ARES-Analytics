@@ -42,9 +42,10 @@ fun VisionQualityCard(
     LaunchedEffect(sessionId) {
         if (sessionId != null) {
             scope.launch {
-                // Fetch vision error/innovation keys
-                val allTelemetry = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
-                visionFrames = allTelemetry.filter { it.key.lowercase().contains("vision") && it.key.lowercase().contains("innovation") }
+                visionFrames = databaseService.getTelemetryForKeyPatterns(
+                    sessionId,
+                    listOf("%Vision%Innovation%")
+                )
             }
         } else {
             visionFrames = emptyList()

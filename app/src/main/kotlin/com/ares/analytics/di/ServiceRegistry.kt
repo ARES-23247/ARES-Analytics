@@ -36,6 +36,7 @@ class ServiceRegistry {
     val parquetExporterService by lazy { ParquetExporterService(databaseService) }
     val replayEngineService by lazy { ReplayEngineService(databaseService, nt4ClientService) }
     val sysIdService by lazy { SysIdService(databaseService) }
+    val autoTunerService by lazy { AutoTunerService(nt4ClientService, sysIdService) }
     val calibrationService by lazy { CalibrationService(databaseService) }
     val oauthService by lazy { OAuthService(environmentService) }
     val exportService by lazy { ExportService(databaseService) }

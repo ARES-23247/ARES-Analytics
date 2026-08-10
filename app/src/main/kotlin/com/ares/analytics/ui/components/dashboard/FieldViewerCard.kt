@@ -31,6 +31,8 @@ import com.areslib.state.Alliance
 import com.areslib.math.geometry.Pose2d
 import com.areslib.math.geometry.Rotation2d
 import com.areslib.math.coordinate.AllianceMirroring
+import com.areslib.math.coordinate.CoordinateTransformers
+import com.areslib.math.coordinate.FieldOrigin
 import com.areslib.math.coordinate.FieldSymmetry
 
 private fun waypointOrNull(x: Double?, y: Double?, headingRad: Double?): Waypoint? {
@@ -302,11 +304,19 @@ fun FieldViewerCard(
                     .clip(RoundedCornerShape(8.dp))
             ) {
                 val tracerEnabled = properties["show_tracer"]?.toBoolean() == true
-                val displayWaypoints = remember(state.selectedPathWaypoints, state.isRedAlliance) {
+                val displayWaypoints = remember(state.selectedPathWaypoints, state.isRedAlliance, league) {
                     if (!state.isRedAlliance) state.selectedPathWaypoints
                     else state.selectedPathWaypoints.map { wp ->
                         val pose = Pose2d(wp.x, wp.y, Rotation2d(wp.headingRad ?: 0.0))
-                        val mirrored = AllianceMirroring.mirror(pose, Alliance.RED, FieldSymmetry.MIRRORED)
+                        val isFrc = league == League.FRC
+                        val mirrored = AllianceMirroring.mirror(
+                            pose,
+                            Alliance.RED,
+                            FieldSymmetry.MIRRORED,
+                            fieldLength = if (isFrc) CoordinateTransformers.FRC_FIELD_LENGTH else CoordinateTransformers.FTC_FIELD_SIZE,
+                            fieldWidth = if (isFrc) CoordinateTransformers.FRC_FIELD_WIDTH else CoordinateTransformers.FTC_FIELD_SIZE,
+                            fieldOrigin = if (isFrc) FieldOrigin.CORNER else FieldOrigin.CENTER
+                        )
                         val mirroredRot = wp.rotationDeg?.let { r -> -r }
                         Waypoint(mirrored.x, mirrored.y, if (wp.headingRad == null) null else mirrored.heading.radians, wp.prevControlLength, wp.nextControlLength, rotationDeg = mirroredRot)
                     }

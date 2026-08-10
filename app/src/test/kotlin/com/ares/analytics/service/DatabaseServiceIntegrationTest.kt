@@ -6,6 +6,7 @@ import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class DatabaseServiceIntegrationTest {
 
@@ -61,6 +62,33 @@ class DatabaseServiceIntegrationTest {
 
             assertEquals(1.0, baseline.getValue("A").value)
             assertEquals("READY", baseline.getValue("B").stringValue)
+        }
+    }
+
+    @Test
+    fun `microsecond timestamps and same-time duplicate samples are preserved in order`() = runTest {
+        withDatabase { database ->
+            database.insertTelemetryFrames(
+                listOf(
+                    TelemetryFrame(1000, "session", "/Drive/Velocity", 1.0, timestampUs = 1_000_001),
+                    TelemetryFrame(1000, "session", "Drive/Velocity", 2.0, timestampUs = 1_000_002),
+                    TelemetryFrame(1000, "session", "Drive/Velocity", 3.0, timestampUs = 1_000_002)
+                )
+            )
+
+            val frames = database.getTelemetryForKey("session", "/Drive/Velocity")
+            assertEquals(listOf(1.0, 2.0, 3.0), frames.map { it.value })
+            assertEquals(listOf(1_000_001L, 1_000_002L, 1_000_002L), frames.map { it.timestampUs })
+            assertTrue(frames.map { it.sampleOrder }.distinct().size == 3)
+            assertEquals(listOf("Drive/Velocity"), database.getDistinctTelemetryKeys("session"))
+        }
+    }
+
+    @Test
+    fun `database browser accepts read-only metadata queries`() = runTest {
+        withDatabase { database ->
+            val result = database.executeQueryRaw("SHOW TABLES")
+            assertTrue(result.rows.flatten().contains("telemetry_frames"))
         }
     }
 

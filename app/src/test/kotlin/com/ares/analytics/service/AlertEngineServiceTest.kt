@@ -87,4 +87,33 @@ class AlertEngineServiceTest {
             tempDb.delete()
         }
     }
+
+    @Test
+    fun `same rule in consecutive sessions creates independent alerts`() = runBlocking {
+        val tempDb = File.createTempFile("alert_session_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val nt4Service = MockNt4ClientService(databaseService)
+        val thresholds = File.createTempFile("thresholds_session_test", ".json").apply {
+            writeText(
+                Json.encodeToString(
+                    listOf(ThresholdRule("Robot/BatteryVoltage", "Low battery", minValue = 10.5, audibleAlert = false))
+                )
+            )
+        }
+        val alertService = AlertEngineService(databaseService, nt4Service, thresholds.absolutePath)
+        try {
+            delay(100)
+            nt4Service.mockTelemetryFlow.emit(TelemetryFrame(1_000L, "session-a", "Robot/BatteryVoltage", 10.0))
+            nt4Service.mockTelemetryFlow.emit(TelemetryFrame(2_000L, "session-b", "/Robot/BatteryVoltage", 9.8))
+            delay(200)
+
+            val alerts = alertService.alerts.value.filter { it.ruleKey == "Robot/BatteryVoltage" }
+            assertEquals(setOf("session-a", "session-b"), alerts.map { it.sessionId }.toSet())
+        } finally {
+            alertService.dispose()
+            databaseService.close()
+            thresholds.delete()
+            tempDb.delete()
+        }
+    }
 }

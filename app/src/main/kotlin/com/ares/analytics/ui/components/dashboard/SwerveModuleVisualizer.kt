@@ -6,14 +6,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -22,8 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.ui.theme.*
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -32,45 +28,32 @@ fun SwerveModuleVisualizer(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    val scope = rememberCoroutineScope()
-
     // 0: FL, 1: FR, 2: BL, 3: BR
     val speedsTarget = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
     val anglesTarget = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
     val speedsActual = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
     val anglesActual = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
 
-    LaunchedEffect(Unit) {
-        scope.launch {
-            nt4ClientService.telemetryFlow.collect { frame ->
-                val key = frame.key
-                val value = frame.value
-                when {
-                    key.startsWith("Swerve/ModuleSpeedsTarget/") -> {
-                        val idx = key.substringAfterLast("/").toIntOrNull()
-                        if (idx != null && idx in 0..3) speedsTarget[idx] = value
-                    }
-                    key.startsWith("Swerve/ModuleAnglesTarget/") -> {
-                        val idx = key.substringAfterLast("/").toIntOrNull()
-                        if (idx != null && idx in 0..3) anglesTarget[idx] = value
-                    }
-                    key.startsWith("Swerve/ModuleSpeedsActual/") -> {
-                        val idx = key.substringAfterLast("/").toIntOrNull()
-                        if (idx != null && idx in 0..3) speedsActual[idx] = value
-                    }
-                    key.startsWith("Swerve/ModuleAnglesActual/") -> {
-                        val idx = key.substringAfterLast("/").toIntOrNull()
-                        if (idx != null && idx in 0..3) anglesActual[idx] = value
-                    }
-                    // Support fallback legacy topics
-                    key.contains("Swerve/FL_Vel") || key.contains("Swerve/Vel_FL") -> speedsActual[0] = value
-                    key.contains("Swerve/FR_Vel") || key.contains("Swerve/Vel_FR") -> speedsActual[1] = value
-                    key.contains("Swerve/BL_Vel") || key.contains("Swerve/Vel_BL") -> speedsActual[2] = value
-                    key.contains("Swerve/BR_Vel") || key.contains("Swerve/Vel_BR") -> speedsActual[3] = value
-                    key.contains("Swerve/FL_Angle") || key.contains("Swerve/Angle_FL") -> anglesActual[0] = value
-                    key.contains("Swerve/FR_Angle") || key.contains("Swerve/Angle_FR") -> anglesActual[1] = value
-                    key.contains("Swerve/BL_Angle") || key.contains("Swerve/Angle_BL") -> anglesActual[2] = value
-                    key.contains("Swerve/BR_Angle") || key.contains("Swerve/Angle_BR") -> anglesActual[3] = value
+    LaunchedEffect(nt4ClientService) {
+        nt4ClientService.telemetryFlow.collect { frame ->
+            val key = frame.key
+            val value = frame.value
+            when {
+                key.startsWith("Swerve/ModuleSpeedsTarget/") -> {
+                    val idx = key.substringAfterLast("/").toIntOrNull()
+                    if (idx != null && idx in 0..3) speedsTarget[idx] = value
+                }
+                key.startsWith("Swerve/ModuleAnglesTarget/") -> {
+                    val idx = key.substringAfterLast("/").toIntOrNull()
+                    if (idx != null && idx in 0..3) anglesTarget[idx] = value
+                }
+                key.startsWith("Swerve/ModuleSpeedsActual/") -> {
+                    val idx = key.substringAfterLast("/").toIntOrNull()
+                    if (idx != null && idx in 0..3) speedsActual[idx] = value
+                }
+                key.startsWith("Swerve/ModuleAnglesActual/") -> {
+                    val idx = key.substringAfterLast("/").toIntOrNull()
+                    if (idx != null && idx in 0..3) anglesActual[idx] = value
                 }
             }
         }
@@ -150,9 +133,8 @@ private fun ModuleCard(
             )
 
             // Draw target vector line (dashed gold)
-            val targetRad = if (Math.abs(angleTarget) > 2 * Math.PI) Math.toRadians(angleTarget) else angleTarget
-            val targetLength = r * (speedTarget / 4.0).coerceIn(0.0, 1.0).toFloat()
-            val targetSteer = -targetRad - Math.PI / 2.0
+            val targetLength = r * (abs(speedTarget) / 4.0).coerceIn(0.0, 1.0).toFloat()
+            val targetSteer = -angleTarget - Math.PI / 2.0
             val tx = cx + targetLength * cos(targetSteer).toFloat()
             val ty = cy + targetLength * sin(targetSteer).toFloat()
             val dashEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
@@ -166,9 +148,8 @@ private fun ModuleCard(
             )
 
             // Draw actual vector line (solid cyan)
-            val actualRad = if (Math.abs(angleActual) > 2 * Math.PI) Math.toRadians(angleActual) else angleActual
-            val actualLength = r * (speedActual / 4.0).coerceIn(0.0, 1.0).toFloat()
-            val actualSteer = -actualRad - Math.PI / 2.0
+            val actualLength = r * (abs(speedActual) / 4.0).coerceIn(0.0, 1.0).toFloat()
+            val actualSteer = -angleActual - Math.PI / 2.0
             val ax = cx + actualLength * cos(actualSteer).toFloat()
             val ay = cy + actualLength * sin(actualSteer).toFloat()
             drawLine(
@@ -197,14 +178,14 @@ private fun ModuleCard(
                 // Target speed outline bar
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth((speedTarget / 4.0).coerceIn(0.0, 1.0).toFloat())
+                        .fillMaxWidth((abs(speedTarget) / 4.0).coerceIn(0.0, 1.0).toFloat())
                         .fillMaxHeight()
                         .border(0.5.dp, AresGold, RoundedCornerShape(3.dp))
                 )
                 // Actual speed filled bar
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth((speedActual / 4.0).coerceIn(0.0, 1.0).toFloat())
+                        .fillMaxWidth((abs(speedActual) / 4.0).coerceIn(0.0, 1.0).toFloat())
                         .fillMaxHeight()
                         .background(AresCyan, RoundedCornerShape(3.dp))
                 )
