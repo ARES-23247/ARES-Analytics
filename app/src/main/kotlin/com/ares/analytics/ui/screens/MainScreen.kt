@@ -256,6 +256,18 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope
         )
     }
+    val importCenterViewModel = remember(currentConfig.projectPath) {
+        ImportCenterViewModel(
+            archiveService = com.ares.analytics.service.ImportArchiveService(),
+            projectPath = currentConfig.projectPath ?: "",
+            scope = scope
+        )
+    }
+    LaunchedEffect(autoImportService, importCenterViewModel) {
+        autoImportService.importNotifications.collect {
+            importCenterViewModel.onIntent(ImportCenterIntent.Refresh)
+        }
+    }
     DisposableEffect(cloudViewModel) {
         onDispose {
             // CloudViewModel owns its own HttpClient; close it on screen exit to avoid
@@ -714,6 +726,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 teamId = currentConfig.teamId,
                                 seasonId = currentConfig.seasonId
                             )
+                            NavigationTarget.IMPORT_CENTER -> ImportCenterScreen(importCenterViewModel)
                             NavigationTarget.FIELD_EDITOR -> FieldEditorScreen(
                                 viewModel = fieldEditorViewModel,
                                 league = currentConfig.league,

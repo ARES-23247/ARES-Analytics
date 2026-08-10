@@ -652,7 +652,7 @@ class AutoImportService(
         internal const val IMPORT_MANIFEST_NAME = ".auto-import-index"
         internal const val QUARANTINE_MANIFEST_NAME = ".auto-import-quarantine-index"
         internal const val IMPORT_REPORT_SUFFIX = ".import-report.json"
-        private val SUPPORTED_EXTENSIONS = setOf(
+        internal val SUPPORTED_EXTENSIONS = setOf(
             ".wpilog", ".wpilogxz", ".jsonl", ".csv", ".parquet", ".hoot",
             ".dslog", ".rlog", ".revlog", ".log"
         )
