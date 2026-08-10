@@ -1,0 +1,86 @@
+package com.ares.analytics.service
+
+import com.ares.analytics.shared.TelemetryFrame
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.withTimeout
+import java.nio.file.Files
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+class ReplayCacheAndClockTest {
+    @Test
+    fun `playback elapsed time comes from injected clock`() = runTest {
+        withDatabase { database ->
+            database.insertTelemetryFrames(
+                listOf(
+                    frame("clock", 1_000, 1.0),
+                    frame("clock", 1_100, 2.0)
+                )
+            )
+            val clock = IncrementingClock(stepMs = 25)
+            val replay = ReplayEngineService(database, clock = clock)
+            try {
+                replay.loadSession("clock")
+                replay.play()
+                runCurrent()
+                replay.pause()
+
+                assertEquals(0.25, replay.progress.value, absoluteTolerance = 0.01)
+            } finally {
+                replay.dispose()
+            }
+        }
+    }
+
+    @Test
+    fun `adjacent replay window is prefetched and reused`() = runTest {
+        withDatabase { database ->
+            database.insertTelemetryFrames(
+                (0..20_000 step 100).map { time -> frame("prefetch", time.toLong(), time.toDouble()) }
+            )
+            val replay = ReplayEngineService(database)
+            try {
+                replay.loadSession("prefetch")
+                withTimeout(5_000) {
+                    while (!replay.cacheMetrics.value.hasPrefetchedWindow) delay(10)
+                }
+
+                replay.scrubTo(0.3)
+
+                assertEquals(1L, replay.cacheMetrics.value.prefetchHits)
+                assertTrue(replay.cacheMetrics.value.cachedFrames <= 200_000)
+            } finally {
+                replay.dispose()
+            }
+        }
+    }
+
+    private suspend fun withDatabase(block: suspend (DatabaseService) -> Unit) {
+        val directory = Files.createTempDirectory("ares-replay-cache").toFile()
+        val database = DatabaseService(directory.resolve("telemetry.duckdb").absolutePath)
+        try {
+            block(database)
+        } finally {
+            database.close()
+            directory.deleteRecursively()
+        }
+    }
+
+    private fun frame(session: String, time: Long, value: Double) = TelemetryFrame(
+        timestampMs = time,
+        sessionId = session,
+        key = "Replay/Value",
+        value = value
+    )
+
+    private class IncrementingClock(private val stepMs: Long) : ReplayClock {
+        private var now = -stepMs
+        override fun nowMs(): Long {
+            now += stepMs
+            return now
+        }
+    }
+}
