@@ -12,7 +12,7 @@ data class DatabaseMetricsSnapshot(
 )
 
 /** Low-overhead rolling latency tracker shared by the DuckDB repository and health UI. */
-class DatabaseMetrics {
+class DatabaseMetrics(private val clock: MonotonicClock = SystemMonotonicClock) {
     private val queryCount = AtomicLong()
     private val writeCount = AtomicLong()
     private val queryTotalNanos = AtomicLong()
@@ -34,6 +34,8 @@ class DatabaseMetrics {
         elapsedNanos.coerceAtLeast(0)
         writeCount.incrementAndGet()
     }
+
+    internal fun nowNanos(): Long = clock.nowNanos()
 
     fun snapshot(): DatabaseMetricsSnapshot {
         val count = queryCount.get()

@@ -79,7 +79,7 @@ class ServiceRegistry {
         // ReplayEngineService.dispose() cancels the replay playback job AND the
         // process-lifetime serviceScope (stop() leaves the scope leaking).
         if (lazyFieldInitialized(::replayEngineService)) {
-            replayEngineService.dispose()
+            runBlocking { replayEngineService.disposeAndJoin() }
         }
         // AlertEngineService.dispose() cancels engineJob + audible-alert coroutines so they
         // don't race DB/connection teardown below.

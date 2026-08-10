@@ -185,6 +185,19 @@ tasks.register<Test>("dashboardSoak") {
     }
 }
 
+tasks.register<Test>("dashboardPerformanceBaseline") {
+    configureDashboardValidation("baseline")
+    description = "Compares the generated smoke report with the checked-in performance baseline."
+    dependsOn("dashboardSmoke")
+    systemProperty(
+        "ares.validation.baselineFile",
+        rootProject.file("config/dashboard-performance-baseline.json").absolutePath
+    )
+    filter {
+        includeTestsMatching("com.ares.analytics.validation.DashboardPerformanceBaselineTest")
+    }
+}
+
 tasks.register<Test>("dashboardHardware") {
     configureDashboardValidation("hardware")
     description = "Validates dashboard telemetry against a physical robot or external simulator."

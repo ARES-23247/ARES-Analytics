@@ -10,6 +10,12 @@ Run the PR-sized smoke profile:
 .\gradlew.bat :app:dashboardSmoke
 ```
 
+Run smoke plus the checked-in performance-regression baseline (the CI gate):
+
+```powershell
+.\gradlew.bat :app:dashboardPerformanceBaseline
+```
+
 Run the 30-minute-equivalent soak profile:
 
 ```powershell
@@ -37,6 +43,7 @@ app/build/reports/dashboard-validation/dashboard-validation-<profile>.json
 ```
 
 The JSON report is suitable for trend ingestion. The Markdown report summarizes configuration, measured results, and budget violations.
+CI retains both formats for 90 days and publishes the Markdown report in the GitHub Actions job summary. The baseline gate reads `config/dashboard-performance-baseline.json`; update it only after reviewing an intentional performance change on comparable hardware.
 
 ## What is validated
 
@@ -102,7 +109,7 @@ Supported properties are:
 
 `.github/workflows/dashboard-validation.yml` runs:
 
-- `dashboardSmoke` for relevant pull requests and pushes to `master`.
+- `dashboardPerformanceBaseline` (which runs `dashboardSmoke` first) for relevant pull requests and pushes to `master`.
 - `dashboardSoak` nightly and when manually selected through `workflow_dispatch`.
 - Report and JUnit artifact upload even when a budget fails.
 

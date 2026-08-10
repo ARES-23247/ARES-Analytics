@@ -40,7 +40,7 @@ import java.sql.DriverManager
  * @see MatchLogRepository
  * @see DatabaseBackupExporter
  */
-class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb") {
+class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb") : TelemetryAnalyticsRepository {
 
     private val conn: Connection
     private val readConn: Connection
@@ -118,23 +118,23 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     suspend fun getSessions(): List<Session> = matchLogRepo.getSessions()
     suspend fun deleteSession(sessionId: String) = matchLogRepo.deleteSession(sessionId)
     suspend fun insertSessionSummary(summary: SessionSummary) = matchLogRepo.insertSessionSummary(summary)
-    suspend fun getSessionSummary(sessionId: String): SessionSummary? = matchLogRepo.getSessionSummary(sessionId)
+    override suspend fun getSessionSummary(sessionId: String): SessionSummary? = matchLogRepo.getSessionSummary(sessionId)
     suspend fun getAllSessionSummaries(): List<SessionSummary> = matchLogRepo.getAllSessionSummaries()
     suspend fun insertTelemetryFrames(frames: List<TelemetryFrame>) = matchLogRepo.insertTelemetryFrames(frames)
     suspend fun insertRobotActionsBulk(actions: List<com.ares.analytics.shared.RobotActionRecord>) = matchLogRepo.insertRobotActionsBulk(actions)
     suspend fun getActionsForSession(sessionId: String): List<com.ares.analytics.shared.RobotActionRecord> = matchLogRepo.getActionsForSession(sessionId)
-    suspend fun getSessionTimestampRange(sessionId: String): Pair<Long, Long>? = matchLogRepo.getSessionTimestampRange(sessionId)
+    override suspend fun getSessionTimestampRange(sessionId: String): Pair<Long, Long>? = matchLogRepo.getSessionTimestampRange(sessionId)
     suspend fun getTelemetryRange(sessionId: String, startMs: Long, endMs: Long): List<TelemetryFrame> = matchLogRepo.getTelemetryRange(sessionId, startMs, endMs)
     suspend fun getLatestTelemetryBefore(sessionId: String, timestampMs: Long): List<TelemetryFrame> = matchLogRepo.getLatestTelemetryBefore(sessionId, timestampMs)
     suspend fun getTelemetryRangeBatched(sessionId: String, startMs: Long, endMs: Long, limit: Long, offset: Long): List<TelemetryFrame> = matchLogRepo.getTelemetryRangeBatched(sessionId, startMs, endMs, limit, offset)
     suspend fun countTelemetryFrames(sessionId: String): Long = matchLogRepo.countTelemetryFrames(sessionId)
     suspend fun getTelemetryForKey(sessionId: String, key: String): List<TelemetryFrame> = matchLogRepo.getTelemetryForKey(sessionId, key)
-    suspend fun getTelemetrySeries(
+    override suspend fun getTelemetrySeries(
         sessionId: String,
         key: String,
         startMs: Long,
         endMs: Long,
-        maxPoints: Int = 1_000
+        maxPoints: Int
     ): List<TelemetryFrame> = matchLogRepo.getTelemetrySeries(sessionId, key, startMs, endMs, maxPoints)
     suspend fun getTelemetryPageForKeys(
         sessionId: String,
@@ -144,7 +144,7 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         limit: Int = 5_000,
         offset: Long = 0
     ): List<TelemetryFrame> = matchLogRepo.getTelemetryPageForKeys(sessionId, keys, startMs, endMs, limit, offset)
-    suspend fun getDistinctTelemetryKeys(sessionId: String): List<String> = matchLogRepo.getDistinctTelemetryKeys(sessionId)
+    override suspend fun getDistinctTelemetryKeys(sessionId: String): List<String> = matchLogRepo.getDistinctTelemetryKeys(sessionId)
     suspend fun getTelemetryForKeyPatterns(sessionId: String, patterns: List<String>): List<TelemetryFrame> =
         matchLogRepo.getTelemetryForKeyPatterns(sessionId, patterns)
     suspend fun getDiagnosticsTelemetry(sessionId: String): List<TelemetryFrame> = matchLogRepo.getDiagnosticsTelemetry(sessionId)

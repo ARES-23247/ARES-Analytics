@@ -82,7 +82,20 @@ data class TuningSuggestion(
  * Produces a bounded, evidence-carrying analysis report for one recorded session. Every raw
  * signal query is viewport/downsample limited so report generation remains stable for long logs.
  */
-class AdvancedAnalyticsService(private val databaseService: DatabaseService) {
+class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRepository) {
+    suspend fun analyzeSafely(
+        sessionId: String,
+        baselineSessionIds: List<String> = emptyList()
+    ): OperationResult<AdvancedAnalyticsReport> = try {
+        if (databaseService.getSessionTimestampRange(sessionId) == null) {
+            OperationResult.Unavailable("NO_TELEMETRY", "Session $sessionId has no telemetry frames")
+        } else {
+            OperationResult.Success(analyze(sessionId, baselineSessionIds))
+        }
+    } catch (error: Exception) {
+        OperationResult.Failure("ANALYTICS_FAILED", error.message ?: "Analytics failed", error)
+    }
+
     suspend fun analyze(sessionId: String, baselineSessionIds: List<String> = emptyList()): AdvancedAnalyticsReport {
         val range = databaseService.getSessionTimestampRange(sessionId)
         val summary = databaseService.getSessionSummary(sessionId)

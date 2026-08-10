@@ -67,20 +67,20 @@ class MatchLogRepository(
      * @return Result produced by [block].
      */
     private suspend fun <T> withDbLock(block: suspend () -> T): T = withContext(Dispatchers.IO) {
-        val started = System.nanoTime()
+        val started = metrics.nowNanos()
         try {
             dbMutex.withLock { block() }
         } finally {
-            metrics.recordWrite(System.nanoTime() - started)
+            metrics.recordWrite(metrics.nowNanos() - started)
         }
     }
 
     private suspend fun <T> withReadLock(block: suspend () -> T): T = withContext(Dispatchers.IO) {
-        val started = System.nanoTime()
+        val started = metrics.nowNanos()
         try {
             readMutex.withLock { block() }
         } finally {
-            metrics.recordRead(System.nanoTime() - started)
+            metrics.recordRead(metrics.nowNanos() - started)
         }
     }
 

@@ -78,7 +78,8 @@ data class ReplayCacheMetrics(
 class ReplayEngineService(
     private val databaseService: DatabaseService,
     private val nt4ClientService: Nt4ClientService? = null,
-    private val clock: ReplayClock = SystemReplayClock
+    private val clock: ReplayClock = SystemReplayClock,
+    replayDispatcher: CoroutineDispatcher = Dispatchers.Default
 ) {
     private val jsonParser = Json { ignoreUnknownKeys = true }
 
@@ -120,7 +121,7 @@ class ReplayEngineService(
     // Process-lifetime scope for replay coroutines. Previously play()/updateFrameAtPlayhead()
     // spawned unparented CoroutineScope(Dispatchers.Default).launch{} (a fresh, untracked scope
     // at 50Hz) — those are now parented here and cancelled in stop()/dispose() (AUDIT H6).
-    private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private val serviceScope = CoroutineScope(replayDispatcher + SupervisorJob())
 
     private var replayJob: Job? = null
     private var allFrames: List<TelemetryFrame> = emptyList()
@@ -246,8 +247,15 @@ class ReplayEngineService(
      * for ordinary pause/stop since it leaves [serviceScope] reusable.
      */
     fun dispose() {
+        runBlocking { disposeAndJoin() }
+    }
+
+    suspend fun disposeAndJoin() {
         stop()
         serviceScope.cancel()
+        replayJob?.cancelAndJoin()
+        emitJob?.cancelAndJoin()
+        prefetchJob?.cancelAndJoin()
         try {
             datagramSocket?.close()
         } catch (_: Exception) {

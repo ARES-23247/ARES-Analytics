@@ -35,7 +35,8 @@ class DashboardHealthService(
     private val telemetryStore: TelemetryStore,
     private val databaseMetrics: DatabaseMetrics,
     private val nt4ClientService: Nt4ClientService,
-    private val replayEngineService: ReplayEngineService
+    private val replayEngineService: ReplayEngineService,
+    private val clock: MonotonicClock = SystemMonotonicClock
 ) {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private val mutableHealth = MutableStateFlow(DashboardHealthSnapshot())
@@ -45,10 +46,10 @@ class DashboardHealthService(
     init {
         samplerJob = scope.launch {
             var previousFrames = 0L
-            var previousSampleNanos = System.nanoTime()
+            var previousSampleNanos = clock.nowNanos()
             while (isActive) {
                 delay(SAMPLE_INTERVAL_MS)
-                val now = System.nanoTime()
+                val now = clock.nowNanos()
                 val telemetry = telemetryStore.snapshotMetrics()
                 val elapsedSeconds = ((now - previousSampleNanos) / 1_000_000_000.0).coerceAtLeast(0.001)
                 val ingestRate = (telemetry.acceptedFrames - previousFrames).coerceAtLeast(0L) / elapsedSeconds

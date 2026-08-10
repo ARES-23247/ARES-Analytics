@@ -4,12 +4,14 @@ import com.ares.analytics.shared.TelemetryFrame
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.withTimeout
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
+@OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class ReplayCacheAndClockTest {
     @Test
     fun `playback elapsed time comes from injected clock`() = runTest {
@@ -21,7 +23,11 @@ class ReplayCacheAndClockTest {
                 )
             )
             val clock = IncrementingClock(stepMs = 25)
-            val replay = ReplayEngineService(database, clock = clock)
+            val replay = ReplayEngineService(
+                database,
+                clock = clock,
+                replayDispatcher = StandardTestDispatcher(testScheduler)
+            )
             try {
                 replay.loadSession("clock")
                 replay.play()
@@ -30,7 +36,7 @@ class ReplayCacheAndClockTest {
 
                 assertEquals(0.25, replay.progress.value, absoluteTolerance = 0.01)
             } finally {
-                replay.dispose()
+                replay.disposeAndJoin()
             }
         }
     }
@@ -53,7 +59,7 @@ class ReplayCacheAndClockTest {
                 assertEquals(1L, replay.cacheMetrics.value.prefetchHits)
                 assertTrue(replay.cacheMetrics.value.cachedFrames <= 200_000)
             } finally {
-                replay.dispose()
+                replay.disposeAndJoin()
             }
         }
     }
