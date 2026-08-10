@@ -66,6 +66,15 @@ Useful narrower checks:
 .\gradlew.bat :app:test --tests com.ares.analytics.service.ParquetExporterServiceTest
 ```
 
+Run the automated dashboard smoke or 30-minute-equivalent soak profile:
+
+```powershell
+.\gradlew.bat :app:dashboardSmoke
+.\gradlew.bat :app:dashboardSoak
+```
+
+Both tasks enforce performance budgets and write JSON plus Markdown reports under `app/build/reports/dashboard-validation/`. See [Automated dashboard validation](docs/VALIDATION.md) for workload settings, budget overrides, CI behavior, and hardware-test boundaries.
+
 ## Runtime data flow
 
 ```text
@@ -133,6 +142,7 @@ The Compose client is not subject to browser CORS. Browser access must be explic
 
 ## Documentation
 
+- [Automated dashboard validation](docs/VALIDATION.md) - smoke/soak profiles, performance budgets, reports, and CI
 - [Architecture](ARCHITECTURE.md) — modules, service lifecycles, persistence, replay, and extension points
 - [Telemetry contract](docs/TELEMETRY_CONTRACT.md) — canonical topics, types, coordinate conventions, and NT4 behavior
 - [Operations guide](docs/OPERATIONS.md) — setup, connections, import/replay workflows, and troubleshooting

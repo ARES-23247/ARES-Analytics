@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.gradle.api.tasks.testing.Test
 
 // Single source of truth for the application version. Consumed both by the native
 // distribution packaging below and by the generated BuildConfig (see generateBuildConfig).
@@ -119,6 +120,76 @@ compose.desktop {
                 upgradeUuid = "a3e52324-7000-4224-8700-1c7b8d9e2a3c"
             }
         }
+    }
+}
+
+private val validationPropertyNames = listOf(
+    "simulatedSeconds",
+    "sampleRateHz",
+    "topicCount",
+    "batchSize",
+    "queryIterations",
+    "minIngestionFramesPerSecond",
+    "maxQueryP95Ms",
+    "maxReplayLoadMs",
+    "maxReplayScrubP95Ms",
+    "maxParquetOperationMs",
+    "maxHeapGrowthMb",
+    "maxDropRate",
+    "hardwareHost",
+    "hardwarePort",
+    "hardwareObservationSeconds",
+    "hardwareConnectTimeoutSeconds",
+    "hardwareMinFrames",
+    "hardwareMinTopics",
+    "hardwareRequiredKeys"
+)
+
+fun Test.configureDashboardValidation(profile: String) {
+    group = "verification"
+    description = "Runs the $profile dashboard telemetry and performance validation profile."
+    maxParallelForks = 1
+    outputs.upToDateWhen { false }
+    systemProperty("java.awt.headless", "true")
+    systemProperty("ares.validation.profile", profile)
+    systemProperty(
+        "ares.validation.reportDir",
+        project.layout.buildDirectory.dir("reports/dashboard-validation").get().asFile.absolutePath
+    )
+    validationPropertyNames.forEach { name ->
+        project.providers.gradleProperty("validation.$name").orNull?.let { value ->
+            systemProperty("ares.validation.$name", value)
+        }
+    }
+}
+
+tasks.register<Test>("dashboardSmoke") {
+    configureDashboardValidation("smoke")
+    filter {
+        includeTestsMatching("com.ares.analytics.validation.DashboardValidationTest")
+        includeTestsMatching("com.ares.analytics.service.AppSimE2EPipelineTest")
+        includeTestsMatching("com.ares.analytics.service.DatabaseServiceIntegrationTest")
+        includeTestsMatching("com.ares.analytics.service.ExportServiceTest")
+        includeTestsMatching("com.ares.analytics.service.ReplayEngineServiceTest")
+        includeTestsMatching("com.ares.analytics.service.AlertEngineServiceTest")
+        includeTestsMatching("com.ares.analytics.service.AlertEngineCompositeTest")
+    }
+}
+
+tasks.register<Test>("dashboardSoak") {
+    configureDashboardValidation("soak")
+    maxHeapSize = "2g"
+    filter {
+        includeTestsMatching("com.ares.analytics.validation.DashboardValidationTest")
+        includeTestsMatching("com.ares.analytics.service.AppSimE2EPipelineTest")
+    }
+}
+
+tasks.register<Test>("dashboardHardware") {
+    configureDashboardValidation("hardware")
+    description = "Validates dashboard telemetry against a physical robot or external simulator."
+    filter {
+        includeTestsMatching("com.ares.analytics.validation.HardwareDashboardValidationTest")
     }
 }
 
