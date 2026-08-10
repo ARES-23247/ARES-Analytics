@@ -58,6 +58,11 @@ fun DataTablePanel(
     val listState = rememberLazyListState()
     val currentFrame by replayEngineService.currentFrame.collectAsState()
     val activeTimestamp = currentFrame?.timestampMs ?: 0L
+    val activeWindow = if (activeTimestamp > 0L && startTimestampMs > 0L) {
+        (activeTimestamp - startTimestampMs).coerceAtLeast(0L) / TABLE_WINDOW_MS
+    } else {
+        0L
+    }
 
     // Fetch keys on session change
     LaunchedEffect(sessionId) {
@@ -87,13 +92,20 @@ fun DataTablePanel(
     }
 
     // Align values using sample-and-hold when keys or session changes
-    LaunchedEffect(sessionId, selectedKeys.toList()) {
+    LaunchedEffect(sessionId, selectedKeys.toList(), activeWindow) {
         if (sessionId != null && selectedKeys.isNotEmpty()) {
             scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                val data = mutableMapOf<String, List<TelemetryFrame>>()
-                for (key in selectedKeys) {
-                    data[key] = databaseService.getTelemetryForKey(sessionId, key)
-                }
+                val center = if (activeTimestamp in startTimestampMs..endTimestampMs) activeTimestamp else startTimestampMs
+                val queryStart = (center - TABLE_WINDOW_MS).coerceAtLeast(startTimestampMs)
+                val queryEnd = (center + TABLE_WINDOW_MS).coerceAtMost(endTimestampMs)
+                val page = databaseService.getTelemetryPageForKeys(
+                    sessionId = sessionId,
+                    keys = selectedKeys.toList(),
+                    startMs = queryStart,
+                    endMs = queryEnd,
+                    limit = MAX_TABLE_FRAMES
+                )
+                val data = page.groupBy { it.key }
 
                 // Gather all distinct timestamps across selected keys
                 val allTimestamps = data.values.flatMap { list -> list.map { it.timestampMs } }.distinct().sorted()
@@ -116,6 +128,9 @@ fun DataTablePanel(
             telemetryRows = emptyList()
         }
     }
+
+    // Historical tables intentionally query only the playhead viewport. LazyColumn virtualizes
+    // rendering, while this bound also prevents an entire long match from entering heap memory.
 
     // Auto-scroll table to active frame row during replay playback
     LaunchedEffect(activeTimestamp) {
@@ -319,3 +334,6 @@ fun DataTablePanel(
         }
     }
 }
+
+private const val TABLE_WINDOW_MS = 5_000L
+private const val MAX_TABLE_FRAMES = 5_000

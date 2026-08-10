@@ -128,6 +128,21 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     suspend fun getTelemetryRangeBatched(sessionId: String, startMs: Long, endMs: Long, limit: Long, offset: Long): List<TelemetryFrame> = matchLogRepo.getTelemetryRangeBatched(sessionId, startMs, endMs, limit, offset)
     suspend fun countTelemetryFrames(sessionId: String): Long = matchLogRepo.countTelemetryFrames(sessionId)
     suspend fun getTelemetryForKey(sessionId: String, key: String): List<TelemetryFrame> = matchLogRepo.getTelemetryForKey(sessionId, key)
+    suspend fun getTelemetrySeries(
+        sessionId: String,
+        key: String,
+        startMs: Long,
+        endMs: Long,
+        maxPoints: Int = 1_000
+    ): List<TelemetryFrame> = matchLogRepo.getTelemetrySeries(sessionId, key, startMs, endMs, maxPoints)
+    suspend fun getTelemetryPageForKeys(
+        sessionId: String,
+        keys: List<String>,
+        startMs: Long,
+        endMs: Long,
+        limit: Int = 5_000,
+        offset: Long = 0
+    ): List<TelemetryFrame> = matchLogRepo.getTelemetryPageForKeys(sessionId, keys, startMs, endMs, limit, offset)
     suspend fun getDistinctTelemetryKeys(sessionId: String): List<String> = matchLogRepo.getDistinctTelemetryKeys(sessionId)
     suspend fun getTelemetryForKeyPatterns(sessionId: String, patterns: List<String>): List<TelemetryFrame> =
         matchLogRepo.getTelemetryForKeyPatterns(sessionId, patterns)
