@@ -23,13 +23,13 @@ import io.ktor.client.engine.okhttp.OkHttp
  * FTC Control Hubs, and ARES Physics Simulators.
  *
  * ### NetworkTables 4 Protocol Specifications:
- * - **WebSocket Connection URI:** `ws://<host>:5810/nt/v4/ws`
+ * - **WebSocket Connection URI:** `ws://<host>:5810/nt/ARES-Analytics-<timestamp>`
  * - **Subscription Handshake:**
  *   $$\text{Subscribe} \iff \{ \text{"method": "subscribe"}, \text{"params": } \{ \text{"topics": } [\text{"/Drive/Pose_X"}, \text{"/Drive/Pose_Y"}, \dots] \} \}$$
  *
  * ### Performance & Memory Guarantees:
  * - **Streaming Rate:** $20\text{ Hz}$ live telemetry to $100\text{ Hz}$ high-density log replay
- * - **Buffer Capacity:** $65,536$ frames in a non-blocking `SharedFlow` with `DROP_OLDEST` overflow strategy.
+ * - **Backpressure:** bounded lossless buffers suspend the WebSocket reader when consumers or persistence fall behind.
  * - **Thread Safety:** Fully thread-safe state management via `ConcurrentHashMap` and atomic volatile references.
  *
  * @param databaseService SQLite log persistence engine for historical telemetry recording.
@@ -93,15 +93,15 @@ open class Nt4ClientService(
 
     private val _telemetryFlow = MutableSharedFlow<TelemetryFrame>(
         replay = 100,
-        extraBufferCapacity = 1024,
-        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+        extraBufferCapacity = 4096,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.SUSPEND
     )
     open val telemetryFlow: SharedFlow<TelemetryFrame> = _telemetryFlow.asSharedFlow()
 
     private val _consoleFlow = MutableSharedFlow<ConsoleMessage>(
         replay = 100,
         extraBufferCapacity = 1024,
-        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.SUSPEND
     )
     val consoleFlow: SharedFlow<ConsoleMessage> = _consoleFlow.asSharedFlow()
 
@@ -139,28 +139,66 @@ open class Nt4ClientService(
         }
     }
 
-    private val pendingFrames = kotlinx.coroutines.channels.Channel<TelemetryFrame>(capacity = 100_000, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
+    private val pendingFrames = kotlinx.coroutines.channels.Channel<TelemetryFrame>(capacity = 100_000)
+    private val retryFrames = java.util.ArrayDeque<TelemetryFrame>()
+    private val flushMutex = kotlinx.coroutines.sync.Mutex()
+    private val sessionMutex = kotlinx.coroutines.sync.Mutex()
 
-    suspend fun flushPendingFrames() {
-        val framesToInsert = mutableListOf<TelemetryFrame>()
-        while (true) {
-            val frame = pendingFrames.tryReceive().getOrNull() ?: break
-            framesToInsert.add(frame)
+    suspend fun flushPendingFrames(): Boolean = flushMutex.withLock {
+        // Do not drain newer channel values behind a failed batch. Keeping one ordered retry
+        // deque plus the bounded channel preserves arrival order and applies backpressure.
+        if (retryFrames.isEmpty()) {
+            while (true) {
+                val frame = pendingFrames.tryReceive().getOrNull() ?: break
+                retryFrames.addLast(frame)
+            }
         }
-        if (framesToInsert.isNotEmpty()) {
+
+        var latestLiveTimestamp: Long? = null
+        while (retryFrames.isNotEmpty()) {
+            val liveBatch = retryFrames.first().sessionId == LIVE_SESSION_ID
+            val chunk = ArrayList<TelemetryFrame>(100)
+            val iterator = retryFrames.iterator()
+            while (iterator.hasNext() && chunk.size < 100) {
+                val frame = iterator.next()
+                if ((frame.sessionId == LIVE_SESSION_ID) != liveBatch) break
+                chunk.add(frame)
+            }
+
             try {
-                framesToInsert.chunked(100).forEach { chunk ->
-                    databaseService.insertTelemetryFrames(chunk)
+                databaseService.insertTelemetryFrames(chunk)
+            } catch (e: Exception) {
+                e.printStackTrace()
+                return@withLock false
+            }
+            repeat(chunk.size) { retryFrames.removeFirst() }
+            if (liveBatch) {
+                val chunkMax = chunk.maxOfOrNull { it.timestampMs }
+                if (chunkMax != null && (latestLiveTimestamp == null || chunkMax > latestLiveTimestamp!!)) {
+                    latestLiveTimestamp = chunkMax
                 }
-                val maxTimestamp = framesToInsert.filter { it.sessionId == "live-telemetry" }.maxOfOrNull { it.timestampMs }
-                if (maxTimestamp != null) {
-                    val cutoff = maxTimestamp - 300_000
-                    databaseService.pruneTelemetryFrames("live-telemetry", cutoff)
-                }
-            } catch (e: java.lang.Exception) {
+            }
+        }
+
+        if (latestLiveTimestamp != null) {
+            try {
+                databaseService.pruneTelemetryFrames(LIVE_SESSION_ID, latestLiveTimestamp!! - 300_000)
+            } catch (e: Exception) {
+                // Pruning is maintenance, not persistence. Frames were committed successfully.
                 e.printStackTrace()
             }
         }
+        true
+    }
+
+    internal suspend fun retainedRetryFrameCount(): Int = flushMutex.withLock { retryFrames.size }
+
+    internal fun clearLiveTargetState() {
+        topicMap.clear()
+        discoveredKeys.clear()
+        latestValues.clear()
+        telemetryHistory.clear()
+        cachedActiveTopics = null
     }
 
     private var clientJob: Job? = null
@@ -175,6 +213,8 @@ open class Nt4ClientService(
         serviceScope.launch {
             connectionMutex.withLock {
                 clientJob?.cancelAndJoin()
+                while (isActive && !flushPendingFrames()) delay(250)
+                clearLiveTargetState()
                 clientJob = launch {
             try {
                 databaseService.deleteTelemetryFrames("live-telemetry")
@@ -241,12 +281,13 @@ open class Nt4ClientService(
                         send(Frame.Text(announceInputsMsg))
 
                         // 2. Subscribe to all topics (using explicit prefixes to support both WPILib and Sim)
+                        val subscriptionTopics = CANONICAL_SUBSCRIPTION_PREFIXES.joinToString(",") { "\"$it\"" }
                         val subMsg = """
                             [
                               {
                                 "method": "subscribe",
                                 "params": {
-                                  "topics": ["/ARES", "/Drive", "/Hardware", "/Topology", "/Tuning"],
+                                  "topics": [$subscriptionTopics],
                                   "subuid": 1,
                                   "options": {
                                     "prefix": true,
@@ -325,34 +366,8 @@ open class Nt4ClientService(
 
     private suspend fun sendBinaryUpdate(pubuid: Int, typeId: Byte, valueBytes: ByteArray) {
         val timestampUs = System.nanoTime() / 1000L
-        val size = 14 + valueBytes.size
-        val buffer = ByteArray(size)
-        
-        // Write array header (MsgPack array of 4 elements = 0x94)
-        buffer[0] = 0x94.toByte()
-        
-        // Write pubuid (encoded as MsgPack uint16)
-        buffer[1] = 0xcd.toByte()
-        buffer[2] = (pubuid shr 8).toByte()
-        buffer[3] = pubuid.toByte()
-        
-        // Write timestampUs (encoded as MsgPack uint64)
-        buffer[4] = 0xcf.toByte()
-        buffer[5] = (timestampUs shr 56).toByte()
-        buffer[6] = (timestampUs shr 48).toByte()
-        buffer[7] = (timestampUs shr 40).toByte()
-        buffer[8] = (timestampUs shr 32).toByte()
-        buffer[9] = (timestampUs shr 24).toByte()
-        buffer[10] = (timestampUs shr 16).toByte()
-        buffer[11] = (timestampUs shr 8).toByte()
-        buffer[12] = timestampUs.toByte()
-        
-        // Write typeId (encoded as positive fixint since typeId < 128)
-        buffer[13] = typeId
-        
-        // Write value bytes (already MsgPack encoded)
-        System.arraycopy(valueBytes, 0, buffer, 14, valueBytes.size)
-        
+        val buffer = encodeNt4BinaryUpdate(pubuid, timestampUs, typeId, valueBytes)
+
         // Heartbeat hex-dump is gated behind the `ares.debug.nt4` system property. It ran
         // unconditionally on every 50Hz heartbeat (pubuid 1010), allocating a joinToString +
         // String.format per frame and flooding stdout.
@@ -360,8 +375,45 @@ open class Nt4ClientService(
             val bytesStr = buffer.joinToString("") { String.format("%02x", it) }
             println("[Nt4ClientService] sendBinaryUpdate 1010 (heartbeat): timestampUs=$timestampUs, buffer=$bytesStr")
         }
-        
+
         webSocketSession?.send(Frame.Binary(true, buffer))
+    }
+
+    internal fun encodeNt4BinaryUpdate(
+        pubuid: Int,
+        timestampUs: Long,
+        typeId: Byte,
+        valueBytes: ByteArray
+    ): ByteArray {
+        val buffer = ByteArray(15 + valueBytes.size)
+
+        // NT4 binary messages are a MsgPack array of update tuples. Even a single
+        // update therefore needs the outer array header followed by the 4-tuple.
+        buffer[0] = 0x91.toByte()
+        buffer[1] = 0x94.toByte()
+
+        // Write pubuid (encoded as MsgPack uint16)
+        buffer[2] = 0xcd.toByte()
+        buffer[3] = (pubuid shr 8).toByte()
+        buffer[4] = pubuid.toByte()
+
+        // Write timestampUs (encoded as MsgPack uint64)
+        buffer[5] = 0xcf.toByte()
+        buffer[6] = (timestampUs shr 56).toByte()
+        buffer[7] = (timestampUs shr 48).toByte()
+        buffer[8] = (timestampUs shr 40).toByte()
+        buffer[9] = (timestampUs shr 32).toByte()
+        buffer[10] = (timestampUs shr 24).toByte()
+        buffer[11] = (timestampUs shr 16).toByte()
+        buffer[12] = (timestampUs shr 8).toByte()
+        buffer[13] = timestampUs.toByte()
+
+        // Write typeId (encoded as positive fixint since typeId < 128)
+        buffer[14] = typeId
+
+        // Write value bytes (already MsgPack encoded)
+        System.arraycopy(valueBytes, 0, buffer, 15, valueBytes.size)
+        return buffer
     }
 
     private val publishDoubleBuffer = ThreadLocal.withInitial { ByteArray(9) }
@@ -444,15 +496,12 @@ open class Nt4ClientService(
     }
 
     suspend fun publishFrame(frame: TelemetryFrame) {
-        val session = _currentSession.value
-        val finalFrame = if (session != null) {
-            frame.copy(sessionId = session.sessionId)
-        } else {
-            frame.copy(sessionId = "live-telemetry")
+        val finalFrame = sessionMutex.withLock {
+            val sessionId = _currentSession.value?.sessionId ?: LIVE_SESSION_ID
+            frame.copy(sessionId = sessionId).also { pendingFrames.send(it) }
         }
-        pendingFrames.trySend(finalFrame)
         if (!isReplayActive.value) {
-            _telemetryFlow.tryEmit(finalFrame)
+            _telemetryFlow.emit(finalFrame)
         }
     }
 
@@ -474,19 +523,25 @@ open class Nt4ClientService(
             allianceColor = allianceColor,
             tags = tags
         )
-        databaseService.insertSession(session)
-        _currentSession.value = session
+        sessionMutex.withLock {
+            databaseService.insertSession(session)
+            _currentSession.value = session
+        }
         return session
     }
 
     suspend fun stopRecordingSession() {
-        val session = _currentSession.value ?: return
-        flushPendingFrames() // Flush any remaining buffered frames to SQLite
-        val endTime = System.currentTimeMillis()
-        val duration = endTime - session.createdAt
-        val updated = session.copy(durationMs = duration)
-        databaseService.insertSession(updated)
-        _currentSession.value = null
+        sessionMutex.withLock {
+            val session = _currentSession.value ?: return
+            _currentSession.value = null
+            if (!flushPendingFrames()) {
+                _currentSession.value = session
+                throw java.io.IOException("Failed to persist all pending telemetry frames")
+            }
+            val endTime = System.currentTimeMillis()
+            val duration = endTime - session.createdAt
+            databaseService.insertSession(session.copy(durationMs = duration))
+        }
     }
 
     internal suspend fun handleIncomingText(
@@ -649,8 +704,6 @@ open class Nt4ClientService(
         }
 
         if (valueElement is JsonArray || valueElement is List<*> || valueElement is DoubleArray || valueElement is FloatArray || valueElement is Array<*>) {
-            val session = _currentSession.value
-            val sessionId = session?.sessionId ?: "live-telemetry"
             val frames = mutableListOf<TelemetryFrame>()
             
             val size = when (valueElement) {
@@ -675,26 +728,18 @@ open class Nt4ClientService(
                     else -> null
                 }
                 
-                val doubleValue = when (element) {
-                    is JsonPrimitive -> if (element.isString) element.content.toDoubleOrNull() ?: 0.0 else element.doubleOrNull ?: 0.0
-                    is Number -> element.toDouble()
-                    is String -> element.toDoubleOrNull() ?: 0.0
-                    else -> 0.0
-                }
-                val stringValue = when (element) {
-                    is JsonPrimitive -> if (element.isString) element.content else null
-                    is String -> element
-                    else -> null
-                }
+                val (doubleValue, stringValue) = coerceTelemetryValue(element)
                 sb.setLength(baseLen)
                 val frameKey = sb.append(idx).toString()
-                val frame = TelemetryFrame(
-                    timestampMs = timestampMs,
-                    sessionId = sessionId,
-                    key = frameKey,
-                    value = doubleValue,
-                    stringValue = stringValue
-                )
+                val frame = sessionMutex.withLock {
+                    TelemetryFrame(
+                        timestampMs = timestampMs,
+                        sessionId = _currentSession.value?.sessionId ?: LIVE_SESSION_ID,
+                        key = frameKey,
+                        value = doubleValue,
+                        stringValue = stringValue
+                    ).also { pendingFrames.send(it) }
+                }
                 frames.add(frame)
                 latestValues[frame.key] = frame
                 val history = telemetryHistory.getOrPut(frame.key) { java.util.ArrayDeque() }
@@ -709,36 +754,23 @@ open class Nt4ClientService(
                     }
                 }
                 if (!isReplayActive.value) {
-                    _telemetryFlow.tryEmit(frame)
+                    _telemetryFlow.emit(frame)
                 }
-                pendingFrames.trySend(frame)
             }
             return
         }
 
         // Extract double value and string value
-        val doubleValue = when (valueElement) {
-            is JsonPrimitive -> if (valueElement.isString) valueElement.content.toDoubleOrNull() ?: 0.0 else valueElement.doubleOrNull ?: 0.0
-            is Number -> valueElement.toDouble()
-            is String -> valueElement.toDoubleOrNull() ?: 0.0
-            else -> 0.0
+        val (doubleValue, stringValue) = coerceTelemetryValue(valueElement)
+        val frame = sessionMutex.withLock {
+            TelemetryFrame(
+                timestampMs = timestampMs,
+                sessionId = _currentSession.value?.sessionId ?: LIVE_SESSION_ID,
+                key = normalizedName,
+                value = doubleValue,
+                stringValue = stringValue
+            ).also { pendingFrames.send(it) }
         }
-        val stringValue = when (valueElement) {
-            is JsonPrimitive -> if (valueElement.isString) valueElement.content else null
-            is String -> valueElement
-            else -> null
-        }
-        val session = _currentSession.value
-        val sessionId = session?.sessionId ?: "live-telemetry"
-        val frame = TelemetryFrame(
-            timestampMs = timestampMs,
-            sessionId = sessionId,
-            key = normalizedName,
-            value = doubleValue,
-            stringValue = stringValue
-        )
-
-        pendingFrames.trySend(frame)
         latestValues[frame.key] = frame
         val history = telemetryHistory.getOrPut(frame.key) { java.util.ArrayDeque() }
         synchronized(history) {
@@ -752,7 +784,7 @@ open class Nt4ClientService(
             }
         }
         if (!isReplayActive.value) {
-            _telemetryFlow.tryEmit(frame)
+            _telemetryFlow.emit(frame)
         }
     }
     private var nextPubUid = 2000
@@ -798,7 +830,7 @@ open class Nt4ClientService(
             value = value
         )
         latestValues[cleanKey] = frame
-        _telemetryFlow.tryEmit(frame)
+        _telemetryFlow.emit(frame)
         
         publishInputDouble(pubuid, value)
     }
@@ -855,5 +887,27 @@ open class Nt4ClientService(
 
     fun subscribeDouble(key: String): Flow<Double> {
         return telemetryFlow.filter { it.key == key }.map { it.value }
+    }
+
+    internal fun coerceTelemetryValue(valueElement: Any?): Pair<Double, String?> = when (valueElement) {
+        is JsonPrimitive -> when {
+            valueElement.isString -> (valueElement.content.toDoubleOrNull() ?: 0.0) to valueElement.content
+            valueElement.booleanOrNull != null -> (if (valueElement.boolean) 1.0 else 0.0) to null
+            else -> (valueElement.doubleOrNull ?: 0.0) to null
+        }
+        is Boolean -> (if (valueElement) 1.0 else 0.0) to null
+        is Number -> valueElement.toDouble() to null
+        is String -> (valueElement.toDoubleOrNull() ?: 0.0) to valueElement
+        else -> 0.0 to null
+    }
+
+    companion object {
+        internal const val LIVE_SESSION_ID = "live-telemetry"
+        internal val CANONICAL_SUBSCRIPTION_PREFIXES = listOf(
+            "/ARES", "/Drive", "/Robot", "/Hardware", "/Topology", "/Tuning",
+            "/Profiling", "/Diagnostics", "/Vision", "/Path", "/Gamepad1", "/Gamepad2",
+            "/Superstructure", "/Calibration", "/SysId", "/Swerve", "/Mechanism",
+            "/LoopTimeMs", "/TimestampMs"
+        )
     }
 }

@@ -299,14 +299,32 @@ class MatchLogRepository(
 
     suspend fun insertTelemetryFrames(frames: List<TelemetryFrame>) = withDbLock {
         if (frames.isEmpty()) return@withDbLock
-        val targetConn = if (frames.first().sessionId == "live-telemetry") ephemeralConn else conn
-        
-        if (targetConn === conn) {
-            // Use DuckDB Appender for persistent storage — bypasses SQL parser entirely
-            insertTelemetryFramesAppender(frames)
-        } else {
-            // Ephemeral connection (live telemetry) uses JDBC batch for INSERT OR REPLACE
-            insertTelemetryFramesJdbc(targetConn, frames)
+
+        // A single channel flush can straddle the moment a recording starts or stops.
+        // Route every row by its own session identity instead of trusting frame[0].
+        val liveFrames = frames.filter { it.sessionId == "live-telemetry" }
+        val persistentFrames = frames.filter { it.sessionId != "live-telemetry" }
+        if (persistentFrames.isNotEmpty()) insertTelemetryFrames(conn, persistentFrames)
+        if (liveFrames.isNotEmpty()) insertTelemetryFrames(ephemeralConn, liveFrames)
+    }
+
+    private fun insertTelemetryFrames(targetConn: Connection, frames: List<TelemetryFrame>) {
+        val previousAutoCommit = targetConn.autoCommit
+        if (previousAutoCommit) targetConn.autoCommit = false
+        try {
+            if (targetConn === conn) {
+                // Use DuckDB Appender for persistent storage — bypasses SQL parser entirely
+                insertTelemetryFramesAppender(frames)
+            } else {
+                // Ephemeral connection (live telemetry) uses JDBC batch for INSERT OR REPLACE
+                insertTelemetryFramesJdbc(targetConn, frames)
+            }
+            if (previousAutoCommit) targetConn.commit()
+        } catch (e: Exception) {
+            if (previousAutoCommit) runCatching { targetConn.rollback() }
+            throw e
+        } finally {
+            if (previousAutoCommit) targetConn.autoCommit = true
         }
     }
 
@@ -328,8 +346,9 @@ class MatchLogRepository(
                 appender.append(frame.sessionId)
                 appender.append(frame.key)
                 appender.append(frame.value)
-                // DuckDB Appender doesn't support null — use empty string as sentinel
-                appender.append(frame.stringValue ?: "")
+                // DuckDBAppender maps a nullable String to SQL NULL. Empty string is a
+                // legitimate telemetry value and must remain distinguishable from null.
+                appender.append(frame.stringValue)
                 appender.endRow()
             }
             appender.flush()
@@ -408,35 +427,29 @@ class MatchLogRepository(
      * Used for live-telemetry on the ephemeral connection where deduplication matters.
      */
     private fun insertTelemetryFramesJdbc(targetConn: Connection, frames: List<TelemetryFrame>) {
-        val duckConn = targetConn.unwrap(org.duckdb.DuckDBConnection::class.java)
-        
-        targetConn.createStatement().use { st ->
-            st.execute("CREATE TEMP TABLE IF NOT EXISTS temp_telemetry_frames (timestamp_ms BIGINT, session_id VARCHAR, key VARCHAR, value DOUBLE, string_value VARCHAR)")
-            st.execute("DELETE FROM temp_telemetry_frames")
-        }
-        
-        val appender = duckConn.createAppender("temp", "temp_telemetry_frames")
-        try {
-            for (frame in frames) {
-                appender.beginRow()
-                appender.append(frame.timestampMs)
-                appender.append(frame.sessionId)
-                appender.append(frame.key)
-                appender.append(frame.value)
-                appender.append(frame.stringValue ?: "")
-                appender.endRow()
+        targetConn.prepareStatement(
+            """
+                INSERT OR REPLACE INTO telemetry_frames
+                    (timestamp_ms, session_id, key, value, string_value)
+                VALUES (?, ?, ?, ?, ?)
+            """.trimIndent()
+        ).use { statement ->
+            frames.forEachIndexed { index, frame ->
+                statement.setLong(1, frame.timestampMs)
+                statement.setString(2, frame.sessionId)
+                statement.setString(3, frame.key)
+                statement.setDouble(4, frame.value)
+                if (frame.stringValue == null) {
+                    statement.setNull(5, java.sql.Types.VARCHAR)
+                } else {
+                    statement.setString(5, frame.stringValue)
+                }
+                statement.addBatch()
+
+                // Bound driver-side batch memory during sustained live telemetry.
+                if ((index + 1) % 1_000 == 0) statement.executeBatch()
             }
-            appender.flush()
-        } finally {
-            appender.close()
-        }
-        
-        targetConn.createStatement().use { st ->
-            st.execute("""
-                INSERT OR REPLACE INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value)
-                SELECT timestamp_ms, session_id, key, value, CASE WHEN string_value = '' THEN NULL ELSE string_value END 
-                FROM temp_telemetry_frames
-            """.trimIndent())
+            statement.executeBatch()
         }
     }
 
@@ -465,6 +478,31 @@ class MatchLogRepository(
             ps.setString(1, sessionId)
             ps.setLong(2, startMs)
             ps.setLong(3, endMs)
+            ps.executeQuery().use { rs ->
+                while (rs.next()) list.add(rs.toTelemetryFrame())
+            }
+        }
+        list
+    }
+
+    /**
+     * Returns the most recent value for every topic strictly before [timestampMs].
+     * Replay uses this as the latched-state baseline when it loads a bounded window.
+     */
+    suspend fun getLatestTelemetryBefore(sessionId: String, timestampMs: Long): List<TelemetryFrame> = withReadLock {
+        val targetConn = if (sessionId == "live-telemetry") ephemeralConn else readConn
+        val list = mutableListOf<TelemetryFrame>()
+        targetConn.prepareStatement(
+            """
+            SELECT timestamp_ms, session_id, key, value, string_value
+            FROM telemetry_frames
+            WHERE session_id = ? AND timestamp_ms < ?
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY key ORDER BY timestamp_ms DESC) = 1
+            ORDER BY timestamp_ms ASC
+            """.trimIndent()
+        ).use { ps ->
+            ps.setString(1, sessionId)
+            ps.setLong(2, timestampMs)
             ps.executeQuery().use { rs ->
                 while (rs.next()) list.add(rs.toTelemetryFrame())
             }

@@ -46,10 +46,10 @@ class SummaryEngineService(
         val aggregateResult = databaseService.executeQueryWithParams(
             """
             SELECT
-                MIN(CASE WHEN (LOWER(key) LIKE '%voltage%' OR LOWER(key) LIKE '%battery%') AND value > 1.0 THEN value END) AS min_battery_voltage,
-                MAX(CASE WHEN LOWER(key) LIKE '%drift%' OR LOWER(key) LIKE '%ekf%' OR LOWER(key) LIKE '%poseerror%' THEN value END) AS max_ekf_drift,
-                AVG(CASE WHEN LOWER(key) LIKE '%loop%' OR LOWER(key) LIKE '%period%' THEN value END) AS avg_loop_time,
-                AVG(CASE WHEN LOWER(key) LIKE '%vision%' AND (LOWER(key) LIKE '%acceptance%' OR LOWER(key) LIKE '%valid%' OR LOWER(key) LIKE '%quality%') THEN value END) AS vision_acceptance_rate,
+                MIN(CASE WHEN LOWER(key) LIKE '%battery%' AND LOWER(key) LIKE '%voltage%' AND value > 1.0 THEN value END) AS min_battery_voltage,
+                MAX(CASE WHEN LOWER(key) LIKE '%drift%' OR LOWER(key) LIKE '%poseerror%' THEN ABS(value) END) AS max_ekf_drift,
+                AVG(CASE WHEN LOWER(key) LIKE '%looptime%' OR LOWER(key) LIKE '%loop_time%' THEN value END) AS avg_loop_time,
+                AVG(CASE WHEN LOWER(key) LIKE '%vision%' AND (LOWER(key) LIKE '%acceptance%' OR LOWER(key) LIKE '%accepted%') THEN value END) AS vision_acceptance_rate,
                 AVG(CASE WHEN LOWER(key) LIKE '%crosstrack%' OR LOWER(key) LIKE '%xte%' THEN ABS(value) END) AS avg_cross_track,
                 AVG(CASE WHEN LOWER(key) LIKE '%vision%' AND LOWER(key) LIKE '%latency%' THEN value END) AS avg_vision_latency
             FROM telemetry_frames WHERE session_id = ?
@@ -60,7 +60,7 @@ class SummaryEngineService(
         val minBattery = aggRow?.getOrNull(0)?.toDoubleOrNull() ?: 12.0
         val maxDrift = aggRow?.getOrNull(1)?.toDoubleOrNull() ?: 0.0
         val avgLoop = aggRow?.getOrNull(2)?.toDoubleOrNull() ?: 0.0
-        val visionRate = aggRow?.getOrNull(3)?.toDoubleOrNull() ?: 1.0
+        val visionRate = aggRow?.getOrNull(3)?.toDoubleOrNull() ?: 0.0
         val avgCrossTrack = aggRow?.getOrNull(4)?.toDoubleOrNull() ?: 0.0
         val avgVisionLat = aggRow?.getOrNull(5)?.toDoubleOrNull() ?: 0.0
 
@@ -69,7 +69,7 @@ class SummaryEngineService(
             """
             SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY value) AS p95_loop_time
             FROM telemetry_frames
-            WHERE session_id = ? AND (LOWER(key) LIKE '%loop%' OR LOWER(key) LIKE '%period%')
+            WHERE session_id = ? AND (LOWER(key) LIKE '%looptime%' OR LOWER(key) LIKE '%loop_time%')
             """.trimIndent(),
             listOf(session.sessionId)
         )
@@ -80,7 +80,7 @@ class SummaryEngineService(
             """
             SELECT
                 CASE
-                    WHEN LOWER(SPLIT_PART(key, '/', -1)) IN ('current', 'amps')
+                    WHEN LOWER(SPLIT_PART(key, '/', -1)) IN ('current', 'currentamps', 'amps')
                         THEN SPLIT_PART(key, '/', -2)
                     ELSE REGEXP_REPLACE(REGEXP_REPLACE(SPLIT_PART(key, '/', -1), '(?i)current', ''), '(?i)amps', '')
                 END AS motor_name,
@@ -128,16 +128,19 @@ class SummaryEngineService(
             """
             SELECT DISTINCT string_value
             FROM telemetry_frames
-            WHERE session_id = ? AND LOWER(key) = 'opmode' AND string_value IS NOT NULL
+            WHERE session_id = ?
+              AND LOWER(SPLIT_PART(key, '/', -1)) = 'opmode'
+              AND string_value IS NOT NULL
             """.trimIndent(),
             listOf(session.sessionId)
         )
         val detectedModes = opModeResult.rows.mapNotNull { it.getOrNull(0)?.takeIf { v -> v != "NULL" } }.toSet()
-        val finalTags = (session.tags + detectedModes).distinct()
 
         // Motor thermal estimation requires sequential state (temperature depends on previous temperature)
         // and cannot be vectorized into SQL without recursive CTEs.
         val maxMotorTemps = emptyMap<String, Double>()
+        val diagnosticTags = calculateAndSaveDiagnostics(session)
+        val finalTags = (session.tags + detectedModes + diagnosticTags).distinct()
         val summary = SessionSummary(
             sessionId = session.sessionId,
             teamId = session.teamId,
@@ -161,11 +164,11 @@ class SummaryEngineService(
         )
 
         databaseService.insertSessionSummary(summary)
-        calculateAndSaveDiagnostics(session)
         summary
     }
 
-    private suspend fun calculateAndSaveDiagnostics(session: Session) {
+    private suspend fun calculateAndSaveDiagnostics(session: Session): List<String> {
+        var resolvedTags = session.tags
         try {
             val allFrames = databaseService.getTelemetryForFilters(
                 sessionId = session.sessionId,
@@ -173,11 +176,15 @@ class SummaryEngineService(
                     "/Drive/Voltage", "Drive/Voltage",
                     "/Drive/Velocity", "Drive/Velocity",
                     "/Drive/Acceleration", "Drive/Acceleration",
-                    "Drive/Velocity_Omega", "/Drive/Velocity_Omega"
+                    "Drive/Velocity_Omega", "/Drive/Velocity_Omega",
+                    "Robot/BatteryVoltage", "/Robot/BatteryVoltage",
+                    "Battery/Voltage", "/Battery/Voltage",
+                    "Robot/LoopTimeMs", "/Robot/LoopTimeMs",
+                    "Profiling/LoopTime_ms", "/Profiling/LoopTime_ms"
                 ),
                 prefixes = listOf("Diagnostics/%", "Hardware/Motors/%")
             )
-            if (allFrames.isEmpty()) return
+            if (allFrames.isEmpty()) return resolvedTags
             val framesToInsert = mutableListOf<TelemetryFrame>()
 
             // Loop Overruns and Comms Losses calculation
@@ -224,7 +231,8 @@ class SummaryEngineService(
             if (brownoutCount > 0.0) newTags.add("Brownout")
             if (hasMotorFaults) newTags.add("MotorFault")
             val uniqueTags = newTags.distinct()
-            if (uniqueTags.size != session.tags.size) {
+            resolvedTags = uniqueTags
+            if (uniqueTags != session.tags) {
                 databaseService.updateSessionTags(session.sessionId, uniqueTags)
             }
 
@@ -477,6 +485,7 @@ class SummaryEngineService(
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        return resolvedTags
     }
 
     private fun cleanKeyToDeviceName(key: String): String {

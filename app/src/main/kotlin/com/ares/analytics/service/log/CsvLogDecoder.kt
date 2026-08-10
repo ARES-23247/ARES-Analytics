@@ -30,6 +30,10 @@ import java.io.File
  */
 class CsvLogDecoder(private val databaseService: DatabaseService) {
 
+    private companion object {
+        const val EXTRA_FIELDS_COLUMN = "_ExtraFieldsJson"
+    }
+
 
     /**
      * Imports a CSV file directly into DuckDB using native `read_csv_auto` + `UNPIVOT`,
@@ -52,34 +56,92 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
 
         // Use DuckDB's native CSV reader with UNPIVOT to convert wide-format CSV
         // directly into the long-format telemetry_frames schema in a single SQL pass.
+        // ARESDataLogger reserves _ExtraFieldsJson for keys that first appear after the
+        // stable CSV header. Expand that object back into ordinary telemetry rows so late
+        // keys remain first-class data throughout import, replay, and analysis.
         val escapedSessionId = sessionId.replace("'", "''")
         val escapedTimeCol = timeColumnName.replace("'", "''").replace("\"", "\"\"")
+        val hasExtraFields = headers.any { it.trim().trim('"') == EXTRA_FIELDS_COLUMN }
 
-        databaseService.executeNativeCsvImport("""
-            INSERT INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value)
-            SELECT
-                CAST("$escapedTimeCol" AS BIGINT) AS timestamp_ms,
-                '$escapedSessionId' AS session_id,
-                key,
-                COALESCE(
-                    CASE 
-                        WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0
-                        WHEN LOWER(CAST(value AS VARCHAR)) = 'false' THEN 0.0
-                        ELSE TRY_CAST(value AS DOUBLE) 
-                    END,
-                    0.0
-                ) AS value,
-                CASE 
-                    WHEN LOWER(CAST(value AS VARCHAR)) IN ('true', 'false') THEN NULL
-                    WHEN TRY_CAST(value AS DOUBLE) IS NULL THEN CAST(value AS VARCHAR) 
-                END AS string_value
-            FROM (
-                SELECT * FROM read_csv_auto('$absolutePath', header=true, ignore_errors=true, all_varchar=true)
-            ) UNPIVOT (
-                value FOR key IN (* EXCLUDE ("$escapedTimeCol"))
-            )
-            WHERE value IS NOT NULL AND CAST(value AS VARCHAR) != ''
-        """.trimIndent())
+        val importSql = if (hasExtraFields) {
+            """
+                INSERT INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value)
+                WITH raw AS (
+                    SELECT * FROM read_csv_auto('$absolutePath', header=true, ignore_errors=true, all_varchar=true)
+                ), regular_fields AS (
+                    SELECT
+                        CAST("$escapedTimeCol" AS BIGINT) AS timestamp_ms,
+                        key,
+                        value
+                    FROM raw
+                    UNPIVOT (
+                        value FOR key IN (* EXCLUDE ("$escapedTimeCol", "$EXTRA_FIELDS_COLUMN"))
+                    )
+                ), extra_fields AS (
+                    SELECT
+                        CAST(raw."$escapedTimeCol" AS BIGINT) AS timestamp_ms,
+                        extra.key AS key,
+                        json_extract_string(
+                            TRY_CAST(NULLIF(raw."$EXTRA_FIELDS_COLUMN", '') AS JSON),
+                            '/' || replace(replace(extra.key, '~', '~0'), '/', '~1')
+                        ) AS value
+                    FROM raw
+                    CROSS JOIN UNNEST(
+                        json_keys(TRY_CAST(NULLIF(raw."$EXTRA_FIELDS_COLUMN", '') AS JSON))
+                    ) AS extra(key)
+                ), all_fields AS (
+                    SELECT * FROM regular_fields
+                    UNION ALL
+                    SELECT * FROM extra_fields
+                )
+                SELECT
+                    timestamp_ms,
+                    '$escapedSessionId' AS session_id,
+                    key,
+                    COALESCE(
+                        CASE
+                            WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0
+                            WHEN LOWER(CAST(value AS VARCHAR)) = 'false' THEN 0.0
+                            ELSE TRY_CAST(value AS DOUBLE)
+                        END,
+                        0.0
+                    ) AS value,
+                    CASE
+                        WHEN LOWER(CAST(value AS VARCHAR)) IN ('true', 'false') THEN NULL
+                        WHEN TRY_CAST(value AS DOUBLE) IS NULL THEN CAST(value AS VARCHAR)
+                    END AS string_value
+                FROM all_fields
+                WHERE value IS NOT NULL AND CAST(value AS VARCHAR) != ''
+            """.trimIndent()
+        } else {
+            """
+                INSERT INTO telemetry_frames (timestamp_ms, session_id, key, value, string_value)
+                SELECT
+                    CAST("$escapedTimeCol" AS BIGINT) AS timestamp_ms,
+                    '$escapedSessionId' AS session_id,
+                    key,
+                    COALESCE(
+                        CASE
+                            WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0
+                            WHEN LOWER(CAST(value AS VARCHAR)) = 'false' THEN 0.0
+                            ELSE TRY_CAST(value AS DOUBLE)
+                        END,
+                        0.0
+                    ) AS value,
+                    CASE
+                        WHEN LOWER(CAST(value AS VARCHAR)) IN ('true', 'false') THEN NULL
+                        WHEN TRY_CAST(value AS DOUBLE) IS NULL THEN CAST(value AS VARCHAR)
+                    END AS string_value
+                FROM (
+                    SELECT * FROM read_csv_auto('$absolutePath', header=true, ignore_errors=true, all_varchar=true)
+                ) UNPIVOT (
+                    value FOR key IN (* EXCLUDE ("$escapedTimeCol"))
+                )
+                WHERE value IS NOT NULL AND CAST(value AS VARCHAR) != ''
+            """.trimIndent()
+        }
+
+        databaseService.executeNativeCsvImport(importSql)
     }
 
     /**

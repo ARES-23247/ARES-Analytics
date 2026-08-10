@@ -8,7 +8,7 @@ package com.ares.analytics.shared
 
  */
 enum class UnitCategory {
-    LENGTH, ANGLE, ANGULAR_VELOCITY, TIME, VOLTAGE, CURRENT, TEMPERATURE, NONE
+    LENGTH, LINEAR_VELOCITY, ANGLE, ANGULAR_VELOCITY, TIME, VOLTAGE, CURRENT, TEMPERATURE, NONE
 }
 
 /**
@@ -24,6 +24,10 @@ enum class RobotUnit(val symbol: String, val category: UnitCategory, val factorT
     INCH("in", UnitCategory.LENGTH, 0.0254),
     FOOT("ft", UnitCategory.LENGTH, 0.3048),
     CENTIMETER("cm", UnitCategory.LENGTH, 0.01),
+
+    // Linear velocity (Base: Meter/sec)
+    METER_PER_SEC("m/s", UnitCategory.LINEAR_VELOCITY, 1.0),
+    FOOT_PER_SEC("ft/s", UnitCategory.LINEAR_VELOCITY, 0.3048),
 
     // Angle (Base: Radian)
     RADIAN("rad", UnitCategory.ANGLE, 1.0),
@@ -116,20 +120,22 @@ object UnitConversion {
         return when {
             lowerKey.contains("voltage") || lowerKey.contains("volt") -> RobotUnit.VOLT
             lowerKey.contains("current") || lowerKey.contains("amp") -> RobotUnit.AMPERE
-            lowerKey.contains("temp") || lowerKey.contains("celsius") -> RobotUnit.CELSIUS
             lowerKey.contains("fahrenheit") -> RobotUnit.FAHRENHEIT
+            lowerKey.contains("temp") || lowerKey.contains("celsius") -> RobotUnit.CELSIUS
+            lowerKey.contains("rpm") -> RobotUnit.RPM
             lowerKey.contains("velocity") || lowerKey.contains("vel") -> {
-                if (lowerKey.contains("rot") || lowerKey.contains("rpm") || lowerKey.contains("ang")) {
+                if (lowerKey.contains("rot") || lowerKey.contains("ang") || lowerKey.contains("omega")) {
                     RobotUnit.RAD_PER_SEC
                 } else {
-                    RobotUnit.METER
+                    RobotUnit.METER_PER_SEC
                 }
             }
-            lowerKey.contains("angle") || lowerKey.contains("heading") || lowerKey.contains("yaw") || lowerKey.contains("pitch") || lowerKey.contains("roll") || lowerKey.contains("deg") -> RobotUnit.DEGREE
+            lowerKey.contains("deg") -> RobotUnit.DEGREE
             lowerKey.contains("rad") -> RobotUnit.RADIAN
             lowerKey.contains("rot") -> RobotUnit.ROTATION
+            lowerKey.contains("angle") || lowerKey.contains("heading") || lowerKey.contains("yaw") || lowerKey.contains("pitch") || lowerKey.contains("roll") -> RobotUnit.RADIAN
+            lowerKey.contains("ms") || lowerKey.contains("millis") || lowerKey.contains("latency") || lowerKey.contains("looptime") -> RobotUnit.MILLISECOND
             lowerKey.contains("time") || lowerKey.contains("sec") -> RobotUnit.SECOND
-            lowerKey.contains("ms") -> RobotUnit.MILLISECOND
             lowerKey.contains("distance") || lowerKey.contains("pos") || lowerKey.contains("x") || lowerKey.contains("y") || lowerKey.contains("z") -> RobotUnit.METER
             else -> null
         }

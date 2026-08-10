@@ -28,14 +28,16 @@ enum class ReplayState {
 }
 
 /**
- * Telemetry log replay frame container holding mapped numeric topic values at a timestamp offset.
+ * Telemetry log replay frame container holding mapped topic values at a timestamp offset.
  *
  * @property timestampMs Log timestamp in milliseconds ($ms$).
  * @property values Key-value map binding NT4 topic names to numeric telemetry values.
+ * @property stringValues String payloads for topics whose source frame carried text.
  */
 data class ReplayFrame(
     val timestampMs: Long,
-    val values: Map<String, Double>
+    val values: Map<String, Double>,
+    val stringValues: Map<String, String> = emptyMap()
 )
 
 /**
@@ -108,6 +110,9 @@ class ReplayEngineService(
     private var lastFrameIndex: Int = 0
     private var lastActionIndex: Int = 0
     private val valuesMap = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    private val windowBaseline = java.util.concurrent.ConcurrentHashMap<String, Double>()
+    private val stringValuesMap = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val windowStringBaseline = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private var datagramSocket: DatagramSocket? = DatagramSocket()
     private val loopbackAddress = InetAddress.getByName("127.0.0.1")
@@ -119,6 +124,7 @@ class ReplayEngineService(
 
     suspend fun loadSession(sessionId: String) = withContext(Dispatchers.IO) {
         stop()
+        resetReplayCache()
         currentSessionId = sessionId
         val frameTimestamps = databaseService.getDistinctTimestamps(sessionId)
         val allActions = databaseService.getActionsForSession(sessionId)
@@ -131,6 +137,8 @@ class ReplayEngineService(
             currentPlayheadMs = 0
             _currentFrame.value = null
             _telemetryDensity.value = emptyList()
+            _sessionStartTimestampMs.value = 0L
+            _sessionDurationMs.value = 0L
             return@withContext
         }
         val actionsTimestamps = allActions.map { it.timestampMs }
@@ -219,7 +227,7 @@ class ReplayEngineService(
         if (timestamps.isNotEmpty()) {
             currentPlayheadMs = startTimestampMs
             _progress.value = 0.0
-            updateFrameAtPlayhead()
+            updateFrameAtPlayhead(emitTelemetry = false, broadcast = false)
         }
     }
 
@@ -231,6 +239,11 @@ class ReplayEngineService(
     fun dispose() {
         stop()
         serviceScope.cancel()
+        try {
+            datagramSocket?.close()
+        } catch (_: Exception) {
+        }
+        datagramSocket = null
     }
 
     /**
@@ -297,19 +310,34 @@ class ReplayEngineService(
 
     private var emitJob: Job? = null
 
-    private fun updateFrameAtPlayhead() {
+    private fun updateFrameAtPlayhead(emitTelemetry: Boolean = true, broadcast: Boolean = true) {
         if (timestamps.isEmpty()) return
 
         if (currentPlayheadMs < cachedWindowStartMs || currentPlayheadMs > cachedWindowEndMs) {
             runBlocking {
                 val windowStart = (currentPlayheadMs - 2500L).coerceAtLeast(0L)
                 val windowEnd = currentPlayheadMs + 5000L
+                val baselineFrames = databaseService.getLatestTelemetryBefore(currentSessionId, windowStart)
                 allFrames = databaseService.getTelemetryRange(currentSessionId, windowStart, windowEnd)
                 cachedWindowStartMs = windowStart
                 cachedWindowEndMs = windowEnd
                 lastTargetTimestamp = -1L
                 lastFrameIndex = 0
                 valuesMap.clear()
+                windowBaseline.clear()
+                stringValuesMap.clear()
+                windowStringBaseline.clear()
+                for (frame in baselineFrames) {
+                    windowBaseline[frame.key] = frame.value
+                    val stringValue = frame.stringValue
+                    if (stringValue != null) {
+                        windowStringBaseline[frame.key] = stringValue
+                    } else {
+                        windowStringBaseline.remove(frame.key)
+                    }
+                }
+                valuesMap.putAll(windowBaseline)
+                stringValuesMap.putAll(windowStringBaseline)
             }
         }
 
@@ -337,6 +365,9 @@ class ReplayEngineService(
             lastFrameIndex = 0
             lastActionIndex = 0
             valuesMap.clear()
+            valuesMap.putAll(windowBaseline)
+            stringValuesMap.clear()
+            stringValuesMap.putAll(windowStringBaseline)
         }
         lastTargetTimestamp = targetTimestamp
         val deltaMap = mutableMapOf<String, Double>()
@@ -347,6 +378,12 @@ class ReplayEngineService(
             if (frame.timestampMs > targetTimestamp) break
             valuesMap[frame.key] = frame.value
             deltaMap[frame.key] = frame.value
+            val stringValue = frame.stringValue
+            if (stringValue != null) {
+                stringValuesMap[frame.key] = stringValue
+            } else {
+                stringValuesMap.remove(frame.key)
+            }
             lastFrameIndex++
         }
 
@@ -367,18 +404,24 @@ class ReplayEngineService(
                     if (x != null) {
                         valuesMap["ARES/EstimatedPose/0"] = x
                         valuesMap["Drive/Odom_X"] = x
+                        stringValuesMap.remove("ARES/EstimatedPose/0")
+                        stringValuesMap.remove("Drive/Odom_X")
                         deltaMap["ARES/EstimatedPose/0"] = x
                         deltaMap["Drive/Odom_X"] = x
                     }
                     if (y != null) {
                         valuesMap["ARES/EstimatedPose/1"] = y
                         valuesMap["Drive/Odom_Y"] = y
+                        stringValuesMap.remove("ARES/EstimatedPose/1")
+                        stringValuesMap.remove("Drive/Odom_Y")
                         deltaMap["ARES/EstimatedPose/1"] = y
                         deltaMap["Drive/Odom_Y"] = y
                     }
                     if (heading != null) {
                         valuesMap["ARES/EstimatedPose/2"] = heading
                         valuesMap["Drive/Odom_Heading"] = heading
+                        stringValuesMap.remove("ARES/EstimatedPose/2")
+                        stringValuesMap.remove("Drive/Odom_Heading")
                         deltaMap["ARES/EstimatedPose/2"] = heading
                         deltaMap["Drive/Odom_Heading"] = heading
                     }
@@ -392,27 +435,44 @@ class ReplayEngineService(
 
         // Expose a snapshot copy of the aggregated state map
         val currentValuesMap = valuesMap.toMap()
-        val frame = ReplayFrame(targetTimestamp, currentValuesMap)
+        val currentStringValuesMap = stringValuesMap.toMap()
+        val frame = ReplayFrame(targetTimestamp, currentValuesMap, currentStringValuesMap)
         _currentFrame.value = frame
 
         // 3. Emit individual TelemetryFrame objects for dashboard widget consumption
-        val sessionId = "replay"
-        emitJob?.cancel()
-        emitJob = serviceScope.launch {
-            for ((key, value) in mapToEmit) {
-                val normalizedKey = key.removePrefix("/")
-                val telemetryFrame = TelemetryFrame(
-                    timestampMs = targetTimestamp,
-                    sessionId = sessionId,
-                    key = normalizedKey,
-                    value = value
-                )
-                _replayTelemetryFlow.emit(telemetryFrame)
+        if (emitTelemetry) {
+            val sessionId = "replay"
+            emitJob?.cancel()
+            emitJob = serviceScope.launch {
+                for ((key, value) in mapToEmit) {
+                    val normalizedKey = key.removePrefix("/")
+                    val telemetryFrame = TelemetryFrame(
+                        timestampMs = targetTimestamp,
+                        sessionId = sessionId,
+                        key = normalizedKey,
+                        value = value,
+                        stringValue = currentStringValuesMap[key]
+                    )
+                    _replayTelemetryFlow.emit(telemetryFrame)
+                }
             }
         }
 
         // 4. Re-broadcast via UDP loopback for AdvantageScope / telemetry viewer compatibility
-        broadcastTelemetry(ReplayFrame(targetTimestamp, mapToEmit))
+        if (broadcast) broadcastTelemetry(ReplayFrame(targetTimestamp, mapToEmit))
+    }
+
+    private fun resetReplayCache() {
+        allFrames = emptyList()
+        cachedWindowStartMs = -1L
+        cachedWindowEndMs = -1L
+        lastTargetTimestamp = -1L
+        lastFrameIndex = 0
+        lastActionIndex = 0
+        valuesMap.clear()
+        windowBaseline.clear()
+        stringValuesMap.clear()
+        windowStringBaseline.clear()
     }
 
     private fun broadcastTelemetry(frame: ReplayFrame) {

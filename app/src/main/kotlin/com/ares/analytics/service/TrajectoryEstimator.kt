@@ -11,10 +11,12 @@ import com.ares.analytics.shared.TrajectoryState
 import kotlin.math.*
 
 /**
- * High-performance jerk-limited S-curve motion profile trajectory generator.
+ * High-performance acceleration- and angular-constrained trajectory estimator.
  *
  * Generates continuous time-parameterized drivetrain trajectories over piecewise cubic Bézier Splines,
- * enforcing translational velocity ($m/s$), acceleration ($m/s^2$), angular velocity ($rad/s$), and jerk ($m/s^3$) limits.
+ * enforcing translational velocity ($m/s$), acceleration ($m/s^2$), angular velocity ($rad/s$),
+ * and angular acceleration ($rad/s^2$) limits. PathPlanner's current schema has no jerk field,
+ * so this estimator deliberately makes no jerk-limited claim.
  *
  * ### Mathematical Formulations:
  * 1. **Cubic Bézier Position Evaluation**:
@@ -196,29 +198,99 @@ object TrajectoryEstimator {
             combinedRotationTargets.add(RotationTarget(waypointRelativePos = lastWaypointIdx, rotationDegrees = endRot))
         }
 
+        val headings = DoubleArray(pointCount)
+        for (i in 0 until pointCount) {
+            val prevPt = if (i > 0) sampledPoints[i - 1] else null
+            val nextPt = if (i < pointCount - 1) sampledPoints[i + 1] else null
+            headings[i] = getHeadingAt(
+                sampledPoints[i].relativePos,
+                combinedRotationTargets,
+                waypoints,
+                sampledPoints[i],
+                prevPt,
+                nextPt
+            )
+        }
+
+        var previousAngularVelocity = 0.0
         for (i in 0 until pointCount) {
             if (i > 0) {
                 val ds = sampledPoints[i].s - sampledPoints[i - 1].s
-                val avgV = (sampledPoints[i].v + sampledPoints[i - 1].v) / 2.0
-                currentTime += if (avgV > 1e-4) ds / avgV else 0.0
+                val velocitySum = sampledPoints[i].v + sampledPoints[i - 1].v
+                val constraints = getConstraintsAt(sampledPoints[i].relativePos, globalConstraints, constraintZones)
+                val baseDt = when {
+                    velocitySum > 1e-4 -> 2.0 * ds / velocitySum
+                    ds > 0.0 && constraints.maxAcceleration > 1e-9 -> sqrt(2.0 * ds / constraints.maxAcceleration)
+                    else -> 0.0
+                }
+                val headingDelta = wrapAngle(headings[i] - headings[i - 1])
+                val segmentDt = minimumAngularSegmentTime(
+                    baseDt = baseDt,
+                    headingDelta = headingDelta,
+                    previousAngularVelocity = previousAngularVelocity,
+                    maxAngularVelocity = Math.toRadians(constraints.maxAngularVelocity),
+                    maxAngularAcceleration = Math.toRadians(constraints.maxAngularAcceleration)
+                )
+                currentTime += segmentDt
+                previousAngularVelocity = if (segmentDt > 1e-9) headingDelta / segmentDt else 0.0
             }
             sampledPoints[i].t = currentTime
-            val prevPt = if (i > 0) sampledPoints[i - 1] else null
-            val nextPt = if (i < pointCount - 1) sampledPoints[i + 1] else null
-            val headingRad = getHeadingAt(sampledPoints[i].relativePos, combinedRotationTargets, waypoints, sampledPoints[i], prevPt, nextPt)
 
             states.add(
                 TrajectoryState(
                     timeSeconds = currentTime,
                     x = sampledPoints[i].x,
                     y = sampledPoints[i].y,
-                    headingRad = headingRad,
+                    headingRad = headings[i],
                     velocity = sampledPoints[i].v
                 )
             )
         }
 
         return Trajectory(currentTime, states)
+    }
+
+    private fun minimumAngularSegmentTime(
+        baseDt: Double,
+        headingDelta: Double,
+        previousAngularVelocity: Double,
+        maxAngularVelocity: Double,
+        maxAngularAcceleration: Double
+    ): Double {
+        var lower = baseDt.coerceAtLeast(0.0)
+        if (kotlin.math.abs(headingDelta) > 1e-12 && maxAngularVelocity > 1e-9) {
+            lower = maxOf(lower, kotlin.math.abs(headingDelta) / maxAngularVelocity)
+        }
+        if (maxAngularAcceleration <= 1e-9) return lower
+
+        fun satisfiesAcceleration(dt: Double): Boolean {
+            if (dt <= 1e-12) {
+                return kotlin.math.abs(headingDelta) <= 1e-12 && kotlin.math.abs(previousAngularVelocity) <= 1e-12
+            }
+            val omega = headingDelta / dt
+            return kotlin.math.abs(omega - previousAngularVelocity) <= maxAngularAcceleration * dt + 1e-9
+        }
+
+        if (satisfiesAcceleration(lower)) return lower
+        var upper = maxOf(lower, 1e-4)
+        repeat(64) {
+            if (satisfiesAcceleration(upper)) {
+                repeat(48) {
+                    val mid = (lower + upper) * 0.5
+                    if (satisfiesAcceleration(mid)) upper = mid else lower = mid
+                }
+                return upper
+            }
+            upper *= 2.0
+        }
+        return upper
+    }
+
+    private fun wrapAngle(angle: Double): Double {
+        var wrapped = angle % (2.0 * Math.PI)
+        if (wrapped > Math.PI) wrapped -= 2.0 * Math.PI
+        if (wrapped <= -Math.PI) wrapped += 2.0 * Math.PI
+        return wrapped
     }
 
     private fun getHeadingAt(

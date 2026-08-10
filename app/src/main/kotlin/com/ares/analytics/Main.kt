@@ -88,7 +88,6 @@ fun main() {
                     e.printStackTrace()
                 }
                 exitApplication()
-                java.lang.System.exit(0)
             },
             title = "ARES Analytics — Mission Control",
             state = windowState,

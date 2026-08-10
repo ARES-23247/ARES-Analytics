@@ -1,7 +1,10 @@
-# ARES-Analytics — Codebase Audit Report
+# ARES Analytics — historical codebase audit
+
+> [!IMPORTANT]
+> This file is a dated evidence snapshot, not the current defect backlog. A later remediation pass changed NT4 handling, replay lifecycle, imports, SQL boundaries, gateway scope/security, unit conversion, and several mathematical services. Some findings below are therefore fixed or no longer describe the current architecture. Verify every item against current source and tests before treating it as open. Current behavior is documented in [ARCHITECTURE.md](ARCHITECTURE.md), [docs/TELEMETRY_CONTRACT.md](docs/TELEMETRY_CONTRACT.md), and [docs/OPERATIONS.md](docs/OPERATIONS.md).
 
 **Scope:** Whole codebase (`app/`, `shared/`, `gateway/`, config, infra, rules)
-**Mode:** Report only — no code was modified or committed.
+**Mode at capture time:** Report only — no code was modified or committed.
 **Method:** Parallel static analysis across four module-focused passes.
 
 > **Platform note:** Despite "Analytics" tooling assumptions, `app/` is a **Compose Desktop (JVM)** application (not Android) — `kotlin("jvm")` + `compose.desktop`, no `AndroidManifest.xml`. This affects the threat model (single-user desktop, plaintext credential files vs. Android Keystore).

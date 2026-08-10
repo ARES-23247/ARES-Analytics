@@ -39,13 +39,13 @@ class AutoImportServiceTest {
 
         // Write a mock log file
         val mockLog = File(logsDir, "test_run.csv")
-        mockLog.writeText(
-            """
+        val mockContents = """
             time, voltage, velocity
             1000, 12.0, 1.5
             2000, 11.8, 1.6
             """.trimIndent()
-        )
+        mockLog.writeText(mockContents)
+        val originalLastModified = mockLog.lastModified()
         val config = WorkspaceConfig(
             teamId = "1234",
             seasonId = "2026",
@@ -60,7 +60,8 @@ class AutoImportServiceTest {
             hootDecoderService = hootDecoderService,
             processManagerService = processManagerService,
             configProvider = { config },
-            scope = this
+            scope = this,
+            scanIntervalMs = 50L
         )
 
         // Start scanner and wait for import
@@ -90,6 +91,24 @@ class AutoImportServiceTest {
         assertEquals(1, sessions.size)
         assertEquals("1234", sessions[0].teamId)
         assertEquals("ares-test", sessions[0].robotId)
+
+        // Recreate the exact same source identity and restart the service. The durable
+        // manifest must prevent a second session even though in-memory observations are new.
+        mockLog.writeText(mockContents)
+        mockLog.setLastModified(originalLastModified)
+        val restarted = AutoImportService(
+            databaseService = databaseService,
+            logParserService = logParserService,
+            hootDecoderService = hootDecoderService,
+            processManagerService = processManagerService,
+            configProvider = { config },
+            scope = this,
+            scanIntervalMs = 50L
+        )
+        restarted.start { }
+        kotlinx.coroutines.delay(300)
+        restarted.stop()
+        assertEquals(1, databaseService.getSessions().size, "same source identity was imported twice")
 
         // Clean up
         tempProjectDir.deleteRecursively()

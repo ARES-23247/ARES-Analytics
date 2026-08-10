@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
@@ -164,5 +165,66 @@ class Nt4ClientServiceTest {
         nt4ClientService.handleIncomingText("{invalid_json", "team-1", "season-1", "robot-1")
         nt4ClientService.handleIncomingText("[{method: 'non-existing'}]", "team-1", "season-1", "robot-1")
         assertTrue(true) // Reached here without exception
+    }
+
+    @Test
+    fun `binary publish uses NT4 outer update array`() {
+        val encoded = nt4ClientService.encodeNt4BinaryUpdate(
+            pubuid = 1001,
+            timestampUs = 0x0102030405060708L,
+            typeId = 1,
+            valueBytes = byteArrayOf(0xca.toByte(), 0xfe.toByte())
+        )
+
+        assertEquals(0x91.toByte(), encoded[0], "single-update batch header")
+        assertEquals(0x94.toByte(), encoded[1], "four-element update tuple header")
+        assertEquals(0xcd.toByte(), encoded[2], "pubuid uint16 marker")
+        assertEquals(0xcf.toByte(), encoded[5], "timestamp uint64 marker")
+        assertEquals(1.toByte(), encoded[14], "NT4 type id")
+        assertTrue(encoded.takeLast(2).toByteArray().contentEquals(byteArrayOf(0xca.toByte(), 0xfe.toByte())))
+    }
+
+    @Test
+    fun `canonical subscription prefixes cover every ARES publisher family`() {
+        val prefixes = Nt4ClientService.CANONICAL_SUBSCRIPTION_PREFIXES
+        listOf(
+            "/ARES", "/Drive", "/Robot", "/Hardware", "/Topology", "/Tuning",
+            "/Profiling", "/Diagnostics", "/Vision", "/Path", "/Gamepad1", "/Gamepad2",
+            "/Superstructure", "/Calibration", "/SysId", "/Swerve"
+        ).forEach { prefix -> assertTrue(prefix in prefixes, "missing subscription for $prefix") }
+    }
+
+    @Test
+    fun `boolean telemetry is coerced to numeric one and zero`() {
+        assertEquals(1.0, nt4ClientService.coerceTelemetryValue(true).first)
+        assertEquals(0.0, nt4ClientService.coerceTelemetryValue(false).first)
+        assertEquals(1.0, nt4ClientService.coerceTelemetryValue(JsonPrimitive(true)).first)
+        assertEquals(0.0, nt4ClientService.coerceTelemetryValue(JsonPrimitive(false)).first)
+    }
+
+    @Test
+    fun `failed database flush retains frames for ordered retry`() = runBlocking {
+        nt4ClientService.publishFrame(
+            com.ares.analytics.shared.TelemetryFrame(100L, "ignored", "Drive/Pose_X", 1.0)
+        )
+        databaseService.close()
+
+        assertTrue(!nt4ClientService.flushPendingFrames())
+        assertEquals(1, nt4ClientService.retainedRetryFrameCount())
+    }
+
+    @Test
+    fun `target reset clears topics latest values and history`() {
+        nt4ClientService.topicMap[1] = com.ares.analytics.service.nt4.Nt4Topic(1, "/Old/Value", "double")
+        val frame = com.ares.analytics.shared.TelemetryFrame(1L, "live-telemetry", "Old/Value", 2.0)
+        nt4ClientService.latestValues[frame.key] = frame
+        nt4ClientService.telemetryHistory[frame.key] = java.util.ArrayDeque<TelemetryFrame>().apply { add(frame) }
+
+        nt4ClientService.clearLiveTargetState()
+
+        assertTrue(nt4ClientService.topicMap.isEmpty())
+        assertTrue(nt4ClientService.latestValues.isEmpty())
+        assertTrue(nt4ClientService.telemetryHistory.isEmpty())
+        assertTrue(nt4ClientService.getActiveTopics().isEmpty())
     }
 }

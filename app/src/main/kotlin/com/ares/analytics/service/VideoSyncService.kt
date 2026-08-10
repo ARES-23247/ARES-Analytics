@@ -134,19 +134,17 @@ class VideoSyncService(private val replayEngineService: ReplayEngineService) {
     fun seekVideo(videoTimeMs: Long) {
         val clamped = videoTimeMs.coerceIn(0L, _videoDurationMs.value)
         _currentVideoTimeMs.value = clamped
-        
-        // Seek log to match this video position
+
+        // Seek the log using the replay session's absolute time range.
         val targetLogTimeMs = clamped + _logOffsetMs.value
-        val timestamps = replayEngineService.currentFrame.value?.timestampMs // fallback or calculate percentage
-        
-        // Scrub replay engine based on estimated percentage of target log time
-        serviceScope.launch {
-            val session = replayEngineService.currentFrame.value ?: return@launch
-            // We can approximate percentage if we look up loaded timestamps
-            // Since replayEngineService.scrubTo uses a percentage:
-            // But we can also let scrubTo handle percentage based on total log duration
-            // Let's compute percentage using the current frame if available
+        val sessionStart = replayEngineService.sessionStartTimestampMs.value
+        val sessionDuration = replayEngineService.sessionDurationMs.value
+        val percentage = if (sessionDuration > 0L) {
+            (targetLogTimeMs - sessionStart).toDouble() / sessionDuration.toDouble()
+        } else {
+            0.0
         }
+        replayEngineService.scrubTo(percentage.coerceIn(0.0, 1.0))
     }
 
     /**

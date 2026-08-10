@@ -1,6 +1,7 @@
 package com.ares.analytics.gateway
 
 import com.ares.analytics.gateway.auth.googleOidc
+import com.ares.analytics.gateway.auth.GooglePrincipal
 import com.ares.analytics.gateway.routes.diagnosticsRoutes
 import com.ares.analytics.shared.ForensicsRequest
 import io.ktor.http.*
@@ -10,6 +11,7 @@ import io.ktor.server.auth.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.contentnegotiation.*
+import io.ktor.server.plugins.bodylimit.*
 import io.ktor.server.plugins.cors.routing.*
 import io.ktor.server.plugins.ratelimit.*
 import io.ktor.server.plugins.requestvalidation.*
@@ -18,6 +20,12 @@ import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.json.Json
 import kotlin.time.Duration.Companion.seconds
+
+private val allowedCorsHosts: List<String> = System.getenv("CORS_ALLOWED_HOSTS")
+    ?.split(',')
+    ?.map(String::trim)
+    ?.filter(String::isNotEmpty)
+    .orEmpty()
 
 /**
  * Gateway entry point. Slim, forensics-only service: authenticates callers via a
@@ -43,7 +51,12 @@ fun main() {
         }
 
         install(CORS) {
-            anyHost()
+            // This gateway is consumed by the Compose desktop app, which does not
+            // need browser CORS. Browser access is opt-in through a deployment
+            // allowlist (for example: "dashboard.example.org").
+            allowedCorsHosts.forEach { host ->
+                allowHost(host, schemes = listOf("https"))
+            }
             allowHeader(HttpHeaders.ContentType)
             allowHeader(HttpHeaders.Authorization)
             allowMethod(HttpMethod.Options)
@@ -71,8 +84,15 @@ fun main() {
 
         install(RateLimit) {
             register(RateLimitName("forensics")) {
+                // The default Ktor key is Unit, which would make every authenticated
+                // user share one global five-request bucket.
+                requestKey { call -> call.principal<GooglePrincipal>()?.subject ?: "unauthenticated" }
                 rateLimiter(limit = 5, refillPeriod = 60.seconds)
             }
+        }
+
+        install(RequestBodyLimit) {
+            bodyLimit { MAX_REQUEST_BODY_BYTES }
         }
 
         install(RequestValidation) {
@@ -93,3 +113,5 @@ fun main() {
         }
     }.start(wait = true)
 }
+
+private const val MAX_REQUEST_BODY_BYTES = 1L * 1024 * 1024

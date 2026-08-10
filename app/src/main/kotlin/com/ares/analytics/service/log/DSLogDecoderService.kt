@@ -8,6 +8,7 @@ import java.io.DataInputStream
 import java.io.EOFException
 import java.io.File
 import java.io.FileInputStream
+import java.io.IOException
 import java.util.UUID
 
 /**
@@ -201,14 +202,13 @@ class DSLogDecoderService(private val databaseService: DatabaseService) : BaseLo
         // Try parsing matching .dsevents file if it exists
         val eventsFile = File(dslogFile.parentFile, dslogFile.nameWithoutExtension + ".dsevents")
         if (eventsFile.exists()) {
-            parseDsEvents(eventsFile, sessionId, startTimeMs)
+            parseDsEvents(eventsFile, sessionId)
         }
     }
 
     private suspend fun parseDsEvents(
         dseventsFile: File,
-        sessionId: String,
-        startTimeMs: Double
+        sessionId: String
     ) {
         FileInputStream(dseventsFile).use { fis ->
             DataInputStream(fis).use { dis ->
@@ -224,7 +224,10 @@ class DSLogDecoderService(private val databaseService: DatabaseService) : BaseLo
                         val recFractional = dis.readLong()
                         val eventTimeMs = convertLVTime(recSeconds, recFractional)
                         val length = dis.readInt()
-                        if (length <= 0) continue
+                        if (length < 0 || length > MAX_EVENT_TEXT_BYTES || length.toLong() > dseventsFile.length()) {
+                            throw IOException("Invalid Driver Station event text length: $length")
+                        }
+                        if (length == 0) continue
                         val textBytes = ByteArray(length)
                         dis.readFully(textBytes)
                         var text = String(textBytes, Charsets.UTF_8)
@@ -261,5 +264,9 @@ class DSLogDecoderService(private val databaseService: DatabaseService) : BaseLo
             25 -> PowerDistributionType.CTRE
             else -> PowerDistributionType.NONE
         }
+    }
+
+    private companion object {
+        const val MAX_EVENT_TEXT_BYTES = 1024 * 1024
     }
 }

@@ -55,13 +55,16 @@ class DriverAnalysisServiceTest {
         val sessionId = "test-session"
         val gamepadX = "/Gamepad1/LeftX"
 
-        // Generate telemetry with a 10 Hz oscillation (jitter) at 100 Hz sample rate
+        // Generate intentional 1 Hz stick motion plus smaller 10 Hz jitter. The global
+        // FFT peak is 1 Hz, so detection must inspect the jitter band directly.
         val frames = mutableListOf<TelemetryFrame>()
         val sampleRate = 100.0
         val freq = 10.0 // 10 Hz
         for (i in 0 until 128) {
             val t = (i * (1000.0 / sampleRate)).toLong()
-            val value = kotlin.math.sin(2.0 * kotlin.math.PI * freq * (i / sampleRate))
+            val seconds = i / sampleRate
+            val value = kotlin.math.sin(2.0 * kotlin.math.PI * 1.0 * seconds) +
+                0.1 * kotlin.math.sin(2.0 * kotlin.math.PI * freq * seconds)
             frames.add(TelemetryFrame(t, sessionId, gamepadX, value))
         }
 

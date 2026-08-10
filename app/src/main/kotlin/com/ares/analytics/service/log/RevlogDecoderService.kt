@@ -4,6 +4,7 @@ import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.service.FrameBatcher
 import com.ares.analytics.service.LogParserService
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -50,48 +51,47 @@ class RevlogDecoderService(
     ) {
         val tempWpiLog = File(System.getProperty("java.io.tmpdir"), "revlog_" + UUID.randomUUID().toString() + ".wpilog")
         try {
-            withContext(Dispatchers.IO) {
-                // Attempt to run the official revlog-converter via npx
-                val pb = ProcessBuilder(
-                    "cmd.exe", "/c",
-                    "npx --yes @rev-robotics/revlog-converter ${file.absolutePath} -o ${tempWpiLog.absolutePath}"
+            val converted = withContext(Dispatchers.IO) {
+                // Arguments are passed directly so spaces and shell metacharacters in paths remain data.
+                runConverter(
+                    listOf("npx.cmd", "--yes", "@rev-robotics/revlog-converter", file.absolutePath, "-o", tempWpiLog.absolutePath)
+                ) || runConverter(
+                    listOf("revlog-converter.cmd", file.absolutePath, "-o", tempWpiLog.absolutePath)
+                ) || runConverter(
+                    listOf("revlog-converter", file.absolutePath, "-o", tempWpiLog.absolutePath)
                 )
-                pb.redirectErrorStream(true)
-                val process = pb.start()
-                val finished = process.waitFor(30, TimeUnit.SECONDS)
-                if (!finished) {
-                    process.destroyForcibly()
-                }
-                
-                if (finished && process.exitValue() == 0 && tempWpiLog.exists() && tempWpiLog.length() > 0) {
-                    // Successfully converted to WPILOG! Now parse the converted WPILOG file.
-                    logParserService.parseWpiLog(tempWpiLog, sessionId, batcher)
-                } else {
-                    // If npx failed or wasn't installed, fallback to check if revlog-converter is globally on PATH
-                    val pbFallback = ProcessBuilder(
-                        "cmd.exe", "/c",
-                        "revlog-converter ${file.absolutePath} -o ${tempWpiLog.absolutePath}"
-                    )
-                    pbFallback.redirectErrorStream(true)
-                    val processFallback = pbFallback.start()
-                    val finishedFallback = processFallback.waitFor(30, TimeUnit.SECONDS)
-                    if (!finishedFallback) {
-                        processFallback.destroyForcibly()
-                    }
-                    
-                    if (finishedFallback && processFallback.exitValue() == 0 && tempWpiLog.exists() && tempWpiLog.length() > 0) {
-                        logParserService.parseWpiLog(tempWpiLog, sessionId, batcher)
-                    } else {
-                        System.err.println("REVLOG conversion failed. Make sure Node.js and @rev-robotics/revlog-converter are available.")
-                    }
-                }
             }
-        } catch (e: Exception) {
-            System.err.println("Failed to execute REVLOG conversion process: ${e.message}")
+            if (!converted || !tempWpiLog.isFile || tempWpiLog.length() == 0L) {
+                throw IOException("REVLOG conversion failed; install the REV converter CLI or Node.js")
+            }
+            logParserService.parseWpiLog(tempWpiLog, sessionId, batcher)
         } finally {
             if (tempWpiLog.exists()) {
                 tempWpiLog.delete()
             }
         }
+    }
+
+    private fun runConverter(command: List<String>): Boolean {
+        return try {
+            val process = ProcessBuilder(command)
+                .redirectErrorStream(true)
+                .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                .start()
+            val finished = process.waitFor(CONVERTER_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                process.waitFor(5, TimeUnit.SECONDS)
+                false
+            } else {
+                process.exitValue() == 0
+            }
+        } catch (_: IOException) {
+            false
+        }
+    }
+
+    private companion object {
+        const val CONVERTER_TIMEOUT_SECONDS = 30L
     }
 }

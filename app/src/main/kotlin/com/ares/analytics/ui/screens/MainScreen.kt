@@ -351,8 +351,8 @@ fun MainScreen(services: ServiceRegistry) {
                         Key.DirectionDown -> { ks.isSPressed = isPressed; true }
                         Key.DirectionLeft -> { ks.isLeftPressed = isPressed; true }
                         Key.DirectionRight -> { ks.isRightPressed = isPressed; true }
-                        Key.Q -> { ks.isLeftPressed = isPressed; true }
-                        Key.E -> { ks.isRightPressed = isPressed; true }
+                        Key.Q -> { ks.isQPressed = isPressed; true }
+                        Key.E -> { ks.isEPressed = isPressed; true }
                         else -> false
                     }
                 } else false

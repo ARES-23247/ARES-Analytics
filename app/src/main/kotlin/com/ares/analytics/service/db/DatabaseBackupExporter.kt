@@ -5,6 +5,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.nio.file.Files
 import java.sql.Connection
 
 /**
@@ -56,8 +57,28 @@ class DatabaseBackupExporter(
             st.execute("""
                 INSERT INTO telemetry_frames BY NAME 
                 SELECT * FROM read_parquet('$absolutePath')
-                ON CONFLICT (session_id, key, timestamp_ms) DO UPDATE SET value = EXCLUDED.value
+                ON CONFLICT (session_id, key, timestamp_ms) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    string_value = EXCLUDED.string_value
             """.trimIndent())
+        }
+    }
+
+    /**
+     * Exports one session through a narrowly scoped, internally escaped COPY statement.
+     * General raw-SQL execution intentionally remains read-only and must not be used for export.
+     */
+    suspend fun exportSessionToParquet(sessionId: String, destinationFile: File) = withDbLock {
+        val target = destinationFile.canonicalFile
+        target.parentFile?.let { Files.createDirectories(it.toPath()) }
+        Files.deleteIfExists(target.toPath())
+        val safePath = sqlLiteral(target.absolutePath.replace("\\", "/"))
+        val safeSessionId = sqlLiteral(sessionId)
+        conn.createStatement().use { statement ->
+            statement.execute(
+                "COPY (SELECT * FROM telemetry_frames WHERE session_id = '$safeSessionId') " +
+                    "TO '$safePath' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)"
+            )
         }
     }
 
@@ -78,7 +99,8 @@ class DatabaseBackupExporter(
                         st.execute("COPY (SELECT * FROM telemetry_frames WHERE session_id = '$safeSessionId') TO '$absolutePath' (FORMAT PARQUET)")
                     }
                     
-                    zos.putNextEntry(java.util.zip.ZipEntry("$sessionId.parquet"))
+                    val safeEntryName = sessionId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                    zos.putNextEntry(java.util.zip.ZipEntry("$safeEntryName.parquet"))
                     tempFile.inputStream().use { fis ->
                         fis.copyTo(zos, bufferSize = 256 * 1024)
                     }
@@ -89,4 +111,6 @@ class DatabaseBackupExporter(
             }
         }
     }
+
+    private fun sqlLiteral(value: String): String = value.replace("'", "''")
 }

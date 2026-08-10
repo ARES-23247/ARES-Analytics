@@ -65,9 +65,10 @@ class SysIdServiceTest {
             val sgn = kotlin.math.sign(velocity)
             val voltage = kS * sgn + kV * velocity + kA * accel
 
-            frames.add(TelemetryFrame(t, sessionId, voltageKey, voltage))
+            // Channels are sampled by independent devices and do not share exact timestamps.
+            frames.add(TelemetryFrame(t + 5, sessionId, voltageKey, voltage))
             frames.add(TelemetryFrame(t, sessionId, velocityKey, velocity))
-            frames.add(TelemetryFrame(t, sessionId, accelerationKey, accel))
+            frames.add(TelemetryFrame(t - 5, sessionId, accelerationKey, accel))
         }
 
         databaseService.insertTelemetryFrames(frames)

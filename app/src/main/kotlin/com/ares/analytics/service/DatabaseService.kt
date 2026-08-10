@@ -122,6 +122,7 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     suspend fun getActionsForSession(sessionId: String): List<com.ares.analytics.shared.RobotActionRecord> = matchLogRepo.getActionsForSession(sessionId)
     suspend fun getSessionTimestampRange(sessionId: String): Pair<Long, Long>? = matchLogRepo.getSessionTimestampRange(sessionId)
     suspend fun getTelemetryRange(sessionId: String, startMs: Long, endMs: Long): List<TelemetryFrame> = matchLogRepo.getTelemetryRange(sessionId, startMs, endMs)
+    suspend fun getLatestTelemetryBefore(sessionId: String, timestampMs: Long): List<TelemetryFrame> = matchLogRepo.getLatestTelemetryBefore(sessionId, timestampMs)
     suspend fun getTelemetryRangeBatched(sessionId: String, startMs: Long, endMs: Long, limit: Long, offset: Long): List<TelemetryFrame> = matchLogRepo.getTelemetryRangeBatched(sessionId, startMs, endMs, limit, offset)
     suspend fun countTelemetryFrames(sessionId: String): Long = matchLogRepo.countTelemetryFrames(sessionId)
     suspend fun getTelemetryForKey(sessionId: String, key: String): List<TelemetryFrame> = matchLogRepo.getTelemetryForKey(sessionId, key)
@@ -144,6 +145,8 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     suspend fun getTelemetryDensity(sessionId: String, buckets: Int = 100): List<Float> = matchLogRepo.getTelemetryDensity(sessionId, buckets)
     
     suspend fun importParquet(file: File) = backupExporter.importParquet(file)
+    suspend fun exportSessionToParquet(sessionId: String, file: File) =
+        backupExporter.exportSessionToParquet(sessionId, file)
 
     /**
 

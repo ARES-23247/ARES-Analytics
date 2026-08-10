@@ -3,7 +3,6 @@ package com.ares.analytics.service.calibration
 import com.ares.analytics.service.CalibrationDiagnostics
 import com.ares.analytics.service.CalibrationMeasurement
 import com.ares.analytics.service.DatabaseService
-import com.ares.analytics.service.FieldTag
 import com.ares.analytics.service.Pose3d
 import com.ares.analytics.shared.TelemetryFrame
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +36,25 @@ import kotlin.math.*
  */
 class CameraCalibrationSolver(private val databaseService: DatabaseService) {
 
+    private fun initialParameters(measurements: List<CalibrationMeasurement>): DoubleArray {
+        var sumDx = 0.0
+        var sumDy = 0.0
+        var sumDz = 0.0
+        for (m in measurements) {
+            val cosG = cos(m.gyroHeading)
+            val sinG = sin(m.gyroHeading)
+            // Rotate the known field-tag position into the robot frame, then
+            // subtract the measured target-space translation. This gives a
+            // physically anchored translation seed instead of fitting an
+            // unconstrained synthetic tag position alongside the camera pose.
+            sumDx += m.tagFieldX * cosG + m.tagFieldY * sinG - m.targetSpaceZ
+            sumDy += -m.tagFieldX * sinG + m.tagFieldY * cosG - m.targetSpaceX
+            sumDz += m.tagFieldZ - m.targetSpaceY
+        }
+        val count = measurements.size.toDouble()
+        return doubleArrayOf(sumDx / count, sumDy / count, sumDz / count, 0.0, 0.0, 0.0)
+    }
+
     /**
      * Solves 6-DOF camera extrinsic mounting pose $(x, y, z, \text{roll}, \text{pitch}, \text{yaw})$ from a dataset of AprilTag calibration observations.
      *
@@ -47,67 +65,9 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
         if (measurements.isEmpty()) {
             return Pose3d(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         }
-        var sumX = 0.0
-        var sumY = 0.0
-        var sumZ = 0.0
-        var sumRoll = 0.0
-        var sumPitch = 0.0
-        var sumYaw = 0.0
-
-        for (m in measurements) {
-            val cosG = cos(m.gyroHeading)
-            val sinG = sin(m.gyroHeading)
-            sumX += m.targetSpaceZ * cosG - m.targetSpaceX * sinG
-            sumY += m.targetSpaceZ * sinG + m.targetSpaceX * cosG
-            sumZ += m.targetSpaceY
-            sumRoll += m.targetSpaceRoll
-            sumPitch += m.targetSpacePitch
-            sumYaw += -m.targetSpaceYaw
-        }
-        val count = measurements.size.toDouble()
-        val initDx = sumX / count
-        val initDy = sumY / count
-        val initDz = sumZ / count
-        val initRoll = sumRoll / count
-        val initPitch = sumPitch / count
-        val initYaw = sumYaw / count
-        var sumCx = 0.0
-        var sumCy = 0.0
-        var sumCz = 0.0
-        var sumCroll = 0.0
-        var sumCpitch = 0.0
-
-        for (m in measurements) {
-            val cosG = cos(m.gyroHeading)
-            val sinG = sin(m.gyroHeading)
-            val zPrime = m.targetSpaceZ
-            val xPrime = m.targetSpaceX
-            val yPrime = m.targetSpaceY
-            
-            sumCx += (zPrime + initDx) * cosG - (xPrime + initDy) * sinG
-            sumCy += (zPrime + initDx) * sinG + (xPrime + initDy) * cosG
-            sumCz += yPrime + initDz
-            sumCroll += m.targetSpaceRoll - initRoll
-            sumCpitch += m.targetSpacePitch - initPitch
-        }
-        val initCx = sumCx / count
-        val initCy = sumCy / count
-        val initCz = sumCz / count
-        val initCroll = sumCroll / count
-        val initCpitch = sumCpitch / count
-        var sumCyawVal = 0.0
-        for (m in measurements) {
-            sumCyawVal += -m.targetSpaceYaw - (m.gyroHeading + initYaw)
-        }
-        val initCyaw = sumCyawVal / count
-        val p = doubleArrayOf(
-            initDx, initDy, initDz,
-            initRoll, initPitch, initYaw,
-            initCx, initCy, initCz,
-            initCroll, initCpitch, initCyaw
-        )
+        val p = initialParameters(measurements)
         val numParams = p.size
-        val numResiduals = measurements.size * 6
+        val numResiduals = measurements.size * 3
         var lambda = 0.001
         var cost = computeCost(p, measurements)
         val maxIterations = 200
@@ -183,17 +143,17 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
             doubleArrayOf(0.0, sr, cr)
         ))
         val Ry = SimpleMatrix(arrayOf(
-            doubleArrayOf(cy, 0.0, sy),
+            doubleArrayOf(cp, 0.0, sp),
             doubleArrayOf(0.0, 1.0, 0.0),
-            doubleArrayOf(-sy, 0.0, cy)
+            doubleArrayOf(-sp, 0.0, cp)
         ))
         val Rz = SimpleMatrix(arrayOf(
-            doubleArrayOf(cp, -sp, 0.0),
-            doubleArrayOf(sp, cp, 0.0),
+            doubleArrayOf(cy, -sy, 0.0),
+            doubleArrayOf(sy, cy, 0.0),
             doubleArrayOf(0.0, 0.0, 1.0)
         ))
 
-        return Ry.mult(Rz).mult(Rx)
+        return Rz.mult(Ry).mult(Rx)
     }
 
     private fun computeResiduals(p: DoubleArray, measurements: List<CalibrationMeasurement>): DoubleArray {
@@ -203,14 +163,8 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
         val roll = p[3]
         val pitch = p[4]
         val yaw = p[5]
-        val Cx = p[6]
-        val Cy = p[7]
-        val Cz = p[8]
-        val Croll = p[9]
-        val Cpitch = p[10]
-        val Cyaw = p[11]
         val R_cam = getRotationMatrix(roll, pitch, yaw)
-        val residuals = DoubleArray(measurements.size * 6)
+        val residuals = DoubleArray(measurements.size * 3)
 
         for (i in measurements.indices) {
             val m = measurements[i]
@@ -226,13 +180,9 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
             val yRot = pRotated.get(1, 0)
             val zRot = pRotated.get(2, 0)
 
-            residuals[i * 6 + 0] = (zRot + dx) * cosG - (xRot + dy) * sinG - Cx
-            residuals[i * 6 + 1] = (zRot + dx) * sinG + (xRot + dy) * cosG - Cy
-            residuals[i * 6 + 2] = yRot + dz - Cz
-
-            residuals[i * 6 + 3] = m.targetSpaceRoll - roll - Croll
-            residuals[i * 6 + 4] = m.targetSpacePitch - pitch - Cpitch
-            residuals[i * 6 + 5] = -m.targetSpaceYaw - (m.gyroHeading + yaw) - Cyaw
+            residuals[i * 3 + 0] = (zRot + dx) * cosG - (xRot + dy) * sinG - m.tagFieldX
+            residuals[i * 3 + 1] = (zRot + dx) * sinG + (xRot + dy) * cosG - m.tagFieldY
+            residuals[i * 3 + 2] = yRot + dz - m.tagFieldZ
         }
 
         return residuals
@@ -251,51 +201,10 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
         sessionId: String,
         cameraIndex: Int
     ): Pose3d = withContext(Dispatchers.Default) {
-        val gyroFrames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE).filter { it.key == "/Calibration/GyroHeading" }
-        val tagIdFrames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE).filter { it.key == "/Calibration/TagIndex" }
-        val camToTagFrames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE).filter { it.key.startsWith("/Calibration/CameraToTag[$cameraIndex]") }
-
-        if (gyroFrames.isEmpty() || tagIdFrames.isEmpty() || camToTagFrames.isEmpty()) {
+        val measurements = loadCalibrationMeasurements(sessionId, cameraIndex)
+        if (!hasObservableSweep(measurements)) {
             return@withContext Pose3d(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         }
-        val tagMap = mapOf(
-            1 to FieldTag(1.8, 0.0, 0.12),
-            2 to FieldTag(1.8, 0.6, 0.12),
-            3 to FieldTag(1.8, -0.6, 0.12),
-            4 to FieldTag(-1.8, 0.0, 0.12)
-        )
-        val measurements = mutableListOf<CalibrationMeasurement>()
-        val timeMap = gyroFrames.associateBy { it.timestampMs }
-
-        for (tagFrame in tagIdFrames) {
-            val t = tagFrame.timestampMs
-            val gyro = timeMap[t]?.value ?: continue
-            val tagId = tagFrame.value.toInt()
-            val tagField = tagMap[tagId] ?: continue
-            val x = getVal(camToTagFrames, t)
-            val y = getVal(camToTagFrames, t)
-            val z = getVal(camToTagFrames, t)
-            val roll = getVal(camToTagFrames, t)
-            val pitch = getVal(camToTagFrames, t)
-            val yaw = getVal(camToTagFrames, t)
-
-            measurements.add(
-                CalibrationMeasurement(
-                    gyroHeading = gyro,
-                    tagId = tagId,
-                    tagFieldX = tagField.x,
-                    tagFieldY = tagField.y,
-                    tagFieldZ = tagField.z,
-                    targetSpaceX = x,
-                    targetSpaceY = y,
-                    targetSpaceZ = z,
-                    targetSpaceRoll = roll,
-                    targetSpacePitch = pitch,
-                    targetSpaceYaw = yaw
-                )
-            )
-        }
-
         solveCameraExtrinsics(measurements)
     }
 
@@ -315,67 +224,9 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
                 reducedChiSquared = 0.0
             )
         }
-        var sumX = 0.0
-        var sumY = 0.0
-        var sumZ = 0.0
-        var sumRoll = 0.0
-        var sumPitch = 0.0
-        var sumYaw = 0.0
-
-        for (m in measurements) {
-            val cosG = cos(m.gyroHeading)
-            val sinG = sin(m.gyroHeading)
-            sumX += m.targetSpaceZ * cosG - m.targetSpaceX * sinG
-            sumY += m.targetSpaceZ * sinG + m.targetSpaceX * cosG
-            sumZ += m.targetSpaceY
-            sumRoll += m.targetSpaceRoll
-            sumPitch += m.targetSpacePitch
-            sumYaw += -m.targetSpaceYaw
-        }
-        val count = measurements.size.toDouble()
-        val initDx = sumX / count
-        val initDy = sumY / count
-        val initDz = sumZ / count
-        val initRoll = sumRoll / count
-        val initPitch = sumPitch / count
-        val initYaw = sumYaw / count
-        var sumCx = 0.0
-        var sumCy = 0.0
-        var sumCz = 0.0
-        var sumCroll = 0.0
-        var sumCpitch = 0.0
-
-        for (m in measurements) {
-            val cosG = cos(m.gyroHeading)
-            val sinG = sin(m.gyroHeading)
-            val zPrime = m.targetSpaceZ
-            val xPrime = m.targetSpaceX
-            val yPrime = m.targetSpaceY
-            
-            sumCx += (zPrime + initDx) * cosG - (xPrime + initDy) * sinG
-            sumCy += (zPrime + initDx) * sinG + (xPrime + initDy) * cosG
-            sumCz += yPrime + initDz
-            sumCroll += m.targetSpaceRoll - initRoll
-            sumCpitch += m.targetSpacePitch - initPitch
-        }
-        val initCx = sumCx / count
-        val initCy = sumCy / count
-        val initCz = sumCz / count
-        val initCroll = sumCroll / count
-        val initCpitch = sumCpitch / count
-        var sumCyawVal = 0.0
-        for (m in measurements) {
-            sumCyawVal += -m.targetSpaceYaw - (m.gyroHeading + initYaw)
-        }
-        val initCyaw = sumCyawVal / count
-        val p = doubleArrayOf(
-            initDx, initDy, initDz,
-            initRoll, initPitch, initYaw,
-            initCx, initCy, initCz,
-            initCroll, initCpitch, initCyaw
-        )
+        val p = initialParameters(measurements)
         val numParams = p.size
-        val numResiduals = measurements.size * 6
+        val numResiduals = measurements.size * 3
         var lambda = 0.001
         var cost = computeCost(p, measurements)
         val maxIterations = 200
@@ -484,11 +335,8 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
         sessionId: String,
         cameraIndex: Int
     ): CalibrationDiagnostics = withContext(Dispatchers.Default) {
-        val gyroFrames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE).filter { it.key == "/Calibration/GyroHeading" }
-        val tagIdFrames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE).filter { it.key == "/Calibration/TagIndex" }
-        val camToTagFrames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE).filter { it.key.startsWith("/Calibration/CameraToTag[$cameraIndex]") }
-
-        if (gyroFrames.isEmpty() || tagIdFrames.isEmpty() || camToTagFrames.isEmpty()) {
+        val measurements = loadCalibrationMeasurements(sessionId, cameraIndex)
+        if (!hasObservableSweep(measurements)) {
             return@withContext CalibrationDiagnostics(
                 pose = Pose3d(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
                 standardErrors = DoubleArray(6),
@@ -496,65 +344,83 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
                 reducedChiSquared = 0.0
             )
         }
-        val tagMap = mapOf(
-            1 to FieldTag(1.8, 0.0, 0.12),
-            2 to FieldTag(1.8, 0.6, 0.12),
-            3 to FieldTag(1.8, -0.6, 0.12),
-            4 to FieldTag(-1.8, 0.0, 0.12)
-        )
-        val groupedFrames = camToTagFrames.groupBy { frame ->
-            val key = frame.key
-            val lastOpenBracket = key.lastIndexOf('[')
-            val lastCloseBracket = key.lastIndexOf(']')
-            if (lastOpenBracket != -1 && lastCloseBracket != -1 && lastCloseBracket > lastOpenBracket) {
-                key.substring(lastOpenBracket + 1, lastCloseBracket).toIntOrNull() ?: -1
-            } else {
-                -1
+        solveCameraExtrinsicsWithDiagnostics(measurements)
+    }
+
+    private suspend fun loadCalibrationMeasurements(
+        sessionId: String,
+        cameraIndex: Int
+    ): List<CalibrationMeasurement> {
+        val frames = databaseService.getTelemetryRange(sessionId, 0L, Long.MAX_VALUE)
+        fun normalizedKey(frame: TelemetryFrame) = frame.key.removePrefix("/")
+
+        val gyroFrames = frames.filter { normalizedKey(it) == "Calibration/GyroHeading" }.sortedBy { it.timestampMs }
+        val tagIdFrames = frames.filter { normalizedKey(it) == "Calibration/TagIndex" }.sortedBy { it.timestampMs }
+        val cameraIndexFrames = frames.filter { normalizedKey(it) == "Calibration/CameraIndex" }.sortedBy { it.timestampMs }
+        val componentFrames = Array(6) { mutableListOf<TelemetryFrame>() }
+        val tagFieldFrames = Array(3) { mutableListOf<TelemetryFrame>() }
+
+        for (frame in frames) {
+            val key = normalizedKey(frame)
+            val destination = when {
+                key.startsWith("Calibration/CameraToTag") -> componentFrames to key.removePrefix("Calibration/CameraToTag")
+                key.startsWith("Calibration/TagField") -> tagFieldFrames to key.removePrefix("Calibration/TagField")
+                else -> continue
             }
+            val suffix = destination.second
+            val indices = Regex("\\d+").findAll(suffix).map { it.value.toInt() }.toList()
+            val componentIndex = when {
+                indices.size == 1 -> indices[0]
+                indices.size >= 2 && indices[0] == cameraIndex -> indices[1]
+                else -> -1
+            }
+            if (componentIndex in destination.first.indices) destination.first[componentIndex].add(frame)
+        }
+        componentFrames.forEach { it.sortBy(TelemetryFrame::timestampMs) }
+        tagFieldFrames.forEach { it.sortBy(TelemetryFrame::timestampMs) }
+
+        if (gyroFrames.isEmpty() || tagIdFrames.isEmpty() ||
+            componentFrames.any { it.isEmpty() } || tagFieldFrames.any { it.isEmpty() }
+        ) {
+            return emptyList()
         }
         val measurements = mutableListOf<CalibrationMeasurement>()
-        val timeMap = gyroFrames.associateBy { it.timestampMs }
-        val list0 = groupedFrames[0] ?: emptyList()
-        val list1 = groupedFrames[1] ?: emptyList()
-        val list2 = groupedFrames[2] ?: emptyList()
-        val list3 = groupedFrames[3] ?: emptyList()
-        val list4 = groupedFrames[4] ?: emptyList()
-        val list5 = groupedFrames[5] ?: emptyList()
 
         for (tagFrame in tagIdFrames) {
             val t = tagFrame.timestampMs
-            val gyro = timeMap[t]?.value ?: continue
+            if (cameraIndexFrames.isNotEmpty() && getValOrNull(cameraIndexFrames, t)?.toInt() != cameraIndex) continue
+            val gyro = getValOrNull(gyroFrames, t) ?: continue
             val tagId = tagFrame.value.toInt()
-            val tagField = tagMap[tagId] ?: continue
-            val x = getVal(list0, t)
-            val y = getVal(list1, t)
-            val z = getVal(list2, t)
-            val roll = getVal(list3, t)
-            val pitch = getVal(list4, t)
-            val yaw = getVal(list5, t)
+            val tagFieldX = getValOrNull(tagFieldFrames[0], t) ?: continue
+            val tagFieldY = getValOrNull(tagFieldFrames[1], t) ?: continue
+            val tagFieldZ = getValOrNull(tagFieldFrames[2], t) ?: continue
+            val targetValues = DoubleArray(6) { index -> getValOrNull(componentFrames[index], t) ?: Double.NaN }
+            if (!gyro.isFinite() || !tagFrame.value.isFinite() ||
+                !tagFieldX.isFinite() || !tagFieldY.isFinite() || !tagFieldZ.isFinite() ||
+                targetValues.any { !it.isFinite() }
+            ) continue
 
             measurements.add(
                 CalibrationMeasurement(
                     gyroHeading = gyro,
                     tagId = tagId,
-                    tagFieldX = tagField.x,
-                    tagFieldY = tagField.y,
-                    tagFieldZ = tagField.z,
-                    targetSpaceX = x,
-                    targetSpaceY = y,
-                    targetSpaceZ = z,
-                    targetSpaceRoll = roll,
-                    targetSpacePitch = pitch,
-                    targetSpaceYaw = yaw
+                    tagFieldX = tagFieldX,
+                    tagFieldY = tagFieldY,
+                    tagFieldZ = tagFieldZ,
+                    targetSpaceX = targetValues[0],
+                    targetSpaceY = targetValues[1],
+                    targetSpaceZ = targetValues[2],
+                    targetSpaceRoll = targetValues[3],
+                    targetSpacePitch = targetValues[4],
+                    targetSpaceYaw = targetValues[5]
                 )
             )
         }
-
-        solveCameraExtrinsicsWithDiagnostics(measurements)
+        return measurements
     }
 
-    private fun getVal(targetList: List<TelemetryFrame>, timestampMs: Long): Double {
-        if (targetList.isEmpty()) return 0.0
+    private fun getValOrNull(targetList: List<TelemetryFrame>, timestampMs: Long): Double? {
+        if (targetList.isEmpty()) return null
         val targetTime = timestampMs
         var low = 0
         var high = targetList.size - 1
@@ -577,6 +443,27 @@ class CameraCalibrationSolver(private val databaseService: DatabaseService) {
                 high = mid - 1
             }
         }
-        return bestFrame.value
+        return if (minDiff <= MAX_SAMPLE_SKEW_MS) bestFrame.value else null
+    }
+
+    private fun hasObservableSweep(measurements: List<CalibrationMeasurement>): Boolean {
+        if (measurements.size < MIN_CALIBRATION_SAMPLES) return false
+        var maxSeparation = 0.0
+        for (i in measurements.indices) {
+            for (j in i + 1 until measurements.size) {
+                val delta = kotlin.math.atan2(
+                    kotlin.math.sin(measurements[j].gyroHeading - measurements[i].gyroHeading),
+                    kotlin.math.cos(measurements[j].gyroHeading - measurements[i].gyroHeading)
+                )
+                maxSeparation = maxOf(maxSeparation, kotlin.math.abs(delta))
+            }
+        }
+        return maxSeparation >= MIN_HEADING_SPAN_RADIANS
+    }
+
+    private companion object {
+        const val MAX_SAMPLE_SKEW_MS = 100L
+        const val MIN_CALIBRATION_SAMPLES = 3
+        const val MIN_HEADING_SPAN_RADIANS = 0.35
     }
 }

@@ -132,6 +132,11 @@ class RlogDecoderService : BaseLogDecoder() {
                                             offset += 8
                                             batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, v))
                                         }
+                                        "string", "json" -> {
+                                            val v = String(bytes, offset, valueLength, Charsets.UTF_8)
+                                            offset += valueLength
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, 0.0, v))
+                                        }
                                         "boolean[]" -> {
                                             for (i in 0 until valueLength) {
                                                 val v = bytes[offset + i].toInt() != 0
@@ -199,7 +204,8 @@ class RlogDecoderService : BaseLogDecoder() {
                                         7 -> { // String
                                             val strLen = buffer.getShort(offset).toInt() and 0xFFFF
                                             offset += 2
-                                            offset += strLen // skip string bytes
+                                            val value = readString(strLen)
+                                            batcher.add(TelemetryFrame(timestampMs, sessionId, keyName, 0.0, value))
                                         }
                                         2 -> { // BooleanArray
                                             val arrLen = buffer.getShort(offset).toInt() and 0xFFFF

@@ -1,7 +1,5 @@
 package com.ares.analytics.service
 
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -30,24 +28,11 @@ class ParquetExporterService(private val databaseService: DatabaseService) {
      * @param destinationFile Destination Parquet file.
      * @throws IllegalArgumentException If no telemetry frames exist for [sessionId].
      */
-    suspend fun exportSessionToParquet(sessionId: String, destinationFile: File) = withContext(Dispatchers.IO) {
+    suspend fun exportSessionToParquet(sessionId: String, destinationFile: File) {
         val count = databaseService.countTelemetryFrames(sessionId)
         if (count == 0L) {
             throw IllegalArgumentException("Cannot export empty session: $sessionId")
         }
-
-        // Ensure parent folder exists
-        destinationFile.parentFile?.mkdirs()
-
-        // Delete existing file since COPY TO doesn't overwrite by default
-        if (destinationFile.exists()) {
-            destinationFile.delete()
-        }
-        val absolutePath = destinationFile.absolutePath.replace("\\", "/")
-        
-        databaseService.executeRaw("""
-            COPY (SELECT * FROM telemetry_frames WHERE session_id = '$sessionId')
-            TO '$absolutePath' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)
-        """.trimIndent())
+        databaseService.exportSessionToParquet(sessionId, destinationFile)
     }
 }

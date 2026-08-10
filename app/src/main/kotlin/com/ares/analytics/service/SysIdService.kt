@@ -68,8 +68,7 @@ class SysIdService(private val databaseService: DatabaseService) {
             return CalculatedSummary()
         }
 
-        // Align data by matching timestamps (nearest neighbor or exact matching)
-        val timeMap = voltages.associateBy { it.timestampMs }
+        // Align independently sampled channels by bounded nearest-neighbor matching.
         val alignedData = mutableListOf<AlignedDataRow>()
 
         // Identify direction change timestamps (sign of velocity changes)
@@ -78,21 +77,38 @@ class SysIdService(private val databaseService: DatabaseService) {
         val sortedVelocities = velocities.sortedBy { it.timestampMs }
         for (v in sortedVelocities) {
             val currentSign = sign(v.value)
-            if (currentSign != 0.0 && currentSign != lastSign) {
+            if (currentSign != 0.0 && lastSign != 0.0 && currentSign != lastSign) {
                 directionChanges.add(v.timestampMs)
-                lastSign = currentSign
             }
+            if (currentSign != 0.0) lastSign = currentSign
         }
+        val sortedVoltages = voltages.sortedBy { it.timestampMs }
         val sortedAccels = accelerations.sortedBy { it.timestampMs }
+        var voltageIdx = 0
         var accelIdx = 0
+        var directionChangeIdx = 0
 
         for (v in sortedVelocities) {
             val t = v.timestampMs
 
             // Apply direction change cleansing: skip data points within ±50ms of a sign change
-            val isNearDirectionChange = directionChanges.any { abs(it - t) <= 50 }
+            while (directionChangeIdx < directionChanges.size - 1 &&
+                directionChanges[directionChangeIdx + 1] <= t
+            ) {
+                directionChangeIdx++
+            }
+            val isNearDirectionChange =
+                (directionChangeIdx < directionChanges.size && abs(directionChanges[directionChangeIdx] - t) <= 50) ||
+                    (directionChangeIdx + 1 < directionChanges.size &&
+                        abs(directionChanges[directionChangeIdx + 1] - t) <= 50)
             if (isNearDirectionChange) continue
-            val volt = timeMap[t]?.value ?: continue
+            while (voltageIdx < sortedVoltages.size - 1 &&
+                abs(sortedVoltages[voltageIdx + 1].timestampMs - t) <= abs(sortedVoltages[voltageIdx].timestampMs - t)
+            ) {
+                voltageIdx++
+            }
+            val voltageFrame = sortedVoltages[voltageIdx]
+            if (abs(voltageFrame.timestampMs - t) > MAX_ALIGNMENT_DELTA_MS) continue
 
             // Move accelIdx forward to find nearest neighbor in O(N + M)
             while (accelIdx < sortedAccels.size - 1 &&
@@ -100,10 +116,12 @@ class SysIdService(private val databaseService: DatabaseService) {
             ) {
                 accelIdx++
             }
-            if (sortedAccels.isEmpty()) continue
-            val accel = sortedAccels[accelIdx].value
+            val accelFrame = sortedAccels[accelIdx]
+            if (abs(accelFrame.timestampMs - t) > MAX_ALIGNMENT_DELTA_MS) continue
 
-            alignedData.add(AlignedDataRow(t, volt, v.value, accel))
+            if (voltageFrame.value.isFinite() && v.value.isFinite() && accelFrame.value.isFinite()) {
+                alignedData.add(AlignedDataRow(t, voltageFrame.value, v.value, accelFrame.value))
+            }
         }
 
         return analyzeRawData(alignedData)
@@ -117,18 +135,22 @@ class SysIdService(private val databaseService: DatabaseService) {
 
      */
     fun analyzeRawData(alignedData: List<AlignedDataRow>): CalculatedSummary {
-        if (alignedData.size < 10) {
+        val finiteData = alignedData.filter {
+            it.voltage.isFinite() && it.velocity.isFinite() && it.accel.isFinite()
+        }
+        val validData = finiteData.filter { abs(it.velocity) > MIN_SYSID_VELOCITY }
+        if (validData.size < 10) {
             return CalculatedSummary()
         }
 
         // Solve OLS: V = kS * sgn(v) + kV * v + kA * a
         // Construct matrices
-        val n = alignedData.size
+        val n = validData.size
         val X = SimpleMatrix(n, 3)
         val y = SimpleMatrix(n, 1)
 
         for (i in 0 until n) {
-            val row = alignedData[i]
+            val row = validData[i]
             X.setRow(i, 0, sign(row.velocity), row.velocity, row.accel)
             y.set(i, 0, row.voltage)
         }
@@ -138,21 +160,22 @@ class SysIdService(private val databaseService: DatabaseService) {
             val kS = beta.get(0, 0)
             val kV = beta.get(1, 0)
             val kA = beta.get(2, 0)
+            if (!kS.isFinite() || !kV.isFinite() || !kA.isFinite()) return CalculatedSummary()
 
             // Compute R-squared
-            val yMean = alignedData.map { it.voltage }.average()
+            val yMean = validData.map { it.voltage }.average()
             var ssTot = 0.0
             var ssRes = 0.0
             for (i in 0 until n) {
                 val actual = y.get(i, 0)
-                val predicted = kS * sign(alignedData[i].velocity) + kV * alignedData[i].velocity + kA * alignedData[i].accel
+                val predicted = kS * sign(validData[i].velocity) + kV * validData[i].velocity + kA * validData[i].accel
                 ssTot += (actual - yMean) * (actual - yMean)
                 ssRes += (actual - predicted) * (actual - predicted)
             }
             val rSquared = if (ssTot > 0) 1.0 - (ssRes / ssTot) else 0.0
 
             // Classify transient response
-            val transientClassification = classifyTransient(alignedData)
+            val transientClassification = classifyTransient(finiteData)
 
             CalculatedSummary(
                 kS = kS,
@@ -181,7 +204,6 @@ class SysIdService(private val databaseService: DatabaseService) {
         // Trace velocity after step
         val transientPoints = data.subList(stepStartIdx, minOf(stepStartIdx + 30, data.size))
         if (transientPoints.isEmpty()) return TransientClassification.UNKNOWN
-        val maxVel = transientPoints.maxOf { it.velocity }
         // Find steady state velocity (average of last 10 points)
         val steadyStateVel = if (transientPoints.size > 10) {
             transientPoints.takeLast(10).map { it.velocity }.average()
@@ -189,11 +211,21 @@ class SysIdService(private val databaseService: DatabaseService) {
             transientPoints.last().velocity
         }
 
-        if (steadyStateVel <= 0.0) return TransientClassification.UNKNOWN
-        val overshoot = (maxVel - steadyStateVel) / steadyStateVel
+        if (!steadyStateVel.isFinite() || abs(steadyStateVel) <= 1e-6) {
+            return TransientClassification.UNKNOWN
+        }
+        // Normalize by the signed final response so negative-going steps classify the
+        // same way as positive ones. The old `maxVel - average(last 10)` test could
+        // never be negative because a maximum is always at least that subset's mean,
+        // making OVERDAMPED unreachable.
+        val normalizedResponse = transientPoints.map { it.velocity / steadyStateVel }
+        val peakProgress = normalizedResponse.maxOrNull() ?: return TransientClassification.UNKNOWN
+        val tail = transientPoints.takeLast(minOf(10, transientPoints.size)).map { it.velocity }
+        val tailDriftRatio = ((tail.maxOrNull() ?: steadyStateVel) - (tail.minOrNull() ?: steadyStateVel)) /
+            abs(steadyStateVel)
         return when {
-            overshoot > 0.05 -> TransientClassification.UNDERDAMPED
-            overshoot < -0.05 -> TransientClassification.OVERDAMPED // very sluggish
+            peakProgress > 1.05 -> TransientClassification.UNDERDAMPED
+            tailDriftRatio > 0.10 -> TransientClassification.OVERDAMPED
             else -> TransientClassification.CRITICALLY_DAMPED
         }
     }
@@ -202,13 +234,23 @@ class SysIdService(private val databaseService: DatabaseService) {
      * FFT analysis of a telemetry signal to find dominant frequencies (e.g. vibrations or oscillations).
      */
     fun performFftAnalysis(values: DoubleArray, sampleRateHz: Double): FftResult {
-        if (values.size < 4) return FftResult(emptyDoubleArray(), emptyDoubleArray(), 0.0)
+        if (values.size < 4 || values.size > MAX_FFT_SAMPLES ||
+            !sampleRateHz.isFinite() || sampleRateHz <= 0.0 || values.any { !it.isFinite() }
+        ) {
+            return FftResult(emptyDoubleArray(), emptyDoubleArray(), 0.0)
+        }
 
         // FFT size must be power of two
         val n = values.size
         val nextPow2 = nextPowerOfTwo(n)
         val padded = DoubleArray(nextPow2)
-        System.arraycopy(values, 0, padded, 0, n)
+        val mean = values.average()
+        var windowSum = 0.0
+        for (i in values.indices) {
+            val window = 0.5 * (1.0 - kotlin.math.cos(2.0 * kotlin.math.PI * i / (n - 1)))
+            padded[i] = (values[i] - mean) * window
+            windowSum += window
+        }
         val transformer = FastFourierTransformer(DftNormalization.STANDARD)
         val complex = transformer.transform(padded, TransformType.FORWARD)
 
@@ -219,7 +261,7 @@ class SysIdService(private val databaseService: DatabaseService) {
 
         for (i in 0 until half) {
             frequencies[i] = i * sampleRateHz / nextPow2
-            magnitudes[i] = complex[i].abs()
+            magnitudes[i] = if (windowSum > 0.0) 2.0 * complex[i].abs() / windowSum else 0.0
         }
 
         // Find dominant frequency (excluding DC component at index 0)
@@ -242,6 +284,12 @@ class SysIdService(private val databaseService: DatabaseService) {
     }
 
     private fun emptyDoubleArray() = DoubleArray(0)
+
+    private companion object {
+        const val MAX_ALIGNMENT_DELTA_MS = 50L
+        const val MIN_SYSID_VELOCITY = 1e-4
+        const val MAX_FFT_SAMPLES = 1 shl 20
+    }
 }
 
 /**

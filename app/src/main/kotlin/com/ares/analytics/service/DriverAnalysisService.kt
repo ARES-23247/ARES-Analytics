@@ -3,10 +3,14 @@ package com.ares.analytics.service
 import com.ares.analytics.shared.DriverProfile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /**
  * Service managing human driver control input profiles and joystick exponent/deadband response curves.
@@ -30,28 +34,30 @@ class DriverAnalysisService(
 ) {
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
     private val profiles = ConcurrentHashMap<String, DriverProfile>()
+    private val persistenceMutex = Mutex()
 
     init {
         loadProfiles()
     }
 
     private fun loadProfiles() {
-        val file = File(profilesPath)
+        val file = File(profilesPath).canonicalFile
         if (!file.exists()) {
-            file.parentFile?.mkdirs()
-            val defaults = listOf(
-                DriverProfile("Default Alpha", 1.2, 3.5),
-                DriverProfile("Precision Mode", 1.5, 2.0),
-                DriverProfile("Aggressive Mode", 1.0, Double.MAX_VALUE)
-            )
-            file.writeText(json.encodeToString(defaults))
+            defaultProfiles().forEach { profiles[it.name] = it }
+            persistProfiles()
+            return
         }
 
         try {
             val list = json.decodeFromString<List<DriverProfile>>(file.readText())
+            require(list.all(::isValidProfile)) { "Driver profile file contains invalid values" }
             list.forEach { profiles[it.name] = it }
         } catch (e: Exception) {
-            e.printStackTrace()
+            val backup = File(file.parentFile, "${file.name}.corrupt-${System.currentTimeMillis()}")
+            runCatching { Files.move(file.toPath(), backup.toPath(), StandardCopyOption.REPLACE_EXISTING) }
+            profiles.clear()
+            defaultProfiles().forEach { profiles[it.name] = it }
+            persistProfiles()
         }
     }
 
@@ -74,16 +80,48 @@ class DriverAnalysisService(
     fun getProfile(name: String): DriverProfile? = profiles[name]
 
     suspend fun saveProfile(profile: DriverProfile) = withContext(Dispatchers.IO) {
-        profiles[profile.name] = profile
-        val file = File(profilesPath)
-        file.writeText(json.encodeToString(profiles.values.toList()))
+        require(isValidProfile(profile)) { "Profile values must be finite, positive, and have a non-blank name" }
+        persistenceMutex.withLock {
+            profiles[profile.name] = profile
+            persistProfiles()
+        }
     }
 
     suspend fun deleteProfile(name: String) = withContext(Dispatchers.IO) {
-        profiles.remove(name)
-        val file = File(profilesPath)
-        file.writeText(json.encodeToString(profiles.values.toList()))
+        persistenceMutex.withLock {
+            profiles.remove(name)
+            persistProfiles()
+        }
     }
+
+    private fun persistProfiles() {
+        val file = File(profilesPath).canonicalFile
+        file.parentFile?.let { Files.createDirectories(it.toPath()) }
+        val temp = File(file.parentFile, ".${file.name}.tmp")
+        temp.writeText(json.encodeToString(profiles.values.sortedBy { it.name }))
+        try {
+            Files.move(
+                temp.toPath(),
+                file.toPath(),
+                StandardCopyOption.REPLACE_EXISTING,
+                StandardCopyOption.ATOMIC_MOVE
+            )
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            Files.move(temp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
+    private fun defaultProfiles(): List<DriverProfile> = listOf(
+        DriverProfile("Default Alpha", 1.2, 3.5),
+        DriverProfile("Precision Mode", 1.5, 2.0),
+        DriverProfile("Aggressive Mode", 1.0, Double.MAX_VALUE)
+    )
+
+    private fun isValidProfile(profile: DriverProfile): Boolean =
+        profile.name.isNotBlank() &&
+            profile.deadbandExponent.isFinite() && profile.deadbandExponent > 0.0 &&
+            profile.slewRateLimit.isFinite() && profile.slewRateLimit > 0.0 &&
+            profile.jitterPeakFrequencyHz.isFinite() && profile.jitterAmplitude.isFinite()
 
 
     /**
@@ -94,10 +132,11 @@ class DriverAnalysisService(
         gamepadXKey: String = "/Gamepad1/LeftX",
         gamepadYKey: String = "/Gamepad1/LeftY"
     ): DriverProfileAnalysisResult = withContext(Dispatchers.Default) {
-        val xFrames = databaseService.getTelemetryRange(sessionId, 0, Long.MAX_VALUE).filter { it.key == gamepadXKey }
-        val yFrames = databaseService.getTelemetryRange(sessionId, 0, Long.MAX_VALUE).filter { it.key == gamepadYKey }
+        val xFrames = databaseService.getTelemetryForKey(sessionId, gamepadXKey)
+        val yFrames = databaseService.getTelemetryForKey(sessionId, gamepadYKey)
 
-        if (xFrames.size < 64) {
+        val analyses = listOf(xFrames, yFrames).mapNotNull { analyzeSignal(it) }
+        if (analyses.isEmpty()) {
             return@withContext DriverProfileAnalysisResult(
                 hasJitter = false,
                 peakFrequencyHz = 0.0,
@@ -106,20 +145,13 @@ class DriverAnalysisService(
                 message = "Insufficient gamepad telemetry data to analyze driver inputs."
             )
         }
-        val alignedTimes = xFrames.map { it.timestampMs }.sorted()
-        if (alignedTimes.size < 2) {
-            return@withContext DriverProfileAnalysisResult(false, 0.0, 1.0, Double.MAX_VALUE, "Time delta calculation failed.")
-        }
-        val avgDtMs = (alignedTimes.last() - alignedTimes.first()).toDouble() / (alignedTimes.size - 1)
-        val sampleRateHz = 1000.0 / avgDtMs
-        val xValues = DoubleArray(xFrames.size) { xFrames[it].value }
-
-        // Run FFT
-        val fftRes = sysIdService.performFftAnalysis(xValues, sampleRateHz)
-
-        // Check for dominant peak in the 8-12 Hz jitter band
-        val isJitterPresent = fftRes.dominantFrequency in 8.0..12.0
-        val peakFreq = fftRes.dominantFrequency
+        // Pick the strongest 8-12 Hz component from either stick axis. Looking only at
+        // the global dominant FFT bin misses jitter whenever intentional low-frequency
+        // driver motion has more energy.
+        val strongest = analyses.maxBy { it.bandAmplitude }
+        val isJitterPresent = strongest.bandAmplitude >= MIN_JITTER_AMPLITUDE &&
+            strongest.bandAmplitude >= strongest.noiseFloor * MIN_SIGNAL_TO_NOISE
+        val peakFreq = strongest.bandFrequencyHz
 
         // Calculate recommendations
         var recommendedExp = 1.0
@@ -141,6 +173,56 @@ class DriverAnalysisService(
             recommendedSlewRate = recommendedSlew,
             message = msg
         )
+    }
+
+    private fun analyzeSignal(frames: List<com.ares.analytics.shared.TelemetryFrame>): SignalSpectrum? {
+        if (frames.size < MIN_SAMPLES) return null
+        val sorted = frames.sortedBy { it.timestampMs }
+        if (sorted.any { !it.value.isFinite() }) return null
+        val deltas = LongArray(sorted.size - 1) { index ->
+            sorted[index + 1].timestampMs - sorted[index].timestampMs
+        }.filter { it > 0L }.sorted()
+        if (deltas.size < sorted.size - 1) return null
+        val medianDtMs = deltas[deltas.size / 2].toDouble()
+        if (!medianDtMs.isFinite() || medianDtMs <= 0.0) return null
+        // An FFT assumes uniform sampling. Reject heavily gapped captures instead of
+        // reporting an aliased frequency with false precision.
+        if (deltas.any { kotlin.math.abs(it - medianDtMs) > medianDtMs * MAX_SAMPLE_JITTER_FRACTION }) return null
+
+        val fft = sysIdService.performFftAnalysis(
+            DoubleArray(sorted.size) { sorted[it].value },
+            1000.0 / medianDtMs
+        )
+        if (fft.frequencies.isEmpty()) return null
+
+        var bandAmplitude = 0.0
+        var bandFrequency = 0.0
+        val nonDcMagnitudes = ArrayList<Double>(fft.magnitudes.size - 1)
+        for (index in 1 until fft.frequencies.size) {
+            val magnitude = fft.magnitudes[index]
+            nonDcMagnitudes.add(magnitude)
+            if (fft.frequencies[index] in JITTER_BAND_HZ && magnitude > bandAmplitude) {
+                bandAmplitude = magnitude
+                bandFrequency = fft.frequencies[index]
+            }
+        }
+        nonDcMagnitudes.sort()
+        val noiseFloor = if (nonDcMagnitudes.isEmpty()) 0.0 else nonDcMagnitudes[nonDcMagnitudes.size / 2]
+        return SignalSpectrum(bandFrequency, bandAmplitude, noiseFloor)
+    }
+
+    private data class SignalSpectrum(
+        val bandFrequencyHz: Double,
+        val bandAmplitude: Double,
+        val noiseFloor: Double
+    )
+
+    private companion object {
+        const val MIN_SAMPLES = 64
+        val JITTER_BAND_HZ = 8.0..12.0
+        const val MIN_JITTER_AMPLITUDE = 0.02
+        const val MIN_SIGNAL_TO_NOISE = 3.0
+        const val MAX_SAMPLE_JITTER_FRACTION = 0.5
     }
 }
 

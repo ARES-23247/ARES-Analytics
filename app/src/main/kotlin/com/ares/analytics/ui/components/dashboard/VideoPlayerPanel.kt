@@ -172,7 +172,10 @@ fun VideoPlayerPanel(
                     // Draw simulated robot telemetry movement on canvas
                     val poseX = currentFrame?.values?.get("Drive/Pose_X") ?: 0.0
                     val poseY = currentFrame?.values?.get("Drive/Pose_Y") ?: 0.0
-                    val heading = currentFrame?.values?.get("Drive/Pose_Heading") ?: 0.0
+                    val heading = currentFrame?.values?.get("Drive/Pose_Heading")
+                        ?: currentFrame?.values?.get("Drive/Drive_Heading")
+                        ?: currentFrame?.values?.get("ARES/EstimatedPose/2")
+                        ?: 0.0
 
                     // Draw a visual representation of the robot moving
                     val rx = cx + (poseX * 80).toFloat()

@@ -49,8 +49,8 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
      */
     suspend fun parseJsonlLog(file: File, sessionId: String, batcher: FrameBatcher) {
         file.bufferedReader(Charsets.UTF_8).use { reader ->
-            var line: String? = reader.readLine()
-            while (line != null) {
+            while (true) {
+                val line = reader.readLine() ?: break
                 val trimmed = line.trim()
                 if (trimmed.isNotEmpty()) {
                     try {
@@ -76,7 +76,6 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
                         // Ignore bad lines
                     }
                 }
-                line = reader.readLine()
             }
         }
     }
@@ -90,8 +89,8 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
         var isFirstLine = true
 
         file.bufferedReader(Charsets.UTF_8).use { reader ->
-            var line: String? = reader.readLine()
-            while (line != null) {
+            while (true) {
+                val line = reader.readLine() ?: break
                 val trimmed = line.trim()
                 if (trimmed.isNotEmpty()) {
                     try {
@@ -131,7 +130,6 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
                         // Skip malformed lines
                     }
                 }
-                line = reader.readLine()
             }
         }
 

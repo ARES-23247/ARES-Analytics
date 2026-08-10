@@ -38,15 +38,19 @@ class SummaryEngineServiceTest {
             TelemetryFrame(1100L, session.sessionId, "/Battery/Voltage", 12.6),
             TelemetryFrame(1200L, session.sessionId, "/Battery/Voltage", 11.2),
             TelemetryFrame(1300L, session.sessionId, "/Battery/Voltage", 0.0), // noise to be ignored
+            TelemetryFrame(1300L, session.sessionId, "Hardware/Motors/fl/Voltage", 2.0),
             TelemetryFrame(1100L, session.sessionId, "/Drive/EkfDrift", 0.05),
-            TelemetryFrame(1200L, session.sessionId, "/Drive/EkfDrift", 0.18),
+            TelemetryFrame(1200L, session.sessionId, "/Drive/EkfDrift", -0.25),
+            TelemetryFrame(1200L, session.sessionId, "/Drive/EKF_X", 14.0),
             TelemetryFrame(1100L, session.sessionId, "/Robot/LoopTimeMs", 20.0),
             TelemetryFrame(1200L, session.sessionId, "/Robot/LoopTimeMs", 24.0),
             TelemetryFrame(1300L, session.sessionId, "/Robot/LoopTimeMs", 18.0),
             TelemetryFrame(1100L, session.sessionId, "/Drive/MotorFL/Current", 8.0),
             TelemetryFrame(1200L, session.sessionId, "/Drive/MotorFL/Current", 12.0),
+            TelemetryFrame(1200L, session.sessionId, "Hardware/Motors/fr/CurrentAmps", 7.0),
             TelemetryFrame(1100L, session.sessionId, "/Vision/AcceptanceRate", 0.95),
-            TelemetryFrame(1200L, session.sessionId, "/Vision/AcceptanceRate", 0.85)
+            TelemetryFrame(1200L, session.sessionId, "/Vision/AcceptanceRate", 0.85),
+            TelemetryFrame(1200L, session.sessionId, "/Robot/OpMode", 0.0, "AUTO")
         )
 
         databaseService.insertTelemetryFrames(frames)
@@ -54,12 +58,14 @@ class SummaryEngineServiceTest {
 
         assertEquals("summary-session", summary.sessionId)
         assertEquals(11.2, summary.minBatteryVoltage)
-        assertEquals(0.18, summary.maxEkfDrift)
+        assertEquals(0.25, summary.maxEkfDrift)
         assertEquals(20.67, summary.avgLoopTimeMs, 0.01)
         assertEquals(10.0, summary.motorCurrentAverages["MotorFL"])
+        assertEquals(7.0, summary.motorCurrentAverages["fr"])
         assertEquals(0.90, summary.visionAcceptanceRate, 0.01)
-        assertEquals(2, summary.tags.size)
+        assertEquals(3, summary.tags.size)
         assertTrue(summary.tags.contains("battery-A"))
+        assertTrue(summary.tags.contains("AUTO"))
 
         // Verify summary was saved in DB
         val saved = databaseService.getSessionSummary(session.sessionId)
