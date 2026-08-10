@@ -1,6 +1,7 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.TelemetryFrame
+import com.ares.analytics.shared.TelemetryMetricCatalog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedOutputStream
@@ -38,10 +39,11 @@ class ExportService(private val databaseService: DatabaseService) {
         selectedKeys: List<String>,
         destinationFile: File
     ) = withContext(Dispatchers.IO) {
+        val normalizedKeys = selectedKeys.map(TelemetryMetricCatalog::normalizeTopic).distinct()
         destinationFile.parentFile?.mkdirs()
         destinationFile.printWriter().use { writer ->
             writer.println("key,timestamp_ms,value")
-            for (key in selectedKeys) {
+            for (key in normalizedKeys) {
                 val frames = databaseService.getTelemetryForKey(sessionId, key)
                 for (frame in frames) {
                     writer.println("${frame.key},${frame.timestampMs},${frame.value}")
@@ -56,17 +58,18 @@ class ExportService(private val databaseService: DatabaseService) {
         destinationFile: File,
         samplingPeriodMs: Long? = null
     ) = withContext(Dispatchers.IO) {
+        val normalizedKeys = selectedKeys.map(TelemetryMetricCatalog::normalizeTopic).distinct()
         destinationFile.parentFile?.mkdirs()
 
         // Fetch all frames
         val allFrames = mutableListOf<TelemetryFrame>()
-        for (key in selectedKeys) {
+        for (key in normalizedKeys) {
             allFrames.addAll(databaseService.getTelemetryForKey(sessionId, key))
         }
 
         if (allFrames.isEmpty()) {
             destinationFile.printWriter().use { writer ->
-                writer.println("timestamp_ms," + selectedKeys.joinToString(","))
+                writer.println("timestamp_ms," + normalizedKeys.joinToString(","))
             }
             return@withContext
         }
@@ -87,20 +90,20 @@ class ExportService(private val databaseService: DatabaseService) {
         }
 
         // Map key to sorted frames
-        val framesByKey = selectedKeys.associateWith { key ->
+        val framesByKey = normalizedKeys.associateWith { key ->
             databaseService.getTelemetryForKey(sessionId, key).sortedBy { it.timestampMs }
         }
 
         destinationFile.printWriter().use { writer ->
-            writer.println("timestamp_ms," + selectedKeys.joinToString(","))
+            writer.println("timestamp_ms," + normalizedKeys.joinToString(","))
 
             // Track current frame index for each key for efficient sample-and-hold
-            val indices = selectedKeys.associateWith { 0 }.toMutableMap()
-            val lastValues = selectedKeys.associateWith { "" }.toMutableMap()
+            val indices = normalizedKeys.associateWith { 0 }.toMutableMap()
+            val lastValues = normalizedKeys.associateWith { "" }.toMutableMap()
 
             for (ts in timestamps) {
                 val rowValues = mutableListOf<String>()
-                for (key in selectedKeys) {
+                for (key in normalizedKeys) {
                     val keyFrames = framesByKey[key] ?: emptyList()
                     var idx = indices[key] ?: 0
 
@@ -122,6 +125,7 @@ class ExportService(private val databaseService: DatabaseService) {
         selectedKeys: List<String>,
         destinationFile: File
     ) = withContext(Dispatchers.IO) {
+        val normalizedKeys = selectedKeys.map(TelemetryMetricCatalog::normalizeTopic).distinct()
         destinationFile.parentFile?.mkdirs()
         val records = mutableListOf<WpiRecord>()
 
@@ -129,7 +133,7 @@ class ExportService(private val databaseService: DatabaseService) {
         var nextEntryId = 1
         val keyEntryIds = mutableMapOf<String, Int>()
 
-        for (key in selectedKeys) {
+        for (key in normalizedKeys) {
             val entryId = nextEntryId++
             keyEntryIds[key] = entryId
 
@@ -152,7 +156,7 @@ class ExportService(private val databaseService: DatabaseService) {
         }
 
         // 2. Add data records
-        for (key in selectedKeys) {
+        for (key in normalizedKeys) {
             val entryId = keyEntryIds[key] ?: continue
             val frames = databaseService.getTelemetryForKey(sessionId, key)
             for (frame in frames) {

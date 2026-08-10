@@ -46,7 +46,7 @@ class ReplayEngineServiceTest {
         replayEngine.loadSession(session.sessionId)
         assertEquals(ReplayState.STOPPED, replayEngine.state.value)
         assertEquals(0.0, replayEngine.progress.value)
-        assertEquals(1.0, replayEngine.currentFrame.value?.values?.get("/Test/Val"))
+        assertEquals(1.0, replayEngine.currentFrame.value?.values?.get("Test/Val"))
         assertTrue(replayEngine.telemetryDensity.value.isNotEmpty())
 
         // Play

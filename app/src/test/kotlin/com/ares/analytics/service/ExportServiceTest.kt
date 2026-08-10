@@ -31,8 +31,8 @@ class ExportServiceTest {
         val lines = tempCsv.readLines()
         assertEquals(3, lines.size)
         assertEquals("key,timestamp_ms,value", lines[0])
-        assertEquals("/test/motor1,1000,1.5", lines[1])
-        assertEquals("/test/motor1,2000,2.5", lines[2])
+        assertEquals("test/motor1,1000,1.5", lines[1])
+        assertEquals("test/motor1,2000,2.5", lines[2])
 
         tempCsv.delete()
         tempDb.delete()
@@ -57,7 +57,7 @@ class ExportServiceTest {
         exportService.exportToCsvTable(sessionId, listOf("/test/motor1", "/test/motor2"), tempCsv)
         val lines = tempCsv.readLines()
         assertEquals(3, lines.size)
-        assertEquals("timestamp_ms,/test/motor1,/test/motor2", lines[0])
+        assertEquals("timestamp_ms,test/motor1,test/motor2", lines[0])
         assertEquals("1000,1.5,0.5", lines[1])
         assertEquals("2000,2.5,0.5", lines[2]) // sample and hold fills motor2 with 0.5
 
