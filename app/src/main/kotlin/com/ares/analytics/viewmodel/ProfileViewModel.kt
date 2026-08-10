@@ -1,7 +1,6 @@
 package com.ares.analytics.viewmodel
 
 import com.ares.analytics.service.AuthState
-import com.ares.analytics.service.EnvironmentService
 import com.ares.analytics.service.OAuthService
 import com.ares.analytics.service.SyncEngineService
 import com.ares.analytics.shared.RobotProfile
@@ -48,21 +47,6 @@ sealed class ProfileIntent {
 
     data class PerformDeltaSync(val firebaseToken: String) : ProfileIntent()
 
-    data class UpdateEventSettings(
-        val googleClientId: String,
-        val googleClientSecret: String,
-        val eventCode: String,
-        val toaApiKey: String,
-        val tbaApiKey: String,
-        val aiMode: String,
-        val geminiApiKey: String,
-        val geminiModel: String,
-        val vertexServiceAccountPath: String,
-        val vertexProjectId: String,
-        val vertexLocation: String,
-        val onConfigChanged: (WorkspaceConfig) -> Unit
-    ) : ProfileIntent()
-
     object ClearSyncStatus : ProfileIntent()
 }
 
@@ -70,7 +54,6 @@ sealed class ProfileIntent {
 class ProfileViewModel(
     private val oauthService: OAuthService,
     private val syncEngineService: SyncEngineService,
-    private val environmentService: EnvironmentService,
     private val scope: CoroutineScope
 ) {
     private val _state = MutableStateFlow(ProfileState())
@@ -146,42 +129,6 @@ class ProfileViewModel(
                     } catch (e: Exception) {
                         _state.update { it.copy(syncStatus = "Sync failed: ${e.message}") }
                     }
-                }
-                is ProfileIntent.UpdateEventSettings -> {
-                    val currentCfg = _state.value.config ?: return@launch
-                    val newConfig = currentCfg.copy(
-                        googleClientId = intent.googleClientId.takeIf { it.isNotBlank() },
-                        googleClientSecret = intent.googleClientSecret.takeIf { it.isNotBlank() },
-                        eventCode = intent.eventCode.takeIf { it.isNotBlank() },
-                        toaApiKey = intent.toaApiKey.takeIf { it.isNotBlank() },
-                        tbaApiKey = intent.tbaApiKey.takeIf { it.isNotBlank() },
-                        aiMode = intent.aiMode.takeIf { it.isNotBlank() },
-                        geminiApiKey = intent.geminiApiKey.takeIf { it.isNotBlank() },
-                        geminiModel = intent.geminiModel.takeIf { it.isNotBlank() },
-                        vertexServiceAccountPath = intent.vertexServiceAccountPath.takeIf { it.isNotBlank() },
-                        vertexProjectId = intent.vertexProjectId.takeIf { it.isNotBlank() },
-                        vertexLocation = intent.vertexLocation.takeIf { it.isNotBlank() }
-                    )
-                    _state.update {
-                        it.copy(
-                            config = newConfig,
-                            googleClientId = intent.googleClientId,
-                            googleClientSecret = intent.googleClientSecret,
-                            eventCode = intent.eventCode,
-                            toaApiKey = intent.toaApiKey,
-                            tbaApiKey = intent.tbaApiKey,
-                            aiMode = intent.aiMode,
-                            geminiApiKey = intent.geminiApiKey,
-                            geminiModel = intent.geminiModel,
-                            vertexServiceAccountPath = intent.vertexServiceAccountPath,
-                            vertexProjectId = intent.vertexProjectId,
-                            vertexLocation = intent.vertexLocation
-                        )
-                    }
-                    withContext(Dispatchers.IO) {
-                        environmentService.saveConfig(newConfig)
-                    }
-                    intent.onConfigChanged(newConfig)
                 }
                 is ProfileIntent.ClearSyncStatus -> {
                     _state.update { it.copy(syncStatus = "") }

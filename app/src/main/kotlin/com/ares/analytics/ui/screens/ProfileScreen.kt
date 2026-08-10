@@ -580,23 +580,7 @@ fun ProfileScreen(
                     highContrastMode = highContrastMode,
                     touchOptimizedMode = touchOptimizedMode
                 )
-                viewModel.onIntent(
-                    ProfileIntent.UpdateEventSettings(
-                        googleClientId = googleClientId,
-                        googleClientSecret = googleClientSecret,
-                        eventCode = eventCode,
-                        toaApiKey = toaApiKey,
-                        tbaApiKey = tbaApiKey,
-                        aiMode = aiMode,
-                        geminiApiKey = geminiApiKey,
-                        geminiModel = geminiModel,
-                        vertexServiceAccountPath = vertexServiceAccountPath,
-                        vertexProjectId = vertexProjectId,
-                        vertexLocation = vertexLocation,
-                        onConfigChanged = onConfigChanged
-                    )
-                )
-                // Trigger workspace config sync on parent main view model
+                // MainViewModel owns the single persisted workspace update.
                 onConfigChanged(newConfig)
             },
             colors = ButtonDefaults.buttonColors(containerColor = AresCyan),

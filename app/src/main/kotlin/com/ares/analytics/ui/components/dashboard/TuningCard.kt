@@ -28,15 +28,17 @@ fun TuningCard(
     modifier: Modifier = Modifier
 ) {
     val groups = listOf(
-        TuningGroup("Drivetrain Kinematics", listOf("trackWidthMeters", "wheelBaseMeters", "ticksPerMeter")),
-        TuningGroup("Path Translation PID", listOf("pathTranslationGains/kP", "pathTranslationGains/kI", "pathTranslationGains/kD")),
-        TuningGroup("Path Rotation PID", listOf("pathRotationGains/kP", "pathRotationGains/kI", "pathRotationGains/kD")),
-        TuningGroup("Heading Lock PID", listOf("headingGains/kP", "headingGains/kI", "headingGains/kD", "headingDeadzoneDeg")),
-        TuningGroup("Drivetrain Feedforward", listOf("driveFeedforward/kS", "driveFeedforward/kV", "driveFeedforward/kA", "driveSlewRateLimit")),
-        TuningGroup("Motor Closed-Loop PIDF", listOf("motorGains/kP", "motorGains/kI", "motorGains/kD", "motorGains/kF")),
-        TuningGroup("Odometry & EKF Localization", listOf("odomQx", "odomQy", "odomQtheta", "pinpointXOffsetMm", "pinpointYOffsetMm", "pinpointEncoderResolution")),
-        TuningGroup("Vision Filtering & Thresholds", listOf("visionStdDevsX", "visionStdDevsY", "visionStdDevsHeading", "visionMaxDistanceMeters", "visionMaxAmbiguity", "visionMahalanobisThreshold")),
-        TuningGroup("Driver Profile Configuration", listOf("driverDeadbandExponent", "driverSlewRateLimit"))
+        TuningGroup("Drivetrain Kinematics", listOf("drive/trackWidthMeters", "drive/wheelBaseMeters", "drive/ftc/ticksPerMeter")),
+        TuningGroup("Path Translation PID", listOf("drive/pathTranslationGains/kP", "drive/pathTranslationGains/kI", "drive/pathTranslationGains/kD")),
+        TuningGroup("Path Rotation PID", listOf("drive/pathRotationGains/kP", "drive/pathRotationGains/kI", "drive/pathRotationGains/kD")),
+        TuningGroup("Heading Lock PID", listOf("drive/headingGains/kP", "drive/headingGains/kI", "drive/headingGains/kD", "drive/headingDeadzoneDeg")),
+        TuningGroup("Linear Feedforward", listOf("drive/driveFeedforward/kS", "drive/driveFeedforward/kV", "drive/driveFeedforward/kA")),
+        TuningGroup("Angular Feedforward", listOf("drive/angularFeedforward/kS", "drive/angularFeedforward/kV", "drive/angularFeedforward/kA")),
+        TuningGroup("Motor Closed-Loop PIDF", listOf("drive/ftc/motorGains/kP", "drive/ftc/motorGains/kI", "drive/ftc/motorGains/kD", "drive/ftc/motorGains/kF")),
+        TuningGroup("Odometry & EKF Localization", listOf("localization/ekfNoise/qX", "localization/ekfNoise/qY", "localization/ekfNoise/qTheta", "localization/ftcPinpoint/xOffsetMm", "localization/ftcPinpoint/yOffsetMm", "localization/ftcPinpoint/encoderResolution")),
+        TuningGroup("Vision Filtering & Thresholds", listOf("vision/stdDevsX", "vision/stdDevsY", "vision/stdDevsHeading", "vision/maxDistanceMeters", "vision/maxAmbiguity", "vision/mahalanobisThreshold")),
+        TuningGroup("Driver Profile Configuration", listOf("driver/deadbandExponent", "driver/slewRateLimit")),
+        TuningGroup("Flywheel Auto-Tuning", listOf("subsystem/flywheel/feedforward/kS", "subsystem/flywheel/feedforward/kV", "subsystem/flywheel/feedforward/kA", "subsystem/flywheel/velocityGains/kP", "subsystem/flywheel/velocityGains/kI", "subsystem/flywheel/velocityGains/kD"))
     )
 
     AnalyticsCard(

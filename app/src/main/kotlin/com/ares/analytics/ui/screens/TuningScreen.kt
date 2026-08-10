@@ -595,11 +595,19 @@ private fun getCustomCategory(key: String): String {
     val parts = cleanKey.split("/")
     if (parts.size > 1) {
         return when (parts[0]) {
-            "pathTranslationGains" -> "Path Translation PID"
-            "pathRotationGains" -> "Path Rotation PID"
-            "headingGains" -> "Heading Lock PID"
-            "driveFeedforward" -> "Drivetrain Feedforward"
-            "motorGains" -> "Motor PIDF"
+            "drive" -> when (parts.getOrNull(1)) {
+                "pathTranslationGains" -> "Path Translation PID"
+                "pathRotationGains" -> "Path Rotation PID"
+                "headingGains" -> "Heading Lock PID"
+                "driveFeedforward" -> "Linear Feedforward"
+                "angularFeedforward" -> "Angular Feedforward"
+                "ftc" -> "FTC Drivetrain"
+                else -> "Drivetrain"
+            }
+            "localization" -> "Odometry & Localization"
+            "vision" -> "Limelight Vision"
+            "driver" -> "Driver Profile"
+            "subsystem" -> "Mechanism Tuning"
             else -> parts[0].replace(Regex("([a-z])([A-Z]+)"), "$1 $2").replaceFirstChar { it.uppercase() }
         }
     }

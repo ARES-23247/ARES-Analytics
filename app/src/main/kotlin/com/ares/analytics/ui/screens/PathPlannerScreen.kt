@@ -57,9 +57,11 @@ fun PathPlannerScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
-    LaunchedEffect(projectPath, league, robotDimensions) {
-        viewModel.onIntent(PathPlannerIntent.ConfigureAresField(league, robotDimensions))
+    LaunchedEffect(projectPath, league) {
         viewModel.onIntent(PathPlannerIntent.FetchAvailablePaths(projectPath, league))
+    }
+    LaunchedEffect(league, robotDimensions) {
+        viewModel.onIntent(PathPlannerIntent.ConfigureAresField(league, robotDimensions))
     }
 
     val autoWaypoints = remember(state.aresAuto) {
@@ -144,7 +146,6 @@ fun PathPlannerScreen(
                 projectPath = projectPath,
                 league = league,
                 onRobotDimensionsChanged = { dimensions ->
-                    viewModel.onIntent(PathPlannerIntent.ConfigureAresField(league, dimensions))
                     onRobotDimensionsChanged(dimensions)
                 },
                 onIntent = viewModel::onIntent

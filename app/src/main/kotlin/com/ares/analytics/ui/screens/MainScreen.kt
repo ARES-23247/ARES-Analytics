@@ -243,7 +243,6 @@ fun MainScreen(services: ServiceRegistry) {
         ProfileViewModel(
             oauthService = services.oauthService,
             syncEngineService = services.syncEngineService,
-            environmentService = services.environmentService,
             scope = scope
         )
     }

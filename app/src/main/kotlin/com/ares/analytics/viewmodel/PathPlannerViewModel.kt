@@ -458,7 +458,7 @@ class PathPlannerViewModel(
                 }
                 is PathPlannerIntent.AddAresDriveGoal -> {
                     val current = _state.value.aresAuto
-                    val previous = current.steps.asReversed().firstNotNullOfOrNull { it.drive?.target }
+                    val previous = current.steps.lastDriveTarget()
                         ?: current.startingPose
                     val target = clampAutoPose(
                         previous.copy(xMeters = previous.xMeters + 0.5),
@@ -568,22 +568,12 @@ class PathPlannerViewModel(
     private fun updateAresRouteWaypoints(waypoints: List<Waypoint>, league: League) {
         if (waypoints.isEmpty()) return
         updateAresAuto { routine ->
-            val driveIndices = routine.steps.indices.filter { routine.steps[it].kind == AutoStepKind.DRIVE }
-            val updatedSteps = routine.steps.toMutableList()
-            driveIndices.forEachIndexed { routeIndex, stepIndex ->
-                val waypoint = waypoints.getOrNull(routeIndex + 1) ?: return@forEachIndexed
-                val step = updatedSteps[stepIndex]
-                val drive = step.drive ?: return@forEachIndexed
-                updatedSteps[stepIndex] = step.copy(
-                    drive = drive.copy(
-                        target = clampAutoPose(AutoPose(
-                            waypoint.x,
-                            waypoint.y,
-                            waypoint.rotationDeg?.let(Math::toRadians) ?: waypoint.headingRad ?: 0.0
-                        ), league, _state.value.robotDimensions)
-                    )
-                )
-            }
+            val routeIterator = waypoints.drop(1).iterator()
+            val updatedSteps = routine.steps.withRouteWaypoints(
+                routeIterator,
+                league,
+                _state.value.robotDimensions
+            )
             val start = waypoints.first()
             routine.copy(
                 startingPose = clampAutoPose(AutoPose(
@@ -724,8 +714,7 @@ class PathPlannerViewModel(
             )
             var timeOffset = 0.0
             val previewStates = mutableListOf<TrajectoryState>()
-            draft.steps.forEach { step ->
-                val drive = step.drive ?: return@forEach
+            draft.steps.driveStepsInExecutionOrder().forEach { drive ->
                 val target = Pose2d(
                     drive.target.xMeters,
                     drive.target.yMeters,
@@ -766,6 +755,44 @@ class PathPlannerViewModel(
                 }
             }
         }
+    }
+
+    private fun List<AutoStep>.lastDriveTarget(): AutoPose? =
+        asReversed().firstNotNullOfOrNull { step ->
+            step.children.lastDriveTarget() ?: step.drive?.target
+        }
+
+    private fun List<AutoStep>.driveStepsInExecutionOrder(): List<AutoDriveStep> = buildList {
+        this@driveStepsInExecutionOrder.forEach { step ->
+            step.drive?.let(::add)
+            addAll(step.children.driveStepsInExecutionOrder())
+        }
+    }
+
+    private fun List<AutoStep>.withRouteWaypoints(
+        waypoints: Iterator<Waypoint>,
+        league: League,
+        dimensions: RobotDimensions
+    ): List<AutoStep> = map { step ->
+        val updatedDrive = step.drive?.let { drive ->
+            if (!waypoints.hasNext()) return@let drive
+            val waypoint = waypoints.next()
+            drive.copy(
+                target = clampAutoPose(
+                    AutoPose(
+                        waypoint.x,
+                        waypoint.y,
+                        waypoint.rotationDeg?.let(Math::toRadians) ?: waypoint.headingRad ?: 0.0
+                    ),
+                    league,
+                    dimensions
+                )
+            )
+        }
+        step.copy(
+            drive = updatedDrive,
+            children = step.children.withRouteWaypoints(waypoints, league, dimensions)
+        )
     }
 
     private fun parseCommandCatalog(json: String?): List<NamedCommandDescriptor>? {
