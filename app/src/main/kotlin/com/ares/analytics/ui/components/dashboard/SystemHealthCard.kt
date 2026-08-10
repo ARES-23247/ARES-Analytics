@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
+import com.ares.analytics.service.DashboardHealthService
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
@@ -25,6 +26,7 @@ import com.ares.analytics.ui.components.core.*
 @Composable
 fun SystemHealthCard(
     nt4ClientService: Nt4ClientService,
+    dashboardHealthService: DashboardHealthService? = null,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -32,6 +34,7 @@ fun SystemHealthCard(
     var batteryVoltage by remember { mutableStateOf<Double?>(null) }
     var brownoutCount by remember { mutableStateOf<Int?>(null) }
     var loopOverruns by remember { mutableStateOf<Int?>(null) }
+    val runtimeHealth = dashboardHealthService?.health?.collectAsState()?.value
 
     LaunchedEffect(Unit) {
         scope.launch {
@@ -141,6 +144,28 @@ fun SystemHealthCard(
                     )
                 }
             }
+
+            if (runtimeHealth != null) {
+                HorizontalDivider(color = AresBorder)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    RuntimeMetric("INGEST", "%.0f fps".format(runtimeHealth.ingestFramesPerSecond))
+                    RuntimeMetric("DB P95", "%.1f ms".format(runtimeHealth.databaseP95Ms))
+                    RuntimeMetric("CACHE HIT", "%.0f%%".format(runtimeHealth.replayCacheHitRatio * 100.0))
+                    RuntimeMetric("RECONNECTS", runtimeHealth.reconnects.toString())
+                    RuntimeMetric("DROPS", runtimeHealth.droppedFrames.toString())
+                }
+            }
         }
     }
+
+@Composable
+private fun RuntimeMetric(label: String, value: String) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, color = AresTextTertiary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = AresCyan, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
+    }
+}
 

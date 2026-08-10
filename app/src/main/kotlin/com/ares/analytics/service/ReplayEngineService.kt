@@ -55,7 +55,8 @@ data class ReplayCacheMetrics(
     val hasPrefetchedWindow: Boolean = false,
     val windowLoads: Long = 0,
     val prefetchHits: Long = 0,
-    val truncatedWindows: Long = 0
+    val truncatedWindows: Long = 0,
+    val droppedEmissionFrames: Long = 0
 )
 
 /**
@@ -148,6 +149,7 @@ class ReplayEngineService(
     private var windowLoadCount = 0L
     private var prefetchHitCount = 0L
     private var truncatedWindowCount = 0L
+    private var droppedEmissionFrameCount = 0L
 
     suspend fun loadSession(sessionId: String) = withContext(Dispatchers.IO) {
         stop()
@@ -395,6 +397,7 @@ class ReplayEngineService(
         // 3. Emit individual TelemetryFrame objects for dashboard widget consumption
         if (emitTelemetry) {
             val sessionId = "replay"
+            if (emitJob?.isActive == true) droppedEmissionFrameCount += mapToEmit.size
             emitJob?.cancel()
             emitJob = serviceScope.launch {
                 for ((key, value) in mapToEmit) {
@@ -409,6 +412,7 @@ class ReplayEngineService(
                     _replayTelemetryFlow.emit(telemetryFrame)
                 }
             }
+            publishCacheMetrics()
         }
 
         // 4. Re-broadcast via UDP loopback for AdvantageScope / telemetry viewer compatibility
@@ -431,6 +435,7 @@ class ReplayEngineService(
         windowLoadCount = 0
         prefetchHitCount = 0
         truncatedWindowCount = 0
+        droppedEmissionFrameCount = 0
         _cacheMetrics.value = ReplayCacheMetrics()
     }
 
@@ -509,7 +514,8 @@ class ReplayEngineService(
             hasPrefetchedWindow = prefetchedWindow != null,
             windowLoads = windowLoadCount,
             prefetchHits = prefetchHitCount,
-            truncatedWindows = truncatedWindowCount
+            truncatedWindows = truncatedWindowCount,
+            droppedEmissionFrames = droppedEmissionFrameCount
         )
     }
 

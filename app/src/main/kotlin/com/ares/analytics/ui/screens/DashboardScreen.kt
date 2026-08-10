@@ -228,7 +228,7 @@ fun DashboardScreen(
                     StateMachineTrackerCard(services.nt4ClientService, mod)
                 },
                 "system_health" to { _, mod ->
-                    SystemHealthCard(services.nt4ClientService, mod)
+                    SystemHealthCard(services.nt4ClientService, services.dashboardHealthService, mod)
                 },
                 "imu_visualizer" to { _, mod ->
                     IMUVisualizerCard(services.nt4ClientService, mod)

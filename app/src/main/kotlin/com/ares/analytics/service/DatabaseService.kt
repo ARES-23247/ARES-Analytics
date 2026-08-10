@@ -48,6 +48,7 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     private val ephemeralReadConn: Connection
     private val dbMutex = Mutex()
     private val readMutex = Mutex()
+    val metrics = DatabaseMetrics()
 
     private val schemaManager: SchemaMigrationManager
     private val matchLogRepo: MatchLogRepository
@@ -91,7 +92,7 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         ephemeralReadConn = ephemeralConn.unwrap(org.duckdb.DuckDBConnection::class.java).duplicate()
 
         schemaManager = SchemaMigrationManager(conn, ephemeralConn)
-        matchLogRepo = MatchLogRepository(conn, readConn, ephemeralConn, ephemeralReadConn, dbMutex, readMutex)
+        matchLogRepo = MatchLogRepository(conn, readConn, ephemeralConn, ephemeralReadConn, dbMutex, readMutex, metrics)
         backupExporter = DatabaseBackupExporter(conn, dbMutex)
 
         schemaManager.runMigrations(isFirstRun, oldDbPath)

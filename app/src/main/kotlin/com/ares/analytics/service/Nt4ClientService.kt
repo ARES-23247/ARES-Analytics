@@ -90,6 +90,15 @@ open class Nt4ClientService(
     private val _isConnected = MutableStateFlow(false)
     open val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
     val isReplayActive = MutableStateFlow(false)
+    private val connectionAttempts = java.util.concurrent.atomic.AtomicLong()
+    private val successfulConnections = java.util.concurrent.atomic.AtomicLong()
+
+    fun connectionMetrics(): Nt4ConnectionMetrics = Nt4ConnectionMetrics(
+        attempts = connectionAttempts.get(),
+        successfulConnections = successfulConnections.get(),
+        reconnects = (successfulConnections.get() - 1L).coerceAtLeast(0L),
+        connected = _isConnected.value
+    )
 
     val telemetryStore = TelemetryStore()
     open val telemetryFlow: SharedFlow<TelemetryFrame> = telemetryStore.updates
@@ -226,6 +235,7 @@ open class Nt4ClientService(
                 val url = "ws://$activeHost:$port$path"
                 this@Nt4ClientService.serverIp = activeHost
                 try {
+                    connectionAttempts.incrementAndGet()
                     val activeEngine = if (activeHost == "127.0.0.1" || activeHost == "localhost") "CIO" else "OkHttp"
                     println("[Nt4ClientService] Attempting to connect to $url (engine=$activeEngine)")
                     clientFor(activeHost).webSocket(
@@ -238,6 +248,7 @@ open class Nt4ClientService(
                         }
                     ) {
                         println("[Nt4ClientService] Connected to $url successfully!")
+                        successfulConnections.incrementAndGet()
                         _isConnected.value = true
                         webSocketSession = this
                         topicMap.clear()
@@ -918,3 +929,10 @@ open class Nt4ClientService(
         )
     }
 }
+
+data class Nt4ConnectionMetrics(
+    val attempts: Long,
+    val successfulConnections: Long,
+    val reconnects: Long,
+    val connected: Boolean
+)

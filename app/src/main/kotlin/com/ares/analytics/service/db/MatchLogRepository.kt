@@ -2,6 +2,7 @@ package com.ares.analytics.service.db
 
 import com.ares.analytics.shared.*
 import com.ares.analytics.service.QueryResult
+import com.ares.analytics.service.DatabaseMetrics
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -47,7 +48,8 @@ class MatchLogRepository(
     private val ephemeralConn: Connection,
     private val ephemeralReadConn: Connection,
     private val dbMutex: Mutex,
-    private val readMutex: Mutex
+    private val readMutex: Mutex,
+    private val metrics: DatabaseMetrics
 ) {
     private val statementCache = java.util.concurrent.ConcurrentHashMap<String, java.sql.PreparedStatement>()
     private val nextSampleOrder = AtomicLong()
@@ -65,11 +67,21 @@ class MatchLogRepository(
      * @return Result produced by [block].
      */
     private suspend fun <T> withDbLock(block: suspend () -> T): T = withContext(Dispatchers.IO) {
-        dbMutex.withLock { block() }
+        val started = System.nanoTime()
+        try {
+            dbMutex.withLock { block() }
+        } finally {
+            metrics.recordWrite(System.nanoTime() - started)
+        }
     }
 
     private suspend fun <T> withReadLock(block: suspend () -> T): T = withContext(Dispatchers.IO) {
-        readMutex.withLock { block() }
+        val started = System.nanoTime()
+        try {
+            readMutex.withLock { block() }
+        } finally {
+            metrics.recordRead(System.nanoTime() - started)
+        }
     }
 
     /**

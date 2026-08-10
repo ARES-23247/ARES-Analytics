@@ -51,6 +51,9 @@ class ServiceRegistry {
     val syncEngineService by lazy { SyncEngineService(databaseService, parquetExporterService, environmentService, summaryEngineService, googleDriveService) }
     val phoenixDiagnosticsService by lazy { PhoenixDiagnosticsService(nt4ClientService) }
     val ftcDashboardService by lazy { FtcDashboardService(nt4ClientService) }
+    val dashboardHealthService by lazy {
+        DashboardHealthService(nt4ClientService.telemetryStore, databaseService.metrics, nt4ClientService, replayEngineService)
+    }
 
     /**
      * Tears down services that hold coroutine scopes or background jobs.
@@ -88,6 +91,9 @@ class ServiceRegistry {
         }
         if (lazyFieldInitialized(::ftcDashboardService)) {
             ftcDashboardService.dispose()
+        }
+        if (lazyFieldInitialized(::dashboardHealthService)) {
+            dashboardHealthService.dispose()
         }
         if (lazyFieldInitialized(::oauthService)) {
             oauthService.dispose()
