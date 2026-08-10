@@ -104,11 +104,10 @@ Supported properties are:
 
 - `dashboardSmoke` for relevant pull requests and pushes to `master`.
 - `dashboardSoak` nightly and when manually selected through `workflow_dispatch`.
-- `dashboardHardware` when manually selected on a Windows runner labeled `self-hosted` and `ares-hardware`.
 - Report and JUnit artifact upload even when a budget fails.
 
 The workflow checks out `ARESLib-Kotlin` beside `ARES-Analytics`, matching the composite-build layout used by local development.
 
 ## Optional physical hardware check
 
-The normal hosted pipeline cannot reproduce radio congestion, Control Hub storage pressure, RoboRIO CPU contention, or field-network policies. Register a Windows GitHub Actions runner on the driver-station laptop with the `ares-hardware` label to enable the manual hardware profile. The runner must already be connected to the robot network. The task observes live NT4 traffic for 30 seconds by default, checks frame/topic minimums and required keys, persists the received data, and uploads its report.
+The hosted pipeline cannot reproduce radio congestion, Control Hub storage pressure, RoboRIO CPU contention, or field-network policies. Run `dashboardHardware` manually from the driver-station laptop while it is connected to the robot network. The task observes live NT4 traffic for 30 seconds by default, checks frame/topic minimums and required keys, persists the received data, and writes its report locally. No self-hosted GitHub runner is required.
