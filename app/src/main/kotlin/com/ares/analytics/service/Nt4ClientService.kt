@@ -91,12 +91,8 @@ open class Nt4ClientService(
     open val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
     val isReplayActive = MutableStateFlow(false)
 
-    private val _telemetryFlow = MutableSharedFlow<TelemetryFrame>(
-        replay = 100,
-        extraBufferCapacity = 4096,
-        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.SUSPEND
-    )
-    open val telemetryFlow: SharedFlow<TelemetryFrame> = _telemetryFlow.asSharedFlow()
+    val telemetryStore = TelemetryStore()
+    open val telemetryFlow: SharedFlow<TelemetryFrame> = telemetryStore.updates
 
     private val _consoleFlow = MutableSharedFlow<ConsoleMessage>(
         replay = 100,
@@ -110,7 +106,7 @@ open class Nt4ClientService(
      * replay data identically to live data. Called by the replay integration layer.
      */
     suspend fun emitReplayFrame(frame: TelemetryFrame) {
-        _telemetryFlow.emit(frame)
+        telemetryStore.accept(frame)
     }
 
     private val _currentSession = MutableStateFlow<Session?>(null)
@@ -123,8 +119,9 @@ open class Nt4ClientService(
     // Topic ID to Topic Name mapping
     internal val topicMap = ConcurrentHashMap<Int, Nt4Topic>()
     private val discoveredKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    val latestValues = ConcurrentHashMap<String, TelemetryFrame>()
-    val telemetryHistory = ConcurrentHashMap<String, java.util.ArrayDeque<TelemetryFrame>>()
+    /** Compatibility views; new consumers should use [telemetryStore]. */
+    val latestValues: ConcurrentHashMap<String, TelemetryFrame> = telemetryStore.latestFrames
+    val telemetryHistory: ConcurrentHashMap<String, java.util.ArrayDeque<TelemetryFrame>> = telemetryStore.frameHistory
 
     private var cachedActiveTopics: List<String>? = null
 
@@ -193,8 +190,7 @@ open class Nt4ClientService(
     internal fun clearLiveTargetState() {
         topicMap.clear()
         discoveredKeys.clear()
-        latestValues.clear()
-        telemetryHistory.clear()
+        telemetryStore.clear()
         cachedActiveTopics = null
     }
 
@@ -534,9 +530,7 @@ open class Nt4ClientService(
             val sessionId = _currentSession.value?.sessionId ?: LIVE_SESSION_ID
             frame.copy(sessionId = sessionId).also { pendingFrames.send(it) }
         }
-        if (!isReplayActive.value) {
-            _telemetryFlow.emit(finalFrame)
-        }
+        telemetryStore.accept(finalFrame, notifyConsumers = !isReplayActive.value)
     }
 
     suspend fun startRecordingSession(
@@ -788,21 +782,7 @@ open class Nt4ClientService(
                     ).also { pendingFrames.send(it) }
                 }
                 frames.add(frame)
-                latestValues[frame.key] = frame
-                val history = telemetryHistory.getOrPut(frame.key) { java.util.ArrayDeque() }
-                synchronized(history) {
-                    history.add(frame)
-                    val cutoff = frame.timestampMs - 120_000
-                    while (history.isNotEmpty() && history.first().timestampMs < cutoff) {
-                        history.removeFirst()
-                    }
-                    while (history.size > 2000) {
-                        history.removeFirst()
-                    }
-                }
-                if (!isReplayActive.value) {
-                    _telemetryFlow.emit(frame)
-                }
+                telemetryStore.accept(frame, notifyConsumers = !isReplayActive.value)
             }
             return
         }
@@ -819,21 +799,7 @@ open class Nt4ClientService(
                 timestampUs = timestampUs
             ).also { pendingFrames.send(it) }
         }
-        latestValues[frame.key] = frame
-        val history = telemetryHistory.getOrPut(frame.key) { java.util.ArrayDeque() }
-        synchronized(history) {
-            history.add(frame)
-            val cutoff = frame.timestampMs - 120_000
-            while (history.isNotEmpty() && history.first().timestampMs < cutoff) {
-                history.removeFirst()
-            }
-            while (history.size > 2000) {
-                history.removeFirst()
-            }
-        }
-        if (!isReplayActive.value) {
-            _telemetryFlow.emit(frame)
-        }
+        telemetryStore.accept(frame, notifyConsumers = !isReplayActive.value)
     }
     private var nextPubUid = 2000
     private val dynamicPubUids = ConcurrentHashMap<String, Int>().apply {
@@ -876,8 +842,7 @@ open class Nt4ClientService(
             key = cleanKey,
             value = value
         )
-        latestValues[cleanKey] = frame
-        _telemetryFlow.emit(frame)
+        telemetryStore.accept(frame)
 
         publishInputDouble(pubuid, value)
     }
@@ -900,8 +865,7 @@ open class Nt4ClientService(
             value = 0.0,
             stringValue = value
         )
-        latestValues[cleanKey] = frame
-        _telemetryFlow.emit(frame)
+        telemetryStore.accept(frame)
 
         publishInputString(pubuid, value)
     }
@@ -923,8 +887,7 @@ open class Nt4ClientService(
             key = cleanKey,
             value = if (value) 1.0 else 0.0
         )
-        latestValues[cleanKey] = frame
-        _telemetryFlow.emit(frame)
+        telemetryStore.accept(frame)
 
         publishInputBoolean(pubuid, value)
     }
