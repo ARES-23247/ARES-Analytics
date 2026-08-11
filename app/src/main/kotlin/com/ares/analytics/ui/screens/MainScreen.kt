@@ -288,8 +288,15 @@ fun MainScreen(services: ServiceRegistry) {
             cloudViewModel.dispose()
         }
     }
-    val subsystemGeneratorViewModel = remember {
-        SubsystemGeneratorViewModel(scope = scope)
+    val subsystemGeneratorViewModel = remember(currentConfig.projectPath, currentConfig.league) {
+        SubsystemGeneratorViewModel(
+            projectPath = currentConfig.projectPath ?: "",
+            league = currentConfig.league,
+            projectGenerator = services.processManagerService,
+        )
+    }
+    DisposableEffect(subsystemGeneratorViewModel) {
+        onDispose { subsystemGeneratorViewModel.close() }
     }
     val dashboardState by dashboardViewModel.state.collectAsState()
     val primarySessionId = dashboardState.primarySessionId
@@ -664,10 +671,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 sysIdViewModel = sysIdViewModel,
                                 projectPath = currentConfig.projectPath ?: ""
                             )
-                            NavigationTarget.SUBSYSTEM_GEN -> SubsystemGeneratorScreen(
-                                viewModel = subsystemGeneratorViewModel,
-                                projectPath = currentConfig.projectPath ?: ""
-                            )
+                            NavigationTarget.SUBSYSTEM_GEN -> SubsystemGeneratorScreen(subsystemGeneratorViewModel)
                             NavigationTarget.PROFILE -> ProfileScreen(
                                 viewModel = profileViewModel,
                                 config = currentConfig,

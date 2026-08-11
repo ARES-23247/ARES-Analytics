@@ -32,7 +32,7 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     RUN_HISTORY("Run History", Icons.Default.TableChart),
     DATABASE_VIEWER("Database", Icons.Default.Storage),
     TUNING("Tuning", Icons.Default.Tune),
-    SUBSYSTEM_GEN("Subsystem Gen", Icons.Default.Construction),
+    SUBSYSTEM_GEN("Subsystem Builder", Icons.Default.Construction),
     PROFILE("Profile", Icons.Default.Person),
     ADMIN("Admin Panel", Icons.Default.SupervisorAccount)
 }
@@ -50,19 +50,17 @@ val primaryNavigationSections = NavigationSection.entries.toList()
 
 val developerToolTargets = setOf(
     NavigationTarget.KDOC_VIEWER,
-    NavigationTarget.DATABASE_VIEWER,
-    NavigationTarget.SUBSYSTEM_GEN
+    NavigationTarget.DATABASE_VIEWER
 )
 
 fun NavigationTarget.section(): NavigationSection? = when (this) {
     NavigationTarget.DASHBOARD -> NavigationSection.DASHBOARD
-    NavigationTarget.PIT_DIAGNOSTICS, NavigationTarget.TUNING -> NavigationSection.ROBOT
+    NavigationTarget.PIT_DIAGNOSTICS, NavigationTarget.TUNING, NavigationTarget.SUBSYSTEM_GEN -> NavigationSection.ROBOT
     NavigationTarget.PATH_PLANNER, NavigationTarget.FIELD_EDITOR -> NavigationSection.AUTONOMOUS
     NavigationTarget.RUN_HISTORY, NavigationTarget.MATCH_STRATEGY -> NavigationSection.ANALYSIS
     NavigationTarget.IMPORT_CENTER, NavigationTarget.CLOUD -> NavigationSection.DATA
     NavigationTarget.PROFILE, NavigationTarget.ADMIN -> NavigationSection.SETTINGS
-    NavigationTarget.ACADEMY, NavigationTarget.KDOC_VIEWER,
-    NavigationTarget.DATABASE_VIEWER, NavigationTarget.SUBSYSTEM_GEN -> null
+    NavigationTarget.ACADEMY, NavigationTarget.KDOC_VIEWER, NavigationTarget.DATABASE_VIEWER -> null
 }
 
 fun NavigationSection.defaultTarget(): NavigationTarget = when (this) {
@@ -76,7 +74,11 @@ fun NavigationSection.defaultTarget(): NavigationTarget = when (this) {
 
 fun NavigationSection.targets(): List<NavigationTarget> = when (this) {
     NavigationSection.DASHBOARD -> listOf(NavigationTarget.DASHBOARD)
-    NavigationSection.ROBOT -> listOf(NavigationTarget.PIT_DIAGNOSTICS, NavigationTarget.TUNING)
+    NavigationSection.ROBOT -> listOf(
+        NavigationTarget.SUBSYSTEM_GEN,
+        NavigationTarget.PIT_DIAGNOSTICS,
+        NavigationTarget.TUNING,
+    )
     NavigationSection.AUTONOMOUS -> listOf(NavigationTarget.PATH_PLANNER, NavigationTarget.FIELD_EDITOR)
     NavigationSection.ANALYSIS -> listOf(NavigationTarget.RUN_HISTORY, NavigationTarget.MATCH_STRATEGY)
     NavigationSection.DATA -> listOf(NavigationTarget.IMPORT_CENTER, NavigationTarget.CLOUD)

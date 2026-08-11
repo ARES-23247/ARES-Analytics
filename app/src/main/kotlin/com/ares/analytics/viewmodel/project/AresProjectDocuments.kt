@@ -12,6 +12,8 @@ import com.areslib.controls.validateControlScheme
 import com.areslib.routine.AutonomousCatalogDocument
 import com.areslib.routine.RoutineDocument
 import com.areslib.project.AresProjectMetadataDocument
+import com.areslib.subsystem.SubsystemDocument
+import com.areslib.subsystem.mergeSubsystemCapabilities
 
 /** One consistent, entirely offline view of the selected robot project's authoring files. */
 data class AresProjectDocumentSnapshot(
@@ -19,6 +21,7 @@ data class AresProjectDocumentSnapshot(
     val routines: List<RoutineDocument>,
     val controlSchemes: List<ControlSchemeDocument>,
     val controllerProfiles: List<ControllerProfileDocument>,
+    val subsystems: List<SubsystemDocument>,
     val capabilityCatalog: CapabilityCatalogDocument?,
     val autonomousCatalog: AutonomousCatalogDocument?,
     val projectMetadata: AresProjectMetadataDocument?,
@@ -33,6 +36,7 @@ class AresProjectDocuments(
     val routines: RoutineProjectRepository = RoutineProjectRepository(),
     val controls: ControlSchemeProjectRepository = ControlSchemeProjectRepository(),
     val controllers: ControllerProfileProjectRepository = ControllerProfileProjectRepository(),
+    val subsystems: SubsystemProjectRepository = SubsystemProjectRepository(),
     val capabilities: CapabilityCatalogProjectRepository = CapabilityCatalogProjectRepository(),
     val metadata: ProjectMetadataRepository = ProjectMetadataRepository(),
     val autonomous: AutonomousCatalogProjectRepository = AutonomousCatalogProjectRepository(routines)
@@ -45,13 +49,15 @@ class AresProjectDocuments(
         val routineListing = routines.list(root.path)
         val controlsListing = controls.list(root.path)
         val profileListing = controllers.list(root.path)
+        val subsystemListing = subsystems.list(root.path)
         val diagnostics = buildList {
             addAll(routineListing.diagnostics)
             addAll(controlsListing.diagnostics)
             addAll(profileListing.diagnostics)
+            addAll(subsystemListing.diagnostics)
         }.toMutableList()
 
-        val catalog = capabilities.load(root.path).fold(
+        val baseCatalog = capabilities.load(root.path).fold(
             onSuccess = { it },
             onFailure = { error ->
                 capabilities.file(root.path).takeIf { it.isFile }?.let { file ->
@@ -89,6 +95,17 @@ class AresProjectDocuments(
                 null
             }
         )
+        val catalog = baseCatalog?.let { loaded ->
+            runCatching { mergeSubsystemCapabilities(loaded, subsystemListing.documents) }
+                .onFailure { error ->
+                    diagnostics += ProjectDocumentDiagnostic(
+                        ProjectDocumentKind.CAPABILITY_CATALOG,
+                        capabilities.file(root.path),
+                        error.message ?: "Subsystem actions could not be merged into the capability catalog",
+                    )
+                }
+                .getOrNull()
+        }
 
         if (catalog != null) {
             val profileById = profileListing.documents.associateBy { it.documentId }
@@ -146,6 +163,7 @@ class AresProjectDocuments(
             routines = routineListing.documents,
             controlSchemes = controlsListing.documents,
             controllerProfiles = profileListing.documents,
+            subsystems = subsystemListing.documents,
             capabilityCatalog = catalog,
             autonomousCatalog = autonomousCatalog,
             projectMetadata = projectMetadata,

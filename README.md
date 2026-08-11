@@ -8,6 +8,9 @@ The routine and controller editors are offline project tools as well: they opera
 repository's `.ares` documents and never require a connected robot. See the [student routines and
 controller guide](docs/ROUTINES_AND_CONTROLS.md).
 
+Robot mechanisms use the same offline workflow. The [Subsystem Builder](docs/SUBSYSTEM_BUILDER.md)
+generates readable subsystem DSL for beginners while preserving hand-coded IO and Redux paths.
+
 ## Repository layout
 
 | Module | Responsibility |
