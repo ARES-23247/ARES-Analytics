@@ -2,6 +2,8 @@ package com.ares.analytics.service
 
 import com.ares.analytics.shared.TelemetryFrame
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
@@ -14,6 +16,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -253,6 +256,32 @@ class Nt4ClientServiceTest {
         assertEquals(0.0, nt4ClientService.coerceTelemetryValue(false).first)
         assertEquals(1.0, nt4ClientService.coerceTelemetryValue(JsonPrimitive(true)).first)
         assertEquals(0.0, nt4ClientService.coerceTelemetryValue(JsonPrimitive(false)).first)
+    }
+
+    @Test
+    fun `atomic drive frame is published as one seven-value contract`() = runBlocking {
+        val values = doubleArrayOf(1.0, 42.0, 7.0, 1_000.0, 2.0, -1.0, 0.5)
+        val received = async(start = CoroutineStart.UNDISPATCHED) {
+            nt4ClientService.telemetryFlow.take(7).toList()
+        }
+
+        assertFalse(
+            nt4ClientService.publishDriveFrame(values),
+            "a locally accepted frame must not be reported as transmitted before clock sync"
+        )
+
+        val frames = withTimeout(2_000) { received.await() }
+        assertEquals((0..6).map { "ARES/Input/driveFrame/$it" }, frames.map { it.key })
+        assertTrue(frames.map { it.value }.toDoubleArray().contentEquals(values))
+    }
+
+    @Test
+    fun `alliance selection survives publisher and view lifecycles`() = runBlocking {
+        assertTrue(nt4ClientService.selectedRedAlliance.value)
+
+        nt4ClientService.publishBoolean("ARES/Input/isRedAlliance", false)
+
+        assertFalse(nt4ClientService.selectedRedAlliance.value)
     }
 
     @Test

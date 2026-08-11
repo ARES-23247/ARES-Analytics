@@ -89,6 +89,9 @@ open class Nt4ClientService(
 
     private val _isConnected = MutableStateFlow(false)
     open val isConnected: StateFlow<Boolean> = _isConnected.asStateFlow()
+    private val _selectedRedAlliance = MutableStateFlow(true)
+    /** Dashboard-owned alliance selection; survives view/navigation and NT4 reconnect lifecycles. */
+    val selectedRedAlliance: StateFlow<Boolean> = _selectedRedAlliance.asStateFlow()
     val isReplayActive = MutableStateFlow(false)
     private val connectionAttempts = java.util.concurrent.atomic.AtomicLong()
     private val successfulConnections = java.util.concurrent.atomic.AtomicLong()
@@ -273,6 +276,7 @@ open class Nt4ClientService(
                               {"method": "publish", "params": {"name": "ARES/Input/isButtonBPressed", "pubuid": 1017, "type": "boolean"}},
                               {"method": "publish", "params": {"name": "ARES/Input/isButtonXPressed", "pubuid": 1018, "type": "boolean"}},
                               {"method": "publish", "params": {"name": "ARES/Input/isPoseReset", "pubuid": 1019, "type": "boolean"}},
+                              {"method": "publish", "params": {"name": "ARES/Input/driveFrame", "pubuid": 1020, "type": "double[]"}},
                               {"method": "publish", "params": {"name": "ARES/DriverStation/Command", "pubuid": 1011, "type": "string"}},
                               {"method": "publish", "params": {"name": "ARES/DriverStation/SelectedOpMode", "pubuid": 1012, "type": "string"}},
                               {"method": "publish", "params": {"name": "ARES/DriverStation/MatchTime", "pubuid": 1013, "type": "double"}},
@@ -384,8 +388,9 @@ open class Nt4ClientService(
         }
     }
 
-    private suspend fun sendBinaryUpdate(pubuid: Int, typeId: Byte, valueBytes: ByteArray) {
-        val offsetUs = serverTimeOffsetUs ?: return
+    private suspend fun sendBinaryUpdate(pubuid: Int, typeId: Byte, valueBytes: ByteArray): Boolean {
+        val offsetUs = serverTimeOffsetUs ?: return false
+        val session = webSocketSession ?: return false
         val timestampUs = localMonotonicTimeUs() + offsetUs
         val buffer = encodeNt4BinaryUpdate(pubuid, timestampUs, typeId, valueBytes)
 
@@ -397,7 +402,8 @@ open class Nt4ClientService(
             println("[Nt4ClientService] sendBinaryUpdate 1010 (heartbeat): timestampUs=$timestampUs, buffer=$bytesStr")
         }
 
-        webSocketSession?.send(Frame.Binary(true, buffer))
+        session.send(Frame.Binary(true, buffer))
+        return true
     }
 
     internal fun encodeNt4BinaryUpdate(
@@ -514,6 +520,21 @@ open class Nt4ClientService(
         valueBytes[7] = (value shr 8).toByte()
         valueBytes[8] = value.toByte()
         sendBinaryUpdate(pubuid, 2.toByte(), valueBytes)
+    }
+
+    private val publishDoubleArrayBuffer = ThreadLocal.withInitial { ByteArray(64) }
+
+    suspend fun publishInputDoubleArray(pubuid: Int, values: DoubleArray): Boolean {
+        require(values.size == DRIVE_FRAME_VALUE_COUNT) { "drive frame must contain 7 doubles" }
+        val valueBytes = publishDoubleArrayBuffer.get()
+        valueBytes[0] = (0x90 or values.size).toByte() // MsgPack fixed-array header
+        var offset = 1
+        for (value in values) {
+            val bits = java.lang.Double.doubleToRawLongBits(value)
+            valueBytes[offset++] = 0xcb.toByte()
+            for (shift in 56 downTo 0 step 8) valueBytes[offset++] = (bits shr shift).toByte()
+        }
+        return sendBinaryUpdate(pubuid, 17.toByte(), valueBytes)
     }
 
     suspend fun stop() {
@@ -833,6 +854,7 @@ open class Nt4ClientService(
         put("ARES/Input/isButtonBPressed", 1017)
         put("ARES/Input/isButtonXPressed", 1018)
         put("ARES/Input/isPoseReset", 1019)
+        put("ARES/Input/driveFrame", 1020)
     }
     private val dynamicPubMutex = kotlinx.coroutines.sync.Mutex()
 
@@ -883,6 +905,7 @@ open class Nt4ClientService(
 
     suspend fun publishBoolean(key: String, value: Boolean) {
         val cleanKey = key.removePrefix("/")
+        if (cleanKey == RED_ALLIANCE_INPUT_TOPIC) _selectedRedAlliance.value = value
         val pubuid = dynamicPubMutex.withLock {
             var id = dynamicPubUids[cleanKey]
             if (id == null) {
@@ -903,6 +926,18 @@ open class Nt4ClientService(
         publishInputBoolean(pubuid, value)
     }
 
+    suspend fun publishDriveFrame(values: DoubleArray): Boolean {
+        require(values.size == DRIVE_FRAME_VALUE_COUNT)
+        val now = System.currentTimeMillis()
+        val sessionId = _currentSession.value?.sessionId ?: "live-telemetry"
+        values.forEachIndexed { index, value ->
+            telemetryStore.accept(
+                TelemetryFrame(now, sessionId, "ARES/Input/driveFrame/$index", value)
+            )
+        }
+        return publishInputDoubleArray(1020, values)
+    }
+
     fun subscribeDouble(key: String): Flow<Double> {
         return telemetryFlow.filter { it.key == key }.map { it.value }
     }
@@ -920,6 +955,8 @@ open class Nt4ClientService(
     }
 
     companion object {
+        private const val DRIVE_FRAME_VALUE_COUNT = 7
+        private const val RED_ALLIANCE_INPUT_TOPIC = "ARES/Input/isRedAlliance"
         internal const val LIVE_SESSION_ID = "live-telemetry"
         internal val CANONICAL_SUBSCRIPTION_PREFIXES = listOf(
             "/ARES", "/Drive", "/Robot", "/Hardware", "/Topology", "/Tuning",

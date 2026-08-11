@@ -127,7 +127,7 @@ class AutoImportService(
                 val manifest = File(archiveDir, IMPORT_MANIFEST_NAME)
                 val quarantineManifest = quarantineManifest(config)
                 if (isFingerprintImported(manifest, fingerprint) || isFingerprintImported(quarantineManifest, fingerprint)) continue
-                val archivedFile = File(archiveDir, "${fingerprint.take(12)}_${file.name}")
+                val archivedFile = safeArchiveFile(archiveDir, fingerprint, file.name)
 
                 try {
                     _importNotifications.emit("[AUTO-IMPORT] Found local log: ${file.name}. Importing...")
@@ -210,7 +210,7 @@ class AutoImportService(
                                 if (afterPull != null) sourceObservations[sourceId] = afterPull
                                 continue
                             }
-                            val archivedFile = File(localDestDir, "${fingerprint.take(12)}_$filename")
+                            val archivedFile = safeArchiveFile(localDestDir, fingerprint, filename)
                             Files.move(tempLocalFile.toPath(), archivedFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
                             val result = if (lower.endsWith(".hoot")) {
                                 val sessionId = hootDecoderService.importHootLog(archivedFile, config.teamId, config.seasonId, config.robotId)
@@ -234,7 +234,7 @@ class AutoImportService(
                             onImportSuccessCallback?.invoke()
                         }
                     } catch (e: Exception) {
-                        val archivedFile = File(localDestDir, "${fingerprint.take(12)}_$filename")
+                        val archivedFile = safeArchiveFile(localDestDir, fingerprint, filename)
                         if (archivedFile.exists()) {
                             runCatching { quarantineFailedImport(config, archivedFile, fingerprint, e, filename) }
                                 .onFailure { e.addSuppressed(it) }
@@ -284,7 +284,7 @@ class AutoImportService(
                                 if (afterPull != null) sourceObservations[sourceId] = afterPull
                                 continue
                             }
-                            val archivedFile = File(localDestDir, "${fingerprint.take(12)}_$filename")
+                            val archivedFile = safeArchiveFile(localDestDir, fingerprint, filename)
                             Files.move(tempLocalFile.toPath(), archivedFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
                             val result = if (lower.endsWith(".hoot")) {
                                 val sessionId = hootDecoderService.importHootLog(archivedFile, config.teamId, config.seasonId, config.robotId)
@@ -308,7 +308,7 @@ class AutoImportService(
                             onImportSuccessCallback?.invoke()
                         }
                     } catch (e: Exception) {
-                        val archivedFile = File(localDestDir, "${fingerprint.take(12)}_$filename")
+                        val archivedFile = safeArchiveFile(localDestDir, fingerprint, filename)
                         if (archivedFile.exists()) {
                             runCatching { quarantineFailedImport(config, archivedFile, fingerprint, e, filename) }
                                 .onFailure { e.addSuppressed(it) }
@@ -485,6 +485,30 @@ class AutoImportService(
         return digest.digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
+    internal fun safeArchiveFile(directory: File, fingerprint: String, sourceName: String): File {
+        val basename = sourceName.substringAfterLast('/').substringAfterLast('\\').trim()
+        require(basename.isNotEmpty() && basename != "." && basename != "..") {
+            "Invalid log filename"
+        }
+        val sanitized = buildString(basename.length) {
+            basename.forEach { character ->
+                append(
+                    when {
+                        character.isLetterOrDigit() -> character
+                        character == '.' || character == '_' || character == '-' || character == ' ' -> character
+                        else -> '_'
+                    }
+                )
+            }
+        }.trim().take(MAX_ARCHIVE_BASENAME_LENGTH)
+        require(sanitized.isNotEmpty() && isSupportedLog(sanitized)) { "Unsupported log filename" }
+
+        val root = directory.toPath().toAbsolutePath().normalize()
+        val target = root.resolve("${fingerprint.take(12)}_$sanitized").normalize()
+        require(target.parent == root && target.startsWith(root)) { "Log archive path escaped its root" }
+        return target.toFile()
+    }
+
     private fun importedFingerprints(manifest: File): MutableSet<String> {
         return importedFingerprintCaches.computeIfAbsent(manifest.absolutePath) {
             java.util.concurrent.ConcurrentHashMap.newKeySet<String>().apply {
@@ -652,6 +676,7 @@ class AutoImportService(
         internal const val IMPORT_MANIFEST_NAME = ".auto-import-index"
         internal const val QUARANTINE_MANIFEST_NAME = ".auto-import-quarantine-index"
         internal const val IMPORT_REPORT_SUFFIX = ".import-report.json"
+        internal const val MAX_ARCHIVE_BASENAME_LENGTH = 160
         internal val SUPPORTED_EXTENSIONS = setOf(
             ".wpilog", ".wpilogxz", ".jsonl", ".csv", ".parquet", ".hoot",
             ".dslog", ".rlog", ".revlog", ".log"

@@ -27,6 +27,10 @@ private fun JsonElement.requiredDriveId(context: String): String =
     ((this as? JsonObject)?.get("id") as? JsonPrimitive)?.contentOrNull
         ?: throw IllegalStateException("Google Drive returned $context without a file id")
 
+internal data class DriveFileSnapshot(val bytes: ByteArray, val etag: String?)
+
+internal class DrivePreconditionFailedException(message: String) : IllegalStateException(message)
+
 /**
  * Service managing Google Drive API v3 interactions for cloud backup of match telemetry logs and session archives.
  *
@@ -111,26 +115,41 @@ class GoogleDriveService(
         createResponse.body<JsonObject>().requiredDriveId("a created folder")
     }
 
-    suspend fun findFile(name: String, parentId: String): String? = withContext(Dispatchers.IO) {
+    suspend fun findFiles(name: String, parentId: String): List<String> = withContext(Dispatchers.IO) {
         val token = getAccessToken()
         val escapedName = escapeDriveQuery(name)
         val escapedParent = escapeDriveQuery(parentId)
         val query = "name = '$escapedName' and '$escapedParent' in parents and trashed = false"
-        val response = httpClient.get("https://www.googleapis.com/drive/v3/files") {
-            header(HttpHeaders.Authorization, "Bearer $token")
-            parameter("q", query)
-            parameter("fields", "files(id)")
-            parameter("supportsAllDrives", "true")
-            parameter("includeItemsFromAllDrives", "true")
-        }
-
-        if (response.status != HttpStatusCode.OK) {
-            throw Exception("Failed to search file: ${response.bodyAsText()}")
-        }
-        val searchResult = response.body<JsonObject>()
-        searchResult["files"]?.jsonArray?.firstOrNull()
-            ?.requiredDriveId("a file search result")
+        val fileIds = mutableListOf<String>()
+        var pageToken: String? = null
+        do {
+            val response = httpClient.get("https://www.googleapis.com/drive/v3/files") {
+                header(HttpHeaders.Authorization, "Bearer $token")
+                parameter("q", query)
+                parameter("fields", "nextPageToken,files(id)")
+                parameter("pageSize", DRIVE_LIST_PAGE_SIZE)
+                pageToken?.let { parameter("pageToken", it) }
+                parameter("supportsAllDrives", "true")
+                parameter("includeItemsFromAllDrives", "true")
+            }
+            if (response.status != HttpStatusCode.OK) {
+                throw Exception("Failed to search file: ${response.bodyAsText()}")
+            }
+            val searchResult = response.body<JsonObject>()
+            searchResult["files"]?.jsonArray
+                ?.mapTo(fileIds) { it.requiredDriveId("a file search result") }
+            pageToken = (searchResult["nextPageToken"] as? JsonPrimitive)?.contentOrNull
+                ?.takeIf(String::isNotBlank)
+        } while (pageToken != null)
+        fileIds
     }
+
+    private companion object {
+        const val DRIVE_LIST_PAGE_SIZE = 1_000
+    }
+
+    suspend fun findFile(name: String, parentId: String): String? =
+        findFiles(name, parentId).firstOrNull()
 
     suspend fun findFileContaining(substring: String, parentId: String): String? = withContext(Dispatchers.IO) {
         val token = getAccessToken()
@@ -167,6 +186,19 @@ class GoogleDriveService(
         response.readRawBytes()
     }
 
+    /** Reads content together with the revision ETag used for optimistic concurrency. */
+    internal suspend fun readFileSnapshot(fileId: String): DriveFileSnapshot = withContext(Dispatchers.IO) {
+        val token = getAccessToken()
+        val response = httpClient.get("https://www.googleapis.com/drive/v3/files/$fileId") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            parameter("alt", "media")
+        }
+        if (response.status != HttpStatusCode.OK) {
+            throw Exception("Failed to download file: ${response.bodyAsText()}")
+        }
+        DriveFileSnapshot(response.readRawBytes(), response.headers[HttpHeaders.ETag])
+    }
+
     /**
      * Downloads a file from Google Drive by streaming directly to disk.
      * Use this for large files (Parquet) to avoid loading the entire file into memory.
@@ -187,16 +219,27 @@ class GoogleDriveService(
         }
     }
 
-    suspend fun writeFile(name: String, bytes: ByteArray, parentId: String, mimeType: String, fileId: String? = null): String = withContext(Dispatchers.IO) {
+    suspend fun writeFile(
+        name: String,
+        bytes: ByteArray,
+        parentId: String,
+        mimeType: String,
+        fileId: String? = null,
+        expectedEtag: String? = null
+    ): String = withContext(Dispatchers.IO) {
         val token = getAccessToken()
 
         if (fileId != null) {
             // Overwrite existing file media content
             return@withContext httpClient.preparePatch("https://www.googleapis.com/upload/drive/v3/files/$fileId?uploadType=media") {
                 header(HttpHeaders.Authorization, "Bearer $token")
+                if (expectedEtag != null) header(HttpHeaders.IfMatch, expectedEtag)
                 contentType(ContentType.parse(mimeType))
                 setBody(bytes)
             }.execute { response ->
+                if (response.status == HttpStatusCode.PreconditionFailed) {
+                    throw DrivePreconditionFailedException("Google Drive file $fileId changed concurrently")
+                }
                 if (response.status != HttpStatusCode.OK) {
                     throw Exception("Failed to overwrite file content: ${response.bodyAsText()}")
                 }
@@ -254,10 +297,38 @@ class GoogleDriveService(
                 fileId
             }
         } else {
-            // For new file creation, read bytes (metadata + content multipart requires it)
-            // This path is acceptable because new uploads are rarer than overwrites
-            val bytes = file.readBytes()
-            return@withContext writeFile(name, bytes, parentId, mimeType, null)
+            // Create metadata first and stream the media through a resumable upload session.
+            val metadata = buildJsonObject {
+                put("name", name)
+                put("parents", buildJsonArray { add(parentId) })
+            }
+            val sessionResponse = httpClient.post(
+                "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable"
+            ) {
+                header(HttpHeaders.Authorization, "Bearer $token")
+                header("X-Upload-Content-Type", mimeType)
+                header("X-Upload-Content-Length", file.length().toString())
+                contentType(ContentType.Application.Json)
+                setBody(metadata)
+            }
+            if (sessionResponse.status != HttpStatusCode.OK) {
+                throw Exception("Failed to create resumable upload: ${sessionResponse.bodyAsText()}")
+            }
+            val uploadUrl = sessionResponse.headers[HttpHeaders.Location]
+                ?: throw IllegalStateException("Google Drive resumable upload omitted its session URL")
+            return@withContext httpClient.preparePut(uploadUrl) {
+                header(HttpHeaders.Authorization, "Bearer $token")
+                contentType(ContentType.parse(mimeType))
+                header(HttpHeaders.ContentLength, file.length().toString())
+                setBody(io.ktor.client.request.forms.InputProvider(file.length()) {
+                    file.inputStream().asInput()
+                })
+            }.execute { response ->
+                if (response.status != HttpStatusCode.OK && response.status != HttpStatusCode.Created) {
+                    throw Exception("Failed to stream resumable upload: ${response.bodyAsText()}")
+                }
+                response.body<JsonObject>().requiredDriveId("an uploaded file")
+            }
         }
     }
 

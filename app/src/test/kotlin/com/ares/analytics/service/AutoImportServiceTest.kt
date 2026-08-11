@@ -58,6 +58,14 @@ class AutoImportServiceTest {
             scope = this,
             scanIntervalMs = 50L
         )
+        val archiveRoot = File(logsDir, "imported").apply { mkdirs() }
+        val traversalName = autoImportService.safeArchiveFile(
+            archiveRoot,
+            "0123456789abcdef",
+            "..\\..\\outside.csv"
+        )
+        assertEquals(archiveRoot.canonicalFile, traversalName.parentFile.canonicalFile)
+        assertTrue(traversalName.name.endsWith("outside.csv"))
 
         // Start scanner and wait for import
         autoImportService.start {

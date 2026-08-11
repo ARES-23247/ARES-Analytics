@@ -64,6 +64,17 @@ class ReplayCacheAndClockTest {
         }
     }
 
+    @Test
+    fun `replay window reads every database page`() = runTest {
+        withDatabase { database ->
+            database.insertTelemetryFrames((0L..4L).map { time -> frame("paged", time, time.toDouble()) })
+
+            val frames = loadTelemetryWindowPages(database, "paged", 0L, 4L, pageSize = 2)
+
+            assertEquals(listOf(0L, 1L, 2L, 3L, 4L), frames.map { it.timestampMs })
+        }
+    }
+
     private suspend fun withDatabase(block: suspend (DatabaseService) -> Unit) {
         val directory = Files.createTempDirectory("ares-replay-cache").toFile()
         val database = DatabaseService(directory.resolve("telemetry.duckdb").absolutePath)

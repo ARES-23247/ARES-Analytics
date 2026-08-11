@@ -65,9 +65,29 @@ class WpiLogDecoderTest {
         }
     }
 
-    private fun ByteArrayOutputStream.writeFileHeader(extraHeader: String) {
+    @Test
+    fun `rejects pre-format WPILOG versions`() = runTest {
+        val tempDir = Files.createTempDirectory("ares-wpilog-version-test").toFile()
+        try {
+            val log = tempDir.resolve("old-version.wpilog")
+            val bytes = ByteArrayOutputStream().apply { writeFileHeader("", version = 0x00ff) }
+            log.writeBytes(bytes.toByteArray())
+            val database = DatabaseService(tempDir.resolve("telemetry.duckdb").absolutePath)
+            try {
+                assertFailsWith<IOException> {
+                    WpiLogDecoder().parseWpiLog(log, "session-1", FrameBatcher(database))
+                }
+            } finally {
+                database.close()
+            }
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    private fun ByteArrayOutputStream.writeFileHeader(extraHeader: String, version: Int = 0x0100) {
         write("WPILOG".toByteArray(Charsets.US_ASCII))
-        writeLittleEndian(0x0100, 2)
+        writeLittleEndian(version.toLong(), 2)
         val extraBytes = extraHeader.toByteArray(Charsets.UTF_8)
         writeLittleEndian(extraBytes.size.toLong(), 4)
         write(extraBytes)

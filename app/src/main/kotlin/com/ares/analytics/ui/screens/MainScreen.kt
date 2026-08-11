@@ -118,6 +118,13 @@ fun MainScreen(services: ServiceRegistry) {
     val isNt4Connected by services.nt4ClientService.isConnected.collectAsState()
     LaunchedEffect(isNt4Connected, activeNav) {
         if (isNt4Connected) {
+            val driveFrame = DoubleArray(7)
+            val driveSessionNonce = java.util.concurrent.ThreadLocalRandom.current()
+                .nextLong(1L, 9_007_199_254_740_991L)
+                .toDouble()
+            var driveSequence = 0L
+            var sentNeutralHandshake = false
+            var publishedConnectionDefaults = false
             var lastVx: Double? = null
             var lastVy: Double? = null
             var lastOmega: Double? = null
@@ -127,10 +134,6 @@ fun MainScreen(services: ServiceRegistry) {
             var lastJ: Boolean? = null
             var lastL: Boolean? = null
             var lastU: Boolean? = null
-
-            services.nt4ClientService.publishBoolean("ARES/Input/isTeleopMode", true)
-            services.nt4ClientService.publishBoolean("ARES/Input/isFieldCentric", false)
-            services.nt4ClientService.publishBoolean("ARES/Input/isRedAlliance", true)
 
             while (true) {
                 val ks = services.keyboardDriveState
@@ -178,6 +181,35 @@ fun MainScreen(services: ServiceRegistry) {
                 val jPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.a else ks.isJPressed
                 val lPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.b else ks.isLPressed
                 val uPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.x else ks.isUPressed
+
+                // Atomic remote-drive contract. Every new connection starts with a neutral frame;
+                // consumers may arm only on a later sequence from the same session.
+                driveFrame[0] = 1.0
+                driveFrame[1] = driveSessionNonce
+                driveFrame[2] = driveSequence.toDouble()
+                driveFrame[3] = System.currentTimeMillis().toDouble()
+                driveFrame[4] = if (sentNeutralHandshake) vx else 0.0
+                driveFrame[5] = if (sentNeutralHandshake) vy else 0.0
+                driveFrame[6] = if (sentNeutralHandshake) omega else 0.0
+                val driveFrameTransmitted = services.nt4ClientService.publishDriveFrame(driveFrame)
+                if (!driveFrameTransmitted) {
+                    // isConnected becomes true before the NT4 clock offset is established. Keep
+                    // retrying the neutral sequence and do not emit legacy motion in that window.
+                    delay(20)
+                    continue
+                }
+                sentNeutralHandshake = true
+                driveSequence++
+
+                if (!publishedConnectionDefaults) {
+                    services.nt4ClientService.publishBoolean("ARES/Input/isTeleopMode", true)
+                    services.nt4ClientService.publishBoolean("ARES/Input/isFieldCentric", false)
+                    services.nt4ClientService.publishBoolean(
+                        "ARES/Input/isRedAlliance",
+                        services.nt4ClientService.selectedRedAlliance.value
+                    )
+                    publishedConnectionDefaults = true
+                }
 
                 if (vx != lastVx) { services.nt4ClientService.publishDouble("ARES/Input/vx", vx); lastVx = vx }
                 if (vy != lastVy) { services.nt4ClientService.publishDouble("ARES/Input/vy", vy); lastVy = vy }

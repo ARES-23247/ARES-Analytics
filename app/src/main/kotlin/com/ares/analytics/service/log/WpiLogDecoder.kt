@@ -22,7 +22,9 @@ class WpiLogDecoder {
             val header = ByteBuffer.wrap(fixedHeader).order(ByteOrder.LITTLE_ENDIAN)
             header.position(MAGIC.size)
             val version = header.short.toInt() and 0xFFFF
-            if (version == 0) throw IOException("Invalid WPILOG version 0")
+            if (version < MIN_SUPPORTED_VERSION) {
+                throw IOException("Invalid WPILOG version 0x${version.toString(16).padStart(4, '0')}")
+            }
             val extraHeaderSize = header.int.toLong() and UINT32_MASK
             if (extraHeaderSize > MAX_EXTRA_HEADER_BYTES || extraHeaderSize > file.length() - FILE_HEADER_SIZE) {
                 throw IOException("Invalid WPILOG extra-header size: $extraHeaderSize")
@@ -157,17 +159,17 @@ class WpiLogDecoder {
             "boolean[]" -> {
                 requireArrayCount(payload.size, definition)
                 payload.forEachIndexed { index, value ->
-                    addNumber("${definition.name}[$index]", if (value.toInt() != 0) 1.0 else 0.0)
+                    addNumber("${definition.name}/$index", if (value.toInt() != 0) 1.0 else 0.0)
                 }
             }
             "int64[]" -> decodeFixedArray(buffer, Long.SIZE_BYTES, definition) { index ->
-                addNumber("${definition.name}[$index]", buffer.long.toDouble())
+                addNumber("${definition.name}/$index", buffer.long.toDouble())
             }
             "float[]" -> decodeFixedArray(buffer, Float.SIZE_BYTES, definition) { index ->
-                addNumber("${definition.name}[$index]", buffer.float.toDouble())
+                addNumber("${definition.name}/$index", buffer.float.toDouble())
             }
             "double[]" -> decodeFixedArray(buffer, Double.SIZE_BYTES, definition) { index ->
-                addNumber("${definition.name}[$index]", buffer.double)
+                addNumber("${definition.name}/$index", buffer.double)
             }
             "string[]" -> {
                 var index = 0
@@ -175,7 +177,7 @@ class WpiLogDecoder {
                     if (index >= MAX_ARRAY_ELEMENTS) {
                         throw IOException("WPILOG string array is too large for ${definition.name}")
                     }
-                    addString("${definition.name}[$index]", readLengthPrefixedString(buffer, "string array value"))
+                    addString("${definition.name}/$index", readLengthPrefixedString(buffer, "string array value"))
                     index++
                 }
             }
@@ -261,6 +263,7 @@ class WpiLogDecoder {
     private companion object {
         val MAGIC = "WPILOG".toByteArray(Charsets.US_ASCII)
         const val FILE_HEADER_SIZE = 12
+        const val MIN_SUPPORTED_VERSION = 0x0100
         const val CONTROL_ENTRY_ID = 0L
         const val CONTROL_START = 0
         const val CONTROL_FINISH = 1

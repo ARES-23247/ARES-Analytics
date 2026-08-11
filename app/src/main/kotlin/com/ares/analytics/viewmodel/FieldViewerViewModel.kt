@@ -75,7 +75,9 @@ class FieldViewerViewModel(
     private val nt4ClientService: Nt4ClientService,
     private val scope: CoroutineScope
 ) {
-    private val _state = MutableStateFlow(FieldViewerState())
+    private val _state = MutableStateFlow(
+        FieldViewerState(isRedAlliance = nt4ClientService.selectedRedAlliance.value)
+    )
     val state: StateFlow<FieldViewerState> = _state.asStateFlow()
 
     private val _livePose = MutableStateFlow(LivePoseState())
@@ -89,7 +91,9 @@ class FieldViewerViewModel(
         scope.launch {
             when (intent) {
                 is FieldViewerIntent.ToggleAlliance -> {
-                    _state.update { it.copy(isRedAlliance = !it.isRedAlliance) }
+                    val isRedAlliance = !_state.value.isRedAlliance
+                    nt4ClientService.publishBoolean("ARES/Input/isRedAlliance", isRedAlliance)
+                    _state.update { it.copy(isRedAlliance = isRedAlliance) }
                 }
                 is FieldViewerIntent.ClearTrace -> {
                     poseBufferManager.clearTrace()

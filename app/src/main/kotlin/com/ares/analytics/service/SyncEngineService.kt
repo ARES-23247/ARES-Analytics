@@ -65,11 +65,85 @@ class SyncEngineService(
         }
     }
 ) {
+    private fun safeFileComponent(value: String): String = value
+        .map { character ->
+            when {
+                character.isLetterOrDigit() -> character
+                character == '.' || character == '_' || character == '-' -> character
+                else -> '_'
+            }
+        }
+        .joinToString("")
+        .take(80)
     /**
      * Serializes index.json read-modify-write sequences so two concurrent uploads (or an
      * upload + delete) cannot interleave their read/write and clobber each other's entries.
      */
     private val indexMutex = kotlinx.coroutines.sync.Mutex()
+
+    private fun mergeIndexSummaries(indexes: Iterable<List<SessionSummary>>): List<SessionSummary> {
+        val merged = linkedMapOf<String, SessionSummary>()
+        indexes.forEach { summaries -> summaries.forEach { merged[it.sessionId] = it } }
+        return merged.values.toList()
+    }
+
+    private suspend fun readIndex(fileId: String): Pair<List<SessionSummary>, String> {
+        val snapshot = googleDriveService.readFileSnapshot(fileId)
+        val etag = snapshot.etag
+            ?: throw IllegalStateException("Google Drive index.json did not include an ETag")
+        val summaries = AppJson.decodeFromString<List<SessionSummary>>(
+            String(snapshot.bytes, Charsets.UTF_8)
+        )
+        return summaries to etag
+    }
+
+    /**
+     * Optimistic cross-process read-modify-write for index.json. Google Drive permits duplicate
+     * names, so duplicate first-run indexes are merged and collapsed into a canonical file.
+     */
+    private suspend fun mutateRemoteIndex(
+        rootFolderId: String,
+        transform: (List<SessionSummary>) -> List<SessionSummary>
+    ) = indexMutex.withLock {
+        repeat(INDEX_UPDATE_ATTEMPTS) { attempt ->
+            val indexIds = googleDriveService.findFiles("index.json", rootFolderId)
+            if (indexIds.isEmpty()) {
+                val bytes = AppJson.encodeToString(transform(emptyList())).toByteArray(Charsets.UTF_8)
+                googleDriveService.writeFile(
+                    name = "index.json",
+                    bytes = bytes,
+                    parentId = rootFolderId,
+                    mimeType = "application/json"
+                )
+                return@withLock
+            }
+
+            val snapshots = indexIds.associateWith { readIndex(it) }
+            val current = mergeIndexSummaries(snapshots.values.map { it.first })
+            val canonicalId = indexIds.minOrNull()!!
+            val expectedEtag = snapshots.getValue(canonicalId).second
+            val updatedBytes = AppJson.encodeToString(transform(current)).toByteArray(Charsets.UTF_8)
+            try {
+                googleDriveService.writeFile(
+                    name = "index.json",
+                    bytes = updatedBytes,
+                    parentId = rootFolderId,
+                    mimeType = "application/json",
+                    fileId = canonicalId,
+                    expectedEtag = expectedEtag
+                )
+                indexIds.asSequence().filter { it != canonicalId }.forEach { duplicateId ->
+                    runCatching { googleDriveService.deleteFile(duplicateId) }
+                }
+                return@withLock
+            } catch (_: DrivePreconditionFailedException) {
+                if (attempt == INDEX_UPDATE_ATTEMPTS - 1) {
+                    throw IllegalStateException("index.json kept changing during update")
+                }
+                kotlinx.coroutines.delay(INDEX_RETRY_DELAY_MS * (attempt + 1))
+            }
+        }
+    }
 
     /**
      * Outcome of reading the remote `index.json`. Distinguishes a *failed* read (Drive
@@ -95,20 +169,15 @@ class SyncEngineService(
             e.printStackTrace()
             return@withContext RemoteIndexState.Failed
         }
-        val indexFileId = try {
-            googleDriveService.findFile("index.json", rootFolderId)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return@withContext RemoteIndexState.Failed
-        } ?: return@withContext RemoteIndexState.Absent
-        val indexBytes = try {
-            googleDriveService.readFile(indexFileId)
+        val indexFileIds = try {
+            googleDriveService.findFiles("index.json", rootFolderId)
         } catch (e: Exception) {
             e.printStackTrace()
             return@withContext RemoteIndexState.Failed
         }
+        if (indexFileIds.isEmpty()) return@withContext RemoteIndexState.Absent
         try {
-            RemoteIndexState.Loaded(AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8)))
+            RemoteIndexState.Loaded(mergeIndexSummaries(indexFileIds.map { readIndex(it).first }))
         } catch (e: Exception) {
             e.printStackTrace()
             RemoteIndexState.Failed
@@ -132,9 +201,10 @@ class SyncEngineService(
         val tempDir = File(System.getProperty("java.io.tmpdir"), "ares-sync")
         tempDir.mkdirs()
         val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", java.util.Locale.getDefault()).format(java.util.Date(summary.createdAt))
-        val robotStr = "_${summary.robotId}"
+        val robotStr = "_${safeFileComponent(summary.robotId)}"
         val matchStr = if (summary.matchNumber != null) "_Match_${summary.matchNumber}" else ""
-        val allianceStr = if (!summary.allianceColor.isNullOrEmpty()) "_${summary.allianceColor}" else ""
+        val allianceColor = summary.allianceColor
+        val allianceStr = if (!allianceColor.isNullOrEmpty()) "_${safeFileComponent(allianceColor)}" else ""
         val mode = when {
             summary.tags.contains("Auto") -> "Auto"
             summary.tags.contains("TeleOp") -> "TeleOp"
@@ -142,7 +212,7 @@ class SyncEngineService(
             else -> "Init"
         }
         val modeStr = "_$mode"
-        val descriptiveName = "ARES_Telemetry_${dateStr}${robotStr}${matchStr}${allianceStr}${modeStr}_$sessionId.parquet"
+        val descriptiveName = "ARES_Telemetry_${dateStr}${robotStr}${matchStr}${allianceStr}${modeStr}_${safeFileComponent(sessionId)}.parquet"
         val tempFile = File(tempDir, descriptiveName)
         try {
             parquetExporterService.exportSessionToParquet(sessionId, tempFile)
@@ -176,29 +246,9 @@ class SyncEngineService(
                 }
             }
 
-            // 4. Update the index.json file (atomic read-modify-write under indexMutex so
-            //    concurrent uploads cannot clobber each other's entries).
-            indexMutex.withLock {
-                val indexFileId = googleDriveService.findFile("index.json", rootFolderId)
-                // If index.json exists but the read or parse fails, propagate the exception
-                // (aborting this upload) rather than falling back to emptyList — rewriting a
-                // 1-element index on a Drive outage would silently wipe the remote manifest.
-                // A genuinely-missing index (first run, fileId == null) seeds empty safely.
-                val indexList = if (indexFileId != null) {
-                    val indexBytes = googleDriveService.readFile(indexFileId)
-                    AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
-                } else {
-                    emptyList()
-                }
-                val updatedList = indexList.filter { it.sessionId != sessionId } + updatedSummary
-                val updatedIndexBytes = Json.encodeToString<List<SessionSummary>>(updatedList).toByteArray(Charsets.UTF_8)
-                googleDriveService.writeFile(
-                    name = "index.json",
-                    bytes = updatedIndexBytes,
-                    parentId = rootFolderId,
-                    mimeType = "application/json",
-                    fileId = indexFileId
-                )
+            // 4. Cross-process optimistic update; corrupt indexes abort instead of being wiped.
+            mutateRemoteIndex(rootFolderId) { indexList ->
+                indexList.filter { it.sessionId != sessionId } + updatedSummary
             }
         } finally {
             tempFile.delete()
@@ -223,9 +273,8 @@ class SyncEngineService(
     suspend fun getRemoteSummaries(): List<SessionSummary> = withContext(Dispatchers.IO) {
         try {
             val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
-            val indexFileId = googleDriveService.findFile("index.json", rootFolderId) ?: return@withContext emptyList()
-            val indexBytes = googleDriveService.readFile(indexFileId)
-            AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
+            val indexFileIds = googleDriveService.findFiles("index.json", rootFolderId)
+            mergeIndexSummaries(indexFileIds.map { readIndex(it).first })
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -292,7 +341,7 @@ class SyncEngineService(
         }
 
         try {
-            databaseService.importParquet(tempFile)
+            databaseService.importParquetAsSession(tempFile, summary.sessionId)
             databaseService.insertSessionSummary(summary)
             val session = Session(
                 sessionId = summary.sessionId,
@@ -824,34 +873,11 @@ class SyncEngineService(
         try {
             val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
             val sessionsFolderId = googleDriveService.findOrCreateFolder("sessions", rootFolderId)
+            mutateRemoteIndex(rootFolderId) { indexList ->
+                indexList.filter { it.sessionId != sessionId }
+            }
             val parquetFileId = googleDriveService.findFileContaining(sessionId, sessionsFolderId)
-            if (parquetFileId != null) {
-                googleDriveService.deleteFile(parquetFileId)
-            }
-            val indexFileId = googleDriveService.findFile("index.json", rootFolderId)
-            if (indexFileId != null) {
-                // Atomic read-modify-write under indexMutex (matches uploadSession).
-                indexMutex.withLock {
-                    val currentId = googleDriveService.findFile("index.json", rootFolderId)
-                    if (currentId != null) {
-                        val indexBytes = googleDriveService.readFile(currentId)
-                        val indexList = try {
-                            AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
-                        } catch (e: Exception) {
-                            emptyList()
-                        }
-                        val updatedList = indexList.filter { it.sessionId != sessionId }
-                        val updatedIndexBytes = Json.encodeToString<List<SessionSummary>>(updatedList).toByteArray(Charsets.UTF_8)
-                        googleDriveService.writeFile(
-                            name = "index.json",
-                            bytes = updatedIndexBytes,
-                            parentId = rootFolderId,
-                            mimeType = "application/json",
-                            fileId = currentId
-                        )
-                    }
-                }
-            }
+            if (parquetFileId != null) googleDriveService.deleteFile(parquetFileId)
         } catch (e: Exception) {
             throw IllegalStateException("Cloud session $sessionId could not be deleted", e)
         }
@@ -859,5 +885,10 @@ class SyncEngineService(
 
     fun close() {
         httpClient.close()
+    }
+
+    private companion object {
+        const val INDEX_UPDATE_ATTEMPTS = 5
+        const val INDEX_RETRY_DELAY_MS = 100L
     }
 }

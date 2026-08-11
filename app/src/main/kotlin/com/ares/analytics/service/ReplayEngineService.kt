@@ -48,6 +48,30 @@ object SystemReplayClock : ReplayClock {
     override fun nowMs(): Long = System.currentTimeMillis()
 }
 
+internal suspend fun loadTelemetryWindowPages(
+    databaseService: DatabaseService,
+    sessionId: String,
+    startMs: Long,
+    endMs: Long,
+    pageSize: Int
+): List<TelemetryFrame> {
+    require(pageSize > 0)
+    val frames = ArrayList<TelemetryFrame>()
+    var offset = 0L
+    do {
+        val page = databaseService.getTelemetryRangeBatched(
+            sessionId,
+            startMs,
+            endMs,
+            limit = pageSize.toLong(),
+            offset = offset
+        )
+        frames.addAll(page)
+        offset += page.size
+    } while (page.size == pageSize)
+    return frames
+}
+
 data class ReplayCacheMetrics(
     val windowStartMs: Long = -1,
     val windowEndMs: Long = -1,
@@ -468,15 +492,14 @@ class ReplayEngineService(
 
     private suspend fun loadWindow(startMs: Long, endMs: Long): ReplayWindow {
         val baseline = databaseService.getLatestTelemetryBefore(currentSessionId, startMs)
-        val frames = databaseService.getTelemetryRangeBatched(
+        val frames = loadTelemetryWindowPages(
+            databaseService,
             currentSessionId,
             startMs,
             endMs,
-            limit = MAX_CACHED_FRAMES.toLong(),
-            offset = 0
+            REPLAY_PAGE_SIZE
         )
         windowLoadCount++
-        if (frames.size == MAX_CACHED_FRAMES) truncatedWindowCount++
         return ReplayWindow(startMs, endMs, baseline, frames)
     }
 
@@ -560,6 +583,6 @@ class ReplayEngineService(
     companion object {
         private const val WINDOW_HISTORY_MS = 2_500L
         private const val WINDOW_LOOKAHEAD_MS = 5_000L
-        private const val MAX_CACHED_FRAMES = 200_000
+        private const val REPLAY_PAGE_SIZE = 50_000
     }
 }
