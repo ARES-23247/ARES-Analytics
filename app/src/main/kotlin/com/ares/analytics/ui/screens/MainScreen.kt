@@ -431,7 +431,7 @@ fun MainScreen(services: ServiceRegistry) {
                     // Top header bar with run config info
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Dropdown Selector for active Workspace/Robot configuration
@@ -545,6 +545,12 @@ fun MainScreen(services: ServiceRegistry) {
                             }
                         }
 
+                        SectionNavigationBar(
+                            activeTarget = activeNav,
+                            onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) },
+                            modifier = Modifier.weight(1f)
+                        )
+
                         ExecutionToolbar(
                             targetSelection = targetSelection,
                             targetIp = if (targetSelection == TargetSelection.LOCAL_SIM || isSimRunning) "127.0.0.1" else liveRobotIp,
@@ -573,11 +579,6 @@ fun MainScreen(services: ServiceRegistry) {
                         )
 
                     }
-
-                    SectionNavigationBar(
-                        activeTarget = activeNav,
-                        onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) }
-                    )
 
                     // ── Screen Router ────────────────────────────────────────
                     Box(modifier = Modifier.weight(1f)) {
