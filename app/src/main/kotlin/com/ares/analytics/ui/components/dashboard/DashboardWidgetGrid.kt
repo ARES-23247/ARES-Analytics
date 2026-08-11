@@ -69,14 +69,14 @@ fun DashboardWidgetGrid(
 
         Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             Box(Modifier.fillMaxWidth().height(gridHeight)) {
-                displayWidgets.forEach { widget ->
+                for (widget in displayWidgets) {
+                    val builder = widgetBuilders[widget.type] ?: continue
                     key(widget.id) {
                         var offsetX by remember { mutableStateOf(0f) }
                         var offsetY by remember { mutableStateOf(0f) }
                         var resizeX by remember { mutableStateOf(0f) }
                         var resizeY by remember { mutableStateOf(0f) }
                         var active by remember { mutableStateOf(false) }
-                        val builder = widgetBuilders[widget.type] ?: return@key
                         val width = colWidth * widget.colSpan + spacing * (widget.colSpan - 1)
                         val height = rowHeight * widget.rowSpan + spacing * (widget.rowSpan - 1)
                         val x = colWidth * widget.col + spacing * widget.col
