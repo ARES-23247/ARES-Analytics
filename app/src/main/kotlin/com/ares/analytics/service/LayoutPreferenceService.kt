@@ -77,7 +77,7 @@ class LayoutPreferenceService(
             "driver_coach" -> DashboardLayoutConfig(
                 listOf(
                     WidgetConfig("field_viewer", "field_viewer", 0, 0, 5, 7),
-                    WidgetConfig("joystick_visualizer", "joystick_visualizer", 0, 7, 3, 5),
+                    WidgetConfig("autonomous_selector", "autonomous_selector", 0, 7, 3, 5),
                     WidgetConfig("system_health", "system_health", 3, 7, 2, 5),
                     WidgetConfig("telemetry_chart", "telemetry_chart", 5, 0, 5, 8),
                     WidgetConfig("alerts", "alerts", 5, 8, 5, 4)

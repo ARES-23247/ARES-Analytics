@@ -4,6 +4,10 @@ ARES Analytics is the desktop mission-control, log-analysis, replay, and pit-dia
 
 The robot remains offline-first: robot code never sends data directly to a cloud service. The desktop app owns every cloud interaction.
 
+The routine and controller editors are offline project tools as well: they operate on the selected
+repository's `.ares` documents and never require a connected robot. See the [student routines and
+controller guide](docs/ROUTINES_AND_CONTROLS.md).
+
 ## Repository layout
 
 | Module | Responsibility |
@@ -143,6 +147,7 @@ The Compose client is not subject to browser CORS. Browser access must be explic
 ## Documentation
 
 - [Automated dashboard validation](docs/VALIDATION.md) - smoke/soak profiles, performance budgets, reports, and CI
+- [Student routines and controller bindings](docs/ROUTINES_AND_CONTROLS.md) - offline authoring, visual controls, generation, selection, and troubleshooting
 - [Architecture](ARCHITECTURE.md) — modules, service lifecycles, persistence, replay, and extension points
 - [Telemetry contract](docs/TELEMETRY_CONTRACT.md) — canonical topics, types, coordinate conventions, and NT4 behavior
 - [Operations guide](docs/OPERATIONS.md) — setup, connections, import/replay workflows, and troubleshooting

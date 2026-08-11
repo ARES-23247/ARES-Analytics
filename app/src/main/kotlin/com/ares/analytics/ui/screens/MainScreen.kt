@@ -70,9 +70,10 @@ fun MainScreen(services: ServiceRegistry) {
     val diagnosticsResponse = mainState.diagnosticsResponse
     val isTerminalOpen = mainState.isTerminalOpen
     val isKeybindingsOpen = mainState.isKeybindingsOpen
-    val parsedBindings = mainState.parsedBindings
     val showUpdateBanner = mainState.showUpdateBanner
     val updateState by services.updateCheckerService.updateState.collectAsState()
+    val gamepad1State by services.gamepadService.gamepad1State.collectAsState()
+    val gamepad2State by services.gamepadService.gamepad2State.collectAsState()
     var commandPaletteOpen by remember { mutableStateOf(false) }
 
     // Trigger update check on startup
@@ -218,7 +219,8 @@ fun MainScreen(services: ServiceRegistry) {
     val pathPlannerViewModel = remember {
         PathPlannerViewModel(
             scope = scope,
-            nt4ClientService = services.nt4ClientService
+            nt4ClientService = services.nt4ClientService,
+            projectGenerator = services.processManagerService
         )
     }
     val fieldEditorViewModel = remember {
@@ -263,6 +265,16 @@ fun MainScreen(services: ServiceRegistry) {
             projectPath = currentConfig.projectPath ?: "",
             scope = scope
         )
+    }
+    val controlsEditorViewModel = remember(currentConfig.projectPath, currentConfig.league) {
+        com.ares.analytics.viewmodel.controls.ControlsEditorViewModel(
+            projectPath = currentConfig.projectPath,
+            league = currentConfig.league,
+            projectGenerator = services.processManagerService
+        )
+    }
+    DisposableEffect(controlsEditorViewModel) {
+        onDispose { controlsEditorViewModel.close() }
     }
     LaunchedEffect(autoImportService, importCenterViewModel) {
         autoImportService.importNotifications.collect {
@@ -685,10 +697,11 @@ fun MainScreen(services: ServiceRegistry) {
                 // Keybindings Sidebar overlay
                 com.ares.analytics.ui.components.terminal.ControllerBindingsSidebar(
                     isOpen = isKeybindingsOpen,
-                    league = currentConfig.league,
-                    bindings = parsedBindings,
+                    viewModel = controlsEditorViewModel,
                     onClose = { mainViewModel.onIntent(MainIntent.SetKeybindingsOpen(false)) },
-                    modifier = Modifier.align(Alignment.CenterEnd)
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    gamepad1State = gamepad1State,
+                    gamepad2State = gamepad2State
                 )
 
                 // Critical Emergency Fault Alert Overlay (Pop-up Banner for Motor Stalls, Brownouts, Disconnects)

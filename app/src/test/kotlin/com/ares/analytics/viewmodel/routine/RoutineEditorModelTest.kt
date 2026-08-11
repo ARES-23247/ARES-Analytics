@@ -1,0 +1,121 @@
+package com.ares.analytics.viewmodel.routine
+
+import com.ares.analytics.shared.League
+import com.ares.analytics.ui.components.pathplanner.Waypoint
+import com.ares.analytics.viewmodel.pathing.RobotDimensions
+import com.areslib.catalog.ActionDescriptor
+import com.areslib.catalog.CapabilityCatalogDocument
+import com.areslib.catalog.CapabilityParameterDescriptor
+import com.areslib.catalog.CapabilityParameterType
+import com.areslib.catalog.ConditionDescriptor
+import com.areslib.routine.RoutineDocument
+import com.areslib.routine.RoutinePose
+import com.areslib.routine.RoutineStep
+import com.areslib.routine.RoutineStepKind
+import com.areslib.routine.RoutineValidationSeverity
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+class RoutineEditorModelTest {
+    @Test
+    fun `every supported step kind gets an editable payload`() {
+        RoutineStepKind.entries.forEach { kind ->
+            val step = defaultRoutineStep(
+                kind,
+                RoutinePose(1.0, 2.0, 0.5),
+                "Intake.Start",
+                "Shooter.Ready",
+                "score-piece"
+            )
+            assertEquals(kind, step.kind)
+            when (kind) {
+                RoutineStepKind.ACTION -> assertEquals("Intake.Start", step.actionKey)
+                RoutineStepKind.DRIVE_TO -> assertNotNull(step.drive)
+                RoutineStepKind.WAIT -> assertNotNull(step.durationSeconds)
+                RoutineStepKind.WAIT_UNTIL -> {
+                    assertEquals("Shooter.Ready", step.conditionKey)
+                    assertNotNull(step.timeoutSeconds)
+                }
+                RoutineStepKind.TOGETHER,
+                RoutineStepKind.FIRST_TO_FINISH,
+                RoutineStepKind.REPEAT,
+                RoutineStepKind.BRANCH -> assertTrue(step.children.isNotEmpty())
+                RoutineStepKind.DEADLINE -> assertNotNull(step.deadline)
+                RoutineStepKind.CALL -> assertEquals("score-piece", step.routineId)
+            }
+        }
+    }
+
+    @Test
+    fun `field edits clamp each nested drive goal to the robot footprint`() {
+        val dimensions = RobotDimensions(.6, .4)
+        val routine = listOf(
+            RoutineStep.together(
+                listOf(RoutineStep.driveTo(com.areslib.routine.RoutineDriveStep(RoutinePose(0.0, 0.0, 0.0))))
+            )
+        )
+        val updated = routine.withRoutineRouteWaypoints(
+            listOf(Waypoint(100.0, 100.0, 0.0)).iterator(),
+            League.FTC,
+            dimensions
+        )
+        val target = updated.single().children.single().drive!!.target
+        assertEquals(target, clampRoutinePose(target, League.FTC, dimensions))
+        assertFalse(target.xMeters == 100.0)
+    }
+
+    @Test
+    fun `catalog parameter types are validated before save`() {
+        val catalog = CapabilityCatalogDocument(
+            projectId = "test-project",
+            actions = listOf(
+                ActionDescriptor(
+                    key = "Shooter.Set",
+                    displayName = "Set shooter",
+                    description = "Sets the shooter mode",
+                    parameters = listOf(
+                        CapabilityParameterDescriptor(
+                            key = "rpm",
+                            displayName = "Speed",
+                            description = "Flywheel speed",
+                            type = CapabilityParameterType.NUMBER,
+                            minimum = 0.0,
+                            maximum = 6000.0
+                        )
+                    )
+                )
+            ),
+            conditions = listOf(
+                ConditionDescriptor("Shooter.Ready", "Shooter ready", "True at commanded speed")
+            )
+        )
+        val invalid = RoutineDocument(
+            documentId = "shoot",
+            name = "Shoot",
+            steps = listOf(RoutineStep.action("Shooter.Set", mapOf("rpm" to "fast")))
+        )
+        val issues = routineEditorValidation(
+            invalid,
+            catalog,
+            listOf(invalid),
+            League.FTC,
+            RobotDimensions.defaultFor(League.FTC),
+            null
+        )
+        assertTrue(issues.any { it.code == "invalid_argument" && it.severity == RoutineValidationSeverity.ERROR })
+
+        val valid = invalid.copy(steps = listOf(RoutineStep.action("Shooter.Set", mapOf("rpm" to "4500"))))
+        val validIssues = routineEditorValidation(
+            valid,
+            catalog,
+            listOf(valid),
+            League.FTC,
+            RobotDimensions.defaultFor(League.FTC),
+            null
+        )
+        assertTrue(validIssues.none { it.code == "invalid_argument" || it.code == "missing_argument" })
+    }
+}

@@ -1,0 +1,291 @@
+package com.ares.analytics.viewmodel.controls
+
+import com.ares.analytics.service.GamepadState
+import com.ares.analytics.service.AresGenerationState
+import com.ares.analytics.service.AresProjectGenerator
+import com.ares.analytics.shared.League
+import com.ares.analytics.viewmodel.project.AresProjectDocuments
+import com.areslib.catalog.ActionDescriptor
+import com.areslib.catalog.CapabilityCatalogDocument
+import com.areslib.catalog.CapabilityParameterDescriptor
+import com.areslib.catalog.CapabilityParameterType
+import com.areslib.controls.ControlEvent
+import com.areslib.controls.ControlSourceKind
+import com.areslib.controls.ControllerInputPlatform
+import com.areslib.controls.ControlSchemeDocument
+import com.areslib.controls.ControllerAnchorDocument
+import com.areslib.controls.ControllerAssignment
+import com.areslib.controls.ControllerControlDocument
+import com.areslib.controls.ControllerControlTypeDocument
+import com.areslib.controls.ControllerInputMappingDocument
+import com.areslib.controls.ControllerProfileDocument
+import com.areslib.project.AresCoordinateConvention
+import com.areslib.project.AresLeague
+import com.areslib.project.AresProjectMetadataDocument
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import java.io.File
+import java.nio.file.Files
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class ControlsEditorViewModelTest {
+    @Test
+    fun `editor is explicitly project backed and does not require a robot`() {
+        val viewModel = ControlsEditorViewModel("", League.FTC)
+
+        assertTrue(viewModel.state.value.loadError.orEmpty().contains("project directory"))
+        assertFalse(viewModel.state.value.canSave)
+    }
+
+    @Test
+    fun `desktop learning never copies a vendor button to FTC or FRC`() = withProject { project ->
+        val documents = seededDocuments(project)
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+        viewModel.selectControl("m1")
+        val baseline = GamepadState(
+            connected = true,
+            name = "Flydigi Vader 5 Pro",
+            rawButtons = List(20) { false },
+            rawAxes = List(6) { 0f }
+        )
+
+        viewModel.beginDesktopLearning(baseline)
+        viewModel.observeDesktopInput(baseline.copy(rawButtons = List(20) { it == 17 }))
+
+        val control = viewModel.state.value.selectedProfile?.controls?.first { it.controlId == "m1" }
+        assertNotNull(control)
+        assertEquals(17, control.mappings.single { it.platform == ControllerInputPlatform.DESKTOP_GLFW }.buttonIndex)
+        assertNull(control.mappings.firstOrNull { it.platform == ControllerInputPlatform.FTC })
+        assertNull(control.mappings.firstOrNull { it.platform == ControllerInputPlatform.FRC })
+        assertTrue(viewModel.state.value.status.orEmpty().contains("FTC/FRC mappings were not changed"))
+    }
+
+    @Test
+    fun `binding edits save typed project documents and expose missing target mapping`() = withProject { project ->
+        val documents = seededDocuments(project)
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+
+        viewModel.selectControl("a")
+        viewModel.createBinding()
+        viewModel.updateDraft { binding ->
+            binding.copy(
+                displayName = "Intake while held",
+                event = ControlEvent.HELD,
+                timing = binding.timing.copy(pressDebounceSeconds = .04, maximumActiveSeconds = 2.0)
+            )
+        }
+        assertTrue(viewModel.state.value.problems.any {
+            it.severity == ControlsProblemSeverity.ERROR && it.message.contains("FTC mapping")
+        })
+        viewModel.applyDraft()
+        assertTrue(viewModel.state.value.selectedScheme?.bindings.orEmpty().isEmpty())
+        val desktopBaseline = GamepadState(connected = true, rawButtons = List(4) { false })
+        viewModel.beginDesktopLearning(desktopBaseline)
+        viewModel.observeDesktopInput(desktopBaseline.copy(rawButtons = List(4) { it == 0 }))
+        viewModel.setMapping("a", ControllerInputPlatform.FTC, 0)
+        assertTrue(viewModel.state.value.problems.none { it.message.contains("FTC mapping") })
+        viewModel.applyDraft()
+        viewModel.save()
+
+        val savedScheme = documents.controls.load(project.path, "competition-controls")
+        val savedProfile = documents.controllers.load(project.path, "flydigi-vader-5-pro")
+        assertEquals(ControlEvent.HELD, savedScheme.bindings.single().event)
+        assertEquals(.04, savedScheme.bindings.single().timing.pressDebounceSeconds)
+        assertEquals(2.0, savedScheme.bindings.single().timing.maximumActiveSeconds)
+        val mappings = savedProfile.controls.first { it.controlId == "a" }.mappings
+        assertEquals(0, mappings.single { it.platform == ControllerInputPlatform.FTC }.buttonIndex)
+        assertEquals(0, mappings.single { it.platform == ControllerInputPlatform.DESKTOP_GLFW }.buttonIndex)
+        assertNull(mappings.firstOrNull { it.platform == ControllerInputPlatform.FRC })
+        assertFalse(viewModel.state.value.dirty)
+    }
+
+    @Test
+    fun `source editor covers chords analog values zones and repeat timing`() = withProject { project ->
+        val viewModel = ControlsEditorViewModel(project.path, League.FRC, seededDocuments(project))
+        viewModel.selectControl("left_trigger")
+        viewModel.createBinding()
+        viewModel.setSourceKind(ControlSourceKind.AXIS_VALUE)
+        assertEquals(ControlEvent.VALUE, viewModel.state.value.draftBinding?.event)
+        assertNotNull(viewModel.state.value.draftBinding?.analogPolicy)
+
+        viewModel.setSourceKind(ControlSourceKind.AXIS_ZONE)
+        assertEquals(ControlEvent.ZONE_ENTER, viewModel.state.value.draftBinding?.event)
+        assertNotNull(viewModel.state.value.draftBinding?.source?.zoneMinimum)
+
+        viewModel.selectControl("a")
+        viewModel.createBinding()
+        viewModel.setSourceKind(ControlSourceKind.CHORD)
+        viewModel.selectControl("b", appendToChord = true)
+        viewModel.updateDraft { binding ->
+            binding.copy(
+                event = ControlEvent.REPEAT,
+                timing = binding.timing.copy(repeatAfterSeconds = .3, repeatEverySeconds = .1, cooldownSeconds = .2)
+            )
+        }
+        assertEquals(listOf("a", "b"), viewModel.state.value.draftBinding?.source?.controlIds)
+        assertEquals(.3, viewModel.state.value.draftBinding?.timing?.repeatAfterSeconds)
+        assertEquals(.1, viewModel.state.value.draftBinding?.timing?.repeatEverySeconds)
+    }
+
+    @Test
+    fun `typed catalog arguments fail closed in the editor`() = withProject { project ->
+        val documents = AresProjectDocuments()
+        saveMetadata(documents, project)
+        documents.capabilities.save(
+            project.path,
+            CapabilityCatalogDocument(
+                projectId = "typed-project",
+                actions = listOf(
+                    ActionDescriptor(
+                        key = "flywheel.set",
+                        displayName = "Set flywheel",
+                        description = "Sets normalized output.",
+                        parameters = listOf(
+                            CapabilityParameterDescriptor(
+                                key = "output",
+                                displayName = "Output",
+                                description = "Normalized flywheel output.",
+                                type = CapabilityParameterType.NUMBER,
+                                minimum = 0.0,
+                                maximum = 1.0
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+        viewModel.selectControl("a")
+        viewModel.createBinding()
+
+        assertTrue(viewModel.state.value.problems.any { it.message == "Output is required." })
+        viewModel.setTargetArgument("output", "2.0")
+        assertTrue(viewModel.state.value.problems.any { it.message.contains("at most 1.0") })
+        viewModel.setTargetArgument("output", "0.7")
+        assertTrue(viewModel.state.value.problems.none { it.message.startsWith("Output ") })
+    }
+
+    @Test
+    fun `switching schemes preserves and saves every applied edit`() = withProject { project ->
+        val documents = seededDocuments(project)
+        val profile = ControllerProfileDocument(
+            documentId = "test-pad",
+            displayName = "Test pad",
+            controls = listOf(
+                ControllerControlDocument(
+                    controlId = "a",
+                    displayName = "A",
+                    type = ControllerControlTypeDocument.BUTTON,
+                    anchor = ControllerAnchorDocument(.5, .5),
+                    mappings = listOf(ControllerInputMappingDocument(ControllerInputPlatform.FTC, buttonIndex = 0))
+                )
+            )
+        )
+        documents.controllers.save(project.path, profile)
+        listOf("alpha", "beta").forEach { id ->
+            documents.controls.save(
+                project.path,
+                ControlSchemeDocument(
+                    documentId = id,
+                    name = id.replaceFirstChar(Char::uppercase),
+                    controllers = listOf(ControllerAssignment("driver", "Driver", profile.documentId)),
+                    bindings = emptyList()
+                )
+            )
+        }
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+        listOf("alpha", "beta").forEach { id ->
+            viewModel.selectScheme(id)
+            viewModel.selectControl("a")
+            viewModel.createBinding()
+            viewModel.applyDraft()
+        }
+        assertEquals(setOf("alpha", "beta"), viewModel.state.value.dirtySchemeIds)
+        viewModel.save()
+        assertEquals(1, documents.controls.load(project.path, "alpha").bindings.size)
+        assertEquals(1, documents.controls.load(project.path, "beta").bindings.size)
+    }
+
+    @Test
+    fun `scheme switch refuses to discard an unapplied draft`() = withProject { project ->
+        val documents = seededDocuments(project)
+        val initial = ControlsEditorViewModel(project.path, League.FTC, documents)
+        initial.save()
+        val base = documents.controls.load(project.path, "competition-controls")
+        documents.controls.save(project.path, base.copy(documentId = "practice-controls", name = "Practice"))
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+        val originalId = viewModel.state.value.selectedSchemeId
+        viewModel.selectControl("a")
+        viewModel.createBinding()
+        viewModel.selectScheme("practice-controls")
+        assertEquals(originalId, viewModel.state.value.selectedSchemeId)
+        assertTrue(viewModel.state.value.status.orEmpty().contains("Apply or discard"))
+    }
+
+    @Test
+    fun `save and generate uses the selected local project without requiring robot state`() = withProject { project ->
+        val documents = seededDocuments(project)
+        val generator = RecordingGenerator()
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents, generator)
+        viewModel.saveAndGenerate()
+        assertEquals(project.canonicalPath, generator.projectPath?.let { File(it) }?.canonicalPath)
+        assertEquals(League.FTC, generator.league)
+    }
+
+    private fun seededDocuments(project: File): AresProjectDocuments = AresProjectDocuments().also { documents ->
+        saveMetadata(documents, project)
+        documents.capabilities.save(
+            project.path,
+            CapabilityCatalogDocument(
+                projectId = "student-robot",
+                actions = listOf(
+                    ActionDescriptor(
+                        key = "intake.run",
+                        displayName = "Run intake",
+                        description = "Runs the intake.",
+                        category = "Intake"
+                    )
+                )
+            )
+        )
+    }
+
+    private fun saveMetadata(documents: AresProjectDocuments, project: File) {
+        documents.metadata.save(
+            project.path,
+            AresProjectMetadataDocument(
+                projectId = "student-robot",
+                league = AresLeague.FTC,
+                coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
+                robotLengthMeters = .45,
+                robotWidthMeters = .45,
+                fieldLengthMeters = 3.6576,
+                fieldWidthMeters = 3.6576
+            )
+        )
+    }
+
+    private class RecordingGenerator : AresProjectGenerator {
+        override val aresGenerationState: StateFlow<AresGenerationState> = MutableStateFlow(AresGenerationState())
+        var projectPath: String? = null
+        var league: League? = null
+        override fun generateAresProject(projectPath: String, league: League) {
+            this.projectPath = projectPath
+            this.league = league
+        }
+    }
+
+    private inline fun withProject(block: (File) -> Unit) {
+        val project = Files.createTempDirectory("ares-controls-editor-").toFile()
+        try {
+            block(project)
+        } finally {
+            project.deleteRecursively()
+        }
+    }
+}

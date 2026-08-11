@@ -6,15 +6,9 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-/**
- * LayoutPreferenceServiceTest class.
- */
 class LayoutPreferenceServiceTest {
 
     @Test
-    /**
-     * testDefaultLayouts fun.
-     */
     fun testDefaultLayouts() {
         val tempDir = File(System.getProperty("java.io.tmpdir"), "ares_layout_test_default")
         val service = LayoutPreferenceService(tempDir.absolutePath)
@@ -26,7 +20,7 @@ class LayoutPreferenceServiceTest {
         assertEquals(6, chart.rowSpan)
         assertEquals(8, chart.colSpan)
         val driverCoachLayout = service.getDefaultLayout("driver_coach")
-        assertTrue(driverCoachLayout.widgets.any { it.type == "joystick_visualizer" })
+        assertTrue(driverCoachLayout.widgets.any { it.type == "autonomous_selector" })
         val alerts = driverCoachLayout.widgets.first { it.type == "alerts" }
         assertEquals(5, alerts.row)
         assertEquals(8, alerts.col)
@@ -53,9 +47,6 @@ class LayoutPreferenceServiceTest {
     }
 
     @Test
-    /**
-     * testSaveAndLoadLayout fun.
-     */
     fun testSaveAndLoadLayout() = runTest {
         val tempDir = File(System.getProperty("java.io.tmpdir"), "ares_layout_test_save")
         tempDir.mkdirs()

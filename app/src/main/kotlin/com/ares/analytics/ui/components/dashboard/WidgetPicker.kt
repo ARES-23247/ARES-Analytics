@@ -72,6 +72,7 @@ data class AvailableWidget(
 
 val availableWidgetsList = listOf(
     AvailableWidget("driver_station", "Driver Station", "Select and run FTC OpModes from the dashboard.", Icons.Default.SportsEsports, WidgetCategory.LIVE, true),
+    AvailableWidget("autonomous_selector", "Autonomous Selector", "Arm one of the generated routines compiled into the robot.", Icons.Default.Route, WidgetCategory.LIVE, true),
     AvailableWidget("field_viewer", "Field 2D Viewer", "Live robot pose and trajectory on the game field.", Icons.Default.Map, WidgetCategory.LIVE, true),
     AvailableWidget("telemetry_chart", "Live Telemetry Chart", "Searchable, scrolling multi-channel signal scope.", Icons.AutoMirrored.Filled.ShowChart, WidgetCategory.LIVE, true),
     AvailableWidget("joystick_visualizer", "Gamepad Monitor", "Controller sticks, triggers, buttons, and command shaping.", Icons.Default.Gamepad, WidgetCategory.LIVE),

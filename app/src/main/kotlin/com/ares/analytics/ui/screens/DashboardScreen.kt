@@ -134,6 +134,9 @@ fun DashboardScreen(
                 "driver_station" to { _, mod ->
                     FtcDriverStationWidget(nt4Client = services.nt4ClientService, modifier = mod)
                 },
+                "autonomous_selector" to { _, mod ->
+                    AutonomousSelectorCard(nt4ClientService = services.nt4ClientService, modifier = mod)
+                },
                 "runs_index" to { _, mod ->
                     RunsIndex(
                         databaseService = services.databaseService,

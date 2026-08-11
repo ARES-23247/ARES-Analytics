@@ -24,9 +24,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ares.analytics.shared.League
-import com.ares.analytics.ui.components.pathplanner.AutoEditorPanel
 import com.ares.analytics.ui.components.pathplanner.FieldCanvas
 import com.ares.analytics.ui.components.pathplanner.Waypoint
+import com.ares.analytics.ui.components.routine.RoutineEditorPanel
 import com.ares.analytics.ui.components.core.chooseProjectDirectory
 import com.ares.analytics.ui.theme.AresBackground
 import com.ares.analytics.ui.theme.AresBorder
@@ -37,14 +37,14 @@ import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.viewmodel.PathPlannerIntent
 import com.ares.analytics.viewmodel.PathPlannerViewModel
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
-import com.areslib.auto.AutoStep
+import com.areslib.routine.RoutineStep
 
 /**
- * Unified, offline-first autonomous builder.
+ * Unified, offline-first routine builder.
  *
- * Drive geometry is embedded directly in the routine: students edit one auto rather than managing
- * separate path and auto files. External path formats remain import/export adapters outside this
- * primary workflow.
+ * Drive geometry is embedded directly in the routine. Autonomous start metadata appears only when
+ * a student explicitly makes the routine a match choice; the same document can otherwise be called
+ * from controller bindings or another routine.
  */
 @Composable
 fun PathPlannerScreen(
@@ -64,18 +64,19 @@ fun PathPlannerScreen(
         viewModel.onIntent(PathPlannerIntent.ConfigureAresField(league, robotDimensions))
     }
 
-    val autoWaypoints = remember(state.aresAuto) {
+    val routineWaypoints = remember(state.routine, state.autonomousEntry) {
         buildList {
-            val start = state.aresAuto.startingPose
-            add(
-                Waypoint(
-                    x = start.xMeters,
-                    y = start.yMeters,
-                    headingRad = start.headingRadians,
-                    rotationDeg = Math.toDegrees(start.headingRadians)
+            state.autonomousEntry?.startingPose?.let { start ->
+                add(
+                    Waypoint(
+                        x = start.xMeters,
+                        y = start.yMeters,
+                        headingRad = start.headingRadians,
+                        rotationDeg = Math.toDegrees(start.headingRadians)
+                    )
                 )
-            )
-            addDriveTargets(state.aresAuto.steps)
+            }
+            addRoutineDriveTargets(state.routine.steps)
         }
     }
     val previewPath = remember(state.trajectory) {
@@ -103,13 +104,13 @@ fun PathPlannerScreen(
         ) {
             Column {
                 Text(
-                    "Autonomous Builder",
+                    "Routine Builder",
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.Bold,
                     color = AresTextPrimary
                 )
                 Text(
-                    "Place the robot, add destinations and actions, then simulate. No robot connection required.",
+                    "Build autonomous routines, controller macros, and reusable robot behaviors in one place.",
                     style = MaterialTheme.typography.bodySmall,
                     color = AresTextSecondary
                 )
@@ -141,11 +142,12 @@ fun PathPlannerScreen(
             modifier = Modifier.weight(1f).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            AutoEditorPanel(
+            RoutineEditorPanel(
                 state = state,
                 projectPath = projectPath,
-                league = league,
+                league = state.activeLeague,
                 onRobotDimensionsChanged = { dimensions ->
+                    viewModel.onIntent(PathPlannerIntent.UpdateCanonicalRobotDimensions(projectPath, dimensions))
                     onRobotDimensionsChanged(dimensions)
                 },
                 onIntent = viewModel::onIntent
@@ -159,13 +161,13 @@ fun PathPlannerScreen(
                     .clip(RoundedCornerShape(12.dp))
             ) {
                 FieldCanvas(
-                    league = league,
-                    waypoints = autoWaypoints,
+                    league = state.activeLeague,
+                    waypoints = routineWaypoints,
                     actualPath = previewPath,
                     contextPath = null,
                     contextWaypoints = null,
                     onWaypointsChanged = {
-                        viewModel.onIntent(PathPlannerIntent.UpdateAresRouteWaypoints(it, league))
+                        viewModel.onIntent(PathPlannerIntent.UpdateRoutineFieldWaypoints(it, league))
                     },
                     projectPath = projectPath,
                     showPathControls = false,
@@ -197,7 +199,7 @@ fun PathPlannerScreen(
     }
 }
 
-private fun MutableList<Waypoint>.addDriveTargets(steps: List<AutoStep>) {
+private fun MutableList<Waypoint>.addRoutineDriveTargets(steps: List<RoutineStep>) {
     steps.forEach { step ->
         step.drive?.target?.let { target ->
             add(
@@ -209,6 +211,8 @@ private fun MutableList<Waypoint>.addDriveTargets(steps: List<AutoStep>) {
                 )
             )
         }
-        addDriveTargets(step.children)
+        step.deadline?.let { addRoutineDriveTargets(listOf(it)) }
+        addRoutineDriveTargets(step.children)
+        addRoutineDriveTargets(step.elseChildren)
     }
 }

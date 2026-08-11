@@ -37,7 +37,16 @@ import org.lwjgl.glfw.GLFW.*
  */
 data class GamepadState(
     val connected: Boolean = false,
+    val joystickId: Int = -1,
     val name: String = "",
+    val guid: String = "",
+    val usesStandardMapping: Boolean = false,
+    /** Unmodified GLFW axes. These remain available even when a standard mapping is active. */
+    val rawAxes: List<Float> = emptyList(),
+    /** Unmodified GLFW buttons. Extra controller inputs are discovered from this list. */
+    val rawButtons: List<Boolean> = emptyList(),
+    /** GLFW hat bitmasks, retained for controller-profile learning and diagnostics. */
+    val rawHats: List<Int> = emptyList(),
     val leftStickX: Float = 0f,
     val leftStickY: Float = 0f,
     val rightStickX: Float = 0f,
@@ -54,6 +63,26 @@ data class GamepadState(
     val dpadDown: Boolean = false,
     val dpadLeft: Boolean = false,
     val dpadRight: Boolean = false
+) {
+    val axisCount: Int get() = rawAxes.size
+    val buttonCount: Int get() = rawButtons.size
+    val hatCount: Int get() = rawHats.size
+}
+
+/** Raw device data captured independently of GLFW's optional standardized mapping. */
+internal data class RawJoystickSnapshot(
+    val joystickId: Int,
+    val name: String,
+    val guid: String,
+    val axes: List<Float>,
+    val buttons: List<Boolean>,
+    val hats: List<Int>
+)
+
+/** Standard Xbox-style view returned by GLFW when a mapping is available. */
+internal data class StandardGamepadSnapshot(
+    val axes: List<Float>,
+    val buttons: List<Boolean>
 )
 
 /**
@@ -121,79 +150,39 @@ class GamepadService {
             }
             return
         }
-        val name = glfwGetJoystickName(joystickId) ?: "Unknown Gamepad"
+        val raw = RawJoystickSnapshot(
+            joystickId = joystickId,
+            name = glfwGetJoystickName(joystickId) ?: "Unknown Gamepad",
+            guid = glfwGetJoystickGUID(joystickId).orEmpty(),
+            axes = glfwGetJoystickAxes(joystickId)?.let { axes ->
+                List(axes.capacity()) { index -> axes[index] }
+            }.orEmpty(),
+            buttons = glfwGetJoystickButtons(joystickId)?.let { buttons ->
+                List(buttons.capacity()) { index -> buttons[index] == GLFW_PRESS.toByte() }
+            }.orEmpty(),
+            hats = glfwGetJoystickHats(joystickId)?.let { hats ->
+                List(hats.capacity()) { index -> hats[index].toInt() and 0xff }
+            }.orEmpty()
+        )
 
         if (glfwJoystickIsGamepad(joystickId) && glfwGetGamepadState(joystickId, gamepadState)) {
-            // Standardized gamepad API (Xbox/XInput mapping)
-            val lx = gamepadState.axes(GLFW_GAMEPAD_AXIS_LEFT_X)
-            val ly = gamepadState.axes(GLFW_GAMEPAD_AXIS_LEFT_Y)
-            val rx = gamepadState.axes(GLFW_GAMEPAD_AXIS_RIGHT_X)
-            val ry = gamepadState.axes(GLFW_GAMEPAD_AXIS_RIGHT_Y)
-            val lt = gamepadState.axes(GLFW_GAMEPAD_AXIS_LEFT_TRIGGER)
-            val rt = gamepadState.axes(GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER)
-
-            stateFlow.update {
-                GamepadState(
-                    connected = true,
-                    name = name,
-                    leftStickX = applyDeadzone(lx),
-                    leftStickY = applyDeadzone(-ly),
-                    rightStickX = applyDeadzone(rx),
-                    rightStickY = applyDeadzone(-ry),
-                    leftTrigger = normalizeTrigger(lt),
-                    rightTrigger = normalizeTrigger(rt),
-                    a = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_A) == GLFW_PRESS.toByte(),
-                    b = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_B) == GLFW_PRESS.toByte(),
-                    x = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_X) == GLFW_PRESS.toByte(),
-                    y = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_Y) == GLFW_PRESS.toByte(),
-                    leftBumper = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER) == GLFW_PRESS.toByte(),
-                    rightBumper = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER) == GLFW_PRESS.toByte(),
-                    dpadUp = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_DPAD_UP) == GLFW_PRESS.toByte(),
-                    dpadDown = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_DPAD_DOWN) == GLFW_PRESS.toByte(),
-                    dpadLeft = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_DPAD_LEFT) == GLFW_PRESS.toByte(),
-                    dpadRight = gamepadState.buttons(GLFW_GAMEPAD_BUTTON_DPAD_RIGHT) == GLFW_PRESS.toByte()
-                )
-            }
+            val standard = StandardGamepadSnapshot(
+                axes = List(GLFW_GAMEPAD_AXIS_LAST + 1) { index -> gamepadState.axes(index) },
+                buttons = List(GLFW_GAMEPAD_BUTTON_LAST + 1) { index ->
+                    gamepadState.buttons(index) == GLFW_PRESS.toByte()
+                }
+            )
+            stateFlow.value = mapGamepadState(raw, standard)
         } else {
-            // Fallback: raw joystick axes/buttons (DirectInput, Bluetooth, etc.)
-            val axes = glfwGetJoystickAxes(joystickId)
-            val buttons = glfwGetJoystickButtons(joystickId)
-            val lx = if (axes != null && axes.capacity() > 0) axes[0] else 0f
-            val ly = if (axes != null && axes.capacity() > 1) axes[1] else 0f
-            val rx = if (axes != null && axes.capacity() > 2) axes[2] else 0f
-            val ry = if (axes != null && axes.capacity() > 3) axes[3] else 0f
-            val lt = if (axes != null && axes.capacity() > 4) axes[4] else -1f
-            val rt = if (axes != null && axes.capacity() > 5) axes[5] else -1f
-            val cap = buttons?.capacity() ?: 0
-
-            stateFlow.update {
-                GamepadState(
-                    connected = true,
-                    name = name,
-                    leftStickX = applyDeadzone(lx),
-                    leftStickY = applyDeadzone(-ly),
-                    rightStickX = applyDeadzone(rx),
-                    rightStickY = applyDeadzone(-ry),
-                    leftTrigger = normalizeTrigger(lt),
-                    rightTrigger = normalizeTrigger(rt),
-                    a = cap > 0 && buttons?.get(0) == GLFW_PRESS.toByte(),
-                    b = cap > 1 && buttons?.get(1) == GLFW_PRESS.toByte(),
-                    x = cap > 2 && buttons?.get(2) == GLFW_PRESS.toByte(),
-                    y = cap > 3 && buttons?.get(3) == GLFW_PRESS.toByte(),
-                    leftBumper = cap > 4 && buttons?.get(4) == GLFW_PRESS.toByte(),
-                    rightBumper = cap > 5 && buttons?.get(5) == GLFW_PRESS.toByte(),
-                    dpadUp = cap > 10 && buttons?.get(10) == GLFW_PRESS.toByte(),
-                    dpadDown = cap > 12 && buttons?.get(12) == GLFW_PRESS.toByte(),
-                    dpadLeft = cap > 13 && buttons?.get(13) == GLFW_PRESS.toByte(),
-                    dpadRight = cap > 11 && buttons?.get(11) == GLFW_PRESS.toByte()
-                )
-            }
+            stateFlow.value = mapGamepadState(raw, standard = null)
         }
     }
 
     fun stop() {
         pollingJob?.cancel()
         pollingJob = null
+        _gamepad1State.value = GamepadState()
+        _gamepad2State.value = GamepadState()
     }
 
     fun dispose() {
@@ -207,14 +196,55 @@ class GamepadService {
     companion object {
         private const val DEADZONE = 0.08f
 
-        /** Apply a circular deadzone to stick axes */
-        private fun applyDeadzone(value: Float): Float {
+        /** Apply a per-axis deadzone to stick axes. */
+        internal fun applyDeadzone(value: Float): Float {
             return if (kotlin.math.abs(value) < DEADZONE) 0f else value
         }
 
         /** GLFW triggers range from -1.0 (released) to 1.0 (pressed). Normalize to 0.0..1.0 */
-        private fun normalizeTrigger(raw: Float): Float {
+        internal fun normalizeTrigger(raw: Float): Float {
             return ((raw + 1f) / 2f).coerceIn(0f, 1f)
         }
     }
+}
+
+/**
+ * Combines raw and standardized views without losing vendor-specific buttons.
+ * Kept outside the GLFW polling loop so profile discovery can be covered by unit tests.
+ */
+internal fun mapGamepadState(
+    raw: RawJoystickSnapshot,
+    standard: StandardGamepadSnapshot?
+): GamepadState {
+    val axes = standard?.axes ?: raw.axes
+    val buttons = standard?.buttons ?: raw.buttons
+    fun axis(index: Int, fallback: Float = 0f): Float = axes.getOrElse(index) { fallback }
+    fun button(index: Int): Boolean = buttons.getOrElse(index) { false }
+
+    return GamepadState(
+        connected = true,
+        joystickId = raw.joystickId,
+        name = raw.name,
+        guid = raw.guid,
+        usesStandardMapping = standard != null,
+        rawAxes = raw.axes,
+        rawButtons = raw.buttons,
+        rawHats = raw.hats,
+        leftStickX = GamepadService.applyDeadzone(axis(GLFW_GAMEPAD_AXIS_LEFT_X)),
+        leftStickY = GamepadService.applyDeadzone(-axis(GLFW_GAMEPAD_AXIS_LEFT_Y)),
+        rightStickX = GamepadService.applyDeadzone(axis(GLFW_GAMEPAD_AXIS_RIGHT_X)),
+        rightStickY = GamepadService.applyDeadzone(-axis(GLFW_GAMEPAD_AXIS_RIGHT_Y)),
+        leftTrigger = GamepadService.normalizeTrigger(axis(GLFW_GAMEPAD_AXIS_LEFT_TRIGGER, -1f)),
+        rightTrigger = GamepadService.normalizeTrigger(axis(GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER, -1f)),
+        a = button(GLFW_GAMEPAD_BUTTON_A),
+        b = button(GLFW_GAMEPAD_BUTTON_B),
+        x = button(GLFW_GAMEPAD_BUTTON_X),
+        y = button(GLFW_GAMEPAD_BUTTON_Y),
+        leftBumper = button(GLFW_GAMEPAD_BUTTON_LEFT_BUMPER),
+        rightBumper = button(GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER),
+        dpadUp = button(GLFW_GAMEPAD_BUTTON_DPAD_UP),
+        dpadDown = button(GLFW_GAMEPAD_BUTTON_DPAD_DOWN),
+        dpadLeft = button(GLFW_GAMEPAD_BUTTON_DPAD_LEFT),
+        dpadRight = button(GLFW_GAMEPAD_BUTTON_DPAD_RIGHT)
+    )
 }

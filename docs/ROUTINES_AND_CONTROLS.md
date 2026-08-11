@@ -1,0 +1,131 @@
+# Student guide: routines and controller bindings
+
+ARES Analytics can author robot behavior entirely offline. Select a local FTC or FRC repository as
+the workspace project; the robot does not need to be powered on, joined to Wi-Fi, or connected over
+NT4. The app reads and writes ordinary project files under `.ares/`.
+
+## The one concept to learn: a routine
+
+A routine is an ordered or grouped set of robot steps. It can contain field drive goals, mechanism
+actions, waits, conditions, parallel work, branches, repeats, and calls to other routines. The same
+routine can be:
+
+- listed as an autonomous choice;
+- assigned to a controller button, trigger, chord, or analog zone;
+- called by another routine as a macro;
+- executed by a test or simulator.
+
+There is no separate path document to keep synchronized with an autonomous routine. A drive goal is
+just one routine step. Autonomous-only information, especially the starting pose and selectable
+display name, belongs to the autonomous entry toggle in the routine editor.
+
+## Offline workflow
+
+1. In the workspace/project selector, point Analytics at the robot repository root. You can repoint
+   it later; creating a new workspace is not required.
+2. Open **Autonomous Builder** and create or open a routine.
+3. Add steps from the inspector. Field goals are clamped using the selected field and robot
+   dimensions so the robot footprint stays inside the field.
+4. Choose actions and conditions from the project catalog. Parameter fields are generated from
+   their declared types.
+5. Enable **Autonomous entry** only if this routine should appear in the match selector, then set its
+   starting pose, alliance/mirroring policy, order, and enabled state.
+6. Choose **Save & Generate**. Analytics atomically saves every changed scheme/profile, creates
+   content-hashed revisions under `.ares/history/`, and runs the repository's fixed
+   `generateAresProject` Gradle task. This is local-only; the robot can remain powered off.
+7. Review and commit both the `.ares` changes and the generated Kotlin file. Robot builds still run
+   `verifyAresProject`, so stale generated code fails closed.
+
+The project layout is:
+
+```text
+.ares/
+  project.json
+  action-catalog.json
+  autonomous-catalog.json
+  routines/<routine-id>.aresroutine
+  controllers/<profile-id>.arescontroller
+  controls/<scheme-id>.arescontrols
+  history/...
+```
+
+`project.json` is the canonical, Git-tracked source for league, coordinate convention, robot
+footprint, and field dimensions. This prevents two student laptops from validating the same field
+goal with different machine-local settings.
+
+Old `.aresauto` documents can be imported. Import separates their starting pose into autonomous
+metadata and converts their behavior into a reusable routine. New files use `.aresroutine`.
+
+## Action discovery
+
+Analytics automatically loads `.ares/action-catalog.json` from the selected project. This is why a
+new or correctly repointed project immediately shows its actions without a running robot. The
+catalog is a typed interface, not a Kotlin-text heuristic: its keys must match the FTC or FRC
+runtime capability implementation. If the editor reports **No project actions declared**, verify:
+
+1. the selected directory is the repository root, not `TeamCode`, `src`, or a parent workspace;
+2. `.ares/action-catalog.json` exists and is valid JSON;
+3. the catalog action is allowed in the current context;
+4. after changing the catalog, generated Kotlin has been refreshed.
+
+Legacy capability manifests are read only to help migration; they are not the source of truth.
+
+## Visual controller editor
+
+The controller editor has two related documents:
+
+- a **controller profile** names and draws the physical controls and records raw mappings;
+- a **control scheme** assigns those named controls to actions or routines.
+
+Use front/rear view for controllers with back paddles. Live input highlights the detected control,
+and learn mode records its raw button or axis index. The Flydigi Vader 5 Pro template includes its
+extra face and rear controls, but detection still depends on what the operating system or Driver
+Station exposes.
+
+Mappings must be verified separately for `DESKTOP_GLFW`, `FTC`, and `FRC`; their raw indexes are not
+interchangeable. The editor warns when the target robot platform lacks a learned mapping. For the
+Vader 5 Pro:
+
+- FRC reads all raw buttons exposed through WPILib `GenericHID`, including extras that the Driver
+  Station reports.
+- FTC always supports the standard SDK gamepad controls. Vendor-only buttons require the FTC app or
+  Android event path to expose them; a desktop-learned extra button does not prove the Control Hub
+  can see it.
+
+Bindings can use press, release, held, delayed hold, or repeat; debounce, cooldown, maximum-active
+limits; analog values, thresholds, or zones with hysteresis; and button chords. A chord can suppress
+the single-button bindings it contains. A macro is simply a reusable routine assigned to a binding,
+so there is no second macro file format to learn.
+
+## Generated code and robot selection
+
+The GUI never edits season Kotlin by string replacement. The shared generator turns the validated
+documents into deterministic, typed `GeneratedAresProject.kt`, which is compiled into the APK or
+RoboRIO program. Robot builds run `verifyAresProject` and fail when that checked-in output is stale.
+
+FTC presents enabled autonomous entries during OpMode INIT: D-pad left/right changes the choice and
+X toggles alliance unless the OpMode locks either setting. FRC publishes its generated choices to
+SmartDashboard and reads `SelectedAuto`, falling back safely to the configured default.
+
+## Versioning and collaboration
+
+Use Git as the authoritative team history. Commit canonical `.ares` files and generated Kotlin in
+the same change; review JSON and Kotlin diffs together. The app's `.ares/history` revisions are fast
+local recovery checkpoints, not a replacement for branches, pull requests, or backups.
+
+Google Drive is appropriate for repository snapshots and off-machine backup. Current telemetry and
+session Drive synchronization does not replace Git-aware merging of `.ares` project files. Avoid
+having two students edit the same routine or control scheme in separate Drive copies and then
+overwriting one copy. Prefer one Git branch per task and merge normally.
+
+## Troubleshooting
+
+| Symptom | Check |
+| --- | --- |
+| Project opens but has no actions | Repoint to the repository root and inspect `.ares/action-catalog.json`. |
+| A button highlights on desktop but robot mapping is missing | Learn/verify the FTC or FRC mapping; do not reuse the GLFW index. |
+| Vader extra button works on FRC but not FTC | Confirm the FTC SDK/app receives that vendor input; standard controls remain available. |
+| Build says generated project is stale | Use **Save & Generate** (or run `generateAresProject`), review the diff, and build again. |
+| Routine cannot be saved | Resolve typed-argument, missing-reference, recursion, resource, or field-bound diagnostics. |
+| Autonomous does not appear | Enable its autonomous entry and ensure it is present in `.ares/autonomous-catalog.json`. |
+| Old auto appears separately | Import it into the unified routine format; legacy files remain migration-only. |

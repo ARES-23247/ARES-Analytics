@@ -2,10 +2,14 @@ package com.ares.analytics.viewmodel.pathing
 
 import com.ares.analytics.shared.League
 import com.ares.analytics.util.ProjectLayout
+import com.ares.analytics.viewmodel.project.ImportedLegacyRoutine
+import com.ares.analytics.viewmodel.project.RoutineProjectRepository
 import com.areslib.auto.AresAutoCodec
 import com.areslib.auto.AutoRoutine
 import com.areslib.auto.AutoValidationSeverity
 import com.areslib.auto.validateAutoRoutine
+import com.areslib.routine.AresRoutineCodec
+import com.areslib.routine.DecodedRoutine
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
@@ -27,12 +31,12 @@ data class SavedAutoRevision(
 )
 
 /**
- * Offline-first storage for native `.aresauto` documents.
+ * Offline-first storage for legacy `.aresauto` documents.
  *
- * Current files are deployable project assets. Every explicit content-changing save also writes an
- * immutable checkpoint under `.ares/history`; autosave/drag events never manufacture revisions.
- * Writes use same-directory temporary files followed by atomic replacement when the filesystem
- * supports it, so a crash cannot leave a partially-written auto selected as current.
+ * This API remains while the current Path Planner UI migrates to trigger-neutral `.aresroutine`
+ * files plus the autonomous catalog. New code should use [RoutineProjectRepository]. Existing
+ * files remain deployable and keep their immutable revision history; opening/importing them through
+ * [loadAsRoutine] or [migrateToRoutineProject] always uses the shared, validated migration logic.
  */
 class AresAutoRepository {
     fun listAutos(projectPath: String, league: League): List<AutoRoutine> {
@@ -48,6 +52,31 @@ class AresAutoRepository {
         val file = File(ProjectLayout.aresAutosDirectory(projectPath, league), "$documentId.$AUTO_EXTENSION")
         require(file.isFile) { "Auto '$documentId' does not exist" }
         return AresAutoCodec.decode(file.readText())
+    }
+
+    /**
+     * Opens an old deploy-era auto through the shared routine migration boundary.
+     *
+     * This does not write anything. New editors should use the returned neutral routine and put
+     * its starting pose in the autonomous catalog.
+     */
+    fun loadAsRoutine(projectPath: String, league: League, documentId: String): DecodedRoutine {
+        requireDocumentId(documentId)
+        val file = File(ProjectLayout.aresAutosDirectory(projectPath, league), "$documentId.$AUTO_EXTENSION")
+        require(file.isFile) { "Auto '$documentId' does not exist" }
+        return AresRoutineCodec.decodeOrMigrateLegacyAuto(file.readText())
+    }
+
+    /** One-click migration for the current GUI while preserving this repository's legacy API. */
+    fun migrateToRoutineProject(
+        projectPath: String,
+        league: League,
+        documentId: String,
+        routines: RoutineProjectRepository = RoutineProjectRepository()
+    ): ImportedLegacyRoutine {
+        requireDocumentId(documentId)
+        val file = File(ProjectLayout.aresAutosDirectory(projectPath, league), "$documentId.$AUTO_EXTENSION")
+        return routines.importLegacyAuto(projectPath, file)
     }
 
     fun save(projectPath: String, league: League, draft: AutoRoutine): SavedAutoRevision {

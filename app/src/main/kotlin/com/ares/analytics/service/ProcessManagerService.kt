@@ -5,6 +5,20 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
 
+enum class AresGenerationPhase { IDLE, RUNNING, SUCCEEDED, FAILED }
+
+data class AresGenerationState(
+    val phase: AresGenerationPhase = AresGenerationPhase.IDLE,
+    val message: String = "",
+    val contentHash: String? = null
+)
+
+/** Small testable boundary used by offline authoring screens. */
+interface AresProjectGenerator {
+    val aresGenerationState: StateFlow<AresGenerationState>
+    fun generateAresProject(projectPath: String, league: League)
+}
+
 /**
  * Service managing external OS process lifecycle execution for Gradle builds, ADB logcat streams, and physics simulators.
  *
@@ -22,7 +36,7 @@ import java.io.File
  * @see AutoImportService
  * @see TargetScannerService
  */
-class ProcessManagerService {
+class ProcessManagerService : AresProjectGenerator {
 
     private val _buildOutput = MutableSharedFlow<String>(replay = 200)
     val buildOutput: SharedFlow<String> = _buildOutput.asSharedFlow()
@@ -35,6 +49,9 @@ class ProcessManagerService {
 
     private val _isBuildRunning = MutableStateFlow(false)
     val isBuildRunning: StateFlow<Boolean> = _isBuildRunning.asStateFlow()
+
+    private val _aresGenerationState = MutableStateFlow(AresGenerationState())
+    override val aresGenerationState: StateFlow<AresGenerationState> = _aresGenerationState.asStateFlow()
 
     private val _adbConnected = MutableStateFlow(false)
     val adbConnected: StateFlow<Boolean> = _adbConnected.asStateFlow()
@@ -121,6 +138,90 @@ class ProcessManagerService {
             } catch (e: Exception) {
                 _buildOutput.emit("[SYSTEM] Error running build: ${e.message}")
             } finally {
+                _isBuildRunning.value = false
+            }
+        }
+    }
+
+    /**
+     * Regenerates the checked-in Kotlin bridge from canonical `.ares` documents.
+     *
+     * The wrapper is launched through its JAR with a fixed argument list. This avoids interpreting
+     * the student-selected project path as shell syntax on Windows while retaining normal Gradle
+     * wrapper behavior. A robot connection is never involved.
+     */
+    override fun generateAresProject(projectPath: String, league: League) {
+        killActiveBuild()
+        activeBuildJob = serviceScope.launch {
+            _isBuildRunning.value = true
+            _aresGenerationState.value = AresGenerationState(
+                AresGenerationPhase.RUNNING,
+                "Saving complete. Generating Kotlin from the local project..."
+            )
+            val diagnosticLines = ArrayDeque<String>(GENERATION_DIAGNOSTIC_LINE_LIMIT)
+            try {
+                val root = requireSafeProjectRoot(projectPath)
+                val wrapperJar = File(root, "gradle/wrapper/gradle-wrapper.jar").canonicalFile
+                require(wrapperJar.isFile && wrapperJar.toPath().startsWith(root.toPath())) {
+                    "This directory does not contain gradle/wrapper/gradle-wrapper.jar"
+                }
+                require(File(root, ".ares").canonicalFile.isDirectory) {
+                    "This directory does not contain canonical .ares project documents"
+                }
+                val javaExecutable = File(
+                    System.getProperty("java.home"),
+                    "bin/${if (System.getProperty("os.name").contains("win", true)) "java.exe" else "java"}"
+                ).canonicalFile
+                require(javaExecutable.isFile) { "The app Java runtime could not be found" }
+
+                val command = listOf(
+                    javaExecutable.path,
+                    "-classpath",
+                    wrapperJar.path,
+                    "org.gradle.wrapper.GradleWrapperMain",
+                    "generateAresProject",
+                    "--console=plain"
+                )
+                _buildOutput.emit("[ARES] Generating checked-in Kotlin from canonical project files")
+                val process = ProcessBuilder(command)
+                    .directory(root)
+                    .redirectErrorStream(true)
+                    .start()
+                buildProcess = process
+                process.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        if (diagnosticLines.size == GENERATION_DIAGNOSTIC_LINE_LIMIT) diagnosticLines.removeFirst()
+                        diagnosticLines.addLast(line)
+                        _buildOutput.emit(line)
+                        _aresGenerationState.value = AresGenerationState(AresGenerationPhase.RUNNING, line.take(500))
+                    }
+                }
+                val exitCode = process.waitFor()
+                if (exitCode != 0) {
+                    error(
+                        diagnosticLines.joinToString("\n").ifBlank {
+                            "Gradle generation failed with exit code $exitCode"
+                        }
+                    )
+                }
+                val hash = readGeneratedContentHash(root, league)
+                val suffix = hash?.let { " Content ${it.take(12)}..." }.orEmpty()
+                _aresGenerationState.value = AresGenerationState(
+                    AresGenerationPhase.SUCCEEDED,
+                    "Generated Kotlin is current.$suffix Robot builds will still verify it is not stale.",
+                    hash
+                )
+                _buildOutput.emit("[ARES] Generation finished successfully.$suffix")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                val message = error.message?.takeLast(GENERATION_DIAGNOSTIC_CHARACTER_LIMIT)
+                    ?: "ARES project generation failed"
+                _aresGenerationState.value = AresGenerationState(AresGenerationPhase.FAILED, message)
+                _buildOutput.emit("[ARES] Generation failed: $message")
+            } finally {
+                buildProcess = null
                 _isBuildRunning.value = false
             }
         }
@@ -250,6 +351,7 @@ class ProcessManagerService {
     }
 
     fun killActiveBuild() {
+        val generationWasRunning = _aresGenerationState.value.phase == AresGenerationPhase.RUNNING
         try {
             buildProcess?.descendants()?.forEach { it.destroyForcibly() }
         } catch (e: Exception) {
@@ -260,6 +362,9 @@ class ProcessManagerService {
         activeBuildJob?.cancel()
         activeBuildJob = null
         _isBuildRunning.value = false
+        if (generationWasRunning) {
+            _aresGenerationState.value = AresGenerationState(AresGenerationPhase.FAILED, "Generation canceled.")
+        }
     }
 
     fun killActiveLogcat() {
@@ -288,6 +393,29 @@ class ProcessManagerService {
         killActiveSim()
         adbMonitorJob?.cancel()
         serviceScope.cancel()
+    }
+
+    private fun requireSafeProjectRoot(projectPath: String): File {
+        require(projectPath.isNotBlank()) { "Choose a robot project directory first" }
+        val root = File(projectPath).canonicalFile
+        require(root.isDirectory) { "The selected project directory does not exist" }
+        return root
+    }
+
+    private fun readGeneratedContentHash(root: File, league: League): String? {
+        val relative = when (league) {
+            League.FTC -> "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/generated/GeneratedAresProject.kt"
+            League.FRC -> "src/main/kotlin/com/areslib/frc/generated/GeneratedAresProject.kt"
+        }
+        val generated = File(root, relative).canonicalFile
+        if (!generated.isFile || !generated.toPath().startsWith(root.toPath())) return null
+        return GENERATED_CONTENT_HASH.find(generated.readText())?.groupValues?.get(1)
+    }
+
+    private companion object {
+        const val GENERATION_DIAGNOSTIC_LINE_LIMIT = 24
+        const val GENERATION_DIAGNOSTIC_CHARACTER_LIMIT = 4_000
+        val GENERATED_CONTENT_HASH = Regex("CONTENT_SHA256:\\s*String\\s*=\\s*\"([0-9a-fA-F]{64})\"")
     }
 }
 

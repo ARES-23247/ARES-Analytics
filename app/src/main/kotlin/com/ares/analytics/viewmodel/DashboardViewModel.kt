@@ -271,6 +271,7 @@ class DashboardViewModel(
         return when (type) {
             // Pair is (rowSpan, colSpan)
             "field_viewer", "camera_stream", "telemetry_chart", "pose_viewer" -> Pair(6, 6)
+            "autonomous_selector" -> Pair(3, 5)
             "console_viewer" -> Pair(6, 9)
             "runs_index", "match_schedule" -> Pair(4, 9)
             "mecanum_visualizer", "swerve_animator", "joystick_visualizer", "mechanism_visualizer" -> Pair(4, 6)

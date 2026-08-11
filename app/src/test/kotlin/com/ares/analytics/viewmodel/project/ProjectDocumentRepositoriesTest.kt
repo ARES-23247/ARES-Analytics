@@ -1,0 +1,297 @@
+package com.ares.analytics.viewmodel.project
+
+import com.areslib.catalog.ActionDescriptor
+import com.areslib.catalog.CapabilityCatalogDocument
+import com.areslib.controls.ControlBindingDocument
+import com.areslib.controls.ControlEvent
+import com.areslib.controls.ControlSchemeDocument
+import com.areslib.controls.ControlSourceDocument
+import com.areslib.controls.ControlSourceKind
+import com.areslib.controls.ControlTargetDocument
+import com.areslib.controls.ControlTargetKind
+import com.areslib.controls.ControllerAnchorDocument
+import com.areslib.controls.ControllerAssignment
+import com.areslib.controls.ControllerControlDocument
+import com.areslib.controls.ControllerControlTypeDocument
+import com.areslib.controls.ControllerInputMappingDocument
+import com.areslib.controls.ControllerInputPlatform
+import com.areslib.controls.ControllerProfileDocument
+import com.areslib.routine.AutonomousCatalogDocument
+import com.areslib.routine.AutonomousCatalogEntry
+import com.areslib.routine.RoutineDocument
+import com.areslib.routine.RoutinePose
+import com.areslib.routine.RoutineStep
+import com.areslib.project.AresCoordinateConvention
+import com.areslib.project.AresLeague
+import com.areslib.project.AresProjectMetadataDocument
+import java.io.File
+import java.nio.file.Files
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
+
+class ProjectDocumentRepositoriesTest {
+    @Test
+    fun `canonical project geometry round trips through project json`() {
+        withProject { project ->
+            val repository = ProjectMetadataRepository()
+            val metadata = AresProjectMetadataDocument(
+                projectId = "test-project",
+                league = AresLeague.FTC,
+                coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
+                robotLengthMeters = .45,
+                robotWidthMeters = .43,
+                fieldLengthMeters = 3.6576,
+                fieldWidthMeters = 3.6576
+            )
+            val hash = repository.save(project.path, metadata)
+
+            assertEquals(metadata, repository.load(project.path).getOrThrow())
+            assertEquals(64, hash.length)
+            assertTrue(File(project, ".ares/project.json").isFile)
+        }
+    }
+
+    @Test
+    fun `routine saves are atomic deterministic and restorable as new revisions`() {
+        withProject { project ->
+            val repository = RoutineProjectRepository()
+            val first = repository.save(project.path, routine("score", "Score", 0.1))
+            assertEquals(1, first.document.revision)
+            assertTrue(first.createdRevision)
+
+            val unchanged = repository.save(project.path, first.document)
+            assertFalse(unchanged.createdRevision)
+
+            val second = repository.save(project.path, first.document.copy(steps = listOf(RoutineStep.wait(0.2))))
+            assertEquals(2, second.document.revision)
+            assertEquals(first.contentHash, second.document.parentContentHash)
+
+            val restored = repository.restore(project.path, "score", first.contentHash)
+            assertEquals(3, restored.document.revision)
+            assertEquals(second.contentHash, restored.document.parentContentHash)
+            assertEquals(0.1, restored.document.steps.single().durationSeconds)
+            assertEquals(listOf(3, 2, 1), repository.listRevisions(project.path, "score").map { it.revision })
+            assertTrue(project.walkTopDown().none { it.extension == "tmp" })
+        }
+    }
+
+    @Test
+    fun `listing is deterministic and reports corrupt files without hiding good documents`() {
+        withProject { project ->
+            val repository = RoutineProjectRepository()
+            repository.save(project.path, routine("z-last", "Zulu", 0.1))
+            repository.save(project.path, routine("a-first", "Alpha", 0.1))
+            File(project, ".ares/routines/broken.aresroutine").writeText("{not-json")
+
+            val listing = repository.list(project.path)
+
+            assertEquals(listOf("a-first", "z-last"), listing.documents.map { it.documentId })
+            assertEquals("broken.aresroutine", listing.diagnostics.single().file.name)
+            assertTrue(listing.diagnostics.single().message.isNotBlank())
+        }
+    }
+
+    @Test
+    fun `document ids cannot escape their canonical directory`() {
+        withProject { project ->
+            val error = assertFailsWith<IllegalArgumentException> {
+                RoutineProjectRepository().load(project.path, "../outside")
+            }
+            assertTrue(error.message.orEmpty().contains("Invalid project document ID"))
+            assertFalse(File(project.parentFile, "outside.aresroutine").exists())
+        }
+    }
+
+    @Test
+    fun `corrupt current content is never overwritten by save`() {
+        withProject { project ->
+            val file = File(project, ".ares/routines/score.aresroutine").apply {
+                parentFile.mkdirs()
+                writeText("student recovery evidence")
+            }
+
+            assertFailsWith<IllegalArgumentException> {
+                RoutineProjectRepository().save(project.path, routine("score", "Score", 0.1))
+            }
+            assertEquals("student recovery evidence", file.readText())
+        }
+    }
+
+    @Test
+    fun `all canonical documents load and cross validate without a robot`() {
+        withProject { project ->
+            val documents = AresProjectDocuments()
+            documents.metadata.save(
+                project.path,
+                AresProjectMetadataDocument(
+                    projectId = "test-project",
+                    league = AresLeague.FTC,
+                    coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
+                    robotLengthMeters = .45,
+                    robotWidthMeters = .45,
+                    fieldLengthMeters = 3.6576,
+                    fieldWidthMeters = 3.6576
+                )
+            )
+            documents.routines.save(project.path, routine("score", "Score", 0.1))
+            documents.controllers.save(project.path, controllerProfile())
+            documents.capabilities.save(project.path, capabilityCatalog())
+            documents.controls.save(project.path, controlScheme())
+            documents.autonomous.save(project.path, autonomousCatalog())
+
+            val snapshot = documents.load(project.path)
+
+            assertEquals(project.canonicalPath, snapshot.projectRoot)
+            assertEquals(listOf("score"), snapshot.routines.map { it.documentId })
+            assertEquals(listOf("competition"), snapshot.controlSchemes.map { it.documentId })
+            assertEquals(listOf("vader5-pro"), snapshot.controllerProfiles.map { it.documentId })
+            assertNotNull(snapshot.capabilityCatalog)
+            assertNotNull(snapshot.autonomousCatalog)
+            assertEquals("test-project", snapshot.projectMetadata?.projectId)
+            assertTrue(snapshot.diagnostics.isEmpty(), snapshot.diagnostics.joinToString { it.message })
+            assertTrue(File(project, ".ares/action-catalog.json").isFile)
+            assertTrue(File(project, ".ares/autonomous-catalog.json").isFile)
+        }
+    }
+
+    @Test
+    fun `cross validation uses the active robot platform instead of desktop mappings`() {
+        withProject { project ->
+            val documents = AresProjectDocuments()
+            documents.metadata.save(
+                project.path,
+                AresProjectMetadataDocument(
+                    projectId = "test-project",
+                    league = AresLeague.FTC,
+                    coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
+                    robotLengthMeters = .45,
+                    robotWidthMeters = .45,
+                    fieldLengthMeters = 3.6576,
+                    fieldWidthMeters = 3.6576
+                )
+            )
+            documents.routines.save(project.path, routine("score", "Score", 0.1))
+            documents.controllers.save(project.path, controllerProfile())
+            documents.capabilities.save(project.path, capabilityCatalog())
+            documents.controls.save(project.path, controlScheme())
+
+            val desktopAgnostic = documents.load(project.path)
+            val ftc = documents.load(project.path, ControllerInputPlatform.FTC)
+
+            assertTrue(desktopAgnostic.diagnostics.isEmpty())
+            assertTrue(ftc.diagnostics.any { it.message.contains("unlearned control") })
+        }
+    }
+
+    @Test
+    fun `singleton catalog restore is atomic and creates a new revision`() {
+        withProject { project ->
+            val repository = CapabilityCatalogProjectRepository()
+            val first = repository.save(project.path, capabilityCatalog())
+            val second = repository.save(
+                project.path,
+                capabilityCatalog().copy(
+                    actions = capabilityCatalog().actions + ActionDescriptor(
+                        key = "intake.stop",
+                        displayName = "Stop intake",
+                        description = "Stops the intake roller.",
+                        category = "Intake"
+                    )
+                )
+            )
+            val restored = repository.restore(project.path, first.contentHash)
+
+            assertEquals(2, second.document.revision)
+            assertEquals(3, restored.document.revision)
+            assertEquals(listOf("intake.run"), restored.document.actions.map { it.key })
+            assertEquals(listOf(3, 2, 1), repository.listRevisions(project.path).map { it.revision })
+            assertTrue(project.walkTopDown().none { it.extension == "tmp" })
+        }
+    }
+
+    @Test
+    fun `autonomous catalog refuses references to missing routines`() {
+        withProject { project ->
+            val error = assertFailsWith<IllegalArgumentException> {
+                AutonomousCatalogProjectRepository().save(project.path, autonomousCatalog())
+            }
+            assertTrue(error.message.orEmpty().contains("Unknown routine 'score'"))
+            assertFalse(File(project, ".ares/autonomous-catalog.json").exists())
+        }
+    }
+
+    private fun routine(id: String, name: String, waitSeconds: Double) = RoutineDocument(
+        documentId = id,
+        name = name,
+        steps = listOf(RoutineStep.wait(waitSeconds))
+    )
+
+    private fun capabilityCatalog() = CapabilityCatalogDocument(
+        projectId = "test-project",
+        actions = listOf(
+            ActionDescriptor(
+                key = "intake.run",
+                displayName = "Run intake",
+                description = "Runs the intake roller.",
+                category = "Intake"
+            )
+        )
+    )
+
+    private fun controllerProfile() = ControllerProfileDocument(
+        documentId = "vader5-pro",
+        displayName = "Flydigi Vader 5 Pro",
+        controls = listOf(
+            ControllerControlDocument(
+                controlId = "a",
+                displayName = "A",
+                type = ControllerControlTypeDocument.BUTTON,
+                anchor = ControllerAnchorDocument(0.75, 0.55),
+                mappings = listOf(
+                    ControllerInputMappingDocument(ControllerInputPlatform.DESKTOP_GLFW, buttonIndex = 0)
+                )
+            )
+        )
+    )
+
+    private fun controlScheme() = ControlSchemeDocument(
+        documentId = "competition",
+        name = "Competition controls",
+        controllers = listOf(ControllerAssignment("driver", "Driver", "vader5-pro")),
+        bindings = listOf(
+            ControlBindingDocument(
+                bindingId = "run-intake",
+                displayName = "Run intake",
+                source = ControlSourceDocument(ControlSourceKind.BUTTON, "driver", listOf("a")),
+                event = ControlEvent.PRESS,
+                target = ControlTargetDocument(ControlTargetKind.ACTION, "intake.run")
+            )
+        )
+    )
+
+    private fun autonomousCatalog() = AutonomousCatalogDocument(
+        projectId = "test-project",
+        defaultEntryId = "score-red",
+        entries = listOf(
+            AutonomousCatalogEntry(
+                entryId = "score-red",
+                displayName = "Score red",
+                routineId = "score",
+                startingPose = RoutinePose(1.0, 2.0, 0.0)
+            )
+        )
+    )
+
+    private inline fun withProject(block: (File) -> Unit) {
+        val project = Files.createTempDirectory("ares-project-docs-").toFile()
+        try {
+            block(project)
+        } finally {
+            project.deleteRecursively()
+        }
+    }
+}
