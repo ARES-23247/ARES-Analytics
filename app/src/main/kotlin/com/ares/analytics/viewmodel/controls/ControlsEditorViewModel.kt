@@ -158,6 +158,11 @@ class ControlsEditorViewModel(
         runCatching { documents.load(current.projectPath, targetPlatform) }
             .onSuccess { snapshot ->
                 val profiles = mergeProfiles(snapshot.controllerProfiles)
+                val migratedProfileIds = snapshot.controllerProfiles.mapNotNull { stored ->
+                    profiles.firstOrNull { it.documentId == stored.documentId }
+                        ?.takeIf { it != stored }
+                        ?.documentId
+                }.toSet()
                 val schemes = snapshot.controlSchemes.ifEmpty {
                     listOf(newScheme(profiles.first().documentId))
                 }
@@ -183,11 +188,16 @@ class ControlsEditorViewModel(
                     selectedControlId = null,
                     selectedBindingId = null,
                     draftBinding = null,
-                    dirty = isNewScheme,
+                    dirty = isNewScheme || migratedProfileIds.isNotEmpty(),
                     dirtySchemeIds = if (isNewScheme) setOf(selectedScheme.documentId) else emptySet(),
-                    dirtyProfileIds = if (isNewScheme) selectedScheme.controllers.mapTo(linkedSetOf()) { it.profileId } else emptySet(),
+                    dirtyProfileIds = buildSet {
+                        addAll(migratedProfileIds)
+                        if (isNewScheme) selectedScheme.controllers.mapTo(this) { it.profileId }
+                    },
                     draftHasUnappliedChanges = false,
-                    status = if (snapshot.capabilityCatalog == null) {
+                    status = if (migratedProfileIds.isNotEmpty()) {
+                        "Standard controller mappings were upgraded. Save to keep the update."
+                    } else if (snapshot.capabilityCatalog == null) {
                         "No action catalog found. Rebuild the robot project to discover typed actions."
                     } else null,
                     loadError = null
@@ -216,7 +226,17 @@ class ControlsEditorViewModel(
 
     fun selectController(slot: String) = mutateSelection {
         if (it.selectedScheme?.controllers?.none { controller -> controller.slot == slot } != false) return@mutateSelection it
-        it.copy(selectedControllerSlot = slot, selectedControlId = null, selectedBindingId = null, draftBinding = null)
+        if (slot != it.selectedControllerSlot && it.draftHasUnappliedChanges) {
+            return@mutateSelection it.copy(status = "Apply or discard the binding draft before changing controllers.")
+        }
+        it.copy(
+            selectedControllerSlot = slot,
+            selectedControlId = null,
+            selectedBindingId = null,
+            draftBinding = null,
+            draftHasUnappliedChanges = false,
+            status = null
+        )
     }
 
     fun assignProfile(profileId: String) {
@@ -264,6 +284,9 @@ class ControlsEditorViewModel(
     }
 
     fun createBinding() = mutateSelection { current ->
+        if (current.draftHasUnappliedChanges) {
+            return@mutateSelection current.copy(status = "Apply or discard the current binding draft before creating another.")
+        }
         val control = current.selectedControl ?: return@mutateSelection current
         val scheme = current.selectedScheme ?: return@mutateSelection current
         val slot = current.selectedControllerSlot ?: return@mutateSelection current
@@ -300,6 +323,9 @@ class ControlsEditorViewModel(
     }
 
     fun editBinding(bindingId: String) = mutateSelection { current ->
+        if (bindingId != current.selectedBindingId && current.draftHasUnappliedChanges) {
+            return@mutateSelection current.copy(status = "Apply or discard the current binding draft before editing another.")
+        }
         val binding = current.selectedScheme?.bindings?.firstOrNull { it.bindingId == bindingId }
             ?: return@mutateSelection current
         val controlId = binding.source.controlIds.firstOrNull()
@@ -711,8 +737,23 @@ class ControlsEditorViewModel(
         }
 
         private fun mergeProfiles(projectProfiles: List<ControllerProfileDocument>): List<ControllerProfileDocument> {
-            val projectIds = projectProfiles.mapTo(hashSetOf()) { it.documentId }
-            return (projectProfiles + builtInProfiles().filterNot { it.documentId in projectIds })
+            val builtIns = builtInProfiles()
+            val migratedProjectProfiles = projectProfiles.map { projectProfile ->
+                val template = builtIns.firstOrNull { it.documentId == projectProfile.documentId }
+                    ?: return@map projectProfile
+                val standardIds = standardControls().mapTo(hashSetOf()) { it.controlId }
+                val isUnmappedLegacyTemplate = projectProfile.controls
+                    .filter { it.controlId in standardIds }
+                    .all { it.mappings.isEmpty() }
+                if (!isUnmappedLegacyTemplate) return@map projectProfile
+
+                projectProfile.copy(controls = projectProfile.controls.map { projectControl ->
+                    val defaults = template.controls.firstOrNull { it.controlId == projectControl.controlId }
+                    if (defaults == null) projectControl else projectControl.copy(mappings = defaults.mappings)
+                })
+            }
+            val projectIds = migratedProjectProfiles.mapTo(hashSetOf()) { it.documentId }
+            return (migratedProjectProfiles + builtIns.filterNot { it.documentId in projectIds })
                 .sortedBy { it.displayName.lowercase() }
         }
 
@@ -729,36 +770,36 @@ class ControlsEditorViewModel(
             displayName = "Flydigi Vader 5 Pro",
             deviceMatchers = listOf(ControllerDeviceMatcherDocument(nameContains = "Vader 5 Pro")),
             controls = standardControls() + listOf(
-                button("c", "C", .73, .54), button("z", "Z", .87, .54),
+                button("c", "C", .73, .54, ftcIndex = 18), button("z", "Z", .87, .54, ftcIndex = 19),
                 button("lm", "LM", .23, .08), button("rm", "RM", .77, .08),
-                button("m1", "M1", .32, .34, ControllerSurfaceDocument.REAR),
-                button("m2", "M2", .68, .34, ControllerSurfaceDocument.REAR),
-                button("m3", "M3", .36, .66, ControllerSurfaceDocument.REAR),
-                button("m4", "M4", .64, .66, ControllerSurfaceDocument.REAR)
+                button("m1", "M1", .32, .34, ControllerSurfaceDocument.REAR, ftcIndex = 20),
+                button("m2", "M2", .68, .34, ControllerSurfaceDocument.REAR, ftcIndex = 21),
+                button("m3", "M3", .36, .66, ControllerSurfaceDocument.REAR, ftcIndex = 22),
+                button("m4", "M4", .64, .66, ControllerSurfaceDocument.REAR, ftcIndex = 23)
             )
         )
 
         private fun standardControls() = listOf(
-            button("a", "A", .81, .44),
-            button("b", "B", .88, .35),
-            button("x", "X", .74, .35),
-            button("y", "Y", .81, .26),
-            button("left_bumper", "LB", .23, .10),
-            button("right_bumper", "RB", .77, .10),
-            button("back", "Back", .43, .40),
-            button("start", "Start", .57, .40),
-            button("left_stick_button", "L3", .35, .66),
-            button("right_stick_button", "R3", .65, .66),
-            button("dpad_up", "D-pad up", .23, .43),
-            button("dpad_down", "D-pad down", .23, .57),
-            button("dpad_left", "D-pad left", .16, .50),
-            button("dpad_right", "D-pad right", .30, .50),
-            axis("left_stick_x", "Left stick X", .35, .62),
-            axis("left_stick_y", "Left stick Y", .35, .72),
-            axis("right_stick_x", "Right stick X", .65, .62),
-            axis("right_stick_y", "Right stick Y", .65, .72),
-            axis("left_trigger", "LT", .17, .02),
-            axis("right_trigger", "RT", .83, .02)
+            button("a", "A", .81, .44, ftcIndex = 0, frcIndex = 0, desktopIndex = 0),
+            button("b", "B", .88, .35, ftcIndex = 1, frcIndex = 1, desktopIndex = 1),
+            button("x", "X", .74, .35, ftcIndex = 2, frcIndex = 2, desktopIndex = 2),
+            button("y", "Y", .81, .26, ftcIndex = 3, frcIndex = 3, desktopIndex = 3),
+            button("left_bumper", "LB", .23, .10, ftcIndex = 4, frcIndex = 4, desktopIndex = 4),
+            button("right_bumper", "RB", .77, .10, ftcIndex = 5, frcIndex = 5, desktopIndex = 5),
+            button("back", "Back", .43, .40, ftcIndex = 6, frcIndex = 6, desktopIndex = 6),
+            button("start", "Start", .57, .40, ftcIndex = 7, frcIndex = 7, desktopIndex = 7),
+            button("left_stick_button", "L3", .35, .66, ftcIndex = 9, frcIndex = 8, desktopIndex = 9),
+            button("right_stick_button", "R3", .65, .66, ftcIndex = 10, frcIndex = 9, desktopIndex = 10),
+            button("dpad_up", "D-pad up", .23, .43, ftcIndex = 11, frcIndex = 120, desktopIndex = 11),
+            button("dpad_down", "D-pad down", .23, .57, ftcIndex = 13, frcIndex = 122, desktopIndex = 13),
+            button("dpad_left", "D-pad left", .16, .50, ftcIndex = 14, frcIndex = 123, desktopIndex = 14),
+            button("dpad_right", "D-pad right", .30, .50, ftcIndex = 12, frcIndex = 121, desktopIndex = 12),
+            axis("left_stick_x", "Left stick X", .35, .62, ftcIndex = 0, frcIndex = 0, desktopIndex = 0),
+            axis("left_stick_y", "Left stick Y", .35, .72, ftcIndex = 1, frcIndex = 1, desktopIndex = 1),
+            axis("right_stick_x", "Right stick X", .65, .62, ftcIndex = 2, frcIndex = 4, desktopIndex = 2),
+            axis("right_stick_y", "Right stick Y", .65, .72, ftcIndex = 3, frcIndex = 5, desktopIndex = 3),
+            axis("left_trigger", "LT", .17, .02, ftcIndex = 4, frcIndex = 2, desktopIndex = 4),
+            axis("right_trigger", "RT", .83, .02, ftcIndex = 5, frcIndex = 3, desktopIndex = 5)
         )
 
         private fun button(
@@ -767,19 +808,35 @@ class ControlsEditorViewModel(
             x: Double,
             y: Double,
             surface: ControllerSurfaceDocument = ControllerSurfaceDocument.FRONT,
+            ftcIndex: Int? = null,
+            frcIndex: Int? = null,
             desktopIndex: Int? = null
         ) = ControllerControlDocument(
             id, name, ControllerControlTypeDocument.BUTTON, surface, ControllerAnchorDocument(x, y),
-            desktopIndex?.let { listOf(ControllerInputMappingDocument(ControllerInputPlatform.DESKTOP_GLFW, buttonIndex = it)) }.orEmpty()
+            listOfNotNull(
+                ftcIndex?.let { ControllerInputMappingDocument(ControllerInputPlatform.FTC, buttonIndex = it) },
+                frcIndex?.let { ControllerInputMappingDocument(ControllerInputPlatform.FRC, buttonIndex = it) },
+                desktopIndex?.let { ControllerInputMappingDocument(ControllerInputPlatform.DESKTOP_GLFW, buttonIndex = it) }
+            )
         )
 
-        private fun axis(id: String, name: String, x: Double, y: Double, desktopIndex: Int? = null) =
+        private fun axis(
+            id: String,
+            name: String,
+            x: Double,
+            y: Double,
+            ftcIndex: Int? = null,
+            frcIndex: Int? = null,
+            desktopIndex: Int? = null
+        ) =
             ControllerControlDocument(
                 id, name, ControllerControlTypeDocument.AXIS, ControllerSurfaceDocument.FRONT,
                 ControllerAnchorDocument(x, y),
-                desktopIndex?.let {
-                    listOf(ControllerInputMappingDocument(ControllerInputPlatform.DESKTOP_GLFW, axisIndex = it))
-                }.orEmpty()
+                listOfNotNull(
+                    ftcIndex?.let { ControllerInputMappingDocument(ControllerInputPlatform.FTC, axisIndex = it) },
+                    frcIndex?.let { ControllerInputMappingDocument(ControllerInputPlatform.FRC, axisIndex = it) },
+                    desktopIndex?.let { ControllerInputMappingDocument(ControllerInputPlatform.DESKTOP_GLFW, axisIndex = it) }
+                )
             )
     }
 

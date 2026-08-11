@@ -69,7 +69,6 @@ fun MainScreen(services: ServiceRegistry) {
     val runsIndexReloadTrigger = mainState.runsIndexReloadTrigger
     val diagnosticsResponse = mainState.diagnosticsResponse
     val isTerminalOpen = mainState.isTerminalOpen
-    val isKeybindingsOpen = mainState.isKeybindingsOpen
     val showUpdateBanner = mainState.showUpdateBanner
     val updateState by services.updateCheckerService.updateState.collectAsState()
     val gamepad1State by services.gamepadService.gamepad1State.collectAsState()
@@ -117,7 +116,7 @@ fun MainScreen(services: ServiceRegistry) {
 
     // Global 50Hz Drive Input Loop (Keyboard & Gamepad)
     val isNt4Connected by services.nt4ClientService.isConnected.collectAsState()
-    LaunchedEffect(isNt4Connected) {
+    LaunchedEffect(isNt4Connected, activeNav) {
         if (isNt4Connected) {
             var lastVx: Double? = null
             var lastVy: Double? = null
@@ -136,8 +135,15 @@ fun MainScreen(services: ServiceRegistry) {
             while (true) {
                 val ks = services.keyboardDriveState
                 val g1 = services.gamepadService.gamepad1State.value
+                val controlSurfaceActive = activeNav == NavigationTarget.DASHBOARD && ks.enabled
+                val deadmanActive = if (ks.useGamepad) {
+                    g1.connected && g1.leftTrigger > 0.5f
+                } else {
+                    ks.deadmanPressed
+                }
+                val localInputActive = controlSurfaceActive && deadmanActive
 
-                val (vx, vy, omega) = if (ks.useGamepad && g1.connected) {
+                val (vx, vy, omega) = if (localInputActive && ks.useGamepad && g1.connected) {
                     val rawY = com.areslib.math.InputMath.applyDeadband(g1.leftStickY.toDouble(), 0.02)
                     val rawX = com.areslib.math.InputMath.applyDeadband(g1.leftStickX.toDouble(), 0.02)
                     val rawRot = com.areslib.math.InputMath.applyDeadband(g1.rightStickX.toDouble(), 0.02)
@@ -145,7 +151,7 @@ fun MainScreen(services: ServiceRegistry) {
                     val activeVy = com.areslib.math.InputMath.applyCurve(rawX, 1.2) * -4.0
                     val activeOmega = com.areslib.math.InputMath.applyCurve(rawRot, 1.2) * -4.0
                     Triple(activeVx, activeVy, activeOmega)
-                } else if (ks.enabled) {
+                } else if (localInputActive) {
                     val activeVx = when {
                         ks.isWPressed || ks.isUpPressed -> 4.0
                         ks.isSPressed || ks.isDownPressed -> -4.0
@@ -166,12 +172,12 @@ fun MainScreen(services: ServiceRegistry) {
                     Triple(0.0, 0.0, 0.0)
                 }
 
-                val qPressed = if (ks.useGamepad && g1.connected) g1.leftBumper else ks.isQPressed
-                val ePressed = if (ks.useGamepad && g1.connected) g1.rightBumper else ks.isEPressed
-                val shiftPressed = if (ks.useGamepad && g1.connected) g1.rightTrigger > 0.5f else ks.isShiftPressed
-                val jPressed = if (ks.useGamepad && g1.connected) g1.a else ks.isJPressed
-                val lPressed = if (ks.useGamepad && g1.connected) g1.b else ks.isLPressed
-                val uPressed = if (ks.useGamepad && g1.connected) g1.x else ks.isUPressed
+                val qPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.leftBumper else ks.isQPressed
+                val ePressed = localInputActive && if (ks.useGamepad && g1.connected) g1.rightBumper else ks.isEPressed
+                val shiftPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.rightTrigger > 0.5f else ks.isShiftPressed
+                val jPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.a else ks.isJPressed
+                val lPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.b else ks.isLPressed
+                val uPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.x else ks.isUPressed
 
                 if (vx != lastVx) { services.nt4ClientService.publishDouble("ARES/Input/vx", vx); lastVx = vx }
                 if (vy != lastVy) { services.nt4ClientService.publishDouble("ARES/Input/vy", vy); lastVy = vy }
@@ -273,6 +279,7 @@ fun MainScreen(services: ServiceRegistry) {
             projectGenerator = services.processManagerService
         )
     }
+    val controlsEditorState by controlsEditorViewModel.state.collectAsState()
     DisposableEffect(controlsEditorViewModel) {
         onDispose { controlsEditorViewModel.close() }
     }
@@ -308,6 +315,13 @@ fun MainScreen(services: ServiceRegistry) {
     var targetSelection by remember { mutableStateOf(TargetSelection.LIVE_ROBOT) }
     var liveRobotIp by remember(currentConfig.nt4Host) {
         mutableStateOf(currentConfig.nt4Host ?: "192.168.43.1")
+    }
+    LaunchedEffect(activeNav, targetSelection, isNt4Connected) {
+        if (activeNav != NavigationTarget.DASHBOARD || !isNt4Connected) {
+            services.keyboardDriveState.disarm()
+        } else {
+            services.keyboardDriveState.releaseAll()
+        }
     }
     val isLiveRobotOnline by services.targetScannerService.isLiveRobotOnline.collectAsState()
     val isLocalSimOnline by services.targetScannerService.isLocalSimOnline.collectAsState()
@@ -382,9 +396,15 @@ fun MainScreen(services: ServiceRegistry) {
                         isTerminalOpen -> { mainViewModel.onIntent(MainIntent.SetTerminalOpen(false)); true }
                         else -> false
                     }
-                } else if (ks.enabled) {
+                } else if (ks.enabled && activeNav == NavigationTarget.DASHBOARD) {
                     val isPressed = keyEvent.type == KeyEventType.KeyDown
-                    when (keyEvent.key) {
+                    if (keyEvent.key == Key.Spacebar) {
+                        ks.deadmanPressed = isPressed
+                        if (!isPressed) ks.releaseAll()
+                        true
+                    } else if (!ks.deadmanPressed) {
+                        false
+                    } else when (keyEvent.key) {
                         Key.W -> { ks.isWPressed = isPressed; true }
                         Key.S -> { ks.isSPressed = isPressed; true }
                         Key.A -> { ks.isAPressed = isPressed; true }
@@ -395,6 +415,11 @@ fun MainScreen(services: ServiceRegistry) {
                         Key.DirectionRight -> { ks.isRightPressed = isPressed; true }
                         Key.Q -> { ks.isQPressed = isPressed; true }
                         Key.E -> { ks.isEPressed = isPressed; true }
+                        Key.J -> { ks.isJPressed = isPressed; true }
+                        Key.L -> { ks.isLPressed = isPressed; true }
+                        Key.U -> { ks.isUPressed = isPressed; true }
+                        Key.I -> { ks.isIPressed = isPressed; true }
+                        Key.ShiftLeft, Key.ShiftRight -> { ks.isShiftPressed = isPressed; true }
                         else -> false
                     }
                 } else false
@@ -605,7 +630,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 },
                                 reloadTrigger = runsIndexReloadTrigger,
                                 onImportSuccess = { mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload) },
-                                onOpenKeybindings = { mainViewModel.onIntent(MainIntent.SetKeybindingsOpen(true)) }
+                                onOpenKeybindings = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS)) }
                             )
                             NavigationTarget.PATH_PLANNER -> PathPlannerScreen(
                                 viewModel = pathPlannerViewModel,
@@ -638,7 +663,8 @@ fun MainScreen(services: ServiceRegistry) {
                             NavigationTarget.CLOUD -> CloudScreen(
                                 viewModel = cloudViewModel,
                                 teamId = currentConfig.teamId,
-                                seasonId = currentConfig.seasonId
+                                seasonId = currentConfig.seasonId,
+                                robotId = currentConfig.robotId
                             )
                             NavigationTarget.IMPORT_CENTER -> ImportCenterScreen(importCenterViewModel)
                             NavigationTarget.FIELD_EDITOR -> FieldEditorScreen(
@@ -672,6 +698,13 @@ fun MainScreen(services: ServiceRegistry) {
                                 sysIdViewModel = sysIdViewModel,
                                 projectPath = currentConfig.projectPath ?: ""
                             )
+                            NavigationTarget.CONTROLS -> com.ares.analytics.ui.components.controls.ControlsEditorPanel(
+                                state = controlsEditorState,
+                                viewModel = controlsEditorViewModel,
+                                gamepad1State = gamepad1State,
+                                gamepad2State = gamepad2State,
+                                modifier = Modifier.fillMaxSize()
+                            )
                             NavigationTarget.SUBSYSTEM_GEN -> SubsystemGeneratorScreen(subsystemGeneratorViewModel)
                             NavigationTarget.PROFILE -> ProfileScreen(
                                 viewModel = profileViewModel,
@@ -697,16 +730,6 @@ fun MainScreen(services: ServiceRegistry) {
                     isOpen = isTerminalOpen,
                     onClose = { mainViewModel.onIntent(MainIntent.SetTerminalOpen(false)) },
                     modifier = Modifier.align(Alignment.BottomCenter)
-                )
-
-                // Keybindings Sidebar overlay
-                com.ares.analytics.ui.components.terminal.ControllerBindingsSidebar(
-                    isOpen = isKeybindingsOpen,
-                    viewModel = controlsEditorViewModel,
-                    onClose = { mainViewModel.onIntent(MainIntent.SetKeybindingsOpen(false)) },
-                    modifier = Modifier.align(Alignment.CenterEnd),
-                    gamepad1State = gamepad1State,
-                    gamepad2State = gamepad2State
                 )
 
                 // Critical Emergency Fault Alert Overlay (Pop-up Banner for Motor Stalls, Brownouts, Disconnects)

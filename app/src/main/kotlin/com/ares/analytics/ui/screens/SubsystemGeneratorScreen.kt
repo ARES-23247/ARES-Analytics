@@ -37,6 +37,8 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -89,8 +91,12 @@ import com.areslib.subsystem.valueType
 @Composable
 fun SubsystemGeneratorScreen(viewModel: SubsystemGeneratorViewModel) {
     val state by viewModel.state.collectAsState()
+    var workspaceTab by remember { mutableStateOf(0) }
+    var confirmReload by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SubsystemHeader(state, viewModel)
+        SubsystemHeader(state, viewModel) {
+            if (state.dirty) confirmReload = true else viewModel.reload()
+        }
         state.status?.let { StatusBanner(it, false) }
         state.generationMessage?.let {
             StatusBanner(it, state.generationPhase == AresGenerationPhase.FAILED)
@@ -101,39 +107,68 @@ fun SubsystemGeneratorScreen(viewModel: SubsystemGeneratorViewModel) {
             return@Column
         }
         val draft = state.draft ?: return@Column
+        BuilderProgress(draft)
         Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(
-                Modifier.weight(.9f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                Modifier.weight(.8f).fillMaxHeight().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 DocumentList(state, viewModel)
                 ArchitectureCard(state, viewModel)
             }
             Column(
-                Modifier.weight(1.15f).fillMaxHeight().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                Modifier.weight(2.2f).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                GeneralInspector(state, viewModel)
-                when {
-                    state.selectedHardwareId != null -> draft.hardware.firstOrNull {
-                        it.hardwareId == state.selectedHardwareId
-                    }?.let { HardwareInspector(state, it, viewModel) }
-                    state.selectedFieldId != null -> draft.stateFields.firstOrNull {
-                        it.fieldId == state.selectedFieldId
-                    }?.let { StateFieldInspector(it, viewModel) }
-                    state.selectedLoopId != null -> draft.controlLoops.firstOrNull {
-                        it.loopId == state.selectedLoopId
-                    }?.let { ControlInspector(state, it, viewModel) }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(workspaceTab == 0, { workspaceTab = 0 }, { Text("Configure") })
+                    FilterChip(workspaceTab == 1, { workspaceTab = 1 }, { Text("Generated Kotlin") })
                 }
-                ProblemsCard(state)
+                if (workspaceTab == 0) {
+                    Column(
+                        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        GeneralInspector(state, viewModel)
+                        when {
+                            state.selectedHardwareId != null -> draft.hardware.firstOrNull {
+                                it.hardwareId == state.selectedHardwareId
+                            }?.let { HardwareInspector(state, it, viewModel) }
+                            state.selectedFieldId != null -> draft.stateFields.firstOrNull {
+                                it.fieldId == state.selectedFieldId
+                            }?.let { StateFieldInspector(it, viewModel) }
+                            state.selectedLoopId != null -> draft.controlLoops.firstOrNull {
+                                it.loopId == state.selectedLoopId
+                            }?.let { ControlInspector(state, it, viewModel) }
+                        }
+                        ProblemsCard(state)
+                    }
+                } else {
+                    CodePreview(state, Modifier.fillMaxSize())
+                }
             }
-            CodePreview(state, Modifier.weight(1.25f).fillMaxHeight())
         }
+    }
+
+    if (confirmReload) {
+        AlertDialog(
+            onDismissRequest = { confirmReload = false },
+            title = { Text("Discard unsaved subsystem changes?") },
+            text = { Text("Reload restores the last saved project revision. Your current edits cannot be recovered.") },
+            confirmButton = {
+                Button(onClick = { confirmReload = false; viewModel.reload() }) { Text("Discard and reload") }
+            },
+            dismissButton = { OutlinedButton(onClick = { confirmReload = false }) { Text("Keep editing") } }
+        )
     }
 }
 
 @Composable
-private fun SubsystemHeader(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+private fun SubsystemHeader(
+    state: SubsystemGeneratorState,
+    viewModel: SubsystemGeneratorViewModel,
+    onReload: () -> Unit,
+) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Column {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -147,7 +182,7 @@ private fun SubsystemHeader(state: SubsystemGeneratorState, viewModel: Subsystem
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = viewModel::reload) {
+            OutlinedButton(onClick = onReload) {
                 Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(5.dp))
                 Text("Reload")
@@ -172,6 +207,34 @@ private fun SubsystemHeader(state: SubsystemGeneratorState, viewModel: Subsystem
             }
         }
     }
+}
+
+@Composable
+private fun BuilderProgress(document: com.areslib.subsystem.SubsystemDocument) {
+    val hasHardware = document.hardware.isNotEmpty()
+    val hasState = document.stateFields.isNotEmpty()
+    val hasControl = document.controlLoops.isNotEmpty()
+    Row(
+        Modifier.fillMaxWidth().background(AresSurface, RoundedCornerShape(7.dp))
+            .border(1.dp, AresBorder, RoundedCornerShape(7.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(18.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        ProgressLabel("1", "Add hardware", hasHardware)
+        ProgressLabel("2", "Define state", hasState)
+        ProgressLabel("3", "Connect behavior", hasControl)
+        ProgressLabel("4", "Generate Kotlin", false)
+    }
+}
+
+@Composable
+private fun ProgressLabel(number: String, label: String, complete: Boolean) {
+    Text(
+        "$number. $label${if (complete) " ✓" else ""}",
+        color = if (complete) AresGreen else AresTextSecondary,
+        fontSize = 11.sp,
+        fontWeight = if (complete) FontWeight.SemiBold else FontWeight.Normal,
+    )
 }
 
 @Composable
@@ -238,7 +301,18 @@ private fun ArchitectureCard(state: SubsystemGeneratorState, viewModel: Subsyste
                 state.selectedLoopId == loop.loopId,
             ) { viewModel.selectLoop(loop.loopId) }
         }
-        OutlinedButton(onClick = viewModel::addControlLoop, modifier = Modifier.fillMaxWidth()) { Text("+ Control rule") }
+        val canAddControl = document.hardware.any { it.kind.isActuator() } && document.stateFields.any {
+            it.role == SubsystemFieldRole.TARGET &&
+                (it.type == SubsystemValueType.DOUBLE || it.type == SubsystemValueType.INT)
+        }
+        OutlinedButton(
+            onClick = viewModel::addControlLoop,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = canAddControl,
+        ) { Text("+ Control rule") }
+        if (!canAddControl) {
+            Text("Add an actuator and a numeric target state first.", color = AresTextSecondary, fontSize = 10.sp)
+        }
     }
 }
 
@@ -246,7 +320,8 @@ private fun ArchitectureCard(state: SubsystemGeneratorState, viewModel: Subsyste
 private fun GeneralInspector(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
     val document = state.draft ?: return
     EditorCard("Subsystem definition", Icons.Default.Settings) {
-        TextInput("Document ID", document.documentId) { value -> viewModel.edit { it.copy(documentId = value) } }
+        TextInput("Stable document ID", document.documentId, enabled = false) { }
+        Text("The ID is fixed after creation so saved revisions and generated references cannot split.", color = AresTextSecondary, fontSize = 10.sp)
         TextInput("Kotlin class name", document.name) { value -> viewModel.edit { it.copy(name = value) } }
         TextInput("Description", document.description, singleLine = false) { value -> viewModel.edit { it.copy(description = value) } }
         ToggleRow("Required at robot startup", document.requiredAtStartup) { value ->
@@ -583,8 +658,21 @@ private fun FlowArrow(label: String) {
 }
 
 @Composable
-private fun TextInput(label: String, value: String, singleLine: Boolean = true, onChange: (String) -> Unit) {
-    OutlinedTextField(value, onChange, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), singleLine = singleLine)
+private fun TextInput(
+    label: String,
+    value: String,
+    singleLine: Boolean = true,
+    enabled: Boolean = true,
+    onChange: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value,
+        onChange,
+        label = { Text(label) },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = singleLine,
+        enabled = enabled,
+    )
 }
 
 @Composable

@@ -5,6 +5,7 @@ import com.ares.analytics.viewmodel.SysIdState
 import com.areslib.control.assist.SysIdMechanism
 import com.areslib.control.assist.SysIdRoutine
 import com.areslib.tuning.TuningTopics
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 
@@ -29,14 +30,43 @@ class SysIdSignalGenerator(
     }
 
     suspend fun startRoutine(mechanism: SysIdMechanism, routine: SysIdRoutine) {
-        _state.update { it.copy(liveSamples = emptyList(), liveCalibrationData = emptyList(), isRoutineRunning = true, summary = null, isLoading = true) }
+        _state.update {
+            it.copy(
+                liveSamples = emptyList(),
+                liveCalibrationData = emptyList(),
+                isRoutineRunning = false,
+                summary = null,
+                isLoading = true,
+                errorMessage = null,
+            )
+        }
         val cmd = "START_${mechanism.name}_${routine.name}"
-        nt4ClientService.publishInputString(1015, cmd)
+        try {
+            nt4ClientService.publishInputString(1015, cmd)
+            _state.update { it.copy(isRoutineRunning = true) }
+        } catch (error: CancellationException) {
+            _state.update { it.copy(isRoutineRunning = false, isLoading = false) }
+            throw error
+        } catch (error: Exception) {
+            _state.update {
+                it.copy(
+                    isRoutineRunning = false,
+                    isLoading = false,
+                    errorMessage = "Could not start SysId: ${error.message ?: "robot did not accept the command"}",
+                )
+            }
+        }
     }
 
     suspend fun stopRoutine() {
-        _state.update { it.copy(isRoutineRunning = false, isLoading = false) }
-        nt4ClientService.publishInputString(1015, "STOP")
+        try {
+            nt4ClientService.publishInputString(1015, "STOP")
+            _state.update { it.copy(isRoutineRunning = false, isLoading = false) }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            _state.update { it.copy(errorMessage = "Could not stop SysId: ${error.message ?: "robot did not acknowledge stop"}") }
+        }
     }
 
     suspend fun startCalibration(calibrationType: String) {
@@ -44,7 +74,7 @@ class SysIdSignalGenerator(
             it.copy(
                 liveSamples = emptyList(),
                 liveCalibrationData = emptyList(),
-                isRoutineRunning = true,
+                isRoutineRunning = false,
                 activeCalibration = calibrationType,
                 isLoading = true,
                 errorMessage = null,
@@ -57,12 +87,33 @@ class SysIdSignalGenerator(
                 recommendedTicksPerMeter = null
             )
         }
-        nt4ClientService.publishInputString(1015, "START_${calibrationType}")
+        try {
+            nt4ClientService.publishInputString(1015, "START_${calibrationType}")
+            _state.update { it.copy(isRoutineRunning = true) }
+        } catch (error: CancellationException) {
+            _state.update { it.copy(isRoutineRunning = false, isLoading = false) }
+            throw error
+        } catch (error: Exception) {
+            _state.update {
+                it.copy(
+                    isRoutineRunning = false,
+                    isLoading = false,
+                    activeCalibration = "NONE",
+                    errorMessage = "Could not start calibration: ${error.message ?: "robot did not accept the command"}",
+                )
+            }
+        }
     }
 
     suspend fun stopCalibration() {
-        _state.update { it.copy(isRoutineRunning = false, activeCalibration = "NONE", isLoading = false) }
-        nt4ClientService.publishInputString(1015, "STOP")
+        try {
+            nt4ClientService.publishInputString(1015, "STOP")
+            _state.update { it.copy(isRoutineRunning = false, activeCalibration = "NONE", isLoading = false) }
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            _state.update { it.copy(errorMessage = "Could not stop calibration: ${error.message ?: "robot did not acknowledge stop"}") }
+        }
     }
 
     suspend fun applyCalibration(calibrationType: String) {

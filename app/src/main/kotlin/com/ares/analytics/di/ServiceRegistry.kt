@@ -134,8 +134,9 @@ class ServiceRegistry {
 }
 
 class KeyboardDriveState {
-    var enabled by androidx.compose.runtime.mutableStateOf(true)
+    var enabled by androidx.compose.runtime.mutableStateOf(false)
     var useGamepad by androidx.compose.runtime.mutableStateOf(false)
+    var deadmanPressed by androidx.compose.runtime.mutableStateOf(false)
 
     // Left Stick (W/A/S/D)
     var isWPressed by androidx.compose.runtime.mutableStateOf(false)
@@ -162,4 +163,30 @@ class KeyboardDriveState {
     // Triggers (Space, Shift)
     var isSpacePressed by androidx.compose.runtime.mutableStateOf(false)
     var isShiftPressed by androidx.compose.runtime.mutableStateOf(false)
+
+    fun releaseAll() {
+        deadmanPressed = false
+        isWPressed = false
+        isSPressed = false
+        isAPressed = false
+        isDPressed = false
+        isUpPressed = false
+        isDownPressed = false
+        isLeftPressed = false
+        isRightPressed = false
+        isJPressed = false
+        isLPressed = false
+        isUPressed = false
+        isIPressed = false
+        isQPressed = false
+        isEPressed = false
+        isSpacePressed = false
+        isShiftPressed = false
+    }
+
+    fun disarm() {
+        enabled = false
+        useGamepad = false
+        releaseAll()
+    }
 }

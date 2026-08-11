@@ -115,25 +115,6 @@ fun GainTuningPanel(
                     Text("<- Pull All to App", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
 
-                FilterChip(
-                    selected = state.isAutoSaveEnabled,
-                    onClick = { viewModel.onIntent(TuningIntent.ToggleAutoSave) },
-                    label = { Text(if (state.isAutoSaveEnabled) "⚡ Auto-Sync ON" else "Manual Sync", fontSize = 11.sp, fontWeight = FontWeight.Bold) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = AresCyan.copy(alpha = 0.2f),
-                        selectedLabelColor = AresCyan,
-                        containerColor = AresSurfaceElevated,
-                        labelColor = AresTextSecondary
-                    ),
-                    border = FilterChipDefaults.filterChipBorder(
-                        borderColor = AresBorder,
-                        selectedBorderColor = AresCyan,
-                        enabled = true,
-                        selected = state.isAutoSaveEnabled
-                    ),
-                    modifier = Modifier.height(32.dp)
-                )
-
                 OutlinedButton(
                     onClick = { viewModel.onIntent(TuningIntent.CreateBackup) },
                     shape = RoundedCornerShape(6.dp),
@@ -188,6 +169,11 @@ fun GainTuningPanel(
                 }
             }
         }
+        Text(
+            "Live robot values are read-only. Use Pull to intentionally update robot_constants.json.",
+            color = AresTextSecondary,
+            fontSize = 11.sp
+        )
         HorizontalDivider(color = AresBorder)
 
         if (state.saveStatus.isNotEmpty()) {

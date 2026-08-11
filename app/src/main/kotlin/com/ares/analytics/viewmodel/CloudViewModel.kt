@@ -109,7 +109,8 @@ sealed class CloudIntent {
 
 /**
  * Orchestrates local sessions, robot-hosted logs, and cloud synchronization.
- * Robot downloads are temporary: data is parsed locally and uploaded before remote cleanup.
+ * Robot downloads are temporary on the desktop. Source files remain on the robot until the
+ * operator uses an explicit, confirmed delete action after verifying the import.
  */
 class CloudViewModel(
     private val databaseService: DatabaseService,
@@ -218,7 +219,7 @@ class CloudViewModel(
                             val errors = mutableListOf<String>()
                             val downloadedFiles = mutableListOf<File>()
                             try {
-                                logUpload("1/5: Downloading ${run.files.size} raw files from robot at ${getRobotIp()}...")
+                                logUpload("1/4: Downloading ${run.files.size} raw files from robot at ${getRobotIp()}...")
                                 for (file in run.files) {
                                     try {
                                         val tempFile = withContext(Dispatchers.IO) {
@@ -261,9 +262,9 @@ class CloudViewModel(
                                 }
 
                                 if (errors.isEmpty() && downloadedFiles.isNotEmpty()) {
-                                    logUpload("2/5: Skipping raw file archival (database sync only)...")
+                                    logUpload("2/4: Skipping raw file archival (database sync only)...")
                                     val totalSizeKb = downloadedFiles.sumOf { it.length() } / 1024
-                                    logUpload("3/5: Parsing ${downloadedFiles.size} log files (${totalSizeKb} KB) into DuckDB...")
+                                    logUpload("3/4: Parsing ${downloadedFiles.size} log files (${totalSizeKb} KB) into DuckDB...")
                                     val session = logParserService.parseLogFiles(
                                         files = downloadedFiles,
                                         teamId = intent.teamId,
@@ -272,7 +273,7 @@ class CloudViewModel(
                                     )
                                     logUpload("      -> Parsed session: ${session.sessionId} (${session.durationMs?.let { "${it / 1000}s" } ?: "unknown"} duration)")
 
-                                    logUpload("4/5: Pushing DuckDB Parquet blob to Cloud & syncing...")
+                                    logUpload("4/4: Pushing DuckDB Parquet blob to Cloud & syncing...")
                                     try {
                                         syncEngineService.uploadSession(session.sessionId)
                                         syncEngineService.performDeltaSync(intent.teamId, intent.seasonId)
@@ -282,22 +283,14 @@ class CloudViewModel(
                                         logUpload("      -> Cloud sync failed: ${syncEx.message}")
                                     }
 
-                                    logUpload("5/5: Deleting remote files from Robot...")
                                     if (errors.isEmpty()) {
-                                        try {
-                                            withContext(Dispatchers.IO) {
-                                                for (file in run.files) {
-                                                    httpClient.preparePost("http://${getRobotIp()}:5002/api/delete") {
-                                                        parameter("file", file.name)
-                                                    }.execute {}
-                                                }
-                                            }
-                                        } catch (e: CancellationException) { throw e } catch (deleteEx: Exception) {
-                                            errors.add("Uploaded successfully but robot cleanup failed: ${deleteEx.message}")
+                                        logUpload("Upload finished. Robot files were kept; delete them explicitly after verification.")
+                                    } else {
+                                        logUpload("Import finished with errors. Robot files were kept for a safe retry.")
+                                        _state.update { current ->
+                                            current.copy(errorMessage = "Import errors:\n" + errors.joinToString("\n"))
                                         }
                                     }
-
-                                    logUpload("Upload finished! Refreshing UI...")
                                     fetchRobotLogs()
                                     onIntent(CloudIntent.RefreshCloudLogs)
                                 } else {
@@ -389,30 +382,16 @@ class CloudViewModel(
                                         logUpload("  -> Cloud upload failed: ${syncEx.message}")
                                     }
 
-                                    logUpload("Deleting remote files from Robot...")
-                                    if (errors.isEmpty()) {
-                                        try {
-                                            withContext(Dispatchers.IO) {
-                                                for (file in run.files) {
-                                                    httpClient.preparePost("http://${getRobotIp()}:5002/api/delete") {
-                                                        parameter("file", file.name)
-                                                    }.execute {}
-                                                }
-                                            }
-                                        } catch (e: CancellationException) { throw e } catch (deleteEx: Exception) {
-                                            errors.add("Uploaded successfully but robot cleanup failed: ${deleteEx.message}")
-                                        }
-                                    }
+                                    logUpload("Robot files kept. Delete them explicitly after verifying the import.")
                                 } else {
-                                    logUpload("Run ${run.runId} upload encountered errors. Skipping cleanup.")
+                                    logUpload("Run ${run.runId} import encountered errors. Robot files were kept.")
                                 }
                             } catch (e: CancellationException) {
                                 throw e
                             } catch (e: Exception) {
                                 // Per-run isolation: a failure here (parse/parse-throw/etc.)
-                                // must NOT abort the remaining runs. Robot-file deletion only
-                                // happened above if this run's local+cloud pipeline fully
-                                // succeeded (errors was empty); a thrown exception skips it.
+                                // must NOT abort the remaining runs. Robot files are retained
+                                // regardless; deleting source data is a separate confirmed action.
                                 val msg = "Run ${run.runId} aborted: ${e.message ?: e.javaClass.simpleName}"
                                 errors.add(msg)
                                 logUpload("  -> $msg")
@@ -472,6 +451,7 @@ class CloudViewModel(
                     _state.update { it.copy(isDeletingCloudLog = intent.sessionId, errorMessage = null) }
                     try {
                         syncEngineService.deleteCloudSession(intent.sessionId, intent.teamId)
+                        _state.update { it.copy(isDeletingCloudLog = null) }
                         onIntent(CloudIntent.RefreshCloudLogs)
                     } catch (e: SecurityException) {
                         _state.update { it.copy(isDeletingCloudLog = null, errorMessage = "Permission denied") }

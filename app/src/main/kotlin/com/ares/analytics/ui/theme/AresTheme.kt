@@ -7,33 +7,33 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.unit.dp
 
-private val AresColorScheme = darkColorScheme(
-    primary = AresCyan,
-    onPrimary = AresBackground,
-    primaryContainer = AresCyanDark,
-    onPrimaryContainer = AresTextPrimary,
+private fun aresColorScheme(colors: AresColorPalette) = darkColorScheme(
+    primary = colors.cyan,
+    onPrimary = colors.background,
+    primaryContainer = colors.cyanDark,
+    onPrimaryContainer = colors.textPrimary,
 
-    secondary = AresRed,
-    onSecondary = AresTextPrimary,
-    secondaryContainer = AresRedDark,
-    onSecondaryContainer = AresTextPrimary,
+    secondary = colors.red,
+    onSecondary = colors.textPrimary,
+    secondaryContainer = colors.redDark,
+    onSecondaryContainer = colors.textPrimary,
 
-    tertiary = AresGold,
-    onTertiary = AresBackground,
+    tertiary = colors.gold,
+    onTertiary = colors.background,
 
-    background = AresBackground,
-    onBackground = AresTextPrimary,
+    background = colors.background,
+    onBackground = colors.textPrimary,
 
-    surface = AresSurface,
-    onSurface = AresTextPrimary,
-    surfaceVariant = AresSurfaceElevated,
-    onSurfaceVariant = AresTextSecondary,
+    surface = colors.surface,
+    onSurface = colors.textPrimary,
+    surfaceVariant = colors.surfaceElevated,
+    onSurfaceVariant = colors.textSecondary,
 
-    error = AresError,
-    onError = AresTextPrimary,
+    error = colors.error,
+    onError = colors.textPrimary,
 
-    outline = AresBorder,
-    outlineVariant = AresBorderFocused
+    outline = colors.border,
+    outlineVariant = colors.borderFocused
 )
 
 private val AresShapes = Shapes(
@@ -46,19 +46,11 @@ private val AresShapes = Shapes(
 
 @Composable
 fun AresTheme(
-    colorblindMode: Boolean = false,
-    highContrastMode: Boolean = false,
-    touchOptimizedMode: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    androidx.compose.runtime.SideEffect {
-        AresThemeSettings.colorblindMode = colorblindMode
-        AresThemeSettings.highContrastMode = highContrastMode
-        AresThemeSettings.touchOptimizedMode = touchOptimizedMode
-    }
-
+    val colorScheme = aresColorScheme(AresThemeSettings.currentColors)
     MaterialTheme(
-        colorScheme = AresColorScheme,
+        colorScheme = colorScheme,
         typography = AresTypography,
         shapes = AresShapes,
         content = content

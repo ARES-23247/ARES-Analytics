@@ -3,6 +3,8 @@ package com.ares.analytics.ui.screens
 
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -33,8 +35,8 @@ import java.sql.SQLException
 /**
  * Interactive SQL query viewer and table inspector screen for DuckDB match telemetry databases.
  *
- * Executes arbitrary SQL queries, displays query timing in milliseconds ($ms$), renders formatted result tables with pagination,
- * and exports DuckDB schema structures into Parquet/CSV formats.
+ * Executes read-only SQL queries, displays query timing in milliseconds ($ms$), and renders bounded
+ * result tables lazily. The repository, rather than the UI, enforces the result safety limits.
  *
  * @param databaseService Primary [DatabaseService] backing DuckDB query execution.
  *
@@ -333,9 +335,14 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
+                    horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Text(
+                        text = "Read only • first ${QueryResult.DEFAULT_RAW_QUERY_ROW_LIMIT} rows maximum",
+                        color = AresTextTertiary,
+                        fontSize = 11.sp
+                    )
                     Button(
                         onClick = { runQuery() },
                         colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
@@ -411,12 +418,25 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Text(
-                                    text = "Returned ${result.rows.size} rows in ${executionTimeMs}ms",
-                                    color = AresCyan,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = if (result.isTruncated) {
+                                            "Showing first ${result.rows.size} rows (safety limit) • ${executionTimeMs}ms"
+                                        } else {
+                                            "Returned ${result.rows.size} rows in ${executionTimeMs}ms"
+                                        },
+                                        color = if (result.isTruncated) AresAmber else AresCyan,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    if (result.truncatedCellCount > 0) {
+                                        Text(
+                                            text = "${result.truncatedCellCount} oversized cell value(s) shortened",
+                                            color = AresAmber,
+                                            fontSize = 10.sp
+                                        )
+                                    }
+                                }
                             }
 
                             if (result.rows.isEmpty()) {
@@ -427,21 +447,22 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                                     Text("Query executed successfully, but returned no rows.", color = AresTextSecondary, fontSize = 13.sp)
                                 }
                             } else {
-                                // Scrollable Grid
+                                // Horizontally scrollable, vertically lazy grid. The repository also caps
+                                // row count, so neither JDBC collection nor Compose composition is unbounded.
                                 val scrollStateHorizontal = rememberScrollState()
-                                val scrollStateVertical = rememberScrollState()
+                                val tableWidth = (result.columns.size.coerceAtLeast(1) * 180).dp
 
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
                                         .fillMaxWidth()
                                         .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
+                                        .horizontalScroll(scrollStateHorizontal)
                                 ) {
                                     Column(
                                         modifier = Modifier
-                                            .fillMaxSize()
-                                            .horizontalScroll(scrollStateHorizontal)
-                                            .verticalScroll(scrollStateVertical)
+                                            .width(tableWidth)
+                                            .fillMaxHeight()
                                     ) {
                                         // Headers
                                         Row(
@@ -483,44 +504,53 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                                             }
                                         }
 
-                                        // Data Rows
-                                        result.rows.forEachIndexed { rowIndex, row ->
-                                            val rowBg = if (rowIndex % 2 == 0) AresBackground else AresSurface
-                                            Row(
-                                                modifier = Modifier
-                                                    .background(rowBg)
-                                                    .drawBehind {
-                                                        drawLine(
-                                                            color = AresBorder,
-                                                            start = Offset(0f, size.height),
-                                                            end = Offset(size.width, size.height),
-                                                            strokeWidth = 1.dp.toPx()
-                                                        )
-                                                    }
-                                            ) {
-                                                row.forEach { cellValue ->
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .width(180.dp)
-                                                            .drawBehind {
-                                                                drawLine(
-                                                                    color = AresBorder.copy(alpha = 0.5f),
-                                                                    start = Offset(size.width, 0f),
-                                                                    end = Offset(size.width, size.height),
-                                                                    strokeWidth = 1.dp.toPx()
-                                                                )
-                                                            }
-                                                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                                                        contentAlignment = Alignment.CenterStart
-                                                    ) {
-                                                        Text(
-                                                            text = cellValue,
-                                                            color = AresTextSecondary,
-                                                            fontSize = 11.sp,
-                                                            fontFamily = FontFamily.Monospace,
-                                                            maxLines = 2,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
+                                        LazyColumn(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxWidth()
+                                        ) {
+                                            itemsIndexed(
+                                                items = result.rows,
+                                                key = { rowIndex, _ -> rowIndex }
+                                            ) { rowIndex, row ->
+                                                val rowBg = if (rowIndex % 2 == 0) AresBackground else AresSurface
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .background(rowBg)
+                                                        .drawBehind {
+                                                            drawLine(
+                                                                color = AresBorder,
+                                                                start = Offset(0f, size.height),
+                                                                end = Offset(size.width, size.height),
+                                                                strokeWidth = 1.dp.toPx()
+                                                            )
+                                                        }
+                                                ) {
+                                                    row.forEach { cellValue ->
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .width(180.dp)
+                                                                .drawBehind {
+                                                                    drawLine(
+                                                                        color = AresBorder.copy(alpha = 0.5f),
+                                                                        start = Offset(size.width, 0f),
+                                                                        end = Offset(size.width, size.height),
+                                                                        strokeWidth = 1.dp.toPx()
+                                                                    )
+                                                                }
+                                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                            contentAlignment = Alignment.CenterStart
+                                                        ) {
+                                                            Text(
+                                                                text = cellValue,
+                                                                color = AresTextSecondary,
+                                                                fontSize = 11.sp,
+                                                                fontFamily = FontFamily.Monospace,
+                                                                maxLines = 2,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
                                                     }
                                                 }
                                             }

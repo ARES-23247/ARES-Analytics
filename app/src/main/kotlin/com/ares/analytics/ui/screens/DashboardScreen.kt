@@ -434,15 +434,22 @@ private fun ReplayTimelineScrubber(
     val rawProgress by replayEngine.progress.collectAsState()
     val speed by replayEngine.speed.collectAsState()
     val progress = if (isLiveConnection && !isReplayActive) 1.0 else rawProgress
-    val modeColor = when (sessionMode) {
-        SessionMode.LIVE_STREAMING -> ModeLive
-        SessionMode.LIVE_REWIND -> ModeRewind
-        SessionMode.HISTORICAL_REPLAY -> ModeReplay
+    // Keep these comparisons direct. A stale incremental desktop build once omitted
+    // Kotlin's synthetic DashboardScreenKt$WhenMappings class and crashed as soon as
+    // the replay bar rendered. Direct enum comparisons have no companion class to lose.
+    val modeColor = if (sessionMode == SessionMode.LIVE_STREAMING) {
+        ModeLive
+    } else if (sessionMode == SessionMode.LIVE_REWIND) {
+        ModeRewind
+    } else {
+        ModeReplay
     }
-    val modeGlow = when (sessionMode) {
-        SessionMode.LIVE_STREAMING -> ModeLiveGlow
-        SessionMode.LIVE_REWIND -> ModeRewindGlow
-        SessionMode.HISTORICAL_REPLAY -> ModeReplayGlow
+    val modeGlow = if (sessionMode == SessionMode.LIVE_STREAMING) {
+        ModeLiveGlow
+    } else if (sessionMode == SessionMode.LIVE_REWIND) {
+        ModeRewindGlow
+    } else {
+        ModeReplayGlow
     }
 
     Surface(
@@ -469,10 +476,12 @@ private fun ReplayTimelineScrubber(
                 ) {
                     Box(modifier = Modifier.size(6.dp).background(modeColor, RoundedCornerShape(3.dp)))
                     Text(
-                        text = when (sessionMode) {
-                            SessionMode.LIVE_STREAMING -> "LIVE"
-                            SessionMode.LIVE_REWIND -> "LIVE REWIND"
-                            SessionMode.HISTORICAL_REPLAY -> "REPLAY: ${sessionId?.take(8)}"
+                        text = if (sessionMode == SessionMode.LIVE_STREAMING) {
+                            "LIVE"
+                        } else if (sessionMode == SessionMode.LIVE_REWIND) {
+                            "LIVE REWIND"
+                        } else {
+                            "REPLAY: ${sessionId?.take(8)}"
                         },
                         color = modeColor,
                         fontSize = 11.sp,
@@ -488,11 +497,7 @@ private fun ReplayTimelineScrubber(
                         if (isLiveConnection && !isReplayActive) {
                             onPauseLive()
                         } else {
-                            when (replayState) {
-                                ReplayState.PLAYING -> replayEngine.pause()
-                                ReplayState.PAUSED -> replayEngine.play()
-                                ReplayState.STOPPED -> replayEngine.play()
-                            }
+                            if (replayState == ReplayState.PLAYING) replayEngine.pause() else replayEngine.play()
                         }
                     }
                 },

@@ -27,7 +27,6 @@ data class TuningState(
     val appVariables: Map<String, Double> = emptyMap(),   // Local App JSON values (robot_constants.json)
     val projectPath: String = "",
     val availableBackups: List<BackupInfo> = emptyList(),
-    val isAutoSaveEnabled: Boolean = true,                // Auto-sync live NT4 changes into app JSON
     val isLoading: Boolean = false,
     val saveStatus: String = "",
     val errorMessage: String? = null
@@ -44,7 +43,6 @@ sealed class TuningIntent {
     object CreateBackup : TuningIntent()
     data class LoadBackup(val filename: String) : TuningIntent()
     object RefreshBackups : TuningIntent()
-    object ToggleAutoSave : TuningIntent()
     object ClearSaveStatus : TuningIntent()
 }
 
@@ -83,24 +81,9 @@ class TuningViewModel(
                 }
 
                 if (changed) {
-                    _state.update { currentState ->
-                        val updatedAppVars = currentState.appVariables.toMutableMap()
-                        var appVarsChanged = false
-                        currentMap.forEach { (k, v) ->
-                            val acceptsRobotValue = currentState.isAutoSaveEnabled || k !in updatedAppVars
-                            if (acceptsRobotValue && updatedAppVars[k] != v) {
-                                updatedAppVars[k] = v
-                                appVarsChanged = true
-                            }
-                        }
-                        if (appVarsChanged && currentState.projectPath.isNotBlank()) {
-                            saveAppConstants(currentState.projectPath, updatedAppVars)
-                        }
-                        currentState.copy(
-                            variables = currentMap,
-                            appVariables = if (appVarsChanged) updatedAppVars else currentState.appVariables
-                        )
-                    }
+                    // Live telemetry is observation only. Project source changes require an
+                    // explicit Pull action so connecting a robot cannot rewrite constants.
+                    _state.update { currentState -> currentState.copy(variables = currentMap) }
                 }
 
                 delay(200) // Poll at 5Hz
@@ -113,17 +96,27 @@ class TuningViewModel(
             when (intent) {
                 is TuningIntent.LoadConstants -> {
                     val path = intent.projectPath
-                    if (path.isNotBlank()) {
+                    if (path.isBlank()) {
+                        _state.update {
+                            it.copy(
+                                projectPath = "",
+                                appVariables = emptyMap(),
+                                availableBackups = emptyList(),
+                                saveStatus = "",
+                                errorMessage = null
+                            )
+                        }
+                    } else {
                         val loadedMap = withContext(Dispatchers.IO) { loadAppConstants(path) }
                         val backups = withContext(Dispatchers.IO) { listBackups(path) }
                         _state.update { currentState ->
-                            val mergedAppVars = loadedMap.toMutableMap()
-                            currentState.variables.forEach { (k, v) ->
-                                if (!mergedAppVars.containsKey(k)) {
-                                    mergedAppVars[k] = v
-                                }
-                            }
-                            currentState.copy(projectPath = path, appVariables = mergedAppVars, availableBackups = backups)
+                            currentState.copy(
+                                projectPath = path,
+                                appVariables = loadedMap,
+                                availableBackups = backups,
+                                saveStatus = "",
+                                errorMessage = null
+                            )
                         }
                     }
                 }
@@ -241,15 +234,6 @@ class TuningViewModel(
                     if (path.isNotBlank()) {
                         val backups = withContext(Dispatchers.IO) { listBackups(path) }
                         _state.update { it.copy(availableBackups = backups) }
-                    }
-                }
-                is TuningIntent.ToggleAutoSave -> {
-                    _state.update { currentState ->
-                        val nextState = !currentState.isAutoSaveEnabled
-                        currentState.copy(
-                            isAutoSaveEnabled = nextState,
-                            saveStatus = if (nextState) "Auto-Sync Enabled: Live robot changes write to JSON" else "Auto-Sync Disabled: Manual Push/Pull required"
-                        )
                     }
                 }
                 is TuningIntent.ClearSaveStatus -> {

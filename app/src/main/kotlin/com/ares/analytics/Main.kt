@@ -9,10 +9,6 @@ import androidx.compose.ui.window.rememberWindowState
 import com.ares.analytics.di.ServiceRegistry
 import com.ares.analytics.ui.theme.AresTheme
 import com.ares.analytics.ui.screens.MainScreen
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.type
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.Key
 
 /** Starts the single-instance Compose desktop application and owns process-level cleanup. */
 fun main() {
@@ -82,33 +78,17 @@ fun main() {
                 exitApplication()
             },
             title = "ARES Analytics — Mission Control",
-            state = windowState,
-            onKeyEvent = { keyEvent ->
-                val state = services.keyboardDriveState
-                if (state.enabled) {
-                    val isDown = keyEvent.type == KeyEventType.KeyDown
-                    when (keyEvent.key) {
-                        Key.W -> { state.isWPressed = isDown; true }
-                        Key.S -> { state.isSPressed = isDown; true }
-                        Key.A -> { state.isAPressed = isDown; true }
-                        Key.D -> { state.isDPressed = isDown; true }
-                        Key.DirectionUp -> { state.isUpPressed = isDown; true }
-                        Key.DirectionDown -> { state.isDownPressed = isDown; true }
-                        Key.DirectionLeft -> { state.isLeftPressed = isDown; true }
-                        Key.DirectionRight -> { state.isRightPressed = isDown; true }
-                        Key.J -> { state.isJPressed = isDown; true }
-                        Key.L -> { state.isLPressed = isDown; true }
-                        Key.U -> { state.isUPressed = isDown; true }
-                        Key.I -> { state.isIPressed = isDown; true }
-                        Key.Q -> { state.isQPressed = isDown; true }
-                        Key.E -> { state.isEPressed = isDown; true }
-                        Key.Spacebar -> { state.isSpacePressed = isDown; true }
-                        Key.ShiftLeft, Key.ShiftRight -> { state.isShiftPressed = isDown; true }
-                        else -> false
-                    }
-                } else false
-            }
+            state = windowState
         ) {
+            DisposableEffect(window) {
+                val listener = object : java.awt.event.WindowAdapter() {
+                    override fun windowLostFocus(event: java.awt.event.WindowEvent?) {
+                        services.keyboardDriveState.releaseAll()
+                    }
+                }
+                window.addWindowFocusListener(listener)
+                onDispose { window.removeWindowFocusListener(listener) }
+            }
             AresTheme {
                 MainScreen(services = services)
             }

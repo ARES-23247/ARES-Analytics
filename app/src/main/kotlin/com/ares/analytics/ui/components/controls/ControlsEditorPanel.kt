@@ -108,7 +108,8 @@ fun ControlsEditorPanel(
                 SchemeToolbar(state, viewModel)
                 SurfaceTabs(state.surface, viewModel::showSurface)
                 state.selectedProfile?.let { profile ->
-                    val chord = state.draftBinding?.takeIf { it.source.kind == ControlSourceKind.CHORD }
+                    val isEditingChord = state.draftBinding?.source?.kind == ControlSourceKind.CHORD
+                    val chord = state.draftBinding?.takeIf { isEditingChord }
                         ?.source?.controlIds.orEmpty().toSet()
                     val bound = state.selectedScheme?.bindings.orEmpty()
                         .flatMapTo(linkedSetOf()) { it.source.controlIds }
@@ -120,7 +121,7 @@ fun ControlsEditorPanel(
                         boundControlIds = bound,
                         targetPlatform = state.targetPlatform,
                         liveState = liveState,
-                        onControlSelected = { viewModel.selectControl(it, appendToChord = chord.isNotEmpty()) }
+                        onControlSelected = { viewModel.selectControl(it, appendToChord = isEditingChord) }
                     )
                     SelectedControlCard(state, viewModel, liveState)
                     AccessibleControlList(state, viewModel, liveState)
@@ -246,6 +247,9 @@ private fun SelectedControlCard(
     liveState: GamepadState
 ) {
     val control = state.selectedControl ?: return
+    val assignedBindings = state.selectedScheme?.bindings.orEmpty().filter { control.controlId in it.source.controlIds }
+    val targetMapping = control.mappings.firstOrNull { it.platform == state.targetPlatform }
+    var showHardwareSetup by remember(control.controlId) { mutableStateOf(false) }
     Column(cardModifier(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Column {
@@ -258,34 +262,64 @@ private fun SelectedControlCard(
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = { viewModel.beginDesktopLearning(liveState) }, enabled = liveState.connected) {
-                    Text(if (state.learning?.controlId == control.controlId) "Press / move now…" else "Learn desktop")
-                }
                 Button(
                     onClick = viewModel::createBinding,
                     colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black)
                 ) {
-                    Icon(Icons.Default.Add, null, Modifier.size(16.dp)); Text(" Binding")
+                    Icon(Icons.Default.Add, null, Modifier.size(16.dp)); Text(" Add action")
                 }
             }
         }
         HorizontalDivider(color = AresBorder)
-        Text("Platform mappings", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-        ControllerInputPlatform.entries.forEach { platform ->
-            val mapping = control.mappings.firstOrNull { it.platform == platform }
-            val index = mapping?.buttonIndex ?: mapping?.axisIndex
-            MappingRow(
-                platform = platform,
-                index = index,
-                isTarget = platform == state.targetPlatform,
-                onIndex = { viewModel.setMapping(control.controlId, platform, it) }
-            )
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    if (assignedBindings.isEmpty()) "No action assigned yet" else
+                        "${assignedBindings.size} assigned action${if (assignedBindings.size == 1) "" else "s"}",
+                    color = if (assignedBindings.isEmpty()) AresTextSecondary else AresGreen,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp
+                )
+                Text(
+                    if (targetMapping == null) {
+                        "${state.targetPlatform.studentLabel()} input is not configured"
+                    } else {
+                        "Ready for ${state.targetPlatform.studentLabel()} generated code"
+                    },
+                    color = if (targetMapping == null) AresGold else AresTextSecondary,
+                    fontSize = 11.sp
+                )
+            }
+            OutlinedButton(onClick = { showHardwareSetup = !showHardwareSetup }) {
+                Text(if (showHardwareSetup) "Hide hardware setup" else "Hardware setup", fontSize = 11.sp)
+            }
         }
-        Text(
-            "Entering an FTC/FRC index marks only that platform. Confirm it using its Driver Station before competition.",
-            color = AresTextSecondary,
-            fontSize = 10.sp
-        )
+        if (assignedBindings.isNotEmpty()) {
+            assignedBindings.take(3).forEach { binding ->
+                Text("• ${binding.displayName}", color = AresTextPrimary, fontSize = 11.sp)
+            }
+        }
+        if (showHardwareSetup) {
+            HorizontalDivider(color = AresBorder)
+            Text("Advanced hardware mapping", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Text(
+                "Standard controls are configured automatically. Change these slots only for extra vendor buttons or a nonstandard Driver Station mapping.",
+                color = AresTextSecondary,
+                fontSize = 10.sp
+            )
+            listOf(state.targetPlatform, ControllerInputPlatform.DESKTOP_GLFW).distinct().forEach { platform ->
+                val mapping = control.mappings.firstOrNull { it.platform == platform }
+                MappingRow(
+                    platform = platform,
+                    index = mapping?.buttonIndex ?: mapping?.axisIndex,
+                    isTarget = platform == state.targetPlatform,
+                    onIndex = { viewModel.setMapping(control.controlId, platform, it) }
+                )
+            }
+            OutlinedButton(onClick = { viewModel.beginDesktopLearning(liveState) }, enabled = liveState.connected) {
+                Text(if (state.learning?.controlId == control.controlId) "Press or move the control now…" else "Detect from this computer")
+            }
+        }
     }
 }
 
@@ -299,7 +333,7 @@ private fun MappingRow(
     var raw by remember(platform, index) { mutableStateOf(index?.toString().orEmpty()) }
     Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
         Text(
-            platform.name.replace('_', ' '),
+            platform.studentLabel(),
             modifier = Modifier.width(120.dp),
             color = if (isTarget) AresGold else AresTextSecondary,
             fontWeight = if (isTarget) FontWeight.Bold else FontWeight.Normal,
@@ -314,14 +348,13 @@ private fun MappingRow(
             },
             modifier = Modifier.width(110.dp),
             singleLine = true,
-            label = { Text("Raw index") }
+            label = { Text("Input slot") }
         )
         OutlinedButton(onClick = { onIndex(raw.toIntOrNull()) }) {
             Text(
                 when {
                     raw.isBlank() -> "Clear"
-                    platform == ControllerInputPlatform.DESKTOP_GLFW -> "Set desktop"
-                    else -> "I verified"
+                    else -> "Save slot"
                 },
                 fontSize = 10.sp
             )
@@ -330,13 +363,18 @@ private fun MappingRow(
             when {
                 index == null && isTarget -> "unverified target mapping"
                 index == null -> "not mapped"
-                platform == ControllerInputPlatform.DESKTOP_GLFW -> "desktop only"
-                else -> "verify on hardware"
+                else -> "configured"
             },
             color = if (index == null && isTarget) AresRed else AresTextSecondary,
             fontSize = 10.sp
         )
     }
+}
+
+private fun ControllerInputPlatform.studentLabel(): String = when (this) {
+    ControllerInputPlatform.FTC -> "FTC"
+    ControllerInputPlatform.FRC -> "FRC"
+    ControllerInputPlatform.DESKTOP_GLFW -> "Desktop simulator"
 }
 
 @Composable

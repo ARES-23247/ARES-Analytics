@@ -112,7 +112,10 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
 
     suspend fun executeRaw(sql: String) = matchLogRepo.executeRaw(sql)
     suspend fun executeNativeCsvImport(sql: String) = matchLogRepo.executeNativeCsvImport(sql)
-    suspend fun executeQueryRaw(sql: String): QueryResult = matchLogRepo.executeQueryRaw(sql)
+    suspend fun executeQueryRaw(
+        sql: String,
+        rowLimit: Int = QueryResult.DEFAULT_RAW_QUERY_ROW_LIMIT
+    ): QueryResult = matchLogRepo.executeQueryRaw(sql, rowLimit)
     suspend fun executeQueryWithParams(sql: String, params: List<Any>): QueryResult = matchLogRepo.executeQueryWithParams(sql, params)
     suspend fun insertSession(session: Session) = matchLogRepo.insertSession(session)
     suspend fun getSessions(): List<Session> = matchLogRepo.getSessions()

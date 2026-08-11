@@ -118,10 +118,24 @@ class MatchLogRepository(
         conn.createStatement().use { it.execute(sql) }
     }
 
-    suspend fun executeQueryRaw(sql: String): QueryResult = withReadLock {
+    /**
+     * Executes a custom read-only query while bounding the amount of data retained on the JVM heap.
+     *
+     * Relational queries are wrapped in an outer `LIMIT rowLimit + 1` so DuckDB itself does not return
+     * an unbounded result. The extra row is used only to report truncation; it is never copied into
+     * [QueryResult]. Cell and column limits protect projections a row-only limit would not address.
+     */
+    suspend fun executeQueryRaw(
+        sql: String,
+        rowLimit: Int = QueryResult.DEFAULT_RAW_QUERY_ROW_LIMIT
+    ): QueryResult = withReadLock {
+        require(rowLimit in 1..QueryResult.MAX_RAW_QUERY_ROW_LIMIT) {
+            "rowLimit must be between 1 and ${QueryResult.MAX_RAW_QUERY_ROW_LIMIT}"
+        }
         // Primary guard: whitelist the first non-whitespace token. Only read-only
         // statement leaders are permitted. This runs BEFORE any execution.
-        val normalized = sql.trim().trimEnd(';').trim().uppercase()
+        val queryBody = sql.trim().trimEnd(';').trim()
+        val normalized = queryBody.uppercase()
         val firstToken = Regex("^[A-Z]+").find(normalized)?.value ?: ""
         val allowedLeaders = setOf("SELECT", "WITH", "VALUES", "TABLE", "SHOW", "DESCRIBE", "EXPLAIN")
         if (firstToken !in allowedLeaders) {
@@ -139,26 +153,58 @@ class MatchLogRepository(
         if (hasForbidden) {
             throw IllegalArgumentException("Raw query rejected: query contains a disallowed modification/side-effect keyword.")
         }
+        // SELECT/WITH/VALUES/TABLE are valid derived-table queries in DuckDB. Wrapping them makes
+        // LIMIT part of the engine plan rather than merely stopping Kotlin collection after the
+        // driver may already have materialized an enormous native result. Metadata statements such
+        // as SHOW/DESCRIBE/EXPLAIN cannot be derived tables; those remain collection-bounded below.
+        val engineBoundedSql = if (firstToken in setOf("SELECT", "WITH", "VALUES", "TABLE")) {
+            "SELECT * FROM ($queryBody) AS ares_bounded_query LIMIT ${rowLimit + 1}"
+        } else {
+            queryBody
+        }
         // Enforce read-only at the engine level: wrap the query in a READ ONLY transaction
         // so any write attempt (even one that slipped past the token/keyword guards) is
         // rejected by DuckDB itself. Executed on readConn (separate from the writer conn).
         readConn.createStatement().use { it.execute("BEGIN TRANSACTION READ ONLY") }
         try {
             val result = readConn.createStatement().use { st ->
-                val hasResultSet = st.execute(sql)
+                val hasResultSet = st.execute(engineBoundedSql)
                 if (hasResultSet) {
                     st.resultSet.use { rs ->
                         val meta = rs.metaData
                         val colCount = meta.columnCount
+                        require(colCount <= QueryResult.MAX_RAW_QUERY_COLUMN_COUNT) {
+                            "Query returned $colCount columns; the diagnostics viewer supports at most " +
+                                "${QueryResult.MAX_RAW_QUERY_COLUMN_COUNT}."
+                        }
                         val columns = (1..colCount).map { meta.getColumnName(it) }
-                        val rows = mutableListOf<List<String>>()
+                        val rows = ArrayList<List<String>>(rowLimit.coerceAtMost(256))
+                        var hasAdditionalRows = false
+                        var truncatedCellCount = 0
                         while (rs.next()) {
-                            val row = (1..colCount).map {
-                                rs.getObject(it)?.toString() ?: "NULL"
+                            if (rows.size == rowLimit) {
+                                hasAdditionalRows = true
+                                break
+                            }
+                            val row = ArrayList<String>(colCount)
+                            for (columnIndex in 1..colCount) {
+                                val rawValue = rs.getObject(columnIndex)?.toString() ?: "NULL"
+                                if (rawValue.length > QueryResult.MAX_CELL_CHARACTERS) {
+                                    row.add(rawValue.take(QueryResult.MAX_CELL_CHARACTERS) + "…")
+                                    truncatedCellCount++
+                                } else {
+                                    row.add(rawValue)
+                                }
                             }
                             rows.add(row)
                         }
-                        QueryResult(columns, rows)
+                        QueryResult(
+                            columns = columns,
+                            rows = rows,
+                            isTruncated = hasAdditionalRows,
+                            rowLimit = rowLimit,
+                            truncatedCellCount = truncatedCellCount
+                        )
                     }
                 } else {
                     val updateCount = st.updateCount

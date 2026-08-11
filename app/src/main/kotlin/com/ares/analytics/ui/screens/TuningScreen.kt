@@ -17,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -522,7 +523,7 @@ private fun ApplyButton(onClick: () -> Unit) {
         shape = RoundedCornerShape(6.dp),
         contentPadding = PaddingValues(0.dp)
     ) {
-        Text("Apply to Robot Code", color = AresBackground, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text("Send temporary values to robot", color = AresBackground, fontWeight = FontWeight.Bold, fontSize = 12.sp)
     }
 }
 
@@ -539,12 +540,18 @@ private fun LiveTelemetryPlot(samples: List<AlignedDataRow>) {
         val maxTime = samples.maxOf { it.timestampMs }
         val minTime = samples.minOf { it.timestampMs }
         val dt = (maxTime - minTime).toDouble()
-        val maxVel = samples.maxOf { kotlin.math.abs(it.velocity) }.coerceAtLeast(1.0)
+        val minVelocity = minOf(0.0, samples.minOf { it.velocity })
+        val maxVelocity = maxOf(0.0, samples.maxOf { it.velocity })
+        val velocityRange = (maxVelocity - minVelocity).coerceAtLeast(1.0)
         val path = Path()
+        val zeroY = (size.height - ((0.0 - minVelocity) / velocityRange) * size.height).toFloat()
+
+        drawLine(AresBorder, Offset(0f, zeroY), Offset(size.width, zeroY), 1.dp.toPx())
 
         samples.forEachIndexed { index, sample ->
             val x = if (dt > 0) ((sample.timestampMs - minTime) / dt * size.width).toFloat() else 0f
-            val y = (size.height - (kotlin.math.abs(sample.velocity) / maxVel * size.height)).toFloat()
+            val normalizedVelocity = (sample.velocity - minVelocity) / velocityRange
+            val y = (size.height - normalizedVelocity * size.height).toFloat()
 
             if (index == 0) {
                 path.moveTo(x, y)
@@ -562,7 +569,7 @@ private fun LiveTelemetryPlot(samples: List<AlignedDataRow>) {
 }
 
 @Composable
-fun GainTuningPanel(
+private fun LegacyGainTuningPanel(
     viewModel: TuningViewModel,
     state: com.ares.analytics.viewmodel.TuningState,
     modifier: Modifier = Modifier

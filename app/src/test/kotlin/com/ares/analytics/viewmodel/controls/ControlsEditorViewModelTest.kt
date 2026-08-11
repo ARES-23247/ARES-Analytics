@@ -43,7 +43,7 @@ class ControlsEditorViewModelTest {
     }
 
     @Test
-    fun `desktop learning never copies a vendor button to FTC or FRC`() = withProject { project ->
+    fun `desktop learning changes only the desktop mapping`() = withProject { project ->
         val documents = seededDocuments(project)
         val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
         viewModel.selectControl("m1")
@@ -60,17 +60,31 @@ class ControlsEditorViewModelTest {
         val control = viewModel.state.value.selectedProfile?.controls?.first { it.controlId == "m1" }
         assertNotNull(control)
         assertEquals(17, control.mappings.single { it.platform == ControllerInputPlatform.DESKTOP_GLFW }.buttonIndex)
-        assertNull(control.mappings.firstOrNull { it.platform == ControllerInputPlatform.FTC })
+        assertEquals(20, control.mappings.single { it.platform == ControllerInputPlatform.FTC }.buttonIndex)
         assertNull(control.mappings.firstOrNull { it.platform == ControllerInputPlatform.FRC })
         assertTrue(viewModel.state.value.status.orEmpty().contains("FTC/FRC mappings were not changed"))
     }
 
     @Test
-    fun `binding edits save typed project documents and expose missing target mapping`() = withProject { project ->
+    fun `standard controls have novice ready platform mappings`() = withProject { project ->
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, seededDocuments(project))
+        val profile = viewModel.state.value.selectedProfile ?: error("Expected built-in controller profile")
+
+        val a = profile.controls.first { it.controlId == "a" }
+        val rightTrigger = profile.controls.first { it.controlId == "right_trigger" }
+        assertEquals(0, a.mappings.single { it.platform == ControllerInputPlatform.FTC }.buttonIndex)
+        assertEquals(0, a.mappings.single { it.platform == ControllerInputPlatform.FRC }.buttonIndex)
+        assertEquals(5, rightTrigger.mappings.single { it.platform == ControllerInputPlatform.FTC }.axisIndex)
+        assertEquals(3, rightTrigger.mappings.single { it.platform == ControllerInputPlatform.FRC }.axisIndex)
+    }
+
+    @Test
+    fun `binding edits save typed project documents after repairing a missing target mapping`() = withProject { project ->
         val documents = seededDocuments(project)
         val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
 
         viewModel.selectControl("a")
+        viewModel.setMapping("a", ControllerInputPlatform.FTC, null)
         viewModel.createBinding()
         viewModel.updateDraft { binding ->
             binding.copy(
@@ -100,7 +114,7 @@ class ControlsEditorViewModelTest {
         val mappings = savedProfile.controls.first { it.controlId == "a" }.mappings
         assertEquals(0, mappings.single { it.platform == ControllerInputPlatform.FTC }.buttonIndex)
         assertEquals(0, mappings.single { it.platform == ControllerInputPlatform.DESKTOP_GLFW }.buttonIndex)
-        assertNull(mappings.firstOrNull { it.platform == ControllerInputPlatform.FRC })
+        assertEquals(0, mappings.single { it.platform == ControllerInputPlatform.FRC }.buttonIndex)
         assertFalse(viewModel.state.value.dirty)
     }
 
@@ -224,6 +238,39 @@ class ControlsEditorViewModelTest {
         viewModel.createBinding()
         viewModel.selectScheme("practice-controls")
         assertEquals(originalId, viewModel.state.value.selectedSchemeId)
+        assertTrue(viewModel.state.value.status.orEmpty().contains("Apply or discard"))
+    }
+
+    @Test
+    fun `controller switch refuses to strand an unapplied draft`() = withProject { project ->
+        val documents = seededDocuments(project)
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+        val scheme = viewModel.state.value.selectedScheme ?: error("Expected seeded scheme")
+        assertTrue(scheme.controllers.any { it.slot == "operator" })
+        viewModel.selectControl("a")
+        viewModel.createBinding()
+
+        viewModel.selectController("operator")
+
+        assertEquals("driver", viewModel.state.value.selectedControllerSlot)
+        assertNotNull(viewModel.state.value.draftBinding)
+        assertTrue(viewModel.state.value.draftHasUnappliedChanges)
+        assertTrue(viewModel.state.value.status.orEmpty().contains("Apply or discard"))
+    }
+
+    @Test
+    fun `new binding cannot overwrite an unapplied draft`() = withProject { project ->
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, seededDocuments(project))
+        viewModel.selectControl("a")
+        viewModel.createBinding()
+        val originalDraftId = viewModel.state.value.draftBinding?.bindingId
+        viewModel.updateDraft { it.copy(displayName = "Unsaved intake") }
+        viewModel.selectControl("b")
+
+        viewModel.createBinding()
+
+        assertEquals(originalDraftId, viewModel.state.value.draftBinding?.bindingId)
+        assertEquals("Unsaved intake", viewModel.state.value.draftBinding?.displayName)
         assertTrue(viewModel.state.value.status.orEmpty().contains("Apply or discard"))
     }
 

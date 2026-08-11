@@ -6,6 +6,7 @@ import java.nio.file.Files
 import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -90,6 +91,57 @@ class DatabaseServiceIntegrationTest {
         withDatabase { database ->
             val result = database.executeQueryRaw("SHOW TABLES")
             assertTrue(result.rows.flatten().contains("telemetry_frames"))
+        }
+    }
+
+    @Test
+    fun `database browser caps custom query rows and reports truncation`() = runTest {
+        withDatabase { database ->
+            val result = database.executeQueryRaw(
+                sql = "SELECT range AS value FROM range(0, 25)",
+                rowLimit = 10
+            )
+
+            assertEquals(10, result.rows.size)
+            assertEquals("0", result.rows.first().single())
+            assertEquals("9", result.rows.last().single())
+            assertEquals(10, result.rowLimit)
+            assertTrue(result.isTruncated)
+        }
+    }
+
+    @Test
+    fun `database browser does not claim truncation at exact row limit`() = runTest {
+        withDatabase { database ->
+            val result = database.executeQueryRaw(
+                sql = "SELECT range AS value FROM range(0, 10)",
+                rowLimit = 10
+            )
+
+            assertEquals(10, result.rows.size)
+            assertFalse(result.isTruncated)
+        }
+    }
+
+    @Test
+    fun `database browser bounds oversized cells before returning UI state`() = runTest {
+        withDatabase { database ->
+            val result = database.executeQueryRaw("SELECT repeat('x', 20000) AS payload")
+
+            assertEquals(1, result.truncatedCellCount)
+            assertEquals(QueryResult.MAX_CELL_CHARACTERS + 1, result.rows.single().single().length)
+            assertTrue(result.rows.single().single().endsWith("…"))
+        }
+    }
+
+    @Test
+    fun `database browser still rejects write statements`() = runTest {
+        withDatabase { database ->
+            val failure = runCatching {
+                database.executeQueryRaw("DELETE FROM sessions")
+            }.exceptionOrNull()
+
+            assertTrue(failure is IllegalArgumentException)
         }
     }
 

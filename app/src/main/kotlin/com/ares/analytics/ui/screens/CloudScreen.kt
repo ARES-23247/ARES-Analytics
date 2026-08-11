@@ -27,7 +27,14 @@ import com.ares.analytics.shared.SessionSummary
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.CloudIntent
 import com.ares.analytics.viewmodel.CloudViewModel
-import com.ares.analytics.viewmodel.RobotLogFileInfo
+import com.ares.analytics.viewmodel.RobotRun
+import com.ares.analytics.viewmodel.SessionSyncInfo
+
+private sealed interface PendingCloudDeletion {
+    data class RobotRuns(val runs: List<RobotRun>) : PendingCloudDeletion
+    data class LocalSessions(val sessions: List<SessionSyncInfo>) : PendingCloudDeletion
+    data class CloudSessions(val sessions: List<SessionSyncInfo>) : PendingCloudDeletion
+}
 
 /**
  * Cloud management screen for pulling raw robot logs over local Wi-Fi, converting to Parquet, and syncing with Google Cloud Run gateway.
@@ -38,6 +45,7 @@ import com.ares.analytics.viewmodel.RobotLogFileInfo
  * @param viewModel [CloudViewModel] managing cloud intent dispatching and state updates.
  * @param teamId Unique identifier for the team.
  * @param seasonId Unique identifier for the season.
+ * @param robotId Active workspace robot identifier applied to imported robot logs.
  *
  * @see com.ares.analytics.viewmodel.CloudViewModel
  * @see com.ares.analytics.service.SyncEngineService
@@ -46,11 +54,45 @@ import com.ares.analytics.viewmodel.RobotLogFileInfo
 fun CloudScreen(
     viewModel: CloudViewModel,
     teamId: String,
-    seasonId: String
+    seasonId: String,
+    robotId: String
 ) {
     val state by viewModel.state.collectAsState()
     val checkedRobotRuns = remember { mutableStateListOf<String>() }
     val checkedSessions = remember { mutableStateListOf<String>() }
+    var pendingDeletion by remember { mutableStateOf<PendingCloudDeletion?>(null) }
+
+    pendingDeletion?.let { request ->
+        CloudDeletionConfirmationDialog(
+            request = request,
+            onDismiss = { pendingDeletion = null },
+            onConfirm = {
+                when (request) {
+                    is PendingCloudDeletion.RobotRuns -> {
+                        viewModel.onIntent(CloudIntent.DeleteMultipleRobotRuns(request.runs.map { it.runId }))
+                        checkedRobotRuns.removeAll(request.runs.map { it.runId }.toSet())
+                    }
+                    is PendingCloudDeletion.LocalSessions -> {
+                        viewModel.onIntent(
+                            CloudIntent.DeleteMultipleLocalSessions(
+                                request.sessions.map { it.summary.sessionId }
+                            )
+                        )
+                        checkedSessions.removeAll(request.sessions.map { it.summary.sessionId }.toSet())
+                    }
+                    is PendingCloudDeletion.CloudSessions -> {
+                        viewModel.onIntent(
+                            CloudIntent.DeleteMultipleRemoteSessions(
+                                request.sessions.map { it.summary.sessionId to it.summary.teamId }
+                            )
+                        )
+                        checkedSessions.removeAll(request.sessions.map { it.summary.sessionId }.toSet())
+                    }
+                }
+                pendingDeletion = null
+            }
+        )
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -152,13 +194,14 @@ fun CloudScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val allChecked = state.robotRuns.isNotEmpty() && state.robotRuns.all { it.runId in checkedRobotRuns }
+                            val selectableRuns = state.robotRuns.filterNot { it.isActive }
+                            val allChecked = selectableRuns.isNotEmpty() && selectableRuns.all { it.runId in checkedRobotRuns }
                             Checkbox(
                                 checked = allChecked,
                                 onCheckedChange = { check ->
                                     if (check) {
                                         checkedRobotRuns.clear()
-                                        checkedRobotRuns.addAll(state.robotRuns.map { it.runId })
+                                        checkedRobotRuns.addAll(selectableRuns.map { it.runId })
                                     } else {
                                         checkedRobotRuns.clear()
                                     }
@@ -178,7 +221,14 @@ fun CloudScreen(
                     ) {
                         Button(
                             onClick = {
-                                viewModel.onIntent(CloudIntent.UploadMultipleRobotRuns(checkedRobotRuns.toList(), teamId, seasonId, "robot-1"))
+                                viewModel.onIntent(
+                                    CloudIntent.UploadMultipleRobotRuns(
+                                        checkedRobotRuns.toList(),
+                                        teamId,
+                                        seasonId,
+                                        robotId
+                                    )
+                                )
                                 checkedRobotRuns.clear()
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
@@ -190,8 +240,10 @@ fun CloudScreen(
 
                         Button(
                             onClick = {
-                                viewModel.onIntent(CloudIntent.DeleteMultipleRobotRuns(checkedRobotRuns.toList()))
-                                checkedRobotRuns.clear()
+                                val runs = state.robotRuns.filter { it.runId in checkedRobotRuns && !it.isActive }
+                                if (runs.isNotEmpty()) {
+                                    pendingDeletion = PendingCloudDeletion.RobotRuns(runs)
+                                }
                             },
                             colors = ButtonDefaults.buttonColors(containerColor = AresRed),
                             modifier = Modifier.height(32.dp),
@@ -226,8 +278,14 @@ fun CloudScreen(
                                             if (check) checkedRobotRuns.add(run.runId) else checkedRobotRuns.remove(run.runId)
                                         },
                                         isUploading = state.isUploadingRobotLog == run.runId || state.isUploadingRobotLog == "BATCH",
-                                        onUpload = { viewModel.onIntent(CloudIntent.UploadRobotRun(run.runId, teamId, seasonId, "robot-1")) },
-                                        onDelete = { viewModel.onIntent(CloudIntent.DeleteRobotRun(run.runId)) }
+                                        onUpload = {
+                                            viewModel.onIntent(
+                                                CloudIntent.UploadRobotRun(run.runId, teamId, seasonId, robotId)
+                                            )
+                                        },
+                                        onDelete = {
+                                            pendingDeletion = PendingCloudDeletion.RobotRuns(listOf(run))
+                                        }
                                     )
                                 }
                             }
@@ -278,8 +336,8 @@ fun CloudScreen(
                     ) {
                         val selectedSessionInfos = state.sessions.filter { it.summary.sessionId in checkedSessions }
                         val remoteOnlySummaries = selectedSessionInfos.filter { !it.isLocal && it.isRemote }.map { it.summary }
-                        val localOnlySessionIds = selectedSessionInfos.filter { it.isLocal }.map { it.summary.sessionId }
-                        val remoteSessionIdsAndTeamIds = selectedSessionInfos.filter { it.isRemote }.map { it.summary.sessionId to it.summary.teamId }
+                        val localSessions = selectedSessionInfos.filter { it.isLocal }
+                        val remoteSessions = selectedSessionInfos.filter { it.isRemote }
 
                         if (remoteOnlySummaries.isNotEmpty()) {
                             Button(
@@ -295,31 +353,29 @@ fun CloudScreen(
                             }
                         }
 
-                        if (localOnlySessionIds.isNotEmpty()) {
+                        if (localSessions.isNotEmpty()) {
                             Button(
                                 onClick = {
-                                    viewModel.onIntent(CloudIntent.DeleteMultipleLocalSessions(localOnlySessionIds))
-                                    checkedSessions.clear()
+                                    pendingDeletion = PendingCloudDeletion.LocalSessions(localSessions)
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = AresRed),
                                 modifier = Modifier.height(32.dp),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                             ) {
-                                Text("Del Local (${localOnlySessionIds.size})", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("Delete Local (${localSessions.size})", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
 
-                        if (remoteSessionIdsAndTeamIds.isNotEmpty()) {
+                        if (remoteSessions.isNotEmpty()) {
                             Button(
                                 onClick = {
-                                    viewModel.onIntent(CloudIntent.DeleteMultipleRemoteSessions(remoteSessionIdsAndTeamIds))
-                                    checkedSessions.clear()
+                                    pendingDeletion = PendingCloudDeletion.CloudSessions(remoteSessions)
                                 },
                                 colors = ButtonDefaults.buttonColors(containerColor = AresRed),
                                 modifier = Modifier.height(32.dp),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                             ) {
-                                Text("Del Cloud (${remoteSessionIdsAndTeamIds.size})", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("Delete Cloud (${remoteSessions.size})", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -345,8 +401,12 @@ fun CloudScreen(
                                     },
                                     onUpload = { viewModel.onIntent(CloudIntent.UploadSession(sessionInfo.summary.sessionId)) },
                                     onDownload = { viewModel.onIntent(CloudIntent.DownloadSession(sessionInfo.summary)) },
-                                    onDeleteLocal = { viewModel.onIntent(CloudIntent.DeleteSessionLocal(sessionInfo.summary.sessionId)) },
-                                    onDeleteRemote = { viewModel.onIntent(CloudIntent.DeleteSessionRemote(sessionInfo.summary.sessionId, sessionInfo.summary.teamId)) }
+                                    onDeleteLocal = {
+                                        pendingDeletion = PendingCloudDeletion.LocalSessions(listOf(sessionInfo))
+                                    },
+                                    onDeleteRemote = {
+                                        pendingDeletion = PendingCloudDeletion.CloudSessions(listOf(sessionInfo))
+                                    }
                                 )
                             }
                         }
@@ -409,6 +469,116 @@ fun CloudScreen(
             }
         }
     }
+}
+
+private data class DeletionDialogCopy(
+    val title: String,
+    val location: String,
+    val itemNames: List<String>,
+    val details: String,
+    val retainedCopyNote: String,
+    val confirmLabel: String
+)
+
+@Composable
+private fun CloudDeletionConfirmationDialog(
+    request: PendingCloudDeletion,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val copy = when (request) {
+        is PendingCloudDeletion.RobotRuns -> {
+            val fileCount = request.runs.sumOf { it.files.size }
+            val totalBytes = request.runs.sumOf { it.totalSizeBytes }
+            DeletionDialogCopy(
+                title = if (request.runs.size == 1) "Delete robot log run?" else "Delete ${request.runs.size} robot log runs?",
+                location = "Connected robot storage",
+                itemNames = request.runs.map { "Run ${it.runId}" },
+                details = "$fileCount raw ${if (fileCount == 1) "file" else "files"}, ${formatBytes(totalBytes)}",
+                retainedCopyNote = "Any copies already imported into this computer or uploaded to cloud storage are kept.",
+                confirmLabel = "Delete from robot"
+            )
+        }
+        is PendingCloudDeletion.LocalSessions -> DeletionDialogCopy(
+            title = if (request.sessions.size == 1) "Delete local session?" else "Delete ${request.sessions.size} local sessions?",
+            location = "Local DuckDB on this computer",
+            itemNames = request.sessions.map { sessionDisplayName(it.summary) },
+            details = "${request.sessions.size} ${if (request.sessions.size == 1) "session" else "sessions"}",
+            retainedCopyNote = "Cloud copies are kept. Sessions without a cloud copy will no longer be available on this computer.",
+            confirmLabel = "Delete local copy"
+        )
+        is PendingCloudDeletion.CloudSessions -> DeletionDialogCopy(
+            title = if (request.sessions.size == 1) "Delete cloud session?" else "Delete ${request.sessions.size} cloud sessions?",
+            location = "Google Drive cloud storage",
+            itemNames = request.sessions.map { sessionDisplayName(it.summary) },
+            details = "${request.sessions.size} ${if (request.sessions.size == 1) "session" else "sessions"}",
+            retainedCopyNote = "Local DuckDB copies are kept. Cloud-only sessions will no longer be available on another computer.",
+            confirmLabel = "Delete cloud copy"
+        )
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Warning, contentDescription = null, tint = AresAmber) },
+        title = { Text(copy.title, color = AresTextPrimary, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("DELETION LOCATION", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(copy.location, color = AresRed, fontWeight = FontWeight.Bold)
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(AresBackground, RoundedCornerShape(6.dp))
+                        .border(1.dp, AresBorder, RoundedCornerShape(6.dp))
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    copy.itemNames.take(5).forEach { name ->
+                        Text(name, color = AresTextPrimary, fontSize = 12.sp)
+                    }
+                    if (copy.itemNames.size > 5) {
+                        Text("+ ${copy.itemNames.size - 5} more", color = AresTextSecondary, fontSize = 12.sp)
+                    }
+                    Text(copy.details, color = AresTextSecondary, fontSize = 11.sp)
+                }
+
+                Text(copy.retainedCopyNote, color = AresTextSecondary, fontSize = 12.sp)
+                Text("This deletion cannot be undone from ARES.", color = AresAmber, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(containerColor = AresRed)
+            ) {
+                Text(copy.confirmLabel, color = AresTextPrimary, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("Cancel", color = AresTextSecondary)
+            }
+        },
+        containerColor = AresSurface,
+        shape = RoundedCornerShape(12.dp)
+    )
+}
+
+private fun sessionDisplayName(summary: SessionSummary): String {
+    val runName = runCatching {
+        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date(summary.createdAt))
+    }.getOrDefault("Unknown date")
+    val match = summary.matchNumber?.let { " • Match $it" }.orEmpty()
+    return "$runName$match • ${summary.sessionId.take(8)}"
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024L -> "%.1f MB".format(bytes / (1024.0 * 1024.0))
+    bytes >= 1024L -> "%.1f KB".format(bytes / 1024.0)
+    else -> "$bytes B"
 }
 
 @Composable

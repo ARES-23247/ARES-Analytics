@@ -25,7 +25,6 @@ data class MainState(
     val runsIndexReloadTrigger: Int = 0,
     val diagnosticsResponse: ForensicsResponse? = null,
     val isTerminalOpen: Boolean = false,
-    val isKeybindingsOpen: Boolean = false,
     val parsedBindings: List<ControllerBinding> = emptyList(),
     val showUpdateBanner: Boolean = true
 )
@@ -43,8 +42,6 @@ sealed class MainIntent {
     data class SetDiagnosticsResponse(val response: ForensicsResponse?) : MainIntent()
 
     data class SetTerminalOpen(val isOpen: Boolean) : MainIntent()
-
-    data class SetKeybindingsOpen(val isOpen: Boolean) : MainIntent()
 
     object RefreshKeybindings : MainIntent()
 
@@ -100,12 +97,6 @@ class MainViewModel(
                 }
                 is MainIntent.SetTerminalOpen -> {
                     _state.update { it.copy(isTerminalOpen = intent.isOpen) }
-                }
-                is MainIntent.SetKeybindingsOpen -> {
-                    _state.update { it.copy(isKeybindingsOpen = intent.isOpen) }
-                    if (intent.isOpen && _state.value.parsedBindings.isEmpty()) {
-                        onIntent(MainIntent.RefreshKeybindings)
-                    }
                 }
                 is MainIntent.RefreshKeybindings -> {
                     val path = _state.value.config?.projectPath

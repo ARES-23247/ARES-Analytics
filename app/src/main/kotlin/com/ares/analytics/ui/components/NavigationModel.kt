@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.SupervisorAccount
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Tune
@@ -28,9 +29,10 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     ACADEMY("ARES Academy", Icons.Default.School),
     KDOC_VIEWER("KDoc Explorer", Icons.Default.Book),
     PIT_DIAGNOSTICS("Pit Self-Test", Icons.Default.Build),
-    MATCH_STRATEGY("Match Strategy", Icons.Default.Analytics),
+    MATCH_STRATEGY("Strategy Preview", Icons.Default.Analytics),
     RUN_HISTORY("Run History", Icons.Default.TableChart),
     DATABASE_VIEWER("Database", Icons.Default.Storage),
+    CONTROLS("TeleOp Controls", Icons.Default.SportsEsports),
     TUNING("Tuning", Icons.Default.Tune),
     SUBSYSTEM_GEN("Subsystem Builder", Icons.Default.Construction),
     PROFILE("Profile", Icons.Default.Person),
@@ -50,17 +52,20 @@ val primaryNavigationSections = NavigationSection.entries.toList()
 
 val developerToolTargets = setOf(
     NavigationTarget.KDOC_VIEWER,
-    NavigationTarget.DATABASE_VIEWER
+    NavigationTarget.DATABASE_VIEWER,
+    NavigationTarget.MATCH_STRATEGY
 )
 
 fun NavigationTarget.section(): NavigationSection? = when (this) {
     NavigationTarget.DASHBOARD -> NavigationSection.DASHBOARD
-    NavigationTarget.PIT_DIAGNOSTICS, NavigationTarget.TUNING, NavigationTarget.SUBSYSTEM_GEN -> NavigationSection.ROBOT
+    NavigationTarget.PIT_DIAGNOSTICS, NavigationTarget.CONTROLS,
+    NavigationTarget.TUNING, NavigationTarget.SUBSYSTEM_GEN -> NavigationSection.ROBOT
     NavigationTarget.PATH_PLANNER, NavigationTarget.FIELD_EDITOR -> NavigationSection.AUTONOMOUS
-    NavigationTarget.RUN_HISTORY, NavigationTarget.MATCH_STRATEGY -> NavigationSection.ANALYSIS
+    NavigationTarget.RUN_HISTORY -> NavigationSection.ANALYSIS
     NavigationTarget.IMPORT_CENTER, NavigationTarget.CLOUD -> NavigationSection.DATA
     NavigationTarget.PROFILE, NavigationTarget.ADMIN -> NavigationSection.SETTINGS
-    NavigationTarget.ACADEMY, NavigationTarget.KDOC_VIEWER, NavigationTarget.DATABASE_VIEWER -> null
+    NavigationTarget.ACADEMY, NavigationTarget.KDOC_VIEWER,
+    NavigationTarget.DATABASE_VIEWER, NavigationTarget.MATCH_STRATEGY -> null
 }
 
 fun NavigationSection.defaultTarget(): NavigationTarget = when (this) {
@@ -76,11 +81,12 @@ fun NavigationSection.targets(): List<NavigationTarget> = when (this) {
     NavigationSection.DASHBOARD -> listOf(NavigationTarget.DASHBOARD)
     NavigationSection.ROBOT -> listOf(
         NavigationTarget.SUBSYSTEM_GEN,
+        NavigationTarget.CONTROLS,
         NavigationTarget.PIT_DIAGNOSTICS,
         NavigationTarget.TUNING,
     )
     NavigationSection.AUTONOMOUS -> listOf(NavigationTarget.PATH_PLANNER, NavigationTarget.FIELD_EDITOR)
-    NavigationSection.ANALYSIS -> listOf(NavigationTarget.RUN_HISTORY, NavigationTarget.MATCH_STRATEGY)
+    NavigationSection.ANALYSIS -> listOf(NavigationTarget.RUN_HISTORY)
     NavigationSection.DATA -> listOf(NavigationTarget.IMPORT_CENTER, NavigationTarget.CLOUD)
     NavigationSection.SETTINGS -> listOf(NavigationTarget.PROFILE, NavigationTarget.ADMIN)
 }

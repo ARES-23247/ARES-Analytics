@@ -18,7 +18,6 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.ReplayFrame
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.ui.theme.*
-import com.areslib.math.InputMath
 import kotlinx.coroutines.launch
 
 @Composable
@@ -41,84 +40,6 @@ fun JoystickVisualizer(
     val keyboardControlEnabled = keyboardState.enabled
     val gamepad1StateFlow = services?.gamepadService?.gamepad1State
     val gamepad2StateFlow = services?.gamepadService?.gamepad2State
-    val isWindowFocused = androidx.compose.ui.platform.LocalWindowInfo.current.isWindowFocused
-
-    // Keyboard/Gamepad publishing loop
-    LaunchedEffect(keyboardControlEnabled, isWindowFocused) {
-        if (keyboardControlEnabled && nt4ClientService != null) {
-            var heartbeat = 0L
-            var lastVx: Double? = null
-            var lastVy: Double? = null
-            var lastOmega: Double? = null
-            var lastQ: Boolean? = null
-            var lastE: Boolean? = null
-            var lastShift: Boolean? = null
-            var lastA: Boolean? = null
-            var lastB: Boolean? = null
-            var lastX: Boolean? = null
-            var lastY: Boolean? = null
-
-            // Publish static configurations once
-            nt4ClientService.publishBoolean("ARES/Input/isTeleopMode", true)
-            nt4ClientService.publishBoolean("ARES/Input/isFieldCentric", false)
-            nt4ClientService.publishBoolean("ARES/Input/isRedAlliance", true)
-
-            while (true) {
-                val g1 = gamepad1StateFlow?.value
-
-                val (vx, vy, omega) = if (!isWindowFocused) {
-                    Triple(0.0, 0.0, 0.0)
-                } else if (keyboardState.useGamepad && g1 != null && g1.connected) {
-                    val rawY = InputMath.applyDeadband(g1.leftStickY.toDouble(), 0.02)
-                    val rawX = InputMath.applyDeadband(g1.leftStickX.toDouble(), 0.02)
-                    val rawOmega = InputMath.applyDeadband(g1.rightStickX.toDouble(), 0.02)
-                    val activeVx = InputMath.applyCurve(rawY, 1.2) * 4.0
-                    val activeVy = InputMath.applyCurve(rawX, 1.2) * -4.0
-                    val activeOmega = InputMath.applyCurve(rawOmega, 1.2) * -4.0
-                    Triple(activeVx, activeVy, activeOmega)
-                } else {
-                    val activeVx = when {
-                        keyboardState.isWPressed -> 4.0
-                        keyboardState.isSPressed -> -4.0
-                        else -> 0.0
-                    }
-                    val activeVy = when {
-                        keyboardState.isAPressed -> 4.0
-                        keyboardState.isDPressed -> -4.0
-                        else -> 0.0
-                    }
-                    val activeOmega = when {
-                        keyboardState.isLeftPressed -> 4.0
-                        keyboardState.isRightPressed -> -4.0
-                        else -> 0.0
-                    }
-                    Triple(activeVx, activeVy, activeOmega)
-                }
-                val qPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.leftBumper else keyboardState.isQPressed
-                val ePressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.rightBumper else keyboardState.isEPressed
-                val shiftPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.rightTrigger > 0.5f else keyboardState.isShiftPressed
-                val aPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.a else keyboardState.isJPressed
-                val bPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.b else keyboardState.isLPressed
-                val xPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.x else keyboardState.isUPressed
-                val yPressed = if (keyboardState.useGamepad && g1 != null && g1.connected) g1.y else keyboardState.isIPressed
-
-                if (vx != lastVx) { nt4ClientService.publishDouble("ARES/Input/vx", vx); lastVx = vx }
-                if (vy != lastVy) { nt4ClientService.publishDouble("ARES/Input/vy", vy); lastVy = vy }
-                if (omega != lastOmega) { nt4ClientService.publishDouble("ARES/Input/omega", omega); lastOmega = omega }
-
-                if (qPressed != lastQ) { nt4ClientService.publishBoolean("ARES/Input/isIntaking", qPressed); lastQ = qPressed }
-                if (ePressed != lastE) { nt4ClientService.publishBoolean("ARES/Input/isFlywheelOn", ePressed); lastE = ePressed }
-                if (shiftPressed != lastShift) { nt4ClientService.publishBoolean("ARES/Input/isTransferring", shiftPressed); lastShift = shiftPressed }
-
-                if (aPressed != lastA) { nt4ClientService.publishBoolean("ARES/Input/isButtonAPressed", aPressed); lastA = aPressed }
-                if (bPressed != lastB) { nt4ClientService.publishBoolean("ARES/Input/isButtonBPressed", bPressed); lastB = bPressed }
-                if (xPressed != lastX) { nt4ClientService.publishBoolean("ARES/Input/isButtonXPressed", xPressed); lastX = xPressed }
-                if (yPressed != lastY) { nt4ClientService.publishBoolean("ARES/Input/isButtonYPressed", yPressed); lastY = yPressed }
-
-                kotlinx.coroutines.delay(20)
-            }
-        }
-    }
 
     Column(
         modifier = modifier
@@ -152,45 +73,33 @@ fun JoystickVisualizer(
                     shape = RoundedCornerShape(6.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    Text("🎮 View Mappings", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Configure controls", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
 
                 Button(
-                    onClick = { keyboardState.useGamepad = !keyboardState.useGamepad },
+                    onClick = {
+                        keyboardState.releaseAll()
+                        keyboardState.useGamepad = !keyboardState.useGamepad
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = if (keyboardState.useGamepad) AresCyan else AresSurfaceElevated),
                     shape = RoundedCornerShape(6.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    Text(if (keyboardState.useGamepad) "Mode: Controller" else "Mode: Keyboard", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(if (keyboardState.useGamepad) "Input: Gamepad" else "Input: Keyboard", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
                 if (nt4ClientService != null) {
                     Button(
                         onClick = {
-                            when {
-                                !keyboardControlEnabled -> {
-                                    keyboardState.enabled = true
-                                    keyboardState.useGamepad = true
-                                }
-                                keyboardState.useGamepad -> {
-                                    keyboardState.useGamepad = false
-                                }
-                                else -> {
-                                    keyboardState.enabled = false
-                                }
-                            }
+                            if (keyboardControlEnabled) keyboardState.disarm() else keyboardState.enabled = true
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (keyboardControlEnabled) AresGreen else AresCyan
+                            containerColor = if (keyboardControlEnabled) AresGold else AresCyan
                         ),
                         shape = RoundedCornerShape(6.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
-                            when {
-                                !keyboardControlEnabled -> "🔌 Live Telemetry"
-                                keyboardState.useGamepad -> "🎮 Local Gamepad"
-                                else -> "⌨️ Local Keyboard"
-                            },
+                            if (keyboardControlEnabled) "Disarm local control" else "Arm local control",
                             color = AresBackground,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
@@ -198,6 +107,20 @@ fun JoystickVisualizer(
                     }
                 }
             }
+        }
+
+        if (keyboardControlEnabled) {
+            Text(
+                if (keyboardState.useGamepad) {
+                    "Hold the left trigger to send local gamepad commands. Releasing it immediately neutralizes every output."
+                } else {
+                    "Hold Space while using the keyboard. Releasing Space immediately neutralizes every output."
+                },
+                color = AresGold,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
 
         Row(

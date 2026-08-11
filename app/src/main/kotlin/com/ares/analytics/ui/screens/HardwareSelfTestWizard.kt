@@ -1,18 +1,37 @@
-
 package com.ares.analytics.ui.screens
 
-import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -20,251 +39,204 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
-import com.ares.analytics.ui.theme.*
+import com.ares.analytics.shared.TelemetryFrame
+import com.ares.analytics.shared.TelemetryMetricCatalog
+import com.ares.analytics.ui.theme.AresBackground
+import com.ares.analytics.ui.theme.AresBorder
+import com.ares.analytics.ui.theme.AresCyan
+import com.ares.analytics.ui.theme.AresGold
+import com.ares.analytics.ui.theme.AresGreen
+import com.ares.analytics.ui.theme.AresRed
+import com.ares.analytics.ui.theme.AresSurface
+import com.ares.analytics.ui.theme.AresSurfaceElevated
+import com.ares.analytics.ui.theme.AresTextPrimary
+import com.ares.analytics.ui.theme.AresTextSecondary
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 
-/**
- * Diagnostic step execution record in the automated hardware self-test wizard sequence.
- *
- * @property id Unique step identifier string.
- * @property name Diagnostic test label.
- * @property description Detailed testing instructions or diagnostic assertion goals.
- * @property status Current execution status (`"PENDING"`, `"CONFIRMING"`, `"RUNNING"`, `"PASSED"`, `"FAILED"`).
- * @property details Telemetry readings or error output log string.
- */
-data class SelfTestStep(
+internal enum class SelfTestStatus {
+    WAITING,
+    OBSERVED,
+    WARNING
+}
+
+internal data class SelfTestStep(
     val id: String,
     val name: String,
     val description: String,
-    var status: String = "PENDING", // PENDING, CONFIRMING, RUNNING, PASSED, FAILED
-    var details: String = ""
+    val status: SelfTestStatus,
+    val details: String
 )
 
 /**
- * Automated robot hardware self-test wizard screen.
+ * Builds an honest, read-only preflight from telemetry already published by the robot.
  *
- * Sequentially tests motor encoders, GoBilda Pinpoint odometry computers, Limelight cameras, CAN bus devices, and battery voltage levels over NT4.
- *
- * @param nt4ClientService NT4 service supplying real-time topic telemetry feeds.
- *
- * @see Nt4ClientService
- * @see SelfTestStep
+ * An observed topic proves only that the signal reached the app. It does not pulse motors,
+ * infer encoder direction, or certify match readiness. Active checks require a future
+ * robot-side protocol with acknowledgements and safety interlocks.
  */
+internal fun evaluateHardwareReadiness(
+    connected: Boolean,
+    frames: Map<String, TelemetryFrame>
+): List<SelfTestStep> {
+    data class Definition(val id: String, val name: String, val description: String)
+    val definitions = listOf(
+        Definition("battery", "Battery voltage", "Confirms a finite robot voltage signal above the pit warning threshold."),
+        Definition("motor_fl", "Front-left drive signal", "Confirms telemetry exists; it does not command or certify the motor."),
+        Definition("motor_fr", "Front-right drive signal", "Confirms telemetry exists; it does not command or certify the motor."),
+        Definition("motor_rl", "Rear-left drive signal", "Confirms telemetry exists; it does not command or certify the motor."),
+        Definition("motor_rr", "Rear-right drive signal", "Confirms telemetry exists; it does not command or certify the motor."),
+        Definition("pinpoint", "Pinpoint / odometry", "Checks the published health or odometry evidence without moving the robot."),
+        Definition("limelight", "Limelight / vision", "Checks published camera evidence without assuming that a target must be visible.")
+    )
+    if (!connected) {
+        return definitions.map { definition ->
+            SelfTestStep(definition.id, definition.name, definition.description, SelfTestStatus.WAITING, "Connect to a robot or simulator to observe this signal.")
+        }
+    }
+
+    fun numeric(vararg keys: String): TelemetryFrame? = keys.firstNotNullOfOrNull { frames[it] }
+    fun observed(definition: Definition, details: String) =
+        SelfTestStep(definition.id, definition.name, definition.description, SelfTestStatus.OBSERVED, details)
+    fun waiting(definition: Definition, details: String) =
+        SelfTestStep(definition.id, definition.name, definition.description, SelfTestStatus.WAITING, details)
+    fun warning(definition: Definition, details: String) =
+        SelfTestStep(definition.id, definition.name, definition.description, SelfTestStatus.WARNING, details)
+
+    val results = mutableListOf<SelfTestStep>()
+    val batteryDefinition = definitions[0]
+    val battery = TelemetryMetricCatalog.BATTERY_VOLTAGE.keys.firstNotNullOfOrNull { frames[it] }?.value
+    results += when {
+        battery == null || !battery.isFinite() -> waiting(batteryDefinition, "No finite battery-voltage topic received.")
+        battery < 11.5 -> warning(batteryDefinition, "${"%.2f".format(battery)} V observed; charge or inspect the battery before a match.")
+        else -> observed(batteryDefinition, "${"%.2f".format(battery)} V observed.")
+    }
+
+    listOf("fl" to definitions[1], "fr" to definitions[2], "rl" to definitions[3], "rr" to definitions[4]).forEach { (name, definition) ->
+        val aliases = if (name == "rl") listOf("rl", "bl") else if (name == "rr") listOf("rr", "br") else listOf(name)
+        val current = aliases.firstNotNullOfOrNull { numeric("Hardware/Motors/$it/CurrentAmps", "Hardware/Motors/$it/Current") }
+        val motion = aliases.firstNotNullOfOrNull { numeric("Hardware/Motors/$it/Velocity", "Hardware/Motors/$it/Power") }
+        results += if (current != null || motion != null) {
+            val evidence = listOfNotNull(
+                current?.value?.takeIf(Double::isFinite)?.let { "current ${"%.2f".format(it)} A" },
+                motion?.value?.takeIf(Double::isFinite)?.let { "motion signal ${"%.2f".format(it)}" }
+            ).joinToString()
+            observed(definition, if (evidence.isBlank()) "Motor topics observed." else "Telemetry observed: $evidence.")
+        } else {
+            waiting(definition, "No current, velocity, or power topic received for ${aliases.joinToString("/")}.")
+        }
+    }
+
+    val pinpointDefinition = definitions[5]
+    val pinpointStatus = frames["Drive/Pinpoint_Status"]?.stringValue?.trim().orEmpty()
+    val odometryObserved = listOf("Drive/Odom_X", "Drive/Odom_Y", "Drive/Odom_Heading")
+        .all { frames[it]?.value?.isFinite() == true }
+    results += when {
+        pinpointStatus.contains("FAULT", true) || pinpointStatus.contains("DISCONNECT", true) ->
+            warning(pinpointDefinition, "Robot reports: $pinpointStatus")
+        pinpointStatus.isNotBlank() && !pinpointStatus.equals("UNKNOWN", true) ->
+            observed(pinpointDefinition, "Robot reports: $pinpointStatus")
+        odometryObserved -> warning(pinpointDefinition, "Odometry values are present, but the robot did not identify Pinpoint health.")
+        else -> waiting(pinpointDefinition, "No Pinpoint health or complete odometry pose received.")
+    }
+
+    val visionDefinition = definitions[6]
+    val fps = frames["Vision/Limelight/FPS"]?.value
+    val visionTopicObserved = frames.containsKey("Vision/HasTarget") || frames.containsKey("Vision/MeasurementCount")
+    results += when {
+        fps != null && fps.isFinite() && fps >= 5.0 -> observed(visionDefinition, "${"%.1f".format(fps)} FPS observed.")
+        fps != null && fps.isFinite() -> warning(visionDefinition, "Only ${"%.1f".format(fps)} FPS observed.")
+        visionTopicObserved -> warning(visionDefinition, "Vision topics are present, but camera frame rate is not published.")
+        else -> waiting(visionDefinition, "No Limelight or vision-health topic received.")
+    }
+    return results
+}
+
+/** Read-only pit preflight. This screen never commands robot hardware. */
 @Composable
-fun HardwareSelfTestWizard(
-    nt4ClientService: Nt4ClientService
-) {
-    val scope = rememberCoroutineScope()
-    var isTestRunning by remember { mutableStateOf(false) }
-    var currentStepIndex by remember { mutableStateOf(0) }
-    var showSafetyDialog by remember { mutableStateOf(false) }
-    var safetyConfirmedChannel by remember { mutableStateOf("") }
+fun HardwareSelfTestWizard(nt4ClientService: Nt4ClientService) {
+    val connected by nt4ClientService.isConnected.collectAsState()
+    var steps by remember { mutableStateOf(evaluateHardwareReadiness(connected, nt4ClientService.latestValues)) }
 
-    var steps by remember {
-        mutableStateOf(
-            listOf(
-                SelfTestStep("battery_voltage", "1. Battery Health & Resistance", "Measures open-circuit voltage and internal resistance risk (>11.5V)."),
-                SelfTestStep("motor_fl", "2. Front-Left Motor ('fl') Pulse", "Pulse motor at 20% power. Measures current draw & encoder direction."),
-                SelfTestStep("motor_fr", "3. Front-Right Motor ('fr') Pulse", "Pulse motor at 20% power. Measures current draw & encoder direction."),
-                SelfTestStep("motor_rl", "4. Rear-Left Motor ('rl') Pulse", "Pulse motor at 20% power. Measures current draw & encoder direction."),
-                SelfTestStep("motor_rr", "5. Rear-Right Motor ('rr') Pulse", "Pulse motor at 20% power. Measures current draw & encoder direction."),
-                SelfTestStep("pinpoint_odom", "6. GoBilda Pinpoint Odometry", "Reads optical odometry encoder ticks and CCW-positive heading boundary."),
-                SelfTestStep("limelight_vision", "7. Limelight AprilTag Camera", "Verifies 20 Hz frame rate and 3D pose stream stability.")
-            )
-        )
+    LaunchedEffect(connected, nt4ClientService) {
+        while (isActive) {
+            steps = evaluateHardwareReadiness(connected, nt4ClientService.latestValues)
+            delay(250)
+        }
     }
 
-    val passedCount = steps.count { it.status == "PASSED" }
-    val isComplete = passedCount == steps.size
-
+    val observedCount = steps.count { it.status == SelfTestStatus.OBSERVED }
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AresBackground)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        Modifier.fillMaxSize().background(AresBackground),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        // Banner Header
         Card(
-            modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = AresSurface),
-            shape = RoundedCornerShape(12.dp)
+            border = BorderStroke(1.dp, AresBorder),
+            shape = RoundedCornerShape(10.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.Build, contentDescription = null, tint = AresGold, modifier = Modifier.size(28.dp))
-                        Text(
-                            text = "30-Second Pre-Match Hardware Self-Test Wizard",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = AresTextPrimary
-                        )
+                        Icon(Icons.Default.HealthAndSafety, null, tint = AresCyan, modifier = Modifier.size(24.dp))
+                        Column {
+                            Text("Pit readiness signals", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = AresTextPrimary)
+                            Text("Live, read-only evidence from NT4", color = AresTextSecondary, fontSize = 12.sp)
+                        }
                     }
-                    Text(
-                        text = "Automated pit diagnostics with driver safety pulse confirmation",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = AresTextSecondary
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusPill(if (connected) "CONNECTED" else "OFFLINE", if (connected) AresGreen else AresRed)
+                        StatusPill("$observedCount/${steps.size} CONFIRMED", AresCyan)
+                        IconButton(onClick = { steps = evaluateHardwareReadiness(connected, nt4ClientService.latestValues) }) {
+                            Icon(Icons.Default.Refresh, "Refresh readiness signals", tint = AresTextSecondary)
+                        }
+                    }
                 }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Surface(
-                        color = if (isComplete) AresGreen.copy(alpha = 0.15f) else AresGold.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(20.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isComplete) AresGreen else AresGold)
-                    ) {
+                Surface(color = AresGold.copy(alpha = .10f), shape = RoundedCornerShape(7.dp), border = BorderStroke(1.dp, AresGold.copy(alpha = .45f))) {
+                    Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Warning, null, tint = AresGold, modifier = Modifier.size(18.dp))
                         Text(
-                            text = if (isComplete) "100% PASSED — READY FOR MATCH" else "Progress: $passedCount / ${steps.size}",
-                            color = if (isComplete) AresGreen else AresGold,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                            "Signal presence is not a hardware certification. This page never pulses motors or declares the robot match-ready.",
+                            color = AresTextPrimary,
+                            fontSize = 12.sp
                         )
-                    }
-
-                    Button(
-                        onClick = {
-                            isTestRunning = true
-                            currentStepIndex = 0
-                            showSafetyDialog = true
-                            safetyConfirmedChannel = steps[1].name
-                        },
-                        enabled = !isTestRunning,
-                        colors = ButtonDefaults.buttonColors(containerColor = AresGold)
-                    ) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = null, tint = AresBackground)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Start Self-Test Sequence", color = AresBackground, fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
 
-        // Checklist Items
-        Card(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            colors = CardDefaults.cardColors(containerColor = AresSurface),
-            shape = RoundedCornerShape(12.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)
-        ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(steps) { step ->
-                    val borderCol = when (step.status) {
-                        "PASSED" -> AresGreen
-                        "FAILED" -> AresRed
-                        "RUNNING" -> AresCyan
-                        else -> AresBorder
-                    }
-
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
-                        shape = RoundedCornerShape(8.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, borderCol)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(14.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(step.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = AresTextPrimary)
-                                Text(step.description, style = MaterialTheme.typography.bodySmall, color = AresTextSecondary)
-                                if (step.details.isNotEmpty()) {
-                                    Text(step.details, fontSize = 11.sp, color = if (step.status == "PASSED") AresGreen else AresCyan, fontWeight = FontWeight.SemiBold)
-                                }
-                            }
-
-                            Surface(
-                                color = when (step.status) {
-                                    "PASSED" -> AresGreen.copy(alpha = 0.2f)
-                                    "FAILED" -> AresRed.copy(alpha = 0.2f)
-                                    "RUNNING" -> AresCyan.copy(alpha = 0.2f)
-                                    else -> Color.Transparent
-                                },
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text(
-                                    text = step.status,
-                                    color = when (step.status) {
-                                        "PASSED" -> AresGreen
-                                        "FAILED" -> AresRed
-                                        "RUNNING" -> AresCyan
-                                        else -> AresTextSecondary
-                                    },
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(steps, key = SelfTestStep::id) { step -> ReadinessRow(step) }
         }
     }
+}
 
-    // Driver Safety Pulse Confirmation Dialog
-    if (showSafetyDialog) {
-        AlertDialog(
-            onDismissRequest = { showSafetyDialog = false; isTestRunning = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Icon(Icons.Default.Warning, contentDescription = null, tint = AresGold)
-                    Text("Driver Safety Pulse Confirmation", fontWeight = FontWeight.Bold, color = AresGold)
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("About to test: $safetyConfirmedChannel", fontWeight = FontWeight.Bold)
-                    Text("Ensure wheels are clear of hands, clothing, and pit cables before pulsing motor at 20% power.")
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showSafetyDialog = false
-                        scope.launch {
-                            // Execute test step sequence
-                            steps = steps.mapIndexed { idx, item ->
-                                if (idx == 0) item.copy(status = "PASSED", details = "12.4V (Healthy battery, internal resistance <0.02 Ohm)") else item
-                            }
-                            delay(400)
-                            steps = steps.mapIndexed { idx, item ->
-                                if (idx in 1..4) item.copy(status = "PASSED", details = "Pulsed @ 20% power: 1.2A current, Encoder feedback OK") else item
-                            }
-                            delay(400)
-                            steps = steps.mapIndexed { idx, item ->
-                                if (idx == 5) item.copy(status = "PASSED", details = "Pinpoint I2C connected. CCW+ heading verified.") else item
-                            }
-                            delay(300)
-                            steps = steps.mapIndexed { idx, item ->
-                                if (idx == 6) item.copy(status = "PASSED", details = "Limelight streaming 20.4 FPS. Target tracking active.") else item
-                            }
-                            isTestRunning = false
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = AresGreen)
-                ) {
-                    Text("Clear & Pulse Channel", color = AresBackground, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSafetyDialog = false; isTestRunning = false }) {
-                    Text("Abort Self-Test", color = AresRed)
-                }
+@Composable
+private fun ReadinessRow(step: SelfTestStep) {
+    val color = when (step.status) {
+        SelfTestStatus.OBSERVED -> AresGreen
+        SelfTestStatus.WARNING -> AresGold
+        SelfTestStatus.WAITING -> AresTextSecondary
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AresSurface),
+        border = BorderStroke(1.dp, if (step.status == SelfTestStatus.WAITING) AresBorder else color.copy(alpha = .65f)),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(step.name, color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
+                Text(step.description, color = AresTextSecondary, fontSize = 11.sp)
+                Text(step.details, color = color, fontSize = 11.sp)
             }
-        )
+            StatusPill(step.status.name, color)
+        }
+    }
+}
+
+@Composable
+private fun StatusPill(label: String, color: Color) {
+    Surface(color = color.copy(alpha = .12f), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, color.copy(alpha = .6f))) {
+        Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp))
     }
 }

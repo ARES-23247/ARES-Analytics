@@ -76,6 +76,18 @@ fun MatchStrategyScreen() {
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        Surface(
+            color = AresGold.copy(alpha = .12f),
+            shape = RoundedCornerShape(8.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, AresGold)
+        ) {
+            Text(
+                "DEVELOPER PREVIEW — Every value on this page is sample data. Do not use it for match decisions.",
+                color = AresGold,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.fillMaxWidth().padding(12.dp)
+            )
+        }
         // Header Banner
         Card(
             modifier = Modifier.fillMaxWidth(),
@@ -93,14 +105,14 @@ fun MatchStrategyScreen() {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(Icons.Default.Analytics, contentDescription = null, tint = AresPurple, modifier = Modifier.size(28.dp))
                         Text(
-                            text = "Match Strategy & Automated Driver Coaching",
+                            text = "Strategy UI Preview",
                             style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.Bold,
                             color = AresTextPrimary
                         )
                     }
                     Text(
-                        text = "Field heatmaps, battery voltage drain curves, and automated driver performance insights",
+                        text = "Sample layout for a future session-backed analysis workflow",
                         style = MaterialTheme.typography.bodyMedium,
                         color = AresTextSecondary
                     )

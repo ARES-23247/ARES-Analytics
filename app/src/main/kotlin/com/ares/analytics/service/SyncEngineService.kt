@@ -819,9 +819,7 @@ class SyncEngineService(
         finalResponse
     }
 
-    /**
-     * Deletes a cloud session and removes it locally.
-     */
+    /** Deletes only the Google Drive copy of a session. Local DuckDB data is independent. */
     suspend fun deleteCloudSession(sessionId: String, teamId: String, authToken: String? = null) = withContext(Dispatchers.IO) {
         try {
             val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
@@ -855,10 +853,8 @@ class SyncEngineService(
                 }
             }
         } catch (e: Exception) {
-            e.printStackTrace()
+            throw IllegalStateException("Cloud session $sessionId could not be deleted", e)
         }
-
-        databaseService.deleteSession(sessionId)
     }
 
     fun close() {
