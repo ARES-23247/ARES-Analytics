@@ -16,7 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.theme.*
@@ -42,8 +42,15 @@ fun RoutineEditorPanel(
 ) {
     var openExpanded by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(false) }
-    var importExpanded by remember { mutableStateOf(false) }
+    var setupExpanded by remember { mutableStateOf(false) }
     val hasErrors = state.routineValidation.any { it.severity == RoutineValidationSeverity.ERROR }
+    val generationStatus = when {
+        state.generationPhase == AresGenerationPhase.RUNNING -> state.generationMessage ?: "Generating robot code..."
+        state.generationPhase == AresGenerationPhase.FAILED -> state.generationMessage ?: "Robot code generation failed"
+        state.saveStatus.contains("unsaved", ignoreCase = true) -> state.saveStatus
+        state.generationPhase == AresGenerationPhase.SUCCEEDED -> "Robot code generated and ready to build"
+        else -> state.saveStatus.takeIf(String::isNotBlank)
+    }
 
     Column(
         Modifier.width(460.dp).fillMaxHeight()
@@ -51,8 +58,8 @@ fun RoutineEditorPanel(
             .border(1.dp, AresBorder, RoundedCornerShape(12.dp))
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            Modifier.fillMaxWidth().padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -94,41 +101,31 @@ fun RoutineEditorPanel(
                 }
             }
 
-            OutlinedTextField(
-                value = state.routine.description.orEmpty(),
-                onValueChange = { onIntent(PathPlannerIntent.UpdateRoutineDescription(it)) },
-                label = { Text("What this routine does (optional)") },
-                minLines = 2,
-                modifier = Modifier.fillMaxWidth(),
-                colors = routineTextFieldColors()
-            )
-
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { onIntent(PathPlannerIntent.CreateRoutine()) }) {
-                        Icon(Icons.Default.Add, null, Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("New")
-                    }
-                    Button(
-                        onClick = { onIntent(PathPlannerIntent.SaveAndGenerateRoutine(projectPath, league)) },
-                        enabled = projectPath != null && !hasErrors && state.generationPhase != AresGenerationPhase.RUNNING,
-                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresBackground)
-                    ) {
-                        Icon(Icons.Default.Save, null, Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(if (state.generationPhase == AresGenerationPhase.RUNNING) "Generating..." else "Save & Generate")
-                    }
+                OutlinedButton(onClick = { onIntent(PathPlannerIntent.CreateRoutine()) }) {
+                    Icon(Icons.Default.Add, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("New")
+                }
+                Button(
+                    onClick = { onIntent(PathPlannerIntent.SaveAndGenerateRoutine(projectPath, league)) },
+                    enabled = projectPath != null && !hasErrors && state.generationPhase != AresGenerationPhase.RUNNING,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresBackground)
+                ) {
+                    Icon(Icons.Default.Save, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (state.generationPhase == AresGenerationPhase.RUNNING) "Generating..." else "Save & Generate")
                 }
                 Box {
                     TextButton(onClick = { historyExpanded = true }, enabled = state.routineRevisions.isNotEmpty()) {
                         Icon(Icons.Default.History, null, Modifier.size(16.dp))
                         Spacer(Modifier.width(4.dp))
-                        Text("Revision ${state.routine.revision}")
+                        Text("R${state.routine.revision}")
                     }
                     DropdownMenu(historyExpanded, { historyExpanded = false }) {
                         state.routineRevisions.forEach { revision ->
@@ -144,69 +141,69 @@ fun RoutineEditorPanel(
                     }
                 }
             }
-            state.generationMessage?.let { message ->
-                Text(
-                    message,
-                    color = if (state.generationPhase == AresGenerationPhase.FAILED) AresError else AresTextSecondary,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-
-            if (state.legacyRoutineFiles.isNotEmpty()) {
-                Box {
-                    TextButton(onClick = { importExpanded = true }) { Text("Import older .aresauto…") }
-                    DropdownMenu(importExpanded, { importExpanded = false }) {
-                        state.legacyRoutineFiles.forEach { file ->
-                            DropdownMenuItem(
-                                text = { Text(file.nameWithoutExtension) },
-                                onClick = {
-                                    onIntent(PathPlannerIntent.ImportLegacyRoutine(projectPath, league, file))
-                                    importExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("${formatRoutineNumber(state.estimatedDuration)} s motion estimate", color = AresTextSecondary)
+                Text(
+                    "${state.routine.steps.size} ${if (state.routine.steps.size == 1) "step" else "steps"}  •  ${formatRoutineNumber(state.estimatedDuration)} s",
+                    color = AresTextSecondary,
+                    style = MaterialTheme.typography.bodySmall
+                )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { onIntent(PathPlannerIntent.TogglePlayback) }) {
+                    IconButton(onClick = { onIntent(PathPlannerIntent.TogglePlayback) }, modifier = Modifier.size(32.dp)) {
                         Icon(
                             if (state.isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
                             if (state.isPlaying) "Pause preview" else "Play preview",
-                            tint = AresCyan
+                            tint = AresCyan,
+                            modifier = Modifier.size(20.dp)
                         )
                     }
                     Text("${formatRoutineNumber(state.playbackTime)} s", color = AresTextSecondary)
                 }
             }
-            if (state.saveStatus.isNotBlank()) {
-                Text(state.saveStatus, style = MaterialTheme.typography.bodySmall, color = statusColor(state.saveStatus))
+            generationStatus?.let { status ->
+                Text(
+                    status,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = when {
+                        status.contains("unsaved", ignoreCase = true) -> AresGold
+                        state.generationPhase == AresGenerationPhase.FAILED -> AresError
+                        state.generationPhase == AresGenerationPhase.SUCCEEDED -> AresGreen
+                        else -> statusColor(status)
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
-            Text(state.capabilityStatus, style = MaterialTheme.typography.labelSmall, color = AresTextSecondary)
         }
 
         HorizontalDivider(color = AresBorder)
         LazyColumn(
             Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             if (state.routineValidation.isNotEmpty()) {
                 item { RoutineValidationCard(state.routineValidation) }
             }
             item {
-                AutonomousEntryCard(state, league, onIntent)
+                RoutineSetupCard(
+                    state = state,
+                    projectPath = projectPath,
+                    league = league,
+                    expanded = setupExpanded,
+                    onExpandedChanged = { setupExpanded = it },
+                    onRobotDimensionsChanged = onRobotDimensionsChanged,
+                    onIntent = onIntent
+                )
             }
             item {
-                RoutineRobotFootprintCard(state.robotDimensions, onRobotDimensionsChanged)
+                Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                    Text("ROUTINE STEPS", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = AresTextSecondary)
+                    Text("${state.routine.steps.size}", style = MaterialTheme.typography.labelSmall, color = AresCyan)
+                }
             }
             if (state.routine.steps.isEmpty()) {
                 item { EmptyRoutineCard() }
@@ -246,47 +243,120 @@ fun RoutineEditorPanel(
 }
 
 @Composable
-private fun AutonomousEntryCard(
+private fun RoutineSetupCard(
     state: PathPlannerState,
+    projectPath: String?,
     league: League,
+    expanded: Boolean,
+    onExpandedChanged: (Boolean) -> Unit,
+    onRobotDimensionsChanged: (RobotDimensions) -> Unit,
     onIntent: (PathPlannerIntent) -> Unit
 ) {
     val entry = state.autonomousEntry
+    val dimensions = state.robotDimensions
+    var importExpanded by remember { mutableStateOf(false) }
+    val modeLabel = if (state.availableInAutonomousSelector) "Match autonomous" else "Reusable routine"
+    val footprintLabel = "${formatRoutineNumber(dimensions.lengthMeters)} × ${formatRoutineNumber(dimensions.widthMeters)} m"
+
     Card(colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated), border = BorderStroke(1.dp, AresBorder)) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Available in autonomous selector", fontWeight = FontWeight.Bold, color = AresTextPrimary)
+                    Text("Routine setup", fontWeight = FontWeight.Bold, color = AresTextPrimary)
                     Text(
-                        "Turn this on only when the routine should appear during match setup.",
-                        style = MaterialTheme.typography.bodySmall,
+                        "$modeLabel  •  $footprintLabel footprint",
+                        style = MaterialTheme.typography.labelSmall,
                         color = AresTextSecondary
                     )
                 }
+                Text("Match auto", style = MaterialTheme.typography.labelSmall, color = AresTextSecondary)
                 Switch(
                     checked = state.availableInAutonomousSelector,
-                    onCheckedChange = { onIntent(PathPlannerIntent.SetAutonomousAvailability(it, league)) }
+                    onCheckedChange = { checked ->
+                        if (checked) onExpandedChanged(true)
+                        onIntent(PathPlannerIntent.SetAutonomousAvailability(checked, league))
+                    },
+                    modifier = Modifier.padding(horizontal = 4.dp)
                 )
+                IconButton(onClick = { onExpandedChanged(!expanded) }, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        if (expanded) "Hide routine setup" else "Show routine setup"
+                    )
+                }
             }
-            if (entry != null) {
-                Text("Autonomous starting pose", color = AresCyan, fontWeight = FontWeight.SemiBold)
-                RoutinePoseEditors(entry.startingPose) {
-                    onIntent(PathPlannerIntent.UpdateAutonomousEntry(entry.copy(startingPose = it), league))
-                }
+
+            if (expanded) {
+                HorizontalDivider(color = AresBorder.copy(alpha = .7f))
+                OutlinedTextField(
+                    value = state.routine.description.orEmpty(),
+                    onValueChange = { onIntent(PathPlannerIntent.UpdateRoutineDescription(it)) },
+                    label = { Text("What this routine does (optional)") },
+                    minLines = 2,
+                    maxLines = 3,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = routineTextFieldColors()
+                )
+
+                Text("Robot footprint", fontWeight = FontWeight.SemiBold, color = AresTextPrimary)
+                Text(
+                    "Used to keep every drive goal safely inside the field.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AresTextSecondary
+                )
                 Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-                    RoutineAlliancePicker(entry.authoredAlliance) {
-                        onIntent(PathPlannerIntent.UpdateAutonomousEntry(entry.copy(authoredAlliance = it), league))
+                    RoutineDecimalEditor(dimensions.lengthMeters, "Length", "m", Modifier.weight(1f)) {
+                        if (it in RobotDimensions.MIN_SIZE_METERS..RobotDimensions.MAX_SIZE_METERS) {
+                            onRobotDimensionsChanged(dimensions.copy(lengthMeters = it))
+                        }
                     }
-                    Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                        Switch(
-                            checked = entry.mirrorForOppositeAlliance,
-                            onCheckedChange = {
-                                onIntent(PathPlannerIntent.UpdateAutonomousEntry(entry.copy(mirrorForOppositeAlliance = it), league))
-                            }
-                        )
-                        Text("Mirror for other alliance", style = MaterialTheme.typography.bodySmall)
+                    RoutineDecimalEditor(dimensions.widthMeters, "Width", "m", Modifier.weight(1f)) {
+                        if (it in RobotDimensions.MIN_SIZE_METERS..RobotDimensions.MAX_SIZE_METERS) {
+                            onRobotDimensionsChanged(dimensions.copy(widthMeters = it))
+                        }
                     }
                 }
+
+                if (entry != null) {
+                    HorizontalDivider(color = AresBorder.copy(alpha = .7f))
+                    Text("Autonomous starting pose", color = AresCyan, fontWeight = FontWeight.SemiBold)
+                    RoutinePoseEditors(entry.startingPose) {
+                        onIntent(PathPlannerIntent.UpdateAutonomousEntry(entry.copy(startingPose = it), league))
+                    }
+                    Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
+                        RoutineAlliancePicker(entry.authoredAlliance) {
+                            onIntent(PathPlannerIntent.UpdateAutonomousEntry(entry.copy(authoredAlliance = it), league))
+                        }
+                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            Switch(
+                                checked = entry.mirrorForOppositeAlliance,
+                                onCheckedChange = {
+                                    onIntent(PathPlannerIntent.UpdateAutonomousEntry(entry.copy(mirrorForOppositeAlliance = it), league))
+                                }
+                            )
+                            Text("Mirror alliance", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+
+                if (state.legacyRoutineFiles.isNotEmpty()) {
+                    Box {
+                        TextButton(onClick = { importExpanded = true }) { Text("Import older .aresauto…") }
+                        DropdownMenu(importExpanded, { importExpanded = false }) {
+                            state.legacyRoutineFiles.forEach { file ->
+                                DropdownMenuItem(
+                                    text = { Text(file.nameWithoutExtension) },
+                                    onClick = {
+                                        onIntent(PathPlannerIntent.ImportLegacyRoutine(projectPath, league, file))
+                                        importExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Text(state.capabilityStatus, style = MaterialTheme.typography.labelSmall, color = AresTextSecondary)
             }
         }
     }
@@ -322,24 +392,6 @@ private fun RoutineValidationCard(issues: List<RoutineValidationIssue>) {
 }
 
 @Composable
-private fun RoutineRobotFootprintCard(dimensions: RobotDimensions, onChanged: (RobotDimensions) -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated), border = BorderStroke(1.dp, AresBorder)) {
-        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Robot footprint", fontWeight = FontWeight.Bold, color = AresTextPrimary)
-            Text("Drive goals are clamped so the complete robot remains on the field.", style = MaterialTheme.typography.bodySmall, color = AresTextSecondary)
-            Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-                RoutineDecimalEditor(dimensions.lengthMeters, "Length", "m", Modifier.weight(1f)) {
-                    if (it in RobotDimensions.MIN_SIZE_METERS..RobotDimensions.MAX_SIZE_METERS) onChanged(dimensions.copy(lengthMeters = it))
-                }
-                RoutineDecimalEditor(dimensions.widthMeters, "Width", "m", Modifier.weight(1f)) {
-                    if (it in RobotDimensions.MIN_SIZE_METERS..RobotDimensions.MAX_SIZE_METERS) onChanged(dimensions.copy(widthMeters = it))
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun EmptyRoutineCard() {
     Card(colors = CardDefaults.cardColors(containerColor = AresCyan.copy(alpha = .08f)), border = BorderStroke(1.dp, AresCyan.copy(alpha = .5f))) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -365,16 +417,33 @@ private fun RoutineStepCard(
     onRemoveChild: (Int, Boolean) -> Unit
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated), border = BorderStroke(1.dp, AresBorder)) {
-        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Column {
-                    Text("${index + 1}. ${routineStepTitle(step.kind)}", fontWeight = FontWeight.Bold, color = AresTextPrimary)
+                Surface(
+                    modifier = Modifier.size(28.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    color = AresCyan.copy(alpha = .14f),
+                    border = BorderStroke(1.dp, AresCyan.copy(alpha = .55f))
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text("${index + 1}", color = AresCyan, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelMedium)
+                    }
+                }
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(routineStepTitle(step.kind), fontWeight = FontWeight.Bold, color = AresTextPrimary)
                     Text(routineStepSubtitle(step), style = MaterialTheme.typography.labelSmall, color = AresTextSecondary)
                 }
                 Row {
-                    IconButton({ onMove(-1) }, enabled = index > 0) { Icon(Icons.Default.KeyboardArrowUp, "Move earlier") }
-                    IconButton({ onMove(1) }, enabled = index < stepCount - 1) { Icon(Icons.Default.KeyboardArrowDown, "Move later") }
-                    IconButton(onRemove) { Icon(Icons.Default.Delete, "Remove", tint = AresError) }
+                    IconButton({ onMove(-1) }, enabled = index > 0, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.KeyboardArrowUp, "Move earlier", modifier = Modifier.size(18.dp))
+                    }
+                    IconButton({ onMove(1) }, enabled = index < stepCount - 1, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.KeyboardArrowDown, "Move later", modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onRemove, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Delete, "Remove", tint = AresError, modifier = Modifier.size(17.dp))
+                    }
                 }
             }
             when (step.kind) {
@@ -475,7 +544,17 @@ private fun ChildLane(
             { onRemove(childIndex, elseBranch) }
         )
     }
-    CompactStepPicker("Add child step") { onAdd(elseBranch, it) }
+    CompactStepPicker(
+        label = "Add child step",
+        unavailableReason = { kind ->
+            when {
+                kind == RoutineStepKind.ACTION && actions.isEmpty() -> "Declare a project action first"
+                kind in setOf(RoutineStepKind.WAIT_UNTIL, RoutineStepKind.BRANCH) && conditions.isEmpty() -> "Declare a project condition first"
+                kind == RoutineStepKind.CALL && routines.isEmpty() -> "Save another routine first"
+                else -> null
+            }
+        }
+    ) { onAdd(elseBranch, it) }
 }
 
 @Composable
@@ -672,31 +751,61 @@ private fun MotionPresetPicker(selected: String, onSelected: (String) -> Unit) {
 
 @Composable
 private fun AddRoutineStepBar(hasActions: Boolean, hasConditions: Boolean, hasOtherRoutines: Boolean, onAdd: (RoutineStepKind) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        Modifier.fillMaxWidth().padding(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Button(
             { onAdd(RoutineStepKind.DRIVE_TO) },
-            Modifier.fillMaxWidth(),
+            Modifier.weight(1.15f),
             colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black)
         ) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add drive goal", fontWeight = FontWeight.Bold) }
-        CompactStepPicker("Add another step") { kind ->
-            if ((kind != RoutineStepKind.ACTION || hasActions) &&
-                (kind !in setOf(RoutineStepKind.WAIT_UNTIL, RoutineStepKind.BRANCH) || hasConditions) &&
-                (kind != RoutineStepKind.CALL || hasOtherRoutines)
-            ) onAdd(kind)
-        }
+        CompactStepPicker(
+            label = "Other step",
+            modifier = Modifier.weight(.85f),
+            unavailableReason = { kind ->
+                when {
+                    kind == RoutineStepKind.ACTION && !hasActions -> "Declare a project action first"
+                    kind in setOf(RoutineStepKind.WAIT_UNTIL, RoutineStepKind.BRANCH) && !hasConditions -> "Declare a project condition first"
+                    kind == RoutineStepKind.CALL && !hasOtherRoutines -> "Save another routine first"
+                    else -> null
+                }
+            },
+            onAdd = onAdd
+        )
     }
 }
 
 @Composable
-private fun CompactStepPicker(label: String, onAdd: (RoutineStepKind) -> Unit) {
+private fun CompactStepPicker(
+    label: String,
+    modifier: Modifier = Modifier,
+    unavailableReason: (RoutineStepKind) -> String? = { null },
+    onAdd: (RoutineStepKind) -> Unit
+) {
     var expanded by remember { mutableStateOf(false) }
-    Box {
+    Box(modifier) {
         OutlinedButton({ expanded = true }, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Default.Add, null, Modifier.size(16.dp)); Spacer(Modifier.width(4.dp)); Text(label); Spacer(Modifier.weight(1f)); Icon(Icons.Default.ArrowDropDown, null)
         }
         DropdownMenu(expanded, { expanded = false }) {
             RoutineStepKind.entries.forEach { kind ->
-                DropdownMenuItem({ Text(routineStepTitle(kind)) }, { onAdd(kind); expanded = false })
+                val reason = unavailableReason(kind)
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(routineStepTitle(kind))
+                            Text(
+                                reason ?: routineStepDescription(kind),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (reason == null) AresTextSecondary else AresGold
+                            )
+                        }
+                    },
+                    onClick = { onAdd(kind); expanded = false },
+                    enabled = reason == null
+                )
             }
         }
     }
@@ -738,6 +847,19 @@ private fun routineStepTitle(kind: RoutineStepKind): String = when (kind) {
     RoutineStepKind.CALL -> "Run reusable routine"
     RoutineStepKind.REPEAT -> "Repeat steps"
     RoutineStepKind.BRANCH -> "Choose based on robot state"
+}
+
+private fun routineStepDescription(kind: RoutineStepKind): String = when (kind) {
+    RoutineStepKind.ACTION -> "Run one action from this robot project"
+    RoutineStepKind.DRIVE_TO -> "Move to a position and heading on the field"
+    RoutineStepKind.WAIT -> "Pause for a fixed amount of time"
+    RoutineStepKind.WAIT_UNTIL -> "Continue when a robot condition becomes true"
+    RoutineStepKind.TOGETHER -> "Run every child step at the same time"
+    RoutineStepKind.FIRST_TO_FINISH -> "Run children together and stop when one finishes"
+    RoutineStepKind.DEADLINE -> "Run companions until the main step finishes"
+    RoutineStepKind.CALL -> "Place another saved routine inside this routine"
+    RoutineStepKind.REPEAT -> "Run a group of steps a fixed number of times"
+    RoutineStepKind.BRANCH -> "Choose between two groups using robot state"
 }
 
 private fun routineStepSubtitle(step: RoutineStep): String = when (step.kind) {
