@@ -16,7 +16,10 @@ import com.ares.analytics.viewmodel.routine.clampRoutinePose
 import com.ares.analytics.viewmodel.routine.clampDriveTargets
 import com.ares.analytics.viewmodel.routine.defaultRoutineStep
 import com.ares.analytics.viewmodel.routine.lastRoutineDriveTarget
+import com.ares.analytics.viewmodel.routine.moveStepById
+import com.ares.analytics.viewmodel.routine.removeStepById
 import com.ares.analytics.viewmodel.routine.routineEditorValidation
+import com.ares.analytics.viewmodel.routine.updateStepById
 import com.ares.analytics.viewmodel.routine.withRoutineRouteWaypoints
 import com.areslib.math.geometry.Pose2d
 import com.areslib.math.geometry.Rotation2d
@@ -130,21 +133,15 @@ sealed class PathPlannerIntent {
     data class UpdateRoutineName(val name: String) : PathPlannerIntent()
     data class UpdateRoutineDescription(val description: String) : PathPlannerIntent()
     data class AddRoutineStep(val kind: RoutineStepKind) : PathPlannerIntent()
-    data class UpdateRoutineStep(val index: Int, val step: RoutineStep) : PathPlannerIntent()
-    data class RemoveRoutineStep(val index: Int) : PathPlannerIntent()
-    data class MoveRoutineStep(val index: Int, val direction: Int) : PathPlannerIntent()
-    data class AddRoutineChild(val parentIndex: Int, val toElseBranch: Boolean, val kind: RoutineStepKind) : PathPlannerIntent()
+    data class UpdateRoutineStep(val stepId: String, val step: RoutineStep) : PathPlannerIntent()
+    data class RemoveRoutineStep(val stepId: String) : PathPlannerIntent()
+    data class MoveRoutineStep(val stepId: String, val direction: Int) : PathPlannerIntent()
+    data class AddRoutineChild(val parentStepId: String, val toElseBranch: Boolean, val kind: RoutineStepKind) : PathPlannerIntent()
     data class UpdateRoutineChild(
-        val parentIndex: Int,
-        val childIndex: Int,
-        val toElseBranch: Boolean,
+        val childStepId: String,
         val step: RoutineStep
     ) : PathPlannerIntent()
-    data class RemoveRoutineChild(
-        val parentIndex: Int,
-        val childIndex: Int,
-        val toElseBranch: Boolean
-    ) : PathPlannerIntent()
+    data class RemoveRoutineChild(val childStepId: String) : PathPlannerIntent()
     data class SetAutonomousAvailability(val enabled: Boolean, val league: League) : PathPlannerIntent()
     data class UpdateAutonomousEntry(val entry: AutonomousCatalogEntry, val league: League) : PathPlannerIntent()
     data class UpdateRoutineFieldWaypoints(val waypoints: List<Waypoint>, val league: League) : PathPlannerIntent()
@@ -338,9 +335,8 @@ class PathPlannerViewModel(
                 }
                 is PathPlannerIntent.UpdateRoutineStep -> {
                     updateRoutine { routine ->
-                        if (intent.index !in routine.steps.indices) return@updateRoutine routine
-                        routine.copy(steps = routine.steps.toMutableList().apply {
-                            this[intent.index] = intent.step.clampDriveTargets(
+                        routine.copy(steps = routine.steps.updateStepById(intent.stepId) {
+                            intent.step.copy(stepId = intent.stepId).clampDriveTargets(
                                 _state.value.activeLeague,
                                 _state.value.robotDimensions
                             )
@@ -349,27 +345,17 @@ class PathPlannerViewModel(
                     recalculateRoutinePreview()
                 }
                 is PathPlannerIntent.RemoveRoutineStep -> {
-                    updateRoutine { routine ->
-                        if (intent.index !in routine.steps.indices) routine else routine.copy(
-                            steps = routine.steps.filterIndexed { index, _ -> index != intent.index }
-                        )
-                    }
+                    updateRoutine { routine -> routine.copy(steps = routine.steps.removeStepById(intent.stepId)) }
                     recalculateRoutinePreview()
                 }
                 is PathPlannerIntent.MoveRoutineStep -> {
                     updateRoutine { routine ->
-                        val destination = intent.index + intent.direction
-                        if (intent.index !in routine.steps.indices || destination !in routine.steps.indices) {
-                            return@updateRoutine routine
-                        }
-                        routine.copy(steps = routine.steps.toMutableList().apply {
-                            add(destination, removeAt(intent.index))
-                        })
+                        routine.copy(steps = routine.steps.moveStepById(intent.stepId, intent.direction))
                     }
                     recalculateRoutinePreview()
                 }
                 is PathPlannerIntent.AddRoutineChild -> updateRoutineChildList(
-                    intent.parentIndex,
+                    intent.parentStepId,
                     intent.toElseBranch
                 ) { children ->
                     val current = _state.value
@@ -381,21 +367,19 @@ class PathPlannerViewModel(
                         current.availableRoutines.firstOrNull { it.documentId != current.routine.documentId }?.documentId
                     )
                 }
-                is PathPlannerIntent.UpdateRoutineChild -> updateRoutineChildList(
-                    intent.parentIndex,
-                    intent.toElseBranch
-                ) { children ->
-                    if (intent.childIndex !in children.indices) children else children.toMutableList().apply {
-                        this[intent.childIndex] = intent.step.clampDriveTargets(
+                is PathPlannerIntent.UpdateRoutineChild -> {
+                    updateRoutine { routine -> routine.copy(steps = routine.steps.updateStepById(intent.childStepId) {
+                        intent.step.copy(stepId = intent.childStepId).clampDriveTargets(
                             _state.value.activeLeague,
                             _state.value.robotDimensions
                         )
-                    }
+                    }) }
+                    recalculateRoutinePreview()
                 }
-                is PathPlannerIntent.RemoveRoutineChild -> updateRoutineChildList(
-                    intent.parentIndex,
-                    intent.toElseBranch
-                ) { children -> children.filterIndexed { index, _ -> index != intent.childIndex } }
+                is PathPlannerIntent.RemoveRoutineChild -> {
+                    updateRoutine { routine -> routine.copy(steps = routine.steps.removeStepById(intent.childStepId)) }
+                    recalculateRoutinePreview()
+                }
                 is PathPlannerIntent.SetAutonomousAvailability -> setAutonomousAvailability(intent.enabled, intent.league)
                 is PathPlannerIntent.UpdateAutonomousEntry -> {
                     val clamped = intent.entry.copy(
@@ -452,19 +436,15 @@ class PathPlannerViewModel(
     }
 
     private fun updateRoutineChildList(
-        parentIndex: Int,
+        parentStepId: String,
         elseBranch: Boolean,
         transform: (List<RoutineStep>) -> List<RoutineStep>
     ) {
         updateRoutine { routine ->
-            if (parentIndex !in routine.steps.indices) return@updateRoutine routine
-            val parent = routine.steps[parentIndex]
-            val updatedParent = if (elseBranch) {
-                parent.copy(elseChildren = transform(parent.elseChildren))
-            } else {
-                parent.copy(children = transform(parent.children))
-            }
-            routine.copy(steps = routine.steps.toMutableList().apply { this[parentIndex] = updatedParent })
+            routine.copy(steps = routine.steps.updateStepById(parentStepId) { parent ->
+                if (elseBranch) parent.copy(elseChildren = transform(parent.elseChildren))
+                else parent.copy(children = transform(parent.children))
+            })
         }
         recalculateRoutinePreview()
     }
