@@ -1,144 +1,139 @@
-
 package com.ares.analytics.ui.screens.onboarding
 
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.AuthState
 import com.ares.analytics.ui.components.forms.AresTextField
-import com.ares.analytics.ui.theme.*
+import com.ares.analytics.ui.theme.AresBackground
+import com.ares.analytics.ui.theme.AresBorder
+import com.ares.analytics.ui.theme.AresCyan
+import com.ares.analytics.ui.theme.AresError
+import com.ares.analytics.ui.theme.AresGreen
+import com.ares.analytics.ui.theme.AresSurfaceElevated
+import com.ares.analytics.ui.theme.AresTextPrimary
+import com.ares.analytics.ui.theme.AresTextSecondary
+import com.ares.analytics.ui.theme.AresTextTertiary
 
-/**
- * Onboarding wizard step component for configuring OAuth 2.0 authentication credentials and Google Drive authorization.
- *
- * @param authState Current [AuthState] flow value.
- * @param googleClientId Google OAuth Client ID string.
- * @param googleClientSecret Google OAuth Client Secret string.
- * @param onClientIdChange Callback for Client ID edits.
- * @param onClientSecretChange Callback for Client Secret edits.
- * @param onSignInClick Callback triggering browser PKCE authentication flow.
- *
- * @see com.ares.analytics.service.OAuthService
- * @see OnboardingScreen
- */
+/** Optional Google Drive setup. Local onboarding never depends on this card. */
 @Composable
 fun AuthStep(
     authState: AuthState,
     googleClientId: String,
     googleClientSecret: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
     onClientIdChange: (String) -> Unit,
     onClientSecretChange: (String) -> Unit,
-    onSignInClick: () -> Unit
+    onSignInClick: () -> Unit,
 ) {
+    var developerFieldsExpanded by remember { mutableStateOf(false) }
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
         border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
-        shape = RoundedCornerShape(8.dp)
+        shape = RoundedCornerShape(8.dp),
     ) {
-        Row(
-            modifier = Modifier.padding(12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (authState is AuthState.Authenticated) {
-                val user = authState
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.CloudDone,
-                        contentDescription = null,
-                        tint = AresGreen
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { onExpandedChange(!expanded) },
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = if (authState is AuthState.Authenticated) Icons.Default.CloudDone else Icons.Default.CloudOff,
+                    contentDescription = null,
+                    tint = if (authState is AuthState.Authenticated) AresGreen else AresTextTertiary,
+                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Cloud sync (optional)", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    Text(
+                        if (authState is AuthState.Authenticated) "Signed in as ${authState.displayName}"
+                        else "Skip this to keep logs and settings on this computer.",
+                        color = AresTextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
                     )
-                    Column {
-                        Text(
-                            "Connected to Cloud Roster",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = AresTextPrimary
-                        )
-                        Text(
-                            "Signed in as ${user.displayName}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = AresTextSecondary
-                        )
-                    }
                 }
-            } else {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier.fillMaxWidth()
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = if (expanded) "Hide cloud settings" else "Show cloud settings",
+                    tint = AresTextSecondary,
+                )
+            }
+
+            if (expanded) {
+                Text(
+                    "Cloud sync copies laptop-managed data to Google Drive. Robots still work offline and never upload directly.",
+                    color = AresTextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                if (authState !is AuthState.Authenticated) {
+                    Button(
+                        onClick = onSignInClick,
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.CloudOff,
-                            contentDescription = null,
-                            tint = AresTextTertiary
-                        )
-                        Column {
-                            Text(
-                                "Offline Setup Mode",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = AresTextPrimary
-                            )
-                            Text(
-                                "Sign in to load official team robots.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = AresTextSecondary
-                            )
-                            Spacer(Modifier.height(6.dp))
-                            AresTextField(
-                                value = googleClientId,
-                                onValueChange = onClientIdChange,
-                                placeholder = "GCP Client ID (Optional)",
-                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary, fontSize = 10.sp),
-                                modifier = Modifier.width(180.dp).height(38.dp),
-                                placeholderFontSize = 10.sp
-                            )
-                            Spacer(Modifier.height(4.dp))
-                            AresTextField(
-                                value = googleClientSecret,
-                                onValueChange = onClientSecretChange,
-                                placeholder = "Client Secret (Optional)",
-                                textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary, fontSize = 10.sp),
-                                modifier = Modifier.width(180.dp).height(38.dp),
-                                placeholderFontSize = 10.sp
-                            )
-                        }
-                    }
-
-                    if (authState is AuthState.Error) {
-                        Text(
-                            text = authState.message,
-                            color = AresError,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(start = 32.dp)
-                        )
+                        Text("Sign in with Google", color = AresBackground, fontWeight = FontWeight.Bold)
                     }
                 }
 
-                Button(
-                    onClick = onSignInClick,
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text("Sign In", color = AresBackground, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                if (authState is AuthState.Error) {
+                    Text(authState.message, color = AresError, style = MaterialTheme.typography.bodySmall)
+                }
+
+                OutlinedButton(onClick = { developerFieldsExpanded = !developerFieldsExpanded }) {
+                    Text(if (developerFieldsExpanded) "Hide custom OAuth settings" else "Use custom OAuth settings")
+                }
+                if (developerFieldsExpanded) {
+                    Text(
+                        "Advanced: leave these unchanged unless your team manages its own Google OAuth app.",
+                        color = AresTextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    AresTextField(
+                        value = googleClientId,
+                        onValueChange = onClientIdChange,
+                        label = "Google OAuth client ID",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    AresTextField(
+                        value = googleClientSecret,
+                        onValueChange = onClientSecretChange,
+                        label = "Google OAuth client secret (optional)",
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
         }

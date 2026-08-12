@@ -88,7 +88,7 @@ internal fun Sidebar(
 
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
             UtilityButton("Find any screen (Ctrl+K)", Icons.Default.Search, activeTarget in developerToolTargets, onOpenCommandPalette)
-            UtilityButton("ARES Academy", Icons.AutoMirrored.Filled.HelpOutline, activeTarget == NavigationTarget.ACADEMY) { onNavigate(NavigationTarget.ACADEMY) }
+            UtilityButton("Help & Learn", Icons.AutoMirrored.Filled.HelpOutline, activeTarget == NavigationTarget.ACADEMY) { onNavigate(NavigationTarget.ACADEMY) }
             UtilityButton("Terminal Console", Icons.Default.Terminal, false, onToggleTerminal)
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
                 ConnectionIndicator(isConnected, "NT4")

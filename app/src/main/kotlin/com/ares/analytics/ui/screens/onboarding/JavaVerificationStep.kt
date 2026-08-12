@@ -1,84 +1,87 @@
-
 package com.ares.analytics.ui.screens.onboarding
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.ares.analytics.ui.theme.*
+import com.ares.analytics.ui.theme.AresBackground
+import com.ares.analytics.ui.theme.AresBorder
+import com.ares.analytics.ui.theme.AresCyan
+import com.ares.analytics.ui.theme.AresError
+import com.ares.analytics.ui.theme.AresGreen
+import com.ares.analytics.ui.theme.AresSurfaceElevated
+import com.ares.analytics.ui.theme.AresTextPrimary
+import com.ares.analytics.ui.theme.AresTextSecondary
+import com.ares.analytics.ui.theme.AresTextTertiary
 
-/**
- * Onboarding step component for verifying system JDK Java development environment installation.
- *
- * Checks `JAVA_HOME` and PATH configuration to ensure compatible Java compilers exist for Gradle builds.
- *
- * @param isValid Verification status (`true` if valid JDK 11+ is detected, `false` if invalid, `null` if unverified).
- * @param isVerifying `true` while actively running background process verification.
- * @param message Diagnostic status message output.
- * @param onVerifyClick Callback triggering manual re-verification of the JDK environment.
- *
- * @see OnboardingScreen
- */
+/** Final readiness check. ARES Analytics builds and simulator tools require exactly JDK 17. */
 @Composable
 fun JavaVerificationStep(
     isValid: Boolean?,
     isVerifying: Boolean,
     message: String,
-    onVerifyClick: () -> Unit
+    onVerifyClick: () -> Unit,
 ) {
+    val icon = when (isValid) {
+        true -> Icons.Default.CheckCircle
+        false -> Icons.Default.Error
+        null -> Icons.Default.HourglassEmpty
+    }
+    val tint = when (isValid) {
+        true -> AresGreen
+        false -> AresError
+        null -> AresTextTertiary
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
+            .border(1.dp, if (isValid == false) AresError else AresBorder, RoundedCornerShape(8.dp))
             .background(AresSurfaceElevated)
-            .padding(12.dp),
+            .padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.weight(1f)
-        ) {
-            val icon = when (isValid) {
-                true -> Icons.Default.CheckCircle
-                false -> Icons.Default.Error
-                null -> Icons.Default.HourglassEmpty
-            }
-            val tint = when (isValid) {
-                true -> AresGreen
-                false -> AresError
-                null -> AresTextTertiary
-            }
-            Icon(imageVector = icon, contentDescription = null, tint = tint)
-            Column {
-                Text(
-                    "JAVA_HOME Verification",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = AresTextPrimary,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    if (isVerifying) "Verifying JVM toolchain..." else message.take(50) + "...",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = AresTextSecondary
-                )
-            }
+        Icon(icon, contentDescription = null, tint = tint)
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text("JDK 17", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+            Text(
+                if (isVerifying) "Checking the Java version..." else message,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (isValid == false) AresError else AresTextSecondary,
+            )
         }
-
-        IconButton(onClick = onVerifyClick) {
-            Icon(imageVector = Icons.Default.Refresh, contentDescription = "Retry Verification", tint = AresCyan)
+        Button(
+            onClick = onVerifyClick,
+            enabled = !isVerifying,
+            colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+        ) {
+            if (isVerifying) {
+                CircularProgressIndicator(color = AresBackground, strokeWidth = 2.dp)
+            } else {
+                Icon(Icons.Default.Refresh, contentDescription = null, tint = AresBackground)
+                Text("Check", color = AresBackground)
+            }
         }
     }
 }

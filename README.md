@@ -150,8 +150,15 @@ The Compose client is not subject to browser CORS. Browser access must be explic
 
 ## Documentation
 
+- [Documentation index](docs/INDEX.md) - novice-first map of live robot, simulator, replay, cloud, and task guides
+- [First launch](docs/start/FIRST_LAUNCH.md) - create a local robot workspace and verify JDK 17
+- [Connect the simulator](docs/start/CONNECT_SIMULATOR.md) - launch Local Sim, confirm live telemetry, and recover safely
+- [Bring in a run](docs/operate/BRING_IN_A_RUN.md) - collect, verify, quarantine, and replay completed logs
+- [Glossary](docs/learn/GLOSSARY.md) - student definitions with precise ARES meanings
+- [Teaching with ARES](docs/mentor/TEACHING_WITH_ARES.md) - mentor-led simulator-first lesson and physical robot safety gate
 - [Automated dashboard validation](docs/VALIDATION.md) - smoke/soak profiles, performance budgets, reports, and CI
 - [Student routines and controller bindings](docs/ROUTINES_AND_CONTROLS.md) - offline authoring, visual controls, generation, selection, and troubleshooting
+- [Subsystem Builder](docs/SUBSYSTEM_BUILDER.md) - visual mechanism authoring, generated ownership, safety, and manual Redux/IO equivalent
 - [Architecture](ARCHITECTURE.md) — modules, service lifecycles, persistence, replay, and extension points
 - [Telemetry contract](docs/TELEMETRY_CONTRACT.md) — canonical topics, types, coordinate conventions, and NT4 behavior
 - [Operations guide](docs/OPERATIONS.md) — setup, connections, import/replay workflows, and troubleshooting

@@ -74,6 +74,7 @@ fun MainScreen(services: ServiceRegistry) {
     val gamepad1State by services.gamepadService.gamepad1State.collectAsState()
     val gamepad2State by services.gamepadService.gamepad2State.collectAsState()
     var commandPaletteOpen by remember { mutableStateOf(false) }
+    var workspacePendingDeletion by remember { mutableStateOf<Pair<String, String>?>(null) }
 
     // Trigger update check on startup
     LaunchedEffect(Unit) {
@@ -529,13 +530,17 @@ fun MainScreen(services: ServiceRegistry) {
 
                                                 IconButton(
                                                     onClick = {
-                                                        mainViewModel.onIntent(MainIntent.DeleteWorkspace(workspace.id))
+                                                        val displayName = workspace.robotName.ifBlank {
+                                                            "${workspace.robotId} (Team ${workspace.teamId})"
+                                                        }
+                                                        workspacePendingDeletion = workspace.id to displayName
+                                                        dropdownExpanded = false
                                                     },
                                                     modifier = Modifier.size(24.dp)
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Delete,
-                                                        contentDescription = "Delete Profile",
+                                                        contentDescription = "Remove workspace",
                                                         tint = AresError.copy(alpha = 0.8f),
                                                         modifier = Modifier.size(16.dp)
                                                     )
@@ -677,7 +682,11 @@ fun MainScreen(services: ServiceRegistry) {
                                 projectPath = currentConfig.projectPath
                             )
                             NavigationTarget.ACADEMY -> AcademyScreen(
-                                onLaunchSimChallenge = { challengeId ->
+                                progressService = services.learningProgressService,
+                                onOpenScreen = { destination ->
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(destination))
+                                },
+                                onStartSimulator = {
                                     services.processManagerService.runSimulation(
                                         currentConfig.projectPath,
                                         currentConfig.league,
@@ -691,7 +700,13 @@ fun MainScreen(services: ServiceRegistry) {
                             NavigationTarget.MATCH_STRATEGY -> MatchStrategyScreen()
                             NavigationTarget.RUN_HISTORY -> RunHistoryScreen(
                                 databaseService = services.databaseService,
-                                syncEngineService = services.syncEngineService
+                                syncEngineService = services.syncEngineService,
+                                onOpenImports = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.IMPORT_CENTER))
+                                },
+                                onOpenHelp = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
+                                }
                             )
                             NavigationTarget.DATABASE_VIEWER -> DatabaseViewerScreen(
                                 databaseService = services.databaseService
@@ -750,6 +765,42 @@ fun MainScreen(services: ServiceRegistry) {
                 developerMode = currentConfig.developerMode,
                 onDismiss = { commandPaletteOpen = false },
                 onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) }
+            )
+        }
+
+        workspacePendingDeletion?.let { (workspaceId, displayName) ->
+            AlertDialog(
+                onDismissRequest = { workspacePendingDeletion = null },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = AresError
+                    )
+                },
+                title = { Text("Remove this workspace?") },
+                text = {
+                    Text(
+                        "ARES will remove the saved workspace settings for $displayName. " +
+                            "Your robot project files and imported run data will not be deleted."
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            mainViewModel.onIntent(MainIntent.DeleteWorkspace(workspaceId))
+                            workspacePendingDeletion = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AresError)
+                    ) {
+                        Text("Remove workspace")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { workspacePendingDeletion = null }) {
+                        Text("Keep workspace")
+                    }
+                }
             )
         }
 

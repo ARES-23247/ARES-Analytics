@@ -26,7 +26,7 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     CLOUD("Cloud Sync", Icons.Default.Cloud),
     PATH_PLANNER("Auto Builder", Icons.Default.Route),
     FIELD_EDITOR("Field Editor", Icons.Default.Layers),
-    ACADEMY("ARES Academy", Icons.Default.School),
+    ACADEMY("Help & Learn", Icons.Default.School),
     KDOC_VIEWER("KDoc Explorer", Icons.Default.Book),
     PIT_DIAGNOSTICS("Pit Self-Test", Icons.Default.Build),
     MATCH_STRATEGY("Strategy Preview", Icons.Default.Analytics),
@@ -99,4 +99,24 @@ fun NavigationTarget.groupLabel(): String = section()?.label ?: when (this) {
     NavigationTarget.ACADEMY -> "Help"
     in developerToolTargets -> "Developer tools"
     else -> "Tools"
+}
+
+/** Plain-language tasks and symptoms recognized by global navigation search. */
+fun NavigationTarget.searchTerms(): Set<String> = when (this) {
+    NavigationTarget.DASHBOARD -> setOf("home", "live data", "connected", "disconnected", "telemetry")
+    NavigationTarget.IMPORT_CENTER -> setOf("logs", "bring in a run", "quarantine", "file", "robot storage")
+    NavigationTarget.CLOUD -> setOf("sync", "google drive", "upload", "download", "share")
+    NavigationTarget.PATH_PLANNER -> setOf("autonomous", "routine", "path", "drive to")
+    NavigationTarget.FIELD_EDITOR -> setOf("field", "obstacle", "april tag", "game piece")
+    NavigationTarget.ACADEMY -> setOf("help", "learn", "tutorial", "start here", "student", "novice", "glossary")
+    NavigationTarget.KDOC_VIEWER -> setOf("api", "code reference", "kdoc")
+    NavigationTarget.PIT_DIAGNOSTICS -> setOf("hardware", "readiness", "pit", "self test", "freshness")
+    NavigationTarget.MATCH_STRATEGY -> setOf("match", "strategy", "preview")
+    NavigationTarget.RUN_HISTORY -> setOf("replay", "review", "compare", "past run", "session")
+    NavigationTarget.DATABASE_VIEWER -> setOf("sql", "duckdb", "table")
+    NavigationTarget.CONTROLS -> setOf("gamepad", "button", "driver", "operator", "binding")
+    NavigationTarget.TUNING -> setOf("pid", "sysid", "feedforward", "calibration")
+    NavigationTarget.SUBSYSTEM_GEN -> setOf("mechanism", "motor", "sensor", "redux", "io", "generator")
+    NavigationTarget.PROFILE -> setOf("workspace", "robot", "team", "accessibility", "project folder")
+    NavigationTarget.ADMIN -> setOf("roster", "shared robots", "administrator")
 }

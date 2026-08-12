@@ -48,6 +48,7 @@ class ServiceRegistry {
     val eventApiService by lazy { EventApiService() }
     val layoutPreferenceService by lazy { LayoutPreferenceService() }
     val updateCheckerService by lazy { UpdateCheckerService() }
+    val learningProgressService by lazy { LearningProgressService() }
 
     // ── Tier 1: Depend on Tier 0 ─────────────────────────────────────────────
     val nt4ClientService by lazy { Nt4ClientService(databaseService) }

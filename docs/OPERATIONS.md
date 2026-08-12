@@ -2,6 +2,12 @@
 
 This guide covers local development, pit use, target connections, log handling, replay, and recovery. It assumes the four ARES repositories are sibling directories.
 
+Task-focused guides:
+
+- [First launch](start/FIRST_LAUNCH.md) — create and verify a robot workspace.
+- [Connect the simulator](start/CONNECT_SIMULATOR.md) — novice-safe live telemetry and recovery.
+- [Bring in a run](operate/BRING_IN_A_RUN.md) — completed-log collection, import evidence, and replay.
+
 ## 1. Build environment
 
 Use JDK 17 for the Analytics Gradle build.
@@ -53,7 +59,7 @@ To prevent the Gradle task from stopping an earlier Analytics JVM during investi
 - [ ] Confirm the laptop can reach the robot log server on `5002` if using HTTP pull.
 - [ ] For FTC, verify `adb devices` sees the Control Hub if using ADB import/deploy.
 - [ ] For FRC, verify SSH/SCP access if using RoboRIO file pull.
-- [ ] Record a short session and replay it before the match.
+- [ ] Finish a short robot/simulator log, confirm its automatic import, and replay it before the match.
 - [ ] Verify battery, loop-time, pose, and key mechanism topics are updating.
 - [ ] Verify the target alliance and field-centric settings before enabling simulator control.
 
@@ -99,19 +105,24 @@ changed host keys instead of bypassing SSH identity checks.
 
 Do not diagnose a disconnected robot from stale dashboard values. Target changes clear topic metadata, latest values, live history, and pending database frames by design.
 
-## 5. Recording and live data
+## 5. Live data and persistent runs
 
-Live telemetry is stored under the reserved session ID `live-telemetry` in the in-memory database. Starting a recording creates a persistent session. Stopping a recording closes its dispatch boundary before the final drain so late frames cannot be appended to a closed session.
+Live telemetry is stored under the reserved session ID `live-telemetry` in the in-memory database. It supports the live dashboard and live rewind, but it is not automatically a durable practice/match run.
 
-If live charts update but a recording is empty:
+The current UI does not expose a general start/stop recording control. A persistent run is created when Analytics imports a completed robot or simulator log. The producing logger owns the start/stop boundary; Analytics waits for the file to stop changing, archives it, imports it into DuckDB, and writes an import report. Follow [Bring in a run](operate/BRING_IN_A_RUN.md) for the student workflow.
 
-1. Check the current recording state in the dashboard.
-2. Look for database errors in the application log.
-3. Verify the target clock/timestamps are increasing.
-4. Confirm that the session is not still `live-telemetry`.
-5. Stop cleanly and wait for the final persistence drain before closing the app.
+If live charts update but no run appears:
+
+1. Treat that as expected until the robot/simulator logger has closed a file.
+2. Stop or finish the OpMode/routine cleanly so the source log is no longer being written.
+3. Verify the selected Analytics workspace matches the producer's team, season, robot, league, and project path.
+4. Check **Data → Log Imports** for a successful or quarantined report.
+5. Verify the target timestamps increase and inspect application/import errors if no stable file is discovered.
+6. Preserve the source until the imported session appears in **Recorded Sessions** and replays successfully.
 
 ## 6. Log collection
+
+For a task-level walkthrough and success criteria, see [Bring in a run](operate/BRING_IN_A_RUN.md).
 
 ### HTTP pull
 

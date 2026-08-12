@@ -46,7 +46,10 @@ import com.ares.analytics.ui.theme.AresTextTertiary
 fun filterNavigationTargets(query: String, developerMode: Boolean): List<NavigationTarget> {
     val normalized = query.trim().lowercase()
     return availablePaletteTargets(developerMode).filter { target ->
-        normalized.isEmpty() || target.label.lowercase().contains(normalized) || target.groupLabel().lowercase().contains(normalized)
+        normalized.isEmpty() ||
+            target.label.lowercase().contains(normalized) ||
+            target.groupLabel().lowercase().contains(normalized) ||
+            target.searchTerms().any { it.contains(normalized) }
     }
 }
 
@@ -66,7 +69,7 @@ fun CommandPalette(
         title = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Go anywhere", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                Text("Search screens and tools. Developer utilities follow the active workspace setting.", color = AresTextSecondary, fontSize = 11.sp)
+                Text("Search by screen, task, or problem. Try “disconnected,” “import log,” or “gamepad.”", color = AresTextSecondary, fontSize = 12.sp)
             }
         },
         text = {
@@ -76,7 +79,7 @@ fun CommandPalette(
                     onValueChange = { query = it },
                     modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
                     singleLine = true,
-                    placeholder = { Text("Search screens…") },
+                    placeholder = { Text("What do you want to do?") },
                     leadingIcon = { Icon(Icons.Default.Search, null) }
                 )
                 HorizontalDivider(color = AresBorder)

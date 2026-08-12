@@ -1,0 +1,58 @@
+# ARES Analytics documentation
+
+Start here if ARES Analytics is new to you. You do not need to understand every screen before you begin.
+
+## Choose what you are trying to do
+
+| I want to... | Start with | What you will use |
+| --- | --- | --- |
+| Open ARES Analytics for the first time | [First launch](start/FIRST_LAUNCH.md) | A local robot workspace and JDK 17 |
+| See a robot without risking hardware | [Connect the simulator](start/CONNECT_SIMULATOR.md) | Live simulator telemetry on this computer |
+| Review a practice or match log | [Bring in a run](operate/BRING_IN_A_RUN.md) | An imported, persistent run and replay controls |
+| Understand an unfamiliar word | [Glossary](learn/GLOSSARY.md) | Short definitions with mentor notes |
+| Lead a student activity | [Teaching with ARES](mentor/TEACHING_WITH_ARES.md) | A safe simulator-first lesson sequence |
+| Build autonomous routines or controller bindings | [Routines and controls](ROUTINES_AND_CONTROLS.md) | Offline project authoring |
+| Add a robot mechanism | [Subsystem Builder](SUBSYSTEM_BUILDER.md) | Generated IO, state, actions, reducers, and controllers |
+| Diagnose or administer the application | [Operations guide](OPERATIONS.md) | Ports, storage, recovery, and release checks |
+
+## Know which world you are looking at
+
+ARES Analytics can display data from several places. They are related, but they are not interchangeable.
+
+| Mode | Where the data comes from | Is it happening now? | Can it move hardware? | Does it require internet? |
+| --- | --- | --- | --- | --- |
+| **Live robot** | An FTC Control Hub or FRC RoboRIO over NT4 | Yes | Some explicit control/tuning tools can; treat the robot as active | No |
+| **Local simulator** | A robot program and physics simulator running on this computer | Yes | No physical robot hardware | No |
+| **Imported run / replay** | A completed log stored in the local database | No | No; replay is historical | No |
+| **Cloud Sync** | Optional desktop-owned copies in Google Drive/cloud services | No | No | Yes |
+
+The robot never uploads directly to the cloud. The laptop receives or pulls data, analyzes it locally, and may synchronize a copy later.
+
+> **New student rule:** if you are unsure which mode to use, choose **Local Sim**. Ask a mentor before using a live robot control, autonomous selection, or tuning action.
+
+## A good first 15 minutes
+
+1. Complete [First launch](start/FIRST_LAUNCH.md).
+2. Follow [Connect the simulator](start/CONNECT_SIMULATOR.md).
+3. On **Dashboard**, watch the field pose or a telemetry chart change.
+4. Stop the simulator with the square **Stop** control in the execution toolbar.
+5. Say out loud which mode supplied the data: **local simulator**, not replay and not a live robot.
+
+You have succeeded when you can identify the active workspace, the selected target, and one changing telemetry value.
+
+## Safety and recovery
+
+- A green connection indicator means data is available. It does **not** mean a physical robot is safe to approach.
+- Do not enable a robot, arm a routine, push tuning values, or use remote drive without the team's normal safety process.
+- Stop a simulator or build with the toolbar's square **Stop** control. If a terminal reports a failure, keep the text visible for a mentor.
+- Import and replay are local operations. A cloud-sync warning does not erase a successfully imported local run.
+- Never delete the only copy of a competition log while troubleshooting. Work from a copy.
+
+## For mentors and developers
+
+The student guides stay task-focused. Protocol, persistence, and implementation detail live in:
+
+- [Architecture](../ARCHITECTURE.md)
+- [Telemetry contract](TELEMETRY_CONTRACT.md)
+- [Operations](OPERATIONS.md)
+- [Automated validation](VALIDATION.md)

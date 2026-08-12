@@ -2,142 +2,151 @@ package com.ares.analytics.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.AuthState
 import com.ares.analytics.service.OAuthService
-import com.ares.analytics.shared.League
-import com.ares.analytics.shared.RobotProfile
 import com.ares.analytics.ui.screens.onboarding.AuthStep
 import com.ares.analytics.ui.screens.onboarding.JavaVerificationStep
 import com.ares.analytics.ui.screens.onboarding.SyncStep
 import com.ares.analytics.ui.screens.onboarding.WelcomeStep
-import com.ares.analytics.ui.theme.*
+import com.ares.analytics.ui.theme.AresBackground
+import com.ares.analytics.ui.theme.AresBorder
+import com.ares.analytics.ui.theme.AresCyan
+import com.ares.analytics.ui.theme.AresCyanGlow
+import com.ares.analytics.ui.theme.AresError
+import com.ares.analytics.ui.theme.AresSurface
+import com.ares.analytics.ui.theme.AresTextPrimary
+import com.ares.analytics.viewmodel.DEFAULT_GOOGLE_CLIENT_ID
 import com.ares.analytics.viewmodel.OnboardingIntent
+import com.ares.analytics.viewmodel.OnboardingStep
 import com.ares.analytics.viewmodel.OnboardingViewModel
 import javax.swing.JFileChooser
 
-/**
- * Multi-step first-run onboarding wizard screen for initializing workspace settings.
- *
- * Guides users through 4 steps:
- * 1. [WelcomeStep]: Intro hero banner and feature overview.
- * 2. [JavaVerificationStep]: System JDK 11+ environment verification.
- * 3. [AuthStep]: Google OAuth 2.0 PKCE authentication flow.
- * 4. [SyncStep]: Team profile and local project workspace directory selection.
- *
- * @param viewModel [OnboardingViewModel] handling state flow and wizard navigation intents.
- * @param oauthService OAuth authentication provider.
- * @param onCancel Callback invoked when onboarding is cancelled.
- * @param modifier Compose modifier for layout.
- *
- * @see OnboardingViewModel
- */
+/** Novice-first, four-stage workspace setup. */
 @Composable
 fun OnboardingScreen(
     viewModel: OnboardingViewModel,
     oauthService: OAuthService,
     onCancel: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsState()
     val authState by oauthService.authState.collectAsState()
     val token = (authState as? AuthState.Authenticated)?.idToken
 
     LaunchedEffect(state.teamId, token) {
-        if (token != null) {
+        if (token != null && state.teamId.isNotBlank()) {
             viewModel.handleIntent(OnboardingIntent.FetchCloudRobots(token))
         }
     }
 
     Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(AresBackground),
-        contentAlignment = Alignment.Center
+        modifier = modifier.fillMaxSize().background(AresBackground),
+        contentAlignment = Alignment.Center,
     ) {
-        // Subtle background glow
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(AresCyanGlow, Color.Transparent),
-                        radius = 800f
-                    )
-                )
+            modifier = Modifier.fillMaxSize().background(
+                Brush.radialGradient(listOf(AresCyanGlow, Color.Transparent), radius = 800f),
+            ),
         )
 
-        // Glassmorphic main panel
         Surface(
             modifier = Modifier
-                .width(550.dp)
-                .wrapContentHeight()
+                .width(680.dp)
+                .heightIn(max = 840.dp)
                 .border(1.dp, AresBorder, RoundedCornerShape(16.dp)),
             shape = RoundedCornerShape(16.dp),
             color = AresSurface,
-            tonalElevation = 8.dp
+            tonalElevation = 8.dp,
         ) {
             Column(
                 modifier = Modifier
-                    .padding(32.dp)
+                    .padding(28.dp)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                verticalArrangement = Arrangement.spacedBy(18.dp),
             ) {
-                WelcomeStep()
+                WelcomeStep(state.currentStep)
+                HorizontalDivider(color = AresBorder)
 
-                AuthStep(
-                    authState = authState,
-                    googleClientId = state.googleClientId,
-                    googleClientSecret = state.googleClientSecret,
-                    onClientIdChange = { viewModel.handleIntent(OnboardingIntent.UpdateGoogleClientId(it)) },
-                    onClientSecretChange = { viewModel.handleIntent(OnboardingIntent.UpdateGoogleClientSecret(it)) },
-                    onSignInClick = {
-                        val targetClientId = state.googleClientId.takeIf { it.isNotBlank() }
-                            ?: "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com"
-                        val targetClientSecret = state.googleClientSecret.takeIf { it.isNotBlank() }
-
-                        oauthService.startGoogleLogin(
-                            googleClientId = targetClientId,
-                            googleClientSecret = targetClientSecret
-                        )
-                    }
-                )
-
-                HorizontalDivider(color = AresBorder, thickness = 1.dp)
+                if (state.currentStep == OnboardingStep.OPTIONAL) {
+                    AuthStep(
+                        authState = authState,
+                        googleClientId = state.googleClientId,
+                        googleClientSecret = state.googleClientSecret,
+                        expanded = state.cloudSetupExpanded,
+                        onExpandedChange = {
+                            viewModel.handleIntent(OnboardingIntent.SetCloudSetupExpanded(it))
+                        },
+                        onClientIdChange = {
+                            viewModel.handleIntent(OnboardingIntent.UpdateGoogleClientId(it))
+                        },
+                        onClientSecretChange = {
+                            viewModel.handleIntent(OnboardingIntent.UpdateGoogleClientSecret(it))
+                        },
+                        onSignInClick = {
+                            oauthService.startGoogleLogin(
+                                googleClientId = state.googleClientId.trim().ifBlank { DEFAULT_GOOGLE_CLIENT_ID },
+                                googleClientSecret = state.googleClientSecret.trim().takeIf(String::isNotEmpty),
+                            )
+                        },
+                    )
+                }
 
                 SyncStep(
+                    step = state.currentStep,
                     projectPath = state.projectPath,
-                    onProjectPathChange = { viewModel.handleIntent(OnboardingIntent.UpdateProjectPath(it)) },
+                    projectDetectionMessage = state.projectDetectionMessage,
+                    onProjectPathChange = {
+                        viewModel.handleIntent(OnboardingIntent.UpdateProjectPath(it))
+                    },
                     onBrowseProject = {
                         val chooser = JFileChooser().apply {
                             fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-                            dialogTitle = "Select Robot Project Root"
+                            dialogTitle = "Choose your robot project folder"
                         }
-                        val result = chooser.showOpenDialog(null)
-                        if (result == JFileChooser.APPROVE_OPTION) {
+                        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                            // Updating a real directory automatically runs project detection.
                             viewModel.handleIntent(OnboardingIntent.UpdateProjectPath(chooser.selectedFile.absolutePath))
-                            viewModel.handleIntent(OnboardingIntent.DetectLeague)
                         }
                     },
                     teamId = state.teamId,
                     onTeamIdChange = { viewModel.handleIntent(OnboardingIntent.UpdateTeamId(it)) },
                     cloudRobots = state.cloudRobots,
                     selectedOptionText = state.selectedOptionText,
-                    onSelectedOptionTextChange = { viewModel.handleIntent(OnboardingIntent.UpdateSelectedOptionText(it)) },
+                    onSelectedOptionTextChange = {
+                        viewModel.handleIntent(OnboardingIntent.UpdateSelectedOptionText(it))
+                    },
                     robotId = state.robotId,
                     onRobotIdChange = { viewModel.handleIntent(OnboardingIntent.UpdateRobotId(it)) },
                     seasonId = state.seasonId,
@@ -149,59 +158,85 @@ fun OnboardingScreen(
                     nt4Host = state.nt4Host,
                     onNt4HostChange = { viewModel.handleIntent(OnboardingIntent.UpdateNt4Host(it)) },
                     simulatorCommand = state.simulatorCommand,
-                    onSimulatorCommandChange = { viewModel.handleIntent(OnboardingIntent.UpdateSimulatorCommand(it)) }
+                    onSimulatorCommandChange = {
+                        viewModel.handleIntent(OnboardingIntent.UpdateSimulatorCommand(it))
+                    },
+                    advancedExpanded = state.advancedSetupExpanded,
+                    onAdvancedExpandedChange = {
+                        viewModel.handleIntent(OnboardingIntent.SetAdvancedSetupExpanded(it))
+                    },
+                    fieldErrors = state.fieldErrors,
+                    cloudConfigured = authState is AuthState.Authenticated,
                 )
 
-                JavaVerificationStep(
-                    isValid = state.javaEnvValid,
-                    isVerifying = state.isVerifyingJava,
-                    message = state.javaEnvMsg,
-                    onVerifyClick = { viewModel.handleIntent(OnboardingIntent.VerifyJava) }
-                )
-
-                // Error Message if any
-                state.errorMessage?.let { error ->
-                    Text(
-                        text = error,
-                        color = AresError,
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.align(Alignment.Start)
+                if (state.currentStep == OnboardingStep.REVIEW) {
+                    JavaVerificationStep(
+                        isValid = state.javaEnvValid,
+                        isVerifying = state.isVerifyingJava,
+                        message = state.javaEnvMsg,
+                        onVerifyClick = { viewModel.handleIntent(OnboardingIntent.VerifyJava) },
                     )
                 }
 
-                Spacer(Modifier.height(8.dp))
-
-                // Row containing buttons
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    if (onCancel != null) {
-                        OutlinedButton(
-                            onClick = onCancel,
-                            modifier = Modifier.weight(1f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AresTextPrimary)
-                        ) {
-                            Text("Cancel", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        }
-                    }
-
-                    Button(
-                        onClick = { viewModel.handleIntent(OnboardingIntent.SubmitConfig) },
-                        modifier = Modifier.weight(if (onCancel != null) 2f else 1f),
-                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, disabledContainerColor = AresBorder),
-                        enabled = !state.isSaving && state.javaEnvValid == true,
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        if (state.isSaving) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = AresBackground, strokeWidth = 2.dp)
-                        } else {
-                            Text("Initialize Workspace", color = AresBackground, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        }
-                    }
+                state.errorMessage?.let { error ->
+                    Text(error, color = AresError, style = MaterialTheme.typography.bodySmall)
                 }
+
+                NavigationButtons(
+                    step = state.currentStep,
+                    isSaving = state.isSaving,
+                    canFinish = state.javaEnvValid == true,
+                    onCancel = onCancel,
+                    onBack = { viewModel.handleIntent(OnboardingIntent.PreviousStep) },
+                    onNext = { viewModel.handleIntent(OnboardingIntent.NextStep) },
+                    onFinish = { viewModel.handleIntent(OnboardingIntent.SubmitConfig) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NavigationButtons(
+    step: OnboardingStep,
+    isSaving: Boolean,
+    canFinish: Boolean,
+    onCancel: (() -> Unit)?,
+    onBack: () -> Unit,
+    onNext: () -> Unit,
+    onFinish: () -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        when {
+            step != OnboardingStep.PROJECT -> OutlinedButton(
+                onClick = onBack,
+                enabled = !isSaving,
+                modifier = Modifier.weight(1f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
+            ) { Text("Back", color = AresTextPrimary) }
+            onCancel != null -> OutlinedButton(
+                onClick = onCancel,
+                modifier = Modifier.weight(1f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
+            ) { Text("Cancel", color = AresTextPrimary) }
+        }
+
+        Button(
+            onClick = if (step == OnboardingStep.REVIEW) onFinish else onNext,
+            enabled = !isSaving && (step != OnboardingStep.REVIEW || canFinish),
+            modifier = Modifier.weight(2f),
+            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, disabledContainerColor = AresBorder),
+        ) {
+            if (isSaving) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = AresBackground, strokeWidth = 2.dp)
+            } else {
+                val label = when (step) {
+                    OnboardingStep.PROJECT -> "Continue"
+                    OnboardingStep.ROBOT -> "Continue"
+                    OnboardingStep.OPTIONAL -> "Review setup"
+                    OnboardingStep.REVIEW -> if (canFinish) "Create workspace" else "JDK 17 required"
+                }
+                Text(label, color = AresBackground, fontWeight = FontWeight.Bold)
             }
         }
     }
