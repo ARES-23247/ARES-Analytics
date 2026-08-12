@@ -4,12 +4,57 @@ import kotlinx.coroutines.*
 import java.io.File
 import java.nio.file.Files
 import javax.tools.ToolProvider
+import com.ares.analytics.shared.League
+import com.areslib.codegen.SubsystemKotlinCodegenTarget
+import com.areslib.codegen.SubsystemKotlinGenerator
+import com.areslib.subsystem.SubsystemDocumentCodec
+import com.areslib.subsystem.SubsystemPlatform
+import com.areslib.subsystem.SubsystemTemplate
+import com.areslib.subsystem.SubsystemTemplates
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ProcessManagerServiceTest {
+
+    @Test
+    fun `starter preview token is hash-bound and stale apply is rejected before Gradle`() {
+        val service = ProcessManagerService(monitorAdbConnection = false)
+        val root = Files.createTempDirectory("process-manager-starter-plan").toFile()
+        try {
+            val document = SubsystemTemplates.create(
+                SubsystemTemplate.POSITION_CONTROLLED_MECHANISM,
+                "elevator",
+                "Elevator",
+                SubsystemPlatform.FTC,
+            )
+            root.resolve(".ares/subsystems").mkdirs()
+            root.resolve(".ares/subsystems/elevator.aressubsystem").writeText(SubsystemDocumentCodec.encode(document))
+            val generated = SubsystemKotlinGenerator.generate(
+                document,
+                SubsystemKotlinCodegenTarget(SubsystemPlatform.FTC, "org.firstinspires.ftc.teamcode.subsystems"),
+            ).first { it.ownership == com.areslib.codegen.SubsystemArtifactOwnership.GENERATED_STARTER }
+            val starter = root.resolve(
+                "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/subsystems/${generated.relativePath}"
+            )
+            starter.parentFile.mkdirs()
+            starter.writeText(generated.content.lines().toMutableList().also {
+                it[1] = "// reviewed local customization"
+            }.joinToString("\n"))
+
+            val preview = service.previewSubsystemStarters(root.path, League.FTC)
+            assertTrue(preview.hasReplacements)
+            assertTrue(preview.confirmationToken?.matches(Regex("[a-f0-9]{64}")) == true)
+            assertFailsWith<IllegalArgumentException> {
+                service.applySubsystemStarters(root.path, League.FTC, "0".repeat(64))
+            }
+        } finally {
+            service.shutdown()
+            root.deleteRecursively()
+        }
+    }
 
     @Test
     fun `replacement joins old generation and cannot clear the new process state`() = runBlocking {

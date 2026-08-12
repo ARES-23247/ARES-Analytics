@@ -325,6 +325,12 @@ class ControlsEditorViewModelTest {
             this.projectPath = projectPath
             this.league = league
         }
+        override fun previewSubsystemStarters(projectPath: String, league: League) =
+            com.areslib.codegen.SubsystemStarterPlan(emptyList(), null)
+        override fun applySubsystemStarters(projectPath: String, league: League, confirmationToken: String?) {
+            this.projectPath = projectPath
+            this.league = league
+        }
     }
 
     private inline fun withProject(block: (File) -> Unit) {

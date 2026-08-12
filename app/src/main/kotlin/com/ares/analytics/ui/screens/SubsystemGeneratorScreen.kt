@@ -34,7 +34,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.AlertDialog
@@ -72,8 +71,14 @@ import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresTextTertiary
 import com.ares.analytics.viewmodel.SubsystemGeneratorState
 import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
+import com.ares.analytics.viewmodel.SubsystemDiffLineKind
+import com.ares.analytics.viewmodel.SubsystemFileChange
+import com.ares.analytics.viewmodel.SubsystemPreviewFile
 import com.ares.analytics.viewmodel.SubsystemProblemSeverity
+import com.ares.analytics.viewmodel.subsystemTemplateOptions
 import com.areslib.codegen.GeneratedSubsystemSourceSet
+import com.areslib.codegen.SubsystemArtifactGroup
+import com.areslib.codegen.SubsystemArtifactOwnership
 import com.areslib.subsystem.SubsystemControlLoopDocument
 import com.areslib.subsystem.SubsystemControlStrategy
 import com.areslib.subsystem.SubsystemFieldRole
@@ -81,6 +86,7 @@ import com.areslib.subsystem.SubsystemHardwareConnection
 import com.areslib.subsystem.SubsystemHardwareDocument
 import com.areslib.subsystem.SubsystemHardwareKind
 import com.areslib.subsystem.SubsystemMeasurementSource
+import com.areslib.subsystem.SubsystemMeasurementDocument
 import com.areslib.subsystem.SubsystemPlatform
 import com.areslib.subsystem.SubsystemStateFieldDocument
 import com.areslib.subsystem.SubsystemValueType
@@ -114,6 +120,7 @@ fun SubsystemGeneratorScreen(viewModel: SubsystemGeneratorViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 DocumentList(state, viewModel)
+                TemplateCard(state, viewModel)
                 ArchitectureCard(state, viewModel)
             }
             Column(
@@ -129,7 +136,10 @@ fun SubsystemGeneratorScreen(viewModel: SubsystemGeneratorViewModel) {
                         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
+                        RuntimeFlowCard()
                         GeneralInspector(state, viewModel)
+                        SafetyInspector(state, viewModel)
+                        ArtifactPlan(state, viewModel)
                         when {
                             state.selectedHardwareId != null -> draft.hardware.firstOrNull {
                                 it.hardwareId == state.selectedHardwareId
@@ -144,7 +154,10 @@ fun SubsystemGeneratorScreen(viewModel: SubsystemGeneratorViewModel) {
                         ProblemsCard(state)
                     }
                 } else {
-                    CodePreview(state, Modifier.fillMaxSize())
+                    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ArtifactPlan(state, viewModel)
+                        CodePreview(state, Modifier.fillMaxWidth().weight(1f))
+                    }
                 }
             }
         }
@@ -159,6 +172,13 @@ fun SubsystemGeneratorScreen(viewModel: SubsystemGeneratorViewModel) {
                 Button(onClick = { confirmReload = false; viewModel.reload() }) { Text("Discard and reload") }
             },
             dismissButton = { OutlinedButton(onClick = { confirmReload = false }) { Text("Keep editing") } }
+        )
+    }
+    if (state.pendingStarterReplacements.isNotEmpty()) {
+        StarterReplacementDialog(
+            files = state.pendingStarterReplacements,
+            onConfirm = viewModel::confirmStarterReplacement,
+            onDismiss = viewModel::cancelStarterReplacement,
         )
     }
 }
@@ -261,9 +281,109 @@ private fun DocumentList(state: SubsystemGeneratorState, viewModel: SubsystemGen
         OutlinedButton(onClick = viewModel::newSubsystem, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Default.Add, null, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(4.dp))
-            Text("New subsystem")
+            Text("New from selected template")
         }
     }
+}
+
+@Composable
+private fun TemplateCard(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    val selected = subsystemTemplateOptions.first { it.template == state.selectedTemplate }
+    EditorCard("Capability template", Icons.Default.Build) {
+        DropdownSelector(
+            label = "Starting capability",
+            selected = selected.label,
+            options = subsystemTemplateOptions.map { it.label },
+        ) { label ->
+            subsystemTemplateOptions.firstOrNull { it.label == label }?.let { viewModel.selectTemplate(it.template) }
+        }
+        Text(selected.description, color = AresTextSecondary, fontSize = 10.sp)
+        Text(
+            "Templates configure behavior and safety capabilities; they never collapse architectural boundaries.",
+            color = AresTextTertiary,
+            fontSize = 9.sp,
+        )
+    }
+}
+
+@Composable
+private fun RuntimeFlowCard() {
+    EditorCard("Runtime flow", Icons.Default.Memory) {
+        Text(
+            "Input → Redux action/reducer → immutable state → controller → IO contract → FTC or simulated adapter",
+            color = AresCyan,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 11.sp,
+            lineHeight = 17.sp,
+        )
+        Text(
+            "Hardware is read once into a cached snapshot. Reducers remain pure; controllers choose outputs; adapters perform IO.",
+            color = AresTextSecondary,
+            fontSize = 10.sp,
+        )
+    }
+}
+
+@Composable
+private fun ArtifactPlan(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    if (state.previewFiles.isEmpty()) return
+    EditorCard("Artifact plan", Icons.Default.Code) {
+        val starterCount = state.previewFiles.count { it.ownership == SubsystemArtifactOwnership.GENERATED_STARTER }
+        val generatedCount = state.previewFiles.count { it.ownership == SubsystemArtifactOwnership.GENERATED_DO_NOT_EDIT }
+        Text(
+            "$starterCount customization starters · $generatedCount generated plumbing/verification files",
+            color = AresTextSecondary,
+            fontSize = 10.sp,
+        )
+        SubsystemArtifactGroup.entries.forEach { group ->
+            val files = state.previewFiles.filter { it.group == group }
+            if (files.isEmpty()) return@forEach
+            val collapsible = group == SubsystemArtifactGroup.GENERATED_PLUMBING
+            val expanded = !collapsible || state.generatedPlumbingExpanded
+            Row(
+                Modifier.fillMaxWidth().clickable(enabled = collapsible) {
+                    viewModel.setGeneratedPlumbingExpanded(!state.generatedPlumbingExpanded)
+                }.padding(vertical = 3.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "${if (collapsible) if (expanded) "▼ " else "▶ " else ""}${group.displayName()}",
+                    color = AresTextPrimary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text("${files.size}", color = AresTextTertiary, fontSize = 10.sp)
+            }
+            if (expanded) files.forEach { ArtifactRow(it) }
+        }
+    }
+}
+
+@Composable
+private fun ArtifactRow(file: SubsystemPreviewFile) {
+    val ownershipColor = when (file.ownership) {
+        SubsystemArtifactOwnership.USER_OWNED -> AresCyan
+        SubsystemArtifactOwnership.GENERATED_STARTER -> AresGold
+        SubsystemArtifactOwnership.GENERATED_DO_NOT_EDIT -> AresTextTertiary
+    }
+    Column(
+        Modifier.fillMaxWidth().background(AresSurface, RoundedCornerShape(5.dp))
+            .border(1.dp, AresBorder, RoundedCornerShape(5.dp)).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(file.path.substringAfterLast('/'), color = AresTextPrimary, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Text(file.ownership.displayName(), color = ownershipColor, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+        }
+        Text(file.description, color = AresTextSecondary, fontSize = 9.sp)
+        Text(file.moduleName, color = AresCyan, fontSize = 8.sp, fontWeight = FontWeight.SemiBold)
+        Text(file.projectRelativePath, color = AresTextTertiary, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+        if (file.change != SubsystemFileChange.UNCHANGED && file.change != SubsystemFileChange.CREATE) {
+            Text(file.change.displayName(), color = if (file.change == SubsystemFileChange.PROTECTED_USER_OWNED) AresError else AresGold, fontSize = 8.sp)
+        }
+    }
+    Spacer(Modifier.height(4.dp))
 }
 
 @Composable
@@ -330,11 +450,72 @@ private fun GeneralInspector(state: SubsystemGeneratorState, viewModel: Subsyste
         ToggleRow("Generate desktop/mock IO", document.generateMockIo) { value -> viewModel.edit { it.copy(generateMockIo = value) } }
         ToggleRow("Generate a starter test", document.generateTest) { value -> viewModel.edit { it.copy(generateTest = value) } }
         Text(
-            "Generated package: ${if (document.platform == SubsystemPlatform.FTC) "org.firstinspires.ftc.teamcode" else "com.areslib.frc"}.generated.subsystems.${document.documentId.replace('-', '_')}",
+            "Runtime package: ${if (document.platform == SubsystemPlatform.FTC) "org.firstinspires.ftc.teamcode" else "com.areslib.frc"}.subsystems.${document.documentId.replace('-', '_')}",
             color = AresTextSecondary,
             fontFamily = FontFamily.Monospace,
             fontSize = 10.sp,
         )
+    }
+}
+
+@Composable
+private fun SafetyInspector(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    val document = state.draft ?: return
+    val safety = document.safety
+    val digitalInputs = document.hardware.filter { it.kind == SubsystemHardwareKind.DIGITAL_INPUT }.map { it.hardwareId }
+    EditorCard("Safety contract", Icons.Default.Warning) {
+        Text(
+            "Non-neutral output is permitted only while every applicable safety condition below is healthy.",
+            color = AresTextSecondary,
+            fontSize = 10.sp,
+        )
+        NullableLongInput("Feedback timeout (ms)", safety.feedbackTimeoutMs) { value ->
+            viewModel.edit { it.copy(safety = it.safety.copy(feedbackTimeoutMs = value)) }
+        }
+        ToggleRow("Require homing", safety.requiresHoming) { value ->
+            viewModel.edit {
+                it.copy(safety = it.safety.copy(requiresHoming = value, homingSensorId = it.safety.homingSensorId.takeIf { value }))
+            }
+        }
+        if (safety.requiresHoming) {
+            EnumNullableSelector("Homing sensor", safety.homingSensorId, digitalInputs) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(homingSensorId = value)) }
+            }
+            if (digitalInputs.isEmpty()) {
+                Text("Add a digital input before enabling motion on a homed mechanism.", color = AresGold, fontSize = 10.sp)
+            }
+        }
+        ToggleRow("Require calibration", safety.requiresCalibration) { value ->
+            viewModel.edit { it.copy(safety = it.safety.copy(requiresCalibration = value)) }
+        }
+        ToggleRow("Require configuration health", safety.requiresConfigurationHealth) { value ->
+            viewModel.edit { it.copy(safety = it.safety.copy(requiresConfigurationHealth = value)) }
+        }
+        ToggleRow("Require valid current monitoring", safety.requiresCurrentMonitoring) { value ->
+            viewModel.edit { it.copy(safety = it.safety.copy(requiresCurrentMonitoring = value)) }
+        }
+        ToggleRow("Latch failed output writes", safety.latchOutputFaults) { value ->
+            viewModel.edit {
+                it.copy(
+                    safety = it.safety.copy(
+                        latchOutputFaults = value,
+                        requiresExplicitNeutralRecovery = it.safety.requiresExplicitNeutralRecovery && value,
+                    )
+                )
+            }
+        }
+        ToggleRow("Require explicit successful neutral recovery", safety.requiresExplicitNeutralRecovery) { value ->
+            viewModel.edit { it.copy(safety = it.safety.copy(requiresExplicitNeutralRecovery = value)) }
+        }
+        ToggleRow("Publish safety telemetry", safety.telemetryEnabled) { value ->
+            viewModel.edit { it.copy(safety = it.safety.copy(telemetryEnabled = value)) }
+        }
+        ToggleRow("Zero-allocation periodic path", safety.zeroAllocationPeriodic) { value ->
+            viewModel.edit { it.copy(safety = it.safety.copy(zeroAllocationPeriodic = value)) }
+        }
+        TextInput("Autonomous resource key (optional)", document.autonomousResourceKey.orEmpty()) { value ->
+            viewModel.edit { it.copy(autonomousResourceKey = value.ifBlank { null }) }
+        }
     }
 }
 
@@ -354,10 +535,12 @@ private fun HardwareInspector(
                 current.copy(
                     kind = kind,
                     currentLimitAmps = current.currentLimitAmps.takeIf { kind == SubsystemHardwareKind.MOTOR },
-                    measurementFieldId = null,
-                    measurementSource = null,
-                    measurementScale = 1.0,
-                    measurementOffset = 0.0,
+                    measurements = emptyList(),
+                    safeOutput = when (kind) {
+                        SubsystemHardwareKind.MOTOR, SubsystemHardwareKind.CONTINUOUS_SERVO -> 0.0
+                        SubsystemHardwareKind.POSITIONAL_SERVO -> 0.5
+                        else -> null
+                    },
                 )
             }
         }
@@ -382,52 +565,33 @@ private fun HardwareInspector(
         }
         val measurementSources = device.kind.compatibleMeasurementSources()
         if (measurementSources.isNotEmpty()) {
-            val selectedSource = device.measurementSource ?: measurementSources.first()
-            EnumNullableSelector(
-                "Cached measurement",
-                device.measurementFieldId,
-                document.stateFields.filter {
-                    (it.role == SubsystemFieldRole.MEASUREMENT || it.role == SubsystemFieldRole.STATUS) &&
-                        it.type == selectedSource.valueType()
-                }.map { it.fieldId },
-            ) { fieldId ->
-                viewModel.updateHardware(device.hardwareId) {
-                    it.copy(
-                        measurementFieldId = fieldId,
-                        measurementSource = selectedSource.takeIf { fieldId != null },
-                        measurementScale = if (fieldId == null) 1.0 else it.measurementScale,
-                        measurementOffset = if (fieldId == null) 0.0 else it.measurementOffset,
-                    )
+            Text("CACHED INPUT SNAPSHOT", color = AresTextTertiary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            device.measurements.forEachIndexed { index, measurement ->
+                CachedMeasurementEditor(document, device, index, measurement, measurementSources, viewModel)
+            }
+            val available = measurementSources.firstOrNull { source ->
+                document.stateFields.any { field ->
+                    field.fieldId !in device.measurements.map { it.fieldId } &&
+                        (field.role == SubsystemFieldRole.MEASUREMENT || field.role == SubsystemFieldRole.STATUS) &&
+                        field.type == source.valueType()
                 }
             }
-            if (device.measurementFieldId != null) {
-                EnumSelector("Hardware signal", selectedSource, measurementSources) { source ->
-                    viewModel.updateHardware(device.hardwareId) { current ->
-                        val compatibleField = document.stateFields.firstOrNull {
-                            it.fieldId == current.measurementFieldId && it.type == source.valueType()
-                        }?.fieldId
-                        current.copy(
-                            measurementSource = source,
-                            measurementFieldId = compatibleField,
-                            measurementScale = if (source.valueType() == SubsystemValueType.DOUBLE) current.measurementScale else 1.0,
-                            measurementOffset = if (source.valueType() == SubsystemValueType.DOUBLE) current.measurementOffset else 0.0,
-                        )
+            OutlinedButton(
+                onClick = {
+                    val source = available ?: return@OutlinedButton
+                    val field = document.stateFields.first {
+                        it.fieldId !in device.measurements.map { measurement -> measurement.fieldId } &&
+                            (it.role == SubsystemFieldRole.MEASUREMENT || it.role == SubsystemFieldRole.STATUS) &&
+                            it.type == source.valueType()
                     }
-                }
-                if (selectedSource.valueType() == SubsystemValueType.DOUBLE) {
-                    DoubleInput("Measurement scale", device.measurementScale) { value ->
-                        viewModel.updateHardware(device.hardwareId) { it.copy(measurementScale = value) }
+                    viewModel.updateHardware(device.hardwareId) {
+                        it.copy(measurements = it.measurements + SubsystemMeasurementDocument(field.fieldId, source))
                     }
-                    DoubleInput("Measurement offset", device.measurementOffset) { value ->
-                        viewModel.updateHardware(device.hardwareId) { it.copy(measurementOffset = value) }
-                    }
-                    Text(
-                        "Cached state = raw hardware value × scale + offset.",
-                        color = AresTextSecondary,
-                        fontSize = 11.sp,
-                    )
-                }
-            }
+                },
+                enabled = available != null,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("+ Cached measurement") }
+            Text("Each hardware signal is read once per loop into the reusable snapshot.", color = AresTextSecondary, fontSize = 10.sp)
         }
         if (device.kind == SubsystemHardwareKind.MOTOR && document.platform == SubsystemPlatform.FRC) {
             NullableDoubleInput("Current limit (A)", device.currentLimitAmps) { value ->
@@ -438,11 +602,82 @@ private fun HardwareInspector(
             viewModel.updateHardware(device.hardwareId) { it.copy(required = value) }
         }
         if (device.kind.isActuator()) {
+            DoubleInput("Safe neutral output", device.safeOutput ?: 0.0) { value ->
+                viewModel.updateHardware(device.hardwareId) { it.copy(safeOutput = value) }
+            }
             ToggleRow("Inverted", device.inverted) { value ->
                 viewModel.updateHardware(device.hardwareId) { it.copy(inverted = value) }
             }
         }
         DeleteButton("Delete hardware") { viewModel.removeHardware(device.hardwareId) }
+    }
+}
+
+@Composable
+private fun CachedMeasurementEditor(
+    document: com.areslib.subsystem.SubsystemDocument,
+    device: SubsystemHardwareDocument,
+    index: Int,
+    measurement: SubsystemMeasurementDocument,
+    sources: List<SubsystemMeasurementSource>,
+    viewModel: SubsystemGeneratorViewModel,
+) {
+    Column(
+        Modifier.fillMaxWidth().background(AresSurface, RoundedCornerShape(5.dp)).padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        EnumSelector("Hardware signal", measurement.source, sources) { source ->
+            val compatible = document.stateFields.firstOrNull {
+                (it.role == SubsystemFieldRole.MEASUREMENT || it.role == SubsystemFieldRole.STATUS) &&
+                    it.type == source.valueType() && it.fieldId !in device.measurements.filterIndexed { i, _ -> i != index }.map { it.fieldId }
+            }
+            viewModel.updateHardware(device.hardwareId) { hardware ->
+                hardware.copy(measurements = hardware.measurements.mapIndexed { i, current ->
+                    if (i == index) current.copy(
+                        source = source,
+                        fieldId = compatible?.fieldId ?: current.fieldId,
+                        scale = if (source.valueType() == SubsystemValueType.DOUBLE) current.scale else 1.0,
+                        offset = if (source.valueType() == SubsystemValueType.DOUBLE) current.offset else 0.0,
+                    ) else current
+                })
+            }
+        }
+        val fieldOptions = document.stateFields.filter {
+            (it.role == SubsystemFieldRole.MEASUREMENT || it.role == SubsystemFieldRole.STATUS) &&
+                it.type == measurement.source.valueType() &&
+                it.fieldId !in device.measurements.filterIndexed { i, _ -> i != index }.map { existing -> existing.fieldId }
+        }.map { it.fieldId }
+        EnumStringSelector("Snapshot field", measurement.fieldId, fieldOptions) { fieldId ->
+            viewModel.updateHardware(device.hardwareId) { hardware ->
+                hardware.copy(measurements = hardware.measurements.mapIndexed { i, current ->
+                    if (i == index) current.copy(fieldId = fieldId) else current
+                })
+            }
+        }
+        if (measurement.source.valueType() == SubsystemValueType.DOUBLE) {
+            DoubleInput("Scale", measurement.scale) { value ->
+                viewModel.updateHardware(device.hardwareId) { hardware ->
+                    hardware.copy(measurements = hardware.measurements.mapIndexed { i, current ->
+                        if (i == index) current.copy(scale = value) else current
+                    })
+                }
+            }
+            DoubleInput("Offset", measurement.offset) { value ->
+                viewModel.updateHardware(device.hardwareId) { hardware ->
+                    hardware.copy(measurements = hardware.measurements.mapIndexed { i, current ->
+                        if (i == index) current.copy(offset = value) else current
+                    })
+                }
+            }
+        }
+        OutlinedButton(
+            onClick = {
+                viewModel.updateHardware(device.hardwareId) { hardware ->
+                    hardware.copy(measurements = hardware.measurements.filterIndexed { i, _ -> i != index })
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Remove cached measurement", color = AresError) }
     }
 }
 
@@ -623,6 +858,61 @@ private fun CodePreview(state: SubsystemGeneratorState, modifier: Modifier) {
 }
 
 @Composable
+private fun StarterReplacementDialog(
+    files: List<SubsystemPreviewFile>,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var selectedPath by remember(files) { mutableStateOf(files.first().path) }
+    val selected = files.firstOrNull { it.path == selectedPath } ?: files.first()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Replace an existing generated starter?") },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().height(430.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    "Generated starters are customization points. Confirming replaces the existing content shown in red with the proposed content shown in green.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                )
+                DropdownSelector(
+                    "Starter with changes",
+                    selected.path,
+                    files.map { it.path },
+                ) { selectedPath = it }
+                Text(selected.projectRelativePath, color = AresTextTertiary, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                Box(
+                    Modifier.fillMaxSize().background(AresBackground, RoundedCornerShape(5.dp))
+                        .border(1.dp, AresBorder, RoundedCornerShape(5.dp))
+                        .verticalScroll(rememberScrollState()).padding(8.dp),
+                ) {
+                    Column {
+                        selected.diff.forEach { line ->
+                            val prefix = when (line.kind) {
+                                SubsystemDiffLineKind.CONTEXT -> "  "
+                                SubsystemDiffLineKind.ADDED -> "+ "
+                                SubsystemDiffLineKind.REMOVED -> "- "
+                            }
+                            val color = when (line.kind) {
+                                SubsystemDiffLineKind.CONTEXT -> AresTextSecondary
+                                SubsystemDiffLineKind.ADDED -> AresGreen
+                                SubsystemDiffLineKind.REMOVED -> AresError
+                            }
+                            Text(prefix + line.text, color = color, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { Button(onClick = onConfirm) { Text("Replace shown starters") } },
+        dismissButton = { OutlinedButton(onClick = onDismiss) { Text("Keep existing files") } },
+    )
+}
+
+@Composable
 private fun EditorCard(
     title: String,
     @Suppress("UNUSED_PARAMETER") icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -721,6 +1011,25 @@ private fun IntInput(label: String, value: Int, onChange: (Int) -> Unit) {
 }
 
 @Composable
+private fun NullableLongInput(label: String, value: Long?, onChange: (Long?) -> Unit) {
+    var text by remember(value) { mutableStateOf(value?.toString().orEmpty()) }
+    OutlinedTextField(
+        text,
+        { raw ->
+            text = raw
+            when {
+                raw.isBlank() -> onChange(null)
+                raw.toLongOrNull() != null -> onChange(raw.toLong())
+            }
+        },
+        label = { Text(label) },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+        isError = text.isNotBlank() && text.toLongOrNull() == null,
+    )
+}
+
+@Composable
 private fun ToggleRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(
         Modifier.fillMaxWidth().clickable { onChange(!checked) }.padding(vertical = 2.dp),
@@ -792,6 +1101,29 @@ private fun StatusBanner(message: String, error: Boolean) {
         if (error) Icon(Icons.Default.Warning, null, tint = AresError, modifier = Modifier.size(15.dp))
         Text(message, color = if (error) AresError else AresTextPrimary, fontSize = 11.sp)
     }
+}
+
+private fun SubsystemArtifactGroup.displayName(): String = when (this) {
+    SubsystemArtifactGroup.DOMAIN -> "Domain"
+    SubsystemArtifactGroup.CONTROL -> "Control"
+    SubsystemArtifactGroup.HARDWARE -> "Hardware"
+    SubsystemArtifactGroup.SIMULATION -> "Simulation"
+    SubsystemArtifactGroup.GENERATED_PLUMBING -> "Generated Plumbing"
+    SubsystemArtifactGroup.VERIFICATION -> "Verification"
+}
+
+private fun SubsystemArtifactOwnership.displayName(): String = when (this) {
+    SubsystemArtifactOwnership.USER_OWNED -> "USER-OWNED"
+    SubsystemArtifactOwnership.GENERATED_STARTER -> "GENERATED STARTER"
+    SubsystemArtifactOwnership.GENERATED_DO_NOT_EDIT -> "GENERATED — DO NOT EDIT"
+}
+
+private fun SubsystemFileChange.displayName(): String = when (this) {
+    SubsystemFileChange.CREATE -> "Will be created"
+    SubsystemFileChange.UNCHANGED -> "Unchanged"
+    SubsystemFileChange.UPDATE_GENERATED -> "Generated output will be refreshed"
+    SubsystemFileChange.REPLACE_STARTER -> "Confirmation required before replacing this starter"
+    SubsystemFileChange.PROTECTED_USER_OWNED -> "Protected USER-OWNED file differs; generation is blocked"
 }
 
 private fun SubsystemHardwareDocument.connectionLabel(platform: SubsystemPlatform): String = when (platform) {

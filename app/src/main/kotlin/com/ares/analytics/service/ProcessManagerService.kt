@@ -1,6 +1,13 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.League
+import com.areslib.codegen.GeneratedSubsystemFile
+import com.areslib.codegen.SubsystemKotlinCodegenTarget
+import com.areslib.codegen.SubsystemKotlinGenerator
+import com.areslib.codegen.SubsystemStarterPlan
+import com.areslib.codegen.SubsystemStarterReconciler
+import com.areslib.subsystem.SubsystemDocumentCodec
+import com.areslib.subsystem.SubsystemPlatform
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
@@ -22,6 +29,8 @@ data class AresGenerationState(
 interface AresProjectGenerator {
     val aresGenerationState: StateFlow<AresGenerationState>
     fun generateAresProject(projectPath: String, league: League)
+    fun previewSubsystemStarters(projectPath: String, league: League): SubsystemStarterPlan
+    fun applySubsystemStarters(projectPath: String, league: League, confirmationToken: String? = null)
 }
 
 private enum class BuildOperationKind { BUILD, GENERATION, TEST }
@@ -31,6 +40,11 @@ private data class BuildOwnership(
     val kind: BuildOperationKind?,
     val job: Job?,
     val process: Process?
+)
+
+private data class SubsystemStarterInputs(
+    val root: File,
+    val files: List<GeneratedSubsystemFile>,
 )
 
 /**
@@ -176,6 +190,107 @@ class ProcessManagerService internal constructor(
         enqueueBuildOperation(BuildOperationKind.GENERATION) { generation ->
             executeAresGeneration(generation, projectPath, league)
         }
+    }
+
+    override fun previewSubsystemStarters(projectPath: String, league: League): SubsystemStarterPlan {
+        val inputs = subsystemStarterInputs(requireSafeProjectRoot(projectPath), league)
+        return SubsystemStarterReconciler.plan(inputs.root.toPath(), inputs.files)
+    }
+
+    override fun applySubsystemStarters(projectPath: String, league: League, confirmationToken: String?) {
+        val root = requireSafeProjectRoot(projectPath)
+        // Re-plan immediately before scheduling so stale UI tokens fail closed in the Gradle task.
+        val plan = previewSubsystemStarters(root.path, league)
+        if (plan.hasReplacements) {
+            require(confirmationToken != null && confirmationToken == plan.confirmationToken) {
+                "The generated starter proposal changed. Review the new diff before replacing files."
+            }
+        }
+        enqueueBuildOperation(BuildOperationKind.GENERATION) { generation ->
+            executeSubsystemStarterGeneration(generation, root, league, confirmationToken)
+        }
+    }
+
+    private suspend fun executeSubsystemStarterGeneration(
+        generation: Long,
+        root: File,
+        league: League,
+        confirmationToken: String?,
+    ) {
+        updateGenerationStateIfOwner(
+            generation,
+            AresGenerationState(AresGenerationPhase.RUNNING, "Applying reviewed subsystem starters and generated plumbing...")
+        )
+        val taskName = if (confirmationToken == null) "generateSubsystemStarters" else "replaceSubsystemStarters"
+        val task = if (league == League.FTC) ":TeamCode:$taskName" else taskName
+        val wrapperJar = File(root, "gradle/wrapper/gradle-wrapper.jar").canonicalFile
+        require(wrapperJar.isFile && wrapperJar.toPath().startsWith(root.toPath())) {
+            "This directory does not contain gradle/wrapper/gradle-wrapper.jar"
+        }
+        val javaExecutable = File(
+            System.getProperty("java.home"),
+            "bin/${if (System.getProperty("os.name").contains("win", true)) "java.exe" else "java"}"
+        ).canonicalFile
+        val command = buildList {
+            add(javaExecutable.path)
+            add("-classpath")
+            add(wrapperJar.path)
+            add("org.gradle.wrapper.GradleWrapperMain")
+            add(task)
+            add("--console=plain")
+            confirmationToken?.let { add("-Pares.subsystemReplacementToken=$it") }
+        }
+        val diagnosticLines = ArrayDeque<String>(GENERATION_DIAGNOSTIC_LINE_LIMIT)
+        try {
+            val exitCode = runOwnedBuildProcess(
+                generation,
+                ProcessBuilder(command).directory(root).redirectErrorStream(true),
+            ) { line ->
+                if (diagnosticLines.size == GENERATION_DIAGNOSTIC_LINE_LIMIT) diagnosticLines.removeFirst()
+                diagnosticLines.addLast(line)
+                _buildOutput.emit(line)
+                updateGenerationStateIfOwner(generation, AresGenerationState(AresGenerationPhase.RUNNING, line.take(500)))
+            }
+            check(exitCode == 0) {
+                diagnosticLines.joinToString("\n").takeLast(GENERATION_DIAGNOSTIC_CHARACTER_LIMIT)
+                    .ifBlank { "Subsystem starter generation failed with exit code $exitCode" }
+            }
+            updateGenerationStateIfOwner(
+                generation,
+                AresGenerationState(AresGenerationPhase.SUCCEEDED, "Subsystem starters and generated plumbing are current.")
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            val message = error.message?.takeLast(GENERATION_DIAGNOSTIC_CHARACTER_LIMIT)
+                ?: "Subsystem starter generation failed"
+            updateGenerationStateIfOwner(generation, AresGenerationState(AresGenerationPhase.FAILED, message))
+            _buildOutput.emit("[ARES] Subsystem starter generation failed: $message")
+        }
+    }
+
+    private fun subsystemStarterInputs(root: File, league: League): SubsystemStarterInputs {
+        val platform = if (league == League.FTC) SubsystemPlatform.FTC else SubsystemPlatform.FRC
+        val basePackage = if (league == League.FTC) {
+            "org.firstinspires.ftc.teamcode.subsystems"
+        } else {
+            "com.areslib.frc.subsystems"
+        }
+        val starterRoot = if (league == League.FTC) {
+            File(root, "TeamCode/src/main/java/${basePackage.replace('.', '/')}")
+        } else {
+            File(root, "src/main/kotlin/${basePackage.replace('.', '/')}")
+        }.canonicalFile
+        require(starterRoot.toPath().startsWith(root.toPath())) { "Subsystem starter root escaped the project" }
+        val documentsRoot = File(root, ".ares/subsystems").canonicalFile
+        val documents = documentsRoot.listFiles { file -> file.isFile && file.extension.equals("aressubsystem", true) }
+            .orEmpty()
+            .sortedBy { it.name.lowercase() }
+            .map { SubsystemDocumentCodec.decode(it.readText()) }
+            .filter { it.platform == platform }
+        val target = SubsystemKotlinCodegenTarget(platform, basePackage)
+        return SubsystemStarterInputs(starterRoot, documents.flatMap { SubsystemKotlinGenerator.generate(it, target) })
     }
 
     private suspend fun executeAresGeneration(generation: Long, projectPath: String, league: League) {
