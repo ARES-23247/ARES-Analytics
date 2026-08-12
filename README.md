@@ -156,6 +156,7 @@ The Compose client is not subject to browser CORS. Browser access must be explic
 - [Connect the simulator](docs/start/CONNECT_SIMULATOR.md) - launch Local Sim, confirm live telemetry, and recover safely
 - [Bring in a run](docs/operate/BRING_IN_A_RUN.md) - collect, verify, quarantine, and replay completed logs
 - [Glossary](docs/learn/GLOSSARY.md) - student definitions with precise ARES meanings
+- [Accessibility and contrast](docs/learn/ACCESSIBILITY_AND_CONTRAST.md) - readable palettes, status cues, text scaling, and touch targets
 - [Teaching with ARES](docs/mentor/TEACHING_WITH_ARES.md) - mentor-led simulator-first lesson and physical robot safety gate
 - [Automated dashboard validation](docs/VALIDATION.md) - smoke/soak profiles, performance budgets, reports, and CI
 - [Student routines and controller bindings](docs/ROUTINES_AND_CONTROLS.md) - offline authoring, visual controls, generation, selection, and troubleshooting

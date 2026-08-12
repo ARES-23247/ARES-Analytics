@@ -462,7 +462,7 @@ private fun DashboardOfflineGuide(
             OutlinedButton(onClick = onOpenHelp) { Text("Simulator guide") }
             Button(
                 onClick = onOpenRunHistory,
-                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresBackground)
+                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
             ) { Text("Run History", fontWeight = FontWeight.Bold) }
             IconButton(onClick = onDismiss) {
                 Icon(Icons.Default.Close, "Dismiss dashboard guidance", tint = AresTextSecondary)

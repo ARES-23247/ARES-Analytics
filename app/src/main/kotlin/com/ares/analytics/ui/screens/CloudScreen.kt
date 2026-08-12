@@ -249,7 +249,7 @@ fun CloudScreen(
                             modifier = Modifier.height(32.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                         ) {
-                            Text("Delete Selected (${checkedRobotRuns.size})", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("Delete Selected (${checkedRobotRuns.size})", color = AresOnAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -362,7 +362,7 @@ fun CloudScreen(
                                 modifier = Modifier.height(32.dp),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                             ) {
-                                Text("Delete Local (${localSessions.size})", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("Delete Local (${localSessions.size})", color = AresOnAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
 
@@ -375,7 +375,7 @@ fun CloudScreen(
                                 modifier = Modifier.height(32.dp),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                             ) {
-                                Text("Delete Cloud (${remoteSessions.size})", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                Text("Delete Cloud (${remoteSessions.size})", color = AresOnAccent, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                             }
                         }
                     }
@@ -554,7 +554,7 @@ private fun CloudDeletionConfirmationDialog(
                 onClick = onConfirm,
                 colors = ButtonDefaults.buttonColors(containerColor = AresRed)
             ) {
-                Text(copy.confirmLabel, color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                Text(copy.confirmLabel, color = AresOnAccent, fontWeight = FontWeight.Bold)
             }
         },
         dismissButton = {

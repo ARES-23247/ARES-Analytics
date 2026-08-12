@@ -188,7 +188,7 @@ fun TuningScreen(
                             Button(
                                 onClick = { showArmConfirmation = true },
                                 enabled = sysIdState.isRobotConnected && sysIdState.calibrationModeEnabled,
-                                colors = ButtonDefaults.buttonColors(containerColor = AresGold, contentColor = AresBackground)
+                                colors = ButtonDefaults.buttonColors(containerColor = AresGold, contentColor = AresOnAccent)
                             ) { Text("ARM") }
                         } else {
                             OutlinedButton(onClick = {
@@ -220,7 +220,7 @@ fun TuningScreen(
                     ) {
                         Text(
                             text = title,
-                            color = if (selected) AresBackground else AresTextPrimary,
+                            color = if (selected) AresOnAccent else AresTextPrimary,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -259,7 +259,7 @@ fun TuningScreen(
                                         ) {
                                             Text(
                                                 text = mech.name,
-                                                color = if (selected) AresBackground else AresTextPrimary,
+                                                color = if (selected) AresOnAccent else AresTextPrimary,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
                                             )
@@ -504,10 +504,10 @@ private fun AbortCard(viewModel: SysIdViewModel) {
             }
             Button(
                 onClick = { viewModel.onIntent(SysIdIntent.StopCalibration) },
-                colors = ButtonDefaults.buttonColors(containerColor = AresError),
+                colors = ButtonDefaults.buttonColors(containerColor = AresError, contentColor = AresOnAccent),
                 shape = RoundedCornerShape(6.dp)
             ) {
-                Text("ABORT TEST (STOP)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text("ABORT TEST (STOP)", color = AresOnAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             }
         }
     }
@@ -598,7 +598,7 @@ private fun ApplyButton(onClick: () -> Unit) {
         shape = RoundedCornerShape(6.dp),
         contentPadding = PaddingValues(0.dp)
     ) {
-        Text("Send temporary values to robot", color = AresBackground, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text("Send temporary values to robot", color = AresOnAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
     }
 }
 

@@ -60,6 +60,7 @@ import com.ares.analytics.ui.theme.AresCyan
 import com.ares.analytics.ui.theme.AresError
 import com.ares.analytics.ui.theme.AresGold
 import com.ares.analytics.ui.theme.AresGreen
+import com.ares.analytics.ui.theme.AresOnAccent
 import com.ares.analytics.ui.theme.AresRed
 import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
@@ -173,14 +174,14 @@ private fun ProjectHeader(state: ControlsEditorState, viewModel: ControlsEditorV
             Button(
                 onClick = viewModel::save,
                 enabled = state.canSave,
-                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black)
+                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
             ) {
                 Icon(Icons.Default.Save, null, Modifier.size(16.dp)); Spacer(Modifier.width(5.dp)); Text("Save")
             }
             Button(
                 onClick = viewModel::saveAndGenerate,
                 enabled = state.canGenerate,
-                colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = Color.Black)
+                colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent)
             ) {
                 Icon(Icons.Default.Save, null, Modifier.size(16.dp)); Spacer(Modifier.width(5.dp))
                 Text(if (state.generationPhase == AresGenerationPhase.RUNNING) "Generating..." else "Save & Generate")
@@ -267,7 +268,7 @@ private fun SelectedControlCard(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(
                     onClick = viewModel::createBinding,
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black)
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                 ) {
                     Icon(Icons.Default.Add, null, Modifier.size(16.dp)); Text(" Add action")
                 }
@@ -509,7 +510,7 @@ private fun BindingInspector(
         Button(
             onClick = viewModel::applyDraft,
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black)
+            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
         ) { Text(if (state.selectedBindingId == null) "Add binding" else "Apply changes") }
         HorizontalDivider(color = AresBorder)
         Row(

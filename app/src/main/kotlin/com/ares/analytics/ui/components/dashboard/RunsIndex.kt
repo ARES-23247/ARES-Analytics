@@ -261,7 +261,7 @@ fun RunsIndex(
                                     label = { Text("Battery $label") },
                                     colors = FilterChipDefaults.filterChipColors(
                                         selectedContainerColor = AresCyan,
-                                        selectedLabelColor = AresBackground,
+                                        selectedLabelColor = AresOnAccent,
                                         containerColor = AresSurfaceElevated,
                                         labelColor = AresTextSecondary
                                     )
@@ -299,7 +299,7 @@ fun RunsIndex(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = AresCyan)
                 ) {
-                    Text("Save", color = AresBackground, fontWeight = FontWeight.Bold)
+                    Text("Save", color = AresOnAccent, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {

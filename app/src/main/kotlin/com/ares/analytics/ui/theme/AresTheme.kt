@@ -13,17 +13,17 @@ import androidx.compose.ui.unit.dp
 
 private fun aresColorScheme(colors: AresColorPalette) = darkColorScheme(
     primary = colors.cyan,
-    onPrimary = colors.background,
+    onPrimary = colors.onAccent,
     primaryContainer = colors.cyanDark,
-    onPrimaryContainer = colors.textPrimary,
+    onPrimaryContainer = colors.onAccent,
 
     secondary = colors.red,
-    onSecondary = colors.textPrimary,
+    onSecondary = colors.onAccent,
     secondaryContainer = colors.redDark,
     onSecondaryContainer = colors.textPrimary,
 
     tertiary = colors.gold,
-    onTertiary = colors.background,
+    onTertiary = colors.onAccent,
 
     background = colors.background,
     onBackground = colors.textPrimary,
@@ -34,7 +34,7 @@ private fun aresColorScheme(colors: AresColorPalette) = darkColorScheme(
     onSurfaceVariant = colors.textSecondary,
 
     error = colors.error,
-    onError = colors.textPrimary,
+    onError = colors.onAccent,
 
     outline = colors.border,
     outlineVariant = colors.borderFocused

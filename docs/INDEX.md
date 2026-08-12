@@ -11,6 +11,7 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 | See a robot without risking hardware | [Connect the simulator](start/CONNECT_SIMULATOR.md) | Live simulator telemetry on this computer |
 | Review a practice or match log | [Bring in a run](operate/BRING_IN_A_RUN.md) | An imported, persistent run and replay controls |
 | Understand an unfamiliar word | [Glossary](learn/GLOSSARY.md) | Short definitions with mentor notes |
+| Make the interface easier to read | [Accessibility and contrast](learn/ACCESSIBILITY_AND_CONTRAST.md) | Colorblind, contrast, larger-text, and touch settings |
 | Find the right screen or owning source file | [Find help and current source](learn/FIND_HELP_AND_SOURCE.md) | Contextual lessons, connection labels, and developer reference |
 | Lead a student activity | [Teaching with ARES](mentor/TEACHING_WITH_ARES.md) | A safe simulator-first lesson sequence |
 | Build autonomous routines or controller bindings | [Routines and controls](ROUTINES_AND_CONTROLS.md) | Offline project authoring |

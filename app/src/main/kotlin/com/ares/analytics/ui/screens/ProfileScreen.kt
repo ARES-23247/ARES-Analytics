@@ -514,7 +514,7 @@ fun ProfileScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Colorblind-Friendly Palette", color = AresTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Remaps success and failure states (red/green) to deuteranopia-safe cobalt blue and vermilion orange.", color = AresTextSecondary, fontSize = 11.sp)
+                        Text("Uses blue/orange status accents while retaining words, icons, and borders so color is never the only signal.", color = AresTextSecondary, fontSize = 11.sp)
                     }
                     Switch(
                         checked = colorblindMode,
