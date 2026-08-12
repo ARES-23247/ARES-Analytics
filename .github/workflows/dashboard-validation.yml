@@ -41,13 +41,13 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Checkout ARESLib-Kotlin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ARES-23247/ARESLib-Kotlin
           path: ARESLib-Kotlin
 
       - name: Checkout ARES-Analytics
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: ARES-Analytics
 
@@ -88,13 +88,13 @@ jobs:
     timeout-minutes: 45
     steps:
       - name: Checkout ARESLib-Kotlin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ARES-23247/ARESLib-Kotlin
           path: ARESLib-Kotlin
 
       - name: Checkout ARES-Analytics
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: ARES-Analytics
 

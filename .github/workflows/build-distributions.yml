@@ -32,7 +32,7 @@ jobs:
 
       # 1. Clone & Build the library (ARESLib-Kotlin)
       - name: Checkout ARESLib-Kotlin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: 'ARES-23247/ARESLib-Kotlin'
           path: 'ARESLib-Kotlin'
@@ -46,7 +46,7 @@ jobs:
 
       # 2. Clone & Build the main application (ARES-Analytics)
       - name: Checkout ARES-Analytics
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: 'ARES-Analytics'
 
