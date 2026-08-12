@@ -256,4 +256,5 @@ If a previous Analytics JVM is still running, the root Gradle task checks Java p
 - [ ] Export/import a Parquet session containing string telemetry.
 - [ ] Verify target switching clears old robot state.
 - [ ] Verify gateway health, authentication, request limits, and rate limiting.
-- [ ] Build the same native package used by the release workflow. On Windows, quote the complete dotted Gradle property so PowerShell passes it as one argument: `.\gradlew.bat :app:packageMsi "-ParesAnalyticsVersion=1.1.0"`.
+- [ ] Build the same native package used by the release workflow. On Windows, quote the complete dotted Gradle property so PowerShell passes it as one argument: `.\gradlew.bat :app:packageMsi "-ParesAnalyticsVersion=1.1.1"`.
+- [ ] Confirm `:app:verifyDistributableProjectLoading` passes. Native package tasks depend on this guard, which loads metadata, routines, subsystems, capabilities, and autonomous choices through the trimmed jlink runtime rather than the development JDK.
