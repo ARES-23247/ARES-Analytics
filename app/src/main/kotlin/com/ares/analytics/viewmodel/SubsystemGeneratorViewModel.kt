@@ -6,8 +6,13 @@ import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentKind
 import com.areslib.codegen.GeneratedSubsystemSourceSet
+import com.areslib.codegen.SubsystemArtifact
+import com.areslib.codegen.SubsystemArtifactGroup
+import com.areslib.codegen.SubsystemArtifactOwnership
 import com.areslib.codegen.SubsystemKotlinCodegenTarget
 import com.areslib.codegen.SubsystemKotlinGenerator
+import com.areslib.codegen.SubsystemStarterReconciler
+import com.areslib.codegen.SubsystemStarterChangeKind
 import com.areslib.subsystem.SubsystemControlLoopDocument
 import com.areslib.subsystem.SubsystemControlStrategy
 import com.areslib.subsystem.SubsystemDocument
@@ -18,6 +23,8 @@ import com.areslib.subsystem.SubsystemHardwareKind
 import com.areslib.subsystem.SubsystemMeasurementSource
 import com.areslib.subsystem.SubsystemPlatform
 import com.areslib.subsystem.SubsystemStateFieldDocument
+import com.areslib.subsystem.SubsystemTemplate
+import com.areslib.subsystem.SubsystemTemplates
 import com.areslib.subsystem.SubsystemValueType
 import com.areslib.subsystem.validateSubsystemDocument
 import kotlinx.coroutines.CoroutineScope
@@ -29,6 +36,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.io.File
 
 enum class SubsystemProblemSeverity { WARNING, ERROR }
 
@@ -42,6 +50,64 @@ data class SubsystemPreviewFile(
     val path: String,
     val sourceSet: GeneratedSubsystemSourceSet,
     val content: String,
+    val artifact: SubsystemArtifact,
+    val group: SubsystemArtifactGroup,
+    val ownership: SubsystemArtifactOwnership,
+    val description: String,
+    val moduleName: String,
+    val projectRelativePath: String,
+    val change: SubsystemFileChange,
+    val diff: List<SubsystemDiffLine> = emptyList(),
+)
+
+enum class SubsystemFileChange { CREATE, UNCHANGED, UPDATE_GENERATED, REPLACE_STARTER, PROTECTED_USER_OWNED }
+
+enum class SubsystemDiffLineKind { CONTEXT, ADDED, REMOVED }
+
+data class SubsystemDiffLine(val kind: SubsystemDiffLineKind, val text: String)
+
+data class SubsystemTemplateOption(
+    val template: SubsystemTemplate,
+    val label: String,
+    val description: String,
+)
+
+val subsystemTemplateOptions = listOf(
+    SubsystemTemplateOption(
+        SubsystemTemplate.SIMPLE_ACTUATOR,
+        "Simple actuator",
+        "Bounded open-loop motor output with a declared neutral state and fault monitoring.",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.POSITION_CONTROLLED_MECHANISM,
+        "Position-controlled mechanism",
+        "Closed-loop position control with cached feedback, soft limits, and stale-signal handling.",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.VELOCITY_CONTROLLED_MECHANISM,
+        "Velocity-controlled mechanism",
+        "Closed-loop velocity control with current monitoring and a safe spin-down path.",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.SENSOR_ONLY_SUBSYSTEM,
+        "Sensor-only subsystem",
+        "A cached, validity-aware input snapshot with telemetry and no actuator output.",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.HOMED_MECHANISM,
+        "Homed mechanism",
+        "Position control gated on an explicit home reference, calibration health, and soft limits.",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.COMPOSITE_MECHANISM,
+        "Composite mechanism",
+        "Coordinated devices with one atomic snapshot, neutral policy, and partial-failure handling.",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.ADVANCED_CUSTOM,
+        "Advanced/custom",
+        "An explicit starting point that requires every applicable hardware and safety choice.",
+    ),
 )
 
 data class SubsystemGeneratorState(
@@ -53,7 +119,11 @@ data class SubsystemGeneratorState(
     val selectedHardwareId: String? = null,
     val selectedFieldId: String? = null,
     val selectedLoopId: String? = null,
+    val selectedTemplate: SubsystemTemplate = SubsystemTemplate.POSITION_CONTROLLED_MECHANISM,
     val previewFiles: List<SubsystemPreviewFile> = emptyList(),
+    val generatedPlumbingExpanded: Boolean = false,
+    val pendingStarterReplacements: List<SubsystemPreviewFile> = emptyList(),
+    val starterConfirmationToken: String? = null,
     val problems: List<SubsystemProblem> = emptyList(),
     val dirty: Boolean = false,
     val generationPhase: AresGenerationPhase = AresGenerationPhase.IDLE,
@@ -69,6 +139,9 @@ data class SubsystemGeneratorState(
         get() = !dirty && draft != null && loadError == null &&
             generationPhase != AresGenerationPhase.RUNNING &&
             problems.none { it.severity == SubsystemProblemSeverity.ERROR }
+
+    val hasProtectedUserOwnedConflict: Boolean
+        get() = previewFiles.any { it.change == SubsystemFileChange.PROTECTED_USER_OWNED }
 }
 
 /**
@@ -77,7 +150,7 @@ data class SubsystemGeneratorState(
  */
 class SubsystemGeneratorViewModel(
     projectPath: String,
-    league: League,
+    private val league: League,
     private val documents: AresProjectDocuments = AresProjectDocuments(),
     private val projectGenerator: AresProjectGenerator? = null,
 ) : AutoCloseable {
@@ -86,8 +159,8 @@ class SubsystemGeneratorViewModel(
         League.FRC -> SubsystemPlatform.FRC
     }
     private val basePackage = when (league) {
-        League.FTC -> "org.firstinspires.ftc.teamcode.generated.subsystems"
-        League.FRC -> "com.areslib.frc.generated.subsystems"
+        League.FTC -> "org.firstinspires.ftc.teamcode.subsystems"
+        League.FRC -> "com.areslib.frc.subsystems"
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _state = MutableStateFlow(SubsystemGeneratorState(projectPath, league))
@@ -130,6 +203,7 @@ class SubsystemGeneratorViewModel(
                     selectedHardwareId = first.hardware.firstOrNull()?.hardwareId,
                     selectedFieldId = null,
                     selectedLoopId = null,
+                    selectedTemplate = first.template,
                     dirty = matching.isEmpty(),
                     status = if (matching.isEmpty()) "Create your first subsystem, then save it as a project revision." else null,
                     loadError = null,
@@ -145,7 +219,8 @@ class SubsystemGeneratorViewModel(
         var suffix = 1
         var id = "new-subsystem"
         while (id in used) id = "new-subsystem-${++suffix}"
-        val document = defaultDocument(id, if (suffix == 1) "NewSubsystem" else "NewSubsystem$suffix")
+        val name = if (suffix == 1) "NewSubsystem" else "NewSubsystem$suffix"
+        val document = SubsystemTemplates.create(_state.value.selectedTemplate, id, name, platform)
         _state.update { current ->
             current.copy(
                 documents = current.documents + document,
@@ -154,10 +229,17 @@ class SubsystemGeneratorViewModel(
                 selectedHardwareId = document.hardware.first().hardwareId,
                 selectedFieldId = null,
                 selectedLoopId = null,
+                selectedTemplate = document.template,
                 dirty = true,
                 status = "New subsystem draft created."
             ).revalidated()
         }
+    }
+
+    fun selectTemplate(template: SubsystemTemplate) = _state.update { it.copy(selectedTemplate = template) }
+
+    fun setGeneratedPlumbingExpanded(expanded: Boolean) = _state.update {
+        it.copy(generatedPlumbingExpanded = expanded)
     }
 
     fun selectDocument(documentId: String) {
@@ -170,6 +252,7 @@ class SubsystemGeneratorViewModel(
                 selectedHardwareId = document.hardware.firstOrNull()?.hardwareId,
                 selectedFieldId = null,
                 selectedLoopId = null,
+                selectedTemplate = document.template,
                 status = null,
             ).revalidated()
         }
@@ -233,16 +316,7 @@ class SubsystemGeneratorViewModel(
         document.copy(
             stateFields = document.stateFields.filterNot { it.fieldId == id },
             hardware = document.hardware.map {
-                if (it.measurementFieldId == id) {
-                    it.copy(
-                        measurementFieldId = null,
-                        measurementSource = null,
-                        measurementScale = 1.0,
-                        measurementOffset = 0.0,
-                    )
-                } else {
-                    it
-                }
+                it.copy(measurements = it.measurements.filterNot { measurement -> measurement.fieldId == id })
             },
             controlLoops = document.controlLoops.filterNot { it.targetFieldId == id || it.measurementFieldId == id },
         )
@@ -315,11 +389,34 @@ class SubsystemGeneratorViewModel(
     }
 
     fun generate() {
-        if (_state.value.dirty) {
-            save(generateAfterSave = true)
-        } else if (_state.value.canGenerate) {
-            projectGenerator?.generateAresProject(_state.value.projectPath, _state.value.league)
+        if (_state.value.dirty) save()
+        val current = _state.value
+        if (current.dirty) return
+        if (current.hasProtectedUserOwnedConflict) {
+            _state.update {
+                it.copy(status = "Generation stopped: a USER-OWNED file differs from the preview and cannot be replaced.")
+            }
+            return
         }
+        val replacements = current.previewFiles.filter { it.change == SubsystemFileChange.REPLACE_STARTER }
+        if (replacements.isNotEmpty()) {
+            _state.update { it.copy(pendingStarterReplacements = replacements, status = null) }
+            return
+        }
+        projectGenerator?.applySubsystemStarters(current.projectPath, current.league)
+    }
+
+    fun cancelStarterReplacement() = _state.update { it.copy(pendingStarterReplacements = emptyList()) }
+
+    fun confirmStarterReplacement() {
+        val current = _state.value
+        val token = current.starterConfirmationToken
+        if (current.pendingStarterReplacements.isEmpty() || token == null) return
+        _state.update { it.copy(pendingStarterReplacements = emptyList(), starterConfirmationToken = null) }
+        runCatching { projectGenerator?.applySubsystemStarters(current.projectPath, current.league, token) }
+            .onFailure { error ->
+                _state.update { it.copy(status = error.message ?: "The starter proposal changed; review it again.") }
+            }
     }
 
     private fun SubsystemGeneratorState.revalidated(
@@ -330,51 +427,93 @@ class SubsystemGeneratorViewModel(
             SubsystemProblem(SubsystemProblemSeverity.ERROR, it.path, it.message)
         }
         val generated = if (validation.isEmpty()) {
-            SubsystemKotlinGenerator.generate(document, SubsystemKotlinCodegenTarget(platform, basePackage)).map {
-                SubsystemPreviewFile(it.relativePath, it.sourceSet, it.content)
+            val sourceFiles = SubsystemKotlinGenerator.generate(document, SubsystemKotlinCodegenTarget(platform, basePackage))
+            val starterPlan = SubsystemStarterReconciler.plan(starterRoot().toPath(), sourceFiles)
+            val starterChanges = starterPlan.changes.associateBy { it.relativePath }
+            sourceFiles.map { file ->
+                val destination = artifactDestination(file.relativePath, file.sourceSet, file.ownership)
+                val existing = safeExistingFile(destination)?.takeIf(File::isFile)?.readText()
+                val planned = starterChanges[file.relativePath.replace('\\', '/')]
+                val change = when (planned?.kind) {
+                    SubsystemStarterChangeKind.ADD -> SubsystemFileChange.CREATE
+                    SubsystemStarterChangeKind.UNCHANGED -> SubsystemFileChange.UNCHANGED
+                    SubsystemStarterChangeKind.REPLACE -> SubsystemFileChange.REPLACE_STARTER
+                    SubsystemStarterChangeKind.PROTECTED -> SubsystemFileChange.PROTECTED_USER_OWNED
+                    null -> when {
+                        existing == null -> SubsystemFileChange.CREATE
+                        existing == file.content -> SubsystemFileChange.UNCHANGED
+                        file.ownership == SubsystemArtifactOwnership.USER_OWNED -> SubsystemFileChange.PROTECTED_USER_OWNED
+                        else -> SubsystemFileChange.UPDATE_GENERATED
+                    }
+                }
+                SubsystemPreviewFile(
+                    path = file.relativePath,
+                    sourceSet = file.sourceSet,
+                    content = file.content,
+                    artifact = file.artifact,
+                    group = file.group,
+                    ownership = file.ownership,
+                    description = file.description,
+                    moduleName = if (league == League.FTC) "ARES-FTC · :TeamCode" else "ARES-FRC · root",
+                    projectRelativePath = destination,
+                    change = change,
+                    diff = planned?.diff?.takeIf(String::isNotBlank)?.let(::parseUnifiedDiff)
+                        ?: existing?.takeIf { it != file.content }?.let { structuredLineDiff(it, file.content) }.orEmpty(),
+                )
             }
         } else emptyList()
+        val token = if (validation.isEmpty()) {
+            val sources = SubsystemKotlinGenerator.generate(document, SubsystemKotlinCodegenTarget(platform, basePackage))
+            SubsystemStarterReconciler.plan(starterRoot().toPath(), sources).confirmationToken
+        } else null
         return copy(
             previewFiles = generated,
-            problems = (external + validation).distinctBy { Triple(it.severity, it.path, it.message) },
+            starterConfirmationToken = token,
+            problems = (external + validation + safetyWarnings(document))
+                .distinctBy { Triple(it.severity, it.path, it.message) },
         )
     }
 
     private fun defaultDocument(id: String = "new-subsystem", name: String = "NewSubsystem"): SubsystemDocument {
-        val target = SubsystemStateFieldDocument(
-            "target", "Target", SubsystemValueType.DOUBLE, SubsystemFieldRole.TARGET,
-            defaultNumber = 0.0,
-        )
-        val position = SubsystemStateFieldDocument(
-            "position", "Position", SubsystemValueType.DOUBLE, SubsystemFieldRole.MEASUREMENT,
-            defaultNumber = 0.0,
-        )
-        val motor = SubsystemHardwareDocument(
-            "motor", "Motor", SubsystemHardwareKind.MOTOR,
-            connection = when (platform) {
-                SubsystemPlatform.FTC -> SubsystemHardwareConnection(hardwareMapName = "motor")
-                SubsystemPlatform.FRC -> SubsystemHardwareConnection(canId = 1)
-            },
-            measurementFieldId = position.fieldId,
-            measurementSource = SubsystemMeasurementSource.MOTOR_POSITION_NATIVE,
-        )
-        return SubsystemDocument(
-            documentId = id,
-            name = name,
-            description = "A generated mechanism that remains editable through the ARES subsystem DSL.",
-            platform = platform,
-            hardware = listOf(motor),
-            stateFields = listOf(target, position),
-            controlLoops = listOf(
-                SubsystemControlLoopDocument(
-                    "controller", "Position controller", SubsystemControlStrategy.POSITION_PID,
-                    actuatorId = motor.hardwareId,
-                    targetFieldId = target.fieldId,
-                    measurementFieldId = position.fieldId,
-                    kP = 1.0,
-                )
-            ),
-        )
+        return SubsystemTemplates.create(SubsystemTemplate.POSITION_CONTROLLED_MECHANISM, id, name, platform)
+    }
+
+    private fun artifactDestination(
+        relativePath: String,
+        sourceSet: GeneratedSubsystemSourceSet,
+        ownership: SubsystemArtifactOwnership,
+    ): String {
+        val packagePath = basePackage.replace('.', '/')
+        val sourceKind = if (sourceSet == GeneratedSubsystemSourceSet.TEST) "test" else "main"
+        val root = when {
+            ownership == SubsystemArtifactOwnership.GENERATED_DO_NOT_EDIT && league == League.FTC ->
+                "TeamCode/build/generated/ares/$sourceKind/kotlin/$packagePath"
+            ownership == SubsystemArtifactOwnership.GENERATED_DO_NOT_EDIT ->
+                "build/generated/ares/$sourceKind/kotlin/$packagePath"
+            league == League.FTC && sourceSet == GeneratedSubsystemSourceSet.TEST -> "TeamCode/src/test/java/$packagePath"
+            league == League.FTC -> "TeamCode/src/main/java/$packagePath"
+            sourceSet == GeneratedSubsystemSourceSet.TEST -> "src/test/kotlin/$packagePath"
+            else -> "src/main/kotlin/$packagePath"
+        }
+        return "$root/${relativePath.replace('\\', '/')}"
+    }
+
+    private fun safeExistingFile(projectRelativePath: String): File? {
+        val root = File(_state.value.projectPath).canonicalFile
+        val candidate = File(root, projectRelativePath).canonicalFile
+        return candidate.takeIf { it.toPath().startsWith(root.toPath()) }
+    }
+
+    private fun starterRoot(): File {
+        val relative = if (league == League.FTC) {
+            "TeamCode/src/main/java/${basePackage.replace('.', '/')}"
+        } else {
+            "src/main/kotlin/${basePackage.replace('.', '/')}"
+        }
+        val root = File(_state.value.projectPath).canonicalFile
+        return File(root, relative).canonicalFile.also {
+            require(it.toPath().startsWith(root.toPath())) { "Subsystem starter root escaped the project" }
+        }
     }
 
     override fun close() = scope.cancel()
@@ -394,6 +533,33 @@ class SubsystemGeneratorViewModel(
     }
 }
 
+private fun safetyWarnings(document: SubsystemDocument): List<SubsystemProblem> = buildList {
+    fun warn(path: String, message: String) = add(SubsystemProblem(SubsystemProblemSeverity.WARNING, path, message))
+    val hasActuators = document.hardware.any { it.kind.isActuator() }
+    if (!hasActuators) return@buildList
+    if (!document.safety.requiresConfigurationHealth) {
+        warn("safety.requiresConfigurationHealth", "Configuration health is not gating actuator output.")
+    }
+    if (!document.safety.latchOutputFaults) {
+        warn("safety.latchOutputFaults", "Failed output writes will not latch a fault; verify this is intentional.")
+    }
+    if (!document.safety.requiresExplicitNeutralRecovery) {
+        warn("safety.requiresExplicitNeutralRecovery", "Fault recovery does not require a successful explicit neutral command.")
+    }
+    if (!document.safety.zeroAllocationPeriodic) {
+        warn("safety.zeroAllocationPeriodic", "The periodic-path zero-allocation contract is disabled.")
+    }
+    if (!document.safety.telemetryEnabled) {
+        warn("safety.telemetryEnabled", "Safety telemetry is disabled, reducing pit-side fault visibility.")
+    }
+    if (document.safety.requiresCurrentMonitoring && document.hardware.none { device ->
+            device.measurements.any { it.source == SubsystemMeasurementSource.MOTOR_CURRENT_AMPS }
+        }
+    ) {
+        warn("safety.requiresCurrentMonitoring", "Current monitoring is required but no cached current measurement is configured.")
+    }
+}
+
 private fun SubsystemHardwareKind.isActuator(): Boolean = this == SubsystemHardwareKind.MOTOR ||
     this == SubsystemHardwareKind.POSITIONAL_SERVO || this == SubsystemHardwareKind.CONTINUOUS_SERVO
 
@@ -401,3 +567,42 @@ private fun SubsystemValueType.isNumeric(): Boolean = this == SubsystemValueType
 
 private fun SubsystemControlStrategy.requiresMeasurement(): Boolean = this == SubsystemControlStrategy.POSITION_PID ||
     this == SubsystemControlStrategy.VELOCITY_PID || this == SubsystemControlStrategy.BANG_BANG
+
+/**
+ * Small deterministic line diff for starter replacement review. Common context is intentionally
+ * bounded so a large generated file cannot bury the customization that would be replaced.
+ */
+internal fun structuredLineDiff(existing: String, proposed: String, contextLines: Int = 3): List<SubsystemDiffLine> {
+    val before = existing.lines()
+    val after = proposed.lines()
+    var prefix = 0
+    while (prefix < before.size && prefix < after.size && before[prefix] == after[prefix]) prefix++
+    var suffix = 0
+    while (
+        suffix < before.size - prefix && suffix < after.size - prefix &&
+        before[before.lastIndex - suffix] == after[after.lastIndex - suffix]
+    ) suffix++
+
+    val leadingStart = (prefix - contextLines.coerceAtLeast(0)).coerceAtLeast(0)
+    val trailingCount = suffix.coerceAtMost(contextLines.coerceAtLeast(0))
+    return buildList {
+        before.subList(leadingStart, prefix).forEach { add(SubsystemDiffLine(SubsystemDiffLineKind.CONTEXT, it)) }
+        before.subList(prefix, before.size - suffix).forEach { add(SubsystemDiffLine(SubsystemDiffLineKind.REMOVED, it)) }
+        after.subList(prefix, after.size - suffix).forEach { add(SubsystemDiffLine(SubsystemDiffLineKind.ADDED, it)) }
+        if (trailingCount > 0) {
+            after.subList(after.size - suffix, after.size - suffix + trailingCount)
+                .forEach { add(SubsystemDiffLine(SubsystemDiffLineKind.CONTEXT, it)) }
+        }
+    }
+}
+
+internal fun parseUnifiedDiff(diff: String): List<SubsystemDiffLine> = diff.lineSequence()
+    .filterNot { it.startsWith("@@") }
+    .map { line ->
+        when {
+            line.startsWith("+") -> SubsystemDiffLine(SubsystemDiffLineKind.ADDED, line.drop(1))
+            line.startsWith("-") -> SubsystemDiffLine(SubsystemDiffLineKind.REMOVED, line.drop(1))
+            else -> SubsystemDiffLine(SubsystemDiffLineKind.CONTEXT, line.removePrefix(" "))
+        }
+    }
+    .toList()
