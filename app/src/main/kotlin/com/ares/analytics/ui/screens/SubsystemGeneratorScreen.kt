@@ -71,6 +71,7 @@ import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresTextTertiary
 import com.ares.analytics.viewmodel.SubsystemGeneratorState
 import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
+import com.ares.analytics.viewmodel.SubsystemBuilderStage
 import com.ares.analytics.viewmodel.SubsystemDiffLineKind
 import com.ares.analytics.viewmodel.SubsystemFileChange
 import com.ares.analytics.viewmodel.SubsystemPreviewFile
@@ -85,10 +86,13 @@ import com.areslib.subsystem.SubsystemFieldRole
 import com.areslib.subsystem.SubsystemHardwareConnection
 import com.areslib.subsystem.SubsystemHardwareDocument
 import com.areslib.subsystem.SubsystemHardwareKind
+import com.areslib.subsystem.SubsystemImplementationKind
 import com.areslib.subsystem.SubsystemMeasurementSource
 import com.areslib.subsystem.SubsystemMeasurementDocument
 import com.areslib.subsystem.SubsystemPlatform
 import com.areslib.subsystem.SubsystemStateFieldDocument
+import com.areslib.subsystem.SubsystemSimulationSupport
+import com.areslib.subsystem.SubsystemTeachingLevel
 import com.areslib.subsystem.SubsystemValueType
 import com.areslib.subsystem.compatibleMeasurementSources
 import com.areslib.subsystem.valueType
@@ -113,15 +117,15 @@ fun SubsystemGeneratorScreen(viewModel: SubsystemGeneratorViewModel) {
             return@Column
         }
         val draft = state.draft ?: return@Column
-        BuilderProgress(draft)
+        BuilderProgress(state, viewModel)
         Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(
                 Modifier.weight(.8f).fillMaxHeight().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 DocumentList(state, viewModel)
-                TemplateCard(state, viewModel)
-                ArchitectureCard(state, viewModel)
+                StageRail(state, viewModel)
+                CurrentSubsystemSummary(state)
             }
             Column(
                 Modifier.weight(2.2f).fillMaxHeight(),
@@ -136,22 +140,9 @@ fun SubsystemGeneratorScreen(viewModel: SubsystemGeneratorViewModel) {
                         Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        RuntimeFlowCard()
-                        GeneralInspector(state, viewModel)
-                        SafetyInspector(state, viewModel)
-                        ArtifactPlan(state, viewModel)
-                        when {
-                            state.selectedHardwareId != null -> draft.hardware.firstOrNull {
-                                it.hardwareId == state.selectedHardwareId
-                            }?.let { HardwareInspector(state, it, viewModel) }
-                            state.selectedFieldId != null -> draft.stateFields.firstOrNull {
-                                it.fieldId == state.selectedFieldId
-                            }?.let { StateFieldInspector(it, viewModel) }
-                            state.selectedLoopId != null -> draft.controlLoops.firstOrNull {
-                                it.loopId == state.selectedLoopId
-                            }?.let { ControlInspector(state, it, viewModel) }
-                        }
-                        ProblemsCard(state)
+                        StageHeader(state.activeStage)
+                        StageContent(state, viewModel)
+                        StageNavigation(state, viewModel)
                     }
                 } else {
                     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -223,14 +214,24 @@ private fun SubsystemHeader(
             ) {
                 Icon(Icons.Default.Build, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(5.dp))
-                Text(if (state.dirty) "Save & Generate" else "Generate Kotlin", color = AresBackground)
+                val handAuthored = state.draft?.implementation?.kind == SubsystemImplementationKind.HAND_AUTHORED
+                Text(
+                    when {
+                        state.dirty && handAuthored -> "Save & Refresh Plumbing"
+                        state.dirty -> "Save & Generate"
+                        handAuthored -> "Refresh Plumbing"
+                        else -> "Generate Kotlin"
+                    },
+                    color = AresBackground,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun BuilderProgress(document: com.areslib.subsystem.SubsystemDocument) {
+private fun BuilderProgress(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    val document = state.draft ?: return
     val hasHardware = document.hardware.isNotEmpty()
     val hasState = document.stateFields.isNotEmpty()
     val hasControl = document.controlLoops.isNotEmpty()
@@ -240,10 +241,17 @@ private fun BuilderProgress(document: com.areslib.subsystem.SubsystemDocument) {
         horizontalArrangement = Arrangement.spacedBy(18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ProgressLabel("1", "Add hardware", hasHardware)
-        ProgressLabel("2", "Define state", hasState)
-        ProgressLabel("3", "Connect behavior", hasControl)
-        ProgressLabel("4", "Generate Kotlin", false)
+        ProgressLabel("1", "Purpose", true)
+        ProgressLabel("2", "Hardware", hasHardware)
+        ProgressLabel("3", "Behavior", hasState && (hasControl || document.hardware.none { it.kind.isActuator() }))
+        ProgressLabel("4", "Safety", state.problems.none { it.path.startsWith("safety") && it.severity == SubsystemProblemSeverity.ERROR })
+        Text(
+            "Step ${state.activeStage.ordinal + 1} of ${SubsystemBuilderStage.entries.size}",
+            color = AresTextPrimary,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.clickable { viewModel.selectStage(SubsystemBuilderStage.REVIEW) },
+        )
     }
 }
 
@@ -255,6 +263,312 @@ private fun ProgressLabel(number: String, label: String, complete: Boolean) {
         fontSize = 11.sp,
         fontWeight = if (complete) FontWeight.SemiBold else FontWeight.Normal,
     )
+}
+
+@Composable
+private fun StageRail(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    EditorCard("Build steps", Icons.Default.Build) {
+        SubsystemBuilderStage.entries.forEachIndexed { index, stage ->
+            val selected = stage == state.activeStage
+            Row(
+                Modifier.fillMaxWidth()
+                    .background(if (selected) AresCyan.copy(alpha = .12f) else AresSurface, RoundedCornerShape(6.dp))
+                    .border(1.dp, if (selected) AresCyan else AresBorder, RoundedCornerShape(6.dp))
+                    .clickable { viewModel.selectStage(stage) }
+                    .padding(horizontal = 9.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                Text(
+                    "${index + 1}",
+                    color = if (selected) AresBackground else AresTextPrimary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.background(
+                        if (selected) AresCyan else AresSurfaceElevated,
+                        RoundedCornerShape(20.dp),
+                    ).padding(horizontal = 7.dp, vertical = 3.dp),
+                )
+                Column(Modifier.weight(1f)) {
+                    Text(stage.displayName, color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    if (selected) Text(stage.shortDescription, color = AresTextSecondary, fontSize = 9.sp, lineHeight = 12.sp)
+                }
+            }
+            Spacer(Modifier.height(5.dp))
+        }
+    }
+}
+
+@Composable
+private fun CurrentSubsystemSummary(state: SubsystemGeneratorState) {
+    val document = state.draft ?: return
+    EditorCard("At a glance", Icons.Default.Memory) {
+        Text(document.name, color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text(
+            "${document.hardware.size} devices · ${document.stateFields.size} state values · ${document.controlLoops.size} control rules",
+            color = AresTextSecondary,
+            fontSize = 10.sp,
+        )
+        val errors = state.problems.count { it.severity == SubsystemProblemSeverity.ERROR }
+        val warnings = state.problems.count { it.severity == SubsystemProblemSeverity.WARNING }
+        Text(
+            when {
+                errors > 0 -> "$errors blocking issue${if (errors == 1) "" else "s"}"
+                warnings > 0 -> "$warnings item${if (warnings == 1) "" else "s"} to review"
+                else -> "Ready for review"
+            },
+            color = when {
+                errors > 0 -> AresError
+                warnings > 0 -> AresGold
+                else -> AresGreen
+            },
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun StageHeader(stage: SubsystemBuilderStage) {
+    Column(
+        Modifier.fillMaxWidth().background(AresSurfaceElevated, RoundedCornerShape(8.dp))
+            .border(1.dp, AresBorder, RoundedCornerShape(8.dp)).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(stage.displayName, color = AresTextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        Text(stage.shortDescription, color = AresTextSecondary, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun StageContent(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    when (state.activeStage) {
+        SubsystemBuilderStage.PURPOSE -> {
+            if (state.draft?.implementation?.kind == SubsystemImplementationKind.GENERATED_STARTER) {
+                TemplateCard(state, viewModel)
+            } else {
+                ConceptCard(
+                    title = "Existing implementation",
+                    body = "This definition documents Kotlin your team already owns. ARES validates its files, classes, simulation support, and actions without generating replacement source.",
+                )
+            }
+            GeneralInspector(state, viewModel)
+            RuntimeFlowCard()
+        }
+        SubsystemBuilderStage.HARDWARE -> HardwareStage(state, viewModel)
+        SubsystemBuilderStage.STATE_AND_BEHAVIOR -> BehaviorStage(state, viewModel)
+        SubsystemBuilderStage.SAFETY -> {
+            SafetyInspector(state, viewModel)
+            ConceptCard(
+                "Why safety is a separate step",
+                "A controller decides what the mechanism wants to do. The safety contract decides whether that output is currently trustworthy and permitted.",
+            )
+        }
+        SubsystemBuilderStage.CAPABILITIES -> CapabilityInspector(state)
+        SubsystemBuilderStage.SIMULATION_AND_TESTING -> VerificationInspector(state, viewModel)
+        SubsystemBuilderStage.REVIEW -> {
+            ProblemsCard(state)
+            ArtifactPlan(state, viewModel)
+            ConceptCard(
+                "Ownership before generation",
+                "ARES may refresh generated plumbing. Existing USER-OWNED source is protected, and changed GENERATED STARTER files require a reviewed diff and confirmation.",
+            )
+        }
+    }
+}
+
+@Composable
+private fun StageNavigation(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        OutlinedButton(
+            onClick = viewModel::previousStage,
+            enabled = state.activeStage != SubsystemBuilderStage.PURPOSE,
+        ) { Text("Back") }
+        Button(
+            onClick = viewModel::nextStage,
+            enabled = state.activeStage != SubsystemBuilderStage.REVIEW,
+        ) { Text(if (state.activeStage == SubsystemBuilderStage.SIMULATION_AND_TESTING) "Review" else "Next") }
+    }
+}
+
+@Composable
+private fun ConceptCard(title: String, body: String) {
+    EditorCard(title, Icons.Default.Memory) {
+        Text(body, color = AresTextSecondary, fontSize = 10.sp, lineHeight = 15.sp)
+    }
+}
+
+@Composable
+private fun HardwareStage(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    val document = state.draft ?: return
+    EditorCard("Devices", Icons.Default.Settings) {
+        Text(
+            "Hardware names must match the Robot Controller configuration. Every read is cached once per robot loop.",
+            color = AresTextSecondary,
+            fontSize = 10.sp,
+        )
+        document.hardware.forEach { device ->
+            SelectableRow(
+                title = device.displayName,
+                subtitle = "${device.kind.name.replace('_', ' ').lowercase()} · ${device.connectionLabel(document.platform)}",
+                selected = state.selectedHardwareId == device.hardwareId,
+                onClick = { viewModel.selectHardware(device.hardwareId) },
+            )
+        }
+        OutlinedButton(onClick = viewModel::addHardware, modifier = Modifier.fillMaxWidth()) { Text("+ Add hardware") }
+    }
+    document.hardware.firstOrNull { it.hardwareId == state.selectedHardwareId }?.let {
+        HardwareInspector(state, it, viewModel)
+    }
+    if (document.hardware.isEmpty()) {
+        ConceptCard("Start with one physical device", "Choose Add hardware, then describe what it is and how the robot configuration identifies it.")
+    }
+}
+
+@Composable
+private fun BehaviorStage(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    val document = state.draft ?: return
+    EditorCard("Immutable state", Icons.Default.Memory) {
+        Text(
+            "Status values describe what sensors observed. Target values describe what driver or autonomous code wants.",
+            color = AresTextSecondary,
+            fontSize = 10.sp,
+        )
+        document.stateFields.forEach { field ->
+            SelectableRow(
+                field.displayName,
+                "${field.role.name.lowercase()} · ${field.type.name.lowercase()}${field.unit?.let { " ($it)" }.orEmpty()}",
+                state.selectedFieldId == field.fieldId,
+            ) { viewModel.selectField(field.fieldId) }
+        }
+        OutlinedButton(onClick = viewModel::addStateField, modifier = Modifier.fillMaxWidth()) { Text("+ Add state value") }
+    }
+    document.stateFields.firstOrNull { it.fieldId == state.selectedFieldId }?.let { StateFieldInspector(it, viewModel) }
+
+    EditorCard("Controller rules", Icons.Default.Build) {
+        Text(
+            "A controller converts immutable state into bounded IO commands; it does not read hardware directly.",
+            color = AresTextSecondary,
+            fontSize = 10.sp,
+        )
+        document.controlLoops.forEach { loop ->
+            SelectableRow(
+                loop.displayName,
+                "${loop.strategy.name.replace('_', ' ').lowercase()} → ${loop.actuatorId}",
+                state.selectedLoopId == loop.loopId,
+            ) { viewModel.selectLoop(loop.loopId) }
+        }
+        val canAddControl = document.hardware.any { it.kind.isActuator() } && document.stateFields.any {
+            it.role == SubsystemFieldRole.TARGET &&
+                (it.type == SubsystemValueType.DOUBLE || it.type == SubsystemValueType.INT)
+        }
+        OutlinedButton(onClick = viewModel::addControlLoop, enabled = canAddControl, modifier = Modifier.fillMaxWidth()) {
+            Text("+ Add controller rule")
+        }
+        if (!canAddControl) Text("Add an actuator and numeric target value first.", color = AresTextSecondary, fontSize = 10.sp)
+    }
+    document.controlLoops.firstOrNull { it.loopId == state.selectedLoopId }?.let { ControlInspector(state, it, viewModel) }
+}
+
+@Composable
+private fun CapabilityInspector(state: SubsystemGeneratorState) {
+    val document = state.draft ?: return
+    if (document.implementation.kind == SubsystemImplementationKind.HAND_AUTHORED) {
+        EditorCard("Existing driver and autonomous actions", Icons.Default.Build) {
+            Text(
+                "These keys must exist in .ares/action-catalog.json. ARES validates them but does not generate their runtime behavior.",
+                color = AresTextSecondary,
+                fontSize = 10.sp,
+            )
+            if (document.capabilityActionKeys.isEmpty()) {
+                Text("No action keys are registered yet.", color = AresGold, fontSize = 10.sp)
+            } else document.capabilityActionKeys.forEach { key ->
+                Text(
+                    key,
+                    color = AresCyan,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                    modifier = Modifier.fillMaxWidth().background(AresSurface, RoundedCornerShape(5.dp)).padding(8.dp),
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+        RuntimeFlowCard()
+        return
+    }
+    val targets = document.stateFields.filter { it.role == SubsystemFieldRole.TARGET }
+    EditorCard("Driver and autonomous actions", Icons.Default.Build) {
+        Text(
+            "Each writable target becomes a typed action that appears in Controller Bindings and routine authoring.",
+            color = AresTextSecondary,
+            fontSize = 10.sp,
+        )
+        if (targets.isEmpty()) {
+            Text("No writable target values are defined yet.", color = AresGold, fontSize = 10.sp)
+        } else targets.forEach { field ->
+            Column(
+                Modifier.fillMaxWidth().background(AresSurface, RoundedCornerShape(6.dp))
+                    .border(1.dp, AresBorder, RoundedCornerShape(6.dp)).padding(9.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp),
+            ) {
+                Text("Set ${document.name} ${field.displayName}", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text("subsystem.${document.documentId}.set.${field.fieldId}", color = AresCyan, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                Text("Value: ${field.type.name.lowercase()}${field.unit?.let { " · $it" }.orEmpty()}", color = AresTextSecondary, fontSize = 9.sp)
+            }
+            Spacer(Modifier.height(5.dp))
+        }
+        Text(
+            "Hand-authored implementations can declare existing catalog actions instead of generating target setters.",
+            color = AresTextTertiary,
+            fontSize = 9.sp,
+        )
+    }
+    RuntimeFlowCard()
+}
+
+@Composable
+private fun VerificationInspector(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    val document = state.draft ?: return
+    if (document.implementation.kind == SubsystemImplementationKind.HAND_AUTHORED) {
+        EditorCard("Hand-authored verification", Icons.Default.Code) {
+            Text(
+                "Simulation support: ${document.implementation.simulation.support.name.replace('_', ' ').lowercase()}",
+                color = AresTextPrimary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            document.implementation.simulation.adapterClassName?.let {
+                Text(it, color = AresCyan, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+            }
+            Text(
+                "Hand-authored tests remain USER-OWNED. Verify safe startup, stop, invalid feedback, failed writes, recovery, parity, and cleanup where applicable.",
+                color = AresTextSecondary,
+                fontSize = 10.sp,
+            )
+        }
+        ArtifactPlan(state, viewModel)
+        return
+    }
+    EditorCard("Simulation and verification", Icons.Default.Code) {
+        ToggleRow("Generate desktop/mock IO", document.generateMockIo) { value ->
+            viewModel.edit { it.copy(generateMockIo = value) }
+        }
+        Text("Mock IO lets students test behavior without connecting a robot.", color = AresTextSecondary, fontSize = 9.sp)
+        ToggleRow("Generate a starter contract test", document.generateTest) { value ->
+            viewModel.edit { it.copy(generateTest = value) }
+        }
+        Text(
+            "Verification covers startup, neutral output, stale inputs, write failures, recovery, cleanup, and parity where applicable.",
+            color = AresTextSecondary,
+            fontSize = 9.sp,
+        )
+        Text(
+            "Periodic allocation check: ${if (document.safety.zeroAllocationPeriodic) "required" else "not requested"}",
+            color = if (document.safety.zeroAllocationPeriodic) AresGreen else AresGold,
+            fontSize = 9.sp,
+        )
+    }
+    ArtifactPlan(state, viewModel)
 }
 
 @Composable
@@ -281,7 +595,12 @@ private fun DocumentList(state: SubsystemGeneratorState, viewModel: SubsystemGen
         OutlinedButton(onClick = viewModel::newSubsystem, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Default.Add, null, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(4.dp))
-            Text("New from selected template")
+            Text("Create generated subsystem")
+        }
+        OutlinedButton(onClick = viewModel::registerHandAuthoredSubsystem, modifier = Modifier.fillMaxWidth()) {
+            Icon(Icons.Default.Code, null, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Register existing Kotlin")
         }
     }
 }
@@ -326,6 +645,29 @@ private fun RuntimeFlowCard() {
 
 @Composable
 private fun ArtifactPlan(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    val document = state.draft ?: return
+    if (document.implementation.kind == SubsystemImplementationKind.HAND_AUTHORED) {
+        EditorCard("USER-OWNED implementation", Icons.Default.Code) {
+            Text(
+                "ARES preserves these files and generates only project-level plumbing and validation.",
+                color = AresTextSecondary,
+                fontSize = 10.sp,
+            )
+            document.implementation.sourceFiles.forEach { path ->
+                Column(
+                    Modifier.fillMaxWidth().background(AresSurface, RoundedCornerShape(5.dp))
+                        .border(1.dp, AresBorder, RoundedCornerShape(5.dp)).padding(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                ) {
+                    Text(path.substringAfterLast('/'), color = AresTextPrimary, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    Text("USER-OWNED · ${document.implementation.modulePath.orEmpty()}", color = AresCyan, fontSize = 8.sp, fontWeight = FontWeight.Bold)
+                    Text(path, color = AresTextTertiary, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+        }
+        return
+    }
     if (state.previewFiles.isEmpty()) return
     EditorCard("Artifact plan", Icons.Default.Code) {
         val starterCount = state.previewFiles.count { it.ownership == SubsystemArtifactOwnership.GENERATED_STARTER }
@@ -447,10 +789,26 @@ private fun GeneralInspector(state: SubsystemGeneratorState, viewModel: Subsyste
         ToggleRow("Required at robot startup", document.requiredAtStartup) { value ->
             viewModel.edit { it.copy(requiredAtStartup = value) }
         }
-        ToggleRow("Generate desktop/mock IO", document.generateMockIo) { value -> viewModel.edit { it.copy(generateMockIo = value) } }
-        ToggleRow("Generate a starter test", document.generateTest) { value -> viewModel.edit { it.copy(generateTest = value) } }
         Text(
-            "Runtime package: ${if (document.platform == SubsystemPlatform.FTC) "org.firstinspires.ftc.teamcode" else "com.areslib.frc"}.subsystems.${document.documentId.replace('-', '_')}",
+            if (document.implementation.kind == SubsystemImplementationKind.HAND_AUTHORED) {
+                "Implementation: hand-authored · USER-OWNED"
+            } else {
+                "Implementation: generated starter"
+            },
+            color = if (document.implementation.kind == SubsystemImplementationKind.HAND_AUTHORED) AresCyan else AresGold,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (document.implementation.kind == SubsystemImplementationKind.HAND_AUTHORED) {
+            HandAuthoredInspector(document, viewModel)
+        }
+        val runtimeLocation = if (document.implementation.kind == SubsystemImplementationKind.HAND_AUTHORED) {
+            "Runtime class: ${document.implementation.subsystemClassName.orEmpty().ifBlank { "Not specified" }} in ${document.implementation.modulePath ?: "module not specified"}"
+        } else {
+            "Runtime package: ${if (document.platform == SubsystemPlatform.FTC) "org.firstinspires.ftc.teamcode" else "com.areslib.frc"}.subsystems.${document.documentId.replace('-', '_')}"
+        }
+        Text(
+            runtimeLocation,
             color = AresTextSecondary,
             fontFamily = FontFamily.Monospace,
             fontSize = 10.sp,
@@ -463,6 +821,7 @@ private fun SafetyInspector(state: SubsystemGeneratorState, viewModel: Subsystem
     val document = state.draft ?: return
     val safety = document.safety
     val digitalInputs = document.hardware.filter { it.kind == SubsystemHardwareKind.DIGITAL_INPUT }.map { it.hardwareId }
+    var showAdvanced by remember(document.documentId) { mutableStateOf(false) }
     EditorCard("Safety contract", Icons.Default.Warning) {
         Text(
             "Non-neutral output is permitted only while every applicable safety condition below is healthy.",
@@ -485,36 +844,125 @@ private fun SafetyInspector(state: SubsystemGeneratorState, viewModel: Subsystem
                 Text("Add a digital input before enabling motion on a homed mechanism.", color = AresGold, fontSize = 10.sp)
             }
         }
-        ToggleRow("Require calibration", safety.requiresCalibration) { value ->
-            viewModel.edit { it.copy(safety = it.safety.copy(requiresCalibration = value)) }
+        Text(
+            buildList {
+                if (safety.requiresConfigurationHealth) add("configuration")
+                if (safety.requiresCurrentMonitoring) add("current")
+                if (safety.latchOutputFaults) add("write-fault latch")
+                if (safety.telemetryEnabled) add("telemetry")
+            }.ifEmpty { listOf("no additional protections") }.joinToString(" · ", prefix = "Enabled: "),
+            color = AresTextSecondary,
+            fontSize = 9.sp,
+        )
+        OutlinedButton(onClick = { showAdvanced = !showAdvanced }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (showAdvanced) "Hide advanced safety settings" else "Show advanced safety settings")
         }
-        ToggleRow("Require configuration health", safety.requiresConfigurationHealth) { value ->
-            viewModel.edit { it.copy(safety = it.safety.copy(requiresConfigurationHealth = value)) }
+        if (showAdvanced) {
+            ToggleRow("Require calibration", safety.requiresCalibration) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(requiresCalibration = value)) }
+            }
+            ToggleRow("Require configuration health", safety.requiresConfigurationHealth) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(requiresConfigurationHealth = value)) }
+            }
+            ToggleRow("Require valid current monitoring", safety.requiresCurrentMonitoring) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(requiresCurrentMonitoring = value)) }
+            }
+            ToggleRow("Latch failed output writes", safety.latchOutputFaults) { value ->
+                viewModel.edit {
+                    it.copy(
+                        safety = it.safety.copy(
+                            latchOutputFaults = value,
+                            requiresExplicitNeutralRecovery = it.safety.requiresExplicitNeutralRecovery && value,
+                        )
+                    )
+                }
+            }
+            ToggleRow("Require explicit successful neutral recovery", safety.requiresExplicitNeutralRecovery) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(requiresExplicitNeutralRecovery = value)) }
+            }
+            ToggleRow("Publish safety telemetry", safety.telemetryEnabled) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(telemetryEnabled = value)) }
+            }
+            ToggleRow("Zero-allocation periodic path", safety.zeroAllocationPeriodic) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(zeroAllocationPeriodic = value)) }
+            }
+            TextInput("Autonomous resource key (optional)", document.autonomousResourceKey.orEmpty()) { value ->
+                viewModel.edit { it.copy(autonomousResourceKey = value.ifBlank { null }) }
+            }
         }
-        ToggleRow("Require valid current monitoring", safety.requiresCurrentMonitoring) { value ->
-            viewModel.edit { it.copy(safety = it.safety.copy(requiresCurrentMonitoring = value)) }
+    }
+}
+
+@Composable
+private fun HandAuthoredInspector(
+    document: com.areslib.subsystem.SubsystemDocument,
+    viewModel: SubsystemGeneratorViewModel,
+) {
+    val implementation = document.implementation
+    Text(
+        "ARES reads this explicit contract; it never scans or overwrites the Kotlin files.",
+        color = AresTextSecondary,
+        fontSize = 10.sp,
+    )
+    TextInput("Gradle module", implementation.modulePath.orEmpty()) { value ->
+        viewModel.edit { it.copy(implementation = it.implementation.copy(modulePath = value.ifBlank { null })) }
+    }
+    TextInput("Subsystem class", implementation.subsystemClassName.orEmpty()) { value ->
+        viewModel.edit { it.copy(implementation = it.implementation.copy(subsystemClassName = value.ifBlank { null })) }
+    }
+    TextInput("IO contract class", implementation.ioContractClassName.orEmpty()) { value ->
+        viewModel.edit { it.copy(implementation = it.implementation.copy(ioContractClassName = value.ifBlank { null })) }
+    }
+    TextInput("Hardware adapter class", implementation.hardwareAdapterClassName.orEmpty()) { value ->
+        viewModel.edit { it.copy(implementation = it.implementation.copy(hardwareAdapterClassName = value.ifBlank { null })) }
+    }
+    TextInput("USER-OWNED source files (one per line)", implementation.sourceFiles.joinToString("\n"), singleLine = false) { value ->
+        viewModel.edit {
+            it.copy(
+                implementation = it.implementation.copy(
+                    sourceFiles = value.lineSequence().map(String::trim).filter(String::isNotBlank).toList(),
+                )
+            )
         }
-        ToggleRow("Latch failed output writes", safety.latchOutputFaults) { value ->
+    }
+    EnumSelector("Simulation support", implementation.simulation.support, SubsystemSimulationSupport.entries) { support ->
+        viewModel.edit {
+            it.copy(
+                implementation = it.implementation.copy(
+                    simulation = it.implementation.simulation.copy(
+                        support = support,
+                        adapterClassName = it.implementation.simulation.adapterClassName.takeUnless {
+                            support == SubsystemSimulationSupport.UNAVAILABLE
+                        },
+                    )
+                )
+            )
+        }
+    }
+    if (implementation.simulation.support != SubsystemSimulationSupport.UNAVAILABLE) {
+        TextInput("Simulation/mock adapter class", implementation.simulation.adapterClassName.orEmpty()) { value ->
             viewModel.edit {
                 it.copy(
-                    safety = it.safety.copy(
-                        latchOutputFaults = value,
-                        requiresExplicitNeutralRecovery = it.safety.requiresExplicitNeutralRecovery && value,
+                    implementation = it.implementation.copy(
+                        simulation = it.implementation.simulation.copy(adapterClassName = value.ifBlank { null }),
                     )
                 )
             }
         }
-        ToggleRow("Require explicit successful neutral recovery", safety.requiresExplicitNeutralRecovery) { value ->
-            viewModel.edit { it.copy(safety = it.safety.copy(requiresExplicitNeutralRecovery = value)) }
+    }
+    EnumSelector("Teaching level", implementation.teaching.level, SubsystemTeachingLevel.entries) { level ->
+        viewModel.edit {
+            it.copy(implementation = it.implementation.copy(teaching = it.implementation.teaching.copy(level = level)))
         }
-        ToggleRow("Publish safety telemetry", safety.telemetryEnabled) { value ->
-            viewModel.edit { it.copy(safety = it.safety.copy(telemetryEnabled = value)) }
+    }
+    TextInput("What students learn", implementation.teaching.summary, singleLine = false) { value ->
+        viewModel.edit {
+            it.copy(implementation = it.implementation.copy(teaching = it.implementation.teaching.copy(summary = value)))
         }
-        ToggleRow("Zero-allocation periodic path", safety.zeroAllocationPeriodic) { value ->
-            viewModel.edit { it.copy(safety = it.safety.copy(zeroAllocationPeriodic = value)) }
-        }
-        TextInput("Autonomous resource key (optional)", document.autonomousResourceKey.orEmpty()) { value ->
-            viewModel.edit { it.copy(autonomousResourceKey = value.ifBlank { null }) }
+    }
+    TextInput("Existing action keys (one per line)", document.capabilityActionKeys.joinToString("\n"), singleLine = false) { value ->
+        viewModel.edit {
+            it.copy(capabilityActionKeys = value.lineSequence().map(String::trim).filter(String::isNotBlank).toList())
         }
     }
 }

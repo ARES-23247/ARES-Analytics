@@ -30,6 +30,48 @@ import kotlin.test.assertTrue
 
 class SubsystemGeneratorViewModelTest {
     @Test
+    fun `register existing Kotlin creates protected hand-authored metadata without starter previews`() {
+        val root = Files.createTempDirectory("ares-hand-authored-registration").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+
+        viewModel.registerHandAuthoredSubsystem()
+
+        val state = viewModel.state.value
+        assertEquals(
+            com.areslib.subsystem.SubsystemImplementationKind.HAND_AUTHORED,
+            state.draft?.implementation?.kind,
+        )
+        assertEquals(com.areslib.subsystem.SubsystemSourceOwnership.USER_OWNED, state.draft?.implementation?.ownership)
+        assertEquals(":TeamCode", state.draft?.implementation?.modulePath)
+        assertTrue(state.draft?.implementation?.sourceFiles.orEmpty().all { it.startsWith("TeamCode/src/main/java/") })
+        assertTrue(state.previewFiles.isEmpty(), "Hand-authored source must never enter starter replacement preview")
+        assertTrue(state.dirty)
+
+        viewModel.close()
+    }
+
+    @Test
+    fun `guided builder stages advance deterministically and remain directly selectable`() {
+        val root = Files.createTempDirectory("ares-subsystem-stages").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+
+        assertEquals(SubsystemBuilderStage.PURPOSE, viewModel.state.value.activeStage)
+        viewModel.previousStage()
+        assertEquals(SubsystemBuilderStage.PURPOSE, viewModel.state.value.activeStage)
+
+        viewModel.nextStage()
+        assertEquals(SubsystemBuilderStage.HARDWARE, viewModel.state.value.activeStage)
+        viewModel.selectStage(SubsystemBuilderStage.SIMULATION_AND_TESTING)
+        assertEquals(SubsystemBuilderStage.SIMULATION_AND_TESTING, viewModel.state.value.activeStage)
+        viewModel.nextStage()
+        assertEquals(SubsystemBuilderStage.REVIEW, viewModel.state.value.activeStage)
+        viewModel.nextStage()
+        assertEquals(SubsystemBuilderStage.REVIEW, viewModel.state.value.activeStage)
+
+        viewModel.close()
+    }
+
+    @Test
     fun `new project previews DSL saves revision and invokes offline generation`() {
         val root = Files.createTempDirectory("ares-subsystem-editor").toFile()
         val generator = FakeGenerator()

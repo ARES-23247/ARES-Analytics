@@ -16,6 +16,7 @@ import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.automirrored.filled.ArrowRight
+import androidx.compose.material.icons.automirrored.filled.MenuOpen
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
@@ -46,7 +47,6 @@ import com.ares.analytics.shared.UnitCategory
 import com.ares.analytics.shared.UnitConversion
 import com.ares.analytics.ui.theme.*
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.MenuOpen
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.draw.clipToBounds
@@ -248,7 +248,7 @@ fun TelemetryChartPanel(
                         label = { Text("${sec}s", fontSize = 11.sp) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = AresCyan,
-                            selectedLabelColor = AresBackground,
+                            selectedLabelColor = AresOnAccent,
                             containerColor = AresSurfaceElevated,
                             labelColor = AresTextSecondary
                         ),
@@ -340,15 +340,15 @@ fun TelemetryChartPanel(
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 Icon(
-                    imageVector = if (isTreeVisible) Icons.Default.MenuOpen else Icons.Default.Menu,
+                    imageVector = if (isTreeVisible) Icons.AutoMirrored.Filled.MenuOpen else Icons.Default.Menu,
                     contentDescription = null,
-                    tint = if (isTreeVisible) AresBackground else AresCyan,
+                    tint = if (isTreeVisible) AresOnAccent else AresCyan,
                     modifier = Modifier.size(16.dp)
                 )
                 Spacer(Modifier.width(6.dp))
                 Text(
                     if (isTreeVisible) "Hide Signals" else "Show Signals",
-                    color = if (isTreeVisible) AresBackground else AresTextPrimary,
+                    color = if (isTreeVisible) AresOnAccent else AresTextPrimary,
                     fontSize = 12.sp
                 )
             }
@@ -668,7 +668,7 @@ fun TelemetryChartPanel(
             ) {
                 Text(
                     text = key.substringAfterLast('/'),
-                    color = AresBackground,
+                    color = AresOnAccent,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
                 )

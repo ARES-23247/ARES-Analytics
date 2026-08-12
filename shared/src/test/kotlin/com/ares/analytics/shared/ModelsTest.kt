@@ -24,7 +24,8 @@ class ModelsTest {
             projectPath = "/home/user/ares",
             league = League.FTC,
             nt4Host = "192.168.43.1",
-            googleClientId = "my-gcp-client-id"
+            googleClientId = "my-gcp-client-id",
+            largeTextMode = true
         )
         val json = Json.encodeToString(config)
         val decoded = Json.decodeFromString<WorkspaceConfig>(json)
@@ -33,7 +34,17 @@ class ModelsTest {
         assertEquals(config.league, decoded.league)
         assertEquals(config.nt4Host, decoded.nt4Host)
         assertEquals("my-gcp-client-id", decoded.googleClientId)
+        assertTrue(decoded.largeTextMode)
         assertFalse(decoded.developerMode)
+    }
+
+    @Test
+    fun `older workspace json defaults larger text off`() {
+        val decoded = Json { ignoreUnknownKeys = true }.decodeFromString<WorkspaceConfig>(
+            """{"teamId":"23247","seasonId":"2026","robotId":"ares-bot","projectPath":"C:/ares","league":"FTC"}"""
+        )
+
+        assertFalse(decoded.largeTextMode)
     }
 
     @Test

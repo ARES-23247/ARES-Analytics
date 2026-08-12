@@ -49,6 +49,7 @@ import com.ares.analytics.ui.theme.AresBackground
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
 import com.ares.analytics.ui.theme.AresError
+import com.ares.analytics.ui.theme.AresOnAccent
 import com.ares.analytics.ui.theme.AresSurface
 import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
@@ -138,7 +139,7 @@ fun DashboardCommandBar(
                         Button(
                             onClick = onAddWidget,
                             modifier = Modifier.height(controlHeight),
-                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresBackground)
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                         ) {
                             Icon(Icons.Default.Add, null)
                             Spacer(Modifier.width(6.dp))
@@ -195,7 +196,7 @@ fun DashboardCommandBar(
                         showSaveDialog = false
                     },
                     enabled = layoutProfileNameError(layoutName) == null,
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresBackground)
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                 ) { Text("Save") }
             },
             dismissButton = { TextButton(onClick = { showSaveDialog = false }) { Text("Cancel") } },

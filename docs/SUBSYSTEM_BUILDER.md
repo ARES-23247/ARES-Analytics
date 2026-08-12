@@ -60,20 +60,46 @@ defaults.
 
 ## Builder workflow
 
-1. Select a capability template and create a new subsystem draft.
-2. Map hardware and define the cached input snapshot.
-3. Define immutable target, measurement, status, and configuration state.
-4. Connect control behavior and complete every applicable safety setting.
-5. Review the grouped artifact plan, module destinations, ownership labels, and generated Kotlin.
-6. Save the canonical document revision.
-7. Review any starter replacement diff. Confirm only when discarding the existing customization is
-   intentional.
-8. Generate, then run the generated contract tests and the project test suite.
+The builder uses seven guided stages. You can move backward at any time; advanced settings remain
+collapsed until you need them or a validation problem points to them.
+
+1. **Purpose** — choose a capability template, name the subsystem, and explain what it should do.
+2. **Hardware** — add motors, servos, and sensors using the exact Robot Controller configuration
+   names. Each declared measurement is cached once per robot loop.
+3. **State & behavior** — distinguish observed status from requested targets, then connect bounded
+   controller rules to actuators.
+4. **Safety** — complete feedback, homing, current, configuration-health, neutral-output, and fault
+   recovery requirements. The summary shows the protections currently enabled.
+5. **Capabilities** — review the typed driver/autonomous actions that the subsystem exposes.
+6. **Simulation & testing** — choose mock support and generated contract verification so the design
+   can be exercised without a physical robot.
+7. **Review** — resolve warnings, inspect ownership and module destinations, then save or generate.
+
+Save creates the canonical document revision. Review any starter replacement diff and confirm only
+when discarding the existing customization is intentional. Generate, then run the generated
+contract tests and the project test suite.
 
 Saving creates immutable history under `.ares/history/subsystems`. **Save & Generate** invokes the
 selected repository's Gradle wrapper. Generated output is deterministic: unchanged input produces
 byte-for-byte identical output, user-owned files are protected, and starter replacement is never
 silent.
+
+## Registering a subsystem that is already written by hand
+
+ARES does not scan Kotlin and guess which classes form a subsystem. Imports, factories, aliases,
+and conditional hardware construction make that unreliable. Instead, create a hand-authored
+`.aressubsystem` descriptor and explicitly identify:
+
+- the owning Gradle module and USER-OWNED source files;
+- subsystem, IO-contract, hardware-adapter, and optional simulator class names;
+- simulation support and teaching level;
+- the existing action-catalog keys that drivers and autonomous routines may invoke; and
+- the same hardware, state, and safety responsibilities documented by generated subsystems.
+
+Hand-authored registration never emits or replaces Kotlin starters. Generated plumbing includes a
+registration reminder while the season composition root remains responsible for constructing the
+implementation. Catalog validation fails when a declared action key is missing, so the GUI cannot
+silently advertise a behavior the robot does not implement.
 
 ## Writing a subsystem by hand
 
@@ -140,3 +166,6 @@ first, then generate/build FTC and the simulator in dependency order.
 See `ARESLib-Kotlin/docs/subsystem-dsl.md` for the shared DSL and code examples. The generated source
 also contains ownership headers, KDoc on customization points, safety invariants, and links back to
 the canonical document so it can serve as an executable example for hand-authored subsystems.
+
+See [Hand-authored subsystem prototype](SUBSYSTEM_HAND_AUTHORED_PROTOTYPE.md) for the measured
+Indicator/Prism comparison and the evidence gate used before considering Intake or Flywheel.

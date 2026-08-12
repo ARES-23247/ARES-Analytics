@@ -40,6 +40,8 @@ data class WorkspaceConfig(
     val colorblindMode: Boolean = false,
     val highContrastMode: Boolean = false,
     val touchOptimizedMode: Boolean = false,
+    /** Increases the Compose font scale for student-facing readability. */
+    val largeTextMode: Boolean = false,
     /** Exposes advanced code, database, and scaffolding tools in navigation search. */
     val developerMode: Boolean = false,
     /** Bumper-to-bumper robot length used for field-boundary validation. */

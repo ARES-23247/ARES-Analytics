@@ -14,12 +14,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
@@ -45,7 +48,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,6 +65,7 @@ import com.ares.analytics.ui.theme.AresCyan
 import com.ares.analytics.ui.theme.AresError
 import com.ares.analytics.ui.theme.AresGold
 import com.ares.analytics.ui.theme.AresGreen
+import com.ares.analytics.ui.theme.AresOnAccent
 import com.ares.analytics.ui.theme.AresRed
 import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
@@ -72,6 +80,7 @@ import com.areslib.controls.ControlEvent
 import com.areslib.controls.ControlSourceKind
 import com.areslib.controls.ControlTargetKind
 import com.areslib.controls.ControlThresholdDirection
+import com.areslib.controls.ControlTimingDocument
 import com.areslib.controls.ControllerControlDocument
 import com.areslib.controls.ControllerControlTypeDocument
 import com.areslib.controls.ControllerInputPlatform
@@ -170,14 +179,14 @@ private fun ProjectHeader(state: ControlsEditorState, viewModel: ControlsEditorV
             Button(
                 onClick = viewModel::save,
                 enabled = state.canSave,
-                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black)
+                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
             ) {
                 Icon(Icons.Default.Save, null, Modifier.size(16.dp)); Spacer(Modifier.width(5.dp)); Text("Save")
             }
             Button(
                 onClick = viewModel::saveAndGenerate,
                 enabled = state.canGenerate,
-                colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = Color.Black)
+                colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent)
             ) {
                 Icon(Icons.Default.Save, null, Modifier.size(16.dp)); Spacer(Modifier.width(5.dp))
                 Text(if (state.generationPhase == AresGenerationPhase.RUNNING) "Generating..." else "Save & Generate")
@@ -264,7 +273,7 @@ private fun SelectedControlCard(
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(
                     onClick = viewModel::createBinding,
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black)
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                 ) {
                     Icon(Icons.Default.Add, null, Modifier.size(16.dp)); Text(" Add action")
                 }
@@ -459,6 +468,9 @@ private fun BindingInspector(
     viewModel: ControlsEditorViewModel,
     binding: ControlBindingDocument
 ) {
+    var advancedExpanded by remember(binding.bindingId) {
+        mutableStateOf(hasAdvancedBindingSettings(binding))
+    }
     Column(cardModifier(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Text(if (state.selectedBindingId == null) "New binding" else "Edit binding", color = AresCyan, fontWeight = FontWeight.Bold)
@@ -493,25 +505,54 @@ private fun BindingInspector(
         SelectionMenu(
             "Event", binding.event.friendlyName(), events.map { it.name to it.friendlyName() }, Modifier.fillMaxWidth()
         ) { selected -> viewModel.updateDraft { it.copy(event = ControlEvent.valueOf(selected)) } }
-        TimingFields(binding, viewModel)
         TargetFields(state, binding, viewModel)
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(binding.enabled, { value -> viewModel.updateDraft { it.copy(enabled = value) } })
                 Text(" Enabled", color = AresTextPrimary, fontSize = 11.sp)
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(binding.suppressConstituentBindings, { value ->
-                    viewModel.updateDraft { it.copy(suppressConstituentBindings = value) }
-                })
-                Text(" Suppress chord buttons", color = AresTextSecondary, fontSize = 10.sp)
-            }
         }
         Button(
             onClick = viewModel::applyDraft,
             modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black)
+            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
         ) { Text(if (state.selectedBindingId == null) "Add binding" else "Apply changes") }
+        HorizontalDivider(color = AresBorder)
+        Row(
+            Modifier.fillMaxWidth().clickable { advancedExpanded = !advancedExpanded }.padding(vertical = 2.dp),
+            Arrangement.SpaceBetween,
+            Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Advanced timing & safety", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(
+                    advancedBindingSummary(binding),
+                    color = if (hasAdvancedBindingSettings(binding)) AresGold else AresTextSecondary,
+                    fontSize = 10.sp
+                )
+            }
+            Icon(
+                if (advancedExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                if (advancedExpanded) "Hide advanced settings" else "Show advanced settings",
+                tint = AresTextSecondary
+            )
+        }
+        if (advancedExpanded) {
+            TimingFields(binding, viewModel)
+            if (binding.source.kind == ControlSourceKind.CHORD) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(binding.suppressConstituentBindings, { value ->
+                        viewModel.updateDraft { it.copy(suppressConstituentBindings = value) }
+                    })
+                    Text(" Suppress individual chord-button actions", color = AresTextPrimary, fontSize = 11.sp)
+                }
+                Text(
+                    "Recommended for chords so one press does not trigger both the chord and its individual buttons.",
+                    color = AresTextSecondary,
+                    fontSize = 10.sp
+                )
+            }
+        }
     }
 }
 
@@ -558,8 +599,6 @@ private fun AnalogSourceFields(binding: ControlBindingDocument, viewModel: Contr
 
 @Composable
 private fun TimingFields(binding: ControlBindingDocument, viewModel: ControlsEditorViewModel) {
-    HorizontalDivider(color = AresBorder)
-    Text("Timing and safety", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
     NumberEditor("Press debounce (s)", binding.timing.pressDebounceSeconds) { value ->
         viewModel.updateDraft { it.copy(timing = it.timing.copy(pressDebounceSeconds = value)) }
     }
@@ -581,6 +620,21 @@ private fun TimingFields(binding: ControlBindingDocument, viewModel: ControlsEdi
     NullableNumberEditor("Maximum active (s)", binding.timing.maximumActiveSeconds) { value ->
         viewModel.updateDraft { it.copy(timing = it.timing.copy(maximumActiveSeconds = value)) }
     }
+}
+
+internal fun hasAdvancedBindingSettings(binding: ControlBindingDocument): Boolean =
+    binding.timing != ControlTimingDocument() || binding.suppressConstituentBindings
+
+internal fun advancedBindingSummary(binding: ControlBindingDocument): String {
+    val active = buildList {
+        if (binding.timing.pressDebounceSeconds > 0.0 || binding.timing.releaseDebounceSeconds > 0.0) add("debounce")
+        if (binding.timing.holdAfterSeconds != null) add("hold")
+        if (binding.timing.repeatAfterSeconds != null || binding.timing.repeatEverySeconds != null) add("repeat")
+        if (binding.timing.cooldownSeconds > 0.0) add("cooldown")
+        if (binding.timing.maximumActiveSeconds != null) add("maximum active time")
+        if (binding.suppressConstituentBindings) add("chord suppression")
+    }
+    return if (active.isEmpty()) "Using safe defaults — no custom timing" else "Configured: ${active.joinToString()}"
 }
 
 @Composable
@@ -620,40 +674,165 @@ private fun TargetFields(state: ControlsEditorState, binding: ControlBindingDocu
 @Composable
 private fun ActionPicker(state: ControlsEditorState, selectedKey: String, onSelect: (String) -> Unit) {
     val selected = state.actions.firstOrNull { it.key == selectedKey }
-    var query by remember(selectedKey) { mutableStateOf(selected?.displayName.orEmpty()) }
+    var query by remember { mutableStateOf("") }
     var expanded by remember { mutableStateOf(false) }
-    val matches = state.actions.filter { action ->
-        query.isBlank() || action.displayName.contains(query, true) || action.key.contains(query, true) ||
-            action.category.contains(query, true)
+    val searchFocus = remember { FocusRequester() }
+    val groups = actionBrowserGroups(state.actions, query)
+    val matchCount = groups.sumOf { it.actions.size }
+
+    fun openBrowser() {
+        query = ""
+        expanded = true
     }
-    Box(Modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = { query = it; expanded = true },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("Catalog action") },
-            placeholder = { Text("Search actions") },
-            singleLine = true,
-            trailingIcon = {
-                IconButton(onClick = { expanded = true }) { Icon(Icons.Default.ArrowDropDown, "Show actions") }
+
+    LaunchedEffect(expanded) {
+        if (expanded) searchFocus.requestFocus()
+    }
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            "${actionCatalogSummary(state.actions)} • .ares/action-catalog.json",
+            color = if (state.actions.isEmpty()) AresGold else AresTextSecondary,
+            fontSize = 10.sp,
+            modifier = Modifier.semantics {
+                contentDescription = if (state.actions.isEmpty()) {
+                    "No project actions loaded from the action catalog"
+                } else {
+                    "${actionCatalogSummary(state.actions)} loaded from the project action catalog"
+                }
             }
         )
-        DropdownMenu(expanded, { expanded = false }) {
-            matches.forEach { action ->
-                DropdownMenuItem(
-                    text = {
-                        Column {
-                            Text(action.displayName, fontSize = 11.sp)
-                            Text("${action.category} • ${action.key}", color = AresTextSecondary, fontSize = 9.sp)
-                        }
-                    },
-                    onClick = {
-                        query = action.displayName
-                        expanded = false
-                        onSelect(action.key)
+        Box(Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = ::openBrowser,
+                modifier = Modifier.fillMaxWidth().semantics {
+                    contentDescription = if (selected == null) {
+                        "Choose a project action"
+                    } else {
+                        "Selected action. ${actionAccessibleLabel(selected)}. Open action browser"
                     }
-                )
+                }
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Catalog action", color = AresTextSecondary, fontSize = 9.sp)
+                    Text(
+                        selected?.displayName ?: selectedKey.ifBlank { "Choose an action" },
+                        color = AresTextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 11.sp,
+                        maxLines = 1
+                    )
+                    selected?.let {
+                        Text(
+                            "${it.category.ifBlank { "General" }} • ${it.key}",
+                            color = AresTextSecondary,
+                            fontSize = 9.sp,
+                            maxLines = 1
+                        )
+                    }
+                }
+                Icon(Icons.Default.ArrowDropDown, "Browse all project actions")
             }
+            DropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+                modifier = Modifier.widthIn(min = 380.dp, max = 520.dp)
+            ) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp)) {
+                    Text("Choose an action", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Text(
+                        "All ${state.actions.size} project actions are shown until you search.",
+                        color = AresTextSecondary,
+                        fontSize = 10.sp
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier.fillMaxWidth().focusRequester(searchFocus),
+                        label = { Text("Search actions") },
+                        placeholder = { Text("Try LED, light, color, or Prism") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        supportingText = {
+                            Text(
+                                if (query.isBlank()) "$matchCount actions available" else "$matchCount matching actions",
+                                fontSize = 9.sp
+                            )
+                        },
+                        singleLine = true
+                    )
+                }
+                if (groups.isEmpty()) {
+                    Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                        Text(
+                            if (state.actions.isEmpty()) "No project actions were loaded." else "No actions match “$query”.",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp
+                        )
+                        Text(
+                            if (state.actions.isEmpty()) {
+                                "Check .ares/action-catalog.json, then use Reload at the top of the editor."
+                            } else {
+                                "Clear the search or try a device, behavior, LED, light, color, or Prism."
+                            },
+                            color = AresTextSecondary,
+                            fontSize = 10.sp
+                        )
+                        if (query.isNotBlank()) {
+                            OutlinedButton(onClick = { query = "" }) { Text("Clear search", fontSize = 10.sp) }
+                        }
+                    }
+                }
+                groups.forEachIndexed { index, group ->
+                    if (index > 0) HorizontalDivider(color = AresBorder)
+                    Text(
+                        "${group.category} (${group.actions.size})",
+                        color = AresCyan,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 7.dp)
+                    )
+                    group.actions.forEach { action ->
+                        DropdownMenuItem(
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(action.displayName, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                                    if (action.description.isNotBlank()) {
+                                        Text(action.description, color = AresTextSecondary, fontSize = 9.sp)
+                                    }
+                                    Text(
+                                        "Project catalog • ${action.key}",
+                                        color = AresTextSecondary,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                }
+                            },
+                            onClick = {
+                                query = ""
+                                expanded = false
+                                onSelect(action.key)
+                            },
+                            modifier = Modifier.semantics {
+                                contentDescription = actionAccessibleLabel(action)
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        if (state.actions.isEmpty()) {
+            Text(
+                "No actions are available. Check .ares/action-catalog.json, then select Reload.",
+                color = AresGold,
+                fontSize = 10.sp
+            )
+        } else if (selected == null && selectedKey.isNotBlank()) {
+            Text(
+                "This binding references an action that is not in the current catalog: $selectedKey",
+                color = AresGold,
+                fontSize = 10.sp
+            )
         }
     }
 }

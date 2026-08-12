@@ -2,6 +2,7 @@ package com.ares.analytics.ui.screens
 
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -54,11 +55,14 @@ fun DashboardScreen(
     onSelectMatch: (MatchInfo, String) -> Unit,
     reloadTrigger: Int,
     onImportSuccess: () -> Unit,
-    onOpenKeybindings: () -> Unit = {}
+    onOpenKeybindings: () -> Unit = {},
+    onOpenRunHistory: () -> Unit = {},
+    onOpenHelp: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
     var newLayoutName by remember { mutableStateOf("") }
+    var offlineGuideDismissed by remember { mutableStateOf(false) }
 
     // Replay integration
     val replayEngine = services.replayEngineService
@@ -118,6 +122,13 @@ fun DashboardScreen(
         // Configurable widgets area
         val layout = state.currentLayout
         if (layout != null) {
+            if (shouldShowDashboardOfflineGuide(state.isConnected, state.primarySessionId, offlineGuideDismissed)) {
+                DashboardOfflineGuide(
+                    onOpenRunHistory = onOpenRunHistory,
+                    onOpenHelp = onOpenHelp,
+                    onDismiss = { offlineGuideDismissed = true }
+                )
+            }
             DashboardCommandBar(
                 profileName = state.currentRoleProfile,
                 availableProfiles = state.availableProfiles,
@@ -412,6 +423,51 @@ fun DashboardScreen(
             }
         }
     }
+    }
+}
+
+internal fun shouldShowDashboardOfflineGuide(
+    isConnected: Boolean,
+    primarySessionId: String?,
+    dismissed: Boolean
+): Boolean = !isConnected && primarySessionId == null && !dismissed
+
+@Composable
+private fun DashboardOfflineGuide(
+    onOpenRunHistory: () -> Unit,
+    onOpenHelp: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        color = AresCyan.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.45f)),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(Icons.Default.Explore, null, tint = AresCyan, modifier = Modifier.size(22.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Choose where your data should come from", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                Text(
+                    "No live telemetry yet. For safe practice, select Local Sim above and press Play. To review past data, open Run History.",
+                    color = AresTextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
+                )
+            }
+            OutlinedButton(onClick = onOpenHelp) { Text("Simulator guide") }
+            Button(
+                onClick = onOpenRunHistory,
+                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
+            ) { Text("Run History", fontWeight = FontWeight.Bold) }
+            IconButton(onClick = onDismiss) {
+                Icon(Icons.Default.Close, "Dismiss dashboard guidance", tint = AresTextSecondary)
+            }
+        }
     }
 }
 

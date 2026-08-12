@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -33,6 +34,7 @@ import com.ares.analytics.ui.components.Sidebar
 import com.ares.analytics.ui.components.core.TargetSelection
 import com.ares.analytics.ui.components.core.ExecutionToolbar
 import com.ares.analytics.ui.components.terminal.TerminalDrawer
+import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.*
 import kotlinx.coroutines.*
@@ -74,6 +76,8 @@ fun MainScreen(services: ServiceRegistry) {
     val gamepad1State by services.gamepadService.gamepad1State.collectAsState()
     val gamepad2State by services.gamepadService.gamepad2State.collectAsState()
     var commandPaletteOpen by remember { mutableStateOf(false) }
+    var workspacePendingDeletion by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var requestedLessonId by remember { mutableStateOf<String?>(null) }
 
     // Trigger update check on startup
     LaunchedEffect(Unit) {
@@ -90,11 +94,17 @@ fun MainScreen(services: ServiceRegistry) {
     }
     val currentConfig = config
 
-    LaunchedEffect(currentConfig?.colorblindMode, currentConfig?.highContrastMode, currentConfig?.touchOptimizedMode) {
+    LaunchedEffect(
+        currentConfig?.colorblindMode,
+        currentConfig?.highContrastMode,
+        currentConfig?.touchOptimizedMode,
+        currentConfig?.largeTextMode
+    ) {
         if (currentConfig != null) {
             AresThemeSettings.colorblindMode = currentConfig.colorblindMode
             AresThemeSettings.highContrastMode = currentConfig.highContrastMode
             AresThemeSettings.touchOptimizedMode = currentConfig.touchOptimizedMode
+            AresThemeSettings.largeTextMode = currentConfig.largeTextMode
         }
     }
 
@@ -441,7 +451,10 @@ fun MainScreen(services: ServiceRegistry) {
                 adbConnected = adbConnected,
                 isSimRunning = isSimRunning,
                 league = currentConfig.league,
-                onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) },
+                onNavigate = {
+                    if (it == NavigationTarget.ACADEMY) requestedLessonId = null
+                    mainViewModel.onIntent(MainIntent.SetActiveNav(it))
+                },
                 onOpenCommandPalette = { commandPaletteOpen = true },
                 onToggleTerminal = { mainViewModel.onIntent(MainIntent.SetTerminalOpen(!isTerminalOpen)) }
             )
@@ -529,13 +542,17 @@ fun MainScreen(services: ServiceRegistry) {
 
                                                 IconButton(
                                                     onClick = {
-                                                        mainViewModel.onIntent(MainIntent.DeleteWorkspace(workspace.id))
+                                                        val displayName = workspace.robotName.ifBlank {
+                                                            "${workspace.robotId} (Team ${workspace.teamId})"
+                                                        }
+                                                        workspacePendingDeletion = workspace.id to displayName
+                                                        dropdownExpanded = false
                                                     },
                                                     modifier = Modifier.size(24.dp)
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Default.Delete,
-                                                        contentDescription = "Delete Profile",
+                                                        contentDescription = "Remove workspace",
                                                         tint = AresError.copy(alpha = 0.8f),
                                                         modifier = Modifier.size(16.dp)
                                                     )
@@ -607,6 +624,20 @@ fun MainScreen(services: ServiceRegistry) {
                             }
                         )
 
+                        if (activeNav != NavigationTarget.ACADEMY) LearningCatalog.lessonFor(activeNav)?.let { lesson ->
+                            OutlinedButton(
+                                onClick = {
+                                    requestedLessonId = lesson.id
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
+                                },
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp)
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.HelpOutline, contentDescription = null, modifier = Modifier.size(17.dp))
+                                Spacer(Modifier.width(5.dp))
+                                Text("Help", fontSize = 12.sp)
+                            }
+                        }
+
                     }
 
                     // ── Screen Router ────────────────────────────────────────
@@ -634,7 +665,9 @@ fun MainScreen(services: ServiceRegistry) {
                                 },
                                 reloadTrigger = runsIndexReloadTrigger,
                                 onImportSuccess = { mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload) },
-                                onOpenKeybindings = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS)) }
+                                onOpenKeybindings = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS)) },
+                                onOpenRunHistory = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.RUN_HISTORY)) },
+                                onOpenHelp = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY)) }
                             )
                             NavigationTarget.PATH_PLANNER -> PathPlannerScreen(
                                 viewModel = pathPlannerViewModel,
@@ -670,28 +703,46 @@ fun MainScreen(services: ServiceRegistry) {
                                 seasonId = currentConfig.seasonId,
                                 robotId = currentConfig.robotId
                             )
-                            NavigationTarget.IMPORT_CENTER -> ImportCenterScreen(importCenterViewModel)
+                            NavigationTarget.IMPORT_CENTER -> ImportCenterScreen(
+                                viewModel = importCenterViewModel,
+                                projectPath = currentConfig.projectPath.orEmpty(),
+                                onOpenHelp = {
+                                    requestedLessonId = "bring-in-run"
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
+                                }
+                            )
                             NavigationTarget.FIELD_EDITOR -> FieldEditorScreen(
                                 viewModel = fieldEditorViewModel,
                                 league = currentConfig.league,
                                 projectPath = currentConfig.projectPath
                             )
                             NavigationTarget.ACADEMY -> AcademyScreen(
-                                onLaunchSimChallenge = { challengeId ->
+                                progressService = services.learningProgressService,
+                                onOpenScreen = { destination ->
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(destination))
+                                },
+                                onStartSimulator = {
                                     services.processManagerService.runSimulation(
                                         currentConfig.projectPath,
                                         currentConfig.league,
                                         currentConfig.simulatorCommand
                                     )
                                     mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
-                                }
+                                },
+                                initialLessonId = requestedLessonId
                             )
                             NavigationTarget.KDOC_VIEWER -> KDocViewerScreen()
                             NavigationTarget.PIT_DIAGNOSTICS -> HardwareSelfTestWizard(nt4ClientService = services.nt4ClientService)
                             NavigationTarget.MATCH_STRATEGY -> MatchStrategyScreen()
                             NavigationTarget.RUN_HISTORY -> RunHistoryScreen(
                                 databaseService = services.databaseService,
-                                syncEngineService = services.syncEngineService
+                                syncEngineService = services.syncEngineService,
+                                onOpenImports = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.IMPORT_CENTER))
+                                },
+                                onOpenHelp = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
+                                }
                             )
                             NavigationTarget.DATABASE_VIEWER -> DatabaseViewerScreen(
                                 databaseService = services.databaseService
@@ -749,7 +800,46 @@ fun MainScreen(services: ServiceRegistry) {
             CommandPalette(
                 developerMode = currentConfig.developerMode,
                 onDismiss = { commandPaletteOpen = false },
-                onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) }
+                onNavigate = {
+                    if (it == NavigationTarget.ACADEMY) requestedLessonId = null
+                    mainViewModel.onIntent(MainIntent.SetActiveNav(it))
+                }
+            )
+        }
+
+        workspacePendingDeletion?.let { (workspaceId, displayName) ->
+            AlertDialog(
+                onDismissRequest = { workspacePendingDeletion = null },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = null,
+                        tint = AresError
+                    )
+                },
+                title = { Text("Remove this workspace?") },
+                text = {
+                    Text(
+                        "ARES will remove the saved workspace settings for $displayName. " +
+                            "Your robot project files and imported run data will not be deleted."
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            mainViewModel.onIntent(MainIntent.DeleteWorkspace(workspaceId))
+                            workspacePendingDeletion = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AresError)
+                    ) {
+                        Text("Remove workspace")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { workspacePendingDeletion = null }) {
+                        Text("Keep workspace")
+                    }
+                }
             )
         }
 

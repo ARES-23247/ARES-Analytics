@@ -7,7 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -55,7 +55,7 @@ fun TrendsCard(
     ) {
         CardHeader(
             title = "Battery Health Trend",
-            icon = Icons.Default.TrendingDown,
+            icon = Icons.AutoMirrored.Filled.TrendingDown,
             iconTint = AresGold,
             showDivider = false
         )
@@ -77,7 +77,7 @@ fun TrendsCard(
                 ) {
                     Text(
                         label,
-                        color = if (isSelected) AresBackground else AresTextSecondary,
+                        color = if (isSelected) AresOnAccent else AresTextSecondary,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold
                     )

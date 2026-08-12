@@ -93,7 +93,7 @@ fun GainTuningPanel(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = { viewModel.onIntent(TuningIntent.PushAllToRobot) },
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black),
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                     shape = RoundedCornerShape(6.dp),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                     modifier = Modifier.height(32.dp)

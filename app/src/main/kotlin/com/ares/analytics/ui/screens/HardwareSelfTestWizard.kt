@@ -11,8 +11,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.HealthAndSafety
@@ -205,14 +206,21 @@ fun HardwareSelfTestWizard(nt4ClientService: Nt4ClientService) {
             }
         }
 
-        LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(steps, key = SelfTestStep::id) { step -> ReadinessRow(step) }
+        BoxWithConstraints(Modifier.weight(1f)) {
+            val columns = if (maxWidth < 900.dp) 1 else 2
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(columns),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                items(steps, key = SelfTestStep::id) { step -> ReadinessCard(step) }
+            }
         }
     }
 }
 
 @Composable
-private fun ReadinessRow(step: SelfTestStep) {
+private fun ReadinessCard(step: SelfTestStep) {
     val color = when (step.status) {
         SelfTestStatus.OBSERVED -> AresGreen
         SelfTestStatus.WARNING -> AresGold
@@ -223,13 +231,13 @@ private fun ReadinessRow(step: SelfTestStep) {
         border = BorderStroke(1.dp, if (step.status == SelfTestStatus.WAITING) AresBorder else color.copy(alpha = .65f)),
         shape = RoundedCornerShape(8.dp)
     ) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
                 Text(step.name, color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
-                Text(step.description, color = AresTextSecondary, fontSize = 11.sp)
-                Text(step.details, color = color, fontSize = 11.sp)
+                StatusPill(step.status.name, color)
             }
-            StatusPill(step.status.name, color)
+            Text(step.description, color = AresTextSecondary, fontSize = 12.sp)
+            Text(step.details, color = color, fontSize = 12.sp)
         }
     }
 }

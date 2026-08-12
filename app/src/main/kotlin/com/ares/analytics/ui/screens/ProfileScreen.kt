@@ -69,6 +69,7 @@ fun ProfileScreen(
     var colorblindMode by remember(config.colorblindMode) { mutableStateOf(config.colorblindMode) }
     var highContrastMode by remember(config.highContrastMode) { mutableStateOf(config.highContrastMode) }
     var touchOptimizedMode by remember(config.touchOptimizedMode) { mutableStateOf(config.touchOptimizedMode) }
+    var largeTextMode by remember(config.largeTextMode) { mutableStateOf(config.largeTextMode) }
     var developerMode by remember(config.developerMode) { mutableStateOf(config.developerMode) }
 
     // Optional credential overrides
@@ -513,7 +514,7 @@ fun ProfileScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Colorblind-Friendly Palette", color = AresTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Remaps success and failure states (red/green) to deuteranopia-safe cobalt blue and vermilion orange.", color = AresTextSecondary, fontSize = 11.sp)
+                        Text("Uses blue/orange status accents while retaining words, icons, and borders so color is never the only signal.", color = AresTextSecondary, fontSize = 11.sp)
                     }
                     Switch(
                         checked = colorblindMode,
@@ -554,6 +555,26 @@ fun ProfileScreen(
                     )
                 }
 
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Larger Interface Text", color = AresTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "Increases text throughout the app while preserving the operating system's existing text scale.",
+                            color = AresTextSecondary,
+                            fontSize = 11.sp
+                        )
+                    }
+                    Switch(
+                        checked = largeTextMode,
+                        onCheckedChange = { largeTextMode = it },
+                        colors = SwitchDefaults.colors(checkedThumbColor = AresCyan, checkedTrackColor = AresCyanGlow)
+                    )
+                }
+
                 HorizontalDivider(color = AresBorder.copy(alpha = 0.6f))
 
                 Row(
@@ -563,7 +584,7 @@ fun ProfileScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text("Developer Tools", color = AresTextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Shows Database, KDoc Explorer, and Subsystem Generator in the command palette.", color = AresTextSecondary, fontSize = 11.sp)
+                        Text("Shows Database, Developer Reference, and advanced authoring tools in the command palette.", color = AresTextSecondary, fontSize = 11.sp)
                     }
                     Switch(
                         checked = developerMode,
@@ -598,6 +619,7 @@ fun ProfileScreen(
                     colorblindMode = colorblindMode,
                     highContrastMode = highContrastMode,
                     touchOptimizedMode = touchOptimizedMode,
+                    largeTextMode = largeTextMode,
                     developerMode = developerMode
                 )
                 // MainViewModel owns the single persisted workspace update.

@@ -102,6 +102,8 @@ data class RowDefinition(
  *
  * @param databaseService Primary [DatabaseService] backing DuckDB telemetry queries.
  * @param syncEngineService Sync engine service for downloading log files.
+ * @param onOpenImports Opens the log-import workflow when no completed runs exist.
+ * @param onOpenHelp Opens the beginner lesson that explains how to create and review a run.
  *
  * @see com.ares.analytics.service.MatchLogRepository
  * @see com.ares.analytics.service.ReplayEngineService
@@ -109,7 +111,9 @@ data class RowDefinition(
 @Composable
 fun RunHistoryScreen(
     databaseService: DatabaseService,
-    syncEngineService: SyncEngineService
+    syncEngineService: SyncEngineService,
+    onOpenImports: () -> Unit = {},
+    onOpenHelp: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var sessions by remember { mutableStateOf<List<Session>>(emptyList()) }
@@ -153,7 +157,57 @@ fun RunHistoryScreen(
 
     if (sessions.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No runs recorded yet. Upload a log or run a routine to begin.", color = AresTextSecondary)
+            Card(
+                modifier = Modifier.widthIn(max = 540.dp).padding(24.dp),
+                colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+                border = BorderStroke(1.dp, AresBorder)
+            ) {
+                Column(
+                    modifier = Modifier.padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ShowChart,
+                        contentDescription = null,
+                        tint = AresCyan,
+                        modifier = Modifier.size(40.dp)
+                    )
+                    Text(
+                        "No completed runs yet",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = AresTextPrimary
+                    )
+                    Text(
+                        "Bring in a robot or simulator log first. ARES will then show the run here " +
+                            "for replay, charts, and comparison.",
+                        color = AresTextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(onClick = onOpenImports) {
+                            Icon(Icons.Default.FolderOpen, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Open Log Imports")
+                        }
+                        OutlinedButton(onClick = onOpenHelp) {
+                            Icon(Icons.Default.School, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Show me how")
+                        }
+                    }
+                    Text(
+                        "You can learn this workflow entirely with the simulator—no physical robot is required.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AresTextSecondary,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
         }
         return
     }

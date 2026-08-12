@@ -41,5 +41,8 @@ class NavigationModelTest {
         assertTrue(filterNavigationTargets("analysis", false).contains(NavigationTarget.RUN_HISTORY))
         assertTrue(filterNavigationTargets("database", false).isEmpty())
         assertEquals(listOf(NavigationTarget.DATABASE_VIEWER), filterNavigationTargets("database", true))
+        assertEquals(listOf(NavigationTarget.ACADEMY), filterNavigationTargets("start here", false))
+        assertTrue(filterNavigationTargets("disconnected", false).contains(NavigationTarget.DASHBOARD))
+        assertTrue(filterNavigationTargets("gamepad", false).contains(NavigationTarget.CONTROLS))
     }
 }

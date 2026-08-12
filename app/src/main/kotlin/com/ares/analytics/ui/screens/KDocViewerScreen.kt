@@ -1,407 +1,255 @@
-
 package com.ares.analytics.ui.screens
 
-import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Source
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ares.analytics.ui.theme.*
+import com.ares.analytics.ui.help.DeveloperReference
+import com.ares.analytics.ui.help.DeveloperReferenceCatalog
+import com.ares.analytics.ui.theme.AresAmber
+import com.ares.analytics.ui.theme.AresBackground
+import com.ares.analytics.ui.theme.AresBorder
+import com.ares.analytics.ui.theme.AresCyan
+import com.ares.analytics.ui.theme.AresCyanGlow
+import com.ares.analytics.ui.theme.AresGreen
+import com.ares.analytics.ui.theme.AresSurface
+import com.ares.analytics.ui.theme.AresSurfaceElevated
+import com.ares.analytics.ui.theme.AresTextPrimary
+import com.ares.analytics.ui.theme.AresTextSecondary
+import com.ares.analytics.ui.theme.AresTextTertiary
 
 /**
- * Symbol metadata entry rendered in the internal interactive KDoc documentation viewer browser.
+ * Curated map from common ARES concepts to their current source-of-truth locations.
  *
- * @property id Unique symbol identifier string.
- * @property name Symbol name.
- * @property category Architecture category (`"Control"`, `"Localization"`, `"Kinematics"`, `"Vision"`, `"Redux"`).
- * @property signature Full Kotlin code method signature string.
- * @property summary Brief functional description.
- * @property description Detailed implementation documentation.
- * @property formula Optional LaTeX mathematical formula string.
- * @property physicalUnits Physical units string ($m$, $rad$, $V$, $A$, $Hz$, $ms$).
- * @property codeSnippet Illustrative usage code example.
- * @property aiExplanation AI-generated technical explanation details.
- */
-data class KDocSymbol(
-    val id: String,
-    val name: String,
-    val category: String,
-    val signature: String,
-    val summary: String,
-    val description: String,
-    val formula: String?,
-    val physicalUnits: String,
-    val codeSnippet: String,
-    val aiExplanation: String
-)
-
-/**
- * In-app KDoc documentation browser and reference manual screen.
- *
- * Provides searchable index of control theory algorithms, zero-GC memory guidelines, EKF state equations, and Redux store architecture invariants.
- *
- * @see KDocSymbol
+ * This screen intentionally avoids claiming to be complete generated KDoc or an AI assistant.
+ * Students use it to find the owning module, units, invariants, and tests, then verify the live
+ * declaration in source.
  */
 @Composable
 fun KDocViewerScreen() {
-    var searchQuery by remember { mutableStateOf("") }
-    var selectedCategory by remember { mutableStateOf("All") }
-    var selectedSymbolId by remember { mutableStateOf("holonomic_drive_facade") }
-    var userAiPrompt by remember { mutableStateOf("") }
-    var aiChatHistory by remember { mutableStateOf(listOf<Pair<String, String>>()) }
-    var isAiThinking by remember { mutableStateOf(false) }
-
-    val categories = remember { listOf("All", "Drivetrain", "Control & Math", "Localization & EKF", "Pathfinding", "Hardware & IO", "State & Redux") }
-
-    val kdocSymbols = remember {
-        listOf(
-            KDocSymbol(
-                id = "holonomic_drive_facade",
-                name = "HolonomicDriveFacade",
-                category = "Drivetrain",
-                signature = "abstract class HolonomicDriveFacade(store: Store, headingGains: PIDFCoefficients)",
-                summary = "Master student-facing facade for Mecanum and Swerve holonomic drivetrains.",
-                description = "Standardizes field-relative joystick control, heading locking, static friction feedforward (kS), and closed-loop position hold. Inverts joystick inputs automatically for Blue Alliance.",
-                formula = "v_{field} = R(-\\theta) v_{robot} + \\hat{e}_{dir} \\cdot kS",
-                physicalUnits = "Positions: m, Velocities: m/s, Angles: rad (CCW+)",
-                codeSnippet = """
-                    // FTC Holonomic Drive Setup
-                    val robot = ftcMecanumRobot(hardwareMap) {
-                        setHeadingDeadzone(1.0)
-                        enablePositionHold(true)
-                    }
-                    robot.driveFieldCentric(gamepad1.left_stick_x, gamepad1.left_stick_y, gamepad1.right_stick_x)
-                """.trimIndent(),
-                aiExplanation = "HolonomicDriveFacade manages field-centric driving by taking driver joystick inputs and rotating them by the gyro heading angle θ before computing wheel velocities. Position hold applies static friction feedforward kS (0.06) to overcome foam tile scrubbing friction."
-            ),
-            KDocSymbol(
-                id = "lqr_controller",
-                name = "LQRController",
-                category = "Control & Math",
-                signature = "class LQRController(numStates: Int, numInputs: Int, Q: Matrix, R: Matrix)",
-                summary = "Linear Quadratic Regulator for optimal multi-variable state-space feedback control.",
-                description = "Solves Discrete Algebraic Riccati Equations (DARE) offline or online to compute optimal feedback gain matrix K. Minimizes state error cost x^T Q x while penalizing control effort u^T R u.",
-                formula = "u = -K x; \\quad J = \\int_0^\\infty (x^T Q x + u^T R u) dt",
-                physicalUnits = "State Vector x: [pos, vel]^T, Output: Volts or Motor Power",
-                codeSnippet = """
-                    val lqr = LQRController(
-                        numStates = 2, numInputs = 1,
-                        qDiag = doubleArrayOf(1.0, 0.1),
-                        rDiag = doubleArrayOf(0.01)
-                    )
-                    val u = lqr.calculate(yMeasured = doubleArrayOf(pos, vel), xRef = doubleArrayOf(targetPos, 0.0), dt = 0.02)
-                """.trimIndent(),
-                aiExplanation = "LQR optimal control calculates the best possible feedback gains K for multi-variable systems (like arm elevators or swerve modules) by balancing setpoint tracking error against motor voltage usage."
-            ),
-            KDocSymbol(
-                id = "ekf_pose_estimator",
-                name = "EKFPoseEstimator",
-                category = "Localization & EKF",
-                signature = "class EKFPoseEstimator(qPos: Double, qRot: Double, rVisionPos: Double)",
-                summary = "Extended Kalman Filter for 100 Hz odometry and 20 Hz AprilTag vision fusion.",
-                description = "Executes state prediction at 100 Hz using wheel odometry or GoBilda Pinpoint. Corrects pose estimates at 20 Hz using Limelight AprilTag vision measurements with Mahalanobis outlier filtering.",
-                formula = "\\hat{x}_k = \\hat{x}_k^- + K_k (z_k - H \\hat{x}_k^-)",
-                physicalUnits = "Pose: (x, y, θ) in meters and radians",
-                codeSnippet = """
-                    val ekf = EKFPoseEstimator()
-                    ekf.predict(deltaPoseMeters, dtSeconds)
-                    if (mahalanobisDistance < 18.0) {
-                        ekf.correctWithVision(visionMeasurement)
-                    }
-                """.trimIndent(),
-                aiExplanation = "EKFPoseEstimator fuses fast 100 Hz odometry with 20 Hz AprilTag vision. If an AprilTag is corrupted by motion blur, Mahalanobis outlier filtering rejects the update so the robot pose doesn't jump."
-            ),
-            KDocSymbol(
-                id = "theta_star_planner",
-                name = "ThetaStarPlanner",
-                category = "Pathfinding",
-                signature = "object ThetaStarPlanner",
-                summary = "Any-angle global pathfinder eliminating grid-line zigzag artifacts.",
-                description = "Executes Bresenham line-of-sight checks during A* node expansion to connect parent nodes directly to reachable neighbors, yielding mathematically optimal straight paths around obstacle inflation boundaries.",
-                formula = "J_{cost} = d_{target} + w_{obs} \\cdot \\text{costmap}(x, y)",
-                physicalUnits = "Waypoints: meters (m), Costmap: meters/cell",
-                codeSnippet = """
-                    val waypoints = ThetaStarPlanner.plan(
-                        costmap = robotCostmap,
-                        start = Translation2d(0.5, 0.5),
-                        end = Translation2d(2.5, 1.8)
-                    )
-                """.trimIndent(),
-                aiExplanation = "ThetaStarPlanner plans paths around obstacles without being trapped on a grid. It performs line-of-sight checks to shortcut corners, producing smooth, direct paths."
-            )
-        )
-    }
-
-    val filteredSymbols = remember(searchQuery, selectedCategory) {
-        kdocSymbols.filter { symbol ->
-            val matchesCat = selectedCategory == "All" || symbol.category.equals(selectedCategory, ignoreCase = true)
-            val matchesQuery = searchQuery.isEmpty() ||
-                    symbol.name.contains(searchQuery, ignoreCase = true) ||
-                    symbol.summary.contains(searchQuery, ignoreCase = true) ||
-                    symbol.description.contains(searchQuery, ignoreCase = true)
-            matchesCat && matchesQuery
-        }
-    }
-
-    val activeSymbol = kdocSymbols.firstOrNull { it.id == selectedSymbolId } ?: kdocSymbols.first()
+    var query by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf("All") }
+    var selectedId by remember { mutableStateOf(DeveloperReferenceCatalog.entries.first().id) }
+    val matches = remember(query, category) { DeveloperReferenceCatalog.search(query, category) }
+    val selected = DeveloperReferenceCatalog.entries.firstOrNull { it.id == selectedId }
+        ?: matches.firstOrNull()
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AresBackground)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        modifier = Modifier.fillMaxSize().background(AresBackground).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // Header Banner
         Card(
-            modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = AresSurface),
-            shape = RoundedCornerShape(12.dp)
+            border = BorderStroke(1.dp, AresBorder),
+            shape = RoundedCornerShape(12.dp),
         ) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(20.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxWidth().padding(18.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.Book, contentDescription = null, tint = AresCyan, modifier = Modifier.size(28.dp))
-                        Text(
-                            text = "ARESLib KDoc API Explorer & AI Co-Pilot",
-                            style = MaterialTheme.typography.headlineMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = AresTextPrimary
-                        )
-                    }
+                Icon(Icons.Default.Book, contentDescription = null, tint = AresCyan, modifier = Modifier.size(28.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Developer Reference", color = AresTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text(
-                        text = "Interactive API Reference, Mathematical Formulations & AI Code Assistant",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = AresTextSecondary
+                        "A curated map to current source, units, invariants, and tests—not generated API documentation.",
+                        color = AresTextSecondary,
                     )
                 }
-
-                // Search Input Box
                 OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search API symbol...") },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = AresCyan) },
-                    modifier = Modifier.width(300.dp),
-                    shape = RoundedCornerShape(8.dp)
+                    value = query,
+                    onValueChange = { query = it },
+                    modifier = Modifier.width(330.dp),
+                    singleLine = true,
+                    placeholder = { Text("Try: pose, clock, hardware reads…") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 )
             }
         }
 
-        // Category Pills Filter
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            categories.forEach { cat ->
-                val isSelected = cat == selectedCategory
-                Surface(
-                    color = if (isSelected) AresCyan.copy(alpha = 0.2f) else AresSurface,
-                    shape = RoundedCornerShape(16.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, if (isSelected) AresCyan else AresBorder),
-                    modifier = Modifier.clickable { selectedCategory = cat }
-                ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            DeveloperReferenceCatalog.categories.forEach { candidate ->
+                FilterChip(
+                    selected = category == candidate,
+                    onClick = { category = candidate },
+                    label = { Text(candidate, fontSize = 11.sp) },
+                )
+            }
+        }
+
+        Row(Modifier.fillMaxWidth().weight(1f), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Surface(
+                modifier = Modifier.width(330.dp).fillMaxHeight(),
+                color = AresSurface,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, AresBorder),
+            ) {
+                if (matches.isEmpty()) {
+                    Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
+                        Text(
+                            "No curated concept matches. Search the workspace source for the exact API name.",
+                            color = AresTextSecondary,
+                        )
+                    }
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize().padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        items(matches, key = DeveloperReference::id) { entry ->
+                            ReferenceListItem(entry, entry.id == selected?.id) { selectedId = entry.id }
+                        }
+                    }
+                }
+            }
+
+            Surface(
+                modifier = Modifier.weight(1f).fillMaxHeight(),
+                color = AresSurface,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, AresBorder),
+            ) {
+                if (selected == null) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("Choose a concept to inspect.", color = AresTextSecondary)
+                    }
+                } else {
+                    ReferenceDetail(selected)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReferenceListItem(entry: DeveloperReference, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        color = if (selected) AresCyanGlow else AresSurfaceElevated,
+        shape = RoundedCornerShape(9.dp),
+        border = BorderStroke(1.dp, if (selected) AresCyan else AresBorder),
+    ) {
+        Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(entry.title, color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
+            Text(entry.category, color = AresCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(entry.responsibility, color = AresTextSecondary, fontSize = 11.sp, lineHeight = 15.sp)
+        }
+    }
+}
+
+@Composable
+private fun ReferenceDetail(entry: DeveloperReference) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(22.dp),
+        verticalArrangement = Arrangement.spacedBy(15.dp),
+    ) {
+        item {
+            Text(entry.category, color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Text(entry.title, color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 25.sp)
+            Spacer(Modifier.height(5.dp))
+            Text(entry.responsibility, color = AresTextSecondary, fontSize = 15.sp, lineHeight = 21.sp)
+        }
+        item { HorizontalDivider(color = AresBorder) }
+        item {
+            ReferenceSection("Source of truth", Icons.Default.Source) {
+                Surface(color = AresBackground, shape = RoundedCornerShape(7.dp)) {
                     Text(
-                        text = cat,
-                        color = if (isSelected) AresCyan else AresTextSecondary,
+                        entry.sourcePath,
+                        modifier = Modifier.fillMaxWidth().padding(11.dp),
+                        color = AresGreen,
+                        fontFamily = FontFamily.Monospace,
                         fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    )
+                }
+                Text("Open this file and read its current KDoc before coding against it.", color = AresTextTertiary, fontSize = 11.sp)
+            }
+        }
+        item {
+            ReferenceSection("Units and conventions", Icons.Default.CheckCircle) {
+                Text(entry.units, color = AresTextPrimary, lineHeight = 20.sp)
+            }
+        }
+        item {
+            ReferenceSection("Invariants to preserve", Icons.Default.CheckCircle) {
+                entry.invariants.forEach { invariant ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                        Text("•", color = AresCyan, fontWeight = FontWeight.Bold)
+                        Text(invariant, color = AresTextSecondary, lineHeight = 20.sp)
+                    }
+                }
+            }
+        }
+        item {
+            Surface(
+                color = AresAmber.copy(alpha = 0.10f),
+                shape = RoundedCornerShape(9.dp),
+                border = BorderStroke(1.dp, AresAmber.copy(alpha = 0.55f)),
+            ) {
+                Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Verification starting point", color = AresAmber, fontWeight = FontWeight.Bold)
+                    Text(entry.relatedTests, color = AresTextPrimary, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                    Text(
+                        "A passing nearby test is evidence for the current code. This curated page alone is not.",
+                        color = AresTextSecondary,
+                        fontSize = 11.sp,
                     )
                 }
             }
         }
+    }
+}
 
-        // Main Split Screen Content
-        Row(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            // Left Sidebar: Symbol Catalog
-            Card(
-                modifier = Modifier.width(300.dp).fillMaxHeight(),
-                colors = CardDefaults.cardColors(containerColor = AresSurface),
-                shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text("API SYMBOLS (${filteredSymbols.size})", style = MaterialTheme.typography.labelMedium, color = AresTextSecondary, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(8.dp))
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(filteredSymbols) { symbol ->
-                            val isSelected = symbol.id == activeSymbol.id
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isSelected) AresCyan.copy(alpha = 0.15f) else Color.Transparent)
-                                    .border(1.dp, if (isSelected) AresCyan else Color.Transparent, RoundedCornerShape(6.dp))
-                                    .clickable { selectedSymbolId = symbol.id }
-                                    .padding(10.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(symbol.name, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal, color = if (isSelected) AresCyan else AresTextPrimary, fontSize = 13.sp)
-                                    Text(symbol.summary, fontSize = 10.sp, color = AresTextSecondary, maxLines = 1)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Center Panel: KDoc Class Viewer & Code Snippet
-            Card(
-                modifier = Modifier.weight(1.2f).fillMaxHeight(),
-                colors = CardDefaults.cardColors(containerColor = AresSurface),
-                shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)
-            ) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    item {
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Text(activeSymbol.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = AresTextPrimary)
-                            Surface(color = AresCyan.copy(alpha = 0.15f), shape = RoundedCornerShape(12.dp), border = androidx.compose.foundation.BorderStroke(1.dp, AresCyan)) {
-                                Text(activeSymbol.category, color = AresCyan, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp))
-                            }
-                        }
-                    }
-
-                    item { HorizontalDivider(color = AresBorder) }
-
-                    item {
-                        Surface(color = Color.Black.copy(alpha = 0.4f), shape = RoundedCornerShape(6.dp), border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)) {
-                            Text(activeSymbol.signature, fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = AresGold, modifier = Modifier.padding(10.dp))
-                        }
-                    }
-
-                    item {
-                        Text("DESCRIPTION & KDOC", style = MaterialTheme.typography.labelMedium, color = AresTextSecondary, fontWeight = FontWeight.Bold)
-                        Text(activeSymbol.description, style = MaterialTheme.typography.bodyMedium, color = AresTextPrimary)
-                    }
-
-                    if (activeSymbol.formula != null) {
-                        item {
-                            Surface(color = Color.Black.copy(alpha = 0.3f), shape = RoundedCornerShape(6.dp), border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)) {
-                                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                                    Text("MATHEMATICAL FORMULATION", fontSize = 10.sp, color = AresTextSecondary, fontWeight = FontWeight.Bold)
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(activeSymbol.formula, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = AresCyan)
-                                }
-                            }
-                        }
-                    }
-
-                    item {
-                        Text("PHYSICAL UNITS & CONVENTIONS", style = MaterialTheme.typography.labelMedium, color = AresTextSecondary, fontWeight = FontWeight.Bold)
-                        Text(activeSymbol.physicalUnits, style = MaterialTheme.typography.bodySmall, color = AresCyan)
-                    }
-
-                    item {
-                        Text("EXAMPLE KOTLIN USAGE", style = MaterialTheme.typography.labelMedium, color = AresTextSecondary, fontWeight = FontWeight.Bold)
-                        Surface(color = Color.Black.copy(alpha = 0.6f), shape = RoundedCornerShape(8.dp), border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)) {
-                            Text(activeSymbol.codeSnippet, fontFamily = FontFamily.Monospace, fontSize = 11.sp, color = AresGreen, modifier = Modifier.padding(12.dp))
-                        }
-                    }
-                }
-            }
-
-            // Right Panel: AI Co-Pilot Assistant ("Ask ARES AI")
-            Card(
-                modifier = Modifier.weight(1f).fillMaxHeight(),
-                colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
-                shape = RoundedCornerShape(12.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize().padding(16.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AresPurple, modifier = Modifier.size(20.dp))
-                            Text("Ask ARES AI Assistant", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = AresTextPrimary)
-                        }
-
-                        HorizontalDivider(color = AresBorder)
-
-                        // AI Pre-loaded Explanation for Active Symbol
-                        Card(colors = CardDefaults.cardColors(containerColor = AresSurface), shape = RoundedCornerShape(8.dp), border = androidx.compose.foundation.BorderStroke(1.dp, AresPurple.copy(alpha = 0.4f))) {
-                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Icon(Icons.Default.Psychology, contentDescription = null, tint = AresPurple, modifier = Modifier.size(16.dp))
-                                    Text("AI Insight: ${activeSymbol.name}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AresPurple)
-                                }
-                                Text(activeSymbol.aiExplanation, style = MaterialTheme.typography.bodySmall, color = AresTextPrimary, fontSize = 11.sp)
-                            }
-                        }
-
-                        // Chat History
-                        LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(aiChatHistory) { (q, a) ->
-                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("You: $q", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, color = AresCyan)
-                                    Text("ARES AI: $a", style = MaterialTheme.typography.bodySmall, color = AresTextPrimary)
-                                }
-                            }
-                        }
-                    }
-
-                    // Prompt Input Box
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(
-                            value = userAiPrompt,
-                            onValueChange = { userAiPrompt = it },
-                            placeholder = { Text("Ask AI about ${activeSymbol.name}...") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(8.dp)
-                        )
-
-                        Button(
-                            onClick = {
-                                if (userAiPrompt.isNotEmpty()) {
-                                    val prompt = userAiPrompt
-                                    userAiPrompt = ""
-                                    val answer = when {
-                                        prompt.contains("hold", ignoreCase = true) -> "Position hold in ${activeSymbol.name} calculates proportional target position error and adds static friction feedforward kS (0.06) to overcome foam tile scrubbing friction."
-                                        prompt.contains("unit", ignoreCase = true) -> "ARESLib standardizes distances in meters (m), angles in radians (rad, CCW+), velocities in m/s, and time in seconds."
-                                        else -> "In ${activeSymbol.name}, the algorithm operates deterministically without GC allocations on 50Hz update loops."
-                                    }
-                                    aiChatHistory = aiChatHistory + (prompt to answer)
-                                }
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = AresPurple)
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                        }
-                    }
-                }
-            }
+@Composable
+private fun ReferenceSection(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Icon(icon, contentDescription = null, tint = AresCyan, modifier = Modifier.size(18.dp))
+            Text(title, color = AresTextPrimary, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
         }
+        Column(verticalArrangement = Arrangement.spacedBy(7.dp), content = content)
     }
 }

@@ -13,9 +13,6 @@ permissions:
   contents: read
   security-events: write
 
-env:
-  ARESLIB_REF: ${{ (github.head_ref == 'codex/subsystem-authoring-v2' || github.ref_name == 'codex/subsystem-authoring-v2') && 'codex/subsystem-authoring-v2' || 'master' }}
-
 concurrency:
   group: analytics-codeql-${{ github.ref }}
   cancel-in-progress: true
@@ -30,13 +27,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: ARES-Analytics
-
-      - name: Check out ARESLib
-        uses: actions/checkout@v4
-        with:
-          repository: ARES-23247/ARESLib-Kotlin
-          ref: ${{ env.ARESLIB_REF }}
-          path: ARESLib-Kotlin
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -54,8 +44,6 @@ jobs:
               - ARES-Analytics/app/src
               - ARES-Analytics/gateway/src
               - ARES-Analytics/shared/src
-            paths-ignore:
-              - ARESLib-Kotlin/**
 
       - name: Compile Analytics sources
         working-directory: ARES-Analytics

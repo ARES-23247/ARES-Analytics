@@ -20,7 +20,7 @@ safety expectations, and the equivalent hand-authored IO/Redux workflow.
 | `shared` | Serializable models and unit-conversion helpers shared by the desktop app and gateway |
 | `gateway` | Small authenticated Ktor service exposing the Vertex AI pit-forensics endpoint |
 
-The application also consumes `com.areslib:core:1.0-SNAPSHOT`. When `../ARESLib-Kotlin` exists, Gradle uses that sibling checkout as a composite build; otherwise it resolves the artifact from `mavenLocal()`.
+The application consumes the versioned `org.aresfirst.ares:ares-bom` plus `core` and `codegen` artifacts. Normal builds resolve the pinned release from Maven Central; library developers can opt into the sibling checkout with `-ParesUseSiblingLib=true`.
 
 ## Requirements
 
@@ -35,11 +35,13 @@ The application also consumes `com.areslib:core:1.0-SNAPSHOT`. When `../ARESLib-
 
 ## Quick start
 
-From the workspace root, publish the shared library after changing it:
+Normal builds resolve the pinned ARESLib version from Maven Central. To test an unpublished library change through its exact binaries:
 
 ```powershell
 cd ARESLib-Kotlin
-.\gradlew.bat publishToMavenLocal
+.\gradlew.bat apiCheck publishReleaseValidation
+cd ..\ARES-Analytics
+.\gradlew.bat :shared:test :app:test -ParesRepository="..\ARESLib-Kotlin\build\release-repository"
 ```
 
 Then build and run the desktop application:
@@ -150,8 +152,17 @@ The Compose client is not subject to browser CORS. Browser access must be explic
 
 ## Documentation
 
+- [Documentation index](docs/INDEX.md) - novice-first map of live robot, simulator, replay, cloud, and task guides
+- [First launch](docs/start/FIRST_LAUNCH.md) - create a local robot workspace and verify JDK 17
+- [App tour](docs/start/APP_TOUR.md) - find screens, targets, status language, and contextual help
+- [Connect the simulator](docs/start/CONNECT_SIMULATOR.md) - launch Local Sim, confirm live telemetry, and recover safely
+- [Bring in a run](docs/operate/BRING_IN_A_RUN.md) - collect, verify, quarantine, and replay completed logs
+- [Glossary](docs/learn/GLOSSARY.md) - student definitions with precise ARES meanings
+- [Accessibility and contrast](docs/learn/ACCESSIBILITY_AND_CONTRAST.md) - readable palettes, status cues, text scaling, and touch targets
+- [Teaching with ARES](docs/mentor/TEACHING_WITH_ARES.md) - mentor-led simulator-first lesson and physical robot safety gate
 - [Automated dashboard validation](docs/VALIDATION.md) - smoke/soak profiles, performance budgets, reports, and CI
 - [Student routines and controller bindings](docs/ROUTINES_AND_CONTROLS.md) - offline authoring, visual controls, generation, selection, and troubleshooting
+- [Subsystem Builder](docs/SUBSYSTEM_BUILDER.md) - visual mechanism authoring, generated ownership, safety, and manual Redux/IO equivalent
 - [Architecture](ARCHITECTURE.md) — modules, service lifecycles, persistence, replay, and extension points
 - [Telemetry contract](docs/TELEMETRY_CONTRACT.md) — canonical topics, types, coordinate conventions, and NT4 behavior
 - [Operations guide](docs/OPERATIONS.md) — setup, connections, import/replay workflows, and troubleshooting

@@ -117,7 +117,7 @@ fun RoutineEditorPanel(
                     onClick = { onIntent(PathPlannerIntent.SaveAndGenerateRoutine(projectPath, league)) },
                     enabled = projectPath != null && !hasErrors && state.generationPhase != AresGenerationPhase.RUNNING,
                     modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresBackground)
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                 ) {
                     Icon(Icons.Default.Save, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
@@ -788,7 +788,7 @@ private fun AddRoutineStepBar(hasActions: Boolean, hasConditions: Boolean, hasOt
         Button(
             { onAdd(RoutineStepKind.DRIVE_TO) },
             Modifier.weight(1.15f),
-            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black)
+            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
         ) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(6.dp)); Text("Add drive goal", fontWeight = FontWeight.Bold) }
         CompactStepPicker(
             label = "Other step",

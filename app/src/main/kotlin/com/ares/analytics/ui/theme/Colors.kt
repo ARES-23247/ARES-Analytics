@@ -11,6 +11,7 @@ object AresThemeSettings {
     var colorblindMode by mutableStateOf(false)
     var highContrastMode by mutableStateOf(false)
     var touchOptimizedMode by mutableStateOf(false)
+    var largeTextMode by mutableStateOf(false)
     val currentColors: AresColorPalette
         get() = getAresColors(colorblindMode, highContrastMode)
 }
@@ -28,6 +29,8 @@ val AresCyanGlow: Color get() = AresThemeSettings.currentColors.cyanGlow
 val AresGold: Color get() = AresThemeSettings.currentColors.gold
 val AresAmber: Color get() = AresThemeSettings.currentColors.amber
 val AresGreen: Color get() = AresThemeSettings.currentColors.green
+/** Foreground for text and icons placed on any bright semantic accent fill. */
+val AresOnAccent: Color get() = AresThemeSettings.currentColors.onAccent
 val AresPurple: Color = Color(0xFFA855F7)
 val AresError: Color get() = AresThemeSettings.currentColors.error
 val AresTextPrimary: Color get() = AresThemeSettings.currentColors.textPrimary
@@ -66,6 +69,7 @@ data class AresColorPalette(
     val gold: Color,
     val amber: Color,
     val green: Color,
+    val onAccent: Color,
     val error: Color,
     val textPrimary: Color,
     val textSecondary: Color,
@@ -95,6 +99,7 @@ fun getAresColors(colorblind: Boolean, highContrast: Boolean): AresColorPalette 
     val textSecondary = if (highContrast) Color(0xFFF3F5F9) else Color(0xFF9CA3B4)
     val textTertiary = if (highContrast) Color(0xFFCAD0DE) else Color(0xFF8992A6)
     val green = if (colorblind) Color(0xFF2979FF) else Color(0xFF66BB6A)
+    val onAccent = Color(0xFF05070A)
     val error = if (colorblind) Color(0xFFFF6D00) else Color(0xFFFF5252)
     val gold = Color(0xFFFFD54F)
     val amber = Color(0xFFFFA726)
@@ -128,6 +133,7 @@ fun getAresColors(colorblind: Boolean, highContrast: Boolean): AresColorPalette 
         gold = gold,
         amber = amber,
         green = green,
+        onAccent = onAccent,
         error = error,
         textPrimary = textPrimary,
         textSecondary = textSecondary,

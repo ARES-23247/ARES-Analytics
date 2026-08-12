@@ -3,7 +3,7 @@ import org.gradle.api.tasks.testing.Test
 
 // Single source of truth for the application version. Consumed both by the native
 // distribution packaging below and by the generated BuildConfig (see generateBuildConfig).
-val appVersion = "1.0.3"
+val aresAnalyticsVersion = providers.gradleProperty("aresAnalyticsVersion").orElse("1.1.0").get()
 
 plugins {
     kotlin("jvm")
@@ -14,6 +14,8 @@ plugins {
 
 
 dependencies {
+    val aresVersion = providers.gradleProperty("aresVersion").orElse("3.0.0").get()
+
     // Compose Desktop
     implementation(compose.desktop.currentOs)
     implementation(compose.material3)
@@ -22,8 +24,10 @@ dependencies {
     // Shared module
     implementation(project(":shared"))
     
-    // Robot Core Math & Physics (Local Publish)
-    implementation("com.areslib:core:1.0-SNAPSHOT")
+    // Versioned ARES libraries from Maven Central (or -ParesRepository for release validation).
+    implementation(platform("org.aresfirst.ares:ares-bom:$aresVersion"))
+    implementation("org.aresfirst.ares:core")
+    implementation("org.aresfirst.ares:codegen")
 
     // Database — DuckDB via JDBC
     implementation("org.duckdb:duckdb_jdbc:1.1.3")
@@ -74,8 +78,8 @@ dependencies {
 // app/src/main/kotlin/.../BuildConfig.kt was deleted in favor of this generated file.
 val generatedBuildConfigDir = layout.buildDirectory.dir("generated/buildconfig/src/main/kotlin")
 tasks.register("generateBuildConfig") {
-    val version = appVersion
-    inputs.property("appVersion", version)
+    val version = aresAnalyticsVersion
+    inputs.property("aresAnalyticsVersion", version)
     outputs.dir(generatedBuildConfigDir)
     doLast {
         val pkgDir = generatedBuildConfigDir.get().asFile.resolve("com/ares/analytics")
@@ -110,14 +114,23 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
             packageName = "ARES-Analytics"
-            packageVersion = appVersion
+            packageVersion = aresAnalyticsVersion
             description = "ARES Robotics Mission Control Suite"
             vendor = "ARES Robotics"
             modules("java.sql", "java.naming")
 
             windows {
+                msiPackageVersion = aresAnalyticsVersion
                 menuGroup = "ARES"
                 upgradeUuid = "a3e52324-7000-4224-8700-1c7b8d9e2a3c"
+            }
+
+            macOS {
+                dmgPackageVersion = aresAnalyticsVersion
+            }
+
+            linux {
+                debPackageVersion = aresAnalyticsVersion
             }
         }
     }

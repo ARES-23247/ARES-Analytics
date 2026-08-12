@@ -5,21 +5,25 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 
 private fun aresColorScheme(colors: AresColorPalette) = darkColorScheme(
     primary = colors.cyan,
-    onPrimary = colors.background,
+    onPrimary = colors.onAccent,
     primaryContainer = colors.cyanDark,
-    onPrimaryContainer = colors.textPrimary,
+    onPrimaryContainer = colors.onAccent,
 
     secondary = colors.red,
-    onSecondary = colors.textPrimary,
+    onSecondary = colors.onAccent,
     secondaryContainer = colors.redDark,
     onSecondaryContainer = colors.textPrimary,
 
     tertiary = colors.gold,
-    onTertiary = colors.background,
+    onTertiary = colors.onAccent,
 
     background = colors.background,
     onBackground = colors.textPrimary,
@@ -30,7 +34,7 @@ private fun aresColorScheme(colors: AresColorPalette) = darkColorScheme(
     onSurfaceVariant = colors.textSecondary,
 
     error = colors.error,
-    onError = colors.textPrimary,
+    onError = colors.onAccent,
 
     outline = colors.border,
     outlineVariant = colors.borderFocused
@@ -49,10 +53,22 @@ fun AresTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = aresColorScheme(AresThemeSettings.currentColors)
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = AresTypography,
-        shapes = AresShapes,
-        content = content
-    )
+    val parentDensity = LocalDensity.current
+    val effectiveDensity = remember(parentDensity.density, parentDensity.fontScale, AresThemeSettings.largeTextMode) {
+        Density(
+            density = parentDensity.density,
+            fontScale = effectiveAresFontScale(parentDensity.fontScale, AresThemeSettings.largeTextMode)
+        )
+    }
+    CompositionLocalProvider(LocalDensity provides effectiveDensity) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = AresTypography,
+            shapes = AresShapes,
+            content = content
+        )
+    }
 }
+
+internal fun effectiveAresFontScale(systemScale: Float, largeTextMode: Boolean): Float =
+    systemScale * if (largeTextMode) 1.18f else 1.0f

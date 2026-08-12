@@ -1,19 +1,41 @@
-
 package com.ares.analytics.ui.screens.onboarding
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -21,27 +43,23 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.RobotProfile
 import com.ares.analytics.ui.components.forms.AresTextField
-import com.ares.analytics.ui.theme.*
-import javax.swing.JFileChooser
+import com.ares.analytics.ui.theme.AresBorder
+import com.ares.analytics.ui.theme.AresCyan
+import com.ares.analytics.ui.theme.AresCyanGlow
+import com.ares.analytics.ui.theme.AresError
+import com.ares.analytics.ui.theme.AresGreen
+import com.ares.analytics.ui.theme.AresSurfaceElevated
+import com.ares.analytics.ui.theme.AresTextPrimary
+import com.ares.analytics.ui.theme.AresTextSecondary
+import com.ares.analytics.viewmodel.OnboardingFieldErrors
+import com.ares.analytics.viewmodel.OnboardingStep
 
-/**
- * Onboarding step component for configuring team identity, robot profiles, and local workspace directory paths.
- *
- * Configures local project path (`projectPath`), team ID, active robot profile selection, and league context ([League.FTC] / [League.FRC]).
- *
- * @param projectPath Absolute directory path of the active robot project.
- * @param onProjectPathChange Callback for manual project path text edits.
- * @param onBrowseProject Callback opening a desktop native [JFileChooser] dialog.
- * @param teamId Active team identifier string.
- * @param onTeamIdChange Callback for team ID text edits.
- * @param cloudRobots List of robot profiles fetched from cloud gateway endpoints.
- *
- * @see OnboardingScreen
- * @see com.ares.analytics.service.EnvironmentService
- */
+/** Project, robot, advanced, and review content shared by the staged onboarding wizard. */
 @Composable
 fun SyncStep(
+    step: OnboardingStep,
     projectPath: String,
+    projectDetectionMessage: String?,
     onProjectPathChange: (String) -> Unit,
     onBrowseProject: () -> Unit,
     teamId: String,
@@ -60,242 +78,367 @@ fun SyncStep(
     nt4Host: String,
     onNt4HostChange: (String) -> Unit,
     simulatorCommand: String,
-    onSimulatorCommandChange: (String) -> Unit
+    onSimulatorCommandChange: (String) -> Unit,
+    advancedExpanded: Boolean,
+    onAdvancedExpandedChange: (Boolean) -> Unit,
+    fieldErrors: OnboardingFieldErrors,
+    cloudConfigured: Boolean,
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        // Project Path Field
+    when (step) {
+        OnboardingStep.PROJECT -> ProjectSelection(
+            projectPath = projectPath,
+            detectionMessage = projectDetectionMessage,
+            error = fieldErrors.projectPath,
+            onProjectPathChange = onProjectPathChange,
+            onBrowseProject = onBrowseProject,
+        )
+        OnboardingStep.ROBOT -> RobotDetails(
+            teamId = teamId,
+            onTeamIdChange = onTeamIdChange,
+            cloudRobots = cloudRobots,
+            selectedOptionText = selectedOptionText,
+            onSelectedOptionTextChange = onSelectedOptionTextChange,
+            robotId = robotId,
+            onRobotIdChange = onRobotIdChange,
+            seasonId = seasonId,
+            onSeasonIdChange = onSeasonIdChange,
+            robotName = robotName,
+            onRobotNameChange = onRobotNameChange,
+            league = league,
+            onLeagueChange = onLeagueChange,
+            fieldErrors = fieldErrors,
+        )
+        OnboardingStep.OPTIONAL -> AdvancedConnectionSettings(
+            nt4Host = nt4Host,
+            onNt4HostChange = onNt4HostChange,
+            simulatorCommand = simulatorCommand,
+            onSimulatorCommandChange = onSimulatorCommandChange,
+            expanded = advancedExpanded,
+            onExpandedChange = onAdvancedExpandedChange,
+        )
+        OnboardingStep.REVIEW -> CompletionSummary(
+            projectPath = projectPath,
+            teamId = teamId,
+            seasonId = seasonId,
+            robotId = robotId,
+            robotName = robotName,
+            league = league,
+            nt4Host = nt4Host,
+            simulatorCommand = simulatorCommand,
+            cloudConfigured = cloudConfigured,
+        )
+    }
+}
+
+@Composable
+private fun ProjectSelection(
+    projectPath: String,
+    detectionMessage: String?,
+    error: String?,
+    onProjectPathChange: (String) -> Unit,
+    onBrowseProject: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(
+            "This is usually the folder that contains settings.gradle or settings.gradle.kts.",
+            color = AresTextSecondary,
+            style = MaterialTheme.typography.bodySmall,
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            AresTextField(
-                value = projectPath,
-                onValueChange = onProjectPathChange,
-                label = "Workspace Root Directory",
-                placeholder = "C:\\Users\\...\\my-robot-project",
-                modifier = Modifier.weight(1f)
-            )
-
+            Column(modifier = Modifier.weight(1f)) {
+                AresTextField(
+                    value = projectPath,
+                    onValueChange = onProjectPathChange,
+                    label = "Robot project folder",
+                    placeholder = "C:\\Users\\...\\my-robot-project",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                FieldMessage(error)
+            }
             Button(
                 onClick = onBrowseProject,
                 colors = ButtonDefaults.buttonColors(containerColor = AresBorder),
                 shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             ) {
-                Icon(imageVector = Icons.Default.FolderOpen, contentDescription = "Browse", tint = AresTextPrimary)
-                Spacer(Modifier.width(6.dp))
-                Text("Browse", color = AresTextPrimary)
+                Icon(Icons.Default.FolderOpen, contentDescription = null, tint = AresTextPrimary)
+                Text("Choose folder", color = AresTextPrimary)
             }
         }
+        if (detectionMessage != null) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AresGreen)
+                Text(detectionMessage, color = AresGreen, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+    }
+}
 
-        // Row of Team ID & Robot Profile Selector
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AresTextField(
+@Composable
+private fun RobotDetails(
+    teamId: String,
+    onTeamIdChange: (String) -> Unit,
+    cloudRobots: List<RobotProfile>,
+    selectedOptionText: String,
+    onSelectedOptionTextChange: (String) -> Unit,
+    robotId: String,
+    onRobotIdChange: (String) -> Unit,
+    seasonId: String,
+    onSeasonIdChange: (String) -> Unit,
+    robotName: String,
+    onRobotNameChange: (String) -> Unit,
+    league: League,
+    onLeagueChange: (League) -> Unit,
+    fieldErrors: OnboardingFieldErrors,
+) {
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LeagueSelector(league, onLeagueChange)
+
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FieldWithError(
                 value = teamId,
-                onValueChange = {
-                    onTeamIdChange(it)
-                    onSelectedOptionTextChange("Select Robot Profile...")
-                },
-                label = "Team ID",
+                onValueChange = onTeamIdChange,
+                label = "FIRST team number",
                 placeholder = "23247",
-                modifier = Modifier.weight(1f)
+                error = fieldErrors.teamId,
+                modifier = Modifier.weight(1f),
             )
-
-            if (cloudRobots.isNotEmpty()) {
-                var dropdownExpanded by remember { mutableStateOf(false) }
-                Box(modifier = Modifier.weight(1f)) {
-                    AresTextField(
-                        value = selectedOptionText,
-                        onValueChange = {},
-                        readOnly = true,
-                        enabled = false,
-                        label = "Robot Profile",
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresCyan),
-                        modifier = Modifier.fillMaxWidth().clickable { dropdownExpanded = true },
-                        trailingIcon = {
-                            Icon(imageVector = Icons.Default.ArrowDropDown, contentDescription = null, tint = AresTextSecondary)
-                        }
-                    )
-
-                    DropdownMenu(
-                        expanded = dropdownExpanded,
-                        onDismissRequest = { dropdownExpanded = false },
-                        modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
-                    ) {
-                        cloudRobots.forEach { robot ->
-                            DropdownMenuItem(
-                                text = {
-                                    Column {
-                                        Text(robot.name, color = AresTextPrimary, fontWeight = FontWeight.Bold)
-                                        Text("${robot.league.name} • Season ${robot.seasonId}", color = AresTextSecondary, fontSize = 10.sp)
-                                    }
-                                },
-                                onClick = {
-                                    onSelectedOptionTextChange(robot.name)
-                                    onRobotIdChange(robot.robotId)
-                                    onSeasonIdChange(robot.seasonId)
-                                    onLeagueChange(robot.league)
-                                    dropdownExpanded = false
-                                }
-                            )
-                        }
-                        DropdownMenuItem(
-                            text = { Text("Create Custom Profile (Offline)", color = AresTextSecondary) },
-                            onClick = {
-                                onSelectedOptionTextChange("Custom Profile (Offline)")
-                                onRobotIdChange("")
-                                onSeasonIdChange("2026")
-                                onLeagueChange(League.FTC)
-                                dropdownExpanded = false
-                            }
-                        )
-                    }
-                }
-            }
+            FieldWithError(
+                value = seasonId,
+                onValueChange = onSeasonIdChange,
+                label = "Season",
+                placeholder = "2026",
+                error = fieldErrors.seasonId,
+                modifier = Modifier.weight(1f),
+            )
         }
 
-        if (cloudRobots.isEmpty() || selectedOptionText == "Custom Profile (Offline)") {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                AresTextField(
-                    value = seasonId,
-                    onValueChange = onSeasonIdChange,
-                    label = "Season ID",
-                    placeholder = "2026",
-                    modifier = Modifier.weight(1f)
-                )
+        if (cloudRobots.isNotEmpty()) {
+            RobotProfilePicker(
+                robots = cloudRobots,
+                selectedOptionText = selectedOptionText,
+                onSelectedOptionTextChange = onSelectedOptionTextChange,
+                onRobotIdChange = onRobotIdChange,
+                onSeasonIdChange = onSeasonIdChange,
+                onLeagueChange = onLeagueChange,
+            )
+        }
 
-                AresTextField(
-                    value = robotId,
-                    onValueChange = onRobotIdChange,
-                    label = "Robot ID",
-                    placeholder = "AresIII",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            AresTextField(
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FieldWithError(
+                value = robotId,
+                onValueChange = onRobotIdChange,
+                label = "Robot ID",
+                placeholder = "AresIII",
+                error = fieldErrors.robotId,
+                modifier = Modifier.weight(1f),
+            )
+            FieldWithError(
                 value = robotName,
                 onValueChange = onRobotNameChange,
-                label = "Robot Name (Optional)",
-                placeholder = "e.g. ARES 2026 Into The Deep",
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(Modifier.height(12.dp))
-
-            // League and NT Host row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // League selector
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("League Type", style = MaterialTheme.typography.labelSmall, color = AresTextSecondary)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 4.dp)
-                            .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
-                            .clip(RoundedCornerShape(8.dp))
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .background(if (league == League.FTC) AresCyanGlow else Color.Transparent)
-                                .clickable {
-                                    onLeagueChange(League.FTC)
-                                    onNt4HostChange("192.168.43.1")
-                                }
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("FTC (FIRST Tech)", color = if (league == League.FTC) AresCyan else AresTextSecondary, fontWeight = FontWeight.SemiBold)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .background(if (league == League.FRC) AresCyanGlow else Color.Transparent)
-                                .clickable {
-                                    onLeagueChange(League.FRC)
-                                    onNt4HostChange("10.0.0.2")
-                                }
-                                .padding(vertical = 12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("FRC (FIRST Robotics)", color = if (league == League.FRC) AresCyan else AresTextSecondary, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-                }
-
-                AresTextField(
-                    value = nt4Host,
-                    onValueChange = onNt4HostChange,
-                    label = "NT4 Host Address",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            AresTextField(
-                value = simulatorCommand,
-                onValueChange = onSimulatorCommandChange,
-                label = "Simulator Command (Optional)",
-                placeholder = "e.g. :TeamCode:runSim",
-                modifier = Modifier.fillMaxWidth()
-            )
-        } else {
-            // Profile summary block & NT Host row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Card(
-                    modifier = Modifier.weight(1f),
-                    colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, AresCyan.copy(alpha = 0.3f)),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("Roster Specs", fontSize = 10.sp, color = AresTextSecondary, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(4.dp))
-                        Text("$robotId (${league.name})", color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                        Text("Season $seasonId", color = AresTextSecondary, fontSize = 10.sp)
-                    }
-                }
-
-                AresTextField(
-                    value = nt4Host,
-                    onValueChange = onNt4HostChange,
-                    label = "NT4 Host Address",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(Modifier.height(12.dp))
-
-            AresTextField(
-                value = simulatorCommand,
-                onValueChange = onSimulatorCommandChange,
-                label = "Simulator Command (Optional)",
-                placeholder = "e.g. :TeamCode:runSim",
-                modifier = Modifier.fillMaxWidth()
+                label = "Friendly name (optional)",
+                placeholder = "Competition robot",
+                error = null,
+                modifier = Modifier.weight(1f),
             )
         }
+    }
+}
+
+@Composable
+private fun LeagueSelector(league: League, onLeagueChange: (League) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Text("Competition", style = MaterialTheme.typography.labelSmall, color = AresTextSecondary)
+        Row(
+            modifier = Modifier.fillMaxWidth().border(1.dp, AresBorder, RoundedCornerShape(8.dp)),
+        ) {
+            League.entries.forEach { option ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(if (league == option) AresCyanGlow else Color.Transparent)
+                        .clickable { onLeagueChange(option) }
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (option == League.FTC) "FTC" else "FRC",
+                        color = if (league == option) AresCyan else AresTextSecondary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RobotProfilePicker(
+    robots: List<RobotProfile>,
+    selectedOptionText: String,
+    onSelectedOptionTextChange: (String) -> Unit,
+    onRobotIdChange: (String) -> Unit,
+    onSeasonIdChange: (String) -> Unit,
+    onLeagueChange: (League) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = Modifier.fillMaxWidth().clickable { expanded = true }) {
+        AresTextField(
+            value = selectedOptionText,
+            onValueChange = {},
+            readOnly = true,
+            enabled = false,
+            label = "Saved cloud robot (optional)",
+            modifier = Modifier.fillMaxWidth(),
+            trailingIcon = { Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = AresTextSecondary) },
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder),
+        ) {
+            robots.forEach { robot ->
+                DropdownMenuItem(
+                    text = {
+                        Column {
+                            Text(robot.name, color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                            Text("${robot.league.name} • Season ${robot.seasonId}", color = AresTextSecondary, fontSize = 10.sp)
+                        }
+                    },
+                    onClick = {
+                        onSelectedOptionTextChange(robot.name)
+                        onRobotIdChange(robot.robotId)
+                        onSeasonIdChange(robot.seasonId)
+                        onLeagueChange(robot.league)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdvancedConnectionSettings(
+    nt4Host: String,
+    onNt4HostChange: (String) -> Unit,
+    simulatorCommand: String,
+    onSimulatorCommandChange: (String) -> Unit,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+        border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { onExpandedChange(!expanded) },
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Connection settings (advanced, optional)", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    Text("The detected defaults work for most teams.", color = AresTextSecondary, style = MaterialTheme.typography.bodySmall)
+                }
+                Icon(
+                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = AresTextSecondary,
+                )
+            }
+            if (expanded) {
+                AresTextField(
+                    value = nt4Host,
+                    onValueChange = onNt4HostChange,
+                    label = "Robot NetworkTables address",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                AresTextField(
+                    value = simulatorCommand,
+                    onValueChange = onSimulatorCommandChange,
+                    label = "Simulator command (optional)",
+                    placeholder = ":TeamCode:runSim",
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompletionSummary(
+    projectPath: String,
+    teamId: String,
+    seasonId: String,
+    robotId: String,
+    robotName: String,
+    league: League,
+    nt4Host: String,
+    simulatorCommand: String,
+    cloudConfigured: Boolean,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+        border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text("Workspace summary", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+            SummaryRow("Project", projectPath)
+            SummaryRow("Robot", robotName.ifBlank { robotId })
+            SummaryRow("Team and season", "$teamId • $seasonId • ${league.name}")
+            SummaryRow("Robot connection", nt4Host.ifBlank { "Use app default" })
+            SummaryRow("Simulator", simulatorCommand.ifBlank { "Not configured" })
+            HorizontalDivider(color = AresBorder)
+            SummaryRow("Cloud sync", if (cloudConfigured) "Signed in" else "Off — local setup is fully usable")
+            Text(
+                "ARES stores and analyzes logs on this computer. You can add cloud sync later in Settings.",
+                color = AresGreen,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SummaryRow(label: String, value: String) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(label, modifier = Modifier.weight(0.35f), color = AresTextSecondary, style = MaterialTheme.typography.bodySmall)
+        Text(value, modifier = Modifier.weight(0.65f), color = AresTextPrimary, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+private fun FieldWithError(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String,
+    error: String?,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        AresTextField(
+            value = value,
+            onValueChange = onValueChange,
+            label = label,
+            placeholder = placeholder,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        FieldMessage(error)
+    }
+}
+
+@Composable
+private fun FieldMessage(error: String?) {
+    if (error != null) {
+        Spacer(Modifier.height(3.dp))
+        Text(error, color = AresError, style = MaterialTheme.typography.labelSmall)
     }
 }

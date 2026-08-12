@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -52,7 +53,11 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
-fun ImportCenterScreen(viewModel: ImportCenterViewModel) {
+fun ImportCenterScreen(
+    viewModel: ImportCenterViewModel,
+    projectPath: String,
+    onOpenHelp: () -> Unit = {}
+) {
     val state by viewModel.state.collectAsState()
 
     Column(
@@ -77,6 +82,37 @@ fun ImportCenterScreen(viewModel: ImportCenterViewModel) {
                 enabled = !state.isLoading
             ) {
                 Icon(Icons.Default.Refresh, contentDescription = "Refresh import reports", tint = AresCyan)
+            }
+        }
+
+        if (!state.isLoading && state.snapshot.imported.isEmpty() && state.snapshot.quarantined.isEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().border(1.dp, AresCyan.copy(alpha = 0.55f), RoundedCornerShape(10.dp)),
+                color = AresCyan.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.School, contentDescription = null, tint = AresCyan, modifier = Modifier.size(26.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Bring in your first run", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Place a completed supported log in $projectPath\\logs. ARES waits until the file stops changing, " +
+                                "then imports it automatically. Connected FTC and FRC robots are also checked when available.",
+                            color = AresTextSecondary,
+                            fontSize = 12.sp
+                        )
+                        Text(
+                            "Successful files move to logs\\imported; failures stay recoverable in logs\\quarantine.",
+                            color = AresTextTertiary,
+                            fontSize = 11.sp
+                        )
+                    }
+                    TextButton(onClick = onOpenHelp) { Text("Show steps", color = AresCyan) }
+                }
             }
         }
 
