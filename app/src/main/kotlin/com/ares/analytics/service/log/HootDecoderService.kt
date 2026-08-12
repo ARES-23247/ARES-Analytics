@@ -2,6 +2,7 @@ package com.ares.analytics.service.log
 
 import com.ares.analytics.service.*
 import com.ares.analytics.shared.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
@@ -181,43 +182,43 @@ class HootDecoderService(
             throw IllegalStateException("owlet CLI failed to convert hoot log. Exit code: $exitCode. Output:\n$capturedOutput")
         }
         val sessionId = "hoot-${UUID.randomUUID()}"
+        try {
+            // Parse CSV and batch-insert into DB
+            val (firstTime, lastTime, parsedKeys) = parseAndInsertTelemetry(tempCsv, sessionId)
+            val durationMs = lastTime - firstTime
+            require(durationMs > 0L) { "Hoot log file contains no valid timestamp ranges." }
 
-        // Parse CSV and batch-insert into DB
-        val (firstTime, lastTime, parsedKeys) = parseAndInsertTelemetry(tempCsv, sessionId)
-        val durationMs = lastTime - firstTime
-        if (durationMs <= 0L) {
+            val session = Session(
+                sessionId = sessionId,
+                teamId = teamId,
+                seasonId = seasonId,
+                robotId = robotId,
+                createdAt = firstTime,
+                durationMs = durationMs,
+                tags = listOf("hoot-import")
+            )
+            databaseService.insertSession(session)
+            databaseService.insertSessionSummary(summaryEngineService.generateSummary(session))
+            runDiagnostics(sessionId, parsedKeys, firstTime, lastTime, durationMs)
+            sessionId
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            // Imports are all-or-nothing from the application's perspective. deleteSession also
+            // removes telemetry when the parent session row was never reached.
+            runCatching { databaseService.deleteSession(sessionId) }
+                .onFailure(error::addSuppressed)
+            throw error
+        } finally {
             tempCsv.delete()
-            throw IllegalArgumentException("Hoot log file contains no valid timestamp ranges.")
         }
-
-        // Insert Session record
-        val session = Session(
-            sessionId = sessionId,
-            teamId = teamId,
-            seasonId = seasonId,
-            robotId = robotId,
-            createdAt = firstTime,
-            durationMs = durationMs,
-            tags = listOf("hoot-import")
-        )
-        databaseService.insertSession(session)
-
-        // Generate summary details
-        val summary = summaryEngineService.generateSummary(session)
-        databaseService.insertSessionSummary(summary)
-
-        // Execute Post-Processing diagnostic pipeline
-        runDiagnostics(sessionId, parsedKeys, firstTime, lastTime, durationMs)
-
-        tempCsv.delete()
-        sessionId
     }
 
     internal suspend fun parseAndInsertTelemetry(
         csvFile: File,
         sessionId: String
     ): Triple<Long, Long, Set<String>> = withContext(Dispatchers.IO) {
-        val absolutePath = csvFile.absolutePath.replace("\\", "/")
+        val absolutePath = csvFile.absolutePath.replace("\\", "/").replace("'", "''")
 
         // 1. Read header to detect time column and extract key names
         val reader = csvFile.bufferedReader(Charsets.UTF_8)
@@ -233,25 +234,14 @@ class HootDecoderService(
             }
             keysSet = headers.drop(1).toSet()
 
-            // 2. Auto-detect timestamp scale by reading first two data lines
+            // 2. Prefer an explicit unit in the timestamp header, then fall back to
+            // an interval heuristic for older Owlet exports whose header is just `time`.
             val firstLine = reader.readLine() ?: return@withContext Triple(0L, 0L, emptySet<String>())
             val secondLine = reader.readLine()
             val parts1 = firstLine.split(",")
             val t1 = parts1[0].toDoubleOrNull() ?: 0.0
-
-            scale = when {
-                secondLine != null -> {
-                    val parts2 = secondLine.split(",")
-                    val t2 = parts2[0].toDoubleOrNull() ?: 0.0
-                    val dt = abs(t2 - t1)
-                    when {
-                        dt > 1000.0 -> 0.001  // microseconds → ms
-                        dt < 1.0 -> 1000.0    // seconds → ms
-                        else -> 1.0           // already ms
-                    }
-                }
-                else -> 1.0
-            }
+            val t2 = secondLine?.split(",")?.firstOrNull()?.toDoubleOrNull()
+            scale = timestampScaleToMilliseconds(headers[0], t1, t2)
         } finally {
             reader.close()
         }
@@ -259,8 +249,7 @@ class HootDecoderService(
         val escapedTimeCol = headers[0].replace("'", "''").replace("\"", "\"\"")
 
         // 3. DuckDB native UNPIVOT import — single SQL pass, no Kotlin-side string parsing
-        try {
-            databaseService.executeNativeCsvImport("""
+        databaseService.executeNativeCsvImport("""
                 INSERT INTO telemetry_frames
                     (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
                 SELECT
@@ -282,16 +271,12 @@ class HootDecoderService(
                     CAST(CAST("$escapedTimeCol" AS DOUBLE) * $scale * 1000 AS BIGINT) AS timestamp_us,
                     ROW_NUMBER() OVER () AS sample_order
                 FROM (
-                    SELECT * FROM read_csv_auto('$absolutePath', header=true, ignore_errors=true, all_varchar=true)
+                    SELECT * FROM read_csv_auto('$absolutePath', header=true, ignore_errors=false, all_varchar=true)
                 ) UNPIVOT (
                     value FOR key IN (* EXCLUDE ("$escapedTimeCol"))
                 )
                 WHERE value IS NOT NULL AND CAST(value AS VARCHAR) != ''
             """.trimIndent())
-        } catch (e: Exception) {
-            // Fallback: re-parse with original streaming approach if UNPIVOT fails
-            parseAndInsertTelemetryFallback(csvFile, sessionId, headers, scale)
-        }
 
         // 4. Query time range from imported data
         val range = databaseService.getSessionTimestampRange(sessionId)
@@ -301,46 +286,35 @@ class HootDecoderService(
         Triple(firstTime, lastTime, keysSet)
     }
 
-    /** Fallback streaming parser for CSV files that DuckDB cannot natively import. */
-    private suspend fun parseAndInsertTelemetryFallback(
-        csvFile: File,
-        sessionId: String,
-        headers: List<String>,
-        scale: Double
-    ) {
-        val reader = csvFile.bufferedReader(Charsets.UTF_8)
-        try {
-            reader.readLine() // skip header
-            val batch = mutableListOf<TelemetryFrame>()
-            var line: String? = reader.readLine()
-            while (line != null) {
-                val parts = line.split(",")
-                if (parts.isNotEmpty()) {
-                    val rawTime = parts[0].toDoubleOrNull()
-                    if (rawTime != null) {
-                        val timeMs = (rawTime * scale).toLong()
-                        for (i in 1 until minOf(parts.size, headers.size)) {
-                            val valueStr = parts[i].trim()
-                            if (valueStr.isNotEmpty()) {
-                                val value = valueStr.toDoubleOrNull()
-                                if (value != null) {
-                                    batch.add(TelemetryFrame(timeMs, sessionId, headers[i], value))
-                                }
-                            }
-                        }
-                        if (batch.size >= 5000) {
-                            databaseService.insertTelemetryFrames(batch)
-                            batch.clear()
-                        }
-                    }
-                }
-                line = reader.readLine()
-            }
-            if (batch.isNotEmpty()) {
-                databaseService.insertTelemetryFrames(batch)
-            }
-        } finally {
-            reader.close()
+    /** Returns the multiplier that converts the Owlet timestamp column to milliseconds. */
+    internal fun timestampScaleToMilliseconds(header: String, first: Double, second: Double?): Double {
+        val normalized = header.lowercase()
+            .replace('µ', 'u')
+            .replace('μ', 'u')
+        val tokens = normalized.split(Regex("[^a-z]+"))
+            .filter { it.isNotEmpty() }
+        val compact = tokens.joinToString("")
+        val explicitScale = when {
+            tokens.lastOrNull() in setOf("us", "usec", "microsecond", "microseconds") ||
+                compact.endsWith("microsecond") || compact.endsWith("microseconds") ||
+                compact.endsWith("timeus") || compact.endsWith("timestampus") -> 0.001
+            tokens.lastOrNull() in setOf("ms", "msec", "millisecond", "milliseconds") ||
+                compact.endsWith("millisecond") || compact.endsWith("milliseconds") ||
+                compact.endsWith("timems") || compact.endsWith("timestampms") -> 1.0
+            tokens.lastOrNull() in setOf("ns", "nsec", "nanosecond", "nanoseconds") ||
+                compact.endsWith("nanosecond") || compact.endsWith("nanoseconds") ||
+                compact.endsWith("timens") || compact.endsWith("timestampns") -> 0.000001
+            tokens.lastOrNull() in setOf("s", "sec", "second", "seconds") ||
+                compact.endsWith("second") || compact.endsWith("seconds") -> 1000.0
+            else -> null
+        }
+        if (explicitScale != null) return explicitScale
+
+        val interval = second?.let { abs(it - first) } ?: return 1.0
+        return when {
+            interval >= 1000.0 -> 0.001 // A 1000 us sample period is exactly 1 ms.
+            interval < 1.0 -> 1000.0
+            else -> 1.0
         }
     }
 

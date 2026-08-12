@@ -18,6 +18,7 @@ import com.areslib.controls.ControllerInputPlatform
 import com.areslib.controls.ControllerProfileDocument
 import com.areslib.routine.AutonomousCatalogDocument
 import com.areslib.routine.AutonomousCatalogEntry
+import com.areslib.routine.AresRoutineCodec
 import com.areslib.routine.RoutineDocument
 import com.areslib.routine.RoutinePose
 import com.areslib.routine.RoutineStep
@@ -26,6 +27,8 @@ import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataDocument
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -80,6 +83,29 @@ class ProjectDocumentRepositoriesTest {
     }
 
     @Test
+    fun `concurrent routine saves allocate one linear revision chain`() {
+        withProject { project ->
+            val repository = RoutineProjectRepository()
+            repository.save(project.path, routine("score", "Score", 0.1))
+            val start = CountDownLatch(1)
+            val executor = Executors.newFixedThreadPool(2)
+            try {
+                val futures = listOf(0.2, 0.3).map { duration ->
+                    executor.submit<SavedProjectRevision<RoutineDocument>> {
+                        start.await()
+                        repository.save(project.path, routine("score", "Score", duration))
+                    }
+                }
+                start.countDown()
+                assertEquals(setOf(2, 3), futures.map { it.get().document.revision }.toSet())
+                assertEquals(listOf(3, 2, 1), repository.listRevisions(project.path, "score").map { it.revision })
+            } finally {
+                executor.shutdownNow()
+            }
+        }
+    }
+
+    @Test
     fun `listing is deterministic and reports corrupt files without hiding good documents`() {
         withProject { project ->
             val repository = RoutineProjectRepository()
@@ -92,6 +118,39 @@ class ProjectDocumentRepositoriesTest {
             assertEquals(listOf("a-first", "z-last"), listing.documents.map { it.documentId })
             assertEquals("broken.aresroutine", listing.diagnostics.single().file.name)
             assertTrue(listing.diagnostics.single().message.isNotBlank())
+        }
+    }
+
+    @Test
+    fun `routine listing rejects file identity mismatches and duplicate decoded ids`() {
+        withProject { project ->
+            val directory = File(project, ".ares/routines").apply { mkdirs() }
+            val encoded = AresRoutineCodec.encode(routine("score", "Score", 0.1))
+            File(directory, "score.aresroutine").writeText(encoded)
+            File(directory, "renamed-copy.aresroutine").writeText(encoded)
+
+            val listing = RoutineProjectRepository().list(project.path)
+
+            assertTrue(listing.documents.isEmpty())
+            assertTrue(listing.diagnostics.any { it.message.contains("does not match documentId 'score'") })
+            assertEquals(2, listing.diagnostics.count { it.message.contains("Duplicate documentId 'score'") })
+        }
+    }
+
+    @Test
+    fun `load and save refuse current files whose body declares another id`() {
+        withProject { project ->
+            val file = File(project, ".ares/routines/score.aresroutine").apply {
+                parentFile.mkdirs()
+                writeText(AresRoutineCodec.encode(routine("other", "Other", 0.1)))
+            }
+            val repository = RoutineProjectRepository()
+
+            assertFailsWith<IllegalArgumentException> { repository.load(project.path, "score") }
+            assertFailsWith<IllegalArgumentException> {
+                repository.save(project.path, routine("score", "Score", 0.2))
+            }
+            assertEquals("other", AresRoutineCodec.decode(file.readText()).documentId)
         }
     }
 

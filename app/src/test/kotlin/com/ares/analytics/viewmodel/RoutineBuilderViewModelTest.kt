@@ -3,13 +3,22 @@
 package com.ares.analytics.viewmodel
 
 import com.ares.analytics.shared.League
+import com.ares.analytics.viewmodel.project.RoutineProjectRepository
+import com.areslib.routine.RoutineDocument
+import com.areslib.routine.RoutineStep
 import com.areslib.routine.RoutineStepKind
+import java.nio.file.Files
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RoutineBuilderViewModelTest {
@@ -45,5 +54,96 @@ class RoutineBuilderViewModelTest {
         }
 
         assertEquals(RoutineStepKind.entries, viewModel.state.value.routine.steps.map { it.kind })
+    }
+
+    @Test
+    fun `multi timeline routines suppress fabricated route and duration previews`() = runTest {
+        val cases = listOf(
+            RoutineStepKind.BRANCH to "Branch",
+            RoutineStepKind.TOGETHER to "Parallel group",
+            RoutineStepKind.FIRST_TO_FINISH to "First-to-finish group",
+            RoutineStepKind.DEADLINE to "Deadline group"
+        )
+
+        for ((kind, label) in cases) {
+            val viewModel = PathPlannerViewModel(this)
+            viewModel.onIntent(PathPlannerIntent.CreateRoutine("$label preview"))
+            advanceUntilIdle()
+            viewModel.onIntent(PathPlannerIntent.AddRoutineStep(kind))
+            advanceUntilIdle()
+
+            val state = viewModel.state.value
+            val warning = assertNotNull(state.routinePreviewWarning)
+            assertTrue(warning.contains(label))
+            assertTrue(warning.contains("multiple possible timelines"))
+            assertNull(state.trajectory)
+            assertEquals(0.0, state.estimatedDuration)
+
+            viewModel.onIntent(PathPlannerIntent.TogglePlayback)
+            advanceUntilIdle()
+            assertFalse(viewModel.state.value.isPlaying)
+            assertEquals(0.0, viewModel.state.value.playbackTime)
+        }
+    }
+
+    @Test
+    fun `preview rejects hostile repeat expansion before iterating it`() = runTest {
+        val viewModel = PathPlannerViewModel(this)
+        viewModel.onIntent(PathPlannerIntent.CreateRoutine("Bounded preview"))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.REPEAT))
+        advanceUntilIdle()
+
+        val repeat = viewModel.state.value.routine.steps.single().copy(repeatCount = 4_097)
+        viewModel.onIntent(PathPlannerIntent.UpdateRoutineStep(0, repeat))
+        advanceUntilIdle()
+
+        val warning = assertNotNull(viewModel.state.value.routinePreviewWarning)
+        assertTrue(warning.contains("repeat count exceeds 4096"))
+        assertNull(viewModel.state.value.trajectory)
+        assertEquals(0.0, viewModel.state.value.estimatedDuration)
+    }
+
+    @Test
+    fun `project switch binds editor state and saves only to the loaded canonical path`() = runTest {
+        val projectA = Files.createTempDirectory("ares-routine-a-").toFile()
+        val projectB = Files.createTempDirectory("ares-routine-b-").toFile()
+        try {
+            val repository = RoutineProjectRepository()
+            repository.save(
+                projectA.path,
+                RoutineDocument(
+                    documentId = "routine-a",
+                    name = "Routine A",
+                    steps = listOf(RoutineStep.wait(0.1)),
+                ),
+            )
+            repository.save(
+                projectB.path,
+                RoutineDocument(
+                    documentId = "routine-b",
+                    name = "Routine B",
+                    steps = listOf(RoutineStep.wait(0.2)),
+                ),
+            )
+            val viewModel = PathPlannerViewModel(this)
+            viewModel.onIntent(PathPlannerIntent.RefreshProject(projectA.path, League.FTC))
+            withContext(Dispatchers.Default.limitedParallelism(1)) {
+                withTimeout(5_000) { viewModel.state.first { it.routine.documentId == "routine-a" } }
+            }
+
+            viewModel.onIntent(PathPlannerIntent.RefreshProject(projectB.path, League.FTC))
+            // A save dispatched during the switch must not copy the prior project's editor into B.
+            viewModel.onIntent(PathPlannerIntent.SaveRoutine(projectB.path))
+            withContext(Dispatchers.Default.limitedParallelism(1)) {
+                withTimeout(5_000) { viewModel.state.first { it.routine.documentId == "routine-b" } }
+            }
+
+            assertEquals("routine-b", repository.load(projectB.path, "routine-b").documentId)
+            assertFalse(projectB.resolve(".ares/routines/routine-a.aresroutine").exists())
+            assertEquals("routine-a", repository.load(projectA.path, "routine-a").documentId)
+        } finally {
+            projectA.deleteRecursively()
+            projectB.deleteRecursively()
+        }
     }
 }

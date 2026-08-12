@@ -12,43 +12,29 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.theme.*
-import com.areslib.pathing.BezierSpline
-import com.areslib.math.geometry.Translation2d
-import com.areslib.math.geometry.Rotation2d
 import com.areslib.math.wrapAngle
 
 enum class EditorMode {
     SELECT, ADD_WAYPOINT, DRAW_POLYGON, DRAW_CIRCLE, DRAW_RECTANGLE, PLACE_GAME_PIECE, PLACE_APRILTAG, PLACE_FIELD_WAYPOINT, ERASER
 }
 
-data class PointTowardsZoneRenderData(
-    val target: Waypoint,
-    val splinePoints: List<Waypoint>
-)
-
 // Precomputed Cache Data Structures for zero-allocation rendering performance
 
 class PathCacheHolder {
     var splinePoints: List<Waypoint> = emptyList()
     var actualPoints: List<Waypoint> = emptyList()
-    var constraintSplines: List<List<Waypoint>> = emptyList()
     var w: Float = 0f
     var h: Float = 0f
     var splinePath: Path? = null
     var actualPath: Path? = null
-    var constraintPaths: List<Path> = emptyList()
     var actualLastDrawnIndex: Int = -1
     val reusableArrowPath = Path()
-    val reusableDiamondPath = Path()
     val reusableXAxisPath = Path()
     val reusableYAxisPath = Path()
     val reusablePath = Path()
     val dashEffect10 = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
-    val dashEffect8 = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
     val dashEffect5 = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)
     val dashEffect4 = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
-    val dashEffect6_4 = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 4f), 0f)
-    val dashEffect4_3 = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4f, 3f), 0f)
 }
 
 // Convert coordinates base models
@@ -227,57 +213,6 @@ fun cubicHermite(p0: Double, v0: Double, p1: Double, v1: Double, t: Double): Dou
     val h01 = -2 * t3 + 3 * t2
     val h11 = t3 - t2
     return h00 * p0 + h10 * v0 + h01 * p1 + h11 * v1
-}
-
-fun getPositionOnSpline(pos: Double, waypoints: List<Waypoint>): Waypoint {
-    if (waypoints.isEmpty()) return Waypoint(0.0, 0.0)
-    if (waypoints.size == 1) return waypoints.first()
-    val maxIdx = waypoints.size - 1
-    val i = pos.toInt().coerceIn(0, maxIdx - 1)
-    val t = (pos - i).coerceIn(0.0, 1.0)
-    val p0 = waypoints[i]
-    val p1 = waypoints[i + 1]
-    val h0 = resolveHeading(waypoints, i)
-    val h1 = resolveHeading(waypoints, i + 1)
-    val rot0 = Rotation2d(h0)
-    val rot1 = Rotation2d(h1)
-    val startAnchor = Translation2d(p0.x, p0.y)
-    val startControl = Translation2d(p0.x + rot0.cos * p0.nextControlLength, p0.y + rot0.sin * p0.nextControlLength)
-    val endControl = Translation2d(p1.x - rot1.cos * p1.prevControlLength, p1.y - rot1.sin * p1.prevControlLength)
-    val endAnchor = Translation2d(p1.x, p1.y)
-    val point = BezierSpline.evaluate(startAnchor, startControl, endControl, endAnchor, t)
-    return Waypoint(point.x, point.y)
-}
-
-fun getClosestSplinePosition(
-    mouseOffset: Offset,
-    waypoints: List<Waypoint>,
-    canvasW: Float,
-    canvasH: Float,
-    fieldW: Double,
-    fieldH: Double,
-    league: League
-): Double {
-    if (waypoints.size < 2) return 0.0
-    var bestPos = 0.0
-    var minDistSq = Float.MAX_VALUE
-    val maxPos = (waypoints.size - 1).toDouble()
-
-    // Sample the spline densely to find closest projection
-    val steps = (waypoints.size - 1) * 40
-    for (k in 0..steps) {
-        val pos = maxPos * k / steps
-        val wp = getPositionOnSpline(pos, waypoints)
-        val offset = getCanvasOffsetBase(wp, canvasW, canvasH, fieldW, fieldH, league)
-        val dx = mouseOffset.x - offset.x
-        val dy = mouseOffset.y - offset.y
-        val distSq = dx * dx + dy * dy
-        if (distSq < minDistSq) {
-            minDistSq = distSq
-            bestPos = pos
-        }
-    }
-    return bestPos
 }
 
 private val scratchXArrowPath = Path()

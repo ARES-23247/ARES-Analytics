@@ -39,12 +39,6 @@ import io.ktor.client.engine.okhttp.OkHttp
 open class Nt4ClientService(
     private val databaseService: DatabaseService
 ) {
-    /**
-     * Opt-in verbose NT4 frame logging (e.g. heartbeat hex dumps). Enabled with
-     * `-Dares.debug.nt4=true`. Off by default to avoid the 50Hz allocation + println storm.
-     */
-    private val NT4_DEBUG: Boolean = java.lang.Boolean.getBoolean("ares.debug.nt4")
-
     @Volatile
     private var localClient: HttpClient? = null
     @Volatile
@@ -131,9 +125,8 @@ open class Nt4ClientService(
     // Topic ID to Topic Name mapping
     internal val topicMap = ConcurrentHashMap<Int, Nt4Topic>()
     private val discoveredKeys = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
-    /** Compatibility views; new consumers should use [telemetryStore]. */
+    /** Direct latest-value view used by snapshot-oriented dashboard components. */
     val latestValues: ConcurrentHashMap<String, TelemetryFrame> = telemetryStore.latestFrames
-    val telemetryHistory: ConcurrentHashMap<String, java.util.ArrayDeque<TelemetryFrame>> = telemetryStore.frameHistory
 
     private var cachedActiveTopics: List<String>? = null
 
@@ -150,6 +143,11 @@ open class Nt4ClientService(
     private val retryFrames = java.util.ArrayDeque<TelemetryFrame>()
     private val flushMutex = kotlinx.coroutines.sync.Mutex()
     private val sessionMutex = kotlinx.coroutines.sync.Mutex()
+    private val driveFramePublishMutex = kotlinx.coroutines.sync.Mutex()
+    private val driveFrameValidator = DriveFrameContractValidator()
+    private val driveSessionNonceCounter = java.util.concurrent.atomic.AtomicLong(
+        java.util.concurrent.ThreadLocalRandom.current().nextLong(1L, DriveFrameContractValidator.MAX_SAFE_INTEGER_LONG)
+    )
 
     suspend fun flushPendingFrames(): Boolean = flushMutex.withLock {
         // Do not drain newer channel values behind a failed batch. Keeping one ordered retry
@@ -207,14 +205,20 @@ open class Nt4ClientService(
     }
 
     private var clientJob: Job? = null
+    private var startJob: Job? = null
+    private val lifecycleMonitor = Any()
+    private val lifecycleGeneration = java.util.concurrent.atomic.AtomicLong(0L)
     private val connectionMutex = kotlinx.coroutines.sync.Mutex()
 
     fun start(host: String, teamId: String, seasonId: String, robotId: String, port: Int = 5810) {
         println("[Nt4ClientService] start() called with host=$host, port=$port, teamId=$teamId, seasonId=$seasonId, robotId=$robotId")
-        serviceScope.launch {
+        val generation = lifecycleGeneration.incrementAndGet()
+        val nextStart = serviceScope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
             connectionMutex.withLock {
+                if (generation != lifecycleGeneration.get()) return@withLock
                 clientJob?.cancelAndJoin()
-                while (isActive && !flushPendingFrames()) delay(250)
+                while (isActive && generation == lifecycleGeneration.get() && !flushPendingFrames()) delay(250)
+                if (generation != lifecycleGeneration.get()) return@withLock
                 clearLiveTargetState()
                 clientJob = launch {
             try {
@@ -233,6 +237,7 @@ open class Nt4ClientService(
             var retryDelay = 1000L
             while (isActive) {
                 var activeHost = host
+                var connectedAtMs: Long? = null
                 val clientName = "ARES-Analytics-${System.currentTimeMillis()}"
                 val path = "/nt/$clientName"
                 val url = "ws://$activeHost:$port$path"
@@ -252,30 +257,19 @@ open class Nt4ClientService(
                     ) {
                         println("[Nt4ClientService] Connected to $url successfully!")
                         successfulConnections.incrementAndGet()
+                        driveFramePublishMutex.withLock { driveFrameValidator.reset() }
                         _isConnected.value = true
                         webSocketSession = this
                         topicMap.clear()
                         serverTimeOffsetUs = null
                         bestClockRoundTripUs = Long.MAX_VALUE
-                        retryDelay = 1000L
+                        connectedAtMs = System.currentTimeMillis()
 
-                        // 1. Announce input topics
+                        // 1. Announce the single atomic, leased input topic. Individual
+                        // scalar controls are intentionally unsupported: mixing retained
+                        // values from different sessions cannot be made fail-safe.
                         val announceInputsMsg = """
                             [
-                              {"method": "publish", "params": {"name": "ARES/Input/vx", "pubuid": 1001, "type": "double"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/vy", "pubuid": 1002, "type": "double"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/omega", "pubuid": 1003, "type": "double"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/isIntaking", "pubuid": 1004, "type": "boolean"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/isFlywheelOn", "pubuid": 1005, "type": "boolean"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/isTransferring", "pubuid": 1006, "type": "boolean"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/isTeleopMode", "pubuid": 1007, "type": "boolean"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/isFieldCentric", "pubuid": 1008, "type": "boolean"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/isRedAlliance", "pubuid": 1009, "type": "boolean"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/heartbeat", "pubuid": 1010, "type": "int"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/isButtonAPressed", "pubuid": 1016, "type": "boolean"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/isButtonBPressed", "pubuid": 1017, "type": "boolean"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/isButtonXPressed", "pubuid": 1018, "type": "boolean"}},
-                              {"method": "publish", "params": {"name": "ARES/Input/isPoseReset", "pubuid": 1019, "type": "boolean"}},
                               {"method": "publish", "params": {"name": "ARES/Input/driveFrame", "pubuid": 1020, "type": "double[]"}},
                               {"method": "publish", "params": {"name": "ARES/DriverStation/Command", "pubuid": 1011, "type": "string"}},
                               {"method": "publish", "params": {"name": "ARES/DriverStation/SelectedOpMode", "pubuid": 1012, "type": "string"}},
@@ -308,10 +302,9 @@ open class Nt4ClientService(
                         // 2.5 Re-announce dynamic UI tuning topics
                         dynamicPubMutex.withLock {
                             for ((key, id) in dynamicPubUids) {
-                                if (key.startsWith("ARES/Input/") || key.startsWith("ARES/DriverStation/") || key.startsWith("SysId/")) {
-                                    continue
-                                }
-                                send(Frame.Text(buildPublishMessage(key, id, "double")))
+                                if (key in FIXED_PUBLISH_TOPICS) continue
+                                val type = publisherTypes[key] ?: continue
+                                send(Frame.Text(buildPublishMessage(key, id, type)))
                             }
                         }
 
@@ -326,19 +319,6 @@ open class Nt4ClientService(
                                     break
                                 }
                                 delay(1_000)
-                            }
-                        }
-
-                        // Start connection-alive heartbeat loop at 50Hz (20ms interval)
-                        val heartbeatJob = launch {
-                            var heartbeat = 0L
-                            while (isActive) {
-                                try {
-                                    publishInputLong(1010, heartbeat++)
-                                } catch (e: Exception) {
-                                    break
-                                }
-                                delay(20)
                             }
                         }
 
@@ -360,7 +340,6 @@ open class Nt4ClientService(
                             }
                         } finally {
                             clockSyncJob.cancel()
-                            heartbeatJob.cancel()
                             try {
                                 val reason = withContext(NonCancellable) {
                                     closeReason.await()
@@ -374,18 +353,36 @@ open class Nt4ClientService(
                             _isConnected.value = false
                         }
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     println("[Nt4ClientService] Error connecting to $url: ${e.message}")
                     webSocketSession = null
                     _isConnected.value = false
-                    // Backoff delay before reconnect
-                    delay(retryDelay)
-                    retryDelay = (retryDelay * 2).coerceAtMost(10000L)
+                }
+                if (isActive) {
+                    val wasHealthy = connectedAtMs?.let {
+                        System.currentTimeMillis() - it >= HEALTHY_CONNECTION_MS
+                    } == true
+                    val delayBeforeRetry = if (wasHealthy) INITIAL_RETRY_DELAY_MS else retryDelay
+                    delay(delayBeforeRetry)
+                    retryDelay = if (wasHealthy) {
+                        INITIAL_RETRY_DELAY_MS
+                    } else {
+                        (retryDelay * 2).coerceAtMost(MAX_RETRY_DELAY_MS)
+                    }
                 }
             }
         }
         }
         }
+        val previousStart = synchronized(lifecycleMonitor) {
+            val previous = startJob
+            startJob = nextStart
+            previous
+        }
+        previousStart?.cancel()
+        nextStart.start()
     }
 
     private suspend fun sendBinaryUpdate(pubuid: Int, typeId: Byte, valueBytes: ByteArray): Boolean {
@@ -393,14 +390,6 @@ open class Nt4ClientService(
         val session = webSocketSession ?: return false
         val timestampUs = localMonotonicTimeUs() + offsetUs
         val buffer = encodeNt4BinaryUpdate(pubuid, timestampUs, typeId, valueBytes)
-
-        // Heartbeat hex-dump is gated behind the `ares.debug.nt4` system property. It ran
-        // unconditionally on every 50Hz heartbeat (pubuid 1010), allocating a joinToString +
-        // String.format per frame and flooding stdout.
-        if (pubuid == 1010 && NT4_DEBUG) {
-            val bytesStr = buffer.joinToString("") { String.format("%02x", it) }
-            println("[Nt4ClientService] sendBinaryUpdate 1010 (heartbeat): timestampUs=$timestampUs, buffer=$bytesStr")
-        }
 
         session.send(Frame.Binary(true, buffer))
         return true
@@ -490,6 +479,7 @@ open class Nt4ClientService(
     suspend fun publishInputString(pubuid: Int, value: String) {
         val strBytes = value.toByteArray(Charsets.UTF_8)
         val size = strBytes.size
+        require(size <= MAX_STRING_BYTES) { "NT4 strings are limited to $MAX_STRING_BYTES UTF-8 bytes" }
         val headerBytes = when {
             size <= 31 -> byteArrayOf((0xa0 or size).toByte())
             size <= 255 -> byteArrayOf(0xd9.toByte(), size.toByte())
@@ -503,29 +493,11 @@ open class Nt4ClientService(
         sendBinaryUpdate(pubuid, 4.toByte(), valueBytes)
     }
 
-    suspend fun publishInputBoolean(pubuid: Int, value: Boolean) {
-        val valueBytes = byteArrayOf(if (value) 0xc3.toByte() else 0xc2.toByte()) // MsgPack true/false markers
-        sendBinaryUpdate(pubuid, 0.toByte(), valueBytes)
-    }
-
-    suspend fun publishInputLong(pubuid: Int, value: Long) {
-        val valueBytes = ByteArray(9)
-        valueBytes[0] = 0xd3.toByte() // MsgPack int64 marker
-        valueBytes[1] = (value shr 56).toByte()
-        valueBytes[2] = (value shr 48).toByte()
-        valueBytes[3] = (value shr 40).toByte()
-        valueBytes[4] = (value shr 32).toByte()
-        valueBytes[5] = (value shr 24).toByte()
-        valueBytes[6] = (value shr 16).toByte()
-        valueBytes[7] = (value shr 8).toByte()
-        valueBytes[8] = value.toByte()
-        sendBinaryUpdate(pubuid, 2.toByte(), valueBytes)
-    }
-
-    private val publishDoubleArrayBuffer = ThreadLocal.withInitial { ByteArray(64) }
+    // fixed-array header plus eight float64 values (1 + 8 * 9 bytes)
+    private val publishDoubleArrayBuffer = ThreadLocal.withInitial { ByteArray(73) }
 
     suspend fun publishInputDoubleArray(pubuid: Int, values: DoubleArray): Boolean {
-        require(values.size == DRIVE_FRAME_VALUE_COUNT) { "drive frame must contain 7 doubles" }
+        require(values.size == DriveFrameContractValidator.VALUE_COUNT) { "drive frame must contain 8 doubles" }
         val valueBytes = publishDoubleArrayBuffer.get()
         valueBytes[0] = (0x90 or values.size).toByte() // MsgPack fixed-array header
         var offset = 1
@@ -537,24 +509,38 @@ open class Nt4ClientService(
         return sendBinaryUpdate(pubuid, 17.toByte(), valueBytes)
     }
 
-    suspend fun stop() {
+    suspend fun stop(): Boolean {
+        lifecycleGeneration.incrementAndGet()
+        val pendingStart = synchronized(lifecycleMonitor) {
+            val pending = startJob
+            startJob = null
+            pending
+        }
+        pendingStart?.cancelAndJoin()
         // cancelAndJoin (was a fire-and-forget cancel()) so the WebSocket receive/reconnect
         // loop fully unwinds before the HttpClients are closed below — otherwise the
         // still-running loop touches a closed client (use-after-close, AUDIT H14).
-        clientJob?.cancelAndJoin()
-        clientJob = null
+        connectionMutex.withLock {
+            clientJob?.cancelAndJoin()
+            clientJob = null
+        }
         _isConnected.value = false
         webSocketSession = null
-        // Final flush on a dedicated job, awaited before client teardown so no background
-        // work outlives the clients.
-        val flushJob = serviceScope.launch { flushPendingFrames() }
-        flushJob.join()
+        var persisted = false
+        for (attempt in 0 until SHUTDOWN_FLUSH_ATTEMPTS) {
+            if (flushPendingFrames()) {
+                persisted = true
+                break
+            }
+            if (attempt + 1 < SHUTDOWN_FLUSH_ATTEMPTS) delay(SHUTDOWN_FLUSH_RETRY_MS)
+        }
         synchronized(this) {
             localClient?.close()
             localClient = null
             remoteClient?.close()
             remoteClient = null
         }
+        return persisted
     }
 
     suspend fun publishFrame(frame: TelemetryFrame) {
@@ -610,9 +596,14 @@ open class Nt4ClientService(
         seasonId: String,
         robotId: String
     ) {
+        if (text.length > MAX_TEXT_FRAME_CHARS) {
+            println("[Nt4ClientService] Rejected oversized text frame (${text.length} characters)")
+            return
+        }
         try {
             val parsed = Json.parseToJsonElement(text)
             val jsonArray = parsed as? JsonArray ?: return
+            if (jsonArray.size > MAX_TEXT_FRAME_MESSAGES) return
             for (element in jsonArray) {
                 val obj = element as? JsonObject ?: continue
                 val method = obj["method"]?.jsonPrimitive?.content
@@ -630,10 +621,10 @@ open class Nt4ClientService(
                                 props[k] = if (v is JsonPrimitive && v.isString) v.content else v.toString()
                             }
 
-                            val expectedType = when {
-                                name.endsWith("/vx") || name.endsWith("/vy") || name.endsWith("/omega") -> "double"
-                                name.startsWith("ARES/Input/is") -> "boolean"
-                                else -> null
+                            val expectedType = if (name.removePrefix("/") == "ARES/Input/driveFrame") {
+                                "double[]"
+                            } else {
+                                null
                             }
                             if (expectedType != null && type != expectedType) {
                                 println("[Nt4ClientService] WARN: Topic $name announced with type $type, expected $expectedType")
@@ -776,8 +767,6 @@ open class Nt4ClientService(
         }
 
         if (valueElement is JsonArray || valueElement is List<*> || valueElement is DoubleArray || valueElement is FloatArray || valueElement is Array<*>) {
-            val frames = mutableListOf<TelemetryFrame>()
-
             val size = when (valueElement) {
                 is JsonArray -> valueElement.size
                 is List<*> -> valueElement.size
@@ -785,6 +774,10 @@ open class Nt4ClientService(
                 is FloatArray -> valueElement.size
                 is Array<*> -> valueElement.size
                 else -> 0
+            }
+            if (size > MAX_INCOMING_ARRAY_ELEMENTS) {
+                println("[Nt4ClientService] Rejected oversized array topic $normalizedName ($size elements)")
+                return
             }
 
             val sb = StringBuilder(normalizedName).append("/")
@@ -813,7 +806,6 @@ open class Nt4ClientService(
                         timestampUs = timestampUs
                     ).also { pendingFrames.send(it) }
                 }
-                frames.add(frame)
                 telemetryStore.accept(frame, notifyConsumers = !isReplayActive.value)
             }
             return
@@ -835,32 +827,32 @@ open class Nt4ClientService(
     }
     private var nextPubUid = 2000
     private val dynamicPubUids = ConcurrentHashMap<String, Int>().apply {
-        put("ARES/Input/vx", 1001)
-        put("ARES/Input/vy", 1002)
-        put("ARES/Input/omega", 1003)
-        put("ARES/Input/isIntaking", 1004)
-        put("ARES/Input/isFlywheelOn", 1005)
-        put("ARES/Input/isTransferring", 1006)
-        put("ARES/Input/isTeleopMode", 1007)
-        put("ARES/Input/isFieldCentric", 1008)
-        put("ARES/Input/isRedAlliance", 1009)
-        put("ARES/Input/heartbeat", 1010)
         put("ARES/DriverStation/Command", 1011)
         put("ARES/DriverStation/SelectedOpMode", 1012)
         put("ARES/DriverStation/MatchTime", 1013)
         put("ARES/DriverStation/MatchState", 1014)
         put("SysId/Command", 1015)
-        put("ARES/Input/isButtonAPressed", 1016)
-        put("ARES/Input/isButtonBPressed", 1017)
-        put("ARES/Input/isButtonXPressed", 1018)
-        put("ARES/Input/isPoseReset", 1019)
         put("ARES/Input/driveFrame", 1020)
+    }
+    private val publisherTypes = ConcurrentHashMap<String, String>().apply {
+        put("ARES/DriverStation/Command", "string")
+        put("ARES/DriverStation/SelectedOpMode", "string")
+        put("ARES/DriverStation/MatchTime", "double")
+        put("ARES/DriverStation/MatchState", "string")
+        put("SysId/Command", "string")
+        put("ARES/Input/driveFrame", "double[]")
     }
     private val dynamicPubMutex = kotlinx.coroutines.sync.Mutex()
 
     suspend fun publishDouble(key: String, value: Double) {
         val cleanKey = key.removePrefix("/")
+        require(!cleanKey.startsWith("ARES/Input/")) {
+            "ARES/Input controls must use the atomic driveFrame publisher"
+        }
         val pubuid = dynamicPubMutex.withLock {
+            require(publisherTypes.putIfAbsent(cleanKey, "double") in arrayOf(null, "double")) {
+                "NT4 topic $cleanKey was already published with a different type"
+            }
             var id = dynamicPubUids[cleanKey]
             if (id == null) {
                 id = nextPubUid++
@@ -882,7 +874,13 @@ open class Nt4ClientService(
 
     suspend fun publishString(key: String, value: String) {
         val cleanKey = key.removePrefix("/")
+        require(!cleanKey.startsWith("ARES/Input/") || cleanKey in ALLOWED_INPUT_STRING_TOPICS) {
+            "ARES/Input controls must use driveFrame; only field-configuration strings are separate"
+        }
         val pubuid = dynamicPubMutex.withLock {
+            require(publisherTypes.putIfAbsent(cleanKey, "string") in arrayOf(null, "string")) {
+                "NT4 topic $cleanKey was already published with a different type"
+            }
             var id = dynamicPubUids[cleanKey]
             if (id == null) {
                 id = nextPubUid++
@@ -903,39 +901,34 @@ open class Nt4ClientService(
         publishInputString(pubuid, value)
     }
 
-    suspend fun publishBoolean(key: String, value: Boolean) {
-        val cleanKey = key.removePrefix("/")
-        if (cleanKey == RED_ALLIANCE_INPUT_TOPIC) _selectedRedAlliance.value = value
-        val pubuid = dynamicPubMutex.withLock {
-            var id = dynamicPubUids[cleanKey]
-            if (id == null) {
-                id = nextPubUid++
-                dynamicPubUids[cleanKey] = id
-                webSocketSession?.send(Frame.Text(buildPublishMessage(cleanKey, id, "boolean")))
-            }
-            id
-        }
-        val frame = TelemetryFrame(
-            timestampMs = System.currentTimeMillis(),
-            sessionId = _currentSession.value?.sessionId ?: "live-telemetry",
-            key = cleanKey,
-            value = if (value) 1.0 else 0.0
-        )
-        telemetryStore.accept(frame)
-
-        publishInputBoolean(pubuid, value)
+    /** Selects the alliance encoded into every subsequent atomic control frame. */
+    fun selectRedAlliance(value: Boolean) {
+        _selectedRedAlliance.value = value
     }
 
+    /** Returns a process-unique safe integer nonce for a new control session. */
+    fun nextDriveSessionNonce(): Double = driveSessionNonceCounter.getAndUpdate { current ->
+        if (current >= DriveFrameContractValidator.MAX_SAFE_INTEGER_LONG) 1L else current + 1L
+    }.toDouble()
+
     suspend fun publishDriveFrame(values: DoubleArray): Boolean {
-        require(values.size == DRIVE_FRAME_VALUE_COUNT)
-        val now = System.currentTimeMillis()
-        val sessionId = _currentSession.value?.sessionId ?: "live-telemetry"
-        values.forEachIndexed { index, value ->
-            telemetryStore.accept(
-                TelemetryFrame(now, sessionId, "ARES/Input/driveFrame/$index", value)
-            )
+        return driveFramePublishMutex.withLock {
+            // Snapshot the caller-owned buffer before any suspension so the validated values,
+            // wire bytes, and diagnostic telemetry cannot diverge under concurrent mutation.
+            val frame = values.copyOf()
+            val pendingState = driveFrameValidator.validate(frame)
+            if (!publishInputDoubleArray(1020, frame)) return@withLock false
+            driveFrameValidator.commit(pendingState)
+
+            val now = System.currentTimeMillis()
+            val sessionId = _currentSession.value?.sessionId ?: "live-telemetry"
+            frame.forEachIndexed { index, value ->
+                telemetryStore.accept(
+                    TelemetryFrame(now, sessionId, "ARES/Input/driveFrame/$index", value)
+                )
+            }
+            true
         }
-        return publishInputDoubleArray(1020, values)
     }
 
     fun subscribeDouble(key: String): Flow<Double> {
@@ -955,8 +948,27 @@ open class Nt4ClientService(
     }
 
     companion object {
-        private const val DRIVE_FRAME_VALUE_COUNT = 7
-        private const val RED_ALLIANCE_INPUT_TOPIC = "ARES/Input/isRedAlliance"
+        private const val MAX_INCOMING_ARRAY_ELEMENTS = 4_096
+        private const val MAX_STRING_BYTES = 65_536
+        private const val MAX_TEXT_FRAME_CHARS = 1_048_576
+        private const val MAX_TEXT_FRAME_MESSAGES = 1_024
+        private const val INITIAL_RETRY_DELAY_MS = 1_000L
+        private const val MAX_RETRY_DELAY_MS = 10_000L
+        private const val HEALTHY_CONNECTION_MS = 10_000L
+        private const val SHUTDOWN_FLUSH_ATTEMPTS = 5
+        private const val SHUTDOWN_FLUSH_RETRY_MS = 100L
+        private val ALLOWED_INPUT_STRING_TOPICS = setOf(
+            "ARES/Input/obstacles",
+            "ARES/Input/fieldConfig"
+        )
+        private val FIXED_PUBLISH_TOPICS = setOf(
+            "ARES/DriverStation/Command",
+            "ARES/DriverStation/SelectedOpMode",
+            "ARES/DriverStation/MatchTime",
+            "ARES/DriverStation/MatchState",
+            "SysId/Command",
+            "ARES/Input/driveFrame"
+        )
         internal const val LIVE_SESSION_ID = "live-telemetry"
         internal val CANONICAL_SUBSCRIPTION_PREFIXES = listOf(
             "/ARES", "/Drive", "/Robot", "/Hardware", "/Topology", "/Tuning",
@@ -964,6 +976,79 @@ open class Nt4ClientService(
             "/Superstructure", "/Calibration", "/SysId", "/Swerve", "/Mechanism",
             "/LoopTimeMs", "/TimestampMs"
         )
+    }
+}
+
+internal data class DriveFrameSendState(
+    val sessionNonce: Double,
+    val sequence: Double,
+    val clientMonotonicMs: Double
+)
+
+/** Stateful sender-side mirror of the receiver's fail-closed v2 session contract. */
+internal class DriveFrameContractValidator {
+    private var committedState: DriveFrameSendState? = null
+
+    fun validate(values: DoubleArray): DriveFrameSendState {
+        require(values.size == VALUE_COUNT) { "drive frame must contain exactly 8 values" }
+        require(values.all(Double::isFinite)) { "drive frame values must be finite" }
+        require(values[0] == PROTOCOL_VERSION) { "unsupported drive frame protocol" }
+        requireSafeInteger(values[1], positive = true, label = "session nonce")
+        requireSafeInteger(values[2], positive = false, label = "sequence")
+        requireSafeInteger(values[3], positive = false, label = "client monotonic time")
+        requireSafeInteger(values[7], positive = false, label = "flags")
+        require(values[7] <= MAX_CONTROL_FLAGS.toDouble()) { "drive flags contain unknown bits" }
+        require(kotlin.math.abs(values[4]) <= MAX_TRANSLATION_MPS &&
+            kotlin.math.abs(values[5]) <= MAX_TRANSLATION_MPS) {
+            "drive translation exceeds $MAX_TRANSLATION_MPS m/s"
+        }
+        require(kotlin.math.abs(values[6]) <= MAX_ANGULAR_RPS) {
+            "drive rotation exceeds $MAX_ANGULAR_RPS rad/s"
+        }
+
+        val next = DriveFrameSendState(values[1], values[2], values[3])
+        val current = committedState
+        if (current == null || current.sessionNonce != next.sessionNonce) {
+            val flags = values[7].toLong()
+            require(values[4] == 0.0 && values[5] == 0.0 && values[6] == 0.0) {
+                "a new drive session must begin with neutral axes"
+            }
+            require((flags and NEUTRAL_REQUIRED_CLEAR_FLAGS) == 0L) {
+                "a new drive session must begin with neutral actuator and edge flags"
+            }
+        } else {
+            require(next.sequence > current.sequence) { "drive sequence must strictly increase" }
+            require(next.clientMonotonicMs >= current.clientMonotonicMs) {
+                "drive client monotonic time moved backwards"
+            }
+        }
+        return next
+    }
+
+    fun commit(state: DriveFrameSendState) {
+        committedState = state
+    }
+
+    fun reset() {
+        committedState = null
+    }
+
+    private fun requireSafeInteger(value: Double, positive: Boolean, label: String) {
+        require(value == kotlin.math.floor(value) && value <= MAX_SAFE_INTEGER_DOUBLE &&
+            (if (positive) value > 0.0 else value >= 0.0)) {
+            "drive $label must be ${if (positive) "a positive" else "a non-negative"} exactly representable integer"
+        }
+    }
+
+    companion object {
+        const val VALUE_COUNT = 8
+        const val MAX_SAFE_INTEGER_LONG = 9_007_199_254_740_991L
+        private const val PROTOCOL_VERSION = 2.0
+        private const val MAX_SAFE_INTEGER_DOUBLE = 9_007_199_254_740_991.0
+        private const val MAX_CONTROL_FLAGS = (1 shl 10) - 1
+        private const val MAX_TRANSLATION_MPS = 8.0
+        private const val MAX_ANGULAR_RPS = 12.566370614359172
+        private const val NEUTRAL_REQUIRED_CLEAR_FLAGS = 0x3C7L
     }
 }
 

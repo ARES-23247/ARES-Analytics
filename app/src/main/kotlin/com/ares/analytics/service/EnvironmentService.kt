@@ -9,6 +9,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardOpenOption
 
 /**
  * Workspace and environment configuration management service.
@@ -32,7 +34,8 @@ import java.io.File
  */
 class EnvironmentService(
     private val configPath: String = System.getProperty("user.home") + "/.ares-analytics/config.json",
-    private val workspacesPath: String = System.getProperty("user.home") + "/.ares-analytics/workspaces.json"
+    private val workspacesPath: String = System.getProperty("user.home") + "/.ares-analytics/workspaces.json",
+    private val secretsWriter: (File, ByteArray) -> Unit = ::writeSecrets,
 ) {
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
 
@@ -41,34 +44,39 @@ class EnvironmentService(
         val legacyFile = File(configPath)
 
         if (file.exists()) {
-            try {
-                val saved = json.decodeFromString<AppWorkspaces>(file.readText())
+            val saved = try {
+                json.decodeFromString<AppWorkspaces>(file.readText())
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            }
+            if (saved != null) {
                 val resolved = saved.copy(
                     workspaces = saved.workspaces.map(::resolveMovedRobotProject)
                 )
                 if (resolved != saved) {
-                    writeSecrets(file, json.encodeToString(resolved).toByteArray(Charsets.UTF_8))
+                    secretsWriter(file, json.encodeToString(resolved).toByteArray(Charsets.UTF_8))
                 }
                 return@withContext resolved
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
 
         if (legacyFile.exists()) {
-            try {
-                val legacyConfig = json.decodeFromString<WorkspaceConfig>(legacyFile.readText())
+            val legacyConfig = try {
+                json.decodeFromString<WorkspaceConfig>(legacyFile.readText())
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
+            }
+            if (legacyConfig != null) {
                 val migratedId = legacyConfig.id.ifEmpty { "${legacyConfig.league}-${legacyConfig.teamId}-${legacyConfig.robotId}-${legacyConfig.seasonId}" }
                 val migratedConfig = legacyConfig.copy(id = migratedId)
                 val migratedWorkspaces = AppWorkspaces(
                     activeWorkspaceId = migratedId,
                     workspaces = listOf(migratedConfig)
                 )
-                file.parentFile?.mkdirs()
-                writeSecrets(file, json.encodeToString(migratedWorkspaces).toByteArray(Charsets.UTF_8))
+                secretsWriter(file, json.encodeToString(migratedWorkspaces).toByteArray(Charsets.UTF_8))
                 return@withContext migratedWorkspaces
-            } catch (e: Exception) {
-                e.printStackTrace()
             }
         }
 
@@ -116,7 +124,7 @@ class EnvironmentService(
         val file = File(workspacesPath)
         // workspaces.json holds secrets (googleClientSecret, geminiApiKey, toaApiKey,
         // vertexServiceAccountPath) → restrict to owner-only via writeSecrets (AUDIT H2).
-        writeSecrets(file, json.encodeToString(appWorkspaces).toByteArray(Charsets.UTF_8))
+        secretsWriter(file, json.encodeToString(appWorkspaces).toByteArray(Charsets.UTF_8))
     }
 
     suspend fun loadConfig(): WorkspaceConfig? {
@@ -254,25 +262,31 @@ private const val ARES_ROBOT_FILE = ".ares-robot.json"
 private const val PROJECT_SEARCH_DEPTH = 4
 
 /**
- * Writes [bytes] to [file], then best-effort restricts the file to owner-only `rw-------`
- * (AUDIT H2). Used for every file that holds secrets — `workspaces.json` /
+ * Atomically writes [bytes] to [file] through a force-flushed sibling temporary file, then
+ * best-effort restricts it to owner-only `rw-------` (AUDIT H2). Used for every file that holds secrets — `workspaces.json` /
  * `config.json` (googleClientSecret, geminiApiKey, toaApiKey, vertexServiceAccountPath)
- * and `auth.json` (OAuth tokens). POSIX-only; silently no-ops on Windows / unsupported
- * filesystems where a `UnsupportedOperationException` is thrown by the JDK.
+ * and `auth.json` (OAuth tokens). The permission step is POSIX-only; it is skipped on Windows.
+ * Write and atomic-replace failures propagate to the caller and never truncate the prior file.
  */
-fun writeSecrets(file: File, bytes: ByteArray) {
-    try {
-        file.parentFile?.mkdirs()
-        java.nio.file.Files.write(file.toPath(), bytes)
+fun writeSecrets(
+    file: File,
+    bytes: ByteArray,
+    beforeReplace: BeforeAtomicReplace = NO_OP_BEFORE_ATOMIC_REPLACE,
+) {
+    writeFileAtomically(file, beforeReplace) { temporary ->
         try {
-            java.nio.file.Files.setPosixFilePermissions(
-                file.toPath(),
+            Files.setPosixFilePermissions(
+                temporary.toPath(),
                 java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")
             )
         } catch (e: UnsupportedOperationException) {
             // Windows / non-POSIX FS — no action possible.
         }
-    } catch (e: Exception) {
-        e.printStackTrace()
+        Files.write(
+            temporary.toPath(),
+            bytes,
+            StandardOpenOption.TRUNCATE_EXISTING,
+            StandardOpenOption.WRITE,
+        )
     }
 }

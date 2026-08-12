@@ -2,11 +2,77 @@ package com.ares.analytics.service
 
 import kotlinx.coroutines.test.runTest
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class LayoutPreferenceServiceTest {
+
+    @Test
+    fun `unsafe blank and reserved profile names are rejected inside the service boundary`() = runTest {
+        val container = Files.createTempDirectory("ares-layout-name-safety").toFile()
+        val root = container.resolve("layouts").apply { mkdirs() }
+        val service = LayoutPreferenceService(root.absolutePath)
+        val layout = DashboardLayoutConfig(emptyList())
+        try {
+            listOf(
+                "../auth",
+                "..\\auth",
+                "team/layout",
+                "team\\layout",
+                "",
+                "   ",
+                ".",
+                "..",
+                "CON",
+                "nul",
+                "COM1",
+                "LPT9"
+            ).forEach { unsafeName ->
+                assertFailsWith<IllegalArgumentException>("expected rejection for '$unsafeName'") {
+                    service.saveLayout(unsafeName, layout)
+                }
+                assertTrue(layoutProfileNameError(unsafeName) != null)
+            }
+
+            assertFalse(container.resolve("auth.json").exists())
+            assertTrue(root.listFiles().orEmpty().isEmpty())
+        } finally {
+            container.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `failed atomic replacement preserves prior layout and removes temporary file`() = runTest {
+        val root = Files.createTempDirectory("ares-layout-atomic").toFile()
+        val original = DashboardLayoutConfig(
+            listOf(WidgetConfig("original", "telemetry_chart", 0, 0, 2, 2))
+        )
+        val replacement = DashboardLayoutConfig(
+            listOf(WidgetConfig("replacement", "field_viewer", 1, 1, 3, 3))
+        )
+        val service = LayoutPreferenceService(root.absolutePath)
+        try {
+            service.saveLayout("Match Review Copy", original)
+            val failingService = LayoutPreferenceService(root.absolutePath) { temporary, destination ->
+                assertEquals(destination.parent, temporary.parent)
+                throw IOException("injected atomic replace failure")
+            }
+
+            assertFailsWith<IOException> {
+                failingService.saveLayout("Match Review Copy", replacement)
+            }
+
+            assertEquals(original, service.loadLayout("Match Review Copy"))
+            assertTrue(root.listFiles().orEmpty().none { it.name.endsWith(".tmp") })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
 
     @Test
     fun testDefaultLayouts() {

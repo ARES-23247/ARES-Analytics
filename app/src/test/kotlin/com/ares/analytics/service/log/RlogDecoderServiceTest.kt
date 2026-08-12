@@ -2,16 +2,36 @@ package com.ares.analytics.service.log
 
 import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.service.FrameBatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
+import kotlin.test.assertSame
 
 class RlogDecoderServiceTest {
+
+    @Test
+    fun `frame sink cancellation is rethrown without corruption wrapping`() = runTest {
+        val tempDir = Files.createTempDirectory("ares-rlog-cancel").toFile()
+        val log = tempDir.resolve("valid.rlog").apply { writeBytes(revisionTwoLog()) }
+        val cancellation = CancellationException("stop import")
+        try {
+            val thrown = assertFailsWith<CancellationException> {
+                RlogDecoderService().decode(log, "session") {
+                    throw cancellation
+                }
+            }
+            assertSame(cancellation, thrown)
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
 
     @Test
     fun `revision two preserves numeric and string updates at the same timestamp`() = runTest {
@@ -49,11 +69,14 @@ class RlogDecoderServiceTest {
             log.writeBytes(bytes.copyOf(bytes.size - 4))
             val database = DatabaseService(tempDir.resolve("telemetry.duckdb").absolutePath)
             try {
+                val batcher = FrameBatcher(database)
                 val failure = runCatching {
-                    RlogDecoderService().decode(log, "session", FrameBatcher(database))
+                    RlogDecoderService().decode(log, "session", batcher)
                 }.exceptionOrNull()
                 assertNotNull(failure)
                 assertIs<IllegalArgumentException>(failure)
+                batcher.flush()
+                assertEquals(0, database.countTelemetryFrames("session"))
             } finally {
                 database.close()
             }
@@ -71,13 +94,64 @@ class RlogDecoderServiceTest {
             log.writeBytes(bytes.copyOf(bytes.size - 1))
             val database = DatabaseService(tempDir.resolve("telemetry.duckdb").absolutePath)
             try {
+                val batcher = FrameBatcher(database)
                 val failure = runCatching {
-                    RlogDecoderService().decode(log, "session", FrameBatcher(database))
+                    RlogDecoderService().decode(log, "session", batcher)
                 }.exceptionOrNull()
                 assertNotNull(failure)
                 assertIs<IllegalArgumentException>(failure)
+                batcher.flush()
+                assertEquals(0, database.countTelemetryFrames("session"))
             } finally {
                 database.close()
+            }
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `oversized timestamp block is rejected atomically`() = runTest {
+        val tempDir = Files.createTempDirectory("ares-rlog-oversized-block").toFile()
+        val database = DatabaseService(tempDir.resolve("telemetry.duckdb").absolutePath)
+        try {
+            val log = tempDir.resolve("oversized.rlog")
+            log.writeBytes(oversizedTimestampBlockLog())
+            val batcher = FrameBatcher(database)
+
+            val failure = runCatching {
+                RlogDecoderService().decode(log, "session", batcher)
+            }.exceptionOrNull()
+
+            assertNotNull(failure)
+            assertIs<IllegalArgumentException>(failure)
+            batcher.flush()
+            assertEquals(0, database.countTelemetryFrames("session"))
+        } finally {
+            database.close()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `timestamps outside the supported domain are rejected`() = runTest {
+        val tempDir = Files.createTempDirectory("ares-rlog-invalid-time").toFile()
+        try {
+            listOf(-1.0, Double.MAX_VALUE).forEachIndexed { index, timestamp ->
+                val log = tempDir.resolve("invalid-$index.rlog")
+                log.writeBytes(timestampOnlyLog(timestamp))
+                val database = DatabaseService(tempDir.resolve("telemetry-$index.duckdb").absolutePath)
+                try {
+                    val batcher = FrameBatcher(database)
+                    assertIs<IllegalArgumentException>(
+                        runCatching { RlogDecoderService().decode(log, "session", batcher) }
+                            .exceptionOrNull()
+                    )
+                    batcher.flush()
+                    assertEquals(0, database.countTelemetryFrames("session"))
+                } finally {
+                    database.close()
+                }
             }
         } finally {
             tempDir.deleteRecursively()
@@ -112,6 +186,35 @@ class RlogDecoderServiceTest {
             data.writeDouble(1.25)
             data.writeDouble(2.5)
 
+            data.writeByte(0)
+        }
+        return output.toByteArray()
+    }
+
+    private fun oversizedTimestampBlockLog(): ByteArray {
+        val output = ByteArrayOutputStream()
+        DataOutputStream(output).use { data ->
+            data.writeByte(2)
+            data.writeByte(0)
+            data.writeDouble(1.0)
+            data.writeKeyDeclaration(1, "Robot/Value", "double")
+            repeat(65_536) {
+                data.writeByte(2)
+                data.writeShort(1)
+                data.writeShort(8)
+                data.writeDouble(1.0)
+            }
+            data.writeByte(0)
+        }
+        return output.toByteArray()
+    }
+
+    private fun timestampOnlyLog(timestamp: Double): ByteArray {
+        val output = ByteArrayOutputStream()
+        DataOutputStream(output).use { data ->
+            data.writeByte(2)
+            data.writeByte(0)
+            data.writeDouble(timestamp)
             data.writeByte(0)
         }
         return output.toByteArray()

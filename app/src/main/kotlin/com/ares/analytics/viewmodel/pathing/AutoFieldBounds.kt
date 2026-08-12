@@ -1,11 +1,6 @@
 package com.ares.analytics.viewmodel.pathing
 
 import com.ares.analytics.shared.League
-import com.areslib.auto.AutoPose
-import com.areslib.auto.AutoRoutine
-import com.areslib.auto.AutoStep
-import com.areslib.auto.AutoValidationIssue
-import com.areslib.auto.AutoValidationSeverity
 import com.areslib.math.coordinate.CoordinateTransformers
 import kotlin.math.abs
 import kotlin.math.cos
@@ -69,56 +64,5 @@ fun legalCenterBounds(
     return AutoCenterBounds(xBounds.first, xBounds.second, yBounds.first, yBounds.second)
 }
 
-fun clampAutoPose(pose: AutoPose, league: League, dimensions: RobotDimensions): AutoPose {
-    if (!pose.xMeters.isFinite() || !pose.yMeters.isFinite() || !pose.headingRadians.isFinite()) return pose
-    val bounds = legalCenterBounds(league, dimensions, pose.headingRadians)
-    return pose.copy(
-        xMeters = pose.xMeters.coerceIn(bounds.minX, bounds.maxX),
-        yMeters = pose.yMeters.coerceIn(bounds.minY, bounds.maxY)
-    )
-}
-
-fun isAutoPoseInsideField(pose: AutoPose, league: League, dimensions: RobotDimensions): Boolean =
-    pose == clampAutoPose(pose, league, dimensions)
-
-fun validateAutoFieldBounds(
-    routine: AutoRoutine,
-    league: League,
-    dimensions: RobotDimensions
-): List<AutoValidationIssue> = buildList {
-    if (!isAutoPoseInsideField(routine.startingPose, league, dimensions)) {
-        add(fieldBoundaryIssue("startingPose", "Starting robot footprint crosses the field boundary"))
-    }
-    validateStepBounds(routine.steps, "steps", league, dimensions, this)
-}
-
-private fun validateStepBounds(
-    steps: List<AutoStep>,
-    path: String,
-    league: League,
-    dimensions: RobotDimensions,
-    issues: MutableList<AutoValidationIssue>
-) {
-    steps.forEachIndexed { index, step ->
-        val stepPath = "$path[$index]"
-        step.drive?.target?.takeUnless { isAutoPoseInsideField(it, league, dimensions) }?.let {
-            issues += fieldBoundaryIssue(stepPath, "Drive goal robot footprint crosses the field boundary")
-        }
-        validateStepBounds(step.children, "$stepPath.children", league, dimensions, issues)
-    }
-}
-
-private fun fieldBoundaryIssue(path: String, message: String) = AutoValidationIssue(
-    severity = AutoValidationSeverity.ERROR,
-    path = path,
-    code = "robot_outside_field",
-    message = message
-)
-
 private fun boundedOrCentered(min: Double, max: Double, center: Double): Pair<Double, Double> =
     if (min <= max) min to max else center to center
-
-fun AutoStep.withClampedDriveTarget(league: League, dimensions: RobotDimensions): AutoStep =
-    drive?.let { driveStep ->
-        copy(drive = driveStep.copy(target = clampAutoPose(driveStep.target, league, dimensions)))
-    } ?: this

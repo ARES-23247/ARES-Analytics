@@ -5,6 +5,7 @@ import com.ares.analytics.service.OAuthService
 import com.ares.analytics.service.SyncEngineService
 import com.ares.analytics.shared.RobotProfile
 import com.ares.analytics.shared.WorkspaceConfig
+import com.ares.analytics.shared.DEFAULT_GEMINI_MODEL
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -27,7 +28,7 @@ data class ProfileState(
     val tbaApiKey: String = "",
     val aiMode: String = "STUDIO",
     val geminiApiKey: String = "",
-    val geminiModel: String = "gemini-1.5-flash",
+    val geminiModel: String = DEFAULT_GEMINI_MODEL,
     val vertexServiceAccountPath: String = "",
     val vertexProjectId: String = "",
     val vertexLocation: String = "us-central1",
@@ -98,7 +99,9 @@ class ProfileViewModel(
                             tbaApiKey = cfg.tbaApiKey ?: "",
                             aiMode = cfg.aiMode ?: "STUDIO",
                             geminiApiKey = cfg.geminiApiKey ?: "",
-                            geminiModel = cfg.geminiModel ?: "gemini-1.5-flash",
+                            geminiModel = cfg.geminiModel
+                                ?.takeUnless { it == "gemini-1.5-flash" }
+                                ?: DEFAULT_GEMINI_MODEL,
                             vertexServiceAccountPath = cfg.vertexServiceAccountPath ?: "",
                             vertexProjectId = cfg.vertexProjectId ?: "",
                             vertexLocation = cfg.vertexLocation ?: "us-central1"

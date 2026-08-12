@@ -61,17 +61,17 @@ class DSLogDecoderService(private val databaseService: DatabaseService) : BaseLo
 
         FileInputStream(dslogFile).use { fis ->
             DataInputStream(fis).use { dis ->
-                try {
-                    val version = dis.readInt()
-                    if (version != 4) {
-                        throw IllegalArgumentException("Unsupported dslog version: $version")
-                    }
-                    val seconds = dis.readLong()
-                    val fractional = dis.readLong()
-                    startTimeMs = convertLVTime(seconds, fractional)
-                    var lastBatteryVolts = 0.0
+                val version = dis.readInt()
+                if (version != 4) {
+                    throw IllegalArgumentException("Unsupported dslog version: $version")
+                }
+                val seconds = dis.readLong()
+                val fractional = dis.readLong()
+                startTimeMs = convertLVTime(seconds, fractional)
+                var lastBatteryVolts = 0.0
 
-                    while (true) {
+                while (dis.available() > 0) {
+                    try {
                         // Read 10-byte DS status record
                         val tripTimeByte = dis.readUnsignedByte()
                         val packetLossByte = dis.readByte()
@@ -102,6 +102,79 @@ class DSLogDecoderService(private val databaseService: DatabaseService) : BaseLo
                         val wifiDb = wifiDbByte * 0.5
                         val wifiMb = wifiMbShort.toDouble() / 256.0
 
+                        // Power Distribution Header (4 bytes)
+                        val pdHeader = ByteArray(4)
+                        dis.readFully(pdHeader)
+                        val pdTypeByte = pdHeader[3].toInt() and 0xFF
+                        val pdType = getPDType(pdTypeByte)
+
+                        val currents = when {
+                            pdType == PowerDistributionType.REV -> {
+                                dis.readUnsignedByte() // skip CAN ID
+                                val bitBytes = ByteArray(27)
+                                dis.readFully(bitBytes)
+                                val revBooleans = BooleanArray(216)
+                                var bitIdx = 0
+                                for (b in bitBytes) {
+                                    val byteVal = b.toInt() and 0xFF
+                                    for (i in 0 until 8) {
+                                        revBooleans[bitIdx++] = (byteVal and (1 shl i)) != 0
+                                    }
+                                }
+                                val decodedCurrents = mutableListOf<Double>()
+                                for (i in 0 until 20) {
+                                    val readPosition = (i / 3) * 32 + (i % 3) * 10
+                                    var value = 0
+                                    for (j in 0 until 10) {
+                                        if (revBooleans[readPosition + j]) {
+                                            value = value or (1 shl j)
+                                        }
+                                    }
+                                    decodedCurrents.add(value.toDouble() / 8.0)
+                                }
+                                val extraBytes = ByteArray(4)
+                                dis.readFully(extraBytes)
+                                for (i in 0 until 4) {
+                                    decodedCurrents.add((extraBytes[i].toInt() and 0xFF).toDouble() / 16.0)
+                                }
+
+                                dis.readUnsignedByte() // skip last byte
+
+                                decodedCurrents
+                            }
+                            pdType == PowerDistributionType.CTRE -> {
+                                dis.readUnsignedByte() // skip CAN ID
+                                val bitBytes = ByteArray(21)
+                                dis.readFully(bitBytes)
+                                val ctreBooleans = BooleanArray(168)
+                                var bitIdx = 0
+                                for (b in bitBytes) {
+                                    val byteVal = b.toInt() and 0xFF
+                                    for (i in 0 until 8) {
+                                        ctreBooleans[bitIdx++] = (byteVal and (1 shl i)) != 0
+                                    }
+                                }
+                                val decodedCurrents = mutableListOf<Double>()
+                                for (i in 0 until 16) {
+                                    val readPosition = (i / 6) * 64 + (i % 6) * 10
+                                    var value = 0
+                                    for (j in 0 until 10) {
+                                        if (ctreBooleans[readPosition + j]) {
+                                            value = value or (1 shl j)
+                                        }
+                                    }
+                                    decodedCurrents.add(value.toDouble() / 8.0)
+                                }
+
+                                require(dis.skipBytes(3) == 3) { "Truncated CTRE power-distribution payload" }
+
+                                decodedCurrents
+                            }
+                            else -> emptyList()
+                        }
+
+                        // Commit a record only after its complete variable-length PD payload was
+                        // decoded. A truncated tail can no longer leave a valid-looking partial row.
                         batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/TripTimeMS", tripTimeMs))
                         batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/PacketLoss", packetLoss))
                         batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/BatteryVoltage", batteryVolts))
@@ -116,85 +189,14 @@ class DSLogDecoderService(private val databaseService: DatabaseService) : BaseLo
                         batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/CANUtilization", canUtilization))
                         batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/WifiDb", wifiDb))
                         batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/WifiMb", wifiMb))
-
-                        // Power Distribution Header (4 bytes)
-                        val pdHeader = ByteArray(4)
-                        dis.readFully(pdHeader)
-                        val pdTypeByte = pdHeader[3].toInt() and 0xFF
-                        val pdType = getPDType(pdTypeByte)
-
-                        when {
-                            pdType == PowerDistributionType.REV -> {
-                                dis.readUnsignedByte() // skip CAN ID
-                                val bitBytes = ByteArray(27)
-                                dis.readFully(bitBytes)
-                                val revBooleans = BooleanArray(216)
-                                var bitIdx = 0
-                                for (b in bitBytes) {
-                                    val byteVal = b.toInt() and 0xFF
-                                    for (i in 0 until 8) {
-                                        revBooleans[bitIdx++] = (byteVal and (1 shl i)) != 0
-                                    }
-                                }
-                                val currents = mutableListOf<Double>()
-                                for (i in 0 until 20) {
-                                    val readPosition = (i / 3) * 32 + (i % 3) * 10
-                                    var value = 0
-                                    for (j in 0 until 10) {
-                                        if (revBooleans[readPosition + j]) {
-                                            value = value or (1 shl j)
-                                        }
-                                    }
-                                    currents.add(value.toDouble() / 8.0)
-                                }
-                                val extraBytes = ByteArray(4)
-                                dis.readFully(extraBytes)
-                                for (i in 0 until 4) {
-                                    currents.add((extraBytes[i].toInt() and 0xFF).toDouble() / 16.0)
-                                }
-
-                                dis.readUnsignedByte() // skip last byte
-
-                                for (i in currents.indices) {
-                                    batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/PowerDistributionCurrents[$i]", currents[i]))
-                                }
-                            }
-                            pdType == PowerDistributionType.CTRE -> {
-                                dis.readUnsignedByte() // skip CAN ID
-                                val bitBytes = ByteArray(21)
-                                dis.readFully(bitBytes)
-                                val ctreBooleans = BooleanArray(168)
-                                var bitIdx = 0
-                                for (b in bitBytes) {
-                                    val byteVal = b.toInt() and 0xFF
-                                    for (i in 0 until 8) {
-                                        ctreBooleans[bitIdx++] = (byteVal and (1 shl i)) != 0
-                                    }
-                                }
-                                val currents = mutableListOf<Double>()
-                                for (i in 0 until 16) {
-                                    val readPosition = (i / 6) * 64 + (i % 6) * 10
-                                    var value = 0
-                                    for (j in 0 until 8) {
-                                        if (ctreBooleans[readPosition + j]) {
-                                            value = value or (1 shl j)
-                                        }
-                                    }
-                                    currents.add(value.toDouble() / 8.0)
-                                }
-
-                                dis.skipBytes(3) // skip extra metadata bytes (25 total CTRE payload size minus 1 CAN ID minus 21 currents)
-
-                                for (i in currents.indices) {
-                                    batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/PowerDistributionCurrents[$i]", currents[i]))
-                                }
-                            }
+                        currents.forEachIndexed { index, current ->
+                            batcher.add(TelemetryFrame(timestampMs, sessionId, "/DSLog/PowerDistributionCurrents[$index]", current))
                         }
 
                         recordCount++
+                    } catch (error: EOFException) {
+                        throw IOException("Truncated Driver Station record $recordCount", error)
                     }
-                } catch (e: EOFException) {
-                    // Normal end of file
                 }
             }
         }
@@ -212,19 +214,19 @@ class DSLogDecoderService(private val databaseService: DatabaseService) : BaseLo
     ) {
         FileInputStream(dseventsFile).use { fis ->
             DataInputStream(fis).use { dis ->
-                try {
-                    val version = dis.readInt()
-                    if (version != 4) return
-                    val seconds = dis.readLong()
-                    val fractional = dis.readLong()
-                    val fileStartTimeMs = convertLVTime(seconds, fractional)
+                val version = dis.readInt()
+                require(version == 4) { "Unsupported dsevents version: $version" }
+                val seconds = dis.readLong()
+                val fractional = dis.readLong()
+                val fileStartTimeMs = convertLVTime(seconds, fractional)
 
-                    while (true) {
+                while (dis.available() > 0) {
+                    try {
                         val recSeconds = dis.readLong()
                         val recFractional = dis.readLong()
                         val eventTimeMs = convertLVTime(recSeconds, recFractional)
                         val length = dis.readInt()
-                        if (length < 0 || length > MAX_EVENT_TEXT_BYTES || length.toLong() > dseventsFile.length()) {
+                        if (length < 0 || length > MAX_EVENT_TEXT_BYTES || length > dis.available()) {
                             throw IOException("Invalid Driver Station event text length: $length")
                         }
                         if (length == 0) continue
@@ -235,17 +237,18 @@ class DSLogDecoderService(private val databaseService: DatabaseService) : BaseLo
                         // Filter XML tags using ARESLib DsEventLogParser
                         text = com.areslib.logging.DsEventLogParser.cleanXmlTags(text)
                         val relativeSec = (eventTimeMs - fileStartTimeMs) / 1000.0
+                        val annotationIdentity = "$sessionId\u0000${eventTimeMs.toLong()}\u0000$text"
                         val annotation = SessionAnnotation(
-                            annotationId = UUID.randomUUID().toString(),
+                            annotationId = UUID.nameUUIDFromBytes(annotationIdentity.toByteArray(Charsets.UTF_8)).toString(),
                             sessionId = sessionId,
                             text = "[Event at +${String.format("%.2f", relativeSec)}s] $text",
                             createdAt = eventTimeMs.toLong(),
                             authorId = "Driver Station"
                         )
                         databaseService.insertAnnotation(annotation)
+                    } catch (error: EOFException) {
+                        throw IOException("Truncated Driver Station event record", error)
                     }
-                } catch (e: EOFException) {
-                    // Normal end of file
                 }
             }
         }

@@ -37,7 +37,7 @@ import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.viewmodel.PathPlannerIntent
 import com.ares.analytics.viewmodel.PathPlannerViewModel
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
-import com.areslib.routine.RoutineStep
+import com.ares.analytics.viewmodel.routine.routineDriveStepsInExecutionOrder
 
 /**
  * Unified, offline-first routine builder.
@@ -58,13 +58,14 @@ fun PathPlannerScreen(
     val state by viewModel.state.collectAsState()
 
     LaunchedEffect(projectPath, league) {
-        viewModel.onIntent(PathPlannerIntent.FetchAvailablePaths(projectPath, league))
+        viewModel.onIntent(PathPlannerIntent.RefreshProject(projectPath, league))
     }
     LaunchedEffect(league, robotDimensions) {
-        viewModel.onIntent(PathPlannerIntent.ConfigureAresField(league, robotDimensions))
+        viewModel.onIntent(PathPlannerIntent.ConfigureField(league, robotDimensions))
     }
 
-    val routineWaypoints = remember(state.routine, state.autonomousEntry) {
+    val routineWaypoints = remember(state.routine, state.autonomousEntry, state.routinePreviewWarning) {
+        if (state.routinePreviewWarning != null) return@remember emptyList()
         buildList {
             state.autonomousEntry?.startingPose?.let { start ->
                 add(
@@ -76,7 +77,17 @@ fun PathPlannerScreen(
                     )
                 )
             }
-            addRoutineDriveTargets(state.routine.steps)
+            state.routine.steps.routineDriveStepsInExecutionOrder().forEach { drive ->
+                val target = drive.target
+                add(
+                    Waypoint(
+                        x = target.xMeters,
+                        y = target.yMeters,
+                        headingRad = target.headingRadians,
+                        rotationDeg = Math.toDegrees(target.headingRadians)
+                    )
+                )
+            }
         }
     }
     val previewPath = remember(state.trajectory) {
@@ -167,7 +178,7 @@ fun PathPlannerScreen(
                     contextPath = null,
                     contextWaypoints = null,
                     onWaypointsChanged = {
-                        viewModel.onIntent(PathPlannerIntent.UpdateRoutineFieldWaypoints(it, league))
+                        viewModel.onIntent(PathPlannerIntent.UpdateRoutineFieldWaypoints(it, state.activeLeague))
                     },
                     projectPath = projectPath,
                     showPathControls = false,
@@ -175,44 +186,15 @@ fun PathPlannerScreen(
                     playbackPose = playbackPose,
                     aprilTags = null,
                     onAprilTagsChanged = null,
-                    eventMarkers = emptyList(),
-                    onEventMarkersChanged = {},
                     initialViewRotation = state.viewRotation,
                     onViewRotationChanged = {
                         viewModel.onIntent(PathPlannerIntent.UpdateViewRotation(it))
                     },
-                    rotationTargets = emptyList(),
-                    onRotationTargetsChanged = {},
-                    idealStartingState = null,
-                    onStartingStateChanged = {},
-                    goalEndState = null,
-                    onGoalEndStateChanged = {},
-                    constraintZones = emptyList(),
-                    pointTowardsZones = emptyList(),
-                    globalConstraints = state.globalConstraints,
                     autoGoalMode = true,
                     robotDimensions = state.robotDimensions,
                     showToolbar = false
                 )
             }
         }
-    }
-}
-
-private fun MutableList<Waypoint>.addRoutineDriveTargets(steps: List<RoutineStep>) {
-    steps.forEach { step ->
-        step.drive?.target?.let { target ->
-            add(
-                Waypoint(
-                    x = target.xMeters,
-                    y = target.yMeters,
-                    headingRad = target.headingRadians,
-                    rotationDeg = Math.toDegrees(target.headingRadians)
-                )
-            )
-        }
-        step.deadline?.let { addRoutineDriveTargets(listOf(it)) }
-        addRoutineDriveTargets(step.children)
-        addRoutineDriveTargets(step.elseChildren)
     }
 }

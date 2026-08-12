@@ -9,12 +9,102 @@ import java.io.File
 import java.io.FileOutputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
  * DSLogDecoderServiceTest class.
  */
 class DSLogDecoderServiceTest {
+
+    @Test
+    fun `CTRE PDP currents include bits eight and nine of every ten bit field`() = runTest {
+        val tempDb = File.createTempFile("dslog_ctre_bits_db", ".db")
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val batcher = FrameBatcher(databaseService, batchSize = 100)
+        val bitBytes = ByteArray(21).apply {
+            this[1] = 0x03 // channel 0 bits 8 and 9
+            this[20] = 0x80.toByte() // channel 15 bit 9 (absolute bit 167)
+        }
+        val bytes = ByteArrayOutputStream().also { output ->
+            DataOutputStream(output).use { data ->
+                data.writeInt(4)
+                data.writeLong(3_801_026_800L)
+                data.writeLong(0L)
+                data.writeByte(100)
+                data.writeByte(0)
+                data.writeShort(3072)
+                data.writeByte(80)
+                data.writeByte(0xFF)
+                data.writeByte(40)
+                data.writeByte(50)
+                data.writeShort(2560)
+                data.write(byteArrayOf(0, 0, 0, 25))
+                data.writeByte(0) // CAN ID
+                data.write(bitBytes)
+                data.write(byteArrayOf(0, 0, 0))
+            }
+        }.toByteArray()
+        val log = File.createTempFile("ctre-pdp", ".dslog").apply { writeBytes(bytes) }
+        try {
+            DSLogDecoderService(databaseService).decode(log, "ctre-session", batcher)
+            batcher.flush()
+
+            assertEquals(
+                96.0,
+                databaseService.getTelemetryForKey(
+                    "ctre-session",
+                    "/DSLog/PowerDistributionCurrents[0]"
+                ).single().value
+            )
+            assertEquals(
+                64.0,
+                databaseService.getTelemetryForKey(
+                    "ctre-session",
+                    "/DSLog/PowerDistributionCurrents[15]"
+                ).single().value
+            )
+        } finally {
+            databaseService.close()
+            log.delete()
+            tempDb.delete()
+        }
+    }
+
+    @Test
+    fun `truncated record is rejected before any fields are committed`() = runTest {
+        val tempDb = File.createTempFile("dslog_truncated_db", ".db")
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val batcher = FrameBatcher(databaseService, batchSize = 100)
+        val bytes = ByteArrayOutputStream().also { output ->
+            DataOutputStream(output).use { data ->
+                data.writeInt(4)
+                data.writeLong(1718200000L)
+                data.writeLong(0L)
+                data.writeByte(100)
+                data.writeByte(5)
+                data.writeShort(3072)
+                data.writeByte(80)
+                data.writeByte(0xFF)
+                data.writeByte(40)
+                data.writeByte(50)
+                data.writeShort(2560)
+                data.write(byteArrayOf(0, 0)) // partial four-byte PD header
+            }
+        }.toByteArray()
+        val log = File.createTempFile("truncated", ".dslog").apply { writeBytes(bytes) }
+        try {
+            assertFailsWith<java.io.IOException> {
+                DSLogDecoderService(databaseService).decode(log, "truncated-session", batcher)
+            }
+            batcher.flush()
+            assertEquals(0, databaseService.countTelemetryFrames("truncated-session"))
+        } finally {
+            databaseService.close()
+            log.delete()
+            tempDb.delete()
+        }
+    }
 
     @Test
     /**
@@ -32,7 +122,7 @@ class DSLogDecoderServiceTest {
 
         // 1. Header
         dos.writeInt(4) // version
-        dos.writeLong(1718200000L) // seconds
+        dos.writeLong(3_801_026_800L) // LabVIEW-epoch seconds (2024-06-12 UTC)
         dos.writeLong(0L) // fractional
 
         // 2. Record 1: NONE PD Type

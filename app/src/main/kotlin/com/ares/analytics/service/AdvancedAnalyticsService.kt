@@ -236,11 +236,12 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
         keys: List<String>,
         series: suspend (String) -> List<TelemetryFrame>
     ): DriverPerformanceScore? {
-        val xKey = findKey(keys, "Gamepad1/LeftStickX", "Gamepad1/LeftX", "ARES/Input/vx") ?: return null
-        val yKey = findKey(keys, "Gamepad1/LeftStickY", "Gamepad1/LeftY", "ARES/Input/vy") ?: return null
-        val paired = align(series(xKey), series(yKey))
+        val input = driverInputSource(keys) ?: return null
+        val paired = align(series(input.xKey), series(input.yKey))
         if (paired.size < MIN_CORRELATION_SAMPLES) return null
-        val magnitudes = paired.map { hypot(it.first, it.second).coerceIn(0.0, 1.5) }
+        val magnitudes = paired.map {
+            hypot(it.first / input.fullScale, it.second / input.fullScale).coerceIn(0.0, 1.5)
+        }
         val deltas = magnitudes.zipWithNext { left, right -> abs(right - left) }
         val smoothness = score100(1.0 - deltas.average().coerceIn(0.0, 1.0))
         val active = magnitudes.filter { it >= DRIVER_DEADBAND }
@@ -382,6 +383,20 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
     private fun findKey(keys: List<String>, vararg candidates: String): String? =
         candidates.firstNotNullOfOrNull { candidate -> keys.firstOrNull { it.equals(candidate, ignoreCase = true) } }
 
+    private fun driverInputSource(keys: List<String>): DriverInputSource? = listOf(
+        DriverInputSource("Gamepad1/LeftStickX", "Gamepad1/LeftStickY", 1.0),
+        DriverInputSource("Gamepad1/LeftX", "Gamepad1/LeftY", 1.0),
+        DriverInputSource(
+            "ARES/Input/driveFrame/4",
+            "ARES/Input/driveFrame/5",
+            DASHBOARD_DRIVE_FULL_SCALE_METERS_PER_SECOND
+        )
+    ).firstNotNullOfOrNull { candidate ->
+        val xKey = findKey(keys, candidate.xKey) ?: return@firstNotNullOfOrNull null
+        val yKey = findKey(keys, candidate.yKey) ?: return@firstNotNullOfOrNull null
+        candidate.copy(xKey = xKey, yKey = yKey)
+    }
+
     private fun score100(fraction: Double): Double = (fraction.coerceIn(0.0, 1.0) * 100.0)
     private fun format(value: Double): String = "%.2f".format(java.util.Locale.US, value)
 
@@ -392,6 +407,12 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
         val extract: (SessionSummary) -> Double
     )
 
+    private data class DriverInputSource(
+        val xKey: String,
+        val yKey: String,
+        val fullScale: Double
+    )
+
     private companion object {
         const val MAX_SIGNAL_POINTS = 5_000
         const val MAX_MOTORS = 16
@@ -400,6 +421,7 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
         const val REGRESSION_WARNING_PERCENT = 10.0
         const val REGRESSION_CRITICAL_PERCENT = 25.0
         const val DRIVER_DEADBAND = 0.08
+        const val DASHBOARD_DRIVE_FULL_SCALE_METERS_PER_SECOND = 4.0
         const val HEATMAP_CELL_METERS = 0.5
         const val BATTERY_WARNING_VOLTS = 10.5
         const val LOOP_WARNING_MS = 20.0

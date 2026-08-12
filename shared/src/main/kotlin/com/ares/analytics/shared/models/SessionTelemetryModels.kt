@@ -2,6 +2,14 @@ package com.ares.analytics.shared.models
 
 import kotlinx.serialization.Serializable
 
+/** Latest supported instant (2100-01-01 UTC), also suitable for monotonic robot timelines. */
+const val MAX_SUPPORTED_TIMESTAMP_MS: Long = 4_102_444_800_000L
+
+fun timestampMillisToMicros(timestampMs: Long): Long {
+    require(timestampMs in 0L..MAX_SUPPORTED_TIMESTAMP_MS) { "timestampMs is outside the supported domain" }
+    return Math.multiplyExact(timestampMs, 1_000L)
+}
+
 /** Selects whether dashboard frames come from the robot, the rewind buffer, or persisted storage. */
 @Serializable
 enum class SessionMode {
@@ -51,7 +59,13 @@ data class SessionSummary(
     val matchNumber: Int? = null,
     val allianceColor: String? = null,
     val rawGcsPath: String? = null,
-    val fileSizeBytes: Long = 0L
+    val fileSizeBytes: Long = 0L,
+    /** Immutable Google Drive object identity for cloud-session manifests. */
+    val cloudFileId: String? = null,
+    /** Exact canonical Drive filename; substring lookup is intentionally unsupported. */
+    val cloudFileName: String? = null,
+    /** Lowercase SHA-256 of the uploaded Parquet bytes. */
+    val cloudSha256: String? = null
 )
 
 @Serializable
@@ -77,10 +91,20 @@ data class TelemetryFrame(
     val value: Double,
     val stringValue: String? = null,
     /** Original source timestamp. Defaults to millisecond precision for legacy decoders. */
-    val timestampUs: Long = timestampMs * 1_000L,
+    val timestampUs: Long = timestampMillisToMicros(timestampMs),
     /** Stable order for samples that share a source timestamp and topic. */
     val sampleOrder: Long = 0L
-)
+) {
+    init {
+        require(timestampMs in 0L..MAX_SUPPORTED_TIMESTAMP_MS) {
+            "timestampMs is outside the supported domain"
+        }
+        require(timestampUs >= 0L && timestampUs / 1_000L == timestampMs) {
+            "timestampUs is inconsistent with timestampMs"
+        }
+        require(sampleOrder >= 0L) { "sampleOrder must be non-negative" }
+    }
+}
 
 @Serializable
 data class RobotActionRecord(

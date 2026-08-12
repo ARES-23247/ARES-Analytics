@@ -1,5 +1,13 @@
 package com.ares.analytics.service.db
 
+import com.ares.analytics.service.BeforeAtomicReplace
+import com.ares.analytics.service.NO_OP_BEFORE_ATOMIC_REPLACE
+import com.ares.analytics.service.writeFileAtomically
+import com.ares.analytics.shared.Session
+import com.ares.analytics.shared.SessionSummary
+import com.ares.analytics.shared.models.MAX_SUPPORTED_TIMESTAMP_MS
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -7,6 +15,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Files
 import java.sql.Connection
+
+internal enum class CloudImportStage { TELEMETRY, SUMMARY, SESSION }
 
 /**
  * Service managing database import and export operations for historical telemetry log persistence.
@@ -32,6 +42,8 @@ class DatabaseBackupExporter(
     private val conn: Connection,
     private val dbMutex: Mutex
 ) {
+    internal var cloudImportFailureInjector: ((CloudImportStage) -> Unit)? = null
+    internal var exportReplaceFailureInjector: BeforeAtomicReplace? = null
     /** Result of importing a Parquet trace under a caller-owned session identity. */
     data class ParquetImportResult(
         val frameCount: Long,
@@ -66,29 +78,24 @@ class DatabaseBackupExporter(
             "Parquet telemetry log is missing required columns: ${(required - columns).sorted().joinToString()}"
         }
         val stringExpression = if ("string_value" in columns) "CAST(string_value AS VARCHAR)" else "NULL"
-        val timestampUsExpression = if ("timestamp_us" in columns) {
-            "COALESCE(TRY_CAST(timestamp_us AS BIGINT), CAST(timestamp_ms AS BIGINT) * 1000)"
-        } else {
-            "CAST(timestamp_ms AS BIGINT) * 1000"
-        }
-        val sampleOrderExpression = if ("sample_order" in columns) {
-            "COALESCE(TRY_CAST(sample_order AS BIGINT), ROW_NUMBER() OVER ())"
-        } else {
-            "ROW_NUMBER() OVER ()"
-        }
+        val timestampMsExpression = "TRY_CAST(timestamp_ms AS BIGINT)"
+        val timestampUsExpression = timestampUsExpression(columns)
+        val sampleOrderExpression = sampleOrderExpression(columns)
+        val normalizedKeyExpression = normalizedKeyExpression()
+        val numericValueExpression = "TRY_CAST(value AS DOUBLE)"
         val previousAutoCommit = conn.autoCommit
         conn.autoCommit = false
         try {
+            validateParquetFrames(absolutePath, columns, requireSourceSession = true)
             conn.createStatement().use { st ->
                 st.execute(
                     """
                     DELETE FROM telemetry_frames AS target
                     USING (
                         SELECT CAST(session_id AS VARCHAR) AS session_id,
-                            REGEXP_REPLACE(TRIM(CAST(key AS VARCHAR)), '^/+', '') AS key,
+                            $normalizedKeyExpression AS key,
                             $timestampUsExpression AS timestamp_us
                         FROM read_parquet('$absolutePath')
-                        WHERE timestamp_ms IS NOT NULL AND session_id IS NOT NULL AND key IS NOT NULL
                     ) AS source
                     WHERE target.session_id = source.session_id
                         AND target.key = source.key
@@ -98,12 +105,11 @@ class DatabaseBackupExporter(
                 st.execute("""
                     INSERT INTO telemetry_frames
                         (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
-                    SELECT CAST(timestamp_ms AS BIGINT), CAST(session_id AS VARCHAR),
-                        REGEXP_REPLACE(TRIM(CAST(key AS VARCHAR)), '^/+', ''),
-                        COALESCE(TRY_CAST(value AS DOUBLE), 0.0), $stringExpression,
+                    SELECT $timestampMsExpression, CAST(session_id AS VARCHAR),
+                        $normalizedKeyExpression,
+                        $numericValueExpression, $stringExpression,
                         $timestampUsExpression, $sampleOrderExpression
                     FROM read_parquet('$absolutePath')
-                    WHERE timestamp_ms IS NOT NULL AND session_id IS NOT NULL AND key IS NOT NULL
                     ON CONFLICT (session_id, key, timestamp_us, sample_order) DO UPDATE SET
                         value = EXCLUDED.value,
                         string_value = EXCLUDED.string_value
@@ -125,7 +131,24 @@ class DatabaseBackupExporter(
      * A source `session_id` is deliberately ignored so imported backups cannot overwrite or merge
      * with an unrelated local session. Schema validation occurs before the transaction writes rows.
      */
-    suspend fun importParquetAsSession(file: File, sessionId: String): ParquetImportResult = withDbLock {
+    suspend fun importParquetAsSession(file: File, sessionId: String): ParquetImportResult =
+        importParquetBundle(file, sessionId, null, null)
+
+    suspend fun importCloudSessionAtomically(
+        file: File,
+        summary: SessionSummary,
+        session: Session
+    ): ParquetImportResult {
+        require(summary.sessionId == session.sessionId) { "Cloud session and summary identities differ" }
+        return importParquetBundle(file, session.sessionId, summary, session)
+    }
+
+    private suspend fun importParquetBundle(
+        file: File,
+        sessionId: String,
+        summary: SessionSummary?,
+        session: Session?
+    ): ParquetImportResult = withDbLock {
         require(file.isFile) { "Parquet log does not exist: ${file.absolutePath}" }
         require(file.extension.equals("parquet", ignoreCase = true)) {
             "Expected a .parquet telemetry log: ${file.name}"
@@ -145,34 +168,29 @@ class DatabaseBackupExporter(
         } else {
             "NULL"
         }
-        val timestampUsExpression = if ("timestamp_us" in columns) {
-            "COALESCE(TRY_CAST(timestamp_us AS BIGINT), CAST(timestamp_ms AS BIGINT) * 1000)"
-        } else {
-            "CAST(timestamp_ms AS BIGINT) * 1000"
-        }
-        val sampleOrderExpression = if ("sample_order" in columns) {
-            "COALESCE(TRY_CAST(sample_order AS BIGINT), ROW_NUMBER() OVER ())"
-        } else {
-            "ROW_NUMBER() OVER ()"
-        }
+        val timestampMsExpression = "TRY_CAST(timestamp_ms AS BIGINT)"
+        val timestampUsExpression = timestampUsExpression(columns)
+        val sampleOrderExpression = sampleOrderExpression(columns)
+        val normalizedKeyExpression = normalizedKeyExpression()
+        val numericValueExpression = "TRY_CAST(value AS DOUBLE)"
         val previousAutoCommit = conn.autoCommit
         conn.autoCommit = false
         try {
+            validateParquetFrames(safePath, columns, requireSourceSession = false)
             conn.createStatement().use { statement ->
                 statement.execute(
                     """
                     INSERT INTO telemetry_frames
                         (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
                     SELECT
-                        CAST(timestamp_ms AS BIGINT),
+                        $timestampMsExpression,
                         '$safeSessionId',
-                        REGEXP_REPLACE(CAST(key AS VARCHAR), '^/+', ''),
-                        COALESCE(TRY_CAST(value AS DOUBLE), 0.0),
+                        $normalizedKeyExpression,
+                        $numericValueExpression,
                         $stringExpression,
                         $timestampUsExpression,
                         $sampleOrderExpression
                     FROM read_parquet('$safePath')
-                    WHERE timestamp_ms IS NOT NULL AND key IS NOT NULL
                     ON CONFLICT (session_id, key, timestamp_us, sample_order) DO UPDATE SET
                         value = EXCLUDED.value,
                         string_value = EXCLUDED.string_value
@@ -191,6 +209,13 @@ class DatabaseBackupExporter(
                     ParquetImportResult(count, min, max)
                 }
             }
+            if (summary != null && session != null) {
+                cloudImportFailureInjector?.invoke(CloudImportStage.TELEMETRY)
+                insertSessionSummaryLocked(summary)
+                cloudImportFailureInjector?.invoke(CloudImportStage.SUMMARY)
+                insertSessionLocked(session)
+                cloudImportFailureInjector?.invoke(CloudImportStage.SESSION)
+            }
             conn.commit()
             result
         } catch (error: Exception) {
@@ -198,6 +223,52 @@ class DatabaseBackupExporter(
             throw error
         } finally {
             conn.autoCommit = previousAutoCommit
+        }
+    }
+
+    private fun insertSessionLocked(session: Session) {
+        conn.prepareStatement(
+            "INSERT OR REPLACE INTO sessions (session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).use { statement ->
+            statement.setString(1, session.sessionId)
+            statement.setString(2, session.teamId)
+            statement.setString(3, session.seasonId)
+            statement.setString(4, session.robotId)
+            statement.setLong(5, session.createdAt)
+            statement.setLong(6, session.durationMs)
+            statement.setString(7, Json.encodeToString(session.tags))
+            session.matchNumber?.let { statement.setLong(8, it.toLong()) }
+                ?: statement.setNull(8, java.sql.Types.BIGINT)
+            statement.setString(9, session.allianceColor)
+            statement.executeUpdate()
+        }
+    }
+
+    private fun insertSessionSummaryLocked(summary: SessionSummary) {
+        conn.prepareStatement(
+            "INSERT OR REPLACE INTO session_summaries (session_id, team_id, season_id, robot_id, created_at, duration_ms, min_battery_voltage, max_ekf_drift, avg_loop_time_ms, p95_loop_time_ms, motor_current_averages, vision_acceptance_rate, avg_cross_track_error, avg_battery_resistance, max_motor_temps, avg_vision_latency_ms, tags, match_number, alliance_color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).use { statement ->
+            statement.setString(1, summary.sessionId)
+            statement.setString(2, summary.teamId)
+            statement.setString(3, summary.seasonId)
+            statement.setString(4, summary.robotId)
+            statement.setLong(5, summary.createdAt)
+            statement.setLong(6, summary.durationMs)
+            statement.setDouble(7, summary.minBatteryVoltage)
+            statement.setDouble(8, summary.maxEkfDrift)
+            statement.setDouble(9, summary.avgLoopTimeMs)
+            statement.setDouble(10, summary.p95LoopTimeMs)
+            statement.setString(11, Json.encodeToString(summary.motorCurrentAverages))
+            statement.setDouble(12, summary.visionAcceptanceRate)
+            statement.setDouble(13, summary.avgCrossTrackError)
+            statement.setDouble(14, summary.avgBatteryResistance)
+            statement.setString(15, Json.encodeToString(summary.maxMotorTemps))
+            statement.setDouble(16, summary.avgVisionLatencyMs)
+            statement.setString(17, Json.encodeToString(summary.tags))
+            summary.matchNumber?.let { statement.setLong(18, it.toLong()) }
+                ?: statement.setNull(18, java.sql.Types.BIGINT)
+            statement.setString(19, summary.allianceColor)
+            statement.executeUpdate()
         }
     }
 
@@ -211,20 +282,95 @@ class DatabaseBackupExporter(
         }
 
     /**
+     * Validates the complete native Parquet projection while returning at most one row to the JVM.
+     * This runs inside the same transaction as the subsequent delete/upsert so a rejected file can
+     * never leave a partial replacement behind.
+     */
+    private fun validateParquetFrames(
+        safePath: String,
+        columns: Set<String>,
+        requireSourceSession: Boolean
+    ) {
+        val sourceSessionExpression = if (requireSourceSession) {
+            "TRY_CAST(session_id AS VARCHAR)"
+        } else {
+            "'remapped-session'"
+        }
+        val sourceSessionInvalid = if (requireSourceSession) {
+            "source_session_id IS NULL OR"
+        } else {
+            ""
+        }
+        conn.createStatement().use { statement ->
+            statement.executeQuery(
+                """
+                SELECT 1
+                FROM (
+                    SELECT
+                        TRY_CAST(timestamp_ms AS BIGINT) AS source_timestamp_ms,
+                        ${timestampUsExpression(columns)} AS source_timestamp_us,
+                        ${sampleOrderExpression(columns)} AS source_sample_order,
+                        TRY_CAST(value AS DOUBLE) AS numeric_value,
+                        ${normalizedKeyExpression()} AS normalized_key,
+                        $sourceSessionExpression AS source_session_id
+                    FROM read_parquet('$safePath')
+                ) AS candidate
+                WHERE
+                    $sourceSessionInvalid
+                    source_timestamp_ms IS NULL
+                    OR source_timestamp_ms NOT BETWEEN 0 AND $MAX_SUPPORTED_TIMESTAMP_MS
+                    OR source_timestamp_us IS NULL
+                    OR source_timestamp_us < 0
+                    OR source_timestamp_us // 1000 <> source_timestamp_ms
+                    OR source_sample_order IS NULL
+                    OR source_sample_order < 0
+                    OR numeric_value IS NULL
+                    OR NOT isfinite(numeric_value)
+                    OR normalized_key IS NULL
+                    OR NOT REGEXP_MATCHES(normalized_key, '\S')
+                LIMIT 1
+                """.trimIndent()
+            ).use { rows ->
+                require(!rows.next()) {
+                    "Parquet telemetry log contains values outside the TelemetryFrame invariant domain"
+                }
+            }
+        }
+    }
+
+    private fun timestampUsExpression(columns: Set<String>): String =
+        if ("timestamp_us" in columns) {
+            "TRY_CAST(timestamp_us AS BIGINT)"
+        } else {
+            "TRY_CAST(TRY_CAST(timestamp_ms AS HUGEINT) * 1000 AS BIGINT)"
+        }
+
+    private fun sampleOrderExpression(columns: Set<String>): String =
+        if ("sample_order" in columns) "TRY_CAST(sample_order AS BIGINT)" else "ROW_NUMBER() OVER () - 1"
+
+    private fun normalizedKeyExpression(): String =
+        "TRIM(REGEXP_REPLACE(TRIM(TRY_CAST(key AS VARCHAR)), '^/+', ''))"
+
+    /**
      * Exports one session through a narrowly scoped, internally escaped COPY statement.
      * General raw-SQL execution intentionally remains read-only and must not be used for export.
      */
     suspend fun exportSessionToParquet(sessionId: String, destinationFile: File) = withDbLock {
-        val target = destinationFile.canonicalFile
-        target.parentFile?.let { Files.createDirectories(it.toPath()) }
-        Files.deleteIfExists(target.toPath())
-        val safePath = sqlLiteral(target.absolutePath.replace("\\", "/"))
-        val safeSessionId = sqlLiteral(sessionId)
-        conn.createStatement().use { statement ->
-            statement.execute(
-                "COPY (SELECT * FROM telemetry_frames WHERE session_id = '$safeSessionId') " +
-                    "TO '$safePath' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)"
-            )
+        writeFileAtomically(
+            destinationFile,
+            exportReplaceFailureInjector ?: NO_OP_BEFORE_ATOMIC_REPLACE,
+        ) { temporary ->
+            // DuckDB COPY refuses to overwrite. The sibling path was uniquely reserved by the
+            // atomic writer and is recreated immediately by COPY, then checked and fsynced.
+            Files.delete(temporary.toPath())
+            val safePath = sqlLiteral(temporary.absolutePath.replace("\\", "/"))
+            val safeSessionId = sqlLiteral(sessionId)
+            conn.createStatement().use { statement ->
+                statement.execute(
+                    "COPY (SELECT * FROM telemetry_frames WHERE session_id = '$safeSessionId') " +
+                        "TO '$safePath' (FORMAT PARQUET, COMPRESSION ZSTD, ROW_GROUP_SIZE 100000)"
+                )
+            }
         }
     }
 
@@ -235,24 +381,38 @@ class DatabaseBackupExporter(
      * @param zipFile Target `.zip` file for the exported archive.
      */
     suspend fun exportSessionsToZip(sessionIds: List<String>, zipFile: File) = withDbLock {
-        java.util.zip.ZipOutputStream(java.io.FileOutputStream(zipFile).buffered()).use { zos ->
-            for (sessionId in sessionIds) {
-                val tempFile = File.createTempFile("export_", ".parquet")
-                try {
-                    val absolutePath = tempFile.absolutePath.replace("\\", "/").replace("'", "''")
-                    val safeSessionId = sessionId.replace("'", "''")
-                    conn.createStatement().use { st ->
-                        st.execute("COPY (SELECT * FROM telemetry_frames WHERE session_id = '$safeSessionId') TO '$absolutePath' (FORMAT PARQUET)")
-                    }
+        writeFileAtomically(
+            zipFile,
+            exportReplaceFailureInjector ?: NO_OP_BEFORE_ATOMIC_REPLACE,
+        ) { temporaryZip ->
+            java.util.zip.ZipOutputStream(java.io.FileOutputStream(temporaryZip).buffered()).use { zos ->
+                for (sessionId in sessionIds) {
+                    val parquetPath = Files.createTempFile(
+                        temporaryZip.toPath().parent,
+                        ".ares-export-",
+                        ".parquet",
+                    )
+                    val temporaryParquet = parquetPath.toFile()
+                    try {
+                        Files.delete(parquetPath)
+                        val absolutePath = sqlLiteral(temporaryParquet.absolutePath.replace("\\", "/"))
+                        val safeSessionId = sqlLiteral(sessionId)
+                        conn.createStatement().use { statement ->
+                            statement.execute(
+                                "COPY (SELECT * FROM telemetry_frames WHERE session_id = '$safeSessionId') " +
+                                    "TO '$absolutePath' (FORMAT PARQUET)"
+                            )
+                        }
 
-                    val safeEntryName = sessionId.replace(Regex("[^A-Za-z0-9._-]"), "_")
-                    zos.putNextEntry(java.util.zip.ZipEntry("$safeEntryName.parquet"))
-                    tempFile.inputStream().use { fis ->
-                        fis.copyTo(zos, bufferSize = 256 * 1024)
+                        val safeEntryName = sessionId.replace(Regex("[^A-Za-z0-9._-]"), "_")
+                        zos.putNextEntry(java.util.zip.ZipEntry("$safeEntryName.parquet"))
+                        temporaryParquet.inputStream().use { input ->
+                            input.copyTo(zos, bufferSize = 256 * 1024)
+                        }
+                        zos.closeEntry()
+                    } finally {
+                        Files.deleteIfExists(parquetPath)
                     }
-                    zos.closeEntry()
-                } finally {
-                    tempFile.delete()
                 }
             }
         }

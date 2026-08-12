@@ -4,7 +4,10 @@ import com.ares.analytics.shared.RobotActionRecord
 import com.ares.analytics.shared.Session
 import kotlinx.coroutines.test.runTest
 import java.io.File
+import org.tukaani.xz.LZMA2Options
+import org.tukaani.xz.XZOutputStream
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
@@ -76,7 +79,7 @@ class LogParserServiceTest {
         val tempFile = File.createTempFile("log_test", ".csv")
         tempFile.deleteOnExit()
         val csvLines = """
-            timestamp, voltage, velocity
+            TimestampMs, voltage, velocity
             2000, 11.5, 1.1
             2020, 11.4, 1.2
             2040, 11.3, 1.3
@@ -114,7 +117,7 @@ class LogParserServiceTest {
         )
         val logParser = LogParserService(databaseService, summaryEngineService)
         val validCsv = File.createTempFile("partial_import", ".csv").apply {
-            writeText("timestamp,value\n1000,1.0\n1020,2.0")
+            writeText("TimestampMs,value\n1000,1.0\n1020,2.0")
             deleteOnExit()
         }
         val unsupported = File.createTempFile("partial_import", ".unsupported").apply { deleteOnExit() }
@@ -131,6 +134,72 @@ class LogParserServiceTest {
         assertTrue(databaseService.getSessions().isEmpty())
         val frameCount = databaseService.executeQueryRaw("SELECT COUNT(*) FROM telemetry_frames")
         assertEquals("0", frameCount.rows.single().single())
+        databaseService.close()
+    }
+
+    @Test
+    fun `multi-file CSV import streams overlapping timestamp and key without replacement`() = runTest {
+        val tempDb = File.createTempFile("log_csv_overlap_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val logParser = LogParserService(
+            databaseService,
+            SummaryEngineService(
+                databaseService,
+                sysIdService,
+                DriverAnalysisService(databaseService, sysIdService)
+            )
+        )
+        val first = File.createTempFile("overlap_first", ".csv").apply {
+            writeText("TimestampMs,Drive/Velocity\n1000,1.0")
+        }
+        val second = File.createTempFile("overlap_second", ".csv").apply {
+            writeText("TimestampMs,Drive/Velocity\n1000,2.0")
+        }
+        try {
+            val session = logParser.parseLogFiles(
+                listOf(first, second),
+                teamId = "23247",
+                seasonId = "2026",
+                robotId = "ares-bot"
+            )
+
+            val samples = databaseService.getTelemetryForKey(session.sessionId, "Drive/Velocity")
+            assertEquals(listOf(1.0, 2.0), samples.map { it.value })
+            assertEquals(2, samples.map { it.sampleOrder }.distinct().size)
+            assertTrue(samples[1].sampleOrder > samples[0].sampleOrder)
+        } finally {
+            databaseService.close()
+            first.delete()
+            second.delete()
+            tempDb.delete()
+        }
+    }
+
+    @Test
+    fun `compressed WPILOG expansion is bounded before decoder import`() = runTest {
+        val tempDb = File.createTempFile("log_xz_bomb_db", ".db").apply { deleteOnExit() }
+        val compressed = File.createTempFile("oversized", ".wpilogxz").apply { deleteOnExit() }
+        val zeros = ByteArray(64 * 1024)
+        XZOutputStream(compressed.outputStream(), LZMA2Options()).use { output ->
+            repeat(257) { output.write(zeros) } // 16 MiB floor plus one block.
+        }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val parser = LogParserService(
+            databaseService,
+            SummaryEngineService(
+                databaseService,
+                sysIdService,
+                DriverAnalysisService(databaseService, sysIdService),
+            ),
+        )
+
+        val failure = assertFailsWith<IllegalArgumentException> {
+            parser.parseLogFile(compressed, "23247", "2026", "ares-bot")
+        }
+        assertContains(requireNotNull(failure.message), "expands beyond")
+        assertTrue(databaseService.getSessions().isEmpty())
         databaseService.close()
     }
 

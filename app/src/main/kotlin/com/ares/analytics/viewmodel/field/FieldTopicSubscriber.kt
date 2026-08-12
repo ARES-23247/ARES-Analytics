@@ -139,9 +139,6 @@ class FieldTopicSubscriber(
                     next
                 }
 
-                if (key == "ARES/Input/isRedAlliance") {
-                    stateFlow.update { it.copy(isRedAlliance = value > 0.5) }
-                }
             }
         }
     }

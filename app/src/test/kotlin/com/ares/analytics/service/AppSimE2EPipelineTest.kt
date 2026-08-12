@@ -67,9 +67,20 @@ class AppSimE2EPipelineTest {
             delay(200)
 
             println("[E2E Pipeline] Injecting joystick drive input (vx = 1.5 m/s)...")
-            clientService.publishDouble("ARES/Input/vx", 1.5)
-            clientService.publishDouble("ARES/Input/vy", 0.0)
-            clientService.publishDouble("ARES/Input/omega", 0.0)
+            val controlFlags = (1 shl 3) or (1 shl 4) or (1 shl 5)
+            var neutralSent = false
+            repeat(100) {
+                if (!neutralSent) {
+                    neutralSent = clientService.publishDriveFrame(
+                        doubleArrayOf(2.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, controlFlags.toDouble())
+                    )
+                    if (!neutralSent) delay(20)
+                }
+            }
+            assertTrue(neutralSent, "clock sync must complete before the neutral handshake is accepted")
+            assertTrue(clientService.publishDriveFrame(
+                doubleArrayOf(2.0, 1.0, 1.0, 2.0, 1.5, 0.0, 0.0, controlFlags.toDouble())
+            ))
 
             delay(300)
 

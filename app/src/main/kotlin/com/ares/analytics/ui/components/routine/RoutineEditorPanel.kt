@@ -44,6 +44,8 @@ fun RoutineEditorPanel(
     var historyExpanded by remember { mutableStateOf(false) }
     var setupExpanded by remember { mutableStateOf(false) }
     val hasErrors = state.routineValidation.any { it.severity == RoutineValidationSeverity.ERROR }
+    val hasPlayablePreview = state.routinePreviewWarning == null &&
+        state.trajectory != null && state.estimatedDuration > 0.0
     val generationStatus = when {
         state.generationPhase == AresGenerationPhase.RUNNING -> state.generationMessage ?: "Generating robot code..."
         state.generationPhase == AresGenerationPhase.FAILED -> state.generationMessage ?: "Robot code generation failed"
@@ -147,21 +149,41 @@ fun RoutineEditorPanel(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    "${state.routine.steps.size} ${if (state.routine.steps.size == 1) "step" else "steps"}  •  ${formatRoutineNumber(state.estimatedDuration)} s",
+                    if (state.routinePreviewWarning == null) {
+                        "${state.routine.steps.size} ${if (state.routine.steps.size == 1) "step" else "steps"}  •  " +
+                            "drive preview ${formatRoutineNumber(state.estimatedDuration)} s"
+                    } else {
+                        "${state.routine.steps.size} ${if (state.routine.steps.size == 1) "step" else "steps"}  •  preview unavailable"
+                    },
                     color = AresTextSecondary,
                     style = MaterialTheme.typography.bodySmall
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { onIntent(PathPlannerIntent.TogglePlayback) }, modifier = Modifier.size(32.dp)) {
+                    IconButton(
+                        onClick = { onIntent(PathPlannerIntent.TogglePlayback) },
+                        enabled = hasPlayablePreview,
+                        modifier = Modifier.size(32.dp)
+                    ) {
                         Icon(
                             if (state.isPlaying) Icons.Default.Stop else Icons.Default.PlayArrow,
                             if (state.isPlaying) "Pause preview" else "Play preview",
-                            tint = AresCyan,
+                            tint = if (hasPlayablePreview) AresCyan else AresTextSecondary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
-                    Text("${formatRoutineNumber(state.playbackTime)} s", color = AresTextSecondary)
+                    if (state.routinePreviewWarning == null) {
+                        Text("${formatRoutineNumber(state.playbackTime)} s", color = AresTextSecondary)
+                    }
                 }
+            }
+            state.routinePreviewWarning?.let { warning ->
+                Text(
+                    warning,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AresGold,
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
             generationStatus?.let { status ->
                 Text(
@@ -254,7 +276,6 @@ private fun RoutineSetupCard(
 ) {
     val entry = state.autonomousEntry
     val dimensions = state.robotDimensions
-    var importExpanded by remember { mutableStateOf(false) }
     val modeLabel = if (state.availableInAutonomousSelector) "Match autonomous" else "Reusable routine"
     val footprintLabel = "${formatRoutineNumber(dimensions.lengthMeters)} × ${formatRoutineNumber(dimensions.widthMeters)} m"
 
@@ -335,23 +356,6 @@ private fun RoutineSetupCard(
                                 }
                             )
                             Text("Mirror alliance", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-
-                if (state.legacyRoutineFiles.isNotEmpty()) {
-                    Box {
-                        TextButton(onClick = { importExpanded = true }) { Text("Import older .aresauto…") }
-                        DropdownMenu(importExpanded, { importExpanded = false }) {
-                            state.legacyRoutineFiles.forEach { file ->
-                                DropdownMenuItem(
-                                    text = { Text(file.nameWithoutExtension) },
-                                    onClick = {
-                                        onIntent(PathPlannerIntent.ImportLegacyRoutine(projectPath, league, file))
-                                        importExpanded = false
-                                    }
-                                )
-                            }
                         }
                     }
                 }

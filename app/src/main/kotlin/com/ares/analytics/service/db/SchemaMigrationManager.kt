@@ -32,17 +32,17 @@ class SchemaMigrationManager(
     /**
      * Runs DDL schema migrations across both primary and ephemeral DuckDB connections.
      *
-     * If [isFirstRun] is true and an legacy SQLite database exists at [oldDbPath], attempts to attach
-     * the SQLite database (`ATTACH ... TYPE SQLITE`) and migrate existing historical data tables.
+     * If a legacy SQLite database exists at [oldDbPath], attempts to attach it and migrate its
+     * historical tables exactly once. Completion is recorded transactionally, so a failed import
+     * is retried on the next launch instead of being silently abandoned after the DuckDB file exists.
      *
-     * @param isFirstRun Indicates whether this is the application's initial launch requiring legacy database migration.
-     * @param oldDbPath Absolute filesystem path to the legacy database file to migrate data from.
+     * @param oldDbPath Absolute legacy database path, or null for isolated/custom databases.
      */
-    fun runMigrations(isFirstRun: Boolean, oldDbPath: String) {
+    fun runMigrations(oldDbPath: String?) {
         createSchemaSync(conn)
         createSchemaSync(ephemeralConn)
 
-        if (isFirstRun && File(oldDbPath).exists()) {
+        if (oldDbPath != null && File(oldDbPath).isFile && !migrationCompleted(LEGACY_SQLITE_MIGRATION)) {
             val safeOldDbPath = oldDbPath.replace("'", "''")
             try {
                 conn.createStatement().use { st ->
@@ -66,6 +66,7 @@ class SchemaMigrationManager(
                             st.execute("INSERT OR IGNORE INTO alerts SELECT alert_id, session_id, rule_key, trigger_timestamp_ms, resolve_timestamp_ms, duration_ms, peak_value, triaged FROM legacy_sqlite.alerts")
                             st.execute("INSERT OR IGNORE INTO cached_topologies SELECT robot_id, topology_json FROM legacy_sqlite.cached_topologies")
                             st.execute("INSERT OR IGNORE INTO console_messages SELECT timestamp_ms, session_id, text, severity FROM legacy_sqlite.console_messages")
+                            st.execute("INSERT INTO schema_migrations VALUES ('$LEGACY_SQLITE_MIGRATION', epoch_ms(current_timestamp))")
                             st.execute("COMMIT")
                         } catch (e: Exception) {
                             st.execute("ROLLBACK")
@@ -81,6 +82,13 @@ class SchemaMigrationManager(
                 e.printStackTrace()
             }
         }
+    }
+
+    private fun migrationCompleted(name: String): Boolean = conn.prepareStatement(
+        "SELECT 1 FROM schema_migrations WHERE name = ?"
+    ).use { statement ->
+        statement.setString(1, name)
+        statement.executeQuery().use { rows -> rows.next() }
     }
 
     /**
@@ -178,6 +186,11 @@ class SchemaMigrationManager(
                     action_type VARCHAR NOT NULL,
                     payload_json VARCHAR NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    name VARCHAR PRIMARY KEY,
+                    completed_at BIGINT NOT NULL
+                );
             """.trimIndent())
 
             migrateTelemetryPrecision(targetConn)
@@ -251,5 +264,9 @@ class SchemaMigrationManager(
                 throw error
             }
         }
+    }
+
+    private companion object {
+        const val LEGACY_SQLITE_MIGRATION = "legacy-sqlite-v1"
     }
 }

@@ -53,8 +53,7 @@ The project layout is:
 footprint, and field dimensions. This prevents two student laptops from validating the same field
 goal with different machine-local settings.
 
-Old `.aresauto` documents can be imported. Import separates their starting pose into autonomous
-metadata and converts their behavior into a reusable routine. New files use `.aresroutine`.
+Routine documents use the single canonical `.aresroutine` format.
 
 ## Action discovery
 
@@ -67,8 +66,6 @@ runtime capability implementation. If the editor reports **No project actions de
 2. `.ares/action-catalog.json` exists and is valid JSON;
 3. the catalog action is allowed in the current context;
 4. after changing the catalog, generated Kotlin has been refreshed.
-
-Legacy capability manifests are read only to help migration; they are not the source of truth.
 
 ## Visual controller editor
 
@@ -128,4 +125,3 @@ overwriting one copy. Prefer one Git branch per task and merge normally.
 | Build says generated project is stale | Use **Save & Generate** (or run `generateAresProject`), review the diff, and build again. |
 | Routine cannot be saved | Resolve typed-argument, missing-reference, recursion, resource, or field-bound diagnostics. |
 | Autonomous does not appear | Enable its autonomous entry and ensure it is present in `.ares/autonomous-catalog.json`. |
-| Old auto appears separately | Import it into the unified routine format; legacy files remain migration-only. |

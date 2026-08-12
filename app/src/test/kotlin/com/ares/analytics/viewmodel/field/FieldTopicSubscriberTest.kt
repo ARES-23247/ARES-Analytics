@@ -21,20 +21,17 @@ import kotlin.test.assertTrue
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FieldTopicSubscriberTest {
     @Test
-    fun `alliance toggle publishes the simulator input topic`() = runTest {
+    fun `alliance toggle updates the atomic frame selection`() = runTest {
         val databaseFile = File.createTempFile("field-alliance-toggle", ".duckdb")
         val database = DatabaseService(databaseFile.absolutePath)
         val nt4 = Nt4ClientService(database)
         try {
             val viewModel = FieldViewerViewModel(nt4, backgroundScope)
-            val published = async(start = CoroutineStart.UNDISPATCHED) {
-                nt4.telemetryFlow.first { it.key == "ARES/Input/isRedAlliance" }
-            }
             viewModel.onIntent(FieldViewerIntent.ToggleAlliance)
             runCurrent()
 
-            assertEquals(0.0, published.await().value)
-            assertEquals(false, viewModel.state.value.isRedAlliance)
+            assertFalse(nt4.selectedRedAlliance.value)
+            assertFalse(viewModel.state.value.isRedAlliance)
         } finally {
             nt4.stop()
             database.close()
@@ -48,7 +45,7 @@ class FieldTopicSubscriberTest {
         val database = DatabaseService(databaseFile.absolutePath)
         val nt4 = Nt4ClientService(database)
         try {
-            nt4.publishBoolean("ARES/Input/isRedAlliance", false)
+            nt4.selectRedAlliance(false)
 
             val firstView = FieldViewerViewModel(nt4, backgroundScope)
             val recreatedView = FieldViewerViewModel(nt4, backgroundScope)

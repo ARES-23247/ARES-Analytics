@@ -8,6 +8,9 @@ import java.io.FileInputStream
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
+import java.util.Base64
 
 /** Decodes the WPILib DataLog (`.wpilog`) wire format. */
 class WpiLogDecoder {
@@ -132,7 +135,7 @@ class WpiLogDecoder {
         }
 
         when (definition.type) {
-            "raw" -> Unit
+            "raw" -> addString(definition.name, taggedBase64(definition.type, payload))
             "boolean" -> {
                 requirePayloadSize(payload, 1, definition)
                 addNumber(definition.name, if (payload[0].toInt() != 0) 1.0 else 0.0)
@@ -154,8 +157,10 @@ class WpiLogDecoder {
                 requirePayloadSize(payload, Double.SIZE_BYTES, definition)
                 addNumber(definition.name, buffer.double)
             }
-            "string", "json", "msgpack", "protobuf", "struct" ->
-                addString(definition.name, payload.toString(Charsets.UTF_8))
+            "string", "json" ->
+                addString(definition.name, decodeUtf8Strict(payload, "${definition.type} value for ${definition.name}"))
+            "msgpack", "protobuf", "struct" ->
+                addString(definition.name, taggedBase64(definition.type, payload))
             "boolean[]" -> {
                 requireArrayCount(payload.size, definition)
                 payload.forEachIndexed { index, value ->
@@ -181,7 +186,14 @@ class WpiLogDecoder {
                     index++
                 }
             }
-            else -> Unit // Custom binary schemas cannot be decoded without their schema metadata.
+            else -> when {
+                definition.type.startsWith("msgpack:") ||
+                    definition.type.startsWith("proto:") ||
+                    definition.type.startsWith("protobuf:") ||
+                    definition.type.startsWith("struct:") ->
+                    addString(definition.name, taggedBase64(definition.type, payload))
+                else -> Unit // Unknown custom schemas cannot be decoded without their metadata.
+            }
         }
     }
 
@@ -207,8 +219,21 @@ class WpiLogDecoder {
         }
         val bytes = ByteArray(length.toInt())
         buffer.get(bytes)
-        return bytes.toString(Charsets.UTF_8)
+        return decodeUtf8Strict(bytes, field)
     }
+
+    private fun decodeUtf8Strict(bytes: ByteArray, field: String): String = try {
+        Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+    } catch (error: CharacterCodingException) {
+        throw IOException("Invalid UTF-8 in WPILOG $field", error)
+    }
+
+    private fun taggedBase64(type: String, payload: ByteArray): String =
+        "base64:$type:${Base64.getEncoder().encodeToString(payload)}"
 
     private fun readUnsigned(buffer: ByteBuffer, size: Int): Long {
         var value = 0L

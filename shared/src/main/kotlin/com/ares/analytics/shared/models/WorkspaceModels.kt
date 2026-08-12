@@ -1,5 +1,6 @@
 package com.ares.analytics.shared.models
 
+import com.ares.analytics.shared.DEFAULT_GEMINI_MODEL
 import kotlinx.serialization.Serializable
 
 /** Robotics league whose source layout and runtime conventions apply to a workspace. */
@@ -32,7 +33,7 @@ data class WorkspaceConfig(
     val simulatorCommand: String? = null,
     val aiMode: String? = "STUDIO",
     val geminiApiKey: String? = null,
-    val geminiModel: String? = "gemini-1.5-flash",
+    val geminiModel: String? = DEFAULT_GEMINI_MODEL,
     val vertexServiceAccountPath: String? = null,
     val vertexProjectId: String? = null,
     val vertexLocation: String? = "us-central1",

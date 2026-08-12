@@ -4,8 +4,13 @@ import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.service.FrameBatcher
 import com.ares.analytics.shared.RobotActionRecord
 import com.ares.analytics.shared.TelemetryFrame
+import com.ares.analytics.shared.models.MAX_SUPPORTED_TIMESTAMP_MS
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.*
+import java.io.BufferedReader
+import java.io.Closeable
 import java.io.File
+import java.io.Reader
 
 /**
  * Metadata extracted from a Redux robot action log envelope header.
@@ -40,6 +45,15 @@ data class ActionLogMetadata(
  */
 class JsonlLogDecoder(private val databaseService: DatabaseService) {
 
+    private companion object {
+        const val MAX_JSONL_BYTES = 512L * 1024L * 1024L
+        const val MAX_JSONL_LINE_CHARS = 1_048_576
+        const val MAX_ACTION_PAYLOAD_CHARS = 524_288
+        const val MAX_ACTION_RECORDS = 10_000
+        const val ACTION_BATCH_SIZE = 500
+        const val ACTION_SCHEMA_VERSION = 1
+    }
+
     /**
      * Parses a line-delimited JSON telemetry file line by line into [batcher].
      *
@@ -48,9 +62,20 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
      * @param batcher Destination telemetry frame batch buffer.
      */
     suspend fun parseJsonlLog(file: File, sessionId: String, batcher: FrameBatcher): Int {
+        return parseJsonlLog(file, sessionId) { frame -> batcher.add(frame) }
+    }
+
+    internal suspend fun parseJsonlLog(
+        file: File,
+        sessionId: String,
+        emit: suspend (TelemetryFrame) -> Unit
+    ): Int {
+        require(file.isFile && file.length() in 1L..MAX_JSONL_BYTES) {
+            "JSONL log size is outside the supported range"
+        }
         var acceptedFrames = 0
         var rejectedLines = 0
-        file.bufferedReader(Charsets.UTF_8).use { reader ->
+        BoundedLineReader(file.bufferedReader(Charsets.UTF_8)).use { reader ->
             while (true) {
                 val line = reader.readLine() ?: break
                 val trimmed = line.trim()
@@ -77,19 +102,21 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
                             val booleanVal = primitive.booleanOrNull
                             when {
                                 doubleVal != null -> {
-                                    batcher.add(TelemetryFrame(timestampMs, sessionId, key.trimStart('/'), doubleVal))
+                                    emit(TelemetryFrame(timestampMs, sessionId, key.trimStart('/'), doubleVal))
                                     acceptedFrames++
                                 }
                                 booleanVal != null -> {
-                                    batcher.add(TelemetryFrame(timestampMs, sessionId, key.trimStart('/'), if (booleanVal) 1.0 else 0.0))
+                                    emit(TelemetryFrame(timestampMs, sessionId, key.trimStart('/'), if (booleanVal) 1.0 else 0.0))
                                     acceptedFrames++
                                 }
                                 primitive.isString -> {
-                                    batcher.add(TelemetryFrame(timestampMs, sessionId, key.trimStart('/'), 0.0, primitive.content))
+                                    emit(TelemetryFrame(timestampMs, sessionId, key.trimStart('/'), 0.0, primitive.content))
                                     acceptedFrames++
                                 }
                             }
                         }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
                     } catch (e: Exception) {
                         rejectedLines++
                     }
@@ -103,66 +130,144 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
     }
 
     suspend fun parseActionLogJsonl(file: File, sessionId: String): ActionLogMetadata? {
-        val actions = mutableListOf<RobotActionRecord>()
+        require(file.isFile && file.length() in 1L..MAX_JSONL_BYTES) {
+            "Action log size is outside the supported range"
+        }
+        val preflight = inspectActionLog(file, sessionId)
+        val actions = ArrayList<RobotActionRecord>(ACTION_BATCH_SIZE)
+        BoundedLineReader(file.bufferedReader(Charsets.UTF_8)).use { reader ->
+            while (true) {
+                val line = reader.readLine() ?: break
+                parseAction(line, sessionId)?.let { action ->
+                    actions += action
+                    if (actions.size == ACTION_BATCH_SIZE) {
+                        databaseService.insertRobotActionsBulk(actions)
+                        actions.clear()
+                    }
+                }
+            }
+        }
+        if (actions.isNotEmpty()) databaseService.insertRobotActionsBulk(actions)
+        return preflight
+    }
+
+    private fun inspectActionLog(file: File, sessionId: String): ActionLogMetadata {
         var minTimestamp = Long.MAX_VALUE
         var maxTimestamp = Long.MIN_VALUE
         var firstMatchNumber = 0
         var firstAlliance = "UNKNOWN"
         var isFirstLine = true
+        var actionCount = 0
 
-        file.bufferedReader(Charsets.UTF_8).use { reader ->
+        BoundedLineReader(file.bufferedReader(Charsets.UTF_8)).use { reader ->
             while (true) {
                 val line = reader.readLine() ?: break
-                val trimmed = line.trim()
-                if (trimmed.isNotEmpty()) {
-                    try {
-                        val obj = Json.parseToJsonElement(trimmed) as? JsonObject ?: continue
-                        val runId = obj["run_id"]?.jsonPrimitive?.contentOrNull ?: ""
-                        val robotId = obj["robot_id"]?.jsonPrimitive?.contentOrNull ?: ""
-                        val matchNumber = obj["match_number"]?.jsonPrimitive?.intOrNull ?: 0
-                        val alliance = obj["alliance"]?.jsonPrimitive?.contentOrNull ?: "UNKNOWN"
-                        val actionType = obj["type"]?.jsonPrimitive?.contentOrNull ?: "Unknown"
+                val action = parseAction(line, sessionId) ?: continue
+                actionCount++
+                require(actionCount <= MAX_ACTION_RECORDS) { "Action log contains too many records" }
+                if (isFirstLine) {
+                    firstMatchNumber = action.matchNumber
+                    firstAlliance = action.alliance
+                    isFirstLine = false
+                }
+                minTimestamp = minOf(minTimestamp, action.timestampMs)
+                maxTimestamp = maxOf(maxTimestamp, action.timestampMs)
+            }
+        }
 
-                        // Capture envelope metadata from the first line
-                        if (isFirstLine) {
-                            firstMatchNumber = matchNumber
-                            firstAlliance = alliance
-                            isFirstLine = false
-                        }
-                        val payload = obj["payload"] as? JsonObject
-                        val timestampMs = payload?.get("timestampMs")?.jsonPrimitive?.longOrNull ?: 0L
-                        val payloadJson = payload?.toString() ?: "{}"
+        require(actionCount > 0) { "Action log ${file.name} contained no usable actions" }
 
-                        if (timestampMs > 0L) {
-                            minTimestamp = minOf(minTimestamp, timestampMs)
-                            maxTimestamp = maxOf(maxTimestamp, timestampMs)
+        return ActionLogMetadata(
+            durationMs = if (maxTimestamp > minTimestamp) Math.subtractExact(maxTimestamp, minTimestamp) else 0L,
+            matchNumber = firstMatchNumber,
+            alliance = firstAlliance
+        )
+    }
 
-                            actions.add(RobotActionRecord(
-                                timestampMs = timestampMs,
-                                sessionId = sessionId,
-                                runId = runId,
-                                robotId = robotId,
-                                matchNumber = matchNumber,
-                                alliance = alliance,
-                                actionType = actionType,
-                                payloadJson = payloadJson
-                            ))
-                        }
-                    } catch (e: Exception) {
-                        // Skip malformed lines
+    private fun parseAction(line: String, sessionId: String): RobotActionRecord? {
+        val trimmed = line.trim()
+        if (trimmed.isEmpty()) return null
+        return try {
+            val obj = Json.parseToJsonElement(trimmed) as? JsonObject ?: return null
+            requireActionSchemaVersion(obj)
+            val payload = obj["payload"] as? JsonObject ?: return null
+            val timestampMs = payload["timestampMs"]?.jsonPrimitive?.longOrNull ?: return null
+            if (timestampMs !in 0L..MAX_SUPPORTED_TIMESTAMP_MS) return null
+            val payloadJson = payload.toString()
+            require(payloadJson.length <= MAX_ACTION_PAYLOAD_CHARS) { "Action payload exceeds the size limit" }
+            RobotActionRecord(
+                timestampMs = timestampMs,
+                sessionId = sessionId,
+                runId = obj["run_id"]?.jsonPrimitive?.contentOrNull ?: "",
+                robotId = obj["robot_id"]?.jsonPrimitive?.contentOrNull ?: "",
+                matchNumber = obj["match_number"]?.jsonPrimitive?.intOrNull ?: 0,
+                alliance = obj["alliance"]?.jsonPrimitive?.contentOrNull ?: "UNKNOWN",
+                actionType = obj["type"]?.jsonPrimitive?.contentOrNull ?: "Unknown",
+                payloadJson = payloadJson
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: ActionLogFormatException) {
+            throw error
+        } catch (error: IllegalArgumentException) {
+            if (error.message?.contains("size limit") == true) throw error
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun requireActionSchemaVersion(envelope: JsonObject) {
+        val schemaVersion = envelope["schema_version"] as? JsonPrimitive
+            ?: throw ActionLogFormatException("Action record is missing schema_version")
+        if (schemaVersion.isString || schemaVersion.content != ACTION_SCHEMA_VERSION.toString()) {
+            throw ActionLogFormatException(
+                "Unsupported action-log schema_version $schemaVersion; supported version is $ACTION_SCHEMA_VERSION"
+            )
+        }
+    }
+
+    private class ActionLogFormatException(message: String) : IllegalArgumentException(message)
+
+    private class BoundedLineReader(reader: Reader) : Closeable {
+        private val reader = if (reader is BufferedReader) reader else reader.buffered()
+        private var pushedBack = NO_PUSHBACK
+
+        fun readLine(): String? {
+            val line = StringBuilder()
+            var sawInput = false
+            while (true) {
+                val value = readChar()
+                if (value == -1) return if (sawInput) line.toString() else null
+                sawInput = true
+                when (value.toChar()) {
+                    '\n' -> return line.toString()
+                    '\r' -> {
+                        val next = readChar()
+                        if (next != '\n'.code) pushedBack = next
+                        return line.toString()
+                    }
+                    else -> {
+                        require(line.length < MAX_JSONL_LINE_CHARS) { "JSONL line exceeds the size limit" }
+                        line.append(value.toChar())
                     }
                 }
             }
         }
 
-        require(actions.isNotEmpty()) { "Action log ${file.name} contained no usable actions" }
+        private fun readChar(): Int {
+            if (pushedBack != NO_PUSHBACK) {
+                val value = pushedBack
+                pushedBack = NO_PUSHBACK
+                return value
+            }
+            return reader.read()
+        }
 
-        databaseService.insertRobotActionsBulk(actions)
+        override fun close() = reader.close()
 
-        return ActionLogMetadata(
-            durationMs = if (maxTimestamp > minTimestamp) maxTimestamp - minTimestamp else 0L,
-            matchNumber = firstMatchNumber,
-            alliance = firstAlliance
-        )
+        private companion object {
+            const val NO_PUSHBACK = -2
+        }
     }
 }

@@ -2,8 +2,6 @@ package com.ares.analytics.ui.components.pathplanner
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitTouchSlopOrCancellation
@@ -11,13 +9,10 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.DropdownMenu
-import androidx.compose.material.DropdownMenuItem
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.input.pointer.PointerButton
@@ -67,17 +62,6 @@ fun FieldCanvas(
     onAprilTagsChanged: ((List<AprilTagPlacement>) -> Unit)? = null,
     fieldWaypoints: List<FieldWaypoint>? = null,
     onFieldWaypointsChanged: ((List<FieldWaypoint>) -> Unit)? = null,
-    eventMarkers: List<PathPlannerEventMarker> = emptyList(),
-    onEventMarkersChanged: ((List<PathPlannerEventMarker>) -> Unit)? = null,
-    rotationTargets: List<RotationTarget> = emptyList(),
-    onRotationTargetsChanged: ((List<RotationTarget>) -> Unit)? = null,
-    idealStartingState: IdealStartingState? = null,
-    onStartingStateChanged: ((IdealStartingState) -> Unit)? = null,
-    goalEndState: GoalEndState? = null,
-    onGoalEndStateChanged: ((GoalEndState) -> Unit)? = null,
-    constraintZones: List<ConstraintsZone> = emptyList(),
-    pointTowardsZones: List<PointTowardsZone> = emptyList(),
-    globalConstraints: PathConstraints = PathConstraints(),
     estimatedPose: Waypoint? = null,
     playbackPose: Waypoint? = null,
     visionPoses: List<Waypoint> = emptyList(),
@@ -101,7 +85,6 @@ fun FieldCanvas(
     var localFieldConfigLoaded by remember { mutableStateOf(false) }
     var isDraggingHeading by remember { mutableStateOf(false) }
     var isDraggingPrevHeading by remember { mutableStateOf(false) }
-    var isDraggingRotation by remember { mutableStateOf(false) }
     var isDraggingFieldWaypoint by remember { mutableStateOf(false) }
     var isDraggingFieldWaypointHeading by remember { mutableStateOf(false) }
     val textMeasurer = rememberTextMeasurer()
@@ -136,52 +119,6 @@ fun FieldCanvas(
             }
         }
     }
-    val eventMarkerPoints = remember(eventMarkers, waypoints) {
-        if (waypoints.size < 2) emptyList()
-        else eventMarkers.map { getPositionOnSpline(it.waypointRelativePos, waypoints) }
-    }
-    val combinedRotationTargets = remember(rotationTargets, idealStartingState, goalEndState, waypoints) {
-        val list = mutableListOf<RotationTarget>()
-        val startingRot = idealStartingState?.rotation ?: 0.0
-        if (rotationTargets.none { kotlin.math.abs(it.waypointRelativePos) < 1e-3 }) {
-            list.add(RotationTarget(waypointRelativePos = 0.0, rotationDegrees = startingRot))
-        }
-        list.addAll(rotationTargets)
-        val endRot = goalEndState?.rotation ?: 0.0
-        val lastWaypointIdx = (waypoints.size - 1).toDouble()
-        if (lastWaypointIdx >= 0.0 && rotationTargets.none { kotlin.math.abs(it.waypointRelativePos - lastWaypointIdx) < 1e-3 }) {
-            list.add(RotationTarget(waypointRelativePos = lastWaypointIdx, rotationDegrees = endRot))
-        }
-        list
-    }
-    val combinedRotationTargetPoints = remember(combinedRotationTargets, waypoints) {
-        if (waypoints.size < 2) emptyList()
-        else combinedRotationTargets.map { getPositionOnSpline(it.waypointRelativePos, waypoints) }
-    }
-    val constraintZoneSplines = remember(constraintZones, waypoints) {
-        if (waypoints.size < 2) emptyList()
-        else constraintZones.map { zone ->
-            val minPos = zone.minWaypointRelativePos
-            val maxPos = zone.maxWaypointRelativePos
-            val steps = ((maxPos - minPos) * 20).toInt().coerceIn(2, 100)
-            val pathPoints = ArrayList<Waypoint>(steps + 1)
-            for (step in 0..steps) {
-                pathPoints.add(getPositionOnSpline(minPos + (maxPos - minPos) * (step.toDouble() / steps), waypoints))
-            }
-            pathPoints
-        }
-    }
-    val pointTowardsZoneRenderData = remember(pointTowardsZones, waypoints) {
-        if (waypoints.size < 2) emptyList()
-        else pointTowardsZones.map { zone ->
-            val numLines = 5
-            val spPoints = ArrayList<Waypoint>(numLines)
-            for (k in 0 until numLines) {
-                spPoints.add(getPositionOnSpline(zone.minWaypointRelativePos + (zone.maxWaypointRelativePos - zone.minWaypointRelativePos) * (if (numLines > 1) k.toDouble() / (numLines - 1) else 0.5), waypoints))
-            }
-            PointTowardsZoneRenderData(Waypoint(zone.fieldPosition.x, zone.fieldPosition.y), spPoints)
-        }
-    }
     val activeImage = fieldImage ?: localFieldImage
     val activeConfig = fieldImageConfig ?: localFieldImageConfig
     val useConfiguredFieldSize = fieldImageConfig != null || localFieldConfigLoaded
@@ -201,7 +138,6 @@ fun FieldCanvas(
     }
     var editorMode by remember { mutableStateOf(EditorMode.SELECT) }
     var selectedWaypointIndex by remember { mutableStateOf(-1) }
-    var selectedEventMarkerIndex by remember { mutableStateOf(-1) }
     var selectedObstacleId by remember { mutableStateOf<String?>(null) }
     var selectedAprilTagId by remember { mutableStateOf<String?>(null) }
     var selectedGamePieceId by remember { mutableStateOf<String?>(null) }
@@ -252,11 +188,6 @@ fun FieldCanvas(
     val currentActiveGamePieces by rememberUpdatedState(activeGamePieces)
     val currentActiveAprilTags by rememberUpdatedState(activeAprilTags)
     val currentActiveFieldWaypoints by rememberUpdatedState(activeFieldWaypoints)
-    val currentEventMarkers by rememberUpdatedState(eventMarkers)
-    val currentRotationTargets by rememberUpdatedState(rotationTargets)
-    val currentCombinedRotationTargets by rememberUpdatedState(combinedRotationTargets)
-    val currentIdealStartingState by rememberUpdatedState(idealStartingState)
-    val currentGoalEndState by rememberUpdatedState(goalEndState)
 
     LaunchedEffect(projectPath) {
         try {
@@ -335,31 +266,19 @@ fun FieldCanvas(
                             val w = size.width.toFloat(); val h = size.height.toFloat()
                             when (editorMode) {
                                  EditorMode.SELECT -> {
-                                     var hitIdx = -1; var hitHeading = false; var hitPrevHeading = false; var hitRotation = false
+                                     var hitIdx = -1; var hitHeading = false; var hitPrevHeading = false
 
                                      // Convert press position to base canvas space (before zoom/pan/rotate transform).
                                      // This matches the coordinate system used by PathRenderer.drawWaypoints.
                                      val basePress = getBaseCanvasFromScreen(pressOffset, w, h, zoomScale, panOffset, viewRotation)
 
-                                     // Helper: compute rotation handle position in base canvas space (matches PathRenderer draw code)
-                                     fun rotHandleBase(wpBaseOffset: Offset, wp: Waypoint): Offset {
-                                         val rotAngleRad = Math.toRadians(-(wp.rotationDeg ?: 0.0) - 90.0)
-                                         val rotHandleLenPx = 30.dp.toPx()
-                                         return Offset(
-                                             wpBaseOffset.x + rotHandleLenPx * cos(rotAngleRad).toFloat(),
-                                             wpBaseOffset.y + rotHandleLenPx * sin(rotAngleRad).toFloat()
-                                         )
-                                     }
-
                                      // Scale-aware hit threshold: fixed screen-size radius divided by zoom
                                      // so clickability doesn't shrink when zoomed out
                                      val hitRadiusPx = 15.dp.toPx() / zoomScale
-                                     val rotHitRadiusPx = 18.dp.toPx() / zoomScale
 
                                      // 1. Prioritize handles of the ALREADY selected waypoint (if any)
                                      if (!autoGoalMode && selectedWaypointIndex in currentWaypoints.indices) {
                                          val wp = currentWaypoints[selectedWaypointIndex]
-                                         val wpBase = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
 
                                          // Heading handle (tangent arrowhead)
                                          val selHeading = resolveHeading(currentWaypoints, selectedWaypointIndex)
@@ -376,13 +295,6 @@ fun FieldCanvas(
                                              hitIdx = selectedWaypointIndex; hitPrevHeading = true
                                          }
 
-                                         // Rotation handle (green diamond)
-                                         if (hitIdx == -1) {
-                                             val rotBase = rotHandleBase(wpBase, wp)
-                                             if (sqrt((basePress.x - rotBase.x).pow(2) + (basePress.y - rotBase.y).pow(2)) < rotHitRadiusPx) {
-                                                 hitIdx = selectedWaypointIndex; hitRotation = true
-                                             }
-                                         }
                                      }
 
                                      // 2. Check all waypoint center dots
@@ -395,12 +307,11 @@ fun FieldCanvas(
                                          }
                                      }
 
-                                     // 3. Check other waypoints' handles (heading + rotation)
+                                     // 3. Check other waypoints' tangent handles
                                      if (hitIdx == -1 && !autoGoalMode) {
                                          for (i in currentWaypoints.indices) {
                                              if (i == selectedWaypointIndex) continue
                                              val wp = currentWaypoints[i]
-                                             val wpBase = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
                                              val hd = resolveHeading(currentWaypoints, i)
                                              val headingWp = Waypoint(wp.x + wp.nextControlLength * cos(hd), wp.y + wp.nextControlLength * sin(hd))
                                              val headingBase = getCanvasOffsetBase(headingWp, w, h, fieldWidthM, fieldHeightM, league)
@@ -412,23 +323,12 @@ fun FieldCanvas(
                                              if (sqrt((basePress.x - prevHeadingBase.x).pow(2) + (basePress.y - prevHeadingBase.y).pow(2)) < hitRadiusPx) {
                                                  hitIdx = i; hitPrevHeading = true; break
                                              }
-                                             val rotBase = rotHandleBase(wpBase, wp)
-                                             if (sqrt((basePress.x - rotBase.x).pow(2) + (basePress.y - rotBase.y).pow(2)) < rotHitRadiusPx) {
-                                                 hitIdx = i; hitRotation = true; break
-                                             }
                                          }
                                      }
-                                     var hitEventIdx = -1
-                                     if (hitIdx == -1) {
-                                         hitEventIdx = currentEventMarkers.indexOfFirst {
-                                             val markerBase = getCanvasOffsetBase(getPositionOnSpline(it.waypointRelativePos, currentWaypoints), w, h, fieldWidthM, fieldHeightM, league)
-                                             sqrt((basePress.x - markerBase.x).pow(2) + (basePress.y - markerBase.y).pow(2)) < hitRadiusPx
-                                         }
-                                     }
-                                    var hitFieldWpId: String? = null
+                                     var hitFieldWpId: String? = null
                                     var hitFieldWpHeading = false
                                     var hitFieldWpCenter = false
-                                    if (hitIdx == -1 && hitEventIdx == -1) {
+                                     if (hitIdx == -1) {
                                         for (wp in currentActiveFieldWaypoints) {
                                             val wpOffset = getTransformedCanvasOffset(Waypoint(wp.x, wp.y), w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset, viewRotation)
                                             val angleRad = Math.toRadians(-wp.headingDegrees - 90.0)
@@ -446,10 +346,9 @@ fun FieldCanvas(
                                         }
                                     }
 
-                                    selectedWaypointIndex = hitIdx; selectedEventMarkerIndex = hitEventIdx
+                                    selectedWaypointIndex = hitIdx
                                     isDraggingHeading = hitIdx != -1 && hitHeading
                                     isDraggingPrevHeading = hitIdx != -1 && hitPrevHeading
-                                    isDraggingRotation = hitIdx != -1 && hitRotation
 
                                     selectedFieldWaypointId = hitFieldWpId
                                     isDraggingFieldWaypoint = hitFieldWpId != null && hitFieldWpCenter
@@ -464,7 +363,7 @@ fun FieldCanvas(
                                                      ?.let { dragInitialPos = Waypoint(it.x, it.y) }
                                              }
                                          }
-                                         hitIdx != -1 || hitEventIdx != -1 -> {
+                                         hitIdx != -1 -> {
                                              selectedObstacleId = null; selectedAprilTagId = null; selectedGamePieceId = null; selectedFieldWaypointId = null
                                          }
                                          else -> {
@@ -536,10 +435,6 @@ fun FieldCanvas(
                                     fun snap(v: Double) = if (isShiftPressed) kotlin.math.round(v * 10.0) / 10.0 else v
                                     val totalDelta = getDragDeltaInFieldCoords(accumulatedDragPx, w, h, fieldWidthM, fieldHeightM, league, zoomScale)
                                      when {
-                                         selectedEventMarkerIndex != -1 && onEventMarkersChanged != null -> {
-                                             val bestPos = getClosestSplinePosition(change.position, currentWaypoints, w, h, fieldWidthM, fieldHeightM, league)
-                                             onEventMarkersChanged(currentEventMarkers.toMutableList().apply { set(selectedEventMarkerIndex, this[selectedEventMarkerIndex].copy(waypointRelativePos = bestPos)) })
-                                         }
                                          selectedWaypointIndex != -1 -> {
                                              when {
                                                  isDraggingHeading -> {
@@ -560,17 +455,6 @@ fun FieldCanvas(
                                                      val normalizedAngle = wrapAngle(angle)
                                                      val mag = kotlin.math.sqrt(dx * dx + dy * dy)
                                                      onWaypointsChanged(currentWaypoints.toMutableList().apply { set(selectedWaypointIndex, wp.copy(headingRad = normalizedAngle, nextControlLength = if (isShiftPressed) snap(mag) else mag, prevControlLength = if (isShiftPressed) snap(mag) else mag)) })
-                                                 }
-                                                 isDraggingRotation -> {
-                                                     val wp = currentWaypoints[selectedWaypointIndex]
-                                                     val posMeters = getRobotCoordFromScreen(change.position, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
-                                                     val angle = kotlin.math.atan2(posMeters.y - wp.y, posMeters.x - wp.x)
-                                                     val degrees = Math.toDegrees(angle)
-                                                     val snappedDeg = if (isShiftPressed) snap(degrees).toDouble() else degrees
-                                                     // Update waypoint's own rotation directly
-                                                     onWaypointsChanged(currentWaypoints.toMutableList().apply {
-                                                         set(selectedWaypointIndex, wp.copy(rotationDeg = snappedDeg))
-                                                     })
                                                  }
                                                  else -> {
                                                      val newPos = getRobotCoordFromScreen(change.position, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
@@ -693,13 +577,12 @@ fun FieldCanvas(
                                 }
                             }
                             // Reset selection state
-                            selectedWaypointIndex = -1; selectedEventMarkerIndex = -1
+                            selectedWaypointIndex = -1
                             selectedObstacleId = null; selectedAprilTagId = null; selectedGamePieceId = null
                             hasDragged = false
                             accumulatedDragPx = Offset.Zero
                             isDraggingHeading = false
                             isDraggingPrevHeading = false
-                            isDraggingRotation = false
                             isDraggingFieldWaypoint = false
                             isDraggingFieldWaypointHeading = false
                         }
@@ -738,11 +621,9 @@ fun FieldCanvas(
                                     val offset = event.changes.first().position
                                     contextMenuOffset = with(density) { DpOffset(offset.x.toDp(), offset.y.toDp()) }
                                     val w = size.width.toFloat(); val h = size.height.toFloat()
-                                    val hitWpIdx = currentWaypoints.indexOfFirst { sqrt((offset.x - getTransformedCanvasOffset(it, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset, viewRotation).x).pow(2) + (offset.y - getTransformedCanvasOffset(it, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset, viewRotation).y).pow(2)) < 20.dp.toPx() }
-                                    if (hitWpIdx != -1) { contextTargetType = "Waypoint"; contextTargetIndex = hitWpIdx; contextMenuExpanded = true; continue }
-                                    val hitEventIdx = currentEventMarkers.indexOfFirst { sqrt((offset.x - getTransformedCanvasOffset(getPositionOnSpline(it.waypointRelativePos, currentWaypoints), w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset, viewRotation).x).pow(2) + (offset.y - getTransformedCanvasOffset(getPositionOnSpline(it.waypointRelativePos, currentWaypoints), w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset, viewRotation).y).pow(2)) < 15.dp.toPx() }
-                                    if (hitEventIdx != -1) { contextTargetType = "EventMarker"; contextTargetIndex = hitEventIdx; contextMenuExpanded = true; continue }
-                                    val clickCoord = getRobotCoordFromScreen(offset, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
+                                     val hitWpIdx = currentWaypoints.indexOfFirst { sqrt((offset.x - getTransformedCanvasOffset(it, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset, viewRotation).x).pow(2) + (offset.y - getTransformedCanvasOffset(it, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset, viewRotation).y).pow(2)) < 20.dp.toPx() }
+                                     if (hitWpIdx != -1) { contextTargetType = "Waypoint"; contextTargetIndex = hitWpIdx; contextMenuExpanded = true; continue }
+                                     val clickCoord = getRobotCoordFromScreen(offset, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
                                     val hitObs = currentActiveObstacles.find { obs ->
                                         when (obs) {
                                             is Obstacle.Circle -> sqrt((clickCoord.x - obs.centerX).pow(2) + (clickCoord.y - obs.centerY).pow(2)) <= obs.radius
@@ -795,10 +676,6 @@ fun FieldCanvas(
 
                 if (!autoGoalMode) {
                     drawPlannedSpline(pathCache, splinePoints, waypoints, w, h, fieldWidthM, fieldHeightM, league)
-                    drawEventMarkers(waypoints, eventMarkerPoints, w, h, fieldWidthM, fieldHeightM, league, selectedEventMarkerIndex)
-                    drawConstraintZones(pathCache, waypoints, constraintZoneSplines, w, h, fieldWidthM, fieldHeightM, league)
-                    drawPointTowardsZones(pathCache, waypoints, pointTowardsZoneRenderData, w, h, fieldWidthM, fieldHeightM, league)
-                    drawHolonomicRotationTargets(waypoints, combinedRotationTargets, combinedRotationTargetPoints, w, h, fieldWidthM, fieldHeightM, league)
                 }
 
                 drawActualPathAndDeviations(pathCache, actualPath, waypoints, w, h, fieldWidthM, fieldHeightM, league)
@@ -834,7 +711,7 @@ fun FieldCanvas(
                         league = league,
                         indicatorLightPosition = indicatorLightPosition
                     )
-                    drawWaypoints(pathCache, waypoints, selectedWaypointIndex, isDraggingHeading, isDraggingPrevHeading, w, h, fieldWidthM, fieldHeightM, league, combinedRotationTargets, isDraggingRotation)
+                    drawWaypoints(pathCache, waypoints, selectedWaypointIndex, isDraggingHeading, isDraggingPrevHeading, w, h, fieldWidthM, fieldHeightM, league)
                 }
 
                 drawContext.canvas.restore()
@@ -849,13 +726,11 @@ fun FieldCanvas(
                 targetIndex = contextTargetIndex,
                 targetId = contextTargetId,
                 waypoints = waypoints,
-                eventMarkers = currentEventMarkers,
                 obstacles = currentActiveObstacles,
                 aprilTags = currentActiveAprilTags,
                 gamePieces = currentActiveGamePieces,
                 fieldWaypoints = currentActiveFieldWaypoints,
                 onWaypointsChanged = onWaypointsChanged,
-                onEventMarkersChanged = onEventMarkersChanged,
                 updateObstacles = updateObstacles,
                 updateAprilTags = updateAprilTags,
                 updateGamePieces = updateGamePieces,
@@ -866,16 +741,7 @@ fun FieldCanvas(
                     selectedAprilTagId = null
                     selectedGamePieceId = null
                     selectedFieldWaypointId = null
-                    selectedEventMarkerIndex = -1
                 }
-            )
-
-            PlannerExportPanel(
-                showPathControls = showPathControls,
-                projectPath = projectPath,
-                league = league,
-                waypoints = waypoints,
-                modifier = Modifier.align(Alignment.BottomEnd)
             )
         }
     }

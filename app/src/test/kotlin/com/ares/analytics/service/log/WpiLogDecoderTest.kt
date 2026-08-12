@@ -6,11 +6,75 @@ import kotlinx.coroutines.test.runTest
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.nio.file.Files
+import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 
 class WpiLogDecoderTest {
+
+    @Test
+    fun `binary schemas are preserved as tagged base64 without replacement characters`() = runTest {
+        val tempDir = Files.createTempDirectory("ares-wpilog-binary").toFile()
+        val database = DatabaseService(tempDir.resolve("telemetry.duckdb").absolutePath)
+        try {
+            val log = tempDir.resolve("binary.wpilog")
+            val msgpack = byteArrayOf(0x81.toByte(), 0xff.toByte(), 0x00)
+            val protobuf = byteArrayOf(0x0a, 0x02, 0xc3.toByte(), 0x28)
+            val struct = byteArrayOf(0xff.toByte(), 0xfe.toByte(), 0xfd.toByte())
+            val bytes = ByteArrayOutputStream()
+            bytes.writeFileHeader("")
+            bytes.writeRecord(0, 0, controlStart(1, "MessagePack", "msgpack", "{}"))
+            bytes.writeRecord(0, 0, controlStart(2, "Proto", "protobuf", "{}"))
+            bytes.writeRecord(0, 0, controlStart(3, "Struct", "struct:Pose2d", "{}"))
+            bytes.writeRecord(1, 1_000, msgpack)
+            bytes.writeRecord(2, 1_000, protobuf)
+            bytes.writeRecord(3, 1_000, struct)
+            log.writeBytes(bytes.toByteArray())
+            val batcher = FrameBatcher(database)
+
+            WpiLogDecoder().parseWpiLog(log, "session", batcher)
+            batcher.flush()
+
+            val encoded = listOf(
+                database.getTelemetryForKey("session", "MessagePack").single().stringValue,
+                database.getTelemetryForKey("session", "Proto").single().stringValue,
+                database.getTelemetryForKey("session", "Struct").single().stringValue
+            )
+            assertEquals("base64:msgpack:${Base64.getEncoder().encodeToString(msgpack)}", encoded[0])
+            assertEquals("base64:protobuf:${Base64.getEncoder().encodeToString(protobuf)}", encoded[1])
+            assertEquals("base64:struct:Pose2d:${Base64.getEncoder().encodeToString(struct)}", encoded[2])
+            assertFalse(encoded.any { it?.contains('\uFFFD') == true })
+        } finally {
+            database.close()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `malformed UTF-8 in a textual schema is rejected instead of replaced`() = runTest {
+        val tempDir = Files.createTempDirectory("ares-wpilog-invalid-utf8").toFile()
+        val database = DatabaseService(tempDir.resolve("telemetry.duckdb").absolutePath)
+        try {
+            val log = tempDir.resolve("text.wpilog")
+            val bytes = ByteArrayOutputStream()
+            bytes.writeFileHeader("")
+            bytes.writeRecord(0, 0, controlStart(1, "Mode", "string", "{}"))
+            bytes.writeRecord(1, 1_000, byteArrayOf(0xc3.toByte(), 0x28))
+            log.writeBytes(bytes.toByteArray())
+            val batcher = FrameBatcher(database)
+
+            assertFailsWith<IOException> {
+                WpiLogDecoder().parseWpiLog(log, "session", batcher)
+            }
+            batcher.flush()
+            assertEquals(0L, database.countTelemetryFrames("session"))
+        } finally {
+            database.close()
+            tempDir.deleteRecursively()
+        }
+    }
 
     @Test
     fun `decodes length-prefixed declarations extra header and wide timestamps`() = runTest {

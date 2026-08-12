@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
 import com.ares.analytics.ui.components.core.*
@@ -34,7 +33,6 @@ fun IMUVisualizerCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    val scope = rememberCoroutineScope()
     var roll by remember { mutableStateOf<Double?>(null) }
     var pitch by remember { mutableStateOf<Double?>(null) }
     var yaw by remember { mutableStateOf<Double?>(null) }
@@ -64,19 +62,7 @@ fun IMUVisualizerCard(
         CardHeader(
             title = "IMU Orientation",
             icon = Icons.Default.CompassCalibration,
-            iconTint = AresGold,
-            trailingContent = {
-                Button(
-                    onClick = { scope.launch { nt4ClientService.publishInputBoolean(1100, true) } }, // Assume 1100 is a generic zero heading command
-                    colors = ButtonDefaults.buttonColors(containerColor = AresSurface),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                    shape = RoundedCornerShape(6.dp),
-                    modifier = Modifier.height(26.dp)
-                ) {
-                    Text("Zero Heading", color = AresTextSecondary, fontSize = 10.sp)
-                }
-            }
+            iconTint = AresGold
         )
 
             Row(

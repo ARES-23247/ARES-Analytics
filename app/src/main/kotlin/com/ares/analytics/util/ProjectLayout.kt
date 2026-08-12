@@ -30,22 +30,6 @@ internal object ProjectLayout {
     fun fieldDefinitionFile(projectPath: String, league: League): File =
         File(fieldDataDirectory(projectPath, league), "field.json")
 
-    /** Directory containing PathPlanner `.path` files. */
-    fun pathPlannerPathsDirectory(projectPath: String, league: League): File =
-        File(assetsDirectory(projectPath, league), "pathplanner/paths")
-
-    /** Directory containing PathPlanner `.auto` files. */
-    fun pathPlannerAutosDirectory(projectPath: String, league: League): File =
-        File(assetsDirectory(projectPath, league), "pathplanner/autos")
-
-    /** Canonical ARES GUI/DSL auto documents deployed with the robot project. */
-    fun aresAutosDirectory(projectPath: String, league: League): File =
-        File(assetsDirectory(projectPath, league), "ares/autos")
-
-    /** Local immutable checkpoints; this directory is never deployed to a robot. */
-    fun aresAutoHistoryDirectory(projectPath: String, documentId: String): File =
-        File(projectPath, ".ares/history/autos/$documentId")
-
     /** Returns null only when [projectPath] is a usable robot source repository. */
     fun validationError(projectPath: String, league: League): String? {
         if (projectPath.isBlank()) return "Choose the robot repository folder."

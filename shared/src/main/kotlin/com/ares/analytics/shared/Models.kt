@@ -5,6 +5,8 @@ import kotlinx.serialization.Serializable
 // Keep these aliases while callers migrate to shared.models; removing them is a source-breaking change.
 import com.ares.analytics.shared.models.*
 
+const val DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
+
 typealias League = com.ares.analytics.shared.models.League
 typealias WorkspaceConfig = com.ares.analytics.shared.models.WorkspaceConfig
 typealias AppWorkspaces = com.ares.analytics.shared.models.AppWorkspaces

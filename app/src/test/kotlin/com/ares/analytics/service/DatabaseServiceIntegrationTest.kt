@@ -1,12 +1,17 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.TelemetryFrame
+import com.ares.analytics.shared.Session
+import com.ares.analytics.shared.SessionSummary
+import com.ares.analytics.service.db.CloudImportStage
 import kotlinx.coroutines.test.runTest
+import java.io.IOException
 import java.nio.file.Files
 import java.sql.DriverManager
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -142,6 +147,71 @@ class DatabaseServiceIntegrationTest {
             }.exceptionOrNull()
 
             assertTrue(failure is IllegalArgumentException)
+        }
+    }
+
+    @Test
+    fun `cloud session bundle rolls back every table when any stage fails`() = runTest {
+        withDatabase { database ->
+            val tempDir = Files.createTempDirectory("ares-cloud-import-atomic").toFile()
+            try {
+                database.insertTelemetryFrames(listOf(TelemetryFrame(1_000L, "source", "Drive/X", 1.0)))
+                val parquet = tempDir.resolve("source.parquet")
+                database.exportSessionToParquet("source", parquet)
+                database.deleteTelemetryFrames("source")
+
+                CloudImportStage.entries.forEachIndexed { index, failingStage ->
+                    val id = "target-$index"
+                    val summary = SessionSummary(id, "team", "season", "robot", 1_000L)
+                    val session = Session(id, "team", "season", "robot", 1_000L)
+                    database.setCloudImportFailureInjector { stage ->
+                        if (stage == failingStage) throw IllegalStateException("injected $stage")
+                    }
+
+                    assertFailsWith<IllegalStateException> {
+                        database.importCloudSessionAtomically(parquet, summary, session)
+                    }
+                    assertEquals(0L, database.countTelemetryFrames(id))
+                    assertNull(database.getSessionSummary(id))
+                    assertTrue(database.getSessions().none { it.sessionId == id })
+                }
+            } finally {
+                database.setCloudImportFailureInjector(null)
+                tempDir.deleteRecursively()
+            }
+        }
+    }
+
+    @Test
+    fun `Parquet and ZIP replace failure preserves prior destination bytes`() = runTest {
+        withDatabase { database ->
+            val sessionId = "atomic-export"
+            database.insertTelemetryFrames(
+                listOf(TelemetryFrame(1_000L, sessionId, "Drive/X", 1.0, sampleOrder = 1L)),
+            )
+            val outputDirectory = Files.createTempDirectory("ares-backup-atomic").toFile()
+            try {
+                database.setExportReplaceFailureInjector { temporary, destination ->
+                    assertEquals(destination.parent, temporary.parent)
+                    assertTrue(Files.isRegularFile(temporary))
+                    throw IOException("injected replace failure")
+                }
+
+                val parquet = outputDirectory.resolve("session.parquet").apply { writeText("old-parquet") }
+                assertFailsWith<IOException> {
+                    database.exportSessionToParquet(sessionId, parquet)
+                }
+                assertEquals("old-parquet", parquet.readText())
+
+                val zip = outputDirectory.resolve("sessions.zip").apply { writeText("old-zip") }
+                assertFailsWith<IOException> {
+                    database.exportSessionsToZip(listOf(sessionId), zip)
+                }
+                assertEquals("old-zip", zip.readText())
+            } finally {
+                database.setExportReplaceFailureInjector(null)
+                outputDirectory.deleteRecursively()
+            }
         }
     }
 
