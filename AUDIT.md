@@ -276,5 +276,5 @@ Given C1/C2, the following should be treated as compromised (they are in git his
 - [ ] Google OAuth Client Secret (`GOCSPX-…`)
 - [ ] Google OAuth Client ID (review usage; restrict to authorized origins/redirect URIs)
 - [ ] Gemini API key (C4 — also logged in URLs)
-- [ ] Firebase API key (`AIzaSyB4cU7pgHpqoxtqtQalIE4HqZoz3X7bJH0`) — informational (designed public) but audit Firebase auth logs for abuse given the weak rules.
+- [ ] Historical Firebase web API key — the obsolete client has been removed; verify the key is rotated or tightly restricted in Google Cloud, then resolve the secret-scanning alert without retaining the literal in documentation.
 - [ ] Audit Firebase auth logs and Cloud Run access for abuse once `MOCK_AUTH`/IDOR issues are addressed.
