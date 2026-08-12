@@ -10,10 +10,12 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 | See a robot without risking hardware | [Connect the simulator](start/CONNECT_SIMULATOR.md) | Live simulator telemetry on this computer |
 | Review a practice or match log | [Bring in a run](operate/BRING_IN_A_RUN.md) | An imported, persistent run and replay controls |
 | Understand an unfamiliar word | [Glossary](learn/GLOSSARY.md) | Short definitions with mentor notes |
+| Find the right screen or owning source file | [Find help and current source](learn/FIND_HELP_AND_SOURCE.md) | Contextual lessons, connection labels, and developer reference |
 | Lead a student activity | [Teaching with ARES](mentor/TEACHING_WITH_ARES.md) | A safe simulator-first lesson sequence |
 | Build autonomous routines or controller bindings | [Routines and controls](ROUTINES_AND_CONTROLS.md) | Offline project authoring |
 | Add a robot mechanism | [Subsystem Builder](SUBSYSTEM_BUILDER.md) | Generated IO, state, actions, reducers, and controllers |
 | Diagnose or administer the application | [Operations guide](OPERATIONS.md) | Ports, storage, recovery, and release checks |
+| Find the code behind an ARES concept | **Developer Mode → Developer Reference** in the app | Current source path, units, invariants, and nearby tests |
 
 ## Know which world you are looking at
 
@@ -56,3 +58,10 @@ The student guides stay task-focused. Protocol, persistence, and implementation 
 - [Telemetry contract](TELEMETRY_CONTRACT.md)
 - [Operations](OPERATIONS.md)
 - [Automated validation](VALIDATION.md)
+
+## Built-in help
+
+- Select **Help** beside the execution toolbar on supported screens to open the lesson for that workflow.
+- Use the sidebar **Help & Learn** button for the full task catalog.
+- Open the command palette with **Ctrl+K** and search for a task or symptom, such as `bring in a run`, `disconnected`, or `gamepad`.
+- With Developer Mode enabled, **Developer Reference** maps core concepts to their live ARESLib source paths. It is a curated locator, not a complete generated API reference.

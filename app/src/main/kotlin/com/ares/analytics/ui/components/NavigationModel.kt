@@ -27,7 +27,7 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     PATH_PLANNER("Auto Builder", Icons.Default.Route),
     FIELD_EDITOR("Field Editor", Icons.Default.Layers),
     ACADEMY("Help & Learn", Icons.Default.School),
-    KDOC_VIEWER("KDoc Explorer", Icons.Default.Book),
+    KDOC_VIEWER("Developer Reference", Icons.Default.Book),
     PIT_DIAGNOSTICS("Pit Self-Test", Icons.Default.Build),
     MATCH_STRATEGY("Strategy Preview", Icons.Default.Analytics),
     RUN_HISTORY("Run History", Icons.Default.TableChart),
@@ -109,7 +109,7 @@ fun NavigationTarget.searchTerms(): Set<String> = when (this) {
     NavigationTarget.PATH_PLANNER -> setOf("autonomous", "routine", "path", "drive to")
     NavigationTarget.FIELD_EDITOR -> setOf("field", "obstacle", "april tag", "game piece")
     NavigationTarget.ACADEMY -> setOf("help", "learn", "tutorial", "start here", "student", "novice", "glossary")
-    NavigationTarget.KDOC_VIEWER -> setOf("api", "code reference", "kdoc")
+    NavigationTarget.KDOC_VIEWER -> setOf("api", "code reference", "kdoc", "source", "architecture", "units")
     NavigationTarget.PIT_DIAGNOSTICS -> setOf("hardware", "readiness", "pit", "self test", "freshness")
     NavigationTarget.MATCH_STRATEGY -> setOf("match", "strategy", "preview")
     NavigationTarget.RUN_HISTORY -> setOf("replay", "review", "compare", "past run", "session")

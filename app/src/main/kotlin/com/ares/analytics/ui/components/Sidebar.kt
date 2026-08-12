@@ -90,7 +90,7 @@ internal fun Sidebar(
             UtilityButton("Find any screen (Ctrl+K)", Icons.Default.Search, activeTarget in developerToolTargets, onOpenCommandPalette)
             UtilityButton("Help & Learn", Icons.AutoMirrored.Filled.HelpOutline, activeTarget == NavigationTarget.ACADEMY) { onNavigate(NavigationTarget.ACADEMY) }
             UtilityButton("Terminal Console", Icons.Default.Terminal, false, onToggleTerminal)
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 ConnectionIndicator(isConnected, "NT4")
                 if (league == League.FTC) ConnectionIndicator(adbConnected, "ADB", AresCyan)
             }
@@ -146,6 +146,21 @@ internal fun ConnectionIndicator(connected: Boolean, label: String, activeColor:
         tooltip = { PlainTooltip { Text("$label: ${if (connected) "Connected" else "Disconnected"}") } },
         state = rememberTooltipState()
     ) {
-        Box(Modifier.size(9.dp).clip(CircleShape).background(dotColor))
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (connected) dotColor.copy(alpha = 0.12f) else Color.Transparent)
+                .padding(horizontal = 6.dp, vertical = 3.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(7.dp).clip(CircleShape).background(dotColor))
+            Text(
+                "$label ${if (connected) "on" else "off"}",
+                color = if (connected) dotColor else AresTextTertiary,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 }

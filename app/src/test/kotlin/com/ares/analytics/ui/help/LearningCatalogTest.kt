@@ -22,4 +22,13 @@ class LearningCatalogTest {
         assertTrue(LearningCatalog.search("redux").any { it.id == "safe-subsystem" })
         assertTrue(LearningCatalog.search("sysid", LearningLevel.STARTER).isEmpty())
     }
+
+    @Test
+    fun `contextual help opens the lesson for the active workflow`() {
+        assertEquals("bring-in-run", LearningCatalog.lessonFor(NavigationTarget.IMPORT_CENTER)?.id)
+        assertEquals("bring-in-run", LearningCatalog.lessonFor(NavigationTarget.RUN_HISTORY)?.id)
+        assertEquals("first-routine", LearningCatalog.lessonFor(NavigationTarget.PATH_PLANNER)?.id)
+        assertEquals("developer-reference", LearningCatalog.lessonFor(NavigationTarget.KDOC_VIEWER)?.id)
+        assertEquals(null, LearningCatalog.lessonFor(NavigationTarget.ADMIN))
+    }
 }

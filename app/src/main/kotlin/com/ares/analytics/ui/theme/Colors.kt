@@ -11,6 +11,7 @@ object AresThemeSettings {
     var colorblindMode by mutableStateOf(false)
     var highContrastMode by mutableStateOf(false)
     var touchOptimizedMode by mutableStateOf(false)
+    var largeTextMode by mutableStateOf(false)
     val currentColors: AresColorPalette
         get() = getAresColors(colorblindMode, highContrastMode)
 }

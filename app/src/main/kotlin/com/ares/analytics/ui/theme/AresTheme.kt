@@ -5,6 +5,10 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.Shapes
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 
 private fun aresColorScheme(colors: AresColorPalette) = darkColorScheme(
@@ -49,10 +53,22 @@ fun AresTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = aresColorScheme(AresThemeSettings.currentColors)
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = AresTypography,
-        shapes = AresShapes,
-        content = content
-    )
+    val parentDensity = LocalDensity.current
+    val effectiveDensity = remember(parentDensity.density, parentDensity.fontScale, AresThemeSettings.largeTextMode) {
+        Density(
+            density = parentDensity.density,
+            fontScale = effectiveAresFontScale(parentDensity.fontScale, AresThemeSettings.largeTextMode)
+        )
+    }
+    CompositionLocalProvider(LocalDensity provides effectiveDensity) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = AresTypography,
+            shapes = AresShapes,
+            content = content
+        )
+    }
 }
+
+internal fun effectiveAresFontScale(systemScale: Float, largeTextMode: Boolean): Float =
+    systemScale * if (largeTextMode) 1.18f else 1.0f

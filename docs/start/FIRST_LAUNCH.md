@@ -66,7 +66,7 @@ Setup is complete when:
 - the execution toolbar offers **Live Robot** and **Local Sim** targets; and
 - no required-field or JDK error remains.
 
-The gray/green target dot is a connectivity indicator, not a setup score. It can be gray until a robot or simulator is running.
+The sidebar shows labeled **NT4 on/off** and, for FTC, **ADB on/off** status. These are connectivity indicators, not setup scores. They can say `off` until a robot or simulator is running.
 
 ## If setup does not finish
 

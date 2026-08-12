@@ -188,7 +188,41 @@ object LearningCatalog {
             safetyNote = "SysId intentionally moves mechanisms. Use physical testing only with supervision, clear space, and an emergency stop plan.",
             keywords = setOf("sysid", "pid", "feedforward", "closed loop"),
         ),
+        LearningLesson(
+            id = "developer-reference",
+            level = LearningLevel.ADVANCED,
+            track = LearningTrack.UNDERSTAND,
+            title = "Navigate ARES source concepts",
+            outcome = "Find the current source of truth for a core ARES concept without relying on stale examples.",
+            durationMinutes = 8,
+            destination = NavigationTarget.KDOC_VIEWER,
+            beforeYouStart = listOf("Enable Developer Mode in Profile.", "Open the ARES workspace source on this laptop."),
+            steps = listOf(
+                "Open Developer Reference and search for the concept, responsibility, or source filename.",
+                "Read the units and invariant before copying an API name.",
+                "Open the listed source path and verify its current declaration and KDoc.",
+                "Run the closest focused test before using the concept in robot code.",
+            ),
+            successLooksLike = "You can identify the owning module, source path, units, and safety invariant for the concept.",
+            safetyNote = "The reference is a curated map, not generated API documentation. Current source and tests remain authoritative.",
+            keywords = setOf("developer", "source", "kdoc", "api", "architecture", "units"),
+        ),
     )
+
+    private val contextualLessonIds = mapOf(
+        NavigationTarget.DASHBOARD to "read-connection-state",
+        NavigationTarget.IMPORT_CENTER to "bring-in-run",
+        NavigationTarget.RUN_HISTORY to "bring-in-run",
+        NavigationTarget.PATH_PLANNER to "first-routine",
+        NavigationTarget.CONTROLS to "map-one-control",
+        NavigationTarget.SUBSYSTEM_GEN to "safe-subsystem",
+        NavigationTarget.PIT_DIAGNOSTICS to "pit-readiness",
+        NavigationTarget.TUNING to "tuning-evidence",
+        NavigationTarget.KDOC_VIEWER to "developer-reference",
+    )
+
+    fun lessonFor(target: NavigationTarget): LearningLesson? =
+        contextualLessonIds[target]?.let { id -> lessons.firstOrNull { it.id == id } }
 
     fun search(query: String, level: LearningLevel? = null): List<LearningLesson> {
         val normalized = query.trim().lowercase()

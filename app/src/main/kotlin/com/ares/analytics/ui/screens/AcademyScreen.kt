@@ -38,6 +38,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -79,12 +80,21 @@ fun AcademyScreen(
     progressService: LearningProgressService,
     onOpenScreen: (NavigationTarget) -> Unit,
     onStartSimulator: () -> Unit,
+    initialLessonId: String? = null,
 ) {
     val progress by progressService.progress.collectAsState()
     val scope = rememberCoroutineScope()
     var query by remember { mutableStateOf("") }
     var selectedLevel by remember { mutableStateOf<LearningLevel?>(LearningLevel.STARTER) }
     var selectedLessonId by remember { mutableStateOf(LearningCatalog.lessons.first().id) }
+    LaunchedEffect(initialLessonId) {
+        val requested = LearningCatalog.lessons.firstOrNull { it.id == initialLessonId }
+        if (requested != null) {
+            selectedLessonId = requested.id
+            selectedLevel = requested.level
+            query = ""
+        }
+    }
     val matches = remember(query, selectedLevel) { LearningCatalog.search(query, selectedLevel) }
     val selectedLesson = LearningCatalog.lessons.firstOrNull { it.id == selectedLessonId }
         ?: matches.firstOrNull()
