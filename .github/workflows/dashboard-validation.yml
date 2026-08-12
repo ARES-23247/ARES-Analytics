@@ -1,13 +1,10 @@
 name: Dashboard Validation
 
 on:
+  # This job is a required branch-protection check, so every pull request must
+  # schedule it. Path filtering would leave documentation and dependency-only
+  # pull requests permanently pending with no check run to satisfy protection.
   pull_request:
-    paths:
-      - 'app/**'
-      - 'shared/**'
-      - 'build.gradle.kts'
-      - 'settings.gradle.kts'
-      - '.github/workflows/dashboard-validation.yml'
   push:
     branches: [master]
     paths:
