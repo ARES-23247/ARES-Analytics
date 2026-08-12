@@ -188,8 +188,8 @@ private fun validateStepFields(
     dimensions: RobotDimensions,
     issues: MutableList<RoutineValidationIssue>
 ) {
-    steps.forEachIndexed { index, step ->
-        val stepPath = "$path[$index]"
+    steps.forEach { step ->
+        val stepPath = "$path/${step.stepId}"
         step.drive?.let { drive ->
             if (drive.target != clampRoutinePose(drive.target, league, dimensions)) {
                 issues += routineIssue(routine, "$stepPath.drive.target", "robot_outside_field", "Drive goal robot footprint crosses the field boundary")

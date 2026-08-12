@@ -238,6 +238,7 @@ fun RoutineEditorPanel(
                     actions = state.routineActions,
                     conditions = state.routineConditions,
                     routines = state.availableRoutines.filter { it.documentId != state.routine.documentId },
+                    issues = state.routineValidation.filter { it.path.contains("/${step.stepId}") },
                     onUpdate = { onIntent(PathPlannerIntent.UpdateRoutineStep(step.stepId, it)) },
                     onMove = { onIntent(PathPlannerIntent.MoveRoutineStep(step.stepId, it)) },
                     onRemove = { onIntent(PathPlannerIntent.RemoveRoutineStep(step.stepId)) },
@@ -413,6 +414,7 @@ private fun RoutineStepCard(
     actions: List<ActionDescriptor>,
     conditions: List<ConditionDescriptor>,
     routines: List<RoutineDocument>,
+    issues: List<RoutineValidationIssue>,
     onUpdate: (RoutineStep) -> Unit,
     onMove: (Int) -> Unit,
     onRemove: () -> Unit,
@@ -450,12 +452,27 @@ private fun RoutineStepCard(
                     }
                 }
             }
+            val stepErrors = issues.filter { it.severity == RoutineValidationSeverity.ERROR }
+            if (stepErrors.isNotEmpty()) {
+                Surface(
+                    color = AresError.copy(alpha = .08f),
+                    border = BorderStroke(1.dp, AresError.copy(alpha = .45f)),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        stepErrors.take(3).forEach { issue ->
+                            Text(issue.message, color = AresError, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                }
+            }
             when (step.kind) {
                 RoutineStepKind.ACTION -> {
                     ActionPicker(actions, step.actionKey) { onUpdate(step.copy(actionKey = it.key, arguments = defaultsFor(it.parameters))) }
                     actions.firstOrNull { it.key == step.actionKey }?.let { descriptor ->
                         Text(descriptor.description, style = MaterialTheme.typography.bodySmall, color = AresTextSecondary)
-                        ParameterEditors(descriptor.parameters, step.arguments) { onUpdate(step.copy(arguments = it)) }
+                        ParameterEditors(descriptor.parameters, step.arguments, issues) { onUpdate(step.copy(arguments = it)) }
                     }
                 }
                 RoutineStepKind.DRIVE_TO -> step.drive?.let { drive ->
@@ -479,7 +496,7 @@ private fun RoutineStepCard(
                         onUpdate(step.copy(timeoutSeconds = it.coerceAtLeast(.01)))
                     }
                     conditions.firstOrNull { it.key == step.conditionKey }?.let { descriptor ->
-                        ParameterEditors(descriptor.parameters, step.arguments) { onUpdate(step.copy(arguments = it)) }
+                        ParameterEditors(descriptor.parameters, step.arguments, issues) { onUpdate(step.copy(arguments = it)) }
                     }
                 }
                 RoutineStepKind.CALL -> RoutinePicker(routines, step.routineId) { onUpdate(step.copy(routineId = it.documentId)) }
@@ -494,7 +511,7 @@ private fun RoutineStepCard(
                         onUpdate(step.copy(conditionKey = it.key, arguments = defaultsFor(it.parameters)))
                     }
                     conditions.firstOrNull { it.key == step.conditionKey }?.let { descriptor ->
-                        ParameterEditors(descriptor.parameters, step.arguments) { onUpdate(step.copy(arguments = it)) }
+                        ParameterEditors(descriptor.parameters, step.arguments, issues) { onUpdate(step.copy(arguments = it)) }
                     }
                     ChildLane("When true", index, step.children, false, actions, conditions, routines, onAddChild, onUpdateChild, onRemoveChild)
                     ChildLane("Otherwise", index, step.elseChildren, true, actions, conditions, routines, onAddChild, onUpdateChild, onRemoveChild)
@@ -678,14 +695,21 @@ private fun RoutinePicker(routines: List<RoutineDocument>, selectedId: String?, 
 private fun ParameterEditors(
     descriptors: List<CapabilityParameterDescriptor>,
     arguments: Map<String, String>,
+    issues: List<RoutineValidationIssue> = emptyList(),
     onChanged: (Map<String, String>) -> Unit
 ) {
     descriptors.forEach { descriptor ->
         val value = arguments[descriptor.key] ?: defaultValue(descriptor)
+        val fieldError = issues.firstOrNull {
+            it.severity == RoutineValidationSeverity.ERROR && it.path.endsWith(".arguments.${descriptor.key}")
+        }
         when (descriptor.type) {
-            CapabilityParameterType.BOOLEAN -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Switch(value == "true", { checked -> onChanged(arguments + (descriptor.key to checked.toString())) })
-                Spacer(Modifier.width(8.dp)); Column { Text(descriptor.displayName); Text(descriptor.description, style = MaterialTheme.typography.labelSmall, color = AresTextSecondary) }
+            CapabilityParameterType.BOOLEAN -> Column {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Switch(value == "true", { checked -> onChanged(arguments + (descriptor.key to checked.toString())) })
+                    Spacer(Modifier.width(8.dp)); Column { Text(descriptor.displayName); Text(descriptor.description, style = MaterialTheme.typography.labelSmall, color = AresTextSecondary) }
+                }
+                fieldError?.let { Text(it.message, color = AresError, style = MaterialTheme.typography.labelSmall) }
             }
             CapabilityParameterType.ENUM -> EnumParameterPicker(descriptor, value) { onChanged(arguments + (descriptor.key to it)) }
             CapabilityParameterType.NUMBER,
@@ -696,6 +720,7 @@ private fun ParameterEditors(
                     onValueChange = { onChanged(arguments + (descriptor.key to it)) },
                     label = { Text(descriptor.displayName) },
                     supportingText = { Text(descriptor.description) },
+                    isError = fieldError != null,
                     suffix = if (unit == null) null else ({ Text(unit) }),
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
