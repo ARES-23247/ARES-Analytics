@@ -20,8 +20,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.School
@@ -122,7 +122,7 @@ fun AcademyScreen(
                     FilterChip(
                         selected = selectedLevel == level,
                         onClick = { selectedLevel = if (selectedLevel == level) null else level },
-                        label = { Text(level.label, fontSize = 11.sp) },
+                        label = { Text(level.label, fontSize = 12.sp) },
                     )
                 }
             }
@@ -212,11 +212,11 @@ private fun LessonListCard(lesson: LearningLesson, practiced: Boolean, selected:
             )
             Column(Modifier.padding(start = 10.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(lesson.title, color = AresTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                Text(lesson.outcome, color = AresTextSecondary, fontSize = 11.sp, lineHeight = 15.sp)
+                Text(lesson.outcome, color = AresTextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
                 Text(
                     "${lesson.track.label} • ${lesson.durationMinutes} min${if (lesson.requiresRobot) " • Robot later" else " • No robot needed"}",
                     color = AresTextTertiary,
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
                 )
             }
         }
@@ -271,7 +271,7 @@ private fun LessonDetail(
                     onClick = onLaunch,
                     colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
                 ) {
-                    Icon(if (lesson.action == LearningAction.START_SIMULATOR) Icons.Default.PlayArrow else Icons.Default.Launch, null)
+                    Icon(if (lesson.action == LearningAction.START_SIMULATOR) Icons.Default.PlayArrow else Icons.AutoMirrored.Filled.Launch, null)
                     Spacer(Modifier.width(7.dp))
                     Text(
                         if (lesson.action == LearningAction.START_SIMULATOR) "Start local simulator" else "Open ${lesson.destination.label}",
@@ -286,7 +286,7 @@ private fun LessonDetail(
             Text(
                 "Practice marks are private reminders—not grades, certification, or proof of robot safety.",
                 color = AresTextTertiary,
-                fontSize = 11.sp,
+                fontSize = 12.sp,
                 modifier = Modifier.padding(top = 7.dp),
             )
         }

@@ -20,6 +20,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
@@ -72,6 +74,7 @@ import com.areslib.controls.ControlEvent
 import com.areslib.controls.ControlSourceKind
 import com.areslib.controls.ControlTargetKind
 import com.areslib.controls.ControlThresholdDirection
+import com.areslib.controls.ControlTimingDocument
 import com.areslib.controls.ControllerControlDocument
 import com.areslib.controls.ControllerControlTypeDocument
 import com.areslib.controls.ControllerInputPlatform
@@ -459,6 +462,9 @@ private fun BindingInspector(
     viewModel: ControlsEditorViewModel,
     binding: ControlBindingDocument
 ) {
+    var advancedExpanded by remember(binding.bindingId) {
+        mutableStateOf(hasAdvancedBindingSettings(binding))
+    }
     Column(cardModifier(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Text(if (state.selectedBindingId == null) "New binding" else "Edit binding", color = AresCyan, fontWeight = FontWeight.Bold)
@@ -493,18 +499,11 @@ private fun BindingInspector(
         SelectionMenu(
             "Event", binding.event.friendlyName(), events.map { it.name to it.friendlyName() }, Modifier.fillMaxWidth()
         ) { selected -> viewModel.updateDraft { it.copy(event = ControlEvent.valueOf(selected)) } }
-        TimingFields(binding, viewModel)
         TargetFields(state, binding, viewModel)
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(binding.enabled, { value -> viewModel.updateDraft { it.copy(enabled = value) } })
                 Text(" Enabled", color = AresTextPrimary, fontSize = 11.sp)
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(binding.suppressConstituentBindings, { value ->
-                    viewModel.updateDraft { it.copy(suppressConstituentBindings = value) }
-                })
-                Text(" Suppress chord buttons", color = AresTextSecondary, fontSize = 10.sp)
             }
         }
         Button(
@@ -512,6 +511,42 @@ private fun BindingInspector(
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = Color.Black)
         ) { Text(if (state.selectedBindingId == null) "Add binding" else "Apply changes") }
+        HorizontalDivider(color = AresBorder)
+        Row(
+            Modifier.fillMaxWidth().clickable { advancedExpanded = !advancedExpanded }.padding(vertical = 2.dp),
+            Arrangement.SpaceBetween,
+            Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Advanced timing & safety", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                Text(
+                    advancedBindingSummary(binding),
+                    color = if (hasAdvancedBindingSettings(binding)) AresGold else AresTextSecondary,
+                    fontSize = 10.sp
+                )
+            }
+            Icon(
+                if (advancedExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                if (advancedExpanded) "Hide advanced settings" else "Show advanced settings",
+                tint = AresTextSecondary
+            )
+        }
+        if (advancedExpanded) {
+            TimingFields(binding, viewModel)
+            if (binding.source.kind == ControlSourceKind.CHORD) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(binding.suppressConstituentBindings, { value ->
+                        viewModel.updateDraft { it.copy(suppressConstituentBindings = value) }
+                    })
+                    Text(" Suppress individual chord-button actions", color = AresTextPrimary, fontSize = 11.sp)
+                }
+                Text(
+                    "Recommended for chords so one press does not trigger both the chord and its individual buttons.",
+                    color = AresTextSecondary,
+                    fontSize = 10.sp
+                )
+            }
+        }
     }
 }
 
@@ -558,8 +593,6 @@ private fun AnalogSourceFields(binding: ControlBindingDocument, viewModel: Contr
 
 @Composable
 private fun TimingFields(binding: ControlBindingDocument, viewModel: ControlsEditorViewModel) {
-    HorizontalDivider(color = AresBorder)
-    Text("Timing and safety", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
     NumberEditor("Press debounce (s)", binding.timing.pressDebounceSeconds) { value ->
         viewModel.updateDraft { it.copy(timing = it.timing.copy(pressDebounceSeconds = value)) }
     }
@@ -581,6 +614,21 @@ private fun TimingFields(binding: ControlBindingDocument, viewModel: ControlsEdi
     NullableNumberEditor("Maximum active (s)", binding.timing.maximumActiveSeconds) { value ->
         viewModel.updateDraft { it.copy(timing = it.timing.copy(maximumActiveSeconds = value)) }
     }
+}
+
+internal fun hasAdvancedBindingSettings(binding: ControlBindingDocument): Boolean =
+    binding.timing != ControlTimingDocument() || binding.suppressConstituentBindings
+
+internal fun advancedBindingSummary(binding: ControlBindingDocument): String {
+    val active = buildList {
+        if (binding.timing.pressDebounceSeconds > 0.0 || binding.timing.releaseDebounceSeconds > 0.0) add("debounce")
+        if (binding.timing.holdAfterSeconds != null) add("hold")
+        if (binding.timing.repeatAfterSeconds != null || binding.timing.repeatEverySeconds != null) add("repeat")
+        if (binding.timing.cooldownSeconds > 0.0) add("cooldown")
+        if (binding.timing.maximumActiveSeconds != null) add("maximum active time")
+        if (binding.suppressConstituentBindings) add("chord suppression")
+    }
+    return if (active.isEmpty()) "Using safe defaults — no custom timing" else "Configured: ${active.joinToString()}"
 }
 
 @Composable

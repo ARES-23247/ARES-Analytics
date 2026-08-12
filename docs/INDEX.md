@@ -7,6 +7,7 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 | I want to... | Start with | What you will use |
 | --- | --- | --- |
 | Open ARES Analytics for the first time | [First launch](start/FIRST_LAUNCH.md) | A local robot workspace and JDK 17 |
+| Learn where screens and controls are | [App tour](start/APP_TOUR.md) | A map of the window, status language, and common workflows |
 | See a robot without risking hardware | [Connect the simulator](start/CONNECT_SIMULATOR.md) | Live simulator telemetry on this computer |
 | Review a practice or match log | [Bring in a run](operate/BRING_IN_A_RUN.md) | An imported, persistent run and replay controls |
 | Understand an unfamiliar word | [Glossary](learn/GLOSSARY.md) | Short definitions with mentor notes |
