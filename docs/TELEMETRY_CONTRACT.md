@@ -150,6 +150,8 @@ The Analytics client publishes one atomic, leased control frame. Receivers depen
 | `ARES/DriverStation/MatchTime` | `double` | current match time |
 | `ARES/DriverStation/MatchState` | `string` | match state |
 | `SysId/Command` | `string` | characterization command |
+| `SysId/EnableToken` | `string` | fresh FTC operator-arm session token; cleared on disarm |
+| `SysId/EnableLease` | `double` | increasing FTC arm lease sequence, renewed every 200 ms; robot expires after 500 ms |
 
 `driveFrame` is exactly `[2, sessionNonce, sequence, clientMonotonicMs, vx, vy, omega, flags]`.
 The nonce is a positive integral double and sequence is a non-negative integral double; both must

@@ -6,14 +6,139 @@ import com.areslib.control.assist.SysIdMechanism
 import com.areslib.control.assist.SysIdRoutine
 import com.areslib.tuning.TuningTopics
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import java.util.UUID
+import com.ares.analytics.viewmodel.CalibrationArmPhase
 
 /** Publishes SysId routine commands and calibration controls through NT4. */
 class SysIdSignalGenerator(
     private val nt4ClientService: Nt4ClientService,
-    private val _state: MutableStateFlow<SysIdState>
+    private val _state: MutableStateFlow<SysIdState>,
+    private val scope: CoroutineScope,
+    private val calibrationTransport: CalibrationCommandTransport = Nt4CalibrationCommandTransport(nt4ClientService)
 ) {
+    private var leaseJob: Job? = null
+    private var leaseSequence = 0L
+
+    suspend fun configurePlatform(requiresNetworkArm: Boolean) {
+        disarm("Workspace changed", sendStop = true)
+        _state.update {
+            it.copy(
+                requiresNetworkArm = requiresNetworkArm,
+                armPhase = if (requiresNetworkArm) CalibrationArmPhase.DISARMED else CalibrationArmPhase.NOT_REQUIRED,
+                armStatus = if (requiresNetworkArm) {
+                    "Select the FTC tuning OpMode and press Play before arming"
+                } else {
+                    "FRC authorization is enforced by Test mode and robot hardware health"
+                }
+            )
+        }
+    }
+
+    suspend fun arm() {
+        val current = _state.value
+        if (!current.requiresNetworkArm) return
+        if (!current.isRobotConnected || !current.calibrationModeEnabled || current.isRoutineRunning) {
+            _state.update { it.copy(errorMessage = "FTC must be connected, in the started tuning OpMode, and stopped before arming") }
+            return
+        }
+        leaseJob?.cancel()
+        _state.update {
+            it.copy(
+                armPhase = CalibrationArmPhase.ARMING,
+                robotCalibrationArmed = false,
+                armStatus = "Sending STOP and a fresh calibration lease…",
+                errorMessage = null
+            )
+        }
+        val token = "ares-${UUID.randomUUID()}"
+        val firstSequence = nextLeaseSequence()
+        val ready = calibrationTransport.publishString(COMMAND_PUBUID, STOP_COMMAND) &&
+            calibrationTransport.publishString(ENABLE_TOKEN_PUBUID, token) &&
+            calibrationTransport.publishDouble(ENABLE_LEASE_PUBUID, firstSequence.toDouble())
+        if (!ready) {
+            connectionLost()
+            _state.update { it.copy(errorMessage = "NT4 clock synchronization is not ready; try Arm again") }
+            return
+        }
+        val armedAtNanos = System.nanoTime()
+        leaseJob = scope.launch {
+            while (isActive) {
+                delay(LEASE_RENEWAL_MS)
+                if (System.nanoTime() - armedAtNanos > MAX_ARM_SESSION_NANOS) {
+                    expireArm()
+                    break
+                }
+                if (!calibrationTransport.publishDouble(ENABLE_LEASE_PUBUID, nextLeaseSequence().toDouble())) {
+                    connectionLost()
+                    break
+                }
+            }
+        }
+    }
+
+    suspend fun disarm(reason: String, sendStop: Boolean = true) {
+        leaseJob?.cancel()
+        leaseJob = null
+        if (sendStop && _state.value.isRobotConnected) {
+            calibrationTransport.publishString(COMMAND_PUBUID, STOP_COMMAND)
+            calibrationTransport.publishString(ENABLE_TOKEN_PUBUID, "")
+        }
+        _state.update {
+            it.copy(
+                armPhase = if (it.requiresNetworkArm) CalibrationArmPhase.DISARMED else CalibrationArmPhase.NOT_REQUIRED,
+                robotCalibrationArmed = false,
+                isRoutineRunning = false,
+                isLoading = false,
+                activeCalibration = "NONE",
+                armStatus = reason
+            )
+        }
+    }
+
+    fun connectionLost() {
+        leaseJob?.cancel()
+        leaseJob = null
+        _state.update {
+            it.copy(
+                armPhase = if (it.requiresNetworkArm) CalibrationArmPhase.DISARMED else CalibrationArmPhase.NOT_REQUIRED,
+                robotCalibrationArmed = false,
+                isRoutineRunning = false,
+                isLoading = false,
+                activeCalibration = "NONE",
+                armStatus = "Disconnected; calibration lease revoked"
+            )
+        }
+    }
+
+    private fun nextLeaseSequence(): Long {
+        leaseSequence = if (leaseSequence >= MAX_SAFE_SEQUENCE) 1L else leaseSequence + 1L
+        return leaseSequence
+    }
+
+    private suspend fun expireArm() {
+        leaseJob = null
+        if (_state.value.isRobotConnected) {
+            calibrationTransport.publishString(COMMAND_PUBUID, STOP_COMMAND)
+            calibrationTransport.publishString(ENABLE_TOKEN_PUBUID, "")
+        }
+        _state.update {
+            it.copy(
+                armPhase = CalibrationArmPhase.DISARMED,
+                robotCalibrationArmed = false,
+                isRoutineRunning = false,
+                isLoading = false,
+                activeCalibration = "NONE",
+                armStatus = "Calibration arm timed out"
+            )
+        }
+    }
     suspend fun applyToRobotCode(recommendedExponent: Double, recommendedSlewRate: Double) {
         _state.update { it.copy(exportStatus = "Applying to robot over NT4...") }
         try {
@@ -30,6 +155,7 @@ class SysIdSignalGenerator(
     }
 
     suspend fun startRoutine(mechanism: SysIdMechanism, routine: SysIdRoutine) {
+        requireMotionAuthorization()
         _state.update {
             it.copy(
                 liveSamples = emptyList(),
@@ -42,7 +168,9 @@ class SysIdSignalGenerator(
         }
         val cmd = "START_${mechanism.name}_${routine.name}"
         try {
-            nt4ClientService.publishInputString(1015, cmd)
+            check(calibrationTransport.publishString(COMMAND_PUBUID, cmd)) {
+                "NT4 publisher is not ready"
+            }
             _state.update { it.copy(isRoutineRunning = true) }
         } catch (error: CancellationException) {
             _state.update { it.copy(isRoutineRunning = false, isLoading = false) }
@@ -60,7 +188,9 @@ class SysIdSignalGenerator(
 
     suspend fun stopRoutine() {
         try {
-            nt4ClientService.publishInputString(1015, "STOP")
+            check(calibrationTransport.publishString(COMMAND_PUBUID, "STOP")) {
+                "NT4 publisher is not ready"
+            }
             _state.update { it.copy(isRoutineRunning = false, isLoading = false) }
         } catch (error: CancellationException) {
             throw error
@@ -70,6 +200,7 @@ class SysIdSignalGenerator(
     }
 
     suspend fun startCalibration(calibrationType: String) {
+        requireMotionAuthorization()
         _state.update {
             it.copy(
                 liveSamples = emptyList(),
@@ -88,7 +219,9 @@ class SysIdSignalGenerator(
             )
         }
         try {
-            nt4ClientService.publishInputString(1015, "START_${calibrationType}")
+            check(calibrationTransport.publishString(COMMAND_PUBUID, "START_${calibrationType}")) {
+                "NT4 publisher is not ready"
+            }
             _state.update { it.copy(isRoutineRunning = true) }
         } catch (error: CancellationException) {
             _state.update { it.copy(isRoutineRunning = false, isLoading = false) }
@@ -107,7 +240,9 @@ class SysIdSignalGenerator(
 
     suspend fun stopCalibration() {
         try {
-            nt4ClientService.publishInputString(1015, "STOP")
+            check(calibrationTransport.publishString(COMMAND_PUBUID, "STOP")) {
+                "NT4 publisher is not ready"
+            }
             _state.update { it.copy(isRoutineRunning = false, activeCalibration = "NONE", isLoading = false) }
         } catch (error: CancellationException) {
             throw error
@@ -159,4 +294,37 @@ class SysIdSignalGenerator(
             _state.update { it.copy(exportStatus = "Failed to apply calibration: ${e.message}") }
         }
     }
+
+    private fun requireMotionAuthorization() {
+        val current = _state.value
+        check(current.isRobotConnected && (!current.requiresNetworkArm ||
+            (current.armPhase == CalibrationArmPhase.ARMED && current.robotCalibrationArmed))) {
+            "Calibration motion requires an acknowledged FTC arm lease"
+        }
+    }
+
+    private companion object {
+        const val COMMAND_PUBUID = 1015
+        const val ENABLE_TOKEN_PUBUID = 1016
+        const val ENABLE_LEASE_PUBUID = 1017
+        const val STOP_COMMAND = "STOP"
+        const val LEASE_RENEWAL_MS = 200L
+        const val MAX_SAFE_SEQUENCE = 9_007_199_254_740_991L
+        const val MAX_ARM_SESSION_NANOS = 60_000_000_000L
+    }
+}
+
+interface CalibrationCommandTransport {
+    suspend fun publishString(pubuid: Int, value: String): Boolean
+    suspend fun publishDouble(pubuid: Int, value: Double): Boolean
+}
+
+private class Nt4CalibrationCommandTransport(
+    private val nt4ClientService: Nt4ClientService
+) : CalibrationCommandTransport {
+    override suspend fun publishString(pubuid: Int, value: String): Boolean =
+        nt4ClientService.publishInputString(pubuid, value)
+
+    override suspend fun publishDouble(pubuid: Int, value: Double): Boolean =
+        nt4ClientService.publishInputDouble(pubuid, value)
 }

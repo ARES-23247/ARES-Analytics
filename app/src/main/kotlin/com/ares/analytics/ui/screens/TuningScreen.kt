@@ -42,6 +42,7 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.launch
 import androidx.compose.ui.text.TextStyle
+import com.ares.analytics.viewmodel.CalibrationArmPhase
 
 /**
  * Real-time PID controller gain tuning and SysId system identification test screen.
@@ -68,6 +69,32 @@ fun TuningScreen(
     val state by viewModel.state.collectAsState()
     val sysIdState by sysIdViewModel.state.collectAsState()
     var activeCalTab by remember { mutableStateOf(0) }
+    var showArmConfirmation by remember { mutableStateOf(false) }
+    val motionEnabled = sysIdState.isRobotConnected &&
+        (!sysIdState.requiresNetworkArm ||
+            (sysIdState.armPhase == CalibrationArmPhase.ARMED && sysIdState.robotCalibrationArmed))
+
+    if (showArmConfirmation) {
+        AlertDialog(
+            onDismissRequest = { showArmConfirmation = false },
+            title = { Text("Arm physical calibration?") },
+            text = {
+                Text(
+                    "The selected drivetrain or mechanism can move as soon as a calibration is started. " +
+                        "Confirm the FTC tuning OpMode is started, the robot is clear, and an operator is ready to press Stop."
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    showArmConfirmation = false
+                    sysIdViewModel.onIntent(SysIdIntent.ArmCalibration)
+                }) { Text("Arm for 60 seconds") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showArmConfirmation = false }) { Text("Cancel") }
+            }
+        )
+    }
 
     LaunchedEffect(projectPath) {
         viewModel.onIntent(TuningIntent.LoadConstants(projectPath))
@@ -123,6 +150,54 @@ fun TuningScreen(
                 }
             }
             HorizontalDivider(color = AresBorder)
+
+            if (sysIdState.requiresNetworkArm) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().border(
+                        1.dp,
+                        if (motionEnabled) AresGreen else AresGold,
+                        RoundedCornerShape(8.dp)
+                    ),
+                    color = if (motionEnabled) AresGreen.copy(alpha = .06f) else AresGold.copy(alpha = .06f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                when (sysIdState.armPhase) {
+                                    CalibrationArmPhase.DISARMED -> "FTC CALIBRATION DISARMED"
+                                    CalibrationArmPhase.ARMING -> "WAITING FOR ROBOT ACKNOWLEDGEMENT"
+                                    CalibrationArmPhase.ARMED -> "FTC CALIBRATION ARMED"
+                                    CalibrationArmPhase.NOT_REQUIRED -> "ROBOT AUTHORIZATION ACTIVE"
+                                },
+                                color = if (motionEnabled) AresGreen else AresGold,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            )
+                            Text(sysIdState.armStatus, color = AresTextSecondary, fontSize = 10.sp)
+                            if (!sysIdState.calibrationModeEnabled) {
+                                Text("Start ARES Live Tuning TeleOp before arming.", color = AresTextSecondary, fontSize = 10.sp)
+                            }
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        if (sysIdState.armPhase == CalibrationArmPhase.DISARMED) {
+                            Button(
+                                onClick = { showArmConfirmation = true },
+                                enabled = sysIdState.isRobotConnected && sysIdState.calibrationModeEnabled,
+                                colors = ButtonDefaults.buttonColors(containerColor = AresGold, contentColor = AresBackground)
+                            ) { Text("ARM") }
+                        } else {
+                            OutlinedButton(onClick = {
+                                sysIdViewModel.onIntent(SysIdIntent.DisarmCalibration("Operator disarmed"))
+                            }) { Text("DISARM") }
+                        }
+                    }
+                }
+            }
 
             // Tabs Selector
             Row(
@@ -200,13 +275,13 @@ fun TuningScreen(
                                         name = "Quasistatic (Combined)",
                                         desc = "Voltage ramps forward then reverse",
                                         onClick = { sysIdViewModel.onIntent(SysIdIntent.StartRoutine(SysIdRoutine.QUASISTATIC)) },
-                                        enabled = sysIdState.isRobotConnected
+                                        enabled = motionEnabled
                                     )
                                     RoutineButton(
                                         name = "Dynamic (Combined)",
                                         desc = "Voltage steps forward then reverse",
                                         onClick = { sysIdViewModel.onIntent(SysIdIntent.StartRoutine(SysIdRoutine.DYNAMIC)) },
-                                        enabled = sysIdState.isRobotConnected
+                                        enabled = motionEnabled
                                     )
                                 }
                             }
@@ -280,7 +355,7 @@ fun TuningScreen(
                                     name = "Start Pinpoint Offset Calibration",
                                     desc = "Robot spins in place. Computes pinpoint module offsets from physical center of rotation.",
                                     onClick = { sysIdViewModel.onIntent(SysIdIntent.StartCalibration("PINPOINT_SPIN")) },
-                                    enabled = sysIdState.isRobotConnected
+                                    enabled = motionEnabled
                                 )
                                 val px = sysIdState.recommendedPinpointXOffsetMm
                                 val py = sysIdState.recommendedPinpointYOffsetMm
@@ -327,7 +402,7 @@ fun TuningScreen(
                                     name = "Start Linear Ticks Calibration",
                                     desc = "Robot will drive straight for 3 seconds. Mark start and end points and measure distance to input above.",
                                     onClick = { sysIdViewModel.onIntent(SysIdIntent.StartCalibration("LINEAR_DRIVE")) },
-                                    enabled = sysIdState.isRobotConnected
+                                    enabled = motionEnabled
                                 )
                                 val ticks = sysIdState.recommendedTicksPerMeter
                                 if (ticks != null) {
@@ -346,7 +421,7 @@ fun TuningScreen(
                                 name = "Start Track Width Calibration",
                                 desc = "Robot will spin in place to calibrate effective track width / moment arm based on IMU vs wheel travel.",
                                 onClick = { sysIdViewModel.onIntent(SysIdIntent.StartCalibration("TRACK_WIDTH_SPIN")) },
-                                    enabled = sysIdState.isRobotConnected
+                                    enabled = motionEnabled
                             )
                         }
                         val tw = sysIdState.recommendedTrackWidthMeters
@@ -366,7 +441,7 @@ fun TuningScreen(
                                 name = "Start Vision Noise Calibration",
                                 desc = "Place the robot stationary facing an AprilTag. Collects standard deviations of Limelight observations.",
                                 onClick = { sysIdViewModel.onIntent(SysIdIntent.StartCalibration("VISION_CALIBRATION")) },
-                                enabled = sysIdState.isRobotConnected
+                                enabled = motionEnabled
                             )
                         }
                         val vx = sysIdState.recommendedVisionStdDevsX

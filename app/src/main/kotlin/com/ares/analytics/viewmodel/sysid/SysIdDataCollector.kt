@@ -20,18 +20,12 @@ class SysIdDataCollector(
     private val autoTunerService: AutoTunerService,
     private val _state: MutableStateFlow<SysIdState>,
     private val scope: CoroutineScope,
-    private val regressionSolver: SysIdRegressionSolver
+    private val regressionSolver: SysIdRegressionSolver,
+    private val onRoutineCompleted: suspend () -> Unit = {}
 ) {
     private val dataBuffer = ConcurrentHashMap<Long, DoubleArray>()
 
     fun startCollecting() {
-        // Collect connection status
-        scope.launch {
-            nt4ClientService.isConnected.collect { connected ->
-                _state.update { it.copy(isRobotConnected = connected) }
-            }
-        }
-
         // Collect live streaming data from the robot
         scope.launch {
             nt4ClientService.telemetryFlow.collect { frame ->
@@ -50,6 +44,7 @@ class SysIdDataCollector(
                         }
 
                         if (wasRunning && !isRunning) {
+                            onRoutineCompleted()
                             // Routine/Calibration just completed!
                             val finalCalibration = prevCalibration
                             _state.update { it.copy(isLoading = false) }

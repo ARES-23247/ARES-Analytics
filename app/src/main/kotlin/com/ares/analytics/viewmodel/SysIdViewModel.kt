@@ -25,6 +25,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class CalibrationArmPhase { NOT_REQUIRED, DISARMED, ARMING, ARMED }
+
 data class SysIdState(
     val sessionId: String? = null,
     val summary: CalculatedSummary? = null,
@@ -36,6 +38,11 @@ data class SysIdState(
     // Robot connection and live routines
     val isRobotConnected: Boolean = false,
     val isRoutineRunning: Boolean = false,
+    val requiresNetworkArm: Boolean = true,
+    val calibrationModeEnabled: Boolean = false,
+    val robotCalibrationArmed: Boolean = false,
+    val armPhase: CalibrationArmPhase = CalibrationArmPhase.DISARMED,
+    val armStatus: String = "Select the FTC tuning OpMode and press Play before arming",
     val selectedMechanism: SysIdMechanism = SysIdMechanism.LINEAR,
     val liveSamples: List<AlignedDataRow> = emptyList(),
 
@@ -76,6 +83,12 @@ sealed class SysIdIntent {
 
     data class SetMechanism(val mechanism: SysIdMechanism) : SysIdIntent()
 
+    data class ConfigurePlatform(val requiresNetworkArm: Boolean) : SysIdIntent()
+
+    object ArmCalibration : SysIdIntent()
+
+    data class DisarmCalibration(val reason: String = "Operator disarmed") : SysIdIntent()
+
     data class StartRoutine(val routine: SysIdRoutine) : SysIdIntent()
 
     object StopRoutine : SysIdIntent()
@@ -114,11 +127,60 @@ class SysIdViewModel(
     val state: StateFlow<SysIdState> = _state.asStateFlow()
 
     private val regressionSolver = SysIdRegressionSolver(nt4ClientService, _state)
-    private val dataCollector = SysIdDataCollector(nt4ClientService, sysIdService, autoTunerService, _state, scope, regressionSolver)
-    private val signalGenerator = SysIdSignalGenerator(nt4ClientService, _state)
+    private val signalGenerator = SysIdSignalGenerator(nt4ClientService, _state, scope)
+    private val dataCollector = SysIdDataCollector(
+        nt4ClientService,
+        sysIdService,
+        autoTunerService,
+        _state,
+        scope,
+        regressionSolver,
+        onRoutineCompleted = { signalGenerator.disarm("Routine complete") }
+    )
 
     init {
         dataCollector.startCollecting()
+        scope.launch {
+            nt4ClientService.isConnected.collect { connected ->
+                _state.update { it.copy(isRobotConnected = connected) }
+                if (!connected) signalGenerator.connectionLost()
+            }
+        }
+        scope.launch {
+            nt4ClientService.telemetryFlow.collect { frame ->
+                when (frame.key) {
+                    "SysId/ModeEnabled" -> {
+                        val enabled = frame.value != 0.0
+                        _state.update { it.copy(calibrationModeEnabled = enabled) }
+                        if (!enabled && _state.value.requiresNetworkArm) {
+                            signalGenerator.disarm("FTC calibration mode is not enabled", sendStop = false)
+                        }
+                    }
+                    "SysId/Armed" -> {
+                        val armed = frame.value != 0.0
+                        _state.update {
+                            it.copy(
+                                robotCalibrationArmed = armed,
+                                armPhase = when {
+                                    !it.requiresNetworkArm -> CalibrationArmPhase.NOT_REQUIRED
+                                    armed -> CalibrationArmPhase.ARMED
+                                    it.armPhase == CalibrationArmPhase.ARMED -> CalibrationArmPhase.DISARMED
+                                    else -> it.armPhase
+                                },
+                                armStatus = when {
+                                    armed -> "FTC robot acknowledged the fresh calibration lease"
+                                    it.armPhase == CalibrationArmPhase.ARMED -> "FTC robot disarmed calibration"
+                                    else -> it.armStatus
+                                }
+                            )
+                        }
+                    }
+                    "SysId/Error" -> frame.stringValue?.takeIf(String::isNotBlank)?.let { error ->
+                        _state.update { it.copy(errorMessage = "Robot calibration safety: $error") }
+                    }
+                }
+            }
+        }
         scope.launch {
             autoTunerService.applyState.collect { workflow ->
                 _state.update { it.copy(tuningApplyState = workflow) }
@@ -168,12 +230,22 @@ class SysIdViewModel(
                 is SysIdIntent.SetMechanism -> {
                     _state.update { it.copy(selectedMechanism = intent.mechanism) }
                 }
+                is SysIdIntent.ConfigurePlatform -> {
+                    signalGenerator.configurePlatform(intent.requiresNetworkArm)
+                }
+                is SysIdIntent.ArmCalibration -> signalGenerator.arm()
+                is SysIdIntent.DisarmCalibration -> signalGenerator.disarm(intent.reason)
                 is SysIdIntent.StartRoutine -> {
+                    if (!motionCommandsAllowed()) {
+                        _state.update { it.copy(errorMessage = "Calibration is not safely armed") }
+                        return@launch
+                    }
                     dataCollector.clearBuffer()
                     signalGenerator.startRoutine(_state.value.selectedMechanism, intent.routine)
                 }
                 is SysIdIntent.StopRoutine -> {
                     signalGenerator.stopRoutine()
+                    signalGenerator.disarm("Operator stopped SysId")
                 }
                 is SysIdIntent.LoadLocalLogFile -> {
                     _state.update { it.copy(isLoading = true, fileAnalysisError = null, localAnalysisResult = null) }
@@ -197,11 +269,16 @@ class SysIdViewModel(
                     _state.update { it.copy(localAnalysisResult = null, fileAnalysisError = null) }
                 }
                 is SysIdIntent.StartCalibration -> {
+                    if (!motionCommandsAllowed()) {
+                        _state.update { it.copy(errorMessage = "Calibration is not safely armed") }
+                        return@launch
+                    }
                     dataCollector.clearBuffer()
                     signalGenerator.startCalibration(intent.calibrationType)
                 }
                 is SysIdIntent.StopCalibration -> {
                     signalGenerator.stopCalibration()
+                    signalGenerator.disarm("Operator aborted calibration")
                 }
                 is SysIdIntent.SetLinearDriveDistance -> {
                     _state.update { it.copy(linearDriveActualDistanceMeters = intent.distance) }
@@ -217,5 +294,10 @@ class SysIdViewModel(
                 }
             }
         }
+    }
+
+    private fun motionCommandsAllowed(): Boolean = _state.value.let { current ->
+        current.isRobotConnected && (!current.requiresNetworkArm ||
+            (current.armPhase == CalibrationArmPhase.ARMED && current.robotCalibrationArmed))
     }
 }
