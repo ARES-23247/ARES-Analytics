@@ -275,7 +275,9 @@ open class Nt4ClientService(
                               {"method": "publish", "params": {"name": "ARES/DriverStation/SelectedOpMode", "pubuid": 1012, "type": "string"}},
                               {"method": "publish", "params": {"name": "ARES/DriverStation/MatchTime", "pubuid": 1013, "type": "double"}},
                               {"method": "publish", "params": {"name": "ARES/DriverStation/MatchState", "pubuid": 1014, "type": "string"}},
-                              {"method": "publish", "params": {"name": "SysId/Command", "pubuid": 1015, "type": "string"}}
+                              {"method": "publish", "params": {"name": "SysId/Command", "pubuid": 1015, "type": "string"}},
+                              {"method": "publish", "params": {"name": "SysId/EnableToken", "pubuid": 1016, "type": "string"}},
+                              {"method": "publish", "params": {"name": "SysId/EnableLease", "pubuid": 1017, "type": "double"}}
                             ]
                         """.trimIndent()
                         send(Frame.Text(announceInputsMsg))
@@ -461,7 +463,7 @@ open class Nt4ClientService(
 
     private val publishDoubleBuffer = ThreadLocal.withInitial { ByteArray(9) }
 
-    suspend fun publishInputDouble(pubuid: Int, value: Double) {
+    suspend fun publishInputDouble(pubuid: Int, value: Double): Boolean {
         val bits = java.lang.Double.doubleToRawLongBits(value)
         val valueBytes = publishDoubleBuffer.get()
         valueBytes[0] = 0xcb.toByte() // MsgPack float64 marker
@@ -473,10 +475,10 @@ open class Nt4ClientService(
         valueBytes[6] = (bits shr 16).toByte()
         valueBytes[7] = (bits shr 8).toByte()
         valueBytes[8] = bits.toByte()
-        sendBinaryUpdate(pubuid, 1.toByte(), valueBytes)
+        return sendBinaryUpdate(pubuid, 1.toByte(), valueBytes)
     }
 
-    suspend fun publishInputString(pubuid: Int, value: String) {
+    suspend fun publishInputString(pubuid: Int, value: String): Boolean {
         val strBytes = value.toByteArray(Charsets.UTF_8)
         val size = strBytes.size
         require(size <= MAX_STRING_BYTES) { "NT4 strings are limited to $MAX_STRING_BYTES UTF-8 bytes" }
@@ -490,7 +492,7 @@ open class Nt4ClientService(
         System.arraycopy(headerBytes, 0, valueBytes, 0, headerBytes.size)
         System.arraycopy(strBytes, 0, valueBytes, headerBytes.size, strBytes.size)
 
-        sendBinaryUpdate(pubuid, 4.toByte(), valueBytes)
+        return sendBinaryUpdate(pubuid, 4.toByte(), valueBytes)
     }
 
     // fixed-array header plus eight float64 values (1 + 8 * 9 bytes)
@@ -832,6 +834,8 @@ open class Nt4ClientService(
         put("ARES/DriverStation/MatchTime", 1013)
         put("ARES/DriverStation/MatchState", 1014)
         put("SysId/Command", 1015)
+        put("SysId/EnableToken", 1016)
+        put("SysId/EnableLease", 1017)
         put("ARES/Input/driveFrame", 1020)
     }
     private val publisherTypes = ConcurrentHashMap<String, String>().apply {
@@ -840,6 +844,8 @@ open class Nt4ClientService(
         put("ARES/DriverStation/MatchTime", "double")
         put("ARES/DriverStation/MatchState", "string")
         put("SysId/Command", "string")
+        put("SysId/EnableToken", "string")
+        put("SysId/EnableLease", "double")
         put("ARES/Input/driveFrame", "double[]")
     }
     private val dynamicPubMutex = kotlinx.coroutines.sync.Mutex()
@@ -967,6 +973,8 @@ open class Nt4ClientService(
             "ARES/DriverStation/MatchTime",
             "ARES/DriverStation/MatchState",
             "SysId/Command",
+            "SysId/EnableToken",
+            "SysId/EnableLease",
             "ARES/Input/driveFrame"
         )
         internal const val LIVE_SESSION_ID = "live-telemetry"

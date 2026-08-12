@@ -245,6 +245,14 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope
         )
     }
+    LaunchedEffect(currentConfig.league) {
+        sysIdViewModel.onIntent(SysIdIntent.ConfigurePlatform(currentConfig.league == League.FTC))
+    }
+    LaunchedEffect(activeNav) {
+        if (activeNav != NavigationTarget.TUNING) {
+            sysIdViewModel.onIntent(SysIdIntent.DisarmCalibration("Left the Tuning screen"))
+        }
+    }
     val profileViewModel = remember {
         ProfileViewModel(
             oauthService = services.oauthService,
