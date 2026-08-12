@@ -1,9 +1,10 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.testing.Test
 
 // Single source of truth for the application version. Consumed both by the native
 // distribution packaging below and by the generated BuildConfig (see generateBuildConfig).
-val aresAnalyticsVersion = providers.gradleProperty("aresAnalyticsVersion").orElse("1.1.0").get()
+val aresAnalyticsVersion = providers.gradleProperty("aresAnalyticsVersion").orElse("1.1.1").get()
 
 plugins {
     kotlin("jvm")
@@ -117,7 +118,10 @@ compose.desktop {
             packageVersion = aresAnalyticsVersion
             description = "ARES Robotics Mission Control Suite"
             vendor = "ARES Robotics"
-            modules("java.sql", "java.naming")
+            // Gson constructs immutable Kotlin project documents through sun.misc.Unsafe when
+            // they do not expose a no-argument JVM constructor. jlink cannot discover this
+            // reflective dependency, so the module must remain explicit in every native image.
+            modules("java.sql", "java.naming", "jdk.unsupported")
 
             windows {
                 msiPackageVersion = aresAnalyticsVersion
@@ -134,6 +138,38 @@ compose.desktop {
             }
         }
     }
+}
+
+val packagedProjectFixture = layout.projectDirectory.dir("src/test/resources/packaged-runtime-project")
+val mainDistributableRoot = layout.buildDirectory.dir("compose/binaries/main/app")
+
+val verifyDistributableProjectLoading = tasks.register<Exec>("verifyDistributableProjectLoading") {
+    group = "verification"
+    description = "Loads every canonical ARES project document through the trimmed native runtime."
+    dependsOn("createDistributable")
+    inputs.dir(packagedProjectFixture)
+
+    doFirst {
+        val root = mainDistributableRoot.get().asFile
+        val osName = System.getProperty("os.name").lowercase()
+        val executable = when {
+            osName.contains("win") -> root.resolve("ARES-Analytics/ARES-Analytics.exe")
+            osName.contains("mac") -> root.resolve("ARES-Analytics.app/Contents/MacOS/ARES-Analytics")
+            else -> root.resolve("ARES-Analytics/bin/ARES-Analytics")
+        }
+        require(executable.isFile) { "Native ARES Analytics launcher was not created at $executable" }
+        commandLine(
+            executable.absolutePath,
+            "--verify-packaged-project",
+            packagedProjectFixture.asFile.absolutePath,
+        )
+    }
+}
+
+tasks.matching { task ->
+    task.name in setOf("packageMsi", "packageDmg", "packageDeb")
+}.configureEach {
+    dependsOn(verifyDistributableProjectLoading)
 }
 
 private val validationPropertyNames = listOf(

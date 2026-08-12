@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 5,
+  "documentId": "smoke-indicator",
+  "name": "SmokeIndicator",
+  "description": "Exercises packaged subsystem decoding.",
+  "platform": "FTC",
+  "revision": 1,
+  "hardware": [
+    {
+      "hardwareId": "indicator",
+      "displayName": "Smoke indicator",
+      "kind": "POSITIONAL_SERVO",
+      "connection": {"hardwareMapName": "smokeIndicator"},
+      "measurements": [],
+      "required": false,
+      "safeOutput": 0.0
+    }
+  ],
+  "stateFields": [
+    {
+      "fieldId": "position",
+      "displayName": "Indicator position",
+      "type": "DOUBLE",
+      "role": "TARGET",
+      "unit": "normalized servo position",
+      "defaultNumber": 0.0,
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  ],
+  "controlLoops": [
+    {
+      "loopId": "positionOutput",
+      "displayName": "Indicator output",
+      "strategy": "SERVO_POSITION",
+      "actuatorId": "indicator",
+      "targetFieldId": "position",
+      "minimumOutput": 0.0,
+      "maximumOutput": 1.0
+    }
+  ],
+  "template": "SIMPLE_ACTUATOR",
+  "implementation": {
+    "kind": "GENERATED_STARTER",
+    "ownership": "GENERATED_STARTER",
+    "sourceFiles": [],
+    "simulation": {"support": "GENERATED_MOCK"},
+    "teaching": {
+      "level": "BEGINNER",
+      "summary": "Packaged runtime verification fixture.",
+      "concepts": ["project document decoding"]
+    }
+  },
+  "capabilityActionKeys": [],
+  "safety": {
+    "feedbackTimeoutMs": null,
+    "requiresHoming": false,
+    "requiresCalibration": false,
+    "requiresConfigurationHealth": false,
+    "requiresCurrentMonitoring": false,
+    "latchOutputFaults": false,
+    "requiresExplicitNeutralRecovery": false,
+    "telemetryEnabled": true,
+    "zeroAllocationPeriodic": true
+  },
+  "requiredAtStartup": false,
+  "generateMockIo": true,
+  "generateTest": true
+}

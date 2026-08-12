@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "projectId": "packaged-runtime-smoke",
+  "league": "FTC",
+  "coordinateConvention": "CENTER_ORIGIN_CCW",
+  "robotLengthMeters": 0.45,
+  "robotWidthMeters": 0.45,
+  "fieldLengthMeters": 3.6576,
+  "fieldWidthMeters": 3.6576
+}

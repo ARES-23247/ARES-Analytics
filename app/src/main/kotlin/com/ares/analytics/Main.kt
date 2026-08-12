@@ -9,9 +9,19 @@ import androidx.compose.ui.window.rememberWindowState
 import com.ares.analytics.di.ServiceRegistry
 import com.ares.analytics.ui.theme.AresTheme
 import com.ares.analytics.ui.screens.MainScreen
+import kotlin.system.exitProcess
 
 /** Starts the single-instance Compose desktop application and owns process-level cleanup. */
-fun main() {
+fun main(args: Array<String>) {
+    runPackagedProjectValidationCommand(args)?.let { exitCode ->
+        if (exitCode != 0) exitProcess(exitCode)
+        return
+    }
+
+    launchDesktopApplication()
+}
+
+private fun launchDesktopApplication() {
     // Disable Java Assistive Technology check to prevent crash on Windows systems with screen readers active
     System.setProperty("javax.accessibility.assistive_technologies", "")
 
