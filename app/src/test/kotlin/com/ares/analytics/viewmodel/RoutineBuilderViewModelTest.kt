@@ -94,7 +94,7 @@ class RoutineBuilderViewModelTest {
         advanceUntilIdle()
 
         val repeat = viewModel.state.value.routine.steps.single().copy(repeatCount = 4_097)
-        viewModel.onIntent(PathPlannerIntent.UpdateRoutineStep(0, repeat))
+        viewModel.onIntent(PathPlannerIntent.UpdateRoutineStep(repeat.stepId, repeat))
         advanceUntilIdle()
 
         val warning = assertNotNull(viewModel.state.value.routinePreviewWarning)

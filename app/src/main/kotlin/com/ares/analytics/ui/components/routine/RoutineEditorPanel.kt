@@ -230,7 +230,7 @@ fun RoutineEditorPanel(
             if (state.routine.steps.isEmpty()) {
                 item { EmptyRoutineCard() }
             }
-            itemsIndexed(state.routine.steps, key = { index, step -> "$index-${step.kind}" }) { index, step ->
+            itemsIndexed(state.routine.steps, key = { _, step -> step.stepId }) { index, step ->
                 RoutineStepCard(
                     index = index,
                     step = step,
@@ -238,17 +238,17 @@ fun RoutineEditorPanel(
                     actions = state.routineActions,
                     conditions = state.routineConditions,
                     routines = state.availableRoutines.filter { it.documentId != state.routine.documentId },
-                    onUpdate = { onIntent(PathPlannerIntent.UpdateRoutineStep(index, it)) },
-                    onMove = { onIntent(PathPlannerIntent.MoveRoutineStep(index, it)) },
-                    onRemove = { onIntent(PathPlannerIntent.RemoveRoutineStep(index)) },
+                    onUpdate = { onIntent(PathPlannerIntent.UpdateRoutineStep(step.stepId, it)) },
+                    onMove = { onIntent(PathPlannerIntent.MoveRoutineStep(step.stepId, it)) },
+                    onRemove = { onIntent(PathPlannerIntent.RemoveRoutineStep(step.stepId)) },
                     onAddChild = { elseBranch, kind ->
-                        onIntent(PathPlannerIntent.AddRoutineChild(index, elseBranch, kind))
+                        onIntent(PathPlannerIntent.AddRoutineChild(step.stepId, elseBranch, kind))
                     },
-                    onUpdateChild = { childIndex, elseBranch, updated ->
-                        onIntent(PathPlannerIntent.UpdateRoutineChild(index, childIndex, elseBranch, updated))
+                    onUpdateChild = { childStepId, _, updated ->
+                        onIntent(PathPlannerIntent.UpdateRoutineChild(childStepId, updated))
                     },
-                    onRemoveChild = { childIndex, elseBranch ->
-                        onIntent(PathPlannerIntent.RemoveRoutineChild(index, childIndex, elseBranch))
+                    onRemoveChild = { childStepId, _ ->
+                        onIntent(PathPlannerIntent.RemoveRoutineChild(childStepId))
                     }
                 )
             }
@@ -417,8 +417,8 @@ private fun RoutineStepCard(
     onMove: (Int) -> Unit,
     onRemove: () -> Unit,
     onAddChild: (Boolean, RoutineStepKind) -> Unit,
-    onUpdateChild: (Int, Boolean, RoutineStep) -> Unit,
-    onRemoveChild: (Int, Boolean) -> Unit
+    onUpdateChild: (String, Boolean, RoutineStep) -> Unit,
+    onRemoveChild: (String, Boolean) -> Unit
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated), border = BorderStroke(1.dp, AresBorder)) {
         Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -534,18 +534,18 @@ private fun ChildLane(
     conditions: List<ConditionDescriptor>,
     routines: List<RoutineDocument>,
     onAdd: (Boolean, RoutineStepKind) -> Unit,
-    onUpdate: (Int, Boolean, RoutineStep) -> Unit,
-    onRemove: (Int, Boolean) -> Unit
+    onUpdate: (String, Boolean, RoutineStep) -> Unit,
+    onRemove: (String, Boolean) -> Unit
 ) {
     Text(label, color = AresCyan, fontWeight = FontWeight.SemiBold)
-    children.forEachIndexed { childIndex, child ->
+    children.forEach { child ->
         SimpleChildEditor(
             child,
             actions,
             conditions,
             routines,
-            { onUpdate(childIndex, elseBranch, it) },
-            { onRemove(childIndex, elseBranch) }
+            { onUpdate(child.stepId, elseBranch, it) },
+            { onRemove(child.stepId, elseBranch) }
         )
     }
     CompactStepPicker(

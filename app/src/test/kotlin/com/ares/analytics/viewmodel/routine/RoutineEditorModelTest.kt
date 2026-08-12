@@ -101,6 +101,34 @@ class RoutineEditorModelTest {
     }
 
     @Test
+    fun `stable identities target the same nested step after sibling reordering`() {
+        val first = RoutineStep.wait(0.25, stepId = "step-first")
+        val target = RoutineStep.action("Intake.Start", stepId = "step-target")
+        val group = RoutineStep.together(listOf(first, target), stepId = "step-group")
+
+        val reordered = listOf(group).updateStepById("step-group") {
+            it.copy(children = it.children.moveStepById("step-target", -1))
+        }
+        val updated = reordered.updateStepById("step-target") { it.copy(actionKey = "Intake.Stop") }
+
+        assertEquals(listOf("step-target", "step-first"), updated.single().children.map(RoutineStep::stepId))
+        assertEquals("Intake.Stop", updated.single().children.first().actionKey)
+        assertEquals("step-target", updated.single().children.first().stepId)
+    }
+
+    @Test
+    fun `removing one nested identity leaves equal-valued siblings intact`() {
+        val left = RoutineStep.wait(0.25, stepId = "step-left")
+        val right = RoutineStep.wait(0.25, stepId = "step-right")
+
+        val remaining = listOf(
+            RoutineStep.together(listOf(left, right), stepId = "step-group")
+        ).removeStepById("step-left")
+
+        assertEquals(listOf("step-right"), remaining.single().children.map(RoutineStep::stepId))
+    }
+
+    @Test
     fun `catalog parameter types are validated before save`() {
         val catalog = CapabilityCatalogDocument(
             projectId = "test-project",

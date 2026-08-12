@@ -78,6 +78,42 @@ fun List<RoutineStep>.routineDriveStepsInExecutionOrder(): List<RoutineDriveStep
     }
 }
 
+/** Replaces exactly one nested node without depending on its current list position. */
+fun List<RoutineStep>.updateStepById(stepId: String, transform: (RoutineStep) -> RoutineStep): List<RoutineStep> =
+    map { step ->
+        if (step.stepId == stepId) transform(step).copy(stepId = stepId) else step.copy(
+            children = step.children.updateStepById(stepId, transform),
+            deadline = step.deadline?.let { listOf(it).updateStepById(stepId, transform).single() },
+            elseChildren = step.elseChildren.updateStepById(stepId, transform)
+        )
+    }
+
+/** Removes one nested node while preserving every unaffected node identity. */
+fun List<RoutineStep>.removeStepById(stepId: String): List<RoutineStep> = mapNotNull { step ->
+    if (step.stepId == stepId) null else step.copy(
+        children = step.children.removeStepById(stepId),
+        deadline = step.deadline?.takeUnless { it.stepId == stepId }?.let {
+            listOf(it).removeStepById(stepId).singleOrNull()
+        },
+        elseChildren = step.elseChildren.removeStepById(stepId)
+    )
+}
+
+/** Moves a node only within its owning sibling lane. */
+fun List<RoutineStep>.moveStepById(stepId: String, direction: Int): List<RoutineStep> {
+    val index = indexOfFirst { it.stepId == stepId }
+    if (index >= 0) {
+        val destination = index + direction
+        if (destination !in indices) return this
+        return toMutableList().apply { add(destination, removeAt(index)) }
+    }
+    return map { step -> step.copy(
+        children = step.children.moveStepById(stepId, direction),
+        deadline = step.deadline,
+        elseChildren = step.elseChildren.moveStepById(stepId, direction)
+    ) }
+}
+
 fun List<RoutineStep>.withRoutineRouteWaypoints(
     waypoints: Iterator<Waypoint>,
     league: League,
