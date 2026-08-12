@@ -665,7 +665,9 @@ fun MainScreen(services: ServiceRegistry) {
                                 },
                                 reloadTrigger = runsIndexReloadTrigger,
                                 onImportSuccess = { mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload) },
-                                onOpenKeybindings = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS)) }
+                                onOpenKeybindings = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS)) },
+                                onOpenRunHistory = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.RUN_HISTORY)) },
+                                onOpenHelp = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY)) }
                             )
                             NavigationTarget.PATH_PLANNER -> PathPlannerScreen(
                                 viewModel = pathPlannerViewModel,
