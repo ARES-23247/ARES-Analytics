@@ -46,6 +46,13 @@ jobs:
         with:
           languages: java-kotlin
           build-mode: manual
+          config: |
+            paths:
+              - ARES-Analytics/app/src
+              - ARES-Analytics/gateway/src
+              - ARES-Analytics/shared/src
+            paths-ignore:
+              - ARESLib-Kotlin/**
 
       - name: Compile Analytics sources
         working-directory: ARES-Analytics
