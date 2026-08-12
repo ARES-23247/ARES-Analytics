@@ -17,15 +17,16 @@ java -version
 .\gradlew.bat --version
 ```
 
-After changing ARESLib, publish the local snapshot before building Analytics:
+Normal builds consume the pinned ARESLib release from Maven Central. To validate an unpublished library change:
 
 ```powershell
 cd ..\ARESLib-Kotlin
-.\gradlew.bat publishToMavenLocal
+.\gradlew.bat apiCheck publishReleaseValidation
 cd ..\ARES-Analytics
+.\gradlew.bat :shared:test :app:test -ParesRepository="..\ARESLib-Kotlin\build\release-repository"
 ```
 
-When the sibling `ARESLib-Kotlin` directory exists, the composite build normally substitutes that source automatically. Publishing remains useful because tooling and non-composite consumers use Maven Local.
+The sibling directory is not substituted automatically. Use `-ParesUseSiblingLib=true` only for focused library development; binary validation should use the isolated repository above.
 
 ## 2. Run modes
 
@@ -246,7 +247,7 @@ If a previous Analytics JVM is still running, the root Gradle task checks Java p
 
 ## 12. Release checklist
 
-- [ ] Publish the matching ARESLib snapshot.
+- [ ] Pin a published ARESLib version, or validate the matching isolated release repository.
 - [ ] Run `:shared:test :gateway:test :app:test`.
 - [ ] Test a live custom ARESLib NT4 server.
 - [ ] Test a standards-compliant WPILib NT4 server.
@@ -255,4 +256,4 @@ If a previous Analytics JVM is still running, the root Gradle task checks Java p
 - [ ] Export/import a Parquet session containing string telemetry.
 - [ ] Verify target switching clears old robot state.
 - [ ] Verify gateway health, authentication, request limits, and rate limiting.
-- [ ] Build the native distribution with the release packaging task.
+- [ ] Build the same native package used by the release workflow. On Windows, quote the complete dotted Gradle property so PowerShell passes it as one argument: `.\gradlew.bat :app:packageMsi "-ParesAnalyticsVersion=1.1.0"`.

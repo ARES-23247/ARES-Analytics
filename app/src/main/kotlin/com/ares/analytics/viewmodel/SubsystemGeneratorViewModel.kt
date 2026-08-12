@@ -20,9 +20,16 @@ import com.areslib.subsystem.SubsystemFieldRole
 import com.areslib.subsystem.SubsystemHardwareConnection
 import com.areslib.subsystem.SubsystemHardwareDocument
 import com.areslib.subsystem.SubsystemHardwareKind
+import com.areslib.subsystem.SubsystemImplementationDocument
+import com.areslib.subsystem.SubsystemImplementationKind
 import com.areslib.subsystem.SubsystemMeasurementSource
 import com.areslib.subsystem.SubsystemPlatform
+import com.areslib.subsystem.SubsystemSimulationDocument
+import com.areslib.subsystem.SubsystemSimulationSupport
+import com.areslib.subsystem.SubsystemSourceOwnership
 import com.areslib.subsystem.SubsystemStateFieldDocument
+import com.areslib.subsystem.SubsystemTeachingDocument
+import com.areslib.subsystem.SubsystemTeachingLevel
 import com.areslib.subsystem.SubsystemTemplate
 import com.areslib.subsystem.SubsystemTemplates
 import com.areslib.subsystem.SubsystemValueType
@@ -39,6 +46,20 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 enum class SubsystemProblemSeverity { WARNING, ERROR }
+
+/** Novice-facing authoring stages. The order mirrors the questions a student can answer safely. */
+enum class SubsystemBuilderStage(
+    val displayName: String,
+    val shortDescription: String,
+) {
+    PURPOSE("Purpose", "Choose what the subsystem does and how its source is owned."),
+    HARDWARE("Hardware", "Describe each motor, servo, sensor, or other device."),
+    STATE_AND_BEHAVIOR("State & behavior", "Define cached inputs, targets, and controller rules."),
+    SAFETY("Safety", "Decide when outputs are permitted and how faults recover."),
+    CAPABILITIES("Capabilities", "Review what drivers and autonomous routines can command."),
+    SIMULATION_AND_TESTING("Simulation & testing", "Choose mock support and generated verification."),
+    REVIEW("Review", "Check warnings, ownership, and generated files before saving."),
+}
 
 data class SubsystemProblem(
     val severity: SubsystemProblemSeverity,
@@ -119,6 +140,7 @@ data class SubsystemGeneratorState(
     val selectedHardwareId: String? = null,
     val selectedFieldId: String? = null,
     val selectedLoopId: String? = null,
+    val activeStage: SubsystemBuilderStage = SubsystemBuilderStage.PURPOSE,
     val selectedTemplate: SubsystemTemplate = SubsystemTemplate.POSITION_CONTROLLED_MECHANISM,
     val previewFiles: List<SubsystemPreviewFile> = emptyList(),
     val generatedPlumbingExpanded: Boolean = false,
@@ -229,6 +251,7 @@ class SubsystemGeneratorViewModel(
                 selectedHardwareId = document.hardware.first().hardwareId,
                 selectedFieldId = null,
                 selectedLoopId = null,
+                activeStage = SubsystemBuilderStage.PURPOSE,
                 selectedTemplate = document.template,
                 dirty = true,
                 status = "New subsystem draft created."
@@ -237,6 +260,63 @@ class SubsystemGeneratorViewModel(
     }
 
     fun selectTemplate(template: SubsystemTemplate) = _state.update { it.copy(selectedTemplate = template) }
+
+    fun selectStage(stage: SubsystemBuilderStage) = _state.update { it.copy(activeStage = stage) }
+
+    fun previousStage() = _state.update { state ->
+        val stages = SubsystemBuilderStage.entries
+        state.copy(activeStage = stages[(state.activeStage.ordinal - 1).coerceAtLeast(0)])
+    }
+
+    fun registerHandAuthoredSubsystem() {
+        val used = _state.value.documents.mapTo(hashSetOf()) { it.documentId }
+        var suffix = 1
+        var id = "existing-subsystem"
+        while (id in used) id = "existing-subsystem-${++suffix}"
+        val name = if (suffix == 1) "ExistingSubsystem" else "ExistingSubsystem$suffix"
+        val packageName = "$basePackage.${id.replace('-', '_')}"
+        val sourceRoot = when (league) {
+            League.FTC -> "TeamCode/src/main/java"
+            League.FRC -> "src/main/kotlin"
+        }
+        val document = SubsystemTemplates.create(SubsystemTemplate.ADVANCED_CUSTOM, id, name, platform).copy(
+            generateMockIo = false,
+            generateTest = false,
+            implementation = SubsystemImplementationDocument(
+                kind = SubsystemImplementationKind.HAND_AUTHORED,
+                ownership = SubsystemSourceOwnership.USER_OWNED,
+                modulePath = if (league == League.FTC) ":TeamCode" else ":",
+                sourceFiles = listOf("$sourceRoot/${packageName.replace('.', '/')}/${name}Subsystem.kt"),
+                subsystemClassName = "$packageName.${name}Subsystem",
+                ioContractClassName = "$packageName.${name}IO",
+                hardwareAdapterClassName = "$packageName.${if (league == League.FTC) "Ftc" else "Frc"}${name}IO",
+                simulation = SubsystemSimulationDocument(SubsystemSimulationSupport.UNAVAILABLE),
+                teaching = SubsystemTeachingDocument(
+                    level = SubsystemTeachingLevel.INTERMEDIATE,
+                    summary = "Existing team-owned subsystem registered with ARES.",
+                ),
+            ),
+        )
+        _state.update { current ->
+            current.copy(
+                documents = current.documents + document,
+                selectedDocumentId = id,
+                draft = document,
+                selectedHardwareId = null,
+                selectedFieldId = null,
+                selectedLoopId = null,
+                activeStage = SubsystemBuilderStage.PURPOSE,
+                selectedTemplate = SubsystemTemplate.ADVANCED_CUSTOM,
+                dirty = true,
+                status = "Hand-authored subsystem registration created. Review its source and runtime contract.",
+            ).revalidated()
+        }
+    }
+
+    fun nextStage() = _state.update { state ->
+        val stages = SubsystemBuilderStage.entries
+        state.copy(activeStage = stages[(state.activeStage.ordinal + 1).coerceAtMost(stages.lastIndex)])
+    }
 
     fun setGeneratedPlumbingExpanded(expanded: Boolean) = _state.update {
         it.copy(generatedPlumbingExpanded = expanded)
@@ -252,6 +332,7 @@ class SubsystemGeneratorViewModel(
                 selectedHardwareId = document.hardware.firstOrNull()?.hardwareId,
                 selectedFieldId = null,
                 selectedLoopId = null,
+                activeStage = SubsystemBuilderStage.PURPOSE,
                 selectedTemplate = document.template,
                 status = null,
             ).revalidated()
@@ -426,7 +507,7 @@ class SubsystemGeneratorViewModel(
         val validation = validateSubsystemDocument(document).map {
             SubsystemProblem(SubsystemProblemSeverity.ERROR, it.path, it.message)
         }
-        val generated = if (validation.isEmpty()) {
+        val generated = if (validation.isEmpty() && document.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER) {
             val sourceFiles = SubsystemKotlinGenerator.generate(document, SubsystemKotlinCodegenTarget(platform, basePackage))
             val starterPlan = SubsystemStarterReconciler.plan(starterRoot().toPath(), sourceFiles)
             val starterChanges = starterPlan.changes.associateBy { it.relativePath }
@@ -462,7 +543,7 @@ class SubsystemGeneratorViewModel(
                 )
             }
         } else emptyList()
-        val token = if (validation.isEmpty()) {
+        val token = if (validation.isEmpty() && document.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER) {
             val sources = SubsystemKotlinGenerator.generate(document, SubsystemKotlinCodegenTarget(platform, basePackage))
             SubsystemStarterReconciler.plan(starterRoot().toPath(), sources).confirmationToken
         } else null

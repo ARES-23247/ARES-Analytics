@@ -20,7 +20,7 @@ safety expectations, and the equivalent hand-authored IO/Redux workflow.
 | `shared` | Serializable models and unit-conversion helpers shared by the desktop app and gateway |
 | `gateway` | Small authenticated Ktor service exposing the Vertex AI pit-forensics endpoint |
 
-The application also consumes `com.areslib:core:1.0-SNAPSHOT`. When `../ARESLib-Kotlin` exists, Gradle uses that sibling checkout as a composite build; otherwise it resolves the artifact from `mavenLocal()`.
+The application consumes the versioned `org.aresfirst.ares:ares-bom` plus `core` and `codegen` artifacts. Normal builds resolve the pinned release from Maven Central; library developers can opt into the sibling checkout with `-ParesUseSiblingLib=true`.
 
 ## Requirements
 
@@ -35,11 +35,13 @@ The application also consumes `com.areslib:core:1.0-SNAPSHOT`. When `../ARESLib-
 
 ## Quick start
 
-From the workspace root, publish the shared library after changing it:
+Normal builds resolve the pinned ARESLib version from Maven Central. To test an unpublished library change through its exact binaries:
 
 ```powershell
 cd ARESLib-Kotlin
-.\gradlew.bat publishToMavenLocal
+.\gradlew.bat apiCheck publishReleaseValidation
+cd ..\ARES-Analytics
+.\gradlew.bat :shared:test :app:test -ParesRepository="..\ARESLib-Kotlin\build\release-repository"
 ```
 
 Then build and run the desktop application:

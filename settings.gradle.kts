@@ -54,13 +54,15 @@ pluginManagement {
     }
 }
 
+val aresRepositoryUrl = providers.gradleProperty("aresRepository").orNull
 dependencyResolutionManagement {
     repositories {
-        mavenLocal()
+        if (!aresRepositoryUrl.isNullOrBlank()) {
+            maven(aresRepositoryUrl)
+        }
         google()
         mavenCentral()
         maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
-        maven("https://jitpack.io")
     }
 }
 
@@ -73,9 +75,9 @@ include(":gateway")
 // Keep the dashboard and its shared robotics models in lockstep during local
 // development. CI/release builds can still resolve the published artifact when
 // this sibling checkout is absent.
-val useSiblingAresLib = providers.gradleProperty("ares.useSiblingAresLib")
+val useSiblingAresLib = providers.gradleProperty("aresUseSiblingLib")
     .map(String::toBoolean)
-    .getOrElse(true)
+    .getOrElse(false)
 if (useSiblingAresLib && file("../ARESLib-Kotlin").exists()) {
     includeBuild("../ARESLib-Kotlin")
 }

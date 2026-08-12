@@ -29,11 +29,6 @@ on:
 permissions:
   contents: read
 
-# Feature branches that consume unreleased ARESLib APIs test against their matching library branch.
-# Every other PR, master push, schedule, and manual run remains pinned to the protected master line.
-env:
-  ARESLIB_REF: ${{ (github.head_ref == 'codex/subsystem-authoring-v2' || github.ref_name == 'codex/subsystem-authoring-v2') && 'codex/subsystem-authoring-v2' || 'master' }}
-
 concurrency:
   group: dashboard-validation-${{ github.ref }}-${{ github.event.inputs.profile || 'automatic' }}
   cancel-in-progress: true
@@ -45,13 +40,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout ARESLib-Kotlin
-        uses: actions/checkout@v4
-        with:
-          repository: ARES-23247/ARESLib-Kotlin
-          ref: ${{ env.ARESLIB_REF }}
-          path: ARESLib-Kotlin
-
       - name: Checkout ARES-Analytics
         uses: actions/checkout@v4
         with:
@@ -93,13 +81,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout ARESLib-Kotlin
-        uses: actions/checkout@v4
-        with:
-          repository: ARES-23247/ARESLib-Kotlin
-          ref: ${{ env.ARESLIB_REF }}
-          path: ARESLib-Kotlin
-
       - name: Checkout ARES-Analytics
         uses: actions/checkout@v4
         with:
