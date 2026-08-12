@@ -59,9 +59,16 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
 
     init {
         Class.forName("org.duckdb.DuckDBDriver")
-        val oldDbPath = System.getProperty("user.home") + "/.ares-analytics/telemetry.db"
-        val isFirstRun = !File(dbPath).exists()
         val dbFile = File(dbPath)
+        val defaultDbFile = File(System.getProperty("user.home"), ".ares-analytics/telemetry.duckdb")
+            .canonicalFile
+        // Legacy import belongs only to the process' real application database. Unit tests and
+        // alternate workspaces must never ingest a user's home telemetry.db by coincidence.
+        val legacyDbPath = if (dbFile.canonicalFile == defaultDbFile) {
+            File(defaultDbFile.parentFile, "telemetry.db").absolutePath
+        } else {
+            null
+        }
         dbFile.parentFile?.mkdirs()
 
         if (dbFile.exists() && dbFile.length() == 0L) {
@@ -95,7 +102,7 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         matchLogRepo = MatchLogRepository(conn, readConn, ephemeralConn, ephemeralReadConn, dbMutex, readMutex, metrics)
         backupExporter = DatabaseBackupExporter(conn, dbMutex)
 
-        schemaManager.runMigrations(isFirstRun, oldDbPath)
+        schemaManager.runMigrations(legacyDbPath)
 
         // Periodic WAL checkpoint — replaces the per-appender-batch CHECKPOINT that dominated
         // import time with fsyncs on every frame batch. A 60s cadence bounds WAL growth for
@@ -110,12 +117,15 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
 
     suspend fun checkpoint() = matchLogRepo.checkpoint()
 
-    suspend fun executeRaw(sql: String) = matchLogRepo.executeRaw(sql)
     suspend fun executeNativeCsvImport(sql: String) = matchLogRepo.executeNativeCsvImport(sql)
     suspend fun executeQueryRaw(
         sql: String,
         rowLimit: Int = QueryResult.DEFAULT_RAW_QUERY_ROW_LIMIT
     ): QueryResult = matchLogRepo.executeQueryRaw(sql, rowLimit)
+    suspend fun executeAiQuery(
+        sql: String,
+        rowLimit: Int = QueryResult.DEFAULT_RAW_QUERY_ROW_LIMIT,
+    ): QueryResult = matchLogRepo.executeAiQuery(sql, rowLimit)
     suspend fun executeQueryWithParams(sql: String, params: List<Any>): QueryResult = matchLogRepo.executeQueryWithParams(sql, params)
     suspend fun insertSession(session: Session) = matchLogRepo.insertSession(session)
     suspend fun getSessions(): List<Session> = matchLogRepo.getSessions()
@@ -147,6 +157,21 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         limit: Int = 5_000,
         offset: Long = 0
     ): List<TelemetryFrame> = matchLogRepo.getTelemetryPageForKeys(sessionId, keys, startMs, endMs, limit, offset)
+    suspend fun getTelemetryExportPreflight(
+        sessionId: String,
+        keys: List<String>,
+        maximumFrames: Int,
+    ): TelemetryExportPreflight = matchLogRepo.getTelemetryExportPreflight(sessionId, keys, maximumFrames)
+    suspend fun getTelemetryExportValueTypes(
+        sessionId: String,
+        keys: List<String>,
+    ): Map<String, TelemetryExportValueType> = matchLogRepo.getTelemetryExportValueTypes(sessionId, keys)
+    suspend fun getTelemetryExportPage(
+        sessionId: String,
+        keys: List<String>,
+        after: TelemetryExportCursor?,
+        limit: Int,
+    ): List<TelemetryFrame> = matchLogRepo.getTelemetryExportPage(sessionId, keys, after, limit)
     override suspend fun getDistinctTelemetryKeys(sessionId: String): List<String> = matchLogRepo.getDistinctTelemetryKeys(sessionId)
     suspend fun getTelemetryForKeyPatterns(sessionId: String, patterns: List<String>): List<TelemetryFrame> =
         matchLogRepo.getTelemetryForKeyPatterns(sessionId, patterns)
@@ -171,8 +196,18 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     suspend fun importParquet(file: File) = backupExporter.importParquet(file)
     suspend fun importParquetAsSession(file: File, sessionId: String) =
         backupExporter.importParquetAsSession(file, sessionId)
+    suspend fun importCloudSessionAtomically(file: File, summary: SessionSummary, session: Session) =
+        backupExporter.importCloudSessionAtomically(file, summary, session)
+    internal fun setCloudImportFailureInjector(injector: ((CloudImportStage) -> Unit)?) {
+        backupExporter.cloudImportFailureInjector = injector
+    }
+    internal fun setExportReplaceFailureInjector(injector: BeforeAtomicReplace?) {
+        backupExporter.exportReplaceFailureInjector = injector
+    }
     suspend fun exportSessionToParquet(sessionId: String, file: File) =
         backupExporter.exportSessionToParquet(sessionId, file)
+    suspend fun exportSessionsToZip(sessionIds: List<String>, file: File) =
+        backupExporter.exportSessionsToZip(sessionIds, file)
 
     fun close() = runBlocking {
         // Stop the periodic checkpoint timer first so it can't fire mid-teardown.

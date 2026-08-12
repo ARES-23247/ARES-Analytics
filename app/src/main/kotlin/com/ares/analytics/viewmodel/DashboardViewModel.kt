@@ -246,11 +246,21 @@ class DashboardViewModel(
                 is DashboardIntent.SaveLayoutAs -> {
                     val currentLayout = _state.value.currentLayout
                     if (currentLayout != null) {
-                        _state.update { it.copy(currentRoleProfile = intent.profileName) }
-                        withContext(Dispatchers.IO) {
-                            layoutPreferenceService.saveLayout(intent.profileName, currentLayout)
+                        try {
+                            withContext(Dispatchers.IO) {
+                                layoutPreferenceService.saveLayout(intent.profileName, currentLayout)
+                            }
+                            _state.update {
+                                it.copy(currentRoleProfile = intent.profileName, errorMessage = null)
+                            }
+                            refreshAvailableProfiles()
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            _state.update {
+                                it.copy(errorMessage = error.message ?: "Failed to save dashboard layout")
+                            }
                         }
-                        refreshAvailableProfiles()
                     }
                 }
                 is DashboardIntent.DeleteLayout -> {

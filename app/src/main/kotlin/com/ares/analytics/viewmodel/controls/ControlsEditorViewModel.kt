@@ -738,22 +738,8 @@ class ControlsEditorViewModel(
 
         private fun mergeProfiles(projectProfiles: List<ControllerProfileDocument>): List<ControllerProfileDocument> {
             val builtIns = builtInProfiles()
-            val migratedProjectProfiles = projectProfiles.map { projectProfile ->
-                val template = builtIns.firstOrNull { it.documentId == projectProfile.documentId }
-                    ?: return@map projectProfile
-                val standardIds = standardControls().mapTo(hashSetOf()) { it.controlId }
-                val isUnmappedLegacyTemplate = projectProfile.controls
-                    .filter { it.controlId in standardIds }
-                    .all { it.mappings.isEmpty() }
-                if (!isUnmappedLegacyTemplate) return@map projectProfile
-
-                projectProfile.copy(controls = projectProfile.controls.map { projectControl ->
-                    val defaults = template.controls.firstOrNull { it.controlId == projectControl.controlId }
-                    if (defaults == null) projectControl else projectControl.copy(mappings = defaults.mappings)
-                })
-            }
-            val projectIds = migratedProjectProfiles.mapTo(hashSetOf()) { it.documentId }
-            return (migratedProjectProfiles + builtIns.filterNot { it.documentId in projectIds })
+            val projectIds = projectProfiles.mapTo(hashSetOf()) { it.documentId }
+            return (projectProfiles + builtIns.filterNot { it.documentId in projectIds })
                 .sortedBy { it.displayName.lowercase() }
         }
 

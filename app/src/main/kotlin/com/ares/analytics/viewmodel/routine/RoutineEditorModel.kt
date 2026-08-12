@@ -3,8 +3,7 @@ package com.ares.analytics.viewmodel.routine
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
-import com.ares.analytics.viewmodel.pathing.clampAutoPose
-import com.areslib.auto.AutoPose
+import com.ares.analytics.viewmodel.pathing.legalCenterBounds
 import com.areslib.catalog.ActionDescriptor
 import com.areslib.catalog.CapabilityCatalogDocument
 import com.areslib.catalog.CapabilityParameterDescriptor
@@ -45,12 +44,12 @@ fun defaultRoutineStep(
 }
 
 fun clampRoutinePose(pose: RoutinePose, league: League, dimensions: RobotDimensions): RoutinePose {
-    val clamped = clampAutoPose(
-        AutoPose(pose.xMeters, pose.yMeters, pose.headingRadians),
-        league,
-        dimensions
+    if (!pose.xMeters.isFinite() || !pose.yMeters.isFinite() || !pose.headingRadians.isFinite()) return pose
+    val bounds = legalCenterBounds(league, dimensions, pose.headingRadians)
+    return pose.copy(
+        xMeters = pose.xMeters.coerceIn(bounds.minX, bounds.maxX),
+        yMeters = pose.yMeters.coerceIn(bounds.minY, bounds.maxY)
     )
-    return RoutinePose(clamped.xMeters, clamped.yMeters, clamped.headingRadians)
 }
 
 fun RoutineStep.clampDriveTargets(league: League, dimensions: RobotDimensions): RoutineStep {
@@ -66,14 +65,14 @@ fun RoutineStep.clampDriveTargets(league: League, dimensions: RobotDimensions): 
 fun List<RoutineStep>.lastRoutineDriveTarget(): RoutinePose? = asReversed().firstNotNullOfOrNull { step ->
     step.elseChildren.lastRoutineDriveTarget()
         ?: step.children.lastRoutineDriveTarget()
-        ?: step.deadline?.drive?.target
+        ?: step.deadline?.let { listOf(it).lastRoutineDriveTarget() }
         ?: step.drive?.target
 }
 
 fun List<RoutineStep>.routineDriveStepsInExecutionOrder(): List<RoutineDriveStep> = buildList {
     this@routineDriveStepsInExecutionOrder.forEach { step ->
         step.drive?.let(::add)
-        step.deadline?.drive?.let(::add)
+        step.deadline?.let { addAll(listOf(it).routineDriveStepsInExecutionOrder()) }
         addAll(step.children.routineDriveStepsInExecutionOrder())
         addAll(step.elseChildren.routineDriveStepsInExecutionOrder())
     }
@@ -99,10 +98,13 @@ fun List<RoutineStep>.withRoutineRouteWaypoints(
             )
         )
     }
+    val updatedDeadline = step.deadline?.let { deadline ->
+        listOf(deadline).withRoutineRouteWaypoints(waypoints, league, dimensions).single()
+    }
     step.copy(
         drive = updatedDrive,
+        deadline = updatedDeadline,
         children = step.children.withRoutineRouteWaypoints(waypoints, league, dimensions),
-        deadline = step.deadline?.let { listOf(it).withRoutineRouteWaypoints(waypoints, league, dimensions).single() },
         elseChildren = step.elseChildren.withRoutineRouteWaypoints(waypoints, league, dimensions)
     )
 }

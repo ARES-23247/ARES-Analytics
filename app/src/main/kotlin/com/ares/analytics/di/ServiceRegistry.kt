@@ -2,9 +2,25 @@ package com.ares.analytics.di
 
 import com.ares.analytics.service.*
 import com.ares.analytics.service.log.*
+import com.ares.analytics.shared.WorkspaceConfig
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+
+/** Enforces that import cancellation cleanup joins before any dependent resource is closed. */
+internal suspend fun awaitAutoImportBeforeClosingDependencies(
+    stopAutoImport: suspend () -> Unit,
+    closeDependencies: suspend () -> Unit
+) {
+    stopAutoImport()
+    closeDependencies()
+}
 
 /**
  * Centralized service registry that lazy-initializes all application services
@@ -18,6 +34,9 @@ import kotlinx.coroutines.runBlocking
  * ```
  */
 class ServiceRegistry {
+    private val autoImportConfig = AtomicReference<WorkspaceConfig?>(null)
+    private val autoImportTransitionMutex = Mutex()
+    private val disposed = AtomicBoolean(false)
 
     // ── Tier 0: No dependencies ──────────────────────────────────────────────
     val databaseService by lazy { DatabaseService() }
@@ -47,72 +66,102 @@ class ServiceRegistry {
     val driverAnalysisService by lazy { DriverAnalysisService(databaseService, sysIdService) }
     val summaryEngineService by lazy { SummaryEngineService(databaseService, sysIdService, driverAnalysisService) }
     val hootDecoderService by lazy { HootDecoderService(databaseService, summaryEngineService, sysIdService) }
+    val autoImportService by lazy {
+        AutoImportService(
+            logParserService = logParserService,
+            hootDecoderService = hootDecoderService,
+            processManagerService = processManagerService,
+            configProvider = autoImportConfig::get
+        )
+    }
     val googleDriveService by lazy { GoogleDriveService(oauthService, environmentService) }
     val syncEngineService by lazy { SyncEngineService(databaseService, parquetExporterService, environmentService, summaryEngineService, googleDriveService) }
     val phoenixDiagnosticsService by lazy { PhoenixDiagnosticsService(nt4ClientService) }
-    val ftcDashboardService by lazy { FtcDashboardService(nt4ClientService) }
     val dashboardHealthService by lazy {
         DashboardHealthService(nt4ClientService.telemetryStore, databaseService.metrics, nt4ClientService, replayEngineService)
+    }
+
+    /** Applies a workspace transition only after the prior scanner generation has joined. */
+    suspend fun transitionAutoImport(
+        config: WorkspaceConfig?,
+        onImportSuccess: () -> Unit
+    ) = withContext(NonCancellable) {
+        autoImportTransitionMutex.withLock {
+            if (disposed.get()) return@withLock
+            autoImportService.stop()
+            autoImportConfig.set(config)
+            if (config != null) autoImportService.start(onImportSuccess)
+        }
     }
 
     /**
      * Tears down services that hold coroutine scopes or background jobs.
      * Call from `DisposableEffect { onDispose { ... } }`.
      */
-    fun dispose() {
+    fun dispose() = runBlocking { disposeAndJoin() }
+
+    internal suspend fun disposeAndJoin() {
+        var telemetryPersisted = true
         if (lazyFieldInitialized(::updateCheckerService)) {
             updateCheckerService.dispose()
         }
         if (lazyFieldInitialized(::targetScannerService)) {
             targetScannerService.stopScanning()
         }
-        // Nt4ClientService.stop() cancels the WebSocket client job
-        if (lazyFieldInitialized(::nt4ClientService)) {
-            // stop() is now suspend (it cancelAndJoins the WS loop before closing clients);
-            // dispose() is a synchronous shutdown hook, so block until it completes.
-            runBlocking { nt4ClientService.stop() }
-        }
-        // ProcessManagerService.shutdown() cancels build, sim, logcat, and ADB monitor jobs
-        if (lazyFieldInitialized(::processManagerService)) {
-            processManagerService.shutdown()
-        }
-        // ReplayEngineService.dispose() cancels the replay playback job AND the
-        // process-lifetime serviceScope (stop() leaves the scope leaking).
-        if (lazyFieldInitialized(::replayEngineService)) {
-            runBlocking { replayEngineService.disposeAndJoin() }
-        }
-        // AlertEngineService.dispose() cancels engineJob + audible-alert coroutines so they
-        // don't race DB/connection teardown below.
-        if (lazyFieldInitialized(::alertEngineService)) {
-            alertEngineService.dispose()
-        }
-        if (lazyFieldInitialized(::phoenixDiagnosticsService)) {
-            phoenixDiagnosticsService.dispose()
-        }
-        if (lazyFieldInitialized(::ftcDashboardService)) {
-            ftcDashboardService.dispose()
-        }
-        if (lazyFieldInitialized(::dashboardHealthService)) {
-            dashboardHealthService.dispose()
-        }
-        if (lazyFieldInitialized(::oauthService)) {
-            oauthService.dispose()
-        }
-        if (lazyFieldInitialized(::syncEngineService)) {
-            syncEngineService.close()
-        }
-        // GoogleDriveService.dispose() closes its HttpClient (previously leaked).
-        if (lazyFieldInitialized(::googleDriveService)) {
-            googleDriveService.dispose()
-        }
-        if (lazyFieldInitialized(::eventApiService)) {
-            eventApiService.close()
-        }
-        if (lazyFieldInitialized(::databaseService)) {
-            databaseService.close()
-        }
-        if (lazyFieldInitialized(::gamepadService)) {
-            gamepadService.dispose()
+        // AutoImport can be inside a database transaction or filesystem staging move. Its scanner
+        // must finish cancellation cleanup before NT4/process dependencies and DuckDB are closed.
+        awaitAutoImportBeforeClosingDependencies(
+            stopAutoImport = {
+                autoImportTransitionMutex.withLock {
+                    disposed.set(true)
+                    autoImportConfig.set(null)
+                    if (lazyFieldInitialized(::autoImportService)) autoImportService.stop()
+                }
+            },
+            closeDependencies = {
+                // Nt4ClientService.stop() cancels and joins the WebSocket client job.
+                if (lazyFieldInitialized(::nt4ClientService)) {
+                    telemetryPersisted = nt4ClientService.stop()
+                }
+                if (lazyFieldInitialized(::processManagerService)) {
+                    processManagerService.shutdown()
+                }
+                if (lazyFieldInitialized(::replayEngineService)) {
+                    replayEngineService.disposeAndJoin()
+                }
+                if (lazyFieldInitialized(::alertEngineService)) {
+                    alertEngineService.dispose()
+                }
+                if (lazyFieldInitialized(::phoenixDiagnosticsService)) {
+                    phoenixDiagnosticsService.dispose()
+                }
+                if (lazyFieldInitialized(::dashboardHealthService)) {
+                    dashboardHealthService.dispose()
+                }
+                if (lazyFieldInitialized(::oauthService)) {
+                    oauthService.dispose()
+                }
+                if (lazyFieldInitialized(::syncEngineService)) {
+                    syncEngineService.close()
+                }
+                if (lazyFieldInitialized(::googleDriveService)) {
+                    googleDriveService.dispose()
+                }
+                if (lazyFieldInitialized(::eventApiService)) {
+                    eventApiService.close()
+                }
+                if (telemetryPersisted && lazyFieldInitialized(::databaseService)) {
+                    databaseService.close()
+                }
+                if (lazyFieldInitialized(::gamepadService)) {
+                    gamepadService.dispose()
+                }
+            }
+        )
+        if (!telemetryPersisted) {
+            throw java.io.IOException(
+                "Shutdown aborted before closing DuckDB because pending telemetry could not be persisted"
+            )
         }
     }
 

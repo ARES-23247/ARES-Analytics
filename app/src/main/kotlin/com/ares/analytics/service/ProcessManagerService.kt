@@ -3,7 +3,12 @@ package com.ares.analytics.service
 import com.ares.analytics.shared.League
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 enum class AresGenerationPhase { IDLE, RUNNING, SUCCEEDED, FAILED }
 
@@ -18,6 +23,15 @@ interface AresProjectGenerator {
     val aresGenerationState: StateFlow<AresGenerationState>
     fun generateAresProject(projectPath: String, league: League)
 }
+
+private enum class BuildOperationKind { BUILD, GENERATION, TEST }
+
+private data class BuildOwnership(
+    val generation: Long,
+    val kind: BuildOperationKind?,
+    val job: Job?,
+    val process: Process?
+)
 
 /**
  * Service managing external OS process lifecycle execution for Gradle builds, ADB logcat streams, and physics simulators.
@@ -36,7 +50,11 @@ interface AresProjectGenerator {
  * @see AutoImportService
  * @see TargetScannerService
  */
-class ProcessManagerService : AresProjectGenerator {
+class ProcessManagerService internal constructor(
+    private val monitorAdbConnection: Boolean
+) : AresProjectGenerator {
+
+    constructor() : this(monitorAdbConnection = true)
 
     private val _buildOutput = MutableSharedFlow<String>(replay = 200)
     val buildOutput: SharedFlow<String> = _buildOutput.asSharedFlow()
@@ -58,18 +76,27 @@ class ProcessManagerService : AresProjectGenerator {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    private val buildLifecycleMutex = Mutex()
+    private val buildStateLock = Any()
+    private val buildRequestId = AtomicLong(0L)
+    private val shuttingDown = AtomicBoolean(false)
+
+    @Volatile
     private var activeBuildJob: Job? = null
     private var activeLogcatJob: Job? = null
     private var activeSimJob: Job? = null
     private var adbMonitorJob: Job? = null
 
+    @Volatile
     private var buildProcess: Process? = null
+    private var activeBuildGeneration = 0L
+    private var activeBuildKind: BuildOperationKind? = null
     private var logcatProcess: Process? = null
     private var simProcess: Process? = null
 
     init {
         // Start periodic ADB connection check
-        startAdbMonitoring()
+        if (monitorAdbConnection) startAdbMonitoring()
     }
 
     private fun startAdbMonitoring() {
@@ -77,16 +104,15 @@ class ProcessManagerService : AresProjectGenerator {
         adbMonitorJob = serviceScope.launch {
             while (isActive) {
                 try {
-                    val pb = ProcessBuilder("adb", "devices")
+                    val pb = ProcessBuilder("adb", "devices").redirectErrorStream(true)
                     val proc = pb.start()
-                    val output = proc.inputStream.bufferedReader().use { it.readText() }
-                    proc.errorStream.close()
-                    proc.outputStream.close()
-                    val monitorFinished = proc.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
-                    if (!monitorFinished) {
-                        proc.destroyForcibly()
+                    val output = StringBuilder()
+                    val exitCode = waitForProcess(proc, 3) { line ->
+                        if (output.length < MAX_MONITOR_OUTPUT_CHARS) output.appendLine(line)
                     }
-                    val isConnected = monitorFinished && (output.contains("192.168.43.1:5555") || output.contains("device\n") || output.contains("device\r"))
+                    val text = output.toString()
+                    val isConnected = exitCode == 0 &&
+                        (text.contains("192.168.43.1:5555") || text.contains("device\n") || text.contains("device\r"))
                     _adbConnected.value = isConnected
                 } catch (e: Exception) {
                     _adbConnected.value = false
@@ -97,49 +123,45 @@ class ProcessManagerService : AresProjectGenerator {
     }
 
     fun runBuild(projectPath: String, league: League) {
-        killActiveBuild()
+        enqueueBuildOperation(BuildOperationKind.BUILD) { generation ->
+            executeBuild(generation, projectPath, league)
+        }
+    }
 
-        activeBuildJob = serviceScope.launch {
-            _isBuildRunning.value = true
-            try {
-                val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
-                val cmd = if (isWindows) {
-                    when (league) {
-                        League.FTC -> listOf("cmd.exe", "/c", "gradlew.bat", ":TeamCode:assembleDebug")
-                        League.FRC -> listOf("cmd.exe", "/c", "gradlew.bat", "assemble")
-                    }
-                } else {
-                    when (league) {
-                        League.FTC -> listOf("./gradlew", ":TeamCode:assembleDebug")
-                        League.FRC -> listOf("./gradlew", "assemble")
-                    }
+    private suspend fun executeBuild(generation: Long, projectPath: String, league: League) {
+        try {
+            val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
+            val command = if (isWindows) {
+                when (league) {
+                    League.FTC -> listOf("cmd.exe", "/c", "gradlew.bat", ":TeamCode:assembleDebug")
+                    League.FRC -> listOf("cmd.exe", "/c", "gradlew.bat", "assemble")
                 }
+            } else {
+                when (league) {
+                    League.FTC -> listOf("./gradlew", ":TeamCode:assembleDebug")
+                    League.FRC -> listOf("./gradlew", "assemble")
+                }
+            }
 
-                _buildOutput.emit("[SYSTEM] Starting Gradle build: ${cmd.joinToString(" ")}")
-                val pb = ProcessBuilder(cmd)
+            _buildOutput.emit("[SYSTEM] Starting Gradle build: ${command.joinToString(" ")}")
+            val exitCode = runOwnedBuildProcess(
+                generation,
+                ProcessBuilder(command)
                     .directory(File(projectPath))
                     .redirectErrorStream(true)
-                val proc = pb.start()
-                buildProcess = proc
+            ) { line -> _buildOutput.emit(line) }
+            currentCoroutineContext().ensureActive()
+            _buildOutput.emit("[SYSTEM] Build finished with exit code $exitCode")
 
-                proc.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
-                    while (true) {
-                        val line = reader.readLine() ?: break
-                        _buildOutput.emit(line)
-                    }
-                }
-                val exitCode = proc.waitFor()
-                _buildOutput.emit("[SYSTEM] Build finished with exit code $exitCode")
-
-                // Auto-deploy on success for FTC
-                if (exitCode == 0 && league == League.FTC) {
-                    runAdbDeploy(projectPath)
-                }
-            } catch (e: Exception) {
-                _buildOutput.emit("[SYSTEM] Error running build: ${e.message}")
-            } finally {
-                _isBuildRunning.value = false
+            // Auto-deploy on success for FTC
+            if (exitCode == 0 && league == League.FTC) {
+                runAdbDeploy(projectPath)
             }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            _buildOutput.emit("[SYSTEM] Error running build: ${error.message}")
         }
     }
 
@@ -149,88 +171,230 @@ class ProcessManagerService : AresProjectGenerator {
      * The wrapper is launched through its JAR with a fixed argument list. This avoids interpreting
      * the student-selected project path as shell syntax on Windows while retaining normal Gradle
      * wrapper behavior. A robot connection is never involved.
-     */
+    */
     override fun generateAresProject(projectPath: String, league: League) {
-        killActiveBuild()
-        activeBuildJob = serviceScope.launch {
-            _isBuildRunning.value = true
-            _aresGenerationState.value = AresGenerationState(
+        enqueueBuildOperation(BuildOperationKind.GENERATION) { generation ->
+            executeAresGeneration(generation, projectPath, league)
+        }
+    }
+
+    private suspend fun executeAresGeneration(generation: Long, projectPath: String, league: League) {
+        updateGenerationStateIfOwner(
+            generation,
+            AresGenerationState(
                 AresGenerationPhase.RUNNING,
                 "Saving complete. Generating Kotlin from the local project..."
             )
-            val diagnosticLines = ArrayDeque<String>(GENERATION_DIAGNOSTIC_LINE_LIMIT)
-            try {
-                val root = requireSafeProjectRoot(projectPath)
-                val wrapperJar = File(root, "gradle/wrapper/gradle-wrapper.jar").canonicalFile
-                require(wrapperJar.isFile && wrapperJar.toPath().startsWith(root.toPath())) {
-                    "This directory does not contain gradle/wrapper/gradle-wrapper.jar"
-                }
-                require(File(root, ".ares").canonicalFile.isDirectory) {
-                    "This directory does not contain canonical .ares project documents"
-                }
-                val javaExecutable = File(
-                    System.getProperty("java.home"),
-                    "bin/${if (System.getProperty("os.name").contains("win", true)) "java.exe" else "java"}"
-                ).canonicalFile
-                require(javaExecutable.isFile) { "The app Java runtime could not be found" }
+        )
+        val diagnosticLines = ArrayDeque<String>(GENERATION_DIAGNOSTIC_LINE_LIMIT)
+        try {
+            val root = requireSafeProjectRoot(projectPath)
+            val wrapperJar = File(root, "gradle/wrapper/gradle-wrapper.jar").canonicalFile
+            require(wrapperJar.isFile && wrapperJar.toPath().startsWith(root.toPath())) {
+                "This directory does not contain gradle/wrapper/gradle-wrapper.jar"
+            }
+            require(File(root, ".ares").canonicalFile.isDirectory) {
+                "This directory does not contain canonical .ares project documents"
+            }
+            val javaExecutable = File(
+                System.getProperty("java.home"),
+                "bin/${if (System.getProperty("os.name").contains("win", true)) "java.exe" else "java"}"
+            ).canonicalFile
+            require(javaExecutable.isFile) { "The app Java runtime could not be found" }
 
-                val command = listOf(
-                    javaExecutable.path,
-                    "-classpath",
-                    wrapperJar.path,
-                    "org.gradle.wrapper.GradleWrapperMain",
-                    "generateAresProject",
-                    "--console=plain"
-                )
-                _buildOutput.emit("[ARES] Generating checked-in Kotlin from canonical project files")
-                val process = ProcessBuilder(command)
+            val command = listOf(
+                javaExecutable.path,
+                "-classpath",
+                wrapperJar.path,
+                "org.gradle.wrapper.GradleWrapperMain",
+                "generateAresProject",
+                "--console=plain"
+            )
+            _buildOutput.emit("[ARES] Generating checked-in Kotlin from canonical project files")
+            val exitCode = runOwnedBuildProcess(
+                generation,
+                ProcessBuilder(command)
                     .directory(root)
                     .redirectErrorStream(true)
-                    .start()
-                buildProcess = process
-                process.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
-                    while (true) {
-                        val line = reader.readLine() ?: break
-                        if (diagnosticLines.size == GENERATION_DIAGNOSTIC_LINE_LIMIT) diagnosticLines.removeFirst()
-                        diagnosticLines.addLast(line)
-                        _buildOutput.emit(line)
-                        _aresGenerationState.value = AresGenerationState(AresGenerationPhase.RUNNING, line.take(500))
+            ) { line ->
+                if (diagnosticLines.size == GENERATION_DIAGNOSTIC_LINE_LIMIT) diagnosticLines.removeFirst()
+                diagnosticLines.addLast(line)
+                _buildOutput.emit(line)
+                updateGenerationStateIfOwner(
+                    generation,
+                    AresGenerationState(AresGenerationPhase.RUNNING, line.take(500))
+                )
+            }
+            currentCoroutineContext().ensureActive()
+            if (exitCode != 0) {
+                error(
+                    diagnosticLines.joinToString("\n").ifBlank {
+                        "Gradle generation failed with exit code $exitCode"
                     }
-                }
-                val exitCode = process.waitFor()
-                if (exitCode != 0) {
-                    error(
-                        diagnosticLines.joinToString("\n").ifBlank {
-                            "Gradle generation failed with exit code $exitCode"
-                        }
-                    )
-                }
-                val hash = readGeneratedContentHash(root, league)
-                val suffix = hash?.let { " Content ${it.take(12)}..." }.orEmpty()
-                _aresGenerationState.value = AresGenerationState(
+                )
+            }
+            val hash = readGeneratedContentHash(root, league)
+            val suffix = hash?.let { " Content ${it.take(12)}..." }.orEmpty()
+            updateGenerationStateIfOwner(
+                generation,
+                AresGenerationState(
                     AresGenerationPhase.SUCCEEDED,
                     "Generated Kotlin is current.$suffix Robot builds will still verify it is not stale.",
                     hash
                 )
-                _buildOutput.emit("[ARES] Generation finished successfully.$suffix")
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                val message = error.message?.takeLast(GENERATION_DIAGNOSTIC_CHARACTER_LIMIT)
-                    ?: "ARES project generation failed"
-                _aresGenerationState.value = AresGenerationState(AresGenerationPhase.FAILED, message)
-                _buildOutput.emit("[ARES] Generation failed: $message")
-            } finally {
+            )
+            _buildOutput.emit("[ARES] Generation finished successfully.$suffix")
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            currentCoroutineContext().ensureActive()
+            val message = error.message?.takeLast(GENERATION_DIAGNOSTIC_CHARACTER_LIMIT)
+                ?: "ARES project generation failed"
+            updateGenerationStateIfOwner(
+                generation,
+                AresGenerationState(AresGenerationPhase.FAILED, message)
+            )
+            _buildOutput.emit("[ARES] Generation failed: $message")
+        }
+    }
+
+    private fun enqueueBuildOperation(
+        kind: BuildOperationKind,
+        operation: suspend (generation: Long) -> Unit
+    ) {
+        if (shuttingDown.get()) return
+        val requestId = buildRequestId.incrementAndGet()
+        serviceScope.launch {
+            buildLifecycleMutex.withLock {
+                if (shuttingDown.get() || requestId != buildRequestId.get()) return@withLock
+                stopActiveBuildLocked()
+                if (shuttingDown.get() || requestId != buildRequestId.get()) return@withLock
+
+                val replacement = serviceScope.launch(start = CoroutineStart.LAZY) {
+                    try {
+                        operation(requestId)
+                    } finally {
+                        releaseBuildOwnership(requestId)
+                    }
+                }
+                synchronized(buildStateLock) {
+                    activeBuildGeneration = requestId
+                    activeBuildKind = kind
+                    activeBuildJob = replacement
+                    buildProcess = null
+                }
+                _isBuildRunning.value = true
+                replacement.start()
+            }
+        }
+    }
+
+    /** Test seam that exercises the same ownership/replacement path as builds and generation. */
+    internal fun runManagedProcessForTest(command: List<String>, generationOperation: Boolean = false) {
+        require(command.isNotEmpty()) { "Process command must not be empty" }
+        val kind = if (generationOperation) BuildOperationKind.GENERATION else BuildOperationKind.TEST
+        enqueueBuildOperation(kind) { generation ->
+            if (generationOperation) {
+                updateGenerationStateIfOwner(
+                    generation,
+                    AresGenerationState(AresGenerationPhase.RUNNING, "Test generation running")
+                )
+            }
+            runOwnedBuildProcess(
+                generation,
+                ProcessBuilder(command).redirectErrorStream(true)
+            ) { }
+        }
+    }
+
+    internal suspend fun awaitBuildIdleForTest() {
+        while (true) {
+            val active = synchronized(buildStateLock) { activeBuildJob } ?: return
+            active.join()
+            if (synchronized(buildStateLock) { activeBuildJob == null }) return
+        }
+    }
+
+    private suspend fun runOwnedBuildProcess(
+        generation: Long,
+        processBuilder: ProcessBuilder,
+        onLine: suspend (String) -> Unit
+    ): Int {
+        var process: Process? = null
+        try {
+            // Capture the handle even if cancellation arrives while the OS is creating it; the
+            // ownership check immediately below then kills it instead of leaking an untracked child.
+            val started = withContext(NonCancellable + Dispatchers.IO) { processBuilder.start() }
+            process = started
+            if (!claimBuildProcess(generation, started)) {
+                throw CancellationException("Build ownership changed before process registration")
+            }
+            currentCoroutineContext().ensureActive()
+            started.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                while (true) {
+                    val line = reader.readLine() ?: break
+                    currentCoroutineContext().ensureActive()
+                    onLine(line)
+                }
+            }
+            currentCoroutineContext().ensureActive()
+            return runInterruptible(Dispatchers.IO) { started.waitFor() }
+        } catch (cancelled: CancellationException) {
+            process?.let { terminateProcessTree(it) }
+            throw cancelled
+        } finally {
+            process?.let {
+                if (it.isAlive) terminateProcessTree(it)
+                releaseBuildProcess(generation, it)
+            }
+        }
+    }
+
+    private fun claimBuildProcess(generation: Long, process: Process): Boolean = synchronized(buildStateLock) {
+        if (activeBuildGeneration != generation || activeBuildJob?.isActive != true) {
+            false
+        } else {
+            buildProcess = process
+            true
+        }
+    }
+
+    private fun releaseBuildProcess(generation: Long, process: Process) {
+        synchronized(buildStateLock) {
+            if (activeBuildGeneration == generation && buildProcess === process) {
+                buildProcess = null
+            }
+        }
+    }
+
+    private fun releaseBuildOwnership(generation: Long) {
+        synchronized(buildStateLock) {
+            if (activeBuildGeneration != generation) {
+                return@synchronized
+            } else {
+                activeBuildGeneration = 0L
+                activeBuildKind = null
+                activeBuildJob = null
                 buildProcess = null
                 _isBuildRunning.value = false
             }
         }
     }
 
+    private fun updateGenerationStateIfOwner(generation: Long, state: AresGenerationState) {
+        synchronized(buildStateLock) {
+            if (activeBuildGeneration == generation && activeBuildKind == BuildOperationKind.GENERATION) {
+                _aresGenerationState.value = state
+            }
+        }
+    }
+
     fun runSimulation(projectPath: String, league: League, simulatorCommand: String? = null) {
+        if (shuttingDown.get()) return
         killActiveSim()
 
-        activeSimJob = serviceScope.launch {
+        val replacement = serviceScope.launch(start = CoroutineStart.LAZY) {
+            var ownedProcess: Process? = null
             try {
                 _isSimRunning.value = true
                 val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
@@ -252,46 +416,70 @@ class ProcessManagerService : AresProjectGenerator {
                     .directory(File(projectPath))
                     .redirectErrorStream(true)
                 val proc = pb.start()
+                ownedProcess = proc
                 simProcess = proc
+                currentCoroutineContext().ensureActive()
 
                 proc.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                     while (true) {
                         val line = reader.readLine() ?: break
+                        currentCoroutineContext().ensureActive()
                         _buildOutput.emit(line)
                     }
                 }
-                val exitCode = proc.waitFor()
+                currentCoroutineContext().ensureActive()
+                val exitCode = runInterruptible(Dispatchers.IO) { proc.waitFor() }
                 _buildOutput.emit("[SYSTEM] Simulation finished with exit code $exitCode")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
                 _buildOutput.emit("[SYSTEM] Error running simulation: ${e.message}")
             } finally {
+                ownedProcess?.let { if (it.isAlive) terminateProcessTree(it) }
+                if (simProcess === ownedProcess) simProcess = null
                 _isSimRunning.value = false
             }
         }
+        activeSimJob = replacement
+        replacement.start()
     }
 
     fun startLogcat() {
+        if (shuttingDown.get()) return
         killActiveLogcat()
 
-        activeLogcatJob = serviceScope.launch {
+        val replacement = serviceScope.launch(start = CoroutineStart.LAZY) {
+            var ownedProcess: Process? = null
             try {
                 _logcatOutput.emit("[SYSTEM] Starting ADB logcat stream...")
                 val adb = resolveAdbPath()
                 val pb = ProcessBuilder(adb, "logcat", "-v", "time")
                     .redirectErrorStream(true)
                 val proc = pb.start()
+                ownedProcess = proc
                 logcatProcess = proc
+                currentCoroutineContext().ensureActive()
 
                 proc.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
                     while (true) {
                         val line = reader.readLine() ?: break
+                        currentCoroutineContext().ensureActive()
                         _logcatOutput.emit(line)
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
+                currentCoroutineContext().ensureActive()
                 _logcatOutput.emit("[SYSTEM] Error streaming logcat: ${e.message}")
+            } finally {
+                ownedProcess?.let { if (it.isAlive) terminateProcessTree(it) }
+                if (logcatProcess === ownedProcess) logcatProcess = null
             }
         }
+        activeLogcatJob = replacement
+        replacement.start()
     }
 
     private fun resolveAdbPath(): String {
@@ -307,16 +495,11 @@ class ProcessManagerService : AresProjectGenerator {
         val adb = resolveAdbPath()
         val connectPb = ProcessBuilder(adb, "connect", "192.168.43.1:5555").redirectErrorStream(true)
         val connectProc = connectPb.start()
-        connectProc.inputStream.close()
-        connectProc.errorStream.close()
-        connectProc.outputStream.close()
-        val finished = connectProc.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
-        if (!finished) {
-            connectProc.destroyForcibly()
+        val connectExit = waitForProcess(connectProc, 10) { line -> _buildOutput.emit("[ADB] $line") }
+        if (connectExit == null) {
             _buildOutput.emit("[SYSTEM] Warning: adb connect timed out. Attempting install anyway.")
         }
-        val connectExit = if (finished) connectProc.exitValue() else -1
-        if (connectExit != 0 && finished) {
+        if (connectExit != null && connectExit != 0) {
             _buildOutput.emit("[SYSTEM] Warning: adb connect returned non-zero exit code $connectExit. Attempting install anyway.")
         }
 
@@ -327,21 +510,11 @@ class ProcessManagerService : AresProjectGenerator {
         }
         val installPb = ProcessBuilder(adb, "install", "-r", apkPath.absolutePath).redirectErrorStream(true)
         val installProc = installPb.start()
-        installProc.errorStream.close()
-        installProc.outputStream.close()
-
-        installProc.inputStream.bufferedReader().use { reader ->
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                _buildOutput.emit("[ADB] $line")
-            }
-        }
-        val installFinished = installProc.waitFor(30, java.util.concurrent.TimeUnit.SECONDS)
-        if (!installFinished) {
-            installProc.destroyForcibly()
+        val installResult = waitForProcess(installProc, 30) { line -> _buildOutput.emit("[ADB] $line") }
+        if (installResult == null) {
             _buildOutput.emit("[SYSTEM] Error: ADB Deploy timed out.")
         }
-        val installExit = if (installFinished) installProc.exitValue() else -1
+        val installExit = installResult ?: -1
         _buildOutput.emit("[SYSTEM] ADB Deploy finished with exit code $installExit")
 
         // Auto restart logcat on successful deploy
@@ -351,48 +524,148 @@ class ProcessManagerService : AresProjectGenerator {
     }
 
     fun killActiveBuild() {
-        val generationWasRunning = _aresGenerationState.value.phase == AresGenerationPhase.RUNNING
-        try {
-            buildProcess?.descendants()?.forEach { it.destroyForcibly() }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        runBlocking { killActiveBuildAndJoin() }
+    }
+
+    internal suspend fun killActiveBuildAndJoin() {
+        val requestId = buildRequestId.incrementAndGet()
+        buildLifecycleMutex.withLock {
+            if (requestId == buildRequestId.get()) stopActiveBuildLocked()
         }
-        buildProcess?.destroyForcibly()
-        buildProcess = null
-        activeBuildJob?.cancel()
-        activeBuildJob = null
-        _isBuildRunning.value = false
-        if (generationWasRunning) {
+    }
+
+    private suspend fun stopActiveBuildLocked() = withContext(NonCancellable) {
+        val ownership = synchronized(buildStateLock) {
+            BuildOwnership(activeBuildGeneration, activeBuildKind, activeBuildJob, buildProcess)
+        }
+        ownership.job?.cancel()
+        ownership.process?.let { terminateProcessTree(it) }
+        ownership.job?.cancelAndJoin()
+
+        val released = synchronized(buildStateLock) {
+            if (activeBuildGeneration != ownership.generation || ownership.generation == 0L) {
+                false
+            } else {
+                activeBuildGeneration = 0L
+                activeBuildKind = null
+                activeBuildJob = null
+                buildProcess = null
+                true
+            }
+        }
+        if (released || ownership.job != null) _isBuildRunning.value = false
+        if (ownership.kind == BuildOperationKind.GENERATION &&
+            _aresGenerationState.value.phase == AresGenerationPhase.RUNNING
+        ) {
             _aresGenerationState.value = AresGenerationState(AresGenerationPhase.FAILED, "Generation canceled.")
         }
     }
 
     fun killActiveLogcat() {
-        logcatProcess?.destroyForcibly()
-        logcatProcess = null
-        activeLogcatJob?.cancel()
-        activeLogcatJob = null
+        runBlocking { stopLogcatAndJoin() }
     }
 
     fun killActiveSim() {
-        try {
-            simProcess?.descendants()?.forEach { it.destroyForcibly() }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-        simProcess?.destroyForcibly()
-        simProcess = null
-        activeSimJob?.cancel()
-        activeSimJob = null
-        _isSimRunning.value = false
+        runBlocking { stopSimulationAndJoin() }
     }
 
     fun shutdown() {
-        killActiveBuild()
-        killActiveLogcat()
-        killActiveSim()
-        adbMonitorJob?.cancel()
-        serviceScope.cancel()
+        runBlocking { shutdownAndJoin() }
+    }
+
+    internal suspend fun shutdownAndJoin() = withContext(NonCancellable) {
+        shuttingDown.set(true)
+        buildRequestId.incrementAndGet()
+        buildLifecycleMutex.withLock { stopActiveBuildLocked() }
+        stopLogcatAndJoin()
+        stopSimulationAndJoin()
+        adbMonitorJob?.cancelAndJoin()
+        adbMonitorJob = null
+        serviceScope.coroutineContext[Job]?.cancelAndJoin()
+    }
+
+    private suspend fun stopLogcatAndJoin() = withContext(NonCancellable) {
+        val process = logcatProcess
+        val job = activeLogcatJob
+        job?.cancel()
+        process?.let { terminateProcessTree(it) }
+        job?.cancelAndJoin()
+        if (logcatProcess === process) logcatProcess = null
+        if (activeLogcatJob === job) activeLogcatJob = null
+    }
+
+    private suspend fun stopSimulationAndJoin() = withContext(NonCancellable) {
+        val process = simProcess
+        val job = activeSimJob
+        job?.cancel()
+        process?.let { terminateProcessTree(it) }
+        job?.cancelAndJoin()
+        if (simProcess === process) simProcess = null
+        if (activeSimJob === job) activeSimJob = null
+        _isSimRunning.value = false
+    }
+
+    /** Drains output concurrently so a verbose child cannot fill its pipe before the timeout. */
+    private suspend fun waitForProcess(
+        process: Process,
+        timeoutSeconds: Long,
+        onLine: suspend (String) -> Unit
+    ): Int? = coroutineScope {
+        runCatching { process.outputStream.close() }
+        val drain = async(Dispatchers.IO) {
+            runCatching {
+                process.inputStream.bufferedReader(Charsets.UTF_8).use { reader ->
+                    while (true) onLine(reader.readLine() ?: break)
+                }
+            }
+        }
+        val finished = try {
+            withTimeoutOrNull(timeoutSeconds * 1_000L) {
+                while (process.isAlive) delay(25)
+                true
+            } ?: false
+        } catch (cancelled: CancellationException) {
+            terminateProcessTree(process)
+            throw cancelled
+        }
+        if (!finished) {
+            terminateProcessTree(process)
+            withTimeoutOrNull(2_000) {
+                while (process.isAlive) delay(25)
+            }
+        }
+        withTimeoutOrNull(2_000) { drain.await() } ?: drain.cancel()
+        if (finished) process.exitValue() else null
+    }
+
+    private suspend fun terminateProcessTree(process: Process) {
+        withContext(NonCancellable + Dispatchers.IO) {
+            val handles = mutableListOf<ProcessHandle>()
+            runCatching {
+                process.descendants().use { descendants ->
+                    descendants.forEach { handles.add(it) }
+                }
+            }
+            handles.asReversed().forEach { child -> runCatching { child.destroyForcibly() } }
+            runCatching { process.destroyForcibly() }
+
+            val allHandles = handles + process.toHandle()
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(PROCESS_TREE_KILL_GRACE_MS)
+            while (allHandles.any { it.isAlive } && System.nanoTime() < deadline) {
+                try {
+                    Thread.sleep(PROCESS_TREE_POLL_MS)
+                } catch (_: InterruptedException) {
+                    // Coroutine cancellation cannot abandon process cleanup once it has begun.
+                    Thread.interrupted()
+                }
+            }
+            allHandles.filter { it.isAlive }.forEach { handle ->
+                runCatching { handle.destroyForcibly() }
+            }
+            runCatching { process.inputStream.close() }
+            runCatching { process.errorStream.close() }
+            runCatching { process.outputStream.close() }
+        }
     }
 
     private fun requireSafeProjectRoot(projectPath: String): File {
@@ -415,6 +688,9 @@ class ProcessManagerService : AresProjectGenerator {
     private companion object {
         const val GENERATION_DIAGNOSTIC_LINE_LIMIT = 24
         const val GENERATION_DIAGNOSTIC_CHARACTER_LIMIT = 4_000
+        const val MAX_MONITOR_OUTPUT_CHARS = 64 * 1024
+        const val PROCESS_TREE_KILL_GRACE_MS = 2_000L
+        const val PROCESS_TREE_POLL_MS = 10L
         val GENERATED_CONTENT_HASH = Regex("CONTENT_SHA256:\\s*String\\s*=\\s*\"([0-9a-fA-F]{64})\"")
     }
 }

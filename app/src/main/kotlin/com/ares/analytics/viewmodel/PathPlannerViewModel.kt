@@ -1,24 +1,14 @@
 package com.ares.analytics.viewmodel
 
-import com.ares.analytics.shared.AppJson
-
-import com.ares.analytics.service.TrajectoryEstimator
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.AresGenerationPhase
 import com.ares.analytics.service.AresProjectGenerator
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.pathplanner.Waypoint
-import com.ares.analytics.ui.components.pathplanner.resolveHeading
-import com.ares.analytics.viewmodel.pathing.AresAutoRepository
-import com.ares.analytics.viewmodel.pathing.AutoRevisionSummary
-import com.ares.analytics.viewmodel.pathing.AutoCapabilityScanner
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
 import com.ares.analytics.viewmodel.project.ProjectMetadataRepository
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataDocument
-import com.ares.analytics.viewmodel.pathing.clampAutoPose
-import com.ares.analytics.viewmodel.pathing.validateAutoFieldBounds
-import com.ares.analytics.viewmodel.pathing.withClampedDriveTarget
 import com.ares.analytics.viewmodel.project.AutonomousCatalogProjectRepository
 import com.ares.analytics.viewmodel.project.ProjectRevisionSummary
 import com.ares.analytics.viewmodel.project.RoutineProjectRepository
@@ -26,21 +16,12 @@ import com.ares.analytics.viewmodel.routine.clampRoutinePose
 import com.ares.analytics.viewmodel.routine.clampDriveTargets
 import com.ares.analytics.viewmodel.routine.defaultRoutineStep
 import com.ares.analytics.viewmodel.routine.lastRoutineDriveTarget
-import com.ares.analytics.viewmodel.routine.routineDriveStepsInExecutionOrder
 import com.ares.analytics.viewmodel.routine.routineEditorValidation
 import com.ares.analytics.viewmodel.routine.withRoutineRouteWaypoints
-import com.areslib.auto.AutoDriveStep
-import com.areslib.auto.AutoPose
-import com.areslib.auto.AutoRoutine
-import com.areslib.auto.AutoStep
-import com.areslib.auto.AutoStepKind
-import com.areslib.auto.validateAutoRoutine
 import com.areslib.math.geometry.Pose2d
 import com.areslib.math.geometry.Rotation2d
-import com.areslib.pathing.CommandKey
 import com.areslib.pathing.DriveModel
 import com.areslib.pathing.JerkLimitedTrajectoryProvider
-import com.areslib.pathing.NamedCommandDescriptor
 import com.areslib.pathing.TrajectoryLimits
 import com.areslib.pathing.TrajectoryPlanner
 import com.areslib.pathing.TrajectoryPreset
@@ -61,95 +42,63 @@ import com.areslib.routine.RoutineValidationIssue
 import com.areslib.routine.RoutineValidationSeverity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.*
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 
-data class PathPreview(val name: String, val trajectory: Trajectory?)
-
-private fun newAresAuto(name: String = "New Auto"): AutoRoutine = AutoRoutine(
-    documentId = "${safeAutoDocumentId(name).take(55)}-${UUID.randomUUID().toString().take(8)}",
-    name = name,
-    startingPose = AutoPose(0.0, 0.0, 0.0),
-    steps = emptyList()
-)
-
-private fun safeAutoDocumentId(name: String): String = name.trim().lowercase()
+private fun safeRoutineDocumentId(name: String): String = name.trim().lowercase()
     .replace(Regex("[^a-z0-9._-]+"), "-")
     .trim('-', '.', '_')
     .take(64)
-    .ifEmpty { "auto" }
+    .ifEmpty { "routine" }
+
+private fun safeProjectDocumentId(name: String): String = name.trim().lowercase()
+    .replace(Regex("[^a-z0-9._-]+"), "-")
+    .trim('-', '.', '_')
+    .take(64)
+    .ifEmpty { "project" }
+
+private val ROUTINE_PREVIEW_LIMITS = TrajectoryLimits(
+    maxVelocityMps = 3.0,
+    maxAccelerationMps2 = 3.0,
+    maxJerkMps3 = 12.0,
+    maxCentripetalAccelerationMps2 = 3.0,
+    maxAngularVelocityRps = Math.toRadians(540.0),
+    maxAngularAccelerationRps2 = Math.toRadians(720.0)
+)
+private const val MAX_ROUTINE_PREVIEW_STEPS = 4_096
+private const val MAX_ROUTINE_PREVIEW_DEPTH = 64
 
 private fun newRoutine(name: String = "New Routine"): RoutineDocument = RoutineDocument(
-    documentId = "${safeAutoDocumentId(name).take(55)}-${UUID.randomUUID().toString().take(8)}",
+    documentId = "${safeRoutineDocumentId(name).take(55)}-${UUID.randomUUID().toString().take(8)}",
     name = name,
     steps = emptyList()
 )
 
 data class PathPlannerState(
-    val pathName: String = "autonomous_route",
-    val availablePaths: List<String> = emptyList(),
     val saveStatus: String = "",
-    val waypoints: List<Waypoint> = listOf(
-        Waypoint(-1.2, -1.2, 0.0),
-        Waypoint(0.0, 0.0, Math.toRadians(45.0)),
-        Waypoint(1.2, 1.2, Math.toRadians(90.0))
-    ),
-    val eventMarkers: List<PathPlannerEventMarker> = emptyList(),
-    val rotationTargets: List<RotationTarget> = emptyList(),
-    val constraintZones: List<ConstraintsZone> = emptyList(),
-    val pointTowardsZones: List<PointTowardsZone> = emptyList(),
-    val globalConstraints: PathConstraints = PathConstraints(),
-    val idealStartingState: IdealStartingState? = null,
-    val goalEndState: GoalEndState? = null,
-    val reversed: Boolean = false,
-    val useDefaultConstraints: Boolean = true,
     val estimatedDuration: Double = 0.0,
-    val selectedWaypointIndex: Int? = null,
-    val toolMode: String = "Select",
     val viewRotation: Float = 0f,
     val trajectory: Trajectory? = null,
     val isPlaying: Boolean = false,
     val playbackTime: Double = 0.0,
-
-    // Auto Editor specific state
-    val activeEditorMode: String = "Auto", // Legacy import/export mode; the primary editor is unified.
-    val availableAutos: List<String> = emptyList(),
-    val autoStartingPose: AutoStartingPose? = null,
-    val currentAutoCommands: List<AutoCommandNode> = emptyList(),
-    val contextAutoName: String? = null,
-    val contextTrajectory: Trajectory? = null,
-    val contextWaypoints: List<Waypoint> = emptyList(),
-
-    // Browser specific state
-    val showBrowser: Boolean = false,
-    val availablePathPreviews: List<PathPreview> = emptyList(),
-    val availableAutoPreviews: List<PathPreview> = emptyList(),
-
-    // Native ARES visual auto editor. PathPlanner fields above remain import/export adapters.
-    val aresAuto: AutoRoutine = newAresAuto(),
-    val aresAutoValidation: List<com.areslib.auto.AutoValidationIssue> = validateAutoRoutine(newAresAuto()),
-    val availableAresAutos: List<AutoRoutine> = emptyList(),
-    val aresAutoRevisions: List<AutoRevisionSummary> = emptyList(),
-    val commandCatalog: List<NamedCommandDescriptor> = emptyList(),
+    /** Non-null when one routine has multiple possible timelines and preview is suppressed. */
+    val routinePreviewWarning: String? = null,
     val capabilityStatus: String = "Select a project to discover robot actions",
     val activeLeague: League = League.FTC,
     val robotDimensions: RobotDimensions = RobotDimensions.defaultFor(League.FTC),
     val projectMetadata: AresProjectMetadataDocument? = null,
     val generationPhase: AresGenerationPhase = AresGenerationPhase.IDLE,
     val generationMessage: String? = null,
-    val generatedContentHash: String? = null,
 
-    // Canonical, trigger-neutral Routine Builder state. Legacy PathPlanner/AutoRoutine fields above
-    // remain import adapters only and are intentionally not used by the primary editor.
+    // Canonical, trigger-neutral Routine Builder state.
     val routine: RoutineDocument = newRoutine(),
     val routineValidation: List<RoutineValidationIssue> = emptyList(),
     val availableRoutines: List<RoutineDocument> = emptyList(),
@@ -157,139 +106,16 @@ data class PathPlannerState(
     val capabilityCatalog: CapabilityCatalogDocument? = null,
     val routineActions: List<ActionDescriptor> = emptyList(),
     val routineConditions: List<ConditionDescriptor> = emptyList(),
-    val autonomousCatalog: AutonomousCatalogDocument? = null,
     val autonomousEntry: AutonomousCatalogEntry? = null,
-    val availableInAutonomousSelector: Boolean = false,
-    val legacyRoutineFiles: List<File> = emptyList()
+    val availableInAutonomousSelector: Boolean = false
 )
 
 sealed class PathPlannerIntent {
-
-    data class LoadPath(val projectPath: String?, val league: League, val name: String? = null) : PathPlannerIntent()
-
-    data class FetchAvailablePaths(val projectPath: String?, val league: League) : PathPlannerIntent()
-
-    data class SavePath(val projectPath: String?, val league: League) : PathPlannerIntent()
-
-    data class CreateNewPath(val name: String = "new_path") : PathPlannerIntent()
-
-    data class CreateNewAuto(val name: String = "new_auto") : PathPlannerIntent()
-
-    object OptimizePath : PathPlannerIntent()
-
-    data class UpdatePathName(val name: String) : PathPlannerIntent()
-
-    data class UpdateEditorMode(val mode: String) : PathPlannerIntent()
-
-    data class UpdateWaypoints(val newWaypoints: List<Waypoint>) : PathPlannerIntent()
-
-    data class UpdateWaypoint(val index: Int, val waypoint: Waypoint) : PathPlannerIntent()
-
-    data class AddWaypoint(val waypoint: Waypoint) : PathPlannerIntent()
-
-    data class DeleteWaypoint(val index: Int) : PathPlannerIntent()
-
-    data class SelectWaypoint(val index: Int?) : PathPlannerIntent()
-
-    data class UpdateToolMode(val mode: String) : PathPlannerIntent()
-
-    data class UpdateGlobalConstraints(val constraints: PathConstraints) : PathPlannerIntent()
-
-    data class UpdateStartingState(val state: IdealStartingState?) : PathPlannerIntent()
-
-    data class UpdateEndState(val state: GoalEndState?) : PathPlannerIntent()
-
-    data class UpdateReversed(val reversed: Boolean) : PathPlannerIntent()
-
-    data class UpdateUseDefaultConstraints(val useDefault: Boolean) : PathPlannerIntent()
-
+    /** Refreshes the canonical routine/capability/autonomous documents for a project. */
+    data class RefreshProject(val projectPath: String?, val league: League) : PathPlannerIntent()
     data class UpdateViewRotation(val viewRotation: Float) : PathPlannerIntent()
-
-    // Browser
-
-    object ToggleBrowser : PathPlannerIntent()
-
-    // Playback
-
     object TogglePlayback : PathPlannerIntent()
-
-    data class SeekPlayback(val timeSeconds: Double) : PathPlannerIntent()
-
-    object StopPlayback : PathPlannerIntent()
-
-    // Event Markers
-
-    data class AddEventMarker(val marker: PathPlannerEventMarker) : PathPlannerIntent()
-
-    data class UpdateEventMarker(val index: Int, val marker: PathPlannerEventMarker) : PathPlannerIntent()
-
-    data class UpdateEventMarkers(val markers: List<PathPlannerEventMarker>) : PathPlannerIntent()
-
-    data class DeleteEventMarker(val index: Int) : PathPlannerIntent()
-
-    // Rotation Targets
-
-    data class AddRotationTarget(val target: RotationTarget) : PathPlannerIntent()
-
-    data class UpdateRotationTarget(val index: Int, val target: RotationTarget) : PathPlannerIntent()
-
-    data class UpdateRotationTargets(val targets: List<RotationTarget>) : PathPlannerIntent()
-
-    data class DeleteRotationTarget(val index: Int) : PathPlannerIntent()
-
-    // Point Towards Zones
-
-    data class AddPointTowardsZone(val zone: PointTowardsZone) : PathPlannerIntent()
-
-    data class UpdatePointTowardsZone(val index: Int, val zone: PointTowardsZone) : PathPlannerIntent()
-
-    data class DeletePointTowardsZone(val index: Int) : PathPlannerIntent()
-
-    // Constraint Zones
-
-    data class AddConstraintZone(val zone: ConstraintsZone) : PathPlannerIntent()
-
-    data class UpdateConstraintZone(val index: Int, val zone: ConstraintsZone) : PathPlannerIntent()
-
-    data class DeleteConstraintZone(val index: Int) : PathPlannerIntent()
-
-    // Auto Editor
-
-    data class LoadAuto(val projectPath: String?, val league: League, val name: String? = null) : PathPlannerIntent()
-
-    data class SaveAuto(val projectPath: String?, val league: League) : PathPlannerIntent()
-
-    data class UpdateAutoStartingPose(val pose: AutoStartingPose?) : PathPlannerIntent()
-
-    data class AddAutoCommand(val node: AutoCommandNode, val projectPath: String?, val league: League) : PathPlannerIntent()
-
-    data class RemoveAutoCommand(val index: Int, val projectPath: String?, val league: League) : PathPlannerIntent()
-
-    data class MoveAutoCommand(val fromIndex: Int, val direction: Int, val projectPath: String?, val league: League) : PathPlannerIntent()
-
-    data class UpdateAutoCommand(val index: Int, val node: AutoCommandNode, val projectPath: String?, val league: League) : PathPlannerIntent()
-
-    data class UpdateContextAuto(val autoName: String?, val projectPath: String?, val league: League) : PathPlannerIntent()
-    data class DeletePath(val name: String, val projectPath: String?, val league: League) : PathPlannerIntent()
-    data class DeleteAuto(val name: String, val projectPath: String?, val league: League) : PathPlannerIntent()
-
-    // Native ARES GUI/DSL auto document intents.
-    data class LoadAresAuto(val projectPath: String?, val league: League, val documentId: String) : PathPlannerIntent()
-    data class SaveAresAuto(val projectPath: String?, val league: League) : PathPlannerIntent()
-    data class RestoreAresAuto(
-        val projectPath: String?,
-        val league: League,
-        val contentHash: String
-    ) : PathPlannerIntent()
-    data class UpdateAresStartingPose(val pose: AutoPose, val league: League) : PathPlannerIntent()
-    data class AddAresDriveGoal(val league: League) : PathPlannerIntent()
-    data class AddAresCommand(val commandKey: String, val league: League) : PathPlannerIntent()
-    data class AddAresWait(val league: League) : PathPlannerIntent()
-    data class UpdateAresStep(val index: Int, val step: AutoStep, val league: League) : PathPlannerIntent()
-    data class RemoveAresStep(val index: Int, val league: League) : PathPlannerIntent()
-    data class MoveAresStep(val index: Int, val direction: Int, val league: League) : PathPlannerIntent()
-    data class UpdateAresRouteWaypoints(val waypoints: List<Waypoint>, val league: League) : PathPlannerIntent()
-    data class ConfigureAresField(val league: League, val robotDimensions: RobotDimensions) : PathPlannerIntent()
+    data class ConfigureField(val league: League, val robotDimensions: RobotDimensions) : PathPlannerIntent()
     data class UpdateCanonicalRobotDimensions(
         val projectPath: String?,
         val robotDimensions: RobotDimensions
@@ -322,36 +148,32 @@ sealed class PathPlannerIntent {
     data class SetAutonomousAvailability(val enabled: Boolean, val league: League) : PathPlannerIntent()
     data class UpdateAutonomousEntry(val entry: AutonomousCatalogEntry, val league: League) : PathPlannerIntent()
     data class UpdateRoutineFieldWaypoints(val waypoints: List<Waypoint>, val league: League) : PathPlannerIntent()
-    data class ImportLegacyRoutine(val projectPath: String?, val league: League, val file: File) : PathPlannerIntent()
 }
 
 /**
- * State owner for interactive path/auto editing.
- * Geometry uses meters and CCW-positive radians internally; serialized PathPlanner rotations are degrees.
+ * State owner for canonical routine editing and deterministic drive previews.
+ * Geometry uses meters and CCW-positive radians internally.
  */
 class PathPlannerViewModel(
     private val scope: CoroutineScope,
-    nt4ClientService: Nt4ClientService? = null,
+    @Suppress("UNUSED_PARAMETER") nt4ClientService: Nt4ClientService? = null,
     private val projectGenerator: AresProjectGenerator? = null
 ) {
     private val _state = MutableStateFlow(PathPlannerState())
     val state: StateFlow<PathPlannerState> = _state.asStateFlow()
 
     private var playbackJob: kotlinx.coroutines.Job? = null
+    private var projectRefreshJob: Job? = null
+    private val projectRefreshGeneration = AtomicLong()
+    @Volatile private var selectedProjectPath: String? = null
+    @Volatile private var loadedProjectPath: String? = null
+    @Volatile private var routineProjectPath: String? = null
 
-    private val undoRedoManager = com.ares.analytics.viewmodel.pathing.PathUndoRedoManager(_state)
-    private val waypointController = com.ares.analytics.viewmodel.pathing.WaypointController(_state, this::recalculateDuration)
-    private val serializationManager = com.ares.analytics.viewmodel.pathing.PathSerializationManager(scope, _state, this::recalculateDuration)
-    private val aresAutoRepository = AresAutoRepository()
-    private val autoCapabilityScanner = AutoCapabilityScanner()
     private val routineRepository = RoutineProjectRepository()
     private val autonomousRepository = AutonomousCatalogProjectRepository(routineRepository)
     private val capabilityRepository = com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository()
     private val metadataRepository = ProjectMetadataRepository()
     private val trajectoryPlanner = TrajectoryPlanner(listOf(JerkLimitedTrajectoryProvider))
-    private var projectCommandCatalog: List<NamedCommandDescriptor> = emptyList()
-    private var liveCommandCatalog: List<NamedCommandDescriptor> = emptyList()
-
     init {
         projectGenerator?.let { generator ->
             scope.launch {
@@ -359,89 +181,30 @@ class PathPlannerViewModel(
                     _state.update {
                         it.copy(
                             generationPhase = generation.phase,
-                            generationMessage = generation.message.ifBlank { null },
-                            generatedContentHash = generation.contentHash
+                            generationMessage = generation.message.ifBlank { null }
                         )
                     }
                 }
             }
         }
-        if (nt4ClientService != null) {
-            scope.launch {
-                nt4ClientService.telemetryFlow
-                    .filter { it.key == "ARES/Auto/CommandCatalog" }
-                    .collect { frame ->
-                        parseCommandCatalog(frame.stringValue)?.let { catalog ->
-                            liveCommandCatalog = catalog
-                            updateMergedCommandCatalog()
-                        }
-                    }
-            }
-        }
-    }
-
-    private fun recalculateDuration() {
-        val s = _state.value
-        val trajectory = com.ares.analytics.service.TrajectoryEstimator.generateTrajectory(
-            waypoints = s.waypoints,
-            globalConstraints = s.globalConstraints,
-            constraintZones = s.constraintZones,
-            rotationTargets = s.rotationTargets,
-            idealStartingState = s.idealStartingState,
-            goalEndState = s.goalEndState
-        )
-        _state.update { it.copy(trajectory = trajectory, estimatedDuration = trajectory.durationSeconds) }
-    }
-
-    private fun updateContextAutoSync(autoName: String?, projectPath: String?, league: com.ares.analytics.shared.League) {
-        onIntent(PathPlannerIntent.UpdateContextAuto(autoName, projectPath, league))
     }
 
     fun onIntent(intent: PathPlannerIntent) {
-        if (isModifyingIntent(intent)) {
-            undoRedoManager.saveSnapshot()
+        if (intent is PathPlannerIntent.RefreshProject) {
+            scheduleProjectRefresh(intent.projectPath, intent.league)
+            return
         }
-
-        if (waypointController.handleIntent(intent)) return
-
         scope.launch {
             when (intent) {
-                is PathPlannerIntent.LoadPath -> serializationManager.loadPath(intent.projectPath, intent.league, intent.name)
-                is PathPlannerIntent.LoadAuto -> serializationManager.loadAuto(intent.projectPath, intent.league, intent.name)
-                is PathPlannerIntent.FetchAvailablePaths -> {
-                    refreshAresAutos(intent.projectPath, intent.league)
-                    refreshRoutineProject(intent.projectPath, intent.league)
-                }
-                is PathPlannerIntent.SavePath -> serializationManager.savePath(intent.projectPath ?: return@launch, intent.league, ::updateContextAutoSync)
-                is PathPlannerIntent.SaveAuto -> serializationManager.saveAuto(intent.projectPath ?: return@launch, intent.league)
-                is PathPlannerIntent.CreateNewPath -> _state.update { it.copy(pathName = intent.name, saveStatus = "New path initialized") }
-                is PathPlannerIntent.CreateNewAuto -> {
-                    val draft = newAresAuto(intent.name.replace('_', ' '))
-                    _state.update {
-                        it.copy(
-                            pathName = draft.name,
-                            aresAuto = draft,
-                            aresAutoValidation = validateAutoRoutine(draft) +
-                                validateAutoFieldBounds(draft, it.activeLeague, it.robotDimensions),
-                            aresAutoRevisions = emptyList(),
-                            saveStatus = "New visual auto initialized"
-                        )
-                    }
-                }
-                is PathPlannerIntent.UpdateContextAuto -> serializationManager.recalculateAutoTrajectory(intent.projectPath, intent.league)
-                is PathPlannerIntent.ToggleBrowser -> _state.update { it.copy(showBrowser = !it.showBrowser) }
-                is PathPlannerIntent.UpdatePathName -> {
-                    updateAresAuto { it.copy(name = intent.name) }
-                }
-                is PathPlannerIntent.UpdateToolMode -> _state.update { it.copy(toolMode = intent.mode) }
-                is PathPlannerIntent.UpdateGlobalConstraints -> { _state.update { it.copy(globalConstraints = intent.constraints) }; recalculateDuration() }
-                is PathPlannerIntent.UpdateStartingState -> { _state.update { it.copy(idealStartingState = intent.state) }; recalculateDuration() }
-                is PathPlannerIntent.UpdateEndState -> { _state.update { it.copy(goalEndState = intent.state) }; recalculateDuration() }
-                is PathPlannerIntent.UpdateReversed -> _state.update { it.copy(reversed = intent.reversed) }
-                is PathPlannerIntent.UpdateUseDefaultConstraints -> _state.update { it.copy(useDefaultConstraints = intent.useDefault) }
+                is PathPlannerIntent.RefreshProject -> Unit // Dispatched synchronously above.
                 is PathPlannerIntent.UpdateViewRotation -> _state.update { it.copy(viewRotation = intent.viewRotation) }
 
                 is PathPlannerIntent.TogglePlayback -> {
+                    val preview = _state.value
+                    if (preview.routinePreviewWarning != null || preview.trajectory == null || preview.estimatedDuration <= 0.0) {
+                        _state.update { it.copy(isPlaying = false, playbackTime = 0.0) }
+                        return@launch
+                    }
                     val currentlyPlaying = _state.value.isPlaying
                     if (currentlyPlaying) {
                         _state.update { it.copy(isPlaying = false) }
@@ -469,165 +232,8 @@ class PathPlannerViewModel(
                         }
                     }
                 }
-                is PathPlannerIntent.SeekPlayback -> _state.update { it.copy(playbackTime = intent.timeSeconds.coerceIn(0.0, _state.value.estimatedDuration)) }
-                is PathPlannerIntent.StopPlayback -> _state.update { it.copy(isPlaying = false, playbackTime = 0.0) }
 
-                is PathPlannerIntent.AddEventMarker -> _state.update { it.copy(eventMarkers = it.eventMarkers + intent.marker) }
-                is PathPlannerIntent.UpdateEventMarker -> _state.update { val l = it.eventMarkers.toMutableList(); l[intent.index] = intent.marker; it.copy(eventMarkers = l) }
-                is PathPlannerIntent.UpdateEventMarkers -> _state.update { it.copy(eventMarkers = intent.markers) }
-                is PathPlannerIntent.DeleteEventMarker -> _state.update { val l = it.eventMarkers.toMutableList(); l.removeAt(intent.index); it.copy(eventMarkers = l) }
-
-                is PathPlannerIntent.AddRotationTarget -> _state.update { it.copy(rotationTargets = it.rotationTargets + intent.target) }
-                is PathPlannerIntent.UpdateRotationTarget -> _state.update { val l = it.rotationTargets.toMutableList(); l[intent.index] = intent.target; it.copy(rotationTargets = l) }
-                is PathPlannerIntent.UpdateRotationTargets -> { _state.update { it.copy(rotationTargets = intent.targets) }; recalculateDuration() }
-                is PathPlannerIntent.DeleteRotationTarget -> _state.update { val l = it.rotationTargets.toMutableList(); l.removeAt(intent.index); it.copy(rotationTargets = l) }
-
-                is PathPlannerIntent.AddPointTowardsZone -> _state.update { it.copy(pointTowardsZones = it.pointTowardsZones + intent.zone) }
-                is PathPlannerIntent.UpdatePointTowardsZone -> _state.update { val l = it.pointTowardsZones.toMutableList(); l[intent.index] = intent.zone; it.copy(pointTowardsZones = l) }
-                is PathPlannerIntent.DeletePointTowardsZone -> _state.update { val l = it.pointTowardsZones.toMutableList(); l.removeAt(intent.index); it.copy(pointTowardsZones = l) }
-
-                is PathPlannerIntent.AddConstraintZone -> { _state.update { it.copy(constraintZones = it.constraintZones + intent.zone) }; recalculateDuration() }
-                is PathPlannerIntent.UpdateConstraintZone -> { _state.update { val l = it.constraintZones.toMutableList(); l[intent.index] = intent.zone; it.copy(constraintZones = l) }; recalculateDuration() }
-                is PathPlannerIntent.DeleteConstraintZone -> { _state.update { val l = it.constraintZones.toMutableList(); l.removeAt(intent.index); it.copy(constraintZones = l) }; recalculateDuration() }
-
-                is PathPlannerIntent.UpdateEditorMode -> _state.update { it.copy(activeEditorMode = intent.mode) }
-
-                is PathPlannerIntent.AddAutoCommand -> {
-                    updateAutoCommands { oldArray ->
-                        val jsonNode = AppJson.encodeToJsonElement(AutoCommandNode.serializer(), intent.node)
-                        buildJsonArray {
-                            oldArray.forEach { add(it) }
-                            add(jsonNode)
-                        }
-                    }
-                    serializationManager.recalculateAutoTrajectory(intent.projectPath, intent.league)
-                }
-
-                is PathPlannerIntent.RemoveAutoCommand -> {
-                    updateAutoCommands { oldArray ->
-                        buildJsonArray {
-                            oldArray.forEachIndexed { i, element ->
-                                if (i != intent.index) add(element)
-                            }
-                        }
-                    }
-                    serializationManager.recalculateAutoTrajectory(intent.projectPath, intent.league)
-                }
-
-                is PathPlannerIntent.MoveAutoCommand -> {
-                    updateAutoCommands { oldArray ->
-                        val toIndex = intent.fromIndex + intent.direction
-                        if (intent.fromIndex in 0 until oldArray.size && toIndex in 0 until oldArray.size) {
-                            val list = oldArray.toMutableList()
-                            val item = list.removeAt(intent.fromIndex)
-                            list.add(toIndex, item)
-                            buildJsonArray { list.forEach { add(it) } }
-                        } else {
-                            oldArray
-                        }
-                    }
-                    serializationManager.recalculateAutoTrajectory(intent.projectPath, intent.league)
-                }
-
-                is PathPlannerIntent.UpdateAutoCommand -> {
-                    updateAutoCommands { oldArray ->
-                        val jsonNode = AppJson.encodeToJsonElement(AutoCommandNode.serializer(), intent.node)
-                        buildJsonArray {
-                            oldArray.forEachIndexed { i, element ->
-                                if (i == intent.index) add(jsonNode) else add(element)
-                            }
-                        }
-                    }
-                    serializationManager.recalculateAutoTrajectory(intent.projectPath, intent.league)
-                }
-
-                is PathPlannerIntent.DeletePath -> serializationManager.deletePath(intent.name, intent.projectPath, intent.league)
-                is PathPlannerIntent.DeleteAuto -> serializationManager.deleteAuto(intent.name, intent.projectPath, intent.league)
-
-                is PathPlannerIntent.LoadAresAuto -> loadAresAuto(
-                    intent.projectPath,
-                    intent.league,
-                    intent.documentId
-                )
-                is PathPlannerIntent.SaveAresAuto -> saveAresAuto(intent.projectPath, intent.league)
-                is PathPlannerIntent.RestoreAresAuto -> restoreAresAuto(
-                    intent.projectPath,
-                    intent.league,
-                    intent.contentHash
-                )
-                is PathPlannerIntent.UpdateAresStartingPose -> {
-                    updateAresAuto {
-                        it.copy(startingPose = clampAutoPose(intent.pose, intent.league, _state.value.robotDimensions))
-                    }
-                    recalculateAresPreview(intent.league)
-                }
-                is PathPlannerIntent.AddAresDriveGoal -> {
-                    val current = _state.value.aresAuto
-                    val previous = current.steps.lastDriveTarget()
-                        ?: current.startingPose
-                    val target = clampAutoPose(
-                        previous.copy(xMeters = previous.xMeters + 0.5),
-                        intent.league,
-                        _state.value.robotDimensions
-                    )
-                    updateAresAuto { routine ->
-                        routine.copy(steps = routine.steps + AutoStep.drive(AutoDriveStep(target)))
-                    }
-                    recalculateAresPreview(intent.league)
-                }
-                is PathPlannerIntent.AddAresCommand -> {
-                    val key = runCatching { CommandKey(intent.commandKey) }.getOrNull() ?: return@launch
-                    updateAresAuto { routine -> routine.copy(steps = routine.steps + AutoStep.command(key)) }
-                    recalculateAresPreview(intent.league)
-                }
-                is PathPlannerIntent.AddAresWait -> {
-                    updateAresAuto { routine ->
-                        routine.copy(
-                            steps = routine.steps + AutoStep(
-                                kind = AutoStepKind.WAIT,
-                                durationSeconds = 1.0
-                            )
-                        )
-                    }
-                    recalculateAresPreview(intent.league)
-                }
-                is PathPlannerIntent.UpdateAresStep -> {
-                    updateAresAuto { routine ->
-                        if (intent.index !in routine.steps.indices) return@updateAresAuto routine
-                        val steps = routine.steps.toMutableList()
-                        steps[intent.index] = intent.step.withClampedDriveTarget(
-                            intent.league,
-                            _state.value.robotDimensions
-                        )
-                        routine.copy(steps = steps)
-                    }
-                    recalculateAresPreview(intent.league)
-                }
-                is PathPlannerIntent.RemoveAresStep -> {
-                    updateAresAuto { routine ->
-                        if (intent.index !in routine.steps.indices) return@updateAresAuto routine
-                        routine.copy(steps = routine.steps.filterIndexed { index, _ -> index != intent.index })
-                    }
-                    recalculateAresPreview(intent.league)
-                }
-                is PathPlannerIntent.MoveAresStep -> {
-                    updateAresAuto { routine ->
-                        val destination = intent.index + intent.direction
-                        if (intent.index !in routine.steps.indices || destination !in routine.steps.indices) {
-                            return@updateAresAuto routine
-                        }
-                        val steps = routine.steps.toMutableList()
-                        val moved = steps.removeAt(intent.index)
-                        steps.add(destination, moved)
-                        routine.copy(steps = steps)
-                    }
-                    recalculateAresPreview(intent.league)
-                }
-                is PathPlannerIntent.UpdateAresRouteWaypoints -> {
-                    updateAresRouteWaypoints(intent.waypoints, intent.league)
-                    recalculateAresPreview(intent.league)
-                }
-                is PathPlannerIntent.ConfigureAresField -> {
+                is PathPlannerIntent.ConfigureField -> {
                     _state.update { current ->
                         val metadata = current.projectMetadata
                         val dimensions = metadata?.let { RobotDimensions(it.robotLengthMeters, it.robotWidthMeters) }
@@ -636,8 +242,6 @@ class PathPlannerViewModel(
                         current.copy(
                             activeLeague = league,
                             robotDimensions = dimensions,
-                            aresAutoValidation = validateAutoRoutine(current.aresAuto) +
-                                validateAutoFieldBounds(current.aresAuto, league, dimensions),
                             routineValidation = routineEditorValidation(
                                 current.routine,
                                 current.capabilityCatalog,
@@ -648,11 +252,12 @@ class PathPlannerViewModel(
                             )
                         )
                     }
+                    recalculateRoutinePreview()
                 }
                 is PathPlannerIntent.UpdateCanonicalRobotDimensions -> {
                     val metadata = _state.value.projectMetadata
-                    val projectPath = intent.projectPath
-                    if (metadata != null && !projectPath.isNullOrBlank()) {
+                    val projectPath = loadedPathFor(intent.projectPath, "updating robot dimensions")
+                    if (metadata != null && projectPath != null) {
                         val dimensions = intent.robotDimensions.normalized()
                         withContext(Dispatchers.IO) {
                             metadataRepository.save(
@@ -678,9 +283,9 @@ class PathPlannerViewModel(
 
                 is PathPlannerIntent.CreateRoutine -> {
                     val draft = newRoutine(intent.name)
+                    routineProjectPath = loadedProjectPath
                     _state.update { current ->
                         current.copy(
-                            pathName = draft.name,
                             routine = draft,
                             routineValidation = routineEditorValidation(
                                 draft,
@@ -809,12 +414,6 @@ class PathPlannerViewModel(
                     updateRoutineFieldWaypoints(intent.waypoints, intent.league)
                     recalculateRoutinePreview()
                 }
-                is PathPlannerIntent.ImportLegacyRoutine -> importLegacyRoutine(
-                    intent.projectPath,
-                    intent.league,
-                    intent.file
-                )
-
                 else -> { }
             }
         }
@@ -833,7 +432,6 @@ class PathPlannerViewModel(
                 }
             )
             current.copy(
-                pathName = updated.name,
                 routine = updated,
                 autonomousEntry = entry,
                 routineValidation = routineEditorValidation(
@@ -906,31 +504,52 @@ class PathPlannerViewModel(
         recalculateRoutinePreview()
     }
 
-    private suspend fun refreshRoutineProject(projectPath: String?, league: League) {
-        if (projectPath.isNullOrBlank()) {
+    private fun scheduleProjectRefresh(projectPath: String?, league: League) {
+        val canonicalPath = canonicalProjectPath(projectPath)
+        val generation = projectRefreshGeneration.incrementAndGet()
+        if (canonicalPath != selectedProjectPath) routineProjectPath = null
+        selectedProjectPath = canonicalPath
+        loadedProjectPath = null
+        projectRefreshJob?.cancel()
+        if (canonicalPath == null) {
             _state.update {
                 it.copy(
                     capabilityStatus = "Select a project to load offline robot actions and routines",
                     availableRoutines = emptyList(),
                     routineActions = emptyList(),
-                    routineConditions = emptyList(),
-                    legacyRoutineFiles = emptyList()
+                    routineConditions = emptyList()
                 )
             }
+            recalculateRoutinePreview()
             return
         }
+        _state.update { it.copy(capabilityStatus = "Loading project documents…") }
+        projectRefreshJob = scope.launch {
+            refreshRoutineProject(canonicalPath, league, generation)
+        }
+    }
+
+    private suspend fun refreshRoutineProject(projectPath: String, league: League, generation: Long) {
         runCatching {
             withContext(Dispatchers.IO) {
                 val routines = routineRepository.list(projectPath)
                 val catalog = capabilityRepository.load(projectPath).getOrNull()
                 val autonomous = autonomousRepository.load(projectPath).getOrNull()
-                val legacy = routineRepository.listLegacyAutos(projectPath, league)
                 val metadata = metadataRepository.load(projectPath).getOrNull()
-                RoutineRefresh(routines.documents, routines.diagnostics.map { it.message }, catalog, autonomous, legacy.documents, metadata)
+                RoutineRefresh(routines.documents, routines.diagnostics.map { it.message }, catalog, autonomous, metadata)
             }
         }.onSuccess { refresh ->
+            if (!isCurrentProjectRequest(projectPath, generation)) return@onSuccess
+            val beforeRefresh = _state.value
+            val keepCurrentRoutine = routineProjectPath == projectPath &&
+                refresh.routines.any { it.documentId == beforeRefresh.routine.documentId }
+            val activeRoutine = if (keepCurrentRoutine) {
+                beforeRefresh.routine
+            } else {
+                refresh.routines.firstOrNull() ?: newRoutine()
+            }
             val currentEntry = refresh.autonomous?.entries?.firstOrNull {
-                it.routineId == _state.value.routine.documentId
+                it.routineId == activeRoutine.documentId
             }
             val catalog = refresh.catalog
             val effectiveLeague = refresh.metadata?.league?.toAnalyticsLeague() ?: league
@@ -939,16 +558,16 @@ class PathPlannerViewModel(
             } ?: _state.value.robotDimensions
             _state.update { current ->
                 current.copy(
+                    routine = activeRoutine,
+                    routineRevisions = if (keepCurrentRoutine) current.routineRevisions else emptyList(),
                     availableRoutines = refresh.routines,
                     capabilityCatalog = catalog,
                     routineActions = catalog?.actions
                         ?.filter { CapabilityContext.AUTONOMOUS in it.allowedContexts || CapabilityContext.TELEOP in it.allowedContexts }
                         .orEmpty(),
                     routineConditions = catalog?.conditions.orEmpty(),
-                    autonomousCatalog = refresh.autonomous,
                     autonomousEntry = currentEntry,
                     availableInAutonomousSelector = currentEntry != null,
-                    legacyRoutineFiles = refresh.legacyFiles,
                     projectMetadata = refresh.metadata,
                     activeLeague = effectiveLeague,
                     robotDimensions = effectiveDimensions,
@@ -959,7 +578,7 @@ class PathPlannerViewModel(
                         else -> "${catalog.actions.size} actions and ${catalog.conditions.size} conditions loaded from the project"
                     },
                     routineValidation = routineEditorValidation(
-                        current.routine,
+                        activeRoutine,
                         catalog,
                         refresh.routines,
                         effectiveLeague,
@@ -968,28 +587,59 @@ class PathPlannerViewModel(
                     )
                 )
             }
+            if (isCurrentProjectRequest(projectPath, generation)) {
+                loadedProjectPath = projectPath
+                routineProjectPath = projectPath
+            }
+            recalculateRoutinePreview()
         }.onFailure { error ->
-            _state.update { it.copy(capabilityStatus = "Could not read project documents: ${error.message}") }
+            if (isCurrentProjectRequest(projectPath, generation)) {
+                _state.update { it.copy(capabilityStatus = "Could not read project documents: ${error.message}") }
+            }
         }
     }
 
+    private fun canonicalProjectPath(projectPath: String?): String? = projectPath
+        ?.trim()
+        ?.takeIf(String::isNotEmpty)
+        ?.let { File(it).canonicalFile.path }
+
+    private fun isCurrentProjectRequest(projectPath: String, generation: Long): Boolean =
+        selectedProjectPath == projectPath && projectRefreshGeneration.get() == generation
+
+    private fun loadedPathFor(projectPath: String?, operation: String): String? {
+        val canonicalPath = canonicalProjectPath(projectPath)
+        if (
+            canonicalPath == null || canonicalPath != selectedProjectPath ||
+            canonicalPath != loadedProjectPath || canonicalPath != routineProjectPath
+        ) {
+            _state.update {
+                it.copy(saveStatus = "Wait for the selected project to finish loading before $operation")
+            }
+            return null
+        }
+        return canonicalPath
+    }
+
+    private fun isLoadedProject(projectPath: String): Boolean =
+        selectedProjectPath == projectPath && loadedProjectPath == projectPath && routineProjectPath == projectPath
+
     private suspend fun loadRoutine(projectPath: String?, documentId: String) {
-        if (projectPath.isNullOrBlank()) return
+        val activeProjectPath = loadedPathFor(projectPath, "opening a routine") ?: return
         runCatching {
             withContext(Dispatchers.IO) {
-                val routine = routineRepository.load(projectPath, documentId)
-                val revisions = routineRepository.listRevisions(projectPath, documentId)
-                val autonomous = autonomousRepository.load(projectPath).getOrNull()
+                val routine = routineRepository.load(activeProjectPath, documentId)
+                val revisions = routineRepository.listRevisions(activeProjectPath, documentId)
+                val autonomous = autonomousRepository.load(activeProjectPath).getOrNull()
                 Triple(routine, revisions, autonomous)
             }
         }.onSuccess { (routine, revisions, autonomous) ->
+            if (!isLoadedProject(activeProjectPath)) return@onSuccess
             val entry = autonomous?.entries?.firstOrNull { it.routineId == routine.documentId }
             _state.update { current ->
                 current.copy(
-                    pathName = routine.name,
                     routine = routine,
                     routineRevisions = revisions,
-                    autonomousCatalog = autonomous,
                     autonomousEntry = entry,
                     availableInAutonomousSelector = entry != null,
                     routineValidation = routineEditorValidation(
@@ -1003,17 +653,17 @@ class PathPlannerViewModel(
                     saveStatus = "Loaded ${routine.name} revision ${routine.revision}"
                 )
             }
+            routineProjectPath = activeProjectPath
             recalculateRoutinePreview()
         }.onFailure { error ->
-            _state.update { it.copy(saveStatus = "Could not load routine: ${error.message}") }
+            if (selectedProjectPath == activeProjectPath) {
+                _state.update { it.copy(saveStatus = "Could not load routine: ${error.message}") }
+            }
         }
     }
 
     private suspend fun saveRoutine(projectPath: String?): Boolean {
-        if (projectPath.isNullOrBlank()) {
-            _state.update { it.copy(saveStatus = "Select a robot project before saving") }
-            return false
-        }
+        val activeProjectPath = loadedPathFor(projectPath, "saving") ?: return false
         val current = _state.value
         if (current.routineValidation.any { it.severity == RoutineValidationSeverity.ERROR }) {
             _state.update { it.copy(saveStatus = "Fix the highlighted routine issues before saving") }
@@ -1022,13 +672,13 @@ class PathPlannerViewModel(
         var savedSuccessfully = false
         runCatching {
             withContext(Dispatchers.IO) {
-                val saved = routineRepository.save(projectPath, current.routine)
-                val oldCatalog = autonomousRepository.load(projectPath).getOrNull()
+                val saved = routineRepository.save(activeProjectPath, current.routine)
+                val oldCatalog = autonomousRepository.load(activeProjectPath).getOrNull()
                 val entry = current.autonomousEntry?.copy(routineId = saved.document.documentId)
                 val entries = oldCatalog?.entries.orEmpty()
                     .filterNot { it.routineId == saved.document.documentId || it.entryId == entry?.entryId }
                     .let { remaining -> if (entry == null) remaining else remaining + entry }
-                val projectId = oldCatalog?.projectId ?: safeAutoDocumentId(File(projectPath).name)
+                val projectId = oldCatalog?.projectId ?: safeProjectDocumentId(File(activeProjectPath).name)
                 val defaultEntryId = oldCatalog?.defaultEntryId?.takeIf { id -> entries.any { it.entryId == id && it.enabled } }
                     ?: entries.firstOrNull { it.enabled }?.entryId
                 val catalogDraft = AutonomousCatalogDocument(
@@ -1037,21 +687,20 @@ class PathPlannerViewModel(
                     defaultEntryId = defaultEntryId,
                     entries = entries
                 )
-                val savedCatalog = autonomousRepository.save(projectPath, catalogDraft)
+                val savedCatalog = autonomousRepository.save(activeProjectPath, catalogDraft)
                 RoutineSave(saved.document, saved.createdRevision, savedCatalog.document)
             }
         }.onSuccess { saved ->
             savedSuccessfully = true
             val revisions = withContext(Dispatchers.IO) {
-                routineRepository.listRevisions(projectPath, saved.routine.documentId)
+                routineRepository.listRevisions(activeProjectPath, saved.routine.documentId)
             }
+            if (!isLoadedProject(activeProjectPath)) return@onSuccess
             val entry = saved.autonomous.entries.firstOrNull { it.routineId == saved.routine.documentId }
             _state.update { state ->
                 state.copy(
-                    pathName = saved.routine.name,
                     routine = saved.routine,
                     routineRevisions = revisions,
-                    autonomousCatalog = saved.autonomous,
                     autonomousEntry = entry,
                     availableInAutonomousSelector = entry != null,
                     saveStatus = if (saved.createdRevision) {
@@ -1061,25 +710,29 @@ class PathPlannerViewModel(
                     }
                 )
             }
-            refreshRoutineProject(projectPath, _state.value.activeLeague)
+            scheduleProjectRefresh(activeProjectPath, _state.value.activeLeague)
         }.onFailure { error ->
-            _state.update { it.copy(saveStatus = "Routine save failed: ${error.message}") }
+            if (selectedProjectPath == activeProjectPath) {
+                _state.update { it.copy(saveStatus = "Routine save failed: ${error.message}") }
+            }
         }
         return savedSuccessfully
     }
 
     private suspend fun restoreRoutine(projectPath: String?, contentHash: String) {
-        if (projectPath.isNullOrBlank()) return
+        val activeProjectPath = loadedPathFor(projectPath, "restoring a routine") ?: return
         val documentId = _state.value.routine.documentId
         runCatching {
             withContext(Dispatchers.IO) {
-                routineRepository.restore(projectPath, documentId, contentHash)
+                val restored = routineRepository.restore(activeProjectPath, documentId, contentHash)
+                restored to routineRepository.listRevisions(activeProjectPath, documentId)
             }
-        }.onSuccess { restored ->
+        }.onSuccess { (restored, revisions) ->
+            if (!isLoadedProject(activeProjectPath)) return@onSuccess
             _state.update { current ->
                 current.copy(
                     routine = restored.document,
-                    routineRevisions = routineRepository.listRevisions(projectPath, documentId),
+                    routineRevisions = revisions,
                     routineValidation = routineEditorValidation(
                         restored.document,
                         current.capabilityCatalog,
@@ -1091,38 +744,12 @@ class PathPlannerViewModel(
                     saveStatus = "Restored as revision ${restored.document.revision}"
                 )
             }
+            routineProjectPath = activeProjectPath
             recalculateRoutinePreview()
         }.onFailure { error ->
-            _state.update { it.copy(saveStatus = "Restore failed: ${error.message}") }
-        }
-    }
-
-    private suspend fun importLegacyRoutine(projectPath: String?, league: League, file: File) {
-        if (projectPath.isNullOrBlank()) return
-        runCatching {
-            withContext(Dispatchers.IO) { routineRepository.importLegacyAuto(projectPath, file) }
-        }.onSuccess { imported ->
-            val entryPoint = imported.autonomousEntryPoint
-            _state.update { current ->
-                val entry = entryPoint?.let {
-                    AutonomousCatalogEntry(
-                        entryId = imported.saved.document.documentId,
-                        displayName = imported.saved.document.name,
-                        routineId = imported.saved.document.documentId,
-                        startingPose = clampRoutinePose(it.startingPose, league, current.robotDimensions)
-                    )
-                }
-                current.copy(
-                    routine = imported.saved.document,
-                    autonomousEntry = entry,
-                    availableInAutonomousSelector = entry != null,
-                    saveStatus = "Imported ${file.name}; save once to add it to the autonomous selector"
-                )
+            if (selectedProjectPath == activeProjectPath) {
+                _state.update { it.copy(saveStatus = "Restore failed: ${error.message}") }
             }
-            refreshRoutineProject(projectPath, league)
-            loadRoutine(projectPath, imported.saved.document.documentId)
-        }.onFailure { error ->
-            _state.update { it.copy(saveStatus = "Legacy import failed: ${error.message}") }
         }
     }
 
@@ -1149,25 +776,40 @@ class PathPlannerViewModel(
     private fun recalculateRoutinePreview() {
         val snapshot = _state.value
         val draft = snapshot.routine
-        val drives = draft.steps.routineDriveStepsInExecutionOrder()
+        val analysis = analyzeRoutinePreview(draft, snapshot.availableRoutines)
+        if (analysis.warning != null) {
+            playbackJob?.cancel()
+            if (_state.value.routine == draft) {
+                _state.update {
+                    it.copy(
+                        trajectory = null,
+                        estimatedDuration = 0.0,
+                        playbackTime = 0.0,
+                        isPlaying = false,
+                        routinePreviewWarning = analysis.warning
+                    )
+                }
+            }
+            return
+        }
+        val drives = analysis.drives
         val previewStart = snapshot.autonomousEntry?.startingPose ?: drives.firstOrNull()?.target
         scope.launch(Dispatchers.Default) {
             if (previewStart == null || drives.isEmpty()) {
                 if (_state.value.routine == draft) {
-                    _state.update { it.copy(trajectory = null, estimatedDuration = 0.0) }
+                    _state.update {
+                        it.copy(
+                            trajectory = null,
+                            estimatedDuration = 0.0,
+                            playbackTime = 0.0,
+                            isPlaying = false,
+                            routinePreviewWarning = null
+                        )
+                    }
                 }
                 return@launch
             }
             val driveModel = if (snapshot.activeLeague == League.FRC) DriveModel.SWERVE else DriveModel.MECANUM
-            val constraints = snapshot.globalConstraints
-            val limits = TrajectoryLimits(
-                maxVelocityMps = constraints.maxVelocity.coerceAtLeast(0.1),
-                maxAccelerationMps2 = constraints.maxAcceleration.coerceAtLeast(0.1),
-                maxJerkMps3 = (constraints.maxAcceleration * 4.0).coerceAtLeast(0.5),
-                maxCentripetalAccelerationMps2 = constraints.maxAcceleration.coerceAtLeast(0.1),
-                maxAngularVelocityRps = Math.toRadians(constraints.maxAngularVelocity).coerceAtLeast(0.1),
-                maxAngularAccelerationRps2 = Math.toRadians(constraints.maxAngularAcceleration).coerceAtLeast(0.1)
-            )
             var current = previewStart.toPose2d()
             var timeOffset = 0.0
             val previewStates = mutableListOf<TrajectoryState>()
@@ -1184,7 +826,7 @@ class PathPlannerViewModel(
                         waypoints = listOf(current, target),
                         driveModel = driveModel,
                         preset = preset,
-                        limits = limits,
+                        limits = ROUTINE_PREVIEW_LIMITS,
                         preferredEngine = null
                     )
                 ).trajectory ?: return@forEachIndexed
@@ -1201,16 +843,98 @@ class PathPlannerViewModel(
                 timeOffset += generated.durationSeconds
                 current = target
             }
-            if (_state.value.routine == draft) {
+            val latest = _state.value
+            if (latest.routine == draft &&
+                latest.activeLeague == snapshot.activeLeague &&
+                latest.autonomousEntry == snapshot.autonomousEntry &&
+                latest.availableRoutines == snapshot.availableRoutines
+            ) {
                 _state.update {
                     it.copy(
                         trajectory = previewStates.takeIf { states -> states.isNotEmpty() }
                             ?.let { states -> Trajectory(timeOffset, states) },
-                        estimatedDuration = timeOffset
+                        estimatedDuration = timeOffset,
+                        playbackTime = 0.0,
+                        isPlaying = false,
+                        routinePreviewWarning = null
                     )
                 }
             }
         }
+    }
+
+    /**
+     * Expands only deterministic control flow. Runtime-selected/parallel timelines are never
+     * converted into an invented serial route; callers suppress both geometry and duration.
+     */
+    private fun analyzeRoutinePreview(
+        root: RoutineDocument,
+        availableRoutines: List<RoutineDocument>
+    ): RoutinePreviewAnalysis {
+        val routinesById = (availableRoutines + root).associateBy(RoutineDocument::documentId)
+        val drives = mutableListOf<RoutineDriveStep>()
+        val activeCalls = linkedSetOf(root.documentId)
+        var expandedSteps = 0
+
+        fun visit(steps: List<RoutineStep>, depth: Int): String? {
+            if (depth > MAX_ROUTINE_PREVIEW_DEPTH) {
+                return "Preview unavailable: routine nesting exceeds $MAX_ROUTINE_PREVIEW_DEPTH levels."
+            }
+            for (step in steps) {
+                expandedSteps++
+                if (expandedSteps > MAX_ROUTINE_PREVIEW_STEPS) {
+                    return "Preview unavailable: expanded routine exceeds $MAX_ROUTINE_PREVIEW_STEPS steps."
+                }
+                when (step.kind) {
+                    RoutineStepKind.DRIVE_TO -> step.drive?.let(drives::add)
+                    RoutineStepKind.REPEAT -> {
+                        val count = step.repeatCount
+                            ?: return "Preview unavailable: repeat count is missing."
+                        if (count < 0) return "Preview unavailable: repeat count must be non-negative."
+                        if (count > MAX_ROUTINE_PREVIEW_STEPS) {
+                            return "Preview unavailable: repeat count exceeds $MAX_ROUTINE_PREVIEW_STEPS."
+                        }
+                        repeat(count) {
+                            visit(step.children, depth + 1)?.let { return it }
+                        }
+                    }
+                    RoutineStepKind.CALL -> {
+                        val routineId = step.routineId
+                            ?: return "Preview unavailable: called routine ID is missing."
+                        val called = routinesById[routineId]
+                            ?: return "Preview unavailable: called routine '$routineId' is not loaded."
+                        if (!activeCalls.add(routineId)) {
+                            return "Preview unavailable: routine call cycle includes '$routineId'."
+                        }
+                        val warning = visit(called.steps, depth + 1)
+                        activeCalls.remove(routineId)
+                        if (warning != null) return warning
+                    }
+                    RoutineStepKind.BRANCH,
+                    RoutineStepKind.TOGETHER,
+                    RoutineStepKind.FIRST_TO_FINISH,
+                    RoutineStepKind.DEADLINE -> return compositePreviewWarning(step.kind)
+                    RoutineStepKind.ACTION,
+                    RoutineStepKind.WAIT,
+                    RoutineStepKind.WAIT_UNTIL -> Unit
+                }
+            }
+            return null
+        }
+
+        return RoutinePreviewAnalysis(drives = drives, warning = visit(root.steps, depth = 0))
+    }
+
+    private fun compositePreviewWarning(kind: RoutineStepKind): String {
+        val label = when (kind) {
+            RoutineStepKind.BRANCH -> "Branch"
+            RoutineStepKind.TOGETHER -> "Parallel group"
+            RoutineStepKind.FIRST_TO_FINISH -> "First-to-finish group"
+            RoutineStepKind.DEADLINE -> "Deadline group"
+            else -> kind.name
+        }
+        return "Preview unavailable: $label has multiple possible timelines. " +
+            "Select a runtime scenario before showing its route or duration."
     }
 
     private fun Waypoint.toRoutinePose(): RoutinePose = RoutinePose(
@@ -1226,7 +950,6 @@ class PathPlannerViewModel(
         val diagnostics: List<String>,
         val catalog: CapabilityCatalogDocument?,
         val autonomous: AutonomousCatalogDocument?,
-        val legacyFiles: List<File>,
         val metadata: AresProjectMetadataDocument?
     )
 
@@ -1241,336 +964,8 @@ class PathPlannerViewModel(
         val autonomous: AutonomousCatalogDocument
     )
 
-    private fun updateAutoCommands(transform: (JsonArray) -> JsonArray) {
-        val rootNode = _state.value.currentAutoCommands.firstOrNull() ?: AutoCommandNode("sequential", buildJsonObject { put("commands", buildJsonArray {}) })
-        val oldCommands = (rootNode.data["commands"] as? JsonArray) ?: buildJsonArray {}
-        val newCommands = transform(oldCommands)
-        val newRoot = AutoCommandNode(rootNode.type, buildJsonObject {
-            rootNode.data.forEach { (k, v) ->
-                if (k != "commands") put(k, v)
-            }
-            put("commands", newCommands)
-        })
-        _state.update { it.copy(currentAutoCommands = listOf(newRoot)) }
-    }
-
-    private fun updateAresAuto(transform: (AutoRoutine) -> AutoRoutine) {
-        _state.update { state ->
-            val updated = transform(state.aresAuto)
-            state.copy(
-                pathName = updated.name,
-                aresAuto = updated,
-                aresAutoValidation = validateAutoRoutine(updated) +
-                    validateAutoFieldBounds(updated, state.activeLeague, state.robotDimensions),
-                saveStatus = if (state.saveStatus.startsWith("Saved")) "Unsaved changes" else state.saveStatus
-            )
-        }
-    }
-
-    private fun updateAresRouteWaypoints(waypoints: List<Waypoint>, league: League) {
-        if (waypoints.isEmpty()) return
-        updateAresAuto { routine ->
-            val routeIterator = waypoints.drop(1).iterator()
-            val updatedSteps = routine.steps.withRouteWaypoints(
-                routeIterator,
-                league,
-                _state.value.robotDimensions
-            )
-            val start = waypoints.first()
-            routine.copy(
-                startingPose = clampAutoPose(AutoPose(
-                    start.x,
-                    start.y,
-                    start.rotationDeg?.let(Math::toRadians) ?: start.headingRad ?: 0.0
-                ), league, _state.value.robotDimensions),
-                steps = updatedSteps
-            )
-        }
-    }
-
-    private suspend fun refreshAresAutos(projectPath: String?, league: League) {
-        if (projectPath.isNullOrBlank()) return
-        val (autos, scan) = withContext(Dispatchers.IO) {
-            aresAutoRepository.listAutos(projectPath, league) to
-                autoCapabilityScanner.scan(projectPath, league)
-        }
-        projectCommandCatalog = scan.catalog
-        _state.update {
-            it.copy(
-                availableAresAutos = autos,
-                capabilityStatus = scan.warnings.firstOrNull() ?: it.capabilityStatus
-            )
-        }
-        updateMergedCommandCatalog(scan.warnings)
-    }
-
-    private suspend fun loadAresAuto(projectPath: String?, league: League, documentId: String) {
-        if (projectPath.isNullOrBlank()) return
-        runCatching {
-            withContext(Dispatchers.IO) {
-                val routine = aresAutoRepository.load(projectPath, league, documentId)
-                val revisions = aresAutoRepository.listRevisions(projectPath, documentId)
-                routine to revisions
-            }
-        }.onSuccess { (routine, revisions) ->
-            _state.update {
-                it.copy(
-                    pathName = routine.name,
-                    aresAuto = routine,
-                    aresAutoValidation = validateAutoRoutine(routine) +
-                        validateAutoFieldBounds(routine, it.activeLeague, it.robotDimensions),
-                    aresAutoRevisions = revisions,
-                    saveStatus = "Loaded ${routine.name} revision ${routine.revision}"
-                )
-            }
-            recalculateAresPreview(league)
-        }.onFailure { error ->
-            _state.update { it.copy(saveStatus = "Could not load auto: ${error.message}") }
-        }
-    }
-
-    private suspend fun saveAresAuto(projectPath: String?, league: League) {
-        if (projectPath.isNullOrBlank()) {
-            _state.update { it.copy(saveStatus = "Select a robot project before saving") }
-            return
-        }
-        val draft = _state.value.aresAuto
-        if (_state.value.aresAutoValidation.any { it.severity == com.areslib.auto.AutoValidationSeverity.ERROR }) {
-            _state.update { it.copy(saveStatus = "Fix the highlighted auto issues before saving") }
-            return
-        }
-        runCatching {
-            withContext(Dispatchers.IO) { aresAutoRepository.save(projectPath, league, draft) }
-        }.onSuccess { saved ->
-            if (league == League.FTC) {
-                serializationManager.pushFileToRobot(
-                    saved.currentFile,
-                    "/sdcard/FIRST/ares/autos",
-                    saved.currentFile.name
-                )
-            }
-            val revisions = withContext(Dispatchers.IO) {
-                aresAutoRepository.listRevisions(projectPath, saved.routine.documentId)
-            }
-            _state.update {
-                it.copy(
-                    pathName = saved.routine.name,
-                    aresAuto = saved.routine,
-                    aresAutoValidation = validateAutoRoutine(saved.routine) +
-                        validateAutoFieldBounds(saved.routine, it.activeLeague, it.robotDimensions),
-                    aresAutoRevisions = revisions,
-                    saveStatus = if (saved.createdRevision) {
-                        "Saved revision ${saved.routine.revision}"
-                    } else {
-                        "Already up to date at revision ${saved.routine.revision}"
-                    }
-                )
-            }
-            refreshAresAutos(projectPath, league)
-        }.onFailure { error ->
-            _state.update { it.copy(saveStatus = "Auto save failed: ${error.message}") }
-        }
-    }
-
-    private suspend fun restoreAresAuto(projectPath: String?, league: League, contentHash: String) {
-        if (projectPath.isNullOrBlank()) return
-        val documentId = _state.value.aresAuto.documentId
-        runCatching {
-            withContext(Dispatchers.IO) {
-                aresAutoRepository.restore(projectPath, league, documentId, contentHash)
-            }
-        }.onSuccess { restored ->
-            _state.update {
-                it.copy(
-                    pathName = restored.routine.name,
-                    aresAuto = restored.routine,
-                    aresAutoValidation = validateAutoRoutine(restored.routine) +
-                        validateAutoFieldBounds(restored.routine, it.activeLeague, it.robotDimensions),
-                    aresAutoRevisions = aresAutoRepository.listRevisions(projectPath, documentId),
-                    saveStatus = "Restored as revision ${restored.routine.revision}"
-                )
-            }
-            recalculateAresPreview(league)
-        }.onFailure { error ->
-            _state.update { it.copy(saveStatus = "Restore failed: ${error.message}") }
-        }
-    }
-
-    private fun recalculateAresPreview(league: League) {
-        val draft = _state.value.aresAuto
-        scope.launch(Dispatchers.Default) {
-            val driveModel = if (league == League.FRC) DriveModel.SWERVE else DriveModel.MECANUM
-            val constraints = _state.value.globalConstraints
-            val limits = TrajectoryLimits(
-                maxVelocityMps = constraints.maxVelocity.coerceAtLeast(0.1),
-                maxAccelerationMps2 = constraints.maxAcceleration.coerceAtLeast(0.1),
-                maxJerkMps3 = (constraints.maxAcceleration * 4.0).coerceAtLeast(0.5),
-                maxCentripetalAccelerationMps2 = constraints.maxAcceleration.coerceAtLeast(0.1),
-                maxAngularVelocityRps = Math.toRadians(constraints.maxAngularVelocity).coerceAtLeast(0.1),
-                maxAngularAccelerationRps2 = Math.toRadians(constraints.maxAngularAcceleration).coerceAtLeast(0.1)
-            )
-            var current = Pose2d(
-                draft.startingPose.xMeters,
-                draft.startingPose.yMeters,
-                Rotation2d(draft.startingPose.headingRadians)
-            )
-            var timeOffset = 0.0
-            val previewStates = mutableListOf<TrajectoryState>()
-            draft.steps.driveStepsInExecutionOrder().forEach { drive ->
-                val target = Pose2d(
-                    drive.target.xMeters,
-                    drive.target.yMeters,
-                    Rotation2d(drive.target.headingRadians)
-                )
-                val generated = trajectoryPlanner.generate(
-                    TrajectoryRequest(
-                        waypoints = listOf(current, target),
-                        driveModel = driveModel,
-                        preset = drive.preset,
-                        limits = limits,
-                        preferredEngine = null
-                    )
-                ).trajectory ?: return@forEach
-                generated.states.forEachIndexed { index, sample ->
-                    if (previewStates.isNotEmpty() && index == 0) return@forEachIndexed
-                    previewStates += TrajectoryState(
-                        timeSeconds = sample.timeSeconds + timeOffset,
-                        x = sample.pose.x,
-                        y = sample.pose.y,
-                        headingRad = sample.pose.heading.radians,
-                        velocity = kotlin.math.hypot(sample.velocityXMps, sample.velocityYMps)
-                    )
-                }
-                timeOffset += generated.durationSeconds
-                current = target
-            }
-            if (_state.value.aresAuto == draft) {
-                _state.update {
-                    it.copy(
-                        trajectory = if (previewStates.isNotEmpty()) {
-                            Trajectory(timeOffset, previewStates)
-                        } else {
-                            null
-                        },
-                        estimatedDuration = timeOffset
-                    )
-                }
-            }
-        }
-    }
-
-    private fun List<AutoStep>.lastDriveTarget(): AutoPose? =
-        asReversed().firstNotNullOfOrNull { step ->
-            step.children.lastDriveTarget() ?: step.drive?.target
-        }
-
-    private fun List<AutoStep>.driveStepsInExecutionOrder(): List<AutoDriveStep> = buildList {
-        this@driveStepsInExecutionOrder.forEach { step ->
-            step.drive?.let(::add)
-            addAll(step.children.driveStepsInExecutionOrder())
-        }
-    }
-
-    private fun List<AutoStep>.withRouteWaypoints(
-        waypoints: Iterator<Waypoint>,
-        league: League,
-        dimensions: RobotDimensions
-    ): List<AutoStep> = map { step ->
-        val updatedDrive = step.drive?.let { drive ->
-            if (!waypoints.hasNext()) return@let drive
-            val waypoint = waypoints.next()
-            drive.copy(
-                target = clampAutoPose(
-                    AutoPose(
-                        waypoint.x,
-                        waypoint.y,
-                        waypoint.rotationDeg?.let(Math::toRadians) ?: waypoint.headingRad ?: 0.0
-                    ),
-                    league,
-                    dimensions
-                )
-            )
-        }
-        step.copy(
-            drive = updatedDrive,
-            children = step.children.withRouteWaypoints(waypoints, league, dimensions)
-        )
-    }
-
-    private fun parseCommandCatalog(json: String?): List<NamedCommandDescriptor>? {
-        if (json.isNullOrBlank()) return null
-        return runCatching {
-            val entries = Json.parseToJsonElement(json).jsonArray
-            entries.mapNotNull { element ->
-                val item = element.jsonObject
-                val key = item["key"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                NamedCommandDescriptor(
-                    key = CommandKey(key),
-                    displayName = item["displayName"]?.jsonPrimitive?.content ?: key,
-                    description = item["description"]?.jsonPrimitive?.content ?: "Robot action",
-                    category = item["category"]?.jsonPrimitive?.content ?: "General"
-                )
-            }.sortedWith(compareBy<NamedCommandDescriptor> { it.category }.thenBy { it.displayName })
-        }.getOrNull()
-    }
-
-    private fun updateMergedCommandCatalog(scanWarnings: List<String> = emptyList()) {
-        val merged = linkedMapOf<String, NamedCommandDescriptor>()
-        projectCommandCatalog.forEach { merged[it.key.value] = it }
-        liveCommandCatalog.forEach { live -> merged.putIfAbsent(live.key.value, live) }
-        val missingOnLiveRobot = if (liveCommandCatalog.isEmpty()) {
-            emptySet()
-        } else {
-            projectCommandCatalog.map { it.key.value }.toSet() - liveCommandCatalog.map { it.key.value }.toSet()
-        }
-        val status = when {
-            scanWarnings.isNotEmpty() -> scanWarnings.first()
-            projectCommandCatalog.isEmpty() && liveCommandCatalog.isEmpty() ->
-                "No auto actions are declared yet; drive goals and waits remain available offline"
-            projectCommandCatalog.isNotEmpty() && liveCommandCatalog.isEmpty() ->
-                "${projectCommandCatalog.size} project actions available offline"
-            missingOnLiveRobot.isNotEmpty() ->
-                "Project catalog loaded; connected build is missing ${missingOnLiveRobot.size} action(s)"
-            else -> "Project actions verified against the connected build"
-        }
-        _state.update {
-            it.copy(
-                commandCatalog = merged.values.sortedWith(
-                    compareBy<NamedCommandDescriptor> { descriptor -> descriptor.category }
-                        .thenBy { descriptor -> descriptor.displayName }
-                ),
-                capabilityStatus = status
-            )
-        }
-    }
-
-    private fun isModifyingIntent(intent: PathPlannerIntent): Boolean {
-        return intent is PathPlannerIntent.UpdateWaypoints ||
-               intent is PathPlannerIntent.UpdateWaypoint ||
-               intent is PathPlannerIntent.AddWaypoint ||
-               intent is PathPlannerIntent.DeleteWaypoint ||
-               intent is PathPlannerIntent.OptimizePath ||
-               intent is PathPlannerIntent.AddEventMarker ||
-               intent is PathPlannerIntent.DeleteEventMarker ||
-               intent is PathPlannerIntent.UpdateAresStartingPose ||
-               intent is PathPlannerIntent.AddAresDriveGoal ||
-               intent is PathPlannerIntent.AddAresCommand ||
-               intent is PathPlannerIntent.AddAresWait ||
-               intent is PathPlannerIntent.UpdateAresStep ||
-               intent is PathPlannerIntent.RemoveAresStep ||
-               intent is PathPlannerIntent.MoveAresStep ||
-               intent is PathPlannerIntent.UpdateAresRouteWaypoints ||
-               intent is PathPlannerIntent.UpdateRoutineName ||
-               intent is PathPlannerIntent.UpdateRoutineDescription ||
-               intent is PathPlannerIntent.AddRoutineStep ||
-               intent is PathPlannerIntent.UpdateRoutineStep ||
-               intent is PathPlannerIntent.RemoveRoutineStep ||
-               intent is PathPlannerIntent.MoveRoutineStep ||
-               intent is PathPlannerIntent.AddRoutineChild ||
-               intent is PathPlannerIntent.UpdateRoutineChild ||
-               intent is PathPlannerIntent.RemoveRoutineChild ||
-               intent is PathPlannerIntent.SetAutonomousAvailability ||
-               intent is PathPlannerIntent.UpdateAutonomousEntry ||
-               intent is PathPlannerIntent.UpdateRoutineFieldWaypoints
-    }
+    private data class RoutinePreviewAnalysis(
+        val drives: List<RoutineDriveStep>,
+        val warning: String?
+    )
 }

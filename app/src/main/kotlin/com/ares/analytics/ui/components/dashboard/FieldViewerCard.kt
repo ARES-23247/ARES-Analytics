@@ -27,13 +27,6 @@ import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.FieldViewerViewModel
 import com.ares.analytics.viewmodel.FieldViewerIntent
 import androidx.compose.material.icons.filled.SwapHoriz
-import com.areslib.state.Alliance
-import com.areslib.math.geometry.Pose2d
-import com.areslib.math.geometry.Rotation2d
-import com.areslib.math.coordinate.AllianceMirroring
-import com.areslib.math.coordinate.CoordinateTransformers
-import com.areslib.math.coordinate.FieldOrigin
-import com.areslib.math.coordinate.FieldSymmetry
 
 private fun waypointOrNull(x: Double?, y: Double?, headingRad: Double?): Waypoint? {
     return Waypoint(x ?: return null, y ?: return null, headingRad ?: return null)
@@ -76,10 +69,6 @@ fun FieldViewerCard(
         list
     }
 
-    LaunchedEffect(projectPath) {
-        viewModel.onIntent(FieldViewerIntent.FetchAvailablePaths(projectPath, league))
-    }
-
     Card(
         modifier = modifier
             .fillMaxSize()
@@ -113,38 +102,6 @@ fun FieldViewerCard(
                 )
 
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    var menuExpanded by remember { mutableStateOf(false) }
-                    Box {
-                        TextButton(
-                            onClick = { menuExpanded = true }
-                        ) {
-                            Text(
-                                state.selectedPathName ?: "No Path",
-                                color = AresTextPrimary,
-                                fontSize = 12.sp
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = { menuExpanded = false },
-                            modifier = Modifier.background(AresBackground)
-                        ) {
-                            DropdownMenuItem(onClick = {
-                                viewModel.onIntent(FieldViewerIntent.SelectPath(null, projectPath, league))
-                                menuExpanded = false
-                            }) {
-                                Text("None", color = AresTextPrimary)
-                            }
-                            state.availablePaths.forEach { pathName ->
-                                DropdownMenuItem(onClick = {
-                                    viewModel.onIntent(FieldViewerIntent.SelectPath(pathName, projectPath, league))
-                                    menuExpanded = false
-                                }) {
-                                    Text(pathName, color = AresTextPrimary)
-                                }
-                            }
-                        }
-                    }
                     val currentRotation = properties["rotation"]?.toFloatOrNull() ?: 0f
                     IconButton(
                         onClick = {
@@ -304,27 +261,10 @@ fun FieldViewerCard(
                     .clip(RoundedCornerShape(8.dp))
             ) {
                 val tracerEnabled = properties["show_tracer"]?.toBoolean() == true
-                val displayWaypoints = remember(state.selectedPathWaypoints, state.isRedAlliance, league) {
-                    if (!state.isRedAlliance) state.selectedPathWaypoints
-                    else state.selectedPathWaypoints.map { wp ->
-                        val pose = Pose2d(wp.x, wp.y, Rotation2d(wp.headingRad ?: 0.0))
-                        val isFrc = league == League.FRC
-                        val mirrored = AllianceMirroring.mirror(
-                            pose,
-                            Alliance.RED,
-                            FieldSymmetry.MIRRORED,
-                            fieldLength = if (isFrc) CoordinateTransformers.FRC_FIELD_LENGTH else CoordinateTransformers.FTC_FIELD_SIZE,
-                            fieldWidth = if (isFrc) CoordinateTransformers.FRC_FIELD_WIDTH else CoordinateTransformers.FTC_FIELD_SIZE,
-                            fieldOrigin = if (isFrc) FieldOrigin.CORNER else FieldOrigin.CENTER
-                        )
-                        val mirroredRot = wp.rotationDeg?.let { r -> -r }
-                        Waypoint(mirrored.x, mirrored.y, if (wp.headingRad == null) null else mirrored.heading.radians, wp.prevControlLength, wp.nextControlLength, rotationDeg = mirroredRot)
-                    }
-                }
 
                 FieldCanvas(
                     league = league,
-                    waypoints = displayWaypoints,
+                    waypoints = emptyList(),
                     actualPath = if (tracerEnabled) state.poseHistory else listOfNotNull(state.poseHistory.lastOrNull() ?: Waypoint(liveState.trueX, liveState.trueY, liveState.trueHeading)),
                     onWaypointsChanged = {},
                     projectPath = projectPath,

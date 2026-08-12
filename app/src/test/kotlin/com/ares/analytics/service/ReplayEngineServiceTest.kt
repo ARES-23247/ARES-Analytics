@@ -6,8 +6,10 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import kotlin.test.Test
@@ -98,6 +100,11 @@ class ReplayEngineServiceTest {
         try {
             replayEngine.loadSession(session.sessionId)
             replayEngine.scrubTo(1.0)
+            withContext(Dispatchers.Default.limitedParallelism(1)) {
+                withTimeout(2_000) {
+                    while (replayEngine.currentFrame.value?.timestampMs != 10_000L) delay(10)
+                }
+            }
             val values = replayEngine.currentFrame.value?.values.orEmpty()
             assertEquals(4.25, values["Drive/Pose_X"])
             assertEquals(12.1, values["Robot/BatteryVoltage"])

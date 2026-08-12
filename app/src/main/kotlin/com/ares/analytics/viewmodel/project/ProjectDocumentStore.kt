@@ -24,8 +24,7 @@ enum class ProjectDocumentKind {
     SUBSYSTEM,
     CAPABILITY_CATALOG,
     AUTONOMOUS_CATALOG,
-    PROJECT_METADATA,
-    LEGACY_AUTO
+    PROJECT_METADATA
 }
 
 /** A bad file is reported without preventing the rest of an offline project from opening. */
@@ -81,13 +80,15 @@ abstract class VersionedProjectDocumentStore<T>(
         val directory = projectDirectory(projectPath)
         if (!directory.isDirectory) return ProjectDocumentListing(emptyList(), emptyList())
 
-        val documents = mutableListOf<T>()
+        val decodedDocuments = mutableListOf<Pair<File, T>>()
         val diagnostics = mutableListOf<ProjectDocumentDiagnostic>()
         directory.listFiles { file ->
             file.isFile && file.name.endsWith(".$extension", ignoreCase = true)
         }.orEmpty().sortedBy { it.name.lowercase() }.forEach { file ->
-            runCatching { decode(file.readText()) }
-                .onSuccess(documents::add)
+            runCatching {
+                decode(file.readText()).also { document -> ProjectDocumentId(documentId(document)) }
+            }
+                .onSuccess { document -> decodedDocuments += file to document }
                 .onFailure { error ->
                     diagnostics += ProjectDocumentDiagnostic(
                         kind,
@@ -95,6 +96,31 @@ abstract class VersionedProjectDocumentStore<T>(
                         error.message ?: "Document could not be decoded"
                     )
                 }
+        }
+        val documentsById = decodedDocuments.groupBy { (_, document) -> documentId(document) }
+        val documents = mutableListOf<T>()
+        decodedDocuments.forEach { (file, document) ->
+            val id = documentId(document)
+            val fileId = file.name.substringBeforeLast('.')
+            var validIdentity = true
+            if (fileId != id) {
+                diagnostics += ProjectDocumentDiagnostic(
+                    kind,
+                    file,
+                    "File name '$fileId' does not match documentId '$id'",
+                )
+                validIdentity = false
+            }
+            val duplicates = documentsById.getValue(id)
+            if (duplicates.size > 1) {
+                diagnostics += ProjectDocumentDiagnostic(
+                    kind,
+                    file,
+                    "Duplicate documentId '$id' appears in ${duplicates.joinToString { it.first.name }}",
+                )
+                validIdentity = false
+            }
+            if (validIdentity) documents += document
         }
         return ProjectDocumentListing(
             documents = documents.sortedWith(
@@ -108,7 +134,11 @@ abstract class VersionedProjectDocumentStore<T>(
         val id = ProjectDocumentId(rawDocumentId)
         val file = currentFile(projectPath, id)
         require(file.isFile) { "${kind.displayName} '${id.value}' does not exist" }
-        return decode(file.readText())
+        return decode(file.readText()).also { document ->
+            require(documentId(document) == id.value) {
+                "${kind.displayName} file '${file.name}' declares documentId '${documentId(document)}'"
+            }
+        }
     }
 
     fun save(projectPath: String, draft: T): SavedProjectRevision<T> {
@@ -116,7 +146,14 @@ abstract class VersionedProjectDocumentStore<T>(
         val validatedDraft = decode(encode(draft))
         val id = ProjectDocumentId(documentId(validatedDraft))
         val currentFile = currentFile(projectPath, id)
-        val previous = currentFile.takeIf(File::isFile)?.let { decode(it.readText()) }
+        return ProjectDocumentWriteLocks.withLock(currentFile) {
+        val previous = currentFile.takeIf(File::isFile)?.let { file ->
+            decode(file.readText()).also { document ->
+                require(documentId(document) == id.value) {
+                    "${kind.displayName} file '${file.name}' declares documentId '${documentId(document)}'"
+                }
+            }
+        }
         val normalized = when {
             previous == null -> withRevision(validatedDraft, revision = 1, parentHash = null)
             sameContent(previous, validatedDraft) -> previous
@@ -134,7 +171,8 @@ abstract class VersionedProjectDocumentStore<T>(
         if (previous != normalized || !currentFile.exists()) {
             AtomicProjectFileWriter.write(currentFile, encoded, replaceExisting = true)
         }
-        return SavedProjectRevision(normalized, hash, currentFile, historyFile, createdRevision)
+        SavedProjectRevision(normalized, hash, currentFile, historyFile, createdRevision)
+        }
     }
 
     fun listRevisions(projectPath: String, rawDocumentId: String): List<ProjectRevisionSummary> {
@@ -227,6 +265,7 @@ internal abstract class SingletonProjectDocumentStore<T>(
     fun save(projectPath: String, draft: T): SavedProjectRevision<T> {
         val validatedDraft = decode(encode(draft))
         val currentFile = currentFile(projectPath)
+        return ProjectDocumentWriteLocks.withLock(currentFile) {
         val previous = currentFile.takeIf(File::isFile)?.let { decode(it.readText()) }
         val normalized = when {
             previous == null -> withRevision(validatedDraft, 1)
@@ -244,7 +283,8 @@ internal abstract class SingletonProjectDocumentStore<T>(
         if (previous != normalized || !currentFile.exists()) {
             AtomicProjectFileWriter.write(currentFile, encoded, replaceExisting = true)
         }
-        return SavedProjectRevision(normalized, hash, currentFile, historyFile, createdRevision)
+        SavedProjectRevision(normalized, hash, currentFile, historyFile, createdRevision)
+        }
     }
 
     fun listRevisions(projectPath: String): List<ProjectRevisionSummary> = historyDirectory(projectPath)
@@ -303,6 +343,16 @@ internal fun resolveProjectPath(projectPath: String, relativePath: String): File
         "Project document path escapes the selected repository"
     }
     return target
+}
+
+/** Serializes revision allocation and current-file replacement for each canonical document. */
+internal object ProjectDocumentWriteLocks {
+    private val locks = java.util.concurrent.ConcurrentHashMap<String, Any>()
+
+    fun <T> withLock(file: File, block: () -> T): T {
+        val lock = locks.computeIfAbsent(file.canonicalPath) { Any() }
+        return synchronized(lock) { block() }
+    }
 }
 
 internal object AtomicProjectFileWriter {

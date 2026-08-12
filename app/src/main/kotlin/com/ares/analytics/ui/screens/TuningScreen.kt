@@ -568,50 +568,6 @@ private fun LiveTelemetryPlot(samples: List<AlignedDataRow>) {
     }
 }
 
-@Composable
-private fun LegacyGainTuningPanel(
-    viewModel: TuningViewModel,
-    state: com.ares.analytics.viewmodel.TuningState,
-    modifier: Modifier = Modifier
-) {
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Active Gain Tuning", style = MaterialTheme.typography.titleMedium, color = AresTextPrimary)
-
-        state.variables.forEach { (key, value) ->
-            val (desc, range) = getConstantDescriptionAndRange(key)
-            val category = getCustomCategory(key)
-
-            Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                Text(category, fontSize = 10.sp, color = AresCyan, fontWeight = FontWeight.Bold)
-                Row(
-                    modifier = Modifier.fillMaxWidth().background(AresSurfaceElevated).padding(8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(key.removePrefix("Tuning/"), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                        Text(desc, fontSize = 11.sp, color = AresTextSecondary)
-                    }
-                    var textValue by remember(value) { mutableStateOf(value.toString()) }
-                    OutlinedTextField(
-                        value = textValue,
-                        onValueChange = {
-                            textValue = it
-                            val parsed = it.toDoubleOrNull()
-                            if (parsed != null) {
-                                viewModel.onIntent(TuningIntent.SaveConstant(key, parsed))
-                            }
-                        },
-                        modifier = Modifier.width(100.dp),
-                        singleLine = true,
-                        textStyle = TextStyle(fontSize = 13.sp)
-                    )
-                }
-            }
-        }
-    }
-}
-
 private fun getCustomCategory(key: String): String {
     val cleanKey = key.removePrefix("Tuning/")
     val parts = cleanKey.split("/")

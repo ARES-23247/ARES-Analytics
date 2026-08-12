@@ -1,6 +1,5 @@
 package com.ares.analytics.service.log
 
-import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.service.FrameBatcher
 import com.ares.analytics.service.LogParserService
 import java.io.File
@@ -13,19 +12,17 @@ import kotlinx.coroutines.withContext
 /**
  * Service for decoding REV Robotics proprietary binary `.revlog` files (emitted by REV Hardware Client / SPARK MAX / SPARK Flex).
  *
- * Interoperates with REV's `@rev-robotics/revlog-converter` Node.js package to convert binary revlogs into standard WPILib `.wpilog` files,
- * subsequently passing the converted file to [LogParserService.parseWpiLog].
+ * Interoperates with an explicitly installed REV converter CLI to convert binary revlogs into
+ * standard WPILib `.wpilog` files, then passes the result to [LogParserService.parseWpiLog].
  *
  * ### Workflow & Execution Strategy:
- * 1. Invokes `npx --yes @rev-robotics/revlog-converter input.revlog -o temp.wpilog` in subprocess.
- * 2. Fallbacks to global CLI invocation `revlog-converter` if `npx` execution fails or times out (30 sec timeout).
- * 3. Streams converted WPILOG frames through [LogParserService] into [FrameBatcher].
- * 4. Deletes temporary `.wpilog` files upon process completion in `finally` block.
+ * The application never downloads or executes an unpinned npm package at import time. Set
+ * `ARES_REVLOG_CONVERTER` (or `-Dares.revlog.converter=...`) to an audited executable, or install
+ * `revlog-converter` on PATH.
  *
  * ### Thread Safety & Performance Guarantees:
  * Executes subprocess spawning asynchronously on `Dispatchers.IO`. Subprocesses enforce strict 30-second timeout destruction.
  *
- * @param databaseService Primary DuckDB persistence service.
  * @param logParserService Central log parser service handling delegated WPILOG decoding.
  *
  * @see BaseLogDecoder
@@ -33,7 +30,6 @@ import kotlinx.coroutines.withContext
  * @see LogParserService
  */
 class RevlogDecoderService(
-    private val databaseService: DatabaseService,
     private val logParserService: LogParserService
 ) : BaseLogDecoder() {
 
@@ -53,13 +49,9 @@ class RevlogDecoderService(
         try {
             val converted = withContext(Dispatchers.IO) {
                 // Arguments are passed directly so spaces and shell metacharacters in paths remain data.
-                runConverter(
-                    listOf("npx.cmd", "--yes", "@rev-robotics/revlog-converter", file.absolutePath, "-o", tempWpiLog.absolutePath)
-                ) || runConverter(
-                    listOf("revlog-converter.cmd", file.absolutePath, "-o", tempWpiLog.absolutePath)
-                ) || runConverter(
-                    listOf("revlog-converter", file.absolutePath, "-o", tempWpiLog.absolutePath)
-                )
+                converterExecutables().any { executable ->
+                    runConverter(listOf(executable, file.absolutePath, "-o", tempWpiLog.absolutePath))
+                }
             }
             if (!converted || !tempWpiLog.isFile || tempWpiLog.length() == 0L) {
                 throw IOException("REVLOG conversion failed; install the REV converter CLI or Node.js")
@@ -88,6 +80,18 @@ class RevlogDecoderService(
             }
         } catch (_: IOException) {
             false
+        }
+    }
+
+    private fun converterExecutables(): List<String> {
+        val configured = System.getProperty("ares.revlog.converter")
+            ?.takeIf(String::isNotBlank)
+            ?: System.getenv("ARES_REVLOG_CONVERTER")?.takeIf(String::isNotBlank)
+        if (configured != null) return listOf(configured)
+        return if (System.getProperty("os.name").contains("win", ignoreCase = true)) {
+            listOf("revlog-converter.cmd", "revlog-converter.exe")
+        } else {
+            listOf("revlog-converter")
         }
     }
 

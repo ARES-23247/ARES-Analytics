@@ -441,7 +441,7 @@ fun ProfileScreen(
                         expanded = modelMenuExpanded,
                         onDismissRequest = { modelMenuExpanded = false }
                     ) {
-                        listOf("gemini-1.5-flash", "gemini-2.5-flash", "gemini-3.1-flash", "gemini-3.5-flash").forEach { model ->
+                        listOf("gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite").forEach { model ->
                             DropdownMenuItem(
                                 text = { Text(model, color = AresTextPrimary) },
                                 onClick = {

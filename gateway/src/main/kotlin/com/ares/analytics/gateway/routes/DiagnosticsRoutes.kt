@@ -5,6 +5,9 @@ import com.ares.analytics.shared.ForensicsResponse
 import com.google.cloud.vertexai.VertexAI
 import com.google.cloud.vertexai.generativeai.GenerativeModel
 import com.google.cloud.vertexai.generativeai.ResponseHandler
+import com.google.api.core.ApiFuture
+import com.google.api.core.ApiFutureCallback
+import com.google.api.core.ApiFutures
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
@@ -14,11 +17,14 @@ import io.ktor.server.routing.*
 import io.ktor.server.plugins.ratelimit.*
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
 import org.slf4j.LoggerFactory
 import kotlin.time.Duration.Companion.seconds
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 private val vertexAiLogger = LoggerFactory.getLogger("DiagnosticsRoutes")
 
@@ -28,7 +34,25 @@ private val location = System.getenv("GOOGLE_CLOUD_LOCATION") ?: "us-central1"
 // VertexAI is Closeable but is intentionally never closed here — it lives for the process
 // lifetime and closing it on a hot server would break all subsequent requests.
 private val vertexAi by lazy { VertexAI(projectId, location) }
-private val model by lazy { GenerativeModel("gemini-1.5-flash", vertexAi) }
+private val model by lazy { GenerativeModel(com.ares.analytics.shared.DEFAULT_GEMINI_MODEL, vertexAi) }
+private val diagnosticsConcurrency = Semaphore(4)
+
+internal suspend fun <T> awaitApiFuture(future: ApiFuture<T>): T = suspendCancellableCoroutine { continuation ->
+    continuation.invokeOnCancellation { future.cancel(true) }
+    ApiFutures.addCallback(
+        future,
+        object : ApiFutureCallback<T> {
+            override fun onSuccess(result: T) {
+                if (continuation.isActive) continuation.resume(result)
+            }
+
+            override fun onFailure(error: Throwable) {
+                if (continuation.isActive) continuation.resumeWithException(error)
+            }
+        },
+        java.util.concurrent.Executor { command -> command.run() }
+    )
+}
 
 /** Registers the authenticated, per-user-rate-limited pit-forensics endpoint. */
 fun Route.diagnosticsRoutes() {
@@ -63,7 +87,9 @@ fun Route.diagnosticsRoutes() {
                         ${Json.encodeToString(ForensicsRequest.serializer(), req)}
                     """.trimIndent()
                     val response = withTimeout(60.seconds) {
-                        withContext(Dispatchers.IO) { model.generateContent(prompt) }
+                        diagnosticsConcurrency.withPermit {
+                            awaitApiFuture(model.generateContentAsync(prompt))
+                        }
                     }
                     val jsonResponse = ResponseHandler.getText(response) ?: "{}"
                     val sanitizedJson = jsonResponse.replace(Regex("```(?:json)?\\n?(.*?)\\n?```", RegexOption.DOT_MATCHES_ALL), "$1").trim()

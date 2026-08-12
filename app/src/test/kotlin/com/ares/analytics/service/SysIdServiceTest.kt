@@ -57,7 +57,7 @@ class SysIdServiceTest {
         // Generate both positive and negative velocity data with different time constants
         // to break collinearity of sign(v), v, and a
         for (i in 0 until 50) {
-            val t = (i * 20).toLong() // 20ms step
+            val t = (i * 20 + 5).toLong() // 20ms step, shifted so every channel timestamp is non-negative
             val direction = if (i < 25) 1.0 else -1.0
             val tLocal = if (i < 25) i else i - 25
             val velocity = direction * 3.0 * (1.0 - kotlin.math.exp(-tLocal / 10.0))

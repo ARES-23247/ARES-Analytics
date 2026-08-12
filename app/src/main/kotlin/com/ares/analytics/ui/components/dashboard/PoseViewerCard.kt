@@ -13,37 +13,40 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collect
 import com.ares.analytics.ui.components.core.CardHeader
 import com.ares.analytics.ui.components.core.GlassCard
 import com.ares.analytics.ui.components.core.MetricValueBadge
 import com.ares.analytics.ui.theme.*
+import kotlinx.coroutines.delay
 
 @Composable
 fun PoseViewerCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    val trueXSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/TruePose/0") }
+    // Simulator ground truth uses ARES/EstimatedPose; the robot EKF uses Drive/Pose_*.
+    val trueXSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/0") }
     val trueXSim by trueXSimFlow.collectAsState(initial = null)
 
-    val trueYSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/TruePose/1") }
+    val trueYSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/1") }
     val trueYSim by trueYSimFlow.collectAsState(initial = null)
 
-    val trueHeadingSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/TruePose/2") }
+    val trueHeadingSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/2") }
     val trueHeadingSim by trueHeadingSimFlow.collectAsState(initial = null)
 
-    val ekxXFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/0") }
+    val ekxXFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Pose_X") }
     val ekfX by ekxXFlow.collectAsState(initial = null)
 
-    val ekfYFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/1") }
+    val ekfYFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Pose_Y") }
     val ekfY by ekfYFlow.collectAsState(initial = null)
 
-    val ekfHeadingFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/2") }
+    val ekfHeadingFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Drive_Heading") }
     val ekfHeading by ekfHeadingFlow.collectAsState(initial = null)
 
-    val trueX = trueXSim ?: ekfX
-    val trueY = trueYSim ?: ekfY
-    val trueHeading = trueHeadingSim ?: ekfHeading
+    val trueX = trueXSim
+    val trueY = trueYSim
+    val trueHeading = trueHeadingSim
 
     val pinpointXFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Odom_X") }
     val pinpointX by pinpointXFlow.collectAsState(initial = null)
@@ -63,16 +66,25 @@ fun PoseViewerCard(
     val visionHeadingFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Vision/Pose_Heading") }
     val visionHeading by visionHeadingFlow.collectAsState(initial = null)
     var lastUpdateMs by remember { mutableStateOf<Long?>(null) }
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
-    LaunchedEffect(Unit) {
-        androidx.compose.runtime.snapshotFlow { Triple(trueX, ekfX, pinpointX) }.collect { (tX, eX, pX) ->
-            if (tX != null || eX != null || pX != null) {
+    LaunchedEffect(nt4ClientService) {
+        nt4ClientService.telemetryFlow.collect { frame ->
+            // Refresh on every received sample, even when a stationary robot repeatedly
+            // publishes the same numeric value and Compose suppresses equal state writes.
+            if (frame.key in POSE_STATUS_TOPICS) {
                 lastUpdateMs = System.currentTimeMillis()
             }
         }
     }
+    LaunchedEffect(Unit) {
+        while (true) {
+            nowMs = System.currentTimeMillis()
+            delay(250)
+        }
+    }
 
-    val elapsed = lastUpdateMs?.let { System.currentTimeMillis() - it }
+    val elapsed = lastUpdateMs?.let { nowMs - it }
     val (statusText, statusColor) = when {
         elapsed == null -> "No Data" to AresTextTertiary
         elapsed < 500 -> "Active" to AresGreen
@@ -105,6 +117,21 @@ fun PoseViewerCard(
         }
     }
 }
+
+private val POSE_STATUS_TOPICS = setOf(
+    "ARES/EstimatedPose/0",
+    "ARES/EstimatedPose/1",
+    "ARES/EstimatedPose/2",
+    "Drive/Pose_X",
+    "Drive/Pose_Y",
+    "Drive/Drive_Heading",
+    "Drive/Odom_X",
+    "Drive/Odom_Y",
+    "Drive/Odom_Heading",
+    "Vision/Pose_X",
+    "Vision/Pose_Y",
+    "Vision/Pose_Heading"
+)
 
 @Composable
 private fun PoseRow(

@@ -22,13 +22,11 @@ fun FieldCanvasContextMenu(
     targetIndex: Int,
     targetId: String?,
     waypoints: List<Waypoint>,
-    eventMarkers: List<PathPlannerEventMarker>,
     obstacles: List<Obstacle>,
     aprilTags: List<AprilTagPlacement>,
     gamePieces: List<GamePiece>,
     fieldWaypoints: List<FieldWaypoint>,
     onWaypointsChanged: (List<Waypoint>) -> Unit,
-    onEventMarkersChanged: ((List<PathPlannerEventMarker>) -> Unit)?,
     updateObstacles: (List<Obstacle>) -> Unit,
     updateAprilTags: (List<AprilTagPlacement>) -> Unit,
     updateGamePieces: (List<GamePiece>) -> Unit,
@@ -101,13 +99,6 @@ fun FieldCanvasContextMenu(
                     onDismissRequest()
                     onClearSelected()
                 }) { Text("Delete Field Waypoint", color = AresRed) }
-            }
-            targetType == "EventMarker" && targetIndex in eventMarkers.indices -> {
-                DropdownMenuItem(onClick = {
-                    onEventMarkersChanged?.invoke(eventMarkers.toMutableList().apply { removeAt(targetIndex) })
-                    onDismissRequest()
-                    onClearSelected()
-                }) { Text("Delete Event Marker", color = AresRed) }
             }
             else -> {
                 DropdownMenuItem(onClick = onDismissRequest) { Text("Cancel", color = AresTextSecondary) }

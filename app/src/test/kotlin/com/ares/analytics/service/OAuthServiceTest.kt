@@ -12,14 +12,25 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -90,13 +101,32 @@ class OAuthServiceTest {
         return "header." + encoder.encodeToString(payload.toByteArray()) + ".signature"
     }
 
-    private fun mockClient(refreshSucceeds: Boolean): HttpClient = HttpClient(MockEngine { _ ->
+    private fun mockClient(refreshSucceeds: Boolean, includeIdToken: Boolean = true): HttpClient = HttpClient(MockEngine { _ ->
         if (refreshSucceeds) {
-            val body = """{"access_token":"new-access","id_token":"${makeIdToken("sub-9", "u@x.com", "Refreshed")}","expires_in":3600,"refresh_token":"rt"}"""
+            val idTokenField = if (includeIdToken) {
+                "\"id_token\":\"${makeIdToken("sub-9", "u@x.com", "Refreshed")}\","
+            } else {
+                ""
+            }
+            val body = """{"access_token":"new-access",$idTokenField"expires_in":3600,"refresh_token":"rt"}"""
             respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()))
         } else {
             respond("invalid_grant", HttpStatusCode.BadRequest, headersOf(HttpHeaders.ContentType, ContentType.Text.Plain.toString()))
         }
+    }) {
+        install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+    }
+
+    private fun delayedSuccessClient(
+        requestStarted: CompletableDeferred<Unit>,
+        releaseResponse: CompletableDeferred<Unit>,
+        requestCount: AtomicInteger = AtomicInteger()
+    ): HttpClient = HttpClient(MockEngine { _ ->
+        requestCount.incrementAndGet()
+        requestStarted.complete(Unit)
+        releaseResponse.await()
+        val body = """{"access_token":"new-access","id_token":"${makeIdToken("sub-9", "u@x.com", "Refreshed")}","expires_in":3600,"refresh_token":"rt"}"""
+        respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()))
     }) {
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
     }
@@ -108,12 +138,32 @@ class OAuthServiceTest {
         val service = OAuthService(
             environmentService = envService,
             authFilePath = authFile.absolutePath,
-            httpClient = mockClient(refreshSucceeds = true)
+            httpClient = mockClient(refreshSucceeds = true),
+            loadPersistedAuthOnInit = false
         )
         try {
             service.loadPersistedAuth()
             val state = service.authState.value
             assertTrue(state is AuthState.Authenticated, "Expected Authenticated after successful refresh, got $state")
+        } finally {
+            service.dispose()
+        }
+    }
+
+    @Test
+    fun `refresh may omit optional id token and retains established identity`() = runBlocking {
+        writeAuth(refreshToken = "rt", expired = true)
+        writeConfig(clientId = "client-123")
+        val service = OAuthService(
+            environmentService = envService,
+            authFilePath = authFile.absolutePath,
+            httpClient = mockClient(refreshSucceeds = true, includeIdToken = false),
+            loadPersistedAuthOnInit = false
+        )
+        try {
+            service.loadPersistedAuth()
+            val state = service.authState.value as AuthState.Authenticated
+            assertEquals("User", state.displayName)
         } finally {
             service.dispose()
         }
@@ -126,7 +176,8 @@ class OAuthServiceTest {
         val service = OAuthService(
             environmentService = envService,
             authFilePath = authFile.absolutePath,
-            httpClient = mockClient(refreshSucceeds = false)
+            httpClient = mockClient(refreshSucceeds = false),
+            loadPersistedAuthOnInit = false
         )
         try {
             service.loadPersistedAuth()
@@ -143,11 +194,125 @@ class OAuthServiceTest {
         val service = OAuthService(
             environmentService = envService,
             authFilePath = authFile.absolutePath,
-            httpClient = mockClient(refreshSucceeds = true) // must never be called
+            httpClient = mockClient(refreshSucceeds = true), // must never be called
+            loadPersistedAuthOnInit = false
         )
         try {
             service.loadPersistedAuth()
             assertEquals(AuthState.Unauthenticated, service.authState.value)
+        } finally {
+            service.dispose()
+        }
+    }
+
+    @Test
+    fun `logout generation rejects a delayed refresh commit`() = runBlocking {
+        writeAuth(refreshToken = "rt", expired = true)
+        val requestStarted = CompletableDeferred<Unit>()
+        val releaseResponse = CompletableDeferred<Unit>()
+        val service = OAuthService(
+            environmentService = envService,
+            authFilePath = authFile.absolutePath,
+            httpClient = delayedSuccessClient(requestStarted, releaseResponse),
+            loadPersistedAuthOnInit = false
+        )
+        try {
+            val refresh = async(Dispatchers.Default) {
+                service.refreshGoogleAccessToken("client-123", "secret")
+            }
+            withTimeout(5_000) { requestStarted.await() }
+
+            service.logout()
+            releaseResponse.complete(Unit)
+
+            assertNull(withTimeout(5_000) { refresh.await() })
+            assertEquals(AuthState.Unauthenticated, service.authState.value)
+            assertFalse(authFile.exists(), "A stale refresh must not recreate auth.json after logout")
+        } finally {
+            releaseResponse.complete(Unit)
+            service.dispose()
+        }
+    }
+
+    @Test
+    fun `logout cancels a delayed authorization-code exchange`() = runBlocking {
+        val requestStarted = CompletableDeferred<Unit>()
+        val releaseResponse = CompletableDeferred<Unit>()
+        val service = OAuthService(
+            environmentService = envService,
+            authFilePath = authFile.absolutePath,
+            httpClient = delayedSuccessClient(requestStarted, releaseResponse),
+            loadPersistedAuthOnInit = false
+        )
+        try {
+            val state = service.beginGoogleLoginForTest("client-123", "secret")
+            val exchangeJob = assertNotNull(service.dispatchOAuthCallbackForTest(state, "authorization-code"))
+            withTimeout(5_000) { requestStarted.await() }
+
+            service.logout()
+            releaseResponse.complete(Unit)
+            withTimeout(5_000) { exchangeJob.join() }
+
+            assertTrue(exchangeJob.isCancelled, "Logout must cancel service-owned token exchanges")
+            assertEquals(AuthState.Unauthenticated, service.authState.value)
+            assertFalse(authFile.exists(), "A canceled exchange must not recreate auth.json after logout")
+        } finally {
+            releaseResponse.complete(Unit)
+            service.dispose()
+        }
+    }
+
+    @Test
+    fun `oauth state is consumed exactly once across duplicate callbacks`() = runBlocking {
+        val requestStarted = CompletableDeferred<Unit>()
+        val releaseResponse = CompletableDeferred<Unit>().apply { complete(Unit) }
+        val requestCount = AtomicInteger()
+        val service = OAuthService(
+            environmentService = envService,
+            authFilePath = authFile.absolutePath,
+            httpClient = delayedSuccessClient(requestStarted, releaseResponse, requestCount),
+            loadPersistedAuthOnInit = false
+        )
+        try {
+            val state = service.beginGoogleLoginForTest("client-123", "secret")
+            val dispatched = listOf("code-a", "code-b").map { code ->
+                async(Dispatchers.Default) { service.dispatchOAuthCallbackForTest(state, code) }
+            }.awaitAll()
+            val accepted = dispatched.filterNotNull()
+
+            assertEquals(1, accepted.size, "Only one callback may consume an OAuth state value")
+            withTimeout(5_000) { accepted.single().join() }
+            assertEquals(1, requestCount.get(), "Duplicate callbacks must not start another token exchange")
+            assertTrue(service.authState.value is AuthState.Authenticated)
+            assertTrue(authFile.isFile)
+        } finally {
+            service.dispose()
+        }
+    }
+
+    @Test
+    fun `credential replace failure preserves prior bytes and never publishes Authenticated`() = runBlocking {
+        val previousBytes = "previous-auth-state".toByteArray()
+        authFile.writeBytes(previousBytes)
+        val service = OAuthService(
+            environmentService = envService,
+            authFilePath = authFile.absolutePath,
+            httpClient = mockClient(refreshSucceeds = true),
+            loadPersistedAuthOnInit = false,
+            secretsWriter = { file, bytes ->
+                writeSecrets(file, bytes) { _, _ ->
+                    throw IOException("injected auth replace failure")
+                }
+            },
+        )
+        try {
+            val state = service.beginGoogleLoginForTest("client-123", "secret")
+            val exchange = assertNotNull(service.dispatchOAuthCallbackForTest(state, "authorization-code"))
+            withTimeout(5_000) { exchange.join() }
+
+            val failure = assertIs<AuthState.Error>(service.authState.value)
+            assertTrue(failure.message.contains("could not be saved"))
+            assertTrue(previousBytes.contentEquals(authFile.readBytes()))
         } finally {
             service.dispose()
         }

@@ -14,7 +14,9 @@ import io.ktor.server.engine.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.CancellationException
@@ -22,7 +24,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
@@ -35,6 +36,8 @@ import java.net.URLEncoder
 import java.security.MessageDigest
 import java.security.SecureRandom
 import java.util.Base64
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * Generates a cryptographically secure 256-bit PKCE code verifier string for OAuth 2.0 authorization requests.
@@ -72,7 +75,7 @@ sealed class AuthState {
 @Serializable
 data class GoogleTokenResponse(
     val access_token: String,
-    val id_token: String,
+    val id_token: String? = null,
     val expires_in: Int,
     val refresh_token: String? = null
 )
@@ -129,26 +132,35 @@ class OAuthService(
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })
         }
-    }
+    },
+    private val loadPersistedAuthOnInit: Boolean = true,
+    private val secretsWriter: (File, ByteArray) -> Unit = ::writeSecrets,
 ) {
     private val refreshMutex = kotlinx.coroutines.sync.Mutex()
+    private val authLifecycleLock = Any()
+    private val authGeneration = AtomicLong(0L)
+    private val pendingOAuthRequest = AtomicReference<PendingOAuthRequest?>(null)
+    private val authWorkJobs = mutableSetOf<Job>()
+
+    @Volatile
+    private var disposed = false
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
+    private var serverGeneration: Long? = null
 
-    /**
-     * Per-request CSRF `state` value for the OAuth redirect. Set in [startGoogleLogin] /
-     * [startGithubLogin] before booting the callback server and validated in the
-     * `/callback` handler to block login-CSRF (AUDIT H1).
-     *
-     * Marked `@Volatile`: it is written from the caller thread (startGoogleLogin on the UI
-     * thread) and read from the CIO callback dispatcher; without `@Volatile` the callback
-     * handler could see a stale null and reject a legitimate redirect.
-     */
-    @Volatile
-    private var expectedState: String? = null
+    private data class PendingOAuthRequest(
+        val state: String,
+        val generation: Long,
+        val onCodeReceived: suspend (String) -> Unit
+    )
+
+    private data class AuthAttempt(
+        val generation: Long,
+        val previousState: AuthState
+    )
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
@@ -156,23 +168,29 @@ class OAuthService(
 
     init {
         // On startup, re-establish Authenticated state from persisted Google tokens.
-        serviceScope.launch { loadPersistedAuth() }
+        if (loadPersistedAuthOnInit) {
+            val generation = authGeneration.get()
+            launchAuthWork(generation) { loadPersistedAuth(generation) }
+        }
     }
 
     fun isDevMode(): Boolean = System.getenv("DEV_MODE") == "true"
 
-    internal suspend fun loadPersistedAuth() {
-        val saved = getSavedAuth() ?: return
+    internal suspend fun loadPersistedAuth() = loadPersistedAuth(authGeneration.get())
+
+    private suspend fun loadPersistedAuth(generation: Long) {
+        if (!isGenerationCurrent(generation)) return
+        if (getSavedAuth() == null) return
         val config = environmentService.loadConfig()
         val clientId = config?.googleClientId
         // No config (or network-down reading it) → leave Unauthenticated; the UI will
         // re-prompt once settings exist. Don't crash on startup.
         if (clientId.isNullOrEmpty()) return
-        // Refresh yields a fresh access_token + id_token; identity is re-derived from the
-        // id_token. Only restore Authenticated when the refresh actually round-tripped —
+        // Refresh yields a fresh access token and may omit the optional ID token. Only restore
+        // Authenticated when the refresh actually round-tripped —
         // otherwise a revoked/disabled account would look logged-in while gateway calls 401.
         val refreshed = try {
-            refreshGoogleAccessToken(clientId, config.googleClientSecret) != null
+            refreshGoogleAccessToken(clientId, config.googleClientSecret, generation) != null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -181,36 +199,50 @@ class OAuthService(
             false
         }
         if (!refreshed) return
-        // Restore Authenticated state from the freshly-persisted id_token.
+        // Restore Authenticated state from the retained or freshly returned ID token.
         val restored = getSavedAuth() ?: return
         val idToken = restored.googleIdToken
         if (!idToken.isNullOrBlank()) {
             val payload = decodeIdToken(idToken)
-            _authState.value = AuthState.Authenticated(
-                idToken = idToken,
-                uid = payload.sub.ifBlank { restored.uid },
-                email = payload.email ?: restored.email,
-                displayName = payload.name ?: restored.displayName
-            )
+            commitIfCurrent(generation) {
+                _authState.value = AuthState.Authenticated(
+                    idToken = idToken,
+                    uid = payload.sub.ifBlank { restored.uid },
+                    email = payload.email ?: restored.email,
+                    displayName = payload.name ?: restored.displayName
+                )
+            }
         }
     }
 
     fun startGoogleLogin(googleClientId: String?, googleClientSecret: String? = null) {
-        if (_authState.value is AuthState.Authenticating) return
-        _authState.value = AuthState.Authenticating
+        beginGoogleLogin(googleClientId, googleClientSecret, interactive = true)
+    }
 
-        if (isDevMode() || googleClientId.isNullOrEmpty() || googleClientId == "mock") {
-            serviceScope.launch {
+    private fun beginGoogleLogin(
+        googleClientId: String?,
+        googleClientSecret: String?,
+        interactive: Boolean
+    ): String? {
+        val attempt = beginAuthAttempt(
+            permitted = { it !is AuthState.Authenticating },
+            nextState = { AuthState.Authenticating }
+        ) ?: return null
+        val generation = attempt.generation
+
+        if ((interactive && isDevMode()) || googleClientId.isNullOrEmpty() || googleClientId == "mock") {
+            launchAuthWork(generation) {
                 applyGoogleTokens(
                     idToken = "dev-id-token",
                     accessToken = "dev-access-token",
                     refreshToken = null,
                     expiresIn = 3600,
                     emailFallback = "dev-user@aresrobotics.org",
-                    nameFallback = "ARES Dev User"
+                    nameFallback = "ARES Dev User",
+                    generation = generation
                 )
             }
-            return
+            return null
         }
         val codeVerifier = generateCodeVerifier()
         val codeChallenge = generateCodeChallenge(codeVerifier)
@@ -218,7 +250,6 @@ class OAuthService(
         val redirectUri = "http://localhost:$callbackPort/callback"
         // Per-request CSRF state parameter (AUDIT H1): unguessable, validated on callback.
         val state = generateCodeVerifier()
-        expectedState = state
         val loginUrl = "https://accounts.google.com/o/oauth2/v2/auth?" +
                 "client_id=$googleClientId" +
                 "&redirect_uri=${URLEncoder.encode(redirectUri, "UTF-8")}" +
@@ -230,7 +261,7 @@ class OAuthService(
                 "&code_challenge_method=S256" +
                 "&state=$state"
 
-        bootCallbackServer(callbackPort) { code ->
+        val pendingRequest = PendingOAuthRequest(state, generation) { code ->
             try {
                 val bodyParams = mutableListOf(
                     "code" to code,
@@ -249,39 +280,59 @@ class OAuthService(
 
                 if (response.status == HttpStatusCode.OK) {
                     val tokenData = response.body<GoogleTokenResponse>()
+                    val idToken = tokenData.id_token?.takeIf(String::isNotBlank)
+                        ?: error("Google did not return an ID token during authorization")
                     applyGoogleTokens(
-                        idToken = tokenData.id_token,
+                        idToken = idToken,
                         accessToken = tokenData.access_token,
                         refreshToken = tokenData.refresh_token,
                         expiresIn = tokenData.expires_in,
                         emailFallback = "user@aresrobotics.org",
-                        nameFallback = "Google User"
+                        nameFallback = "Google User",
+                        generation = generation
                     )
                 } else {
                     val errorText = response.bodyAsText()
                     val sentParamsInfo = "Sent client_id: $googleClientId (Secret present: ${!googleClientSecret.isNullOrBlank()})"
-                    _authState.value = AuthState.Error("Failed to exchange Google code: $errorText\nDetails: $sentParamsInfo")
+                    updateStateIfCurrent(
+                        generation,
+                        AuthState.Error("Failed to exchange Google code: $errorText\nDetails: $sentParamsInfo")
+                    )
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _authState.value = AuthState.Error("Google token exchange error: ${e.message}")
+                updateStateIfCurrent(generation, AuthState.Error("Google token exchange error: ${e.message}"))
             }
         }
+        if (!registerPendingRequest(pendingRequest)) return null
 
-        launchBrowser(loginUrl)
+        if (interactive) {
+            bootCallbackServer(callbackPort, generation)
+            launchBrowser(loginUrl, generation)
+        }
+        return state
     }
+
+    /** Deterministic non-interactive seam for callback lifecycle tests. */
+    internal fun beginGoogleLoginForTest(googleClientId: String, googleClientSecret: String? = null): String =
+        requireNotNull(beginGoogleLogin(googleClientId, googleClientSecret, interactive = false)) {
+            "Google authentication could not be started"
+        }
 
     /**
      * Centralizes Google token handling: decode identity from the ID token, persist the
      * access/refresh tokens, and publish [AuthState.Authenticated].
      */
-    private suspend fun applyGoogleTokens(
+    private fun applyGoogleTokens(
         idToken: String,
         accessToken: String,
         refreshToken: String?,
         expiresIn: Int,
         emailFallback: String,
-        nameFallback: String
-    ) {
+        nameFallback: String,
+        generation: Long
+    ): Boolean {
         val payload = decodeIdToken(idToken)
         val email = payload.email ?: emailFallback
         val name = payload.name ?: nameFallback
@@ -296,24 +347,45 @@ class OAuthService(
             email = email,
             displayName = name
         )
-        saveAuth(saved)
-        _authState.value = AuthState.Authenticated(
-            idToken = idToken,
-            uid = uid,
-            email = email,
-            displayName = name
-        )
+        var persisted = false
+        val current = commitIfCurrent(generation) {
+            try {
+                saveAuth(saved)
+                persisted = true
+                _authState.value = AuthState.Authenticated(
+                    idToken = idToken,
+                    uid = uid,
+                    email = email,
+                    displayName = name
+                )
+            } catch (failure: Exception) {
+                _authState.value = AuthState.Error(
+                    "Authentication credentials could not be saved: ${failure.message ?: failure.javaClass.simpleName}",
+                )
+            }
+        }
+        return current && persisted
     }
 
-    suspend fun refreshGoogleAccessToken(clientId: String, clientSecret: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun refreshGoogleAccessToken(clientId: String, clientSecret: String?): String? =
+        refreshGoogleAccessToken(clientId, clientSecret, authGeneration.get())
+
+    private suspend fun refreshGoogleAccessToken(
+        clientId: String,
+        clientSecret: String?,
+        generation: Long
+    ): String? = withContext(Dispatchers.IO) {
         refreshMutex.withLock {
+            if (!isGenerationCurrent(generation)) return@withLock null
             val saved = getSavedAuth() ?: return@withLock null
-            val refreshToken = saved.googleRefreshToken ?: return@withLock saved.googleAccessToken
+            val refreshToken = saved.googleRefreshToken ?: return@withLock valueIfCurrent(generation) {
+                saved.googleAccessToken
+            }
 
             // Reuse current access token if not within 2 minutes of expiry.
             val expiresAt = saved.googleTokenExpiresAt ?: 0
             if (System.currentTimeMillis() < expiresAt - 120_000 && saved.googleAccessToken.isNotBlank()) {
-                return@withLock saved.googleAccessToken
+                return@withLock valueIfCurrent(generation) { saved.googleAccessToken }
             }
 
             try {
@@ -337,18 +409,24 @@ class OAuthService(
                         googleAccessToken = data.access_token,
                         googleTokenExpiresAt = newExpiresAt,
                         googleRefreshToken = data.refresh_token ?: saved.googleRefreshToken,
-                        googleIdToken = data.id_token.ifBlank { saved.googleIdToken }
+                        googleIdToken = data.id_token?.takeIf(String::isNotBlank) ?: saved.googleIdToken
                     )
-                    saveAuth(updatedAuth)
-                    // Refresh also returns a fresh ID token; refresh identity in-state if present.
-                    val current = _authState.value
-                    if (current is AuthState.Authenticated && data.id_token.isNotBlank()) {
-                        val payload = decodeIdToken(data.id_token)
-                        _authState.value = current.copy(idToken = data.id_token,
-                            email = payload.email ?: current.email,
-                            displayName = payload.name ?: current.displayName)
+                    val committed = commitIfCurrent(generation) {
+                        saveAuth(updatedAuth)
+                        // Google commonly omits id_token on refresh. Refresh identity only when
+                        // one is explicitly returned and otherwise retain the established identity.
+                        val current = _authState.value
+                        val refreshedIdToken = data.id_token?.takeIf(String::isNotBlank)
+                        if (current is AuthState.Authenticated && refreshedIdToken != null) {
+                            val payload = decodeIdToken(refreshedIdToken)
+                            _authState.value = current.copy(
+                                idToken = refreshedIdToken,
+                                email = payload.email ?: current.email,
+                                displayName = payload.name ?: current.displayName
+                            )
+                        }
                     }
-                    return@withLock data.access_token
+                    return@withLock data.access_token.takeIf { committed }
                 } else {
                     println("Failed to refresh Google access token: ${response.bodyAsText()}")
                     null
@@ -363,28 +441,37 @@ class OAuthService(
     }
 
     fun startGithubLogin(githubClientId: String?, githubClientSecret: String? = null) {
-        val currentAuth = _authState.value
-        if (currentAuth !is AuthState.Authenticated) {
-            _authState.value = AuthState.Error("Must sign in with Google before linking GitHub")
+        val observedGeneration = authGeneration.get()
+        val attempt = beginAuthAttempt(
+            permitted = { it is AuthState.Authenticated },
+            nextState = { it }
+        )
+        if (attempt == null) {
+            commitIfCurrent(observedGeneration) {
+                if (_authState.value !is AuthState.Authenticated && _authState.value !is AuthState.Authenticating) {
+                    _authState.value = AuthState.Error("Must sign in with Google before linking GitHub")
+                }
+            }
             return
         }
+        val generation = attempt.generation
+        val currentAuth = attempt.previousState as AuthState.Authenticated
 
         if (githubClientId.isNullOrEmpty() || githubClientId == "mock") {
-            _authState.value = currentAuth.copy(githubToken = "mock-github-token")
+            updateStateIfCurrent(generation, currentAuth.copy(githubToken = "mock-github-token"))
             return
         }
         val callbackPort = 5805
         val redirectUri = "http://localhost:$callbackPort/callback"
         // Per-request CSRF state parameter (AUDIT H1): unguessable, validated on callback.
         val state = generateCodeVerifier()
-        expectedState = state
         val loginUrl = "https://github.com/login/oauth/authorize?" +
                 "client_id=$githubClientId" +
                 "&redirect_uri=${URLEncoder.encode(redirectUri, "UTF-8")}" +
                 "&scope=read:org" +
                 "&state=$state"
 
-        bootCallbackServer(callbackPort) { code ->
+        val pendingRequest = PendingOAuthRequest(state, generation) { code ->
             try {
                 val response = httpClient.post("https://github.com/login/oauth/access_token") {
                     header(HttpHeaders.Accept, "application/json")
@@ -399,26 +486,34 @@ class OAuthService(
 
                 if (response.status == HttpStatusCode.OK) {
                     val tokenData = response.body<GithubTokenResponse>()
-                    val current = _authState.value
-                    if (current is AuthState.Authenticated) {
-                        _authState.value = current.copy(githubToken = tokenData.access_token)
+                    commitIfCurrent(generation) {
+                        val current = _authState.value
+                        if (current is AuthState.Authenticated) {
+                            _authState.value = current.copy(githubToken = tokenData.access_token)
+                        }
                     }
                 } else {
                     val errorText = response.bodyAsText()
-                    _authState.value = AuthState.Error("Failed to exchange GitHub code: $errorText")
+                    updateStateIfCurrent(generation, AuthState.Error("Failed to exchange GitHub code: $errorText"))
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _authState.value = AuthState.Error("GitHub token exchange error: ${e.message}")
+                updateStateIfCurrent(generation, AuthState.Error("GitHub token exchange error: ${e.message}"))
             }
         }
+        if (!registerPendingRequest(pendingRequest)) return
 
-        launchBrowser(loginUrl)
+        bootCallbackServer(callbackPort, generation)
+        launchBrowser(loginUrl, generation)
     }
 
     fun logout() {
-        _authState.value = AuthState.Unauthenticated
-        if (authFile.exists()) authFile.delete()
-        stopServer()
+        invalidateAuth(
+            nextState = AuthState.Unauthenticated,
+            deletePersistedAuth = true,
+            markDisposed = false
+        )
     }
 
     fun getSavedAuth(): OAuthSavedAuth? {
@@ -430,26 +525,155 @@ class OAuthService(
         }
     }
 
-    fun saveAuth(auth: OAuthSavedAuth) {
+    private fun saveAuth(auth: OAuthSavedAuth) {
         // Shared writeSecrets helper applies owner-only POSIX perms (AUDIT H2) the same way
         // EnvironmentService does for workspaces.json — keeps auth.json secret handling in
         // one place instead of a bespoke try/setPosixFilePermissions block here.
-        writeSecrets(authFile, Json.encodeToString(auth).toByteArray(Charsets.UTF_8))
+        secretsWriter(authFile, Json.encodeToString(auth).toByteArray(Charsets.UTF_8))
     }
 
-    private fun bootCallbackServer(port: Int, onCodeReceived: suspend (String) -> Unit) {
-        stopServer()
-        server = embeddedServer(CIO, port = port) {
+    private fun beginAuthAttempt(
+        permitted: (AuthState) -> Boolean,
+        nextState: (AuthState) -> AuthState
+    ): AuthAttempt? {
+        var jobsToCancel: List<Job> = emptyList()
+        var serverToStop: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
+        val attempt = synchronized(authLifecycleLock) {
+            if (disposed) return@synchronized null
+            val current = _authState.value
+            if (!permitted(current)) return@synchronized null
+
+            val generation = authGeneration.incrementAndGet()
+            pendingOAuthRequest.set(null)
+            jobsToCancel = authWorkJobs.toList()
+            authWorkJobs.clear()
+            serverToStop = server
+            server = null
+            serverGeneration = null
+            _authState.value = nextState(current)
+            AuthAttempt(generation, current)
+        }
+        if (attempt != null) {
+            jobsToCancel.forEach { it.cancel() }
+            stopEmbeddedServer(serverToStop)
+        }
+        return attempt
+    }
+
+    private fun registerPendingRequest(request: PendingOAuthRequest): Boolean =
+        synchronized(authLifecycleLock) {
+            if (!isGenerationCurrent(request.generation)) {
+                false
+            } else {
+                pendingOAuthRequest.compareAndSet(null, request)
+            }
+        }
+
+    /** Atomically consumes a matching state value; callback replays leave the request untouched. */
+    private fun consumePendingRequest(returnedState: String?): PendingOAuthRequest? =
+        synchronized(authLifecycleLock) {
+            val pending = pendingOAuthRequest.get() ?: return@synchronized null
+            if (
+                returnedState == null ||
+                returnedState != pending.state ||
+                !isGenerationCurrent(pending.generation)
+            ) {
+                return@synchronized null
+            }
+            if (pendingOAuthRequest.compareAndSet(pending, null)) pending else null
+        }
+
+    private fun launchAuthWork(generation: Long, block: suspend () -> Unit): Job? {
+        val job = serviceScope.launch(start = CoroutineStart.LAZY) {
+            if (isGenerationCurrent(generation)) block()
+        }
+        job.invokeOnCompletion {
+            synchronized(authLifecycleLock) { authWorkJobs.remove(job) }
+        }
+        val registered = synchronized(authLifecycleLock) {
+            if (isGenerationCurrent(generation)) {
+                authWorkJobs.add(job)
+                true
+            } else {
+                false
+            }
+        }
+        if (registered) {
+            job.start()
+            return job
+        }
+        job.cancel()
+        return null
+    }
+
+    private fun launchPendingCodeExchange(pending: PendingOAuthRequest, code: String): Job? =
+        launchAuthWork(pending.generation) {
+            try {
+                pending.onCodeReceived(code)
+            } finally {
+                stopServer(pending.generation)
+            }
+        }
+
+    /** Deterministic seam used to exercise callback replay and cancellation without a TCP server. */
+    internal fun dispatchOAuthCallbackForTest(returnedState: String?, code: String): Job? {
+        val pending = consumePendingRequest(returnedState) ?: return null
+        return launchPendingCodeExchange(pending, code)
+    }
+
+    private fun commitIfCurrent(generation: Long, block: () -> Unit): Boolean =
+        synchronized(authLifecycleLock) {
+            if (!isGenerationCurrent(generation)) {
+                false
+            } else {
+                block()
+                true
+            }
+        }
+
+    private fun <T> valueIfCurrent(generation: Long, block: () -> T): T? =
+        synchronized(authLifecycleLock) {
+            if (isGenerationCurrent(generation)) block() else null
+        }
+
+    private fun updateStateIfCurrent(generation: Long, state: AuthState): Boolean =
+        commitIfCurrent(generation) { _authState.value = state }
+
+    private fun isGenerationCurrent(generation: Long): Boolean =
+        !disposed && authGeneration.get() == generation
+
+    private fun invalidateAuth(
+        nextState: AuthState,
+        deletePersistedAuth: Boolean,
+        markDisposed: Boolean
+    ) {
+        var jobsToCancel: List<Job> = emptyList()
+        var serverToStop: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
+        synchronized(authLifecycleLock) {
+            authGeneration.incrementAndGet()
+            if (markDisposed) disposed = true
+            pendingOAuthRequest.set(null)
+            jobsToCancel = authWorkJobs.toList()
+            authWorkJobs.clear()
+            serverToStop = server
+            server = null
+            serverGeneration = null
+            _authState.value = nextState
+            if (deletePersistedAuth && authFile.exists()) authFile.delete()
+        }
+        jobsToCancel.forEach { it.cancel() }
+        stopEmbeddedServer(serverToStop)
+    }
+
+    private fun bootCallbackServer(port: Int, generation: Long) {
+        stopServer(generation)
+        val candidate = embeddedServer(CIO, host = "127.0.0.1", port = port) {
             routing {
                 get("/callback") {
-                    // Validate the per-request CSRF state parameter (AUDIT H1). The expected
-                    // value is set in startGoogleLogin/startGithubLogin before booting.
                     val returnedState = call.request.queryParameters["state"]
-                    val expected = expectedState
-                    if (expected == null || returnedState != expected) {
+                    val pending = consumePendingRequest(returnedState)
+                    if (pending == null) {
                         call.respondText("Authentication failed: invalid state parameter (possible CSRF attack).")
-                        _authState.value = AuthState.Error("Invalid OAuth state parameter")
-                        serviceScope.launch { stopServer() }
                         return@get
                     }
                     val code = call.request.queryParameters["code"]
@@ -494,54 +718,79 @@ class OAuthService(
                             """.trimIndent(),
                             io.ktor.http.ContentType.Text.Html
                         )
-                        serviceScope.launch {
-                            onCodeReceived(code)
-                            stopServer()
-                        }
+                        launchPendingCodeExchange(pending, code)
                     } else {
                         val msg = error ?: "Unknown auth error"
                         call.respondText("Authentication failed: $msg")
-                        _authState.value = AuthState.Error(msg)
-                        serviceScope.launch {
-                            stopServer()
-                        }
+                        updateStateIfCurrent(pending.generation, AuthState.Error(msg))
+                        serviceScope.launch { stopServer(pending.generation) }
                     }
                 }
             }
-        }.apply {
-            start(wait = false)
         }
+        val installed = synchronized(authLifecycleLock) {
+            if (!isGenerationCurrent(generation)) {
+                false
+            } else {
+                candidate.start(wait = false)
+                server = candidate
+                serverGeneration = generation
+                true
+            }
+        }
+        if (!installed) stopEmbeddedServer(candidate)
     }
 
-    private fun launchBrowser(url: String) {
-        serviceScope.launch(Dispatchers.IO) {
+    private fun launchBrowser(url: String, generation: Long) {
+        launchAuthWork(generation) {
             try {
-                if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-                    Desktop.getDesktop().browse(URI(url))
-                } else {
-                    _authState.value = AuthState.Error("System browser not supported on this platform.")
-                    stopServer()
+                withContext(Dispatchers.IO) {
+                    if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
+                        Desktop.getDesktop().browse(URI(url))
+                    } else {
+                        updateStateIfCurrent(
+                            generation,
+                            AuthState.Error("System browser not supported on this platform.")
+                        )
+                        stopServer(generation)
+                    }
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                _authState.value = AuthState.Error("Failed to launch system browser: ${e.message}")
-                stopServer()
+                updateStateIfCurrent(generation, AuthState.Error("Failed to launch system browser: ${e.message}"))
+                stopServer(generation)
             }
         }
     }
 
-    private fun stopServer() {
-        server?.let {
-            it.stop(1000, 2000)
-            server = null
+    private fun stopServer(expectedGeneration: Long? = null) {
+        val serverToStop = synchronized(authLifecycleLock) {
+            if (expectedGeneration != null && serverGeneration != expectedGeneration) {
+                null
+            } else {
+                server.also {
+                    server = null
+                    serverGeneration = null
+                }
+            }
         }
+        stopEmbeddedServer(serverToStop)
+    }
+
+    private fun stopEmbeddedServer(
+        target: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>?
+    ) {
+        target?.let { runCatching { it.stop(1000, 2000) } }
     }
 
     fun dispose() {
-        // Cancel the process-lifetime scope first so loadPersistedAuth / callback
-        // coroutines stop touching httpClient before we close it. Without this, a
-        // in-flight refresh could use a closed client and throw into the void.
+        invalidateAuth(
+            nextState = AuthState.Unauthenticated,
+            deletePersistedAuth = false,
+            markDisposed = true
+        )
         serviceScope.cancel()
-        stopServer()
         try {
             httpClient.close()
         } catch (e: Exception) {

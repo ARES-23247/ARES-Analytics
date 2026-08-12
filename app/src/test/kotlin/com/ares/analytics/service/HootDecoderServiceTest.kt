@@ -14,6 +14,45 @@ import kotlin.test.assertTrue
 class HootDecoderServiceTest {
 
     @Test
+    fun `1000 microsecond interval is one millisecond for explicit and inferred units`() = runTest {
+        val tempDb = File.createTempFile("hoot_units_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val decoder = HootDecoderService(
+            databaseService,
+            SummaryEngineService(
+                databaseService,
+                sysIdService,
+                DriverAnalysisService(databaseService, sysIdService)
+            ),
+            sysIdService
+        )
+        val explicit = File.createTempFile("hoot_explicit_us", ".csv").apply {
+            writeText("time_us,Signal\n0,1.0\n1000,2.0")
+        }
+        val inferred = File.createTempFile("hoot_inferred_us", ".csv").apply {
+            writeText("time,Signal\n0,1.0\n1000,2.0")
+        }
+        try {
+            assertEquals(1L, decoder.parseAndInsertTelemetry(explicit, "explicit").second)
+            assertEquals(1L, decoder.parseAndInsertTelemetry(inferred, "inferred").second)
+            assertEquals(
+                listOf(0L, 1L),
+                databaseService.getTelemetryForKey("explicit", "Signal").map { it.timestampMs }
+            )
+            assertEquals(
+                listOf(0L, 1L),
+                databaseService.getTelemetryForKey("inferred", "Signal").map { it.timestampMs }
+            )
+        } finally {
+            databaseService.close()
+            explicit.delete()
+            inferred.delete()
+            tempDb.delete()
+        }
+    }
+
+    @Test
     /**
      * testParseAndInsertTelemetry fun.
      */

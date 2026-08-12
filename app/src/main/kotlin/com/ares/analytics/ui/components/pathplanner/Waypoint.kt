@@ -7,7 +7,7 @@ data class Waypoint(
     val headingRad: Double? = null,
     val prevControlLength: Double = 0.5,
     val nextControlLength: Double = 0.5,
-    /** Robot rotation in degrees (holonomic). null = unspecified (planner interpolates or PointTowardsZone applies). */
+    /** Robot rotation in degrees. null means no explicit robot heading is attached. */
     val rotationDeg: Double? = null
 )
 

@@ -60,22 +60,15 @@ fun AdminScreen(
             isLoading = true
             errorMessage = null
             try {
-                var profiles = syncEngineService.getRemoteRobotProfiles()
-
-                // If local active robot is missing from the list, register it automatically
-                if (profiles.none { it.robotId == config.robotId }) {
-                    val localRobot = RobotProfile(
-                        robotId = config.robotId,
-                        league = config.league,
-                        seasonId = config.seasonId,
-                        name = config.robotName.takeIf { it.isNotBlank() } ?: "${config.robotId} (Local Active)"
-                    )
-                    val updated = profiles + localRobot
-                    syncEngineService.saveRemoteRobotProfiles(updated)
-                    profiles = updated
+                val localRobot = RobotProfile(
+                    robotId = config.robotId,
+                    league = config.league,
+                    seasonId = config.seasonId,
+                    name = config.robotName.takeIf { it.isNotBlank() } ?: "${config.robotId} (Local Active)"
+                )
+                robotProfiles = syncEngineService.mutateRemoteRobotProfiles { profiles ->
+                    if (profiles.none { it.robotId == config.robotId }) profiles + localRobot else profiles
                 }
-
-                robotProfiles = profiles
             } catch (e: Exception) {
                 errorMessage = "Failed to load robot registry from Google Drive: ${e.message}"
             } finally {
@@ -261,9 +254,13 @@ fun AdminScreen(
                                 IconButton(
                                     onClick = {
                                         scope.launch {
-                                            val updated = robotProfiles.filter { it.robotId != robot.robotId }
-                                            syncEngineService.saveRemoteRobotProfiles(updated)
-                                            robotProfiles = updated
+                                            try {
+                                                robotProfiles = syncEngineService.mutateRemoteRobotProfiles { profiles ->
+                                                    profiles.filter { it.robotId != robot.robotId }
+                                                }
+                                            } catch (e: Exception) {
+                                                errorMessage = "Failed to delete robot profile: ${e.message}"
+                                            }
                                         }
                                     }
                                 ) {
@@ -356,9 +353,12 @@ fun AdminScreen(
                         scope.launch {
                             try {
                                 val newRobot = RobotProfile(robotId, league, seasonId, name)
-                                val updated = robotProfiles + newRobot
-                                syncEngineService.saveRemoteRobotProfiles(updated)
-                                robotProfiles = updated
+                                robotProfiles = syncEngineService.mutateRemoteRobotProfiles { profiles ->
+                                    require(profiles.none { it.robotId == newRobot.robotId }) {
+                                        "A robot with this ID is already registered."
+                                    }
+                                    profiles + newRobot
+                                }
                                 showAddDialog = false
                             } catch (e: Exception) {
                                 dialogError = "Error registering profile: ${e.message}"

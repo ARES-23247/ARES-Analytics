@@ -8,9 +8,13 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
@@ -48,59 +52,102 @@ class AutoImportService(
     private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, exception ->
         println("[AUTO-IMPORT] Unhandled exception in background scope: ${exception.message}")
     }),
-    private val scanIntervalMs: Long = 5_000L
+    private val scanIntervalMs: Long = 5_000L,
+    private val scanCycleOverride: (suspend () -> Unit)? = null
 ) {
-    private var job: Job? = null
+    private val lifecycleMutex = Mutex()
+    @Volatile private var job: Job? = null
     private val _importNotifications = MutableSharedFlow<String>(extraBufferCapacity = 100)
     val importNotifications: SharedFlow<String> = _importNotifications.asSharedFlow()
 
     private var onImportSuccessCallback: (() -> Unit)? = null
     internal data class SourceSnapshot(val size: Long, val modified: Long)
+    internal data class ProcessExecution(
+        val exitCode: Int?,
+        val stdout: String,
+        val stderr: String,
+        val timedOut: Boolean
+    ) {
+        val succeeded: Boolean get() = !timedOut && exitCode == 0
+    }
     private val sourceObservations = java.util.concurrent.ConcurrentHashMap<String, SourceSnapshot>()
     private val importedFingerprintCaches = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
 
-    fun start(onImportSuccess: () -> Unit) {
-        onImportSuccessCallback = onImportSuccess
-        job?.cancel()
-        job = scope.launch {
-            val adbPath = findAdbPath()
-            while (isActive) {
-                try {
-                    val config = configProvider()
-                    if (config != null && !config.projectPath.isNullOrEmpty()) {
-                        // 1. Local logs auto-import
-                        importLocalLogs(config)
+    /** Starts (or replaces) the scanner only after the prior generation has fully stopped. */
+    suspend fun start(onImportSuccess: () -> Unit) = withContext(NonCancellable) {
+        lifecycleMutex.withLock {
+            val previous = job
+            job = null
+            previous?.cancelAndJoin()
 
-                        // 2. Robot logs auto-import based on League
-                        when (config.league) {
-                            League.FTC -> {
-                                if (processManagerService.adbConnected.value) {
-                                    importFtcRobotLogs(config, adbPath)
-                                }
-                            }
-                            League.FRC -> {
-                                val host = config.nt4Host ?: getDefaultFrcHost(config.teamId)
-                                if (isHostReachable(host)) {
-                                    importFrcRobotLogs(config, host)
-                                }
-                            }
-                        }
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    _importNotifications.emit("[AUTO-IMPORT] Error in scan cycle: ${e.message}")
-                    e.printStackTrace()
-                }
-                delay(scanIntervalMs)
-            }
+            onImportSuccessCallback = onImportSuccess
+            val replacement = scope.launch(start = CoroutineStart.LAZY) { runScannerLoop() }
+            job = replacement
+            replacement.start()
         }
     }
 
-    fun stop() {
-        job?.cancel()
-        job = null
-        onImportSuccessCallback = null
+    /** Cancels and joins the active scanner before returning. */
+    suspend fun stop() = withContext(NonCancellable) {
+        lifecycleMutex.withLock {
+            val previous = job
+            job = null
+            previous?.cancelAndJoin()
+            onImportSuccessCallback = null
+        }
+    }
+
+    /** Deterministic lifecycle entry point for shutdown owners and tests that must await cleanup. */
+    internal suspend fun startAndJoinPrevious(onImportSuccess: () -> Unit) {
+        start(onImportSuccess)
+    }
+
+    /** Cancels and joins the active scanner before returning. */
+    internal suspend fun stopAndJoin() {
+        stop()
+    }
+
+    internal val scannerActive: Boolean
+        get() = job?.isActive == true
+
+    private suspend fun runScannerLoop() {
+        val adbPath = if (scanCycleOverride == null) findAdbPath() else "adb"
+        while (currentCoroutineContext().isActive) {
+            try {
+                val override = scanCycleOverride
+                if (override != null) {
+                    override()
+                } else {
+                    scanConfiguredSources(adbPath)
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _importNotifications.emit("[AUTO-IMPORT] Error in scan cycle: ${e.message}")
+                e.printStackTrace()
+            }
+            delay(scanIntervalMs)
+        }
+    }
+
+    private suspend fun scanConfiguredSources(adbPath: String) {
+        val config = configProvider()
+        if (config == null || config.projectPath.isNullOrEmpty()) return
+
+        importLocalLogs(config)
+        when (config.league) {
+            League.FTC -> {
+                if (processManagerService.adbConnected.value) {
+                    importFtcRobotLogs(config, adbPath)
+                }
+            }
+            League.FRC -> {
+                val host = config.nt4Host ?: getDefaultFrcHost(config.teamId)
+                if (isHostReachable(host)) {
+                    importFrcRobotLogs(config, host)
+                }
+            }
+        }
     }
 
     private suspend fun importLocalLogs(config: WorkspaceConfig) {
@@ -121,13 +168,13 @@ class AutoImportService(
                     continue
                 }
 
-                val fingerprint = sourceFingerprint(sourceId, snapshot)
                 val archiveDir = File(config.projectPath, "logs/imported")
                 archiveDir.mkdirs()
                 val manifest = File(archiveDir, IMPORT_MANIFEST_NAME)
                 val quarantineManifest = quarantineManifest(config)
-                if (isFingerprintImported(manifest, fingerprint) || isFingerprintImported(quarantineManifest, fingerprint)) continue
-                val archivedFile = File(archiveDir, "${fingerprint.take(12)}_${file.name}")
+                val stagingFile = File(archiveDir, ".${stagingKey(sourceId, snapshot)}.partial")
+                var fingerprint: String? = null
+                var archivedFile: File? = null
 
                 try {
                     _importNotifications.emit("[AUTO-IMPORT] Found local log: ${file.name}. Importing...")
@@ -135,22 +182,33 @@ class AutoImportService(
                     if (file.name.lowercase().startsWith("sim_")) {
                         baseTags.add("simulated")
                     }
-                    copyStableLocalFile(file, archivedFile, snapshot)
+                    copyStableLocalFile(file, stagingFile, snapshot)
+                    val stableFingerprint = contentFingerprint(stagingFile)
+                    fingerprint = stableFingerprint
+                    if (isFingerprintImported(manifest, stableFingerprint) ||
+                        isFingerprintImported(quarantineManifest, stableFingerprint)
+                    ) {
+                        stagingFile.delete()
+                        continue
+                    }
+                    val targetFile = safeArchiveFile(archiveDir, stableFingerprint, file.name)
+                    archivedFile = targetFile
+                    Files.move(stagingFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
                     val result = if (file.name.endsWith(".hoot", ignoreCase = true)) {
-                        val sessionId = hootDecoderService.importHootLog(archivedFile, config.teamId, config.seasonId, config.robotId)
-                        sessionId to logParserService.buildImportReport(archivedFile, sessionId, decoderOverride = "hoot")
+                        val sessionId = hootDecoderService.importHootLog(targetFile, config.teamId, config.seasonId, config.robotId)
+                        sessionId to logParserService.buildImportReport(targetFile, sessionId, decoderOverride = "hoot")
                             .copy(sourceName = file.name)
                     } else {
                         val imported = logParserService.parseLogFileWithReport(
-                            archivedFile, config.teamId, config.seasonId, config.robotId,
+                            targetFile, config.teamId, config.seasonId, config.robotId,
                             tags = baseTags
                         )
                         imported.session.sessionId to imported.report.copy(sourceName = file.name)
                     }
                     val (sessionId, report) = result
 
-                    writeImportReport(archivedFile, report)
-                    markFingerprintImported(manifest, fingerprint)
+                    writeImportReport(targetFile, report)
+                    markFingerprintImported(manifest, stableFingerprint)
                     if (!file.delete()) {
                         _importNotifications.emit(
                             "[AUTO-IMPORT] Imported ${file.name}; source could not be removed and will be ignored by fingerprint"
@@ -160,13 +218,19 @@ class AutoImportService(
 
                     // Trigger UI reload
                     onImportSuccessCallback?.invoke()
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    if (archivedFile.exists()) {
-                        runCatching { quarantineFailedImport(config, archivedFile, fingerprint, e, file.name) }
+                    val failedFile = archivedFile
+                    val failedFingerprint = fingerprint
+                    if (failedFile != null && failedFingerprint != null && failedFile.exists()) {
+                        runCatching { quarantineFailedImport(config, failedFile, failedFingerprint, e, file.name) }
                             .onFailure { e.addSuppressed(it) }
                     }
                     _importNotifications.emit("[AUTO-IMPORT] Failed to import local log ${file.name}: ${e.message}")
                     e.printStackTrace()
+                } finally {
+                    stagingFile.delete()
                 }
             }
         }
@@ -190,16 +254,16 @@ class AutoImportService(
                     val sourceId = "ftc:$remotePath"
                     val snapshot = getFtcFileSnapshot(adbPath, remotePath) ?: continue
                     if (!observeStableSource(sourceId, snapshot)) continue
-                    val fingerprint = sourceFingerprint(sourceId, snapshot)
                     val manifest = File(localDestDir, IMPORT_MANIFEST_NAME)
                     val quarantineManifest = quarantineManifest(config)
-                    if (isFingerprintImported(manifest, fingerprint) || isFingerprintImported(quarantineManifest, fingerprint)) continue
 
                     // Check if file is still being written to by ARESDataLogger
                     if (isFileInUseOnFtcRobot(adbPath, remotePath)) {
                         continue
                     }
-                    val tempLocalFile = File(localDestDir, ".$fingerprint.partial")
+                    val tempLocalFile = File(localDestDir, ".${stagingKey(sourceId, snapshot)}.partial")
+                    var fingerprint: String? = null
+                    var archivedFile: File? = null
 
                     try {
                         _importNotifications.emit("[AUTO-IMPORT] Found FTC robot log: $filename. Pulling...")
@@ -210,37 +274,51 @@ class AutoImportService(
                                 if (afterPull != null) sourceObservations[sourceId] = afterPull
                                 continue
                             }
-                            val archivedFile = File(localDestDir, "${fingerprint.take(12)}_$filename")
-                            Files.move(tempLocalFile.toPath(), archivedFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                            val stableFingerprint = contentFingerprint(tempLocalFile)
+                            fingerprint = stableFingerprint
+                            if (isFingerprintImported(manifest, stableFingerprint) ||
+                                isFingerprintImported(quarantineManifest, stableFingerprint)
+                            ) {
+                                tempLocalFile.delete()
+                                continue
+                            }
+                            val targetFile = safeArchiveFile(localDestDir, stableFingerprint, filename)
+                            archivedFile = targetFile
+                            Files.move(tempLocalFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
                             val result = if (lower.endsWith(".hoot")) {
-                                val sessionId = hootDecoderService.importHootLog(archivedFile, config.teamId, config.seasonId, config.robotId)
-                                sessionId to logParserService.buildImportReport(archivedFile, sessionId, decoderOverride = "hoot")
+                                val sessionId = hootDecoderService.importHootLog(targetFile, config.teamId, config.seasonId, config.robotId)
+                                sessionId to logParserService.buildImportReport(targetFile, sessionId, decoderOverride = "hoot")
                                     .copy(sourceName = filename)
                             } else {
                                 val imported = logParserService.parseLogFileWithReport(
-                                    archivedFile, config.teamId, config.seasonId, config.robotId,
+                                    targetFile, config.teamId, config.seasonId, config.robotId,
                                     tags = listOf("auto-import", "robot-log")
                                 )
                                 imported.session.sessionId to imported.report.copy(sourceName = filename)
                             }
                             val (sessionId, report) = result
 
-                            writeImportReport(archivedFile, report)
-                            markFingerprintImported(manifest, fingerprint)
+                            writeImportReport(targetFile, report)
+                            markFingerprintImported(manifest, stableFingerprint)
                             // Keep imported file safely in logs/imported archive folder
                             _importNotifications.emit("[AUTO-IMPORT] Successfully imported robot log $filename (Session ID: ${sessionId.take(8)}...)")
 
                             // Trigger UI reload
                             onImportSuccessCallback?.invoke()
                         }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
-                        val archivedFile = File(localDestDir, "${fingerprint.take(12)}_$filename")
-                        if (archivedFile.exists()) {
-                            runCatching { quarantineFailedImport(config, archivedFile, fingerprint, e, filename) }
+                        val failedFile = archivedFile
+                        val failedFingerprint = fingerprint
+                        if (failedFile != null && failedFingerprint != null && failedFile.exists()) {
+                            runCatching { quarantineFailedImport(config, failedFile, failedFingerprint, e, filename) }
                                 .onFailure { e.addSuppressed(it) }
                         }
                         _importNotifications.emit("[AUTO-IMPORT] Failed to import robot log $filename: ${e.message}")
                         e.printStackTrace()
+                    } finally {
+                        tempLocalFile.delete()
                     }
                 }
             }
@@ -264,16 +342,16 @@ class AutoImportService(
                     val sourceId = "frc:$host:$remotePath"
                     val snapshot = getFrcFileSnapshot(host, remotePath) ?: continue
                     if (!observeStableSource(sourceId, snapshot)) continue
-                    val fingerprint = sourceFingerprint(sourceId, snapshot)
                     val manifest = File(localDestDir, IMPORT_MANIFEST_NAME)
                     val quarantineManifest = quarantineManifest(config)
-                    if (isFingerprintImported(manifest, fingerprint) || isFingerprintImported(quarantineManifest, fingerprint)) continue
 
                     // Check if file is still being written to by DataLogManager
                     if (isFileInUseOnFrcRobot(host, remotePath)) {
                         continue
                     }
-                    val tempLocalFile = File(localDestDir, ".$fingerprint.partial")
+                    val tempLocalFile = File(localDestDir, ".${stagingKey(sourceId, snapshot)}.partial")
+                    var fingerprint: String? = null
+                    var archivedFile: File? = null
 
                     try {
                         _importNotifications.emit("[AUTO-IMPORT] Found FRC robot log: $filename. Pulling...")
@@ -284,38 +362,51 @@ class AutoImportService(
                                 if (afterPull != null) sourceObservations[sourceId] = afterPull
                                 continue
                             }
-                            val archivedFile = File(localDestDir, "${fingerprint.take(12)}_$filename")
-                            Files.move(tempLocalFile.toPath(), archivedFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                            val stableFingerprint = contentFingerprint(tempLocalFile)
+                            fingerprint = stableFingerprint
+                            if (isFingerprintImported(manifest, stableFingerprint) ||
+                                isFingerprintImported(quarantineManifest, stableFingerprint)
+                            ) {
+                                tempLocalFile.delete()
+                                continue
+                            }
+                            val targetFile = safeArchiveFile(localDestDir, stableFingerprint, filename)
+                            archivedFile = targetFile
+                            Files.move(tempLocalFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
                             val result = if (lower.endsWith(".hoot")) {
-                                val sessionId = hootDecoderService.importHootLog(archivedFile, config.teamId, config.seasonId, config.robotId)
-                                sessionId to logParserService.buildImportReport(archivedFile, sessionId, decoderOverride = "hoot")
+                                val sessionId = hootDecoderService.importHootLog(targetFile, config.teamId, config.seasonId, config.robotId)
+                                sessionId to logParserService.buildImportReport(targetFile, sessionId, decoderOverride = "hoot")
                                     .copy(sourceName = filename)
                             } else {
                                 val imported = logParserService.parseLogFileWithReport(
-                                    archivedFile, config.teamId, config.seasonId, config.robotId,
+                                    targetFile, config.teamId, config.seasonId, config.robotId,
                                     tags = listOf("auto-import", "robot-log")
                                 )
                                 imported.session.sessionId to imported.report.copy(sourceName = filename)
                             }
                             val (sessionId, report) = result
 
-                            writeImportReport(archivedFile, report)
-                            markFingerprintImported(manifest, fingerprint)
+                            writeImportReport(targetFile, report)
+                            markFingerprintImported(manifest, stableFingerprint)
                             // Keep imported file safely in logs/imported archive folder
                             _importNotifications.emit("[AUTO-IMPORT] Successfully imported RoboRIO log $filename (Session ID: ${sessionId.take(8)}...)")
 
                             // Trigger UI reload
                             onImportSuccessCallback?.invoke()
                         }
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
-                        val archivedFile = File(localDestDir, "${fingerprint.take(12)}_$filename")
-                        if (archivedFile.exists()) {
-                            runCatching { quarantineFailedImport(config, archivedFile, fingerprint, e, filename) }
+                        val failedFile = archivedFile
+                        val failedFingerprint = fingerprint
+                        if (failedFile != null && failedFingerprint != null && failedFile.exists()) {
+                            runCatching { quarantineFailedImport(config, failedFile, failedFingerprint, e, filename) }
                                 .onFailure { e.addSuppressed(it) }
                         }
                         _importNotifications.emit("[AUTO-IMPORT] Failed to import RoboRIO log $filename: ${e.message}")
-                        tempLocalFile.delete()
                         e.printStackTrace()
+                    } finally {
+                        tempLocalFile.delete()
                     }
                 }
             }
@@ -324,112 +415,61 @@ class AutoImportService(
 
     // --- FTC ADB Helper Methods ---
 
-    private suspend fun listFilesOnFtcRobot(adbPath: String, directory: String): List<String> = withContext(Dispatchers.IO) {
-        try {
-            val pb = ProcessBuilder(adbPath, "shell", "ls", directory)
-            val proc = pb.start()
-            proc.errorStream.close()
-            proc.outputStream.close()
-            val output = proc.inputStream.bufferedReader().use { it.readText() }
-            val finished = proc.waitFor(10, TimeUnit.SECONDS)
-            if (!finished) {
-                proc.destroyForcibly()
-                return@withContext emptyList()
-            }
-            output.split("\n", "\r")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() && !it.contains("No such file") && !it.contains("Permission denied") && !it.contains("ls:") }
-        } catch (e: Exception) {
-            emptyList()
-        }
+    private suspend fun listFilesOnFtcRobot(adbPath: String, directory: String): List<String> {
+        val result = runProcessOrNull(
+            ProcessBuilder(adbPath, "shell", "ls", directory),
+            LIST_PROCESS_TIMEOUT_MS
+        ) ?: return emptyList()
+        if (!result.succeeded) return emptyList()
+        return parseRemoteFileList(result.stdout)
     }
 
-    private suspend fun pullFileFromFtcRobot(adbPath: String, remotePath: String, localFile: File): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val pb = ProcessBuilder(adbPath, "pull", remotePath, localFile.absolutePath)
-            val proc = pb.start()
-            proc.inputStream.close()
-            proc.errorStream.close()
-            proc.outputStream.close()
-            val finished = proc.waitFor(60, TimeUnit.SECONDS)
-            if (!finished) {
-                proc.destroyForcibly()
-                return@withContext false
-            }
-            proc.exitValue() == 0
-        } catch (e: Exception) {
-            false
-        }
+    private suspend fun pullFileFromFtcRobot(adbPath: String, remotePath: String, localFile: File): Boolean {
+        return runProcessOrNull(
+            ProcessBuilder(adbPath, "pull", remotePath, localFile.absolutePath),
+            TRANSFER_PROCESS_TIMEOUT_MS
+        )?.succeeded == true
     }
 
-    private suspend fun getFtcFileSnapshot(adbPath: String, remotePath: String): SourceSnapshot? = withContext(Dispatchers.IO) {
-        readSnapshotFromProcess(ProcessBuilder(adbPath, "shell", "stat", "-c", "%s:%Y", remotePath))
+    private suspend fun getFtcFileSnapshot(adbPath: String, remotePath: String): SourceSnapshot? {
+        return readSnapshotFromProcess(ProcessBuilder(adbPath, "shell", "stat", "-c", "%s:%Y", remotePath))
     }
 
-    private suspend fun isFileInUseOnFtcRobot(adbPath: String, remotePath: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val pb = ProcessBuilder(adbPath, "shell", "lsof", remotePath)
-            val proc = pb.start()
-            proc.errorStream.close()
-            proc.outputStream.close()
-            val output = proc.inputStream.bufferedReader().use { it.readText() }
-            proc.waitFor(10, TimeUnit.SECONDS)
-            // Only treat an explicit lsof match on the remote path as "in use". The previous
-            // `|| output.isNotBlank()` short-circuited to true on ANY lsof output (e.g. a
-            // usage banner from a missing binary), blocking every import (AUDIT M11).
-            output.contains(remotePath)
-        } catch (e: Exception) {
-            false // If lsof fails, assume not in use to avoid blocking
-        }
+    private suspend fun isFileInUseOnFtcRobot(adbPath: String, remotePath: String): Boolean {
+        val result = runProcessOrNull(
+            ProcessBuilder(adbPath, "shell", "lsof", remotePath),
+            LIST_PROCESS_TIMEOUT_MS
+        ) ?: return false
+        // Only treat an explicit lsof match on the remote path as "in use". A usage banner from a
+        // missing binary must not block every import.
+        return result.stdout.contains(remotePath)
     }
 
     // --- FRC SSH/SCP Helper Methods ---
 
-    private suspend fun listFilesOnFrcRobot(host: String, directory: String): List<String> = withContext(Dispatchers.IO) {
-        try {
-            val pb = ProcessBuilder(
+    private suspend fun listFilesOnFrcRobot(host: String, directory: String): List<String> {
+        val result = runProcessOrNull(
+            ProcessBuilder(
                 listOf("ssh") + sshOptions(3) + listOf("lvuser@$host", "ls ${shellQuote(directory)}")
-            )
-            val proc = pb.start()
-            proc.errorStream.close()
-            proc.outputStream.close()
-            val output = proc.inputStream.bufferedReader().use { it.readText() }
-            val finished = proc.waitFor(10, TimeUnit.SECONDS)
-            if (!finished) {
-                proc.destroyForcibly()
-                return@withContext emptyList()
-            }
-            output.split("\n", "\r")
-                .map { it.trim() }
-                .filter { it.isNotEmpty() && !it.contains("No such file") && !it.contains("Permission denied") && !it.contains("ls:") }
-        } catch (e: Exception) {
-            emptyList()
-        }
+            ),
+            LIST_PROCESS_TIMEOUT_MS
+        ) ?: return emptyList()
+        if (!result.succeeded) return emptyList()
+        return parseRemoteFileList(result.stdout)
     }
 
-    private suspend fun pullFileFromFrcRobot(host: String, remotePath: String, localFile: File): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val pb = ProcessBuilder(
+    private suspend fun pullFileFromFrcRobot(host: String, remotePath: String, localFile: File): Boolean {
+        return runProcessOrNull(
+            ProcessBuilder(
                 listOf("scp") + sshOptions(5) +
                     listOf("lvuser@$host:${shellQuote(remotePath)}", localFile.absolutePath)
-            )
-            val proc = pb.start()
-            proc.inputStream.close()
-            proc.errorStream.close()
-            proc.outputStream.close()
-            val finished = proc.waitFor(60, TimeUnit.SECONDS)
-            if (!finished) {
-                proc.destroyForcibly()
-                return@withContext false
-            }
-            proc.exitValue() == 0
-        } catch (e: Exception) {
-            false
-        }
+            ),
+            TRANSFER_PROCESS_TIMEOUT_MS
+        )?.succeeded == true
     }
 
-    private suspend fun getFrcFileSnapshot(host: String, remotePath: String): SourceSnapshot? = withContext(Dispatchers.IO) {
-        readSnapshotFromProcess(
+    private suspend fun getFrcFileSnapshot(host: String, remotePath: String): SourceSnapshot? {
+        return readSnapshotFromProcess(
             ProcessBuilder(
                 listOf("ssh") + sshOptions(3) +
                     listOf("lvuser@$host", "stat -c '%s:%Y' -- ${shellQuote(remotePath)}")
@@ -437,41 +477,34 @@ class AutoImportService(
         )
     }
 
-    private suspend fun isFileInUseOnFrcRobot(host: String, remotePath: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val pb = ProcessBuilder(
+    private suspend fun isFileInUseOnFrcRobot(host: String, remotePath: String): Boolean {
+        return runProcessOrNull(
+            ProcessBuilder(
                 listOf("ssh") + sshOptions(3) +
                     listOf("lvuser@$host", "fuser ${shellQuote(remotePath)}")
-            )
-            val proc = pb.start()
-            proc.inputStream.close()
-            proc.errorStream.close()
-            proc.outputStream.close()
-            proc.waitFor(10, TimeUnit.SECONDS)
-            proc.exitValue() == 0 // fuser returns 0 if any process is using the file
-        } catch (e: Exception) {
-            false
-        }
+            ),
+            LIST_PROCESS_TIMEOUT_MS
+        )?.succeeded == true // fuser returns 0 if any process is using the file
     }
 
-    private suspend fun isHostReachable(host: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
-            val pb = if (isWindows) {
-                ProcessBuilder("ping", "-n", "1", "-w", "1000", host)
-            } else {
-                ProcessBuilder("ping", "-c", "1", "-W", "1", host)
-            }
-            val proc = pb.start()
-            proc.inputStream.close()
-            proc.errorStream.close()
-            proc.outputStream.close()
-            val finished = proc.waitFor(2, TimeUnit.SECONDS)
-            finished && proc.exitValue() == 0
-        } catch (e: Exception) {
-            false
+    private suspend fun isHostReachable(host: String): Boolean {
+        val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
+        val processBuilder = if (isWindows) {
+            ProcessBuilder("ping", "-n", "1", "-w", "1000", host)
+        } else {
+            ProcessBuilder("ping", "-c", "1", "-W", "1", host)
         }
+        return runProcessOrNull(processBuilder, PING_PROCESS_TIMEOUT_MS)?.succeeded == true
     }
+
+    private fun parseRemoteFileList(output: String): List<String> = output.split("\n", "\r")
+        .map { it.trim() }
+        .filter {
+            it.isNotEmpty() &&
+                !it.contains("No such file") &&
+                !it.contains("Permission denied") &&
+                !it.contains("ls:")
+        }
 
     // --- General Utility Methods ---
 
@@ -479,10 +512,50 @@ class AutoImportService(
         return sourceObservations.put(sourceId, snapshot) == snapshot
     }
 
-    internal fun sourceFingerprint(sourceId: String, snapshot: SourceSnapshot): String {
+    private fun stagingKey(sourceId: String, snapshot: SourceSnapshot): String {
         val digest = MessageDigest.getInstance("SHA-256")
         val bytes = "$sourceId\u0000${snapshot.size}\u0000${snapshot.modified}".toByteArray(Charsets.UTF_8)
-        return digest.digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        return digest.digest(bytes).toHexString()
+    }
+
+    /** Hashes the verified local copy, never mutable source metadata, for durable deduplication. */
+    internal fun contentFingerprint(stableFile: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(CONTENT_HASH_BUFFER_BYTES)
+        stableFile.inputStream().use { input ->
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().toHexString()
+    }
+
+    private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    internal fun safeArchiveFile(directory: File, fingerprint: String, sourceName: String): File {
+        val basename = sourceName.substringAfterLast('/').substringAfterLast('\\').trim()
+        require(basename.isNotEmpty() && basename != "." && basename != "..") {
+            "Invalid log filename"
+        }
+        val sanitized = buildString(basename.length) {
+            basename.forEach { character ->
+                append(
+                    when {
+                        character.isLetterOrDigit() -> character
+                        character == '.' || character == '_' || character == '-' || character == ' ' -> character
+                        else -> '_'
+                    }
+                )
+            }
+        }.trim().take(MAX_ARCHIVE_BASENAME_LENGTH)
+        require(sanitized.isNotEmpty() && isSupportedLog(sanitized)) { "Unsupported log filename" }
+
+        val root = directory.toPath().toAbsolutePath().normalize()
+        val target = root.resolve("${fingerprint.take(12)}_$sanitized").normalize()
+        require(target.parent == root && target.startsWith(root)) { "Log archive path escaped its root" }
+        return target.toFile()
     }
 
     private fun importedFingerprints(manifest: File): MutableSet<String> {
@@ -576,39 +649,117 @@ class AutoImportService(
         "-o", "BatchMode=yes"
     )
 
-    private fun readSnapshotFromProcess(processBuilder: ProcessBuilder): SourceSnapshot? {
-        return try {
-            val process = processBuilder.start()
-            process.errorStream.close()
-            process.outputStream.close()
-            val output = process.inputStream.bufferedReader().use { it.readText().trim() }
-            val finished = process.waitFor(10, TimeUnit.SECONDS)
-            if (!finished) {
-                process.destroyForcibly()
-                null
-            } else if (process.exitValue() != 0) {
-                null
-            } else {
-                val parts = output.lineSequence().firstOrNull()?.trim()?.split(':') ?: return null
-                if (parts.size != 2) null else SourceSnapshot(parts[0].toLong(), parts[1].toLong())
-            }
-        } catch (_: Exception) {
+    private suspend fun readSnapshotFromProcess(processBuilder: ProcessBuilder): SourceSnapshot? {
+        val result = runProcessOrNull(processBuilder, LIST_PROCESS_TIMEOUT_MS) ?: return null
+        if (!result.succeeded) return null
+        val parts = result.stdout.lineSequence().firstOrNull()?.trim()?.split(':') ?: return null
+        return if (parts.size != 2) {
             null
+        } else {
+            runCatching { SourceSnapshot(parts[0].toLong(), parts[1].toLong()) }.getOrNull()
         }
+    }
+
+    internal suspend fun executeProcessForTest(command: List<String>, timeoutMs: Long): ProcessExecution {
+        require(command.isNotEmpty()) { "Process command must not be empty" }
+        return executeProcess(ProcessBuilder(command), timeoutMs)
+    }
+
+    private suspend fun runProcessOrNull(
+        processBuilder: ProcessBuilder,
+        timeoutMs: Long
+    ): ProcessExecution? = try {
+        executeProcess(processBuilder, timeoutMs)
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * Runs a helper process with bounded capture and cancellation-safe termination.
+     *
+     * Both streams are drained concurrently so a verbose child cannot fill an OS pipe. Only a
+     * bounded prefix is retained. Timeout/cancellation forcibly kills the child and closes its
+     * streams before any reader result is awaited, preventing `readText()` from hanging forever.
+     */
+    private suspend fun executeProcess(
+        processBuilder: ProcessBuilder,
+        timeoutMs: Long
+    ): ProcessExecution = coroutineScope {
+        require(timeoutMs > 0L) { "Process timeout must be positive" }
+        // Do not let prompt dispatcher cancellation discard a process handle that the OS already
+        // created. The first cancellable operation below will enter the cleanup path and kill it.
+        val process = withContext(NonCancellable + Dispatchers.IO) { processBuilder.start() }
+        runCatching { process.outputStream.close() }
+        val stdoutReader = async(Dispatchers.IO) { readBounded(process.inputStream, MAX_PROCESS_OUTPUT_BYTES) }
+        val stderrReader = async(Dispatchers.IO) { readBounded(process.errorStream, MAX_PROCESS_OUTPUT_BYTES) }
+        var timedOut = false
+
+        try {
+            val completed = withTimeoutOrNull(timeoutMs) {
+                runInterruptible(Dispatchers.IO) { process.waitFor() }
+                true
+            } == true
+            if (!completed) {
+                timedOut = true
+                terminateProcess(process)
+            }
+
+            val stdout = stdoutReader.await()
+            val stderr = stderrReader.await()
+            val exitCode = runCatching { process.exitValue() }.getOrNull()
+            ProcessExecution(exitCode, stdout, stderr, timedOut)
+        } catch (cancellation: CancellationException) {
+            withContext(NonCancellable) { terminateProcess(process) }
+            throw cancellation
+        } finally {
+            if (process.isAlive) {
+                withContext(NonCancellable) { terminateProcess(process) }
+            }
+        }
+    }
+
+    private suspend fun terminateProcess(process: Process) {
+        withContext(NonCancellable + Dispatchers.IO) {
+            if (process.isAlive) process.destroyForcibly()
+            runCatching { process.waitFor(PROCESS_KILL_GRACE_MS, TimeUnit.MILLISECONDS) }
+            runCatching { process.inputStream.close() }
+            runCatching { process.errorStream.close() }
+            runCatching { process.outputStream.close() }
+        }
+    }
+
+    private fun readBounded(input: InputStream, maximumBytes: Int): String {
+        val retained = ByteArrayOutputStream(minOf(maximumBytes, 8_192))
+        val buffer = ByteArray(8_192)
+        try {
+            input.use { stream ->
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    val remaining = maximumBytes - retained.size()
+                    if (remaining > 0) retained.write(buffer, 0, minOf(count, remaining))
+                }
+            }
+        } catch (_: java.io.IOException) {
+            // Process termination closes streams to unblock readers; retain the prefix read so far.
+        }
+        return retained.toString(Charsets.UTF_8.name())
     }
 
     private fun shellQuote(value: String): String = "'" + value.replace("'", "'\\''") + "'"
 
-    private fun findAdbPath(): String {
+    private suspend fun findAdbPath(): String {
         try {
-            val proc = ProcessBuilder("adb", "--version").start()
-            proc.inputStream.close()
-            proc.errorStream.close()
-            proc.outputStream.close()
-            proc.waitFor(2, TimeUnit.SECONDS)
-            return "adb"
-        } catch (e: Exception) {
-            // Ignore and fall through
+            val result = executeProcess(ProcessBuilder("adb", "--version"), ADB_PROBE_TIMEOUT_MS)
+            if (result.succeeded) {
+                return "adb"
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            // Ignore and fall through to fixed SDK paths.
         }
         val androidHome = System.getenv("ANDROID_HOME") ?: System.getenv("ANDROID_SDK_ROOT")
         if (!androidHome.isNullOrEmpty()) {
@@ -652,6 +803,14 @@ class AutoImportService(
         internal const val IMPORT_MANIFEST_NAME = ".auto-import-index"
         internal const val QUARANTINE_MANIFEST_NAME = ".auto-import-quarantine-index"
         internal const val IMPORT_REPORT_SUFFIX = ".import-report.json"
+        internal const val MAX_ARCHIVE_BASENAME_LENGTH = 160
+        internal const val MAX_PROCESS_OUTPUT_BYTES = 64 * 1024
+        private const val CONTENT_HASH_BUFFER_BYTES = 64 * 1024
+        private const val ADB_PROBE_TIMEOUT_MS = 2_000L
+        private const val PING_PROCESS_TIMEOUT_MS = 2_000L
+        private const val LIST_PROCESS_TIMEOUT_MS = 10_000L
+        private const val TRANSFER_PROCESS_TIMEOUT_MS = 60_000L
+        private const val PROCESS_KILL_GRACE_MS = 1_000L
         internal val SUPPORTED_EXTENSIONS = setOf(
             ".wpilog", ".wpilogxz", ".jsonl", ".csv", ".parquet", ".hoot",
             ".dslog", ".rlog", ".revlog", ".log"

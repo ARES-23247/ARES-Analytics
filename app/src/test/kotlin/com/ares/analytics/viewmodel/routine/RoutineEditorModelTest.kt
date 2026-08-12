@@ -68,6 +68,39 @@ class RoutineEditorModelTest {
     }
 
     @Test
+    fun `deadline render order and field mutation order are identical`() {
+        val deadlineDrive = com.areslib.routine.RoutineDriveStep(RoutinePose(0.25, 0.0, 0.0))
+        val childDrive = com.areslib.routine.RoutineDriveStep(RoutinePose(0.50, 0.0, 0.0))
+        val steps = listOf(
+            RoutineStep.deadline(
+                deadline = RoutineStep.driveTo(deadlineDrive),
+                companions = listOf(RoutineStep.driveTo(childDrive)),
+            )
+        )
+
+        assertEquals(
+            listOf(deadlineDrive, childDrive),
+            steps.routineDriveStepsInExecutionOrder(),
+            "Canvas rendering must visit the deadline before its companion children",
+        )
+
+        val dimensions = RobotDimensions.defaultFor(League.FTC)
+        val updated = steps.withRoutineRouteWaypoints(
+            listOf(
+                Waypoint(0.75, 0.10, rotationDeg = 10.0),
+                Waypoint(1.00, 0.20, rotationDeg = 20.0),
+            ).iterator(),
+            League.FTC,
+            dimensions,
+        ).single()
+
+        assertEquals(0.75, updated.deadline!!.drive!!.target.xMeters)
+        assertEquals(10.0, Math.toDegrees(updated.deadline!!.drive!!.target.headingRadians), 1e-9)
+        assertEquals(1.00, updated.children.single().drive!!.target.xMeters)
+        assertEquals(20.0, Math.toDegrees(updated.children.single().drive!!.target.headingRadians), 1e-9)
+    }
+
+    @Test
     fun `catalog parameter types are validated before save`() {
         val catalog = CapabilityCatalogDocument(
             projectId = "test-project",

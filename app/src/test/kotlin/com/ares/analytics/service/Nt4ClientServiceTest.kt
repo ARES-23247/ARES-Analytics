@@ -4,9 +4,11 @@ import com.ares.analytics.shared.TelemetryFrame
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 import java.nio.ByteBuffer
@@ -14,6 +16,9 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -256,28 +261,126 @@ class Nt4ClientServiceTest {
     }
 
     @Test
+    fun `atomic drive frame is not recorded before transport readiness`() {
+        runBlocking {
+            val values = doubleArrayOf(2.0, 42.0, 7.0, 1_000.0, 0.0, 0.0, 0.0, 56.0)
+            val received = async(start = CoroutineStart.UNDISPATCHED) {
+                nt4ClientService.telemetryFlow.first()
+            }
+
+            assertFalse(
+                nt4ClientService.publishDriveFrame(values),
+                "a locally accepted frame must not be reported as transmitted before clock sync"
+            )
+
+            assertNull(withTimeoutOrNull(100) { received.await() }, "unsent controls must not enter telemetry")
+            received.cancel()
+            assertFailsWith<IllegalArgumentException> {
+                nt4ClientService.publishDriveFrame(values.copyOf().also {
+                    it[2] = 8.0
+                    it[3] = 1_001.0
+                    it[4] = 1.0
+                })
+            }
+        }
+    }
+
+    @Test
+    fun `scalar controls and malformed atomic frames are rejected`() {
+        runBlocking {
+            assertFailsWith<IllegalArgumentException> {
+                nt4ClientService.publishDouble("ARES/Input/vx", 1.0)
+            }
+            assertFailsWith<IllegalArgumentException> {
+                nt4ClientService.publishString("ARES/Input/isIntaking", "true")
+            }
+            nt4ClientService.publishString("ARES/Input/fieldConfig", "{}")
+            nt4ClientService.publishString("ARES/Input/obstacles", "[]")
+            assertFailsWith<IllegalArgumentException> {
+                nt4ClientService.publishDriveFrame(
+                    doubleArrayOf(2.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0)
+                )
+            }
+            assertFailsWith<IllegalArgumentException> {
+                nt4ClientService.publishDriveFrame(
+                    doubleArrayOf(2.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1_024.0)
+                )
+            }
+            assertFailsWith<IllegalArgumentException> {
+                nt4ClientService.publishDriveFrame(
+                    doubleArrayOf(2.0, 1.0, 0.0, 1.0, 8.01, 0.0, 0.0, 0.0)
+                )
+            }
+        }
+    }
+
+    @Test
+    fun `drive frame validator enforces neutral first and ordered session state`() {
+        val validator = DriveFrameContractValidator()
+        val modeFlags = 56.0 // teleop + field-centric + red alliance are non-actuating
+        val first = doubleArrayOf(2.0, 10.0, 0.0, 100.0, 0.0, 0.0, 0.0, modeFlags)
+        validator.commit(validator.validate(first))
+
+        val motion = doubleArrayOf(2.0, 10.0, 1.0, 101.0, 1.0, -0.5, 0.25, modeFlags)
+        validator.commit(validator.validate(motion))
+        assertFailsWith<IllegalArgumentException> { validator.validate(motion) }
+        assertFailsWith<IllegalArgumentException> {
+            validator.validate(doubleArrayOf(2.0, 10.0, 2.0, 100.0, 0.0, 0.0, 0.0, modeFlags))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            validator.validate(doubleArrayOf(2.0, 11.0, 0.0, 102.0, 0.1, 0.0, 0.0, modeFlags))
+        }
+        assertFailsWith<IllegalArgumentException> {
+            validator.validate(doubleArrayOf(2.0, 11.0, 0.0, 102.0, 0.0, 0.0, 0.0, modeFlags + 64.0))
+        }
+
+        validator.reset()
+        validator.validate(first)
+    }
+
+    @Test
+    fun `alliance selection survives publisher and view lifecycles`() = runBlocking {
+        assertTrue(nt4ClientService.selectedRedAlliance.value)
+
+        nt4ClientService.selectRedAlliance(false)
+
+        assertFalse(nt4ClientService.selectedRedAlliance.value)
+    }
+
+    @Test
     fun `failed database flush retains frames for ordered retry`() = runBlocking {
         nt4ClientService.publishFrame(
             com.ares.analytics.shared.TelemetryFrame(100L, "ignored", "Drive/Pose_X", 1.0)
         )
         databaseService.close()
 
-        assertTrue(!nt4ClientService.flushPendingFrames())
+        assertFalse(nt4ClientService.stop())
         assertEquals(1, nt4ClientService.retainedRetryFrameCount())
     }
 
     @Test
-    fun `target reset clears topics latest values and history`() {
+    fun `stop prevents a queued start from reconnecting afterward`() = runBlocking {
+        nt4ClientService.start("127.0.0.1", "team", "season", "robot", port = 1)
+
+        assertTrue(nt4ClientService.stop())
+        val attemptsAtStop = nt4ClientService.connectionMetrics().attempts
+        delay(300)
+
+        assertEquals(attemptsAtStop, nt4ClientService.connectionMetrics().attempts)
+        assertFalse(nt4ClientService.isConnected.value)
+    }
+
+    @Test
+    fun `target reset clears topics latest values and history`() = runBlocking {
         nt4ClientService.topicMap[1] = com.ares.analytics.service.nt4.Nt4Topic(1, "/Old/Value", "double")
         val frame = com.ares.analytics.shared.TelemetryFrame(1L, "live-telemetry", "Old/Value", 2.0)
-        nt4ClientService.latestValues[frame.key] = frame
-        nt4ClientService.telemetryHistory[frame.key] = java.util.ArrayDeque<TelemetryFrame>().apply { add(frame) }
+        nt4ClientService.telemetryStore.accept(frame)
 
         nt4ClientService.clearLiveTargetState()
 
         assertTrue(nt4ClientService.topicMap.isEmpty())
-        assertTrue(nt4ClientService.latestValues.isEmpty())
-        assertTrue(nt4ClientService.telemetryHistory.isEmpty())
+        assertNull(nt4ClientService.telemetryStore.latest(frame.key))
+        assertTrue(nt4ClientService.telemetryStore.history(frame.key).isEmpty())
         assertTrue(nt4ClientService.getActiveTopics().isEmpty())
     }
 }

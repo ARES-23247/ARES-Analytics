@@ -138,30 +138,28 @@ Consumers of `PackedState` must be versioned alongside the season producer; the 
 
 ## Dashboard-to-target inputs
 
-The Analytics client reserves stable publisher IDs for common inputs, but receivers must depend on names and types rather than the numeric IDs.
+The Analytics client publishes one atomic, leased control frame. Receivers depend on its name and type rather than the numeric publisher ID.
 
 | Topic | Type | Meaning/default |
 | --- | --- | --- |
-| `ARES/Input/vx` | `double` | requested X velocity, default `0` |
-| `ARES/Input/vy` | `double` | requested Y velocity, default `0` |
-| `ARES/Input/omega` | `double` | requested angular velocity, default `0` |
-| `ARES/Input/isIntaking` | `boolean` | intake request, default `false` |
-| `ARES/Input/isFlywheelOn` | `boolean` | flywheel request, default `false` |
-| `ARES/Input/isTransferring` | `boolean` | transfer request, default `false` |
-| `ARES/Input/isTeleopMode` | `boolean` | teleop mode request |
-| `ARES/Input/isFieldCentric` | `boolean` | field-centric drive request |
-| `ARES/Input/isRedAlliance` | `boolean` | alliance; simulator startup default is `true` |
-| `ARES/Input/heartbeat` | `int` | dashboard liveness counter |
-| `ARES/Input/isButtonAPressed` | `boolean` | virtual A button |
-| `ARES/Input/isButtonBPressed` | `boolean` | virtual B button |
-| `ARES/Input/isButtonXPressed` | `boolean` | virtual X button |
-| `ARES/Input/isPoseReset` | `boolean` | pose-reset edge/request |
+| `ARES/Input/driveFrame` | `double[8]` | protocol-v2 atomic control frame described below |
 | `ARES/Input/obstacles` | `string` | serialized simulator obstacle update |
+| `ARES/Input/fieldConfig` | `string` | serialized simulator field configuration update |
 | `ARES/DriverStation/Command` | `string` | driver-station command |
 | `ARES/DriverStation/SelectedOpMode` | `string` | selected OpMode |
 | `ARES/DriverStation/MatchTime` | `double` | current match time |
 | `ARES/DriverStation/MatchState` | `string` | match state |
 | `SysId/Command` | `string` | characterization command |
+
+`driveFrame` is exactly `[2, sessionNonce, sequence, clientMonotonicMs, vx, vy, omega, flags]`.
+The nonce is a positive integral double and sequence is a non-negative integral double; both must
+fit exactly below `2^53`. Sequence strictly increases within a session and client time never
+regresses. `vx` and `vy` are independently bounded to `[-8, 8] m/s`; `omega` is bounded to
+`[-4π, 4π] rad/s`. Flag bits are: 0 intake, 1 flywheel, 2 transfer, 3 teleop, 4 field-centric, 5 red
+alliance, 6 A, 7 B, 8 X, and 9 pose reset. A new session must begin with neutral axes and all
+actuator/button/reset bits clear. Every field in a frame shares one receiver-time lease; malformed,
+replayed, out-of-order, or expired frames fail closed. The desktop simulator uses a 500 ms lease;
+the physical FTC Remote Drive OpMode deliberately uses a tighter 200 ms deadman lease.
 
 Simulator inputs must all be read from the same custom `NT4Server` instance used by Analytics. Mixing WPILib's process-local `NetworkTableInstance` subscribers with the custom server leaves values stuck at defaults.
 
@@ -171,7 +169,7 @@ String frames set `TelemetryFrame.stringValue`; their numeric field is not meani
 
 Only a closed set of explicit console topic names may be classified as console messages. Do not use substring checks such as `contains("log")`, which misclassify ordinary topics like `Path/Logging/Position`.
 
-## Compatibility checklist
+## Contract checklist
 
 When adding or changing a topic:
 

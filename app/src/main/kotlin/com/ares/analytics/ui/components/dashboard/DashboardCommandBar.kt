@@ -44,6 +44,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.ares.analytics.service.layoutProfileNameError
 import com.ares.analytics.ui.theme.AresBackground
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
@@ -78,6 +79,7 @@ fun DashboardCommandBar(
     var profileExpanded by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var layoutName by remember { mutableStateOf("") }
+    val layoutNameValidationError = if (layoutName.isEmpty()) null else layoutProfileNameError(layoutName)
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -177,6 +179,10 @@ fun DashboardCommandBar(
                     value = layoutName,
                     onValueChange = { layoutName = it },
                     label = { Text("Layout name") },
+                    isError = layoutNameValidationError != null,
+                    supportingText = layoutNameValidationError?.let { message ->
+                        { Text(message, color = AresError) }
+                    },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -188,7 +194,7 @@ fun DashboardCommandBar(
                         layoutName = ""
                         showSaveDialog = false
                     },
-                    enabled = layoutName.isNotBlank(),
+                    enabled = layoutProfileNameError(layoutName) == null,
                     colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresBackground)
                 ) { Text("Save") }
             },

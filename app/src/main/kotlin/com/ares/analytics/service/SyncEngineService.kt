@@ -19,6 +19,58 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import kotlinx.serialization.encodeToString
 import java.io.File
+import java.security.MessageDigest
+import java.util.TimeZone
+
+/**
+ * Installs a newly-created immutable cloud object behind an optimistic manifest pointer.
+ *
+ * [swapManifest] may invoke [recordPriorObjectIds] more than once while retrying conflicts; only
+ * the IDs from the final attempt are eligible for cleanup. If a manifest request has an ambiguous
+ * transport failure, [currentManifestObjectId] reconciles whether the write actually committed
+ * before this function decides whether the new object is safe to delete.
+ */
+internal suspend fun installImmutableCloudObject(
+    uploadNewObject: suspend () -> String,
+    swapManifest: suspend (
+        newObjectId: String,
+        recordPriorObjectIds: (Set<String>) -> Unit
+    ) -> Unit,
+    currentManifestObjectId: suspend () -> String?,
+    deleteObject: suspend (String) -> Unit
+): String {
+    val newObjectId = uploadNewObject()
+    require(newObjectId.isNotBlank()) { "Cloud upload returned a blank object ID" }
+
+    var priorObjectIds = emptySet<String>()
+    try {
+        swapManifest(newObjectId) { ids ->
+            priorObjectIds = ids
+        }
+    } catch (failure: Exception) {
+        var reconciliationSucceeded = false
+        val referencedObjectId = try {
+            currentManifestObjectId().also { reconciliationSucceeded = true }
+        } catch (_: Exception) {
+            null
+        }
+
+        if (!reconciliationSucceeded || referencedObjectId != newObjectId) {
+            // A successful reconciliation proving that the manifest points elsewhere makes the
+            // new upload an orphan. If reconciliation itself failed, retain the object: deleting
+            // a possibly-committed object would corrupt the live manifest.
+            if (reconciliationSucceeded) runCatching { deleteObject(newObjectId) }
+            throw failure
+        }
+        // The manifest write committed but its response was lost. Continue as success and retire
+        // only the objects captured from that attempted manifest snapshot.
+    }
+
+    for (priorObjectId in priorObjectIds) {
+        if (priorObjectId != newObjectId) runCatching { deleteObject(priorObjectId) }
+    }
+    return newObjectId
+}
 
 /**
  * Cloud Gateway Delta-Synchronization Service for uploading historical telemetry match logs.
@@ -65,11 +117,199 @@ class SyncEngineService(
         }
     }
 ) {
+    private fun safeFileComponent(value: String): String = value
+        .map { character ->
+            when {
+                character.isLetterOrDigit() -> character
+                character == '.' || character == '_' || character == '-' -> character
+                else -> '_'
+            }
+        }
+        .joinToString("")
+        .take(80)
+
+    private fun cloudFileName(summary: SessionSummary): String {
+        val dateFormat = java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", java.util.Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }
+        val date = dateFormat.format(java.util.Date(summary.createdAt))
+        val match = summary.matchNumber?.let { "_Match_$it" }.orEmpty()
+        val alliance = summary.allianceColor?.takeIf(String::isNotBlank)
+            ?.let { "_${safeFileComponent(it)}" }.orEmpty()
+        val mode = when {
+            "Auto" in summary.tags -> "Auto"
+            "TeleOp" in summary.tags -> "TeleOp"
+            else -> "Init"
+        }
+        return "ARES_Telemetry_${date}_${safeFileComponent(summary.robotId)}$match${alliance}_${mode}_${safeFileComponent(summary.sessionId)}.parquet"
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { byte ->
+            (byte.toInt() and 0xff).toString(16).padStart(2, '0')
+        }
+    }
+
+    private suspend fun createImmutableSessionObject(
+        name: String,
+        file: File,
+        parentId: String
+    ): String {
+        var attempt = 0
+        var delayMs = CLOUD_UPLOAD_RETRY_DELAY_MS
+        while (true) {
+            try {
+                return googleDriveService.createFileStreaming(
+                    name = name,
+                    file = file,
+                    parentId = parentId,
+                    mimeType = "application/octet-stream"
+                )
+            } catch (failure: Exception) {
+                attempt++
+                if (attempt >= CLOUD_UPLOAD_ATTEMPTS) throw failure
+                kotlinx.coroutines.delay(delayMs)
+                delayMs *= 2
+            }
+        }
+    }
+
     /**
      * Serializes index.json read-modify-write sequences so two concurrent uploads (or an
      * upload + delete) cannot interleave their read/write and clobber each other's entries.
      */
     private val indexMutex = kotlinx.coroutines.sync.Mutex()
+    private val robotProfilesMutex = kotlinx.coroutines.sync.Mutex()
+
+    private fun mergeIndexSummaries(indexes: Iterable<List<SessionSummary>>): List<SessionSummary> {
+        val merged = linkedMapOf<String, SessionSummary>()
+        indexes.forEach { summaries ->
+            summaries.forEach { summary ->
+                validateCloudSummary(summary)
+                val previous = merged.putIfAbsent(summary.sessionId, summary)
+                require(previous == null || previous == summary) {
+                    "Cloud index contains conflicting manifests for ${summary.sessionId}"
+                }
+            }
+        }
+        return merged.values.toList()
+    }
+
+    private fun validateCloudSummary(summary: SessionSummary) {
+        require(summary.sessionId.matches(Regex("[A-Za-z0-9._-]{1,128}"))) { "Cloud session ID is invalid" }
+        val cloudFileId = summary.cloudFileId
+        require(!cloudFileId.isNullOrBlank() && cloudFileId.length <= 256) {
+            "Cloud session file ID is invalid"
+        }
+        require(summary.cloudFileName == cloudFileName(summary)) { "Cloud session filename is not canonical" }
+        require(summary.fileSizeBytes in 1L..MAX_CLOUD_SESSION_BYTES) { "Cloud session size is invalid" }
+        require(summary.cloudSha256?.matches(Regex("[0-9a-f]{64}")) == true) {
+            "Cloud session SHA-256 is invalid"
+        }
+    }
+
+    private suspend fun readIndex(fileId: String): Pair<List<SessionSummary>, String> {
+        val snapshot = googleDriveService.readFileSnapshot(fileId)
+        val etag = snapshot.etag
+            ?: throw IllegalStateException("Google Drive index.json did not include an ETag")
+        val summaries = AppJson.decodeFromString<List<SessionSummary>>(
+            String(snapshot.bytes, Charsets.UTF_8)
+        )
+        return summaries to etag
+    }
+
+    private fun mergeRobotProfiles(profileSets: Iterable<List<RobotProfile>>): List<RobotProfile> {
+        val merged = linkedMapOf<String, RobotProfile>()
+        profileSets.forEach { profiles ->
+            profiles.forEach { profile ->
+                require(profile.robotId.isNotBlank()) { "robots.json contains a blank robot ID" }
+                merged[profile.robotId] = profile
+            }
+        }
+        return merged.values.toList()
+    }
+
+    private suspend fun readRobotProfiles(fileId: String): Pair<List<RobotProfile>, String> {
+        val snapshot = googleDriveService.readFileSnapshot(fileId)
+        val etag = snapshot.etag
+            ?: throw IllegalStateException("Google Drive robots.json did not include an ETag")
+        val profiles = AppJson.decodeFromString<List<RobotProfile>>(
+            String(snapshot.bytes, Charsets.UTF_8)
+        )
+        return profiles to etag
+    }
+
+    /**
+     * Optimistic cross-process read-modify-write for index.json. Google Drive permits duplicate
+     * names, so duplicate first-run indexes are merged and collapsed into a canonical file.
+     */
+    private suspend fun mutateRemoteIndex(
+        rootFolderId: String,
+        transform: (List<SessionSummary>) -> List<SessionSummary>
+    ) = indexMutex.withLock {
+        repeat(INDEX_UPDATE_ATTEMPTS) { attempt ->
+            val indexIds = googleDriveService.findFiles("index.json", rootFolderId)
+            if (indexIds.isEmpty()) {
+                val updated = transform(emptyList()).also { summaries ->
+                    summaries.forEach(::validateCloudSummary)
+                }
+                val bytes = AppJson.encodeToString(updated).toByteArray(Charsets.UTF_8)
+                googleDriveService.writeFile(
+                    name = "index.json",
+                    bytes = bytes,
+                    parentId = rootFolderId,
+                    mimeType = "application/json"
+                )
+                return@withLock
+            }
+
+            val snapshots = indexIds.associateWith { readIndex(it) }
+            val current = mergeIndexSummaries(snapshots.values.map { it.first })
+            val canonicalId = indexIds.minOrNull()!!
+            val expectedEtag = snapshots.getValue(canonicalId).second
+            val updated = transform(current).also { summaries ->
+                summaries.forEach(::validateCloudSummary)
+            }
+            val updatedBytes = AppJson.encodeToString(updated).toByteArray(Charsets.UTF_8)
+            try {
+                googleDriveService.writeFile(
+                    name = "index.json",
+                    bytes = updatedBytes,
+                    parentId = rootFolderId,
+                    mimeType = "application/json",
+                    fileId = canonicalId,
+                    expectedEtag = expectedEtag
+                )
+                indexIds.asSequence().filter { it != canonicalId }.forEach { duplicateId ->
+                    runCatching { googleDriveService.deleteFile(duplicateId) }
+                }
+                return@withLock
+            } catch (_: DrivePreconditionFailedException) {
+                if (attempt == INDEX_UPDATE_ATTEMPTS - 1) {
+                    throw IllegalStateException("index.json kept changing during update")
+                }
+                kotlinx.coroutines.delay(INDEX_RETRY_DELAY_MS * (attempt + 1))
+            }
+        }
+    }
+
+    /** Reads the currently published object ID without converting read/parse failures to absence. */
+    private suspend fun currentSessionObjectId(rootFolderId: String, sessionId: String): String? {
+        val indexIds = googleDriveService.findFiles("index.json", rootFolderId)
+        if (indexIds.isEmpty()) return null
+        return mergeIndexSummaries(indexIds.map { readIndex(it).first })
+            .singleOrNull { it.sessionId == sessionId }
+            ?.cloudFileId
+    }
 
     /**
      * Outcome of reading the remote `index.json`. Distinguishes a *failed* read (Drive
@@ -95,20 +335,15 @@ class SyncEngineService(
             e.printStackTrace()
             return@withContext RemoteIndexState.Failed
         }
-        val indexFileId = try {
-            googleDriveService.findFile("index.json", rootFolderId)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return@withContext RemoteIndexState.Failed
-        } ?: return@withContext RemoteIndexState.Absent
-        val indexBytes = try {
-            googleDriveService.readFile(indexFileId)
+        val indexFileIds = try {
+            googleDriveService.findFiles("index.json", rootFolderId)
         } catch (e: Exception) {
             e.printStackTrace()
             return@withContext RemoteIndexState.Failed
         }
+        if (indexFileIds.isEmpty()) return@withContext RemoteIndexState.Absent
         try {
-            RemoteIndexState.Loaded(AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8)))
+            RemoteIndexState.Loaded(mergeIndexSummaries(indexFileIds.map { readIndex(it).first }))
         } catch (e: Exception) {
             e.printStackTrace()
             RemoteIndexState.Failed
@@ -131,75 +366,50 @@ class SyncEngineService(
         // 1. Export local session to temporary Parquet file
         val tempDir = File(System.getProperty("java.io.tmpdir"), "ares-sync")
         tempDir.mkdirs()
-        val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", java.util.Locale.getDefault()).format(java.util.Date(summary.createdAt))
-        val robotStr = "_${summary.robotId}"
-        val matchStr = if (summary.matchNumber != null) "_Match_${summary.matchNumber}" else ""
-        val allianceStr = if (!summary.allianceColor.isNullOrEmpty()) "_${summary.allianceColor}" else ""
-        val mode = when {
-            summary.tags.contains("Auto") -> "Auto"
-            summary.tags.contains("TeleOp") -> "TeleOp"
-            summary.tags.contains("Init") -> "Init"
-            else -> "Init"
-        }
-        val modeStr = "_$mode"
-        val descriptiveName = "ARES_Telemetry_${dateStr}${robotStr}${matchStr}${allianceStr}${modeStr}_$sessionId.parquet"
+        val descriptiveName = cloudFileName(summary)
         val tempFile = File(tempDir, descriptiveName)
         try {
             parquetExporterService.exportSessionToParquet(sessionId, tempFile)
-            val updatedSummary = summary.copy(fileSizeBytes = tempFile.length())
-
             // 2. Locate or create folder structure in Google Drive
             val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
             val sessionsFolderId = googleDriveService.findOrCreateFolder("sessions", rootFolderId)
 
-            // 3. Upload Parquet file to sessions/ folder
-            val existingParquetId = googleDriveService.findFileContaining(sessionId, sessionsFolderId)
+            val uploadSummary = summary.copy(
+                fileSizeBytes = tempFile.length(),
+                cloudFileName = descriptiveName,
+                cloudSha256 = sha256(tempFile)
+            )
 
-            var attempt = 0
-            var success = false
-            var delayMs = 1000L
-            while (attempt < 3 && !success) {
-                try {
-                    googleDriveService.writeFileStreaming(
+            // 3. Always create immutable Parquet bytes. The currently indexed object is never
+            // passed to the writer and therefore can never be overwritten before the manifest
+            // transaction commits.
+            installImmutableCloudObject(
+                uploadNewObject = {
+                    createImmutableSessionObject(
                         name = descriptiveName,
                         file = tempFile,
-                        parentId = sessionsFolderId,
-                        mimeType = "application/octet-stream",
-                        fileId = existingParquetId
+                        parentId = sessionsFolderId
                     )
-                    success = true
-                } catch (e: Exception) {
-                    attempt++
-                    if (attempt >= 3) throw e
-                    kotlinx.coroutines.delay(delayMs)
-                    delayMs *= 2
-                }
-            }
-
-            // 4. Update the index.json file (atomic read-modify-write under indexMutex so
-            //    concurrent uploads cannot clobber each other's entries).
-            indexMutex.withLock {
-                val indexFileId = googleDriveService.findFile("index.json", rootFolderId)
-                // If index.json exists but the read or parse fails, propagate the exception
-                // (aborting this upload) rather than falling back to emptyList — rewriting a
-                // 1-element index on a Drive outage would silently wipe the remote manifest.
-                // A genuinely-missing index (first run, fileId == null) seeds empty safely.
-                val indexList = if (indexFileId != null) {
-                    val indexBytes = googleDriveService.readFile(indexFileId)
-                    AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
-                } else {
-                    emptyList()
-                }
-                val updatedList = indexList.filter { it.sessionId != sessionId } + updatedSummary
-                val updatedIndexBytes = Json.encodeToString<List<SessionSummary>>(updatedList).toByteArray(Charsets.UTF_8)
-                googleDriveService.writeFile(
-                    name = "index.json",
-                    bytes = updatedIndexBytes,
-                    parentId = rootFolderId,
-                    mimeType = "application/json",
-                    fileId = indexFileId
-                )
-            }
+                },
+                swapManifest = { newObjectId, recordPriorObjectIds ->
+                    // Cross-process optimistic update; the callback is refreshed on each ETag
+                    // retry so cleanup only targets objects superseded by the winning attempt.
+                    mutateRemoteIndex(rootFolderId) { indexList ->
+                        recordPriorObjectIds(
+                            indexList.asSequence()
+                                .filter { it.sessionId == sessionId }
+                                .mapNotNull { it.cloudFileId }
+                                .toSet()
+                        )
+                        indexList.filter { it.sessionId != sessionId } +
+                            uploadSummary.copy(cloudFileId = newObjectId)
+                    }
+                },
+                currentManifestObjectId = {
+                    currentSessionObjectId(rootFolderId, sessionId)
+                },
+                deleteObject = googleDriveService::deleteFile
+            )
         } finally {
             tempFile.delete()
         }
@@ -223,9 +433,8 @@ class SyncEngineService(
     suspend fun getRemoteSummaries(): List<SessionSummary> = withContext(Dispatchers.IO) {
         try {
             val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
-            val indexFileId = googleDriveService.findFile("index.json", rootFolderId) ?: return@withContext emptyList()
-            val indexBytes = googleDriveService.readFile(indexFileId)
-            AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
+            val indexFileIds = googleDriveService.findFiles("index.json", rootFolderId)
+            mergeIndexSummaries(indexFileIds.map { readIndex(it).first })
         } catch (e: Exception) {
             e.printStackTrace()
             emptyList()
@@ -236,34 +445,60 @@ class SyncEngineService(
      * Gets all registered robot profiles recorded in the Google Drive robots.json file.
      */
     suspend fun getRemoteRobotProfiles(): List<RobotProfile> = withContext(Dispatchers.IO) {
-        try {
-            val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
-            val fileId = googleDriveService.findFile("robots.json", rootFolderId) ?: return@withContext emptyList()
-            val bytes = googleDriveService.readFile(fileId)
-            AppJson.decodeFromString<List<RobotProfile>>(String(bytes, Charsets.UTF_8))
-        } catch (e: Exception) {
-            e.printStackTrace()
-            emptyList()
-        }
+        val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
+        val fileIds = googleDriveService.findFiles("robots.json", rootFolderId).sorted()
+        if (fileIds.isEmpty()) emptyList()
+        else mergeRobotProfiles(fileIds.map { readRobotProfiles(it).first })
     }
 
     /**
-     * Saves the registered robot profiles list to the Google Drive robots.json file.
+     * Atomically mutates the shared robot registry. Read or parse failures propagate and
+     * therefore can never be mistaken for an empty registry. ETags prevent concurrent
+     * dashboard instances from silently overwriting one another.
      */
-    suspend fun saveRemoteRobotProfiles(profiles: List<RobotProfile>): Unit = withContext(Dispatchers.IO) {
-        try {
-            val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
-            val fileId = googleDriveService.findFile("robots.json", rootFolderId)
-            val bytes = Json.encodeToString<List<RobotProfile>>(profiles).toByteArray(Charsets.UTF_8)
-            googleDriveService.writeFile(
-                name = "robots.json",
-                bytes = bytes,
-                parentId = rootFolderId,
-                mimeType = "application/json",
-                fileId = fileId
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
+    suspend fun mutateRemoteRobotProfiles(
+        transform: (List<RobotProfile>) -> List<RobotProfile>
+    ): List<RobotProfile> = withContext(Dispatchers.IO) {
+        val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
+        robotProfilesMutex.withLock {
+            repeat(INDEX_UPDATE_ATTEMPTS) { attempt ->
+                val fileIds = googleDriveService.findFiles("robots.json", rootFolderId).sorted()
+                if (fileIds.isEmpty()) {
+                    val updated = mergeRobotProfiles(listOf(transform(emptyList())))
+                    googleDriveService.writeFile(
+                        name = "robots.json",
+                        bytes = AppJson.encodeToString(updated).toByteArray(Charsets.UTF_8),
+                        parentId = rootFolderId,
+                        mimeType = "application/json"
+                    )
+                    return@withLock updated
+                }
+
+                val snapshots = fileIds.associateWith { readRobotProfiles(it) }
+                val current = mergeRobotProfiles(fileIds.map { snapshots.getValue(it).first })
+                val updated = mergeRobotProfiles(listOf(transform(current)))
+                val canonicalId = fileIds.first()
+                try {
+                    googleDriveService.writeFile(
+                        name = "robots.json",
+                        bytes = AppJson.encodeToString(updated).toByteArray(Charsets.UTF_8),
+                        parentId = rootFolderId,
+                        mimeType = "application/json",
+                        fileId = canonicalId,
+                        expectedEtag = snapshots.getValue(canonicalId).second
+                    )
+                    fileIds.drop(1).forEach { duplicateId ->
+                        runCatching { googleDriveService.deleteFile(duplicateId) }
+                    }
+                    return@withLock updated
+                } catch (_: DrivePreconditionFailedException) {
+                    if (attempt == INDEX_UPDATE_ATTEMPTS - 1) {
+                        throw IllegalStateException("robots.json kept changing during update")
+                    }
+                    kotlinx.coroutines.delay(INDEX_RETRY_DELAY_MS * (attempt + 1))
+                }
+            }
+            error("robots.json update attempts exhausted")
         }
     }
 
@@ -271,17 +506,24 @@ class SyncEngineService(
      * Downloads a single session's Parquet file from Google Drive and imports it into DuckDB.
      */
     suspend fun downloadSession(summary: SessionSummary) = withContext(Dispatchers.IO) {
-        val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
-        val sessionsFolderId = googleDriveService.findOrCreateFolder("sessions", rootFolderId)
-        val parquetFileId = googleDriveService.findFileContaining(summary.sessionId, sessionsFolderId)
-            ?: throw Exception("Session Parquet file not found on Google Drive for session: ${summary.sessionId}")
+        val parquetFileId = requireNotNull(summary.cloudFileId) { "Cloud manifest is missing its immutable file id" }
+        val parquetFileName = requireNotNull(summary.cloudFileName) { "Cloud manifest is missing its canonical filename" }
+        val parquetSha256 = requireNotNull(summary.cloudSha256) { "Cloud manifest is missing its SHA-256" }
+        require(parquetFileName == cloudFileName(summary)) { "Cloud manifest filename is not canonical" }
+        require(summary.fileSizeBytes > 0L) { "Cloud manifest file size is invalid" }
         val tempFile = File.createTempFile("cloud_sync_${summary.sessionId}_", ".parquet")
         var attempt = 0
         var success = false
         var delayMs = 1000L
         while (attempt < 3 && !success) {
             try {
-                googleDriveService.readFileStreaming(parquetFileId, tempFile)
+                googleDriveService.readFileStreaming(
+                    fileId = parquetFileId,
+                    destination = tempFile,
+                    expectedName = parquetFileName,
+                    expectedBytes = summary.fileSizeBytes,
+                    expectedSha256 = parquetSha256
+                )
                 success = true
             } catch (e: Exception) {
                 attempt++
@@ -292,8 +534,6 @@ class SyncEngineService(
         }
 
         try {
-            databaseService.importParquet(tempFile)
-            databaseService.insertSessionSummary(summary)
             val session = Session(
                 sessionId = summary.sessionId,
                 teamId = summary.teamId,
@@ -305,7 +545,7 @@ class SyncEngineService(
                 matchNumber = summary.matchNumber,
                 allianceColor = summary.allianceColor
             )
-            databaseService.insertSession(session)
+            databaseService.importCloudSessionAtomically(tempFile, summary, session)
         } finally {
             tempFile.delete()
         }
@@ -449,7 +689,7 @@ class SyncEngineService(
             Data Packet:
             ${Json.encodeToString(ForensicsRequest.serializer(), request)}
         """.trimIndent()
-        val modelName = config.geminiModel ?: "gemini-1.5-flash"
+        val modelName = configuredGeminiModel(config.geminiModel)
         val jsonResponse = if (aiMode == "STUDIO") {
             val apiKey = config.geminiApiKey ?: throw IllegalStateException("Gemini API key is not configured in settings")
             val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent"
@@ -528,7 +768,7 @@ class SyncEngineService(
         val config = environmentService.loadConfig()
             ?: throw IllegalStateException("No active workspace configuration loaded")
         val aiMode = config.aiMode ?: "STUDIO"
-        val modelName = config.geminiModel ?: "gemini-1.5-flash"
+        val modelName = configuredGeminiModel(config.geminiModel)
         val historyStr = chatHistory.joinToString("\n") { (role, text) ->
             if (role == "user") "User: $text" else "Coach: $text"
         }
@@ -613,7 +853,7 @@ class SyncEngineService(
         val config = environmentService.loadConfig()
             ?: throw IllegalStateException("No active workspace configuration loaded")
         val aiMode = config.aiMode ?: "STUDIO"
-        val modelName = config.geminiModel ?: "gemini-1.5-flash"
+        val modelName = configuredGeminiModel(config.geminiModel)
         val schemaPrompt = """
             You are ARES SQL Data Analyst, a diagnostic agent for a robotics team telemetry database.
             We run on DuckDB.
@@ -740,7 +980,9 @@ class SyncEngineService(
         }
 
         val queryResult = try {
-            databaseService.executeQueryRaw(sqlQuery)
+            // AI output is untrusted even when it starts with SELECT: DuckDB read-only queries can
+            // otherwise invoke table functions that read local files or remote URLs.
+            databaseService.executeAiQuery(sqlQuery)
         } catch (e: Exception) {
             return@withContext "Failed to execute generated SQL query:\n```sql\n$sqlQuery\n```\nError: ${e.message}"
         }
@@ -822,36 +1064,18 @@ class SyncEngineService(
     /** Deletes only the Google Drive copy of a session. Local DuckDB data is independent. */
     suspend fun deleteCloudSession(sessionId: String, teamId: String, authToken: String? = null) = withContext(Dispatchers.IO) {
         try {
+            val indexState = readRemoteIndexState() as? RemoteIndexState.Loaded
+                ?: throw IllegalStateException("Cloud session index is unavailable")
+            val removedSummary = indexState.summaries.singleOrNull { it.sessionId == sessionId }
+                ?: throw IllegalArgumentException("Cloud session $sessionId is not indexed")
+            val parquetFileId = requireNotNull(removedSummary.cloudFileId) {
+                "Cloud session manifest is missing its immutable file id"
+            }
             val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
-            val sessionsFolderId = googleDriveService.findOrCreateFolder("sessions", rootFolderId)
-            val parquetFileId = googleDriveService.findFileContaining(sessionId, sessionsFolderId)
-            if (parquetFileId != null) {
-                googleDriveService.deleteFile(parquetFileId)
+            mutateRemoteIndex(rootFolderId) { indexList ->
+                indexList.filter { it.sessionId != sessionId }
             }
-            val indexFileId = googleDriveService.findFile("index.json", rootFolderId)
-            if (indexFileId != null) {
-                // Atomic read-modify-write under indexMutex (matches uploadSession).
-                indexMutex.withLock {
-                    val currentId = googleDriveService.findFile("index.json", rootFolderId)
-                    if (currentId != null) {
-                        val indexBytes = googleDriveService.readFile(currentId)
-                        val indexList = try {
-                            AppJson.decodeFromString<List<SessionSummary>>(String(indexBytes, Charsets.UTF_8))
-                        } catch (e: Exception) {
-                            emptyList()
-                        }
-                        val updatedList = indexList.filter { it.sessionId != sessionId }
-                        val updatedIndexBytes = Json.encodeToString<List<SessionSummary>>(updatedList).toByteArray(Charsets.UTF_8)
-                        googleDriveService.writeFile(
-                            name = "index.json",
-                            bytes = updatedIndexBytes,
-                            parentId = rootFolderId,
-                            mimeType = "application/json",
-                            fileId = currentId
-                        )
-                    }
-                }
-            }
+            googleDriveService.deleteFile(parquetFileId)
         } catch (e: Exception) {
             throw IllegalStateException("Cloud session $sessionId could not be deleted", e)
         }
@@ -859,5 +1083,19 @@ class SyncEngineService(
 
     fun close() {
         httpClient.close()
+    }
+
+    private companion object {
+        fun configuredGeminiModel(configured: String?): String = configured
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?.takeUnless { it == "gemini-1.5-flash" }
+            ?: DEFAULT_GEMINI_MODEL
+
+        const val INDEX_UPDATE_ATTEMPTS = 5
+        const val INDEX_RETRY_DELAY_MS = 100L
+        const val CLOUD_UPLOAD_ATTEMPTS = 3
+        const val CLOUD_UPLOAD_RETRY_DELAY_MS = 1_000L
+        const val MAX_CLOUD_SESSION_BYTES = 2L * 1024L * 1024L * 1024L
     }
 }

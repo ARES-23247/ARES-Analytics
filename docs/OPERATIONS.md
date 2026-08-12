@@ -69,7 +69,9 @@ If the UI connects but pose or controls do not move:
 2. Check that `ARES/EstimatedPose` and `Drive/Pose_X` appear in active topics.
 3. Verify dashboard inputs appear under `ARES/Input/*`.
 4. Check that all simulator inputs are read from the custom ARESLib NT4 server.
-5. If alliance changes do not take effect, verify `ARES/Input/isRedAlliance` reaches the simulator Redux store.
+5. If alliance changes do not take effect, inspect the atomic v2 `ARES/Input/driveFrame` array. Its
+   flags field is element 7; red alliance is bit 5 (`1 << 5`, value `32`). Alliance is not sent on
+   a separate scalar topic.
 
 ### FTC Control Hub
 

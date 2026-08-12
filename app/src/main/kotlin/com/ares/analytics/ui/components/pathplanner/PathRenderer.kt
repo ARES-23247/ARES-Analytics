@@ -4,15 +4,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.unit.dp
 import com.ares.analytics.shared.League
-import com.ares.analytics.shared.PathPlannerEventMarker
-import com.ares.analytics.shared.RotationTarget
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.util.IndicatorLightColorMapper
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
@@ -152,136 +149,6 @@ fun DrawScope.drawPlannedSpline(
     }
     if (waypoints.size >= 2) {
         drawPath(path = splinePath, color = AresPathPlanned, style = Stroke(width = 4f, pathEffect = pathCache.dashEffect10))
-    }
-}
-
-fun DrawScope.drawEventMarkers(
-    waypoints: List<Waypoint>,
-    eventMarkerPoints: List<Waypoint>,
-    w: Float,
-    h: Float,
-    fieldWidthM: Double,
-    fieldHeightM: Double,
-    league: League,
-    selectedEventMarkerIndex: Int
-) {
-    if (waypoints.size >= 2) {
-        eventMarkerPoints.forEachIndexed { idx, markerOffsetWp ->
-            val markerOffset = getCanvasOffsetBase(markerOffsetWp, w, h, fieldWidthM, fieldHeightM, league)
-            drawCircle(
-                color = Color(0xFF9C27B0).copy(alpha = 0.4f),
-                radius = 8.dp.toPx(),
-                center = markerOffset
-            )
-            drawCircle(
-                color = Color(0xFF9C27B0),
-                radius = 5.dp.toPx(),
-                center = markerOffset
-            )
-            if (idx == selectedEventMarkerIndex) {
-                drawCircle(
-                    color = Color.White,
-                    radius = 10.dp.toPx(),
-                    center = markerOffset,
-                    style = Stroke(width = 2.dp.toPx())
-                )
-            }
-        }
-    }
-}
-
-fun DrawScope.drawConstraintZones(
-    pathCache: PathCacheHolder,
-    waypoints: List<Waypoint>,
-    constraintZoneSplines: List<List<Waypoint>>,
-    w: Float,
-    h: Float,
-    fieldWidthM: Double,
-    fieldHeightM: Double,
-    league: League
-) {
-    if (waypoints.size >= 2) {
-        constraintZoneSplines.forEach { zoneSpline ->
-            if (zoneSpline.size >= 2) {
-                val path = pathCache.reusablePath.apply { reset() }
-                val firstOffset = getCanvasOffsetBase(zoneSpline.first(), w, h, fieldWidthM, fieldHeightM, league)
-                path.moveTo(firstOffset.x, firstOffset.y)
-                for (i in 1 until zoneSpline.size) {
-                    val offset = getCanvasOffsetBase(zoneSpline[i], w, h, fieldWidthM, fieldHeightM, league)
-                    path.lineTo(offset.x, offset.y)
-                }
-                drawPath(
-                    path = path,
-                    color = AresRed,
-                    style = Stroke(
-                        width = 8.dp.toPx(),
-                        pathEffect = pathCache.dashEffect8
-                    )
-                )
-            }
-        }
-    }
-}
-
-fun DrawScope.drawPointTowardsZones(
-    pathCache: PathCacheHolder,
-    waypoints: List<Waypoint>,
-    pointTowardsZoneRenderData: List<PointTowardsZoneRenderData>,
-    w: Float,
-    h: Float,
-    fieldWidthM: Double,
-    fieldHeightM: Double,
-    league: League
-) {
-    if (waypoints.size >= 2) {
-        pointTowardsZoneRenderData.forEach { data ->
-            val targetOffset = getCanvasOffsetBase(data.target, w, h, fieldWidthM, fieldHeightM, league)
-
-            drawCircle(color = AresCyan.copy(alpha = 0.3f), radius = 12.dp.toPx(), center = targetOffset)
-            drawCircle(color = AresCyan, radius = 6.dp.toPx(), center = targetOffset, style = Stroke(width = 2.dp.toPx()))
-            drawLine(color = AresCyan, start = Offset(targetOffset.x - 10.dp.toPx(), targetOffset.y), end = Offset(targetOffset.x + 10.dp.toPx(), targetOffset.y), strokeWidth = 1.5.dp.toPx())
-            drawLine(color = AresCyan, start = Offset(targetOffset.x, targetOffset.y - 10.dp.toPx()), end = Offset(targetOffset.x, targetOffset.y + 10.dp.toPx()), strokeWidth = 1.5.dp.toPx())
-
-            data.splinePoints.forEach { wp ->
-                val splineOffset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
-                drawLine(
-                    color = AresCyan.copy(alpha = 0.3f),
-                    start = splineOffset,
-                    end = targetOffset,
-                    strokeWidth = 1.dp.toPx(),
-                    pathEffect = pathCache.dashEffect5
-                )
-            }
-        }
-    }
-}
-
-fun DrawScope.drawHolonomicRotationTargets(
-    waypoints: List<Waypoint>,
-    rotationTargets: List<RotationTarget>,
-    rotationTargetPoints: List<Waypoint>,
-    w: Float,
-    h: Float,
-    fieldWidthM: Double,
-    fieldHeightM: Double,
-    league: League
-) {
-    if (waypoints.size >= 2) {
-        rotationTargetPoints.forEachIndexed { idx, targetWp ->
-            val target = rotationTargets[idx]
-            // Only draw the ghost outline for the initial waypoint
-            if (kotlin.math.abs(target.waypointRelativePos) < 1e-3) {
-                val offset = getCanvasOffsetBase(targetWp, w, h, fieldWidthM, fieldHeightM, league)
-                val rectSize = 24.dp.toPx()
-
-                rotate(degrees = -target.rotationDegrees.toFloat() - 90f, pivot = offset) {
-                    drawRect(color = AresAmber.copy(alpha = 0.25f), topLeft = Offset(offset.x - rectSize/2, offset.y - rectSize/2), size = Size(rectSize, rectSize))
-                    drawRect(color = AresAmber, topLeft = Offset(offset.x - rectSize/2, offset.y - rectSize/2), size = Size(rectSize, rectSize), style = Stroke(width = 1.5.dp.toPx()))
-                    drawLine(color = AresCyan, start = Offset(offset.x + rectSize/2, offset.y - rectSize/2), end = Offset(offset.x + rectSize/2, offset.y + rectSize/2), strokeWidth = 2.dp.toPx())
-                }
-                drawCircle(color = AresAmber, radius = 4.dp.toPx(), center = offset)
-            }
-        }
     }
 }
 
@@ -597,9 +464,7 @@ fun DrawScope.drawWaypoints(
     h: Float,
     fieldWidthM: Double,
     fieldHeightM: Double,
-    league: League,
-    rotationTargets: List<RotationTarget> = emptyList(),
-    isDraggingRotation: Boolean = false
+    league: League
 ) {
     waypoints.forEachIndexed { idx, wp ->
         val offset = getCanvasOffsetBase(wp, w, h, fieldWidthM, fieldHeightM, league)
@@ -688,67 +553,5 @@ fun DrawScope.drawWaypoints(
         drawCircle(color = color, radius = 8.dp.toPx(), center = offset)
         drawCircle(color = AresBackground, radius = 4.dp.toPx(), center = offset)
 
-        // --- Rotation handle (green diamond) — reads rotation directly from waypoint ---
-        val hasExplicitRotation = wp.rotationDeg != null
-        val rotDeg = wp.rotationDeg ?: 0.0
-        val rotAngleRad = Math.toRadians(-rotDeg - 90.0)
-        val rotHandleLenPx = 30.dp.toPx()
-        val rotHandleX = offset.x + rotHandleLenPx * cos(rotAngleRad).toFloat()
-        val rotHandleY = offset.y + rotHandleLenPx * sin(rotAngleRad).toFloat()
-        val rotHandleCenter = Offset(rotHandleX, rotHandleY)
-
-        when {
-            hasExplicitRotation -> {
-                // Dashed line from center to rotation handle
-                val rotColor = if (isSelected && isDraggingRotation) AresCyan else AresGreen
-                val rotAlpha = if (isSelected) 1f else 0.5f
-                drawLine(
-                    color = rotColor.copy(alpha = 0.7f * rotAlpha),
-                    start = offset,
-                    end = rotHandleCenter,
-                    strokeWidth = 2.dp.toPx(),
-                    pathEffect = pathCache.dashEffect6_4
-                )
-
-                // Diamond shape at rotation handle position
-                val diamondSize = if (isSelected) 7.dp.toPx() else 5.dp.toPx()
-                val diamondPath = pathCache.reusableDiamondPath.apply {
-                    reset()
-                    moveTo(rotHandleX, rotHandleY - diamondSize)
-                    lineTo(rotHandleX + diamondSize, rotHandleY)
-                    lineTo(rotHandleX, rotHandleY + diamondSize)
-                    lineTo(rotHandleX - diamondSize, rotHandleY)
-                    close()
-                }
-                drawPath(path = diamondPath, color = rotColor.copy(alpha = 0.6f * rotAlpha))
-                drawPath(path = diamondPath, color = rotColor.copy(alpha = rotAlpha), style = Stroke(width = 2f))
-
-                // Arc indicator (only on selected waypoint)
-                if (isSelected) {
-                    val arcRadius = 18.dp.toPx()
-                    drawArc(
-                        color = rotColor.copy(alpha = 0.3f),
-                        startAngle = Math.toDegrees(rotAngleRad).toFloat() - 30f,
-                        sweepAngle = 60f,
-                        useCenter = false,
-                        topLeft = Offset(offset.x - arcRadius, offset.y - arcRadius),
-                        size = Size(arcRadius * 2, arcRadius * 2),
-                        style = Stroke(width = 2.dp.toPx(), pathEffect = pathCache.dashEffect4_3)
-                    )
-                }
-            }
-            isSelected -> {
-                // Unspecified rotation: draw a small dimmed circle placeholder at 0° position
-                val ghostColor = Color.Gray
-                drawLine(
-                    color = ghostColor.copy(alpha = 0.25f),
-                    start = offset,
-                    end = rotHandleCenter,
-                    strokeWidth = 1.dp.toPx(),
-                    pathEffect = pathCache.dashEffect6_4
-                )
-                drawCircle(color = ghostColor.copy(alpha = 0.3f), radius = 4.dp.toPx(), center = rotHandleCenter)
-            }
-        }
     }
 }

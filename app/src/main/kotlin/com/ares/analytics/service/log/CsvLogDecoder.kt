@@ -3,7 +3,16 @@ package com.ares.analytics.service.log
 import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.service.FrameBatcher
 import com.ares.analytics.shared.TelemetryFrame
+import com.ares.analytics.shared.models.MAX_SUPPORTED_TIMESTAMP_MS
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.io.BufferedReader
+import java.io.Closeable
 import java.io.File
+import java.io.Reader
 
 /**
  * Service for decoding CSV-formatted telemetry log files into DuckDB database frames.
@@ -29,8 +38,75 @@ import java.io.File
  */
 class CsvLogDecoder(private val databaseService: DatabaseService) {
 
+    private enum class CsvSchema {
+        WIDE,
+        CANONICAL_LONG,
+    }
+
+    private enum class TimestampUnit(val microsPerUnit: BigDecimal) {
+        SECONDS(BigDecimal("1000000")),
+        MILLISECONDS(BigDecimal("1000")),
+        MICROSECONDS(BigDecimal.ONE),
+        NANOSECONDS(BigDecimal("0.001"))
+    }
+
+    private data class TimestampColumn(
+        val index: Int,
+        val name: String,
+        val unit: TimestampUnit
+    )
+
     private companion object {
         const val EXTRA_FIELDS_COLUMN = "_ExtraFieldsJson"
+        const val MAX_CSV_BYTES = 512L * 1024L * 1024L
+        const val MAX_CSV_COLUMNS = 4_096
+        const val MAX_CSV_FIELD_CHARS = 1_048_576
+        const val MAX_CSV_RECORD_CHARS = 4 * 1_048_576
+        const val MAX_SUPPORTED_TIMESTAMP_US = MAX_SUPPORTED_TIMESTAMP_MS * 1_000L + 999L
+
+        val CANONICAL_LONG_HEADERS = setOf(
+            "key",
+            "timestamp_ms",
+            "timestamp_us",
+            "sample_order",
+            "value_type",
+            "numeric_value",
+            "string_value",
+        )
+        val CANONICAL_LONG_MARKERS = setOf(
+            "key",
+            "sampleorder",
+            "valuetype",
+            "numericvalue",
+            "stringvalue",
+        )
+
+        val TIMESTAMP_HEADERS = mapOf(
+            "times" to TimestampUnit.SECONDS,
+            "timestamps" to TimestampUnit.SECONDS,
+            "timesecond" to TimestampUnit.SECONDS,
+            "timeseconds" to TimestampUnit.SECONDS,
+            "timestampsecond" to TimestampUnit.SECONDS,
+            "timestampseconds" to TimestampUnit.SECONDS,
+            "timems" to TimestampUnit.MILLISECONDS,
+            "timestampms" to TimestampUnit.MILLISECONDS,
+            "timemillisecond" to TimestampUnit.MILLISECONDS,
+            "timemilliseconds" to TimestampUnit.MILLISECONDS,
+            "timestampmillisecond" to TimestampUnit.MILLISECONDS,
+            "timestampmilliseconds" to TimestampUnit.MILLISECONDS,
+            "timeus" to TimestampUnit.MICROSECONDS,
+            "timestampus" to TimestampUnit.MICROSECONDS,
+            "timemicrosecond" to TimestampUnit.MICROSECONDS,
+            "timemicroseconds" to TimestampUnit.MICROSECONDS,
+            "timestampmicrosecond" to TimestampUnit.MICROSECONDS,
+            "timestampmicroseconds" to TimestampUnit.MICROSECONDS,
+            "timens" to TimestampUnit.NANOSECONDS,
+            "timestampns" to TimestampUnit.NANOSECONDS,
+            "timenanosecond" to TimestampUnit.NANOSECONDS,
+            "timenanoseconds" to TimestampUnit.NANOSECONDS,
+            "timestampnanosecond" to TimestampUnit.NANOSECONDS,
+            "timestampnanoseconds" to TimestampUnit.NANOSECONDS
+        )
     }
 
 /**
@@ -43,15 +119,18 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
      */
     suspend fun parseCsvLogNative(file: File, sessionId: String) {
         require(file.isFile) { "CSV log does not exist: ${file.absolutePath}" }
+        require(file.length() in 1L..MAX_CSV_BYTES) { "CSV log size is outside the supported range" }
         val absolutePath = file.absolutePath.replace("\\", "/").replace("'", "''")
 
         // Detect the timestamp column name from the header
-        val headerLine = file.bufferedReader(Charsets.UTF_8).use { it.readLine() }
+        val headers = BoundedCsvReader(file.bufferedReader(Charsets.UTF_8)).use { it.readRecord() }
             ?: throw IllegalArgumentException("CSV log ${file.name} is empty")
-        val headers = headerLine.split(",").map { it.trim() }
-        val timeColumnName = headers.firstOrNull {
-            it.contains("time", ignoreCase = true) || it.contains("timestamp", ignoreCase = true)
-        } ?: throw IllegalArgumentException("CSV log ${file.name} has no timestamp column")
+        if (detectSchema(headers, file.name) == CsvSchema.CANONICAL_LONG) {
+            parseCanonicalLongFormNative(file, sessionId, absolutePath)
+            return
+        }
+        val timestampColumn = resolveTimestampColumn(headers, file.name)
+        val timeColumnName = timestampColumn.name
         val frameCountBefore = databaseService.countTelemetryFrames(sessionId)
 
         // Use DuckDB's native CSV reader with UNPIVOT to convert wide-format CSV
@@ -63,25 +142,41 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
         val escapedTimeCol = timeColumnName.replace("'", "''").replace("\"", "\"\"")
         val hasExtraFields = headers.any { it.trim().trim('"') == EXTRA_FIELDS_COLUMN }
 
-        val importSql = if (hasExtraFields) {
+        fun checkedTimestampUs(column: String): String {
+            val numeric = "TRY_CAST($column AS DECIMAL(38, 9))"
+            val scaled = "($numeric * ${timestampColumn.unit.microsPerUnit.toPlainString()})"
+            return """
+            CASE
+                WHEN $numeric IS NOT NULL
+                    AND $scaled BETWEEN 0 AND $MAX_SUPPORTED_TIMESTAMP_US
+                    AND $scaled = FLOOR($scaled)
+                    THEN CAST($scaled AS BIGINT)
+                ELSE error('CSV timestamp is outside the supported domain')
+            END
+            """.trimIndent()
+        }
+        val rawTimestampUs = checkedTimestampUs("\"$escapedTimeCol\"")
+        val rawTimestampMs = "CAST(FLOOR(($rawTimestampUs) / 1000) AS BIGINT)"
+        val qualifiedTimestampUs = checkedTimestampUs("raw.\"$escapedTimeCol\"")
+        val qualifiedTimestampMs = "CAST(FLOOR(($qualifiedTimestampUs) / 1000) AS BIGINT)"
+        val sourceCtes = if (hasExtraFields) {
             """
-                INSERT INTO telemetry_frames
-                    (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
-                WITH raw AS (
-                    SELECT * FROM read_csv_auto('$absolutePath', header=true, ignore_errors=true, all_varchar=true)
+                raw AS (
+                    SELECT row_number() OVER () AS source_row, *
+                    FROM read_csv_auto('$absolutePath', header=true, ignore_errors=false, all_varchar=true)
                 ), regular_fields AS (
-                    SELECT
-                        CAST("$escapedTimeCol" AS BIGINT) AS timestamp_ms,
-                        key,
-                        value
+                    SELECT source_row, $rawTimestampMs AS timestamp_ms,
+                        $rawTimestampUs AS timestamp_us, key AS source_key, value
                     FROM raw
                     UNPIVOT (
-                        value FOR key IN (* EXCLUDE ("$escapedTimeCol", "$EXTRA_FIELDS_COLUMN"))
+                        value FOR key IN (* EXCLUDE (source_row, "$escapedTimeCol", "$EXTRA_FIELDS_COLUMN"))
                     )
                 ), extra_fields AS (
                     SELECT
-                        CAST(raw."$escapedTimeCol" AS BIGINT) AS timestamp_ms,
-                        extra.key AS key,
+                        raw.source_row,
+                        $qualifiedTimestampMs AS timestamp_ms,
+                        $qualifiedTimestampUs AS timestamp_us,
+                        extra.key AS source_key,
                         json_extract_string(
                             TRY_CAST(NULLIF(raw."$EXTRA_FIELDS_COLUMN", '') AS JSON),
                             '/' || replace(replace(extra.key, '~', '~0'), '/', '~1')
@@ -95,57 +190,65 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
                     UNION ALL
                     SELECT * FROM extra_fields
                 )
-                SELECT
-                    timestamp_ms,
-                    '$escapedSessionId' AS session_id,
-                    REGEXP_REPLACE(TRIM(key), '^/+', '') AS key,
-                    COALESCE(
-                        CASE
-                            WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0
-                            WHEN LOWER(CAST(value AS VARCHAR)) = 'false' THEN 0.0
-                            ELSE TRY_CAST(value AS DOUBLE)
-                        END,
-                        0.0
-                    ) AS value,
-                    CASE
-                        WHEN LOWER(CAST(value AS VARCHAR)) IN ('true', 'false') THEN NULL
-                        WHEN TRY_CAST(value AS DOUBLE) IS NULL THEN CAST(value AS VARCHAR)
-                    END AS string_value,
-                    timestamp_ms * 1000 AS timestamp_us,
-                    0 AS sample_order
-                FROM all_fields
-                WHERE value IS NOT NULL AND CAST(value AS VARCHAR) != ''
             """.trimIndent()
         } else {
             """
-                INSERT INTO telemetry_frames
-                    (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
-                SELECT
-                    CAST("$escapedTimeCol" AS BIGINT) AS timestamp_ms,
-                    '$escapedSessionId' AS session_id,
-                    REGEXP_REPLACE(TRIM(key), '^/+', '') AS key,
-                    COALESCE(
-                        CASE
-                            WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0
-                            WHEN LOWER(CAST(value AS VARCHAR)) = 'false' THEN 0.0
-                            ELSE TRY_CAST(value AS DOUBLE)
-                        END,
-                        0.0
-                    ) AS value,
-                    CASE
-                        WHEN LOWER(CAST(value AS VARCHAR)) IN ('true', 'false') THEN NULL
-                        WHEN TRY_CAST(value AS DOUBLE) IS NULL THEN CAST(value AS VARCHAR)
-                    END AS string_value,
-                    CAST("$escapedTimeCol" AS BIGINT) * 1000 AS timestamp_us,
-                    0 AS sample_order
-                FROM (
-                    SELECT * FROM read_csv_auto('$absolutePath', header=true, ignore_errors=true, all_varchar=true)
-                ) UNPIVOT (
-                    value FOR key IN (* EXCLUDE ("$escapedTimeCol"))
+                raw AS (
+                    SELECT row_number() OVER () AS source_row, *
+                    FROM read_csv_auto('$absolutePath', header=true, ignore_errors=false, all_varchar=true)
+                ), all_fields AS (
+                    SELECT source_row, $rawTimestampMs AS timestamp_ms,
+                        $rawTimestampUs AS timestamp_us, key AS source_key, value
+                    FROM raw
+                    UNPIVOT (
+                        value FOR key IN (* EXCLUDE (source_row, "$escapedTimeCol"))
+                    )
                 )
-                WHERE value IS NOT NULL AND CAST(value AS VARCHAR) != ''
             """.trimIndent()
         }
+        val importSql = """
+            INSERT INTO telemetry_frames
+                (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
+            WITH $sourceCtes,
+            normalized AS (
+                SELECT
+                    source_row,
+                    timestamp_ms,
+                    timestamp_us,
+                    source_key,
+                    REGEXP_REPLACE(TRIM(source_key), '^/+', '') AS normalized_key,
+                    value
+                FROM all_fields
+                WHERE value IS NOT NULL AND CAST(value AS VARCHAR) != ''
+            ), existing_order AS (
+                SELECT COALESCE(MAX(sample_order), -1) + 1 AS first_sample_order
+                FROM telemetry_frames
+                WHERE session_id = '$escapedSessionId'
+            )
+            SELECT
+                timestamp_ms,
+                '$escapedSessionId' AS session_id,
+                normalized_key AS key,
+                COALESCE(
+                    CASE
+                        WHEN LOWER(CAST(value AS VARCHAR)) = 'true' THEN 1.0
+                        WHEN LOWER(CAST(value AS VARCHAR)) = 'false' THEN 0.0
+                        ELSE TRY_CAST(value AS DOUBLE)
+                    END,
+                    0.0
+                ) AS value,
+                CASE
+                    WHEN LOWER(CAST(value AS VARCHAR)) IN ('true', 'false') THEN NULL
+                    WHEN TRY_CAST(value AS DOUBLE) IS NULL THEN CAST(value AS VARCHAR)
+                END AS string_value,
+                timestamp_us,
+                existing_order.first_sample_order + ROW_NUMBER() OVER (
+                    PARTITION BY timestamp_ms, normalized_key
+                    ORDER BY source_row, source_key
+                ) - 1 AS sample_order
+            FROM normalized
+            CROSS JOIN existing_order
+        """.trimIndent()
 
         databaseService.executeNativeCsvImport(importSql)
         val importedFrames = databaseService.countTelemetryFrames(sessionId) - frameCountBefore
@@ -158,46 +261,268 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
      * [FrameBatcher] to maintain bounded memory usage.
      */
     suspend fun parseCsvLogStreaming(file: File, sessionId: String, batcher: FrameBatcher) {
-        file.bufferedReader(Charsets.UTF_8).use { reader ->
-            val headerLine = reader.readLine() ?: return
-            val headers = headerLine.split(",").map { it.trim() }
-            val timeIndex = headers.indexOfFirst {
-                it.contains("time", ignoreCase = true) || it.contains("timestamp", ignoreCase = true)
+        require(file.isFile && file.length() in 1L..MAX_CSV_BYTES) {
+            "CSV log size is outside the supported range"
+        }
+        BoundedCsvReader(file.bufferedReader(Charsets.UTF_8)).use { reader ->
+            val headers = reader.readRecord()?.map { it.trim() } ?: return
+            require(detectSchema(headers, file.name) == CsvSchema.WIDE) {
+                "Canonical lossless CSV must be imported through parseCsvLogNative"
             }
-            if (timeIndex == -1) return
-            var line: String? = reader.readLine()
-            while (line != null) {
-                val trimmed = line.trim()
-                if (trimmed.isNotEmpty()) {
-                    val tokens = trimmed.split(",").map { it.trim() }
-                    if (tokens.size == headers.size) {
-                        val timestampMs = tokens[timeIndex].toLongOrNull()
-                        if (timestampMs != null) {
-                            for (j in tokens.indices) {
-                                if (j == timeIndex) continue
-                                val strValue = tokens[j]
-                                val key = headers[j]
-                                val doubleVal = strValue.toDoubleOrNull()
-                                when {
-                                    doubleVal != null -> {
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, key, doubleVal))
-                                    }
-                                    strValue.equals("true", ignoreCase = true) -> {
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, key, 1.0))
-                                    }
-                                    strValue.equals("false", ignoreCase = true) -> {
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, key, 0.0))
-                                    }
-                                    strValue.isNotEmpty() -> {
-                                        batcher.add(TelemetryFrame(timestampMs, sessionId, key, 0.0, strValue))
-                                    }
-                                }
-                            }
-                        }
+            val timestampColumn = resolveTimestampColumn(headers, file.name)
+            val timeIndex = timestampColumn.index
+            val extraFieldsIndex = headers.indexOfFirst { it.trim().trim('"') == EXTRA_FIELDS_COLUMN }
+            var tokens = reader.readRecord()
+            while (tokens != null) {
+                require(tokens.size == headers.size) { "CSV row has ${tokens.size} fields, expected ${headers.size}" }
+                val (timestampMs, timestampUs) = parseTimestamp(tokens[timeIndex], timestampColumn.unit)
+
+                suspend fun addValue(key: String, rawValue: String) {
+                    val normalizedKey = key.trim().trimStart('/')
+                    if (normalizedKey.isEmpty() || rawValue.isEmpty()) return
+                    val doubleVal = rawValue.toDoubleOrNull()
+                    when {
+                        doubleVal != null -> batcher.add(
+                            TelemetryFrame(timestampMs, sessionId, normalizedKey, doubleVal, timestampUs = timestampUs)
+                        )
+                        rawValue.equals("true", ignoreCase = true) -> batcher.add(
+                            TelemetryFrame(timestampMs, sessionId, normalizedKey, 1.0, timestampUs = timestampUs)
+                        )
+                        rawValue.equals("false", ignoreCase = true) -> batcher.add(
+                            TelemetryFrame(timestampMs, sessionId, normalizedKey, 0.0, timestampUs = timestampUs)
+                        )
+                        else -> batcher.add(
+                            TelemetryFrame(timestampMs, sessionId, normalizedKey, 0.0, rawValue, timestampUs = timestampUs)
+                        )
                     }
                 }
-                line = reader.readLine()
+
+                for (j in tokens.indices) {
+                    if (j == timeIndex) continue
+                    val strValue = tokens[j]
+                    if (j == extraFieldsIndex) {
+                        if (strValue.isNotBlank()) {
+                            val extras = Json.parseToJsonElement(strValue) as? JsonObject
+                                ?: throw IllegalArgumentException("CSV extra fields must be a JSON object")
+                            for ((key, value) in extras) {
+                                val primitive = value as? JsonPrimitive ?: continue
+                                addValue(key, primitive.content)
+                            }
+                        }
+                    } else {
+                        addValue(headers[j], strValue)
+                    }
+                }
+                tokens = reader.readRecord()
             }
+        }
+    }
+
+    /**
+     * Imports the lossless long-form schema emitted by [com.ares.analytics.service.ExportService].
+     * The validation predicate is evaluated by the same DuckDB INSERT statement, so one malformed
+     * row aborts the complete import instead of leaving a valid prefix behind.
+     */
+    private suspend fun parseCanonicalLongFormNative(
+        file: File,
+        sessionId: String,
+        absolutePath: String,
+    ) {
+        val escapedSessionId = sessionId.replace("'", "''")
+        val frameCountBefore = databaseService.countTelemetryFrames(sessionId)
+        val validRow = """
+            "key" IS NOT NULL
+            AND "key" != ''
+            AND "key" = REGEXP_REPLACE(TRIM("key"), '^/+', '')
+            AND REGEXP_MATCHES(COALESCE(timestamp_ms, ''), '^(0|[1-9][0-9]*)$')
+            AND TRY_CAST(timestamp_ms AS HUGEINT) BETWEEN 0 AND $MAX_SUPPORTED_TIMESTAMP_MS
+            AND REGEXP_MATCHES(COALESCE(timestamp_us, ''), '^(0|[1-9][0-9]*)$')
+            AND TRY_CAST(timestamp_us AS HUGEINT) BETWEEN 0 AND $MAX_SUPPORTED_TIMESTAMP_US
+            AND TRY_CAST(timestamp_us AS HUGEINT) // 1000 = TRY_CAST(timestamp_ms AS HUGEINT)
+            AND REGEXP_MATCHES(COALESCE(sample_order, ''), '^(0|[1-9][0-9]*)$')
+            AND TRY_CAST(sample_order AS BIGINT) IS NOT NULL
+            AND TRY_CAST(numeric_value AS DOUBLE) IS NOT NULL
+            AND isfinite(TRY_CAST(numeric_value AS DOUBLE))
+            AND (
+                value_type = 'string'
+                OR (value_type = 'double' AND COALESCE(string_value, '') = '')
+            )
+        """.trimIndent()
+        val importSql = """
+            INSERT INTO telemetry_frames
+                (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
+            WITH raw AS (
+                SELECT *
+                FROM read_csv_auto(
+                    '$absolutePath',
+                    header=true,
+                    ignore_errors=false,
+                    all_varchar=true
+                )
+            )
+            SELECT
+                CASE
+                    WHEN $validRow THEN CAST(timestamp_ms AS BIGINT)
+                    ELSE error('Malformed canonical lossless CSV row')
+                END,
+                '$escapedSessionId',
+                "key",
+                CAST(numeric_value AS DOUBLE),
+                CASE WHEN value_type = 'string' THEN COALESCE(string_value, '') ELSE NULL END,
+                CAST(timestamp_us AS BIGINT),
+                CAST(sample_order AS BIGINT)
+            FROM raw
+        """.trimIndent()
+
+        databaseService.executeNativeCsvImport(importSql)
+        val importedFrames = databaseService.countTelemetryFrames(sessionId) - frameCountBefore
+        require(importedFrames > 0L) {
+            "CSV log ${file.name} contained no usable telemetry frames"
+        }
+    }
+
+    private fun detectSchema(headers: List<String>, fileName: String): CsvSchema {
+        val exactHeaders = headers.mapIndexed { index, header ->
+            if (index == 0) header.trimStart('\uFEFF') else header
+        }
+        if (exactHeaders.size == CANONICAL_LONG_HEADERS.size &&
+            exactHeaders.toSet() == CANONICAL_LONG_HEADERS
+        ) {
+            return CsvSchema.CANONICAL_LONG
+        }
+
+        val canonicalized = exactHeaders.map(::canonicalHeader)
+        val hasLongFormMarker = canonicalized.any { it in CANONICAL_LONG_MARKERS }
+        val hasBothCanonicalTimestamps =
+            "timestampms" in canonicalized && "timestampus" in canonicalized
+        require(!hasLongFormMarker && !hasBothCanonicalTimestamps) {
+            "CSV log $fileName mixes canonical long-form metadata with a wide telemetry schema"
+        }
+        return CsvSchema.WIDE
+    }
+
+    private fun resolveTimestampColumn(headers: List<String>, fileName: String): TimestampColumn {
+        val matches = headers.mapIndexedNotNull { index, header ->
+            TIMESTAMP_HEADERS[canonicalHeader(header)]?.let { unit ->
+                TimestampColumn(index, header, unit)
+            }
+        }
+        require(matches.isNotEmpty()) {
+            "CSV log $fileName has no supported timestamp column with an explicit unit"
+        }
+        require(matches.size == 1) {
+            "CSV log $fileName has ambiguous timestamp columns: ${matches.joinToString { it.name }}"
+        }
+        return matches.single()
+    }
+
+    private fun canonicalHeader(header: String): String = buildString(header.length) {
+        for (character in header.trim().trimStart('\uFEFF').lowercase()) {
+            when (character) {
+                'µ', 'μ' -> append('u')
+                in 'a'..'z', in '0'..'9' -> append(character)
+            }
+        }
+    }
+
+    private fun parseTimestamp(raw: String, unit: TimestampUnit): Pair<Long, Long> {
+        val timestampUs = try {
+            val source = raw.trim().toBigDecimalOrNull()
+                ?: throw IllegalArgumentException("CSV row contains an invalid timestamp")
+            source.multiply(unit.microsPerUnit)
+                .setScale(0, RoundingMode.UNNECESSARY)
+                .longValueExact()
+        } catch (error: ArithmeticException) {
+            throw IllegalArgumentException("CSV timestamp is outside the supported domain", error)
+        }
+        require(timestampUs in 0L..MAX_SUPPORTED_TIMESTAMP_US) {
+            "CSV timestamp is outside the supported domain"
+        }
+        return timestampUs / 1_000L to timestampUs
+    }
+
+    private class BoundedCsvReader(reader: Reader) : Closeable {
+        private val reader = if (reader is BufferedReader) reader else reader.buffered()
+        private var pushedBack = NO_PUSHBACK
+
+        fun readRecord(): List<String>? {
+            val fields = ArrayList<String>()
+            val field = StringBuilder()
+            var inQuotes = false
+            var sawInput = false
+            var recordChars = 0
+
+            while (true) {
+                val codePoint = readChar()
+                if (codePoint == -1) {
+                    require(!inQuotes) { "CSV ends inside a quoted field" }
+                    if (!sawInput && fields.isEmpty() && field.isEmpty()) return null
+                    addField(fields, field)
+                    return fields
+                }
+                sawInput = true
+                recordChars++
+                require(recordChars <= MAX_CSV_RECORD_CHARS) { "CSV record exceeds the size limit" }
+                val char = codePoint.toChar()
+
+                if (inQuotes) {
+                    if (char == '"') {
+                        val next = readChar()
+                        if (next == '"'.code) {
+                            appendBounded(field, '"')
+                            recordChars++
+                        } else {
+                            inQuotes = false
+                            pushedBack = next
+                        }
+                    } else {
+                        appendBounded(field, char)
+                    }
+                    continue
+                }
+
+                when (char) {
+                    '"' -> require(field.isEmpty()) { "Quote must begin a CSV field" }.also { inQuotes = true }
+                    ',' -> addField(fields, field)
+                    '\n' -> {
+                        addField(fields, field)
+                        return fields
+                    }
+                    '\r' -> {
+                        val next = readChar()
+                        if (next != '\n'.code) pushedBack = next
+                        addField(fields, field)
+                        return fields
+                    }
+                    else -> appendBounded(field, char)
+                }
+            }
+        }
+
+        private fun addField(fields: MutableList<String>, field: StringBuilder) {
+            require(fields.size < MAX_CSV_COLUMNS) { "CSV contains too many columns" }
+            fields += field.toString()
+            field.setLength(0)
+        }
+
+        private fun appendBounded(field: StringBuilder, value: Char) {
+            require(field.length < MAX_CSV_FIELD_CHARS) { "CSV field exceeds the size limit" }
+            field.append(value)
+        }
+
+        private fun readChar(): Int {
+            if (pushedBack != NO_PUSHBACK) {
+                val value = pushedBack
+                pushedBack = NO_PUSHBACK
+                return value
+            }
+            return reader.read()
+        }
+
+        override fun close() = reader.close()
+
+        private companion object {
+            const val NO_PUSHBACK = -2
         }
     }
 }

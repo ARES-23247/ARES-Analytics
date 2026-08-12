@@ -189,9 +189,8 @@ class OnboardingViewModel(
                                 seasonId = currentState.seasonId,
                                 name = currentState.robotName.ifEmpty { "${currentState.robotId} Local Config" }
                             )
-                            val existing = syncEngineService.getRemoteRobotProfiles()
-                            if (existing.none { it.robotId == profile.robotId }) {
-                                syncEngineService.saveRemoteRobotProfiles(existing + profile)
+                            syncEngineService.mutateRemoteRobotProfiles { existing ->
+                                if (existing.none { it.robotId == profile.robotId }) existing + profile else existing
                             }
                         } catch (e: Exception) {
                             // Silently fail if not signed in / Drive unreachable

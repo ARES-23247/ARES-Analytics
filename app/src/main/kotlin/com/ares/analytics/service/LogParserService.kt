@@ -114,11 +114,7 @@ class LogParserService(
                 val tempWpiFile = File.createTempFile("wpilog_", ".wpilog")
                 try {
                     FileInputStream(file).use { fis ->
-                        org.tukaani.xz.XZInputStream(fis).use { xzis ->
-                            tempWpiFile.outputStream().use { fos ->
-                                xzis.copyTo(fos)
-                            }
-                        }
+                        expandWpiLogXz(file, fis, tempWpiFile)
                     }
                     wpiLogDecoder.parseWpiLog(tempWpiFile, sessionId, batcher)
                 } finally {
@@ -189,7 +185,7 @@ class LogParserService(
                 com.ares.analytics.service.log.RlogDecoderService().decode(file, sessionId, batcher)
             }
             lowerName.endsWith(".revlog") -> {
-                com.ares.analytics.service.log.RevlogDecoderService(databaseService, this@LogParserService).decode(file, sessionId, batcher)
+                com.ares.analytics.service.log.RevlogDecoderService(this@LogParserService).decode(file, sessionId, batcher)
             }
             else -> {
                 throw IllegalArgumentException("Unsupported log file format: ${file.name}")
@@ -279,11 +275,11 @@ class LogParserService(
         var currentMatchNumber = matchNumber
         var currentAlliance = allianceColor
         var currentTags = tags
+        val batcher = FrameBatcher(databaseService, keyTransform = { key ->
+            key.removePrefix("/")
+        })
         try {
             files.forEach { file ->
-            val batcher = FrameBatcher(databaseService, keyTransform = { key ->
-                key.removePrefix("/")
-            })
             val lowerName = file.name.lowercase()
             when {
                 lowerName.endsWith(".wpilog") -> wpiLogDecoder.parseWpiLog(file, sessionId, batcher)
@@ -291,11 +287,7 @@ class LogParserService(
                     val tempWpiFile = File.createTempFile("wpilog_", ".wpilog")
                     try {
                         FileInputStream(file).use { fis ->
-                            org.tukaani.xz.XZInputStream(fis).use { xzis ->
-                                tempWpiFile.outputStream().use { fos ->
-                                    xzis.copyTo(fos)
-                                }
-                            }
+                            expandWpiLogXz(file, fis, tempWpiFile)
                         }
                         wpiLogDecoder.parseWpiLog(tempWpiFile, sessionId, batcher)
                     } finally {
@@ -317,7 +309,10 @@ class LogParserService(
                     }
                 }
                 lowerName.endsWith(".csv") -> {
-                    csvLogDecoder.parseCsvLogNative(file, sessionId)
+                    // Native CSV import numbers duplicate samples from zero for each file.
+                    // Multi-file sessions instead share this streaming batcher so overlapping
+                    // timestamp/topic samples receive repository-wide stable storage order.
+                    csvLogDecoder.parseCsvLogStreaming(file, sessionId, batcher)
                 }
                 lowerName.endsWith(".parquet") -> {
                     parquetLogDecoder.parseParquetLog(file, sessionId)
@@ -332,13 +327,12 @@ class LogParserService(
                 }
                 lowerName.endsWith(".log") -> com.ares.analytics.service.log.RoadRunnerDecoderService().decode(file, sessionId, batcher)
                 lowerName.endsWith(".rlog") -> com.ares.analytics.service.log.RlogDecoderService().decode(file, sessionId, batcher)
-                lowerName.endsWith(".revlog") -> com.ares.analytics.service.log.RevlogDecoderService(databaseService, this@LogParserService).decode(file, sessionId, batcher)
+                lowerName.endsWith(".revlog") -> com.ares.analytics.service.log.RevlogDecoderService(this@LogParserService).decode(file, sessionId, batcher)
                 else -> throw IllegalArgumentException("Unsupported log file format: ${file.name}")
             }
 
+            }
             batcher.flush()
-
-        }
             val baseSession = Session(
                 sessionId = sessionId,
                 teamId = teamId,
@@ -399,6 +393,28 @@ class LogParserService(
         }
     }
 
+    private fun expandWpiLogXz(sourceFile: File, input: FileInputStream, destination: File) {
+        val ratioBound = sourceFile.length().coerceAtLeast(1L)
+            .coerceAtMost(MAX_XZ_EXPANDED_BYTES / MAX_XZ_EXPANSION_RATIO) * MAX_XZ_EXPANSION_RATIO
+        val expandedLimit = maxOf(MIN_XZ_EXPANDED_BYTES, ratioBound)
+            .coerceAtMost(MAX_XZ_EXPANDED_BYTES)
+        org.tukaani.xz.XZInputStream(input, MAX_XZ_DECODER_MEMORY_KIB).use { expanded ->
+            destination.outputStream().buffered().use { output ->
+                val buffer = ByteArray(XZ_COPY_BUFFER_BYTES)
+                var total = 0L
+                while (true) {
+                    val read = expanded.read(buffer)
+                    if (read < 0) break
+                    total = Math.addExact(total, read.toLong())
+                    require(total <= expandedLimit) {
+                        "Compressed WPILOG expands beyond the ${expandedLimit / (1024 * 1024)} MiB safety limit"
+                    }
+                    output.write(buffer, 0, read)
+                }
+            }
+        }
+    }
+
     internal fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().buffered().use { input ->
@@ -410,5 +426,13 @@ class LogParserService(
             }
         }
         return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    private companion object {
+        private const val XZ_COPY_BUFFER_BYTES = 64 * 1024
+        private const val MAX_XZ_DECODER_MEMORY_KIB = 64 * 1024
+        private const val MAX_XZ_EXPANSION_RATIO = 100L
+        private const val MIN_XZ_EXPANDED_BYTES = 16L * 1024L * 1024L
+        private const val MAX_XZ_EXPANDED_BYTES = 512L * 1024L * 1024L
     }
 }

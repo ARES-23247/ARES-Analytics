@@ -13,7 +13,30 @@ import org.duckdb.DuckDBAppender
 import org.duckdb.DuckDBConnection
 import java.sql.Connection
 import java.sql.ResultSet
+import java.sql.SQLTimeoutException
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+
+data class TelemetryExportPreflight(
+    /** Exact count when within the caller's cap, otherwise cap + 1. */
+    val boundedFrameCount: Long,
+    val minTimestampMs: Long?,
+    val maxTimestampMs: Long?,
+)
+
+enum class TelemetryExportValueType {
+    NUMERIC,
+    STRING,
+    MIXED,
+}
+
+data class TelemetryExportCursor(
+    val timestampUs: Long,
+    val sampleOrder: Long,
+    val key: String,
+)
 
 /**
  * Primary repository interface for telemetry persistent storage, DuckDB vectorized queries, and match history.
@@ -54,6 +77,12 @@ class MatchLogRepository(
     private val statementCache = java.util.concurrent.ConcurrentHashMap<String, java.sql.PreparedStatement>()
     private val nextSampleOrder = AtomicLong()
 
+    /** Executes the deliberately restricted SQL subset exposed to the AI analyst. */
+    suspend fun executeAiQuery(
+        sql: String,
+        rowLimit: Int = QueryResult.DEFAULT_RAW_QUERY_ROW_LIMIT,
+    ): QueryResult = executeQueryRaw(AiSqlQueryGuard.validate(sql), rowLimit)
+
     private fun readConnectionFor(sessionId: String): Connection =
         if (sessionId == "live-telemetry") ephemeralReadConn else readConn
 
@@ -91,24 +120,6 @@ class MatchLogRepository(
     fun dispose() {
         statementCache.values.forEach { runCatching { it.close() } }
         statementCache.clear()
-    }
-
-    /**
-     * Executes an arbitrary SQL execution string (DDL/DML) on the primary connection.
-     *
-     * @param sql Raw SQL statement string.
-     */
-    suspend fun executeRaw(sql: String) = withDbLock {
-        val normalized = sql.trim().trimEnd(';').uppercase()
-        val isSelect = normalized.startsWith("SELECT")
-        val forbidden = listOf("DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "TRUNCATE", "EXEC")
-        val hasForbidden = forbidden.any { Regex("\\b$it\\b").containsMatchIn(normalized) }
-
-        if (!isSelect || hasForbidden) {
-            println("Rejected dangerous SQL: $sql")
-            throw IllegalArgumentException("Raw query rejected: Only read-only SELECT queries are allowed.")
-        }
-        conn.createStatement().use { it.execute(sql) }
     }
 
     suspend fun executeNativeCsvImport(sql: String) = withDbLock {
@@ -167,7 +178,14 @@ class MatchLogRepository(
         // rejected by DuckDB itself. Executed on readConn (separate from the writer conn).
         readConn.createStatement().use { it.execute("BEGIN TRANSACTION READ ONLY") }
         try {
-            val result = readConn.createStatement().use { st ->
+            val timedOut = AtomicBoolean(false)
+            val statement = readConn.createStatement()
+            val timeoutTask = queryTimeoutExecutor.schedule({
+                timedOut.set(true)
+                runCatching { statement.cancel() }
+            }, RAW_QUERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            val result = try {
+                statement.use { st ->
                 val hasResultSet = st.execute(engineBoundedSql)
                 if (hasResultSet) {
                     st.resultSet.use { rs ->
@@ -213,6 +231,17 @@ class MatchLogRepository(
                         rows = listOf(listOf("Command completed successfully. Affected rows: $updateCount"))
                     )
                 }
+                }
+            } catch (failure: Exception) {
+                if (timedOut.get()) {
+                    throw SQLTimeoutException(
+                        "Raw query exceeded the ${RAW_QUERY_TIMEOUT_SECONDS}-second execution limit",
+                        failure,
+                    )
+                }
+                throw failure
+            } finally {
+                timeoutTask.cancel(false)
             }
             readConn.createStatement().use { it.execute("COMMIT") }
             result
@@ -733,6 +762,137 @@ class MatchLogRepository(
         frames
     }
 
+    /**
+     * Performs the export size/range preflight inside DuckDB without materializing the selected
+     * session. The inner LIMIT makes an over-limit result stop at [maximumFrames] + 1 rows.
+     */
+    suspend fun getTelemetryExportPreflight(
+        sessionId: String,
+        keys: List<String>,
+        maximumFrames: Int,
+    ): TelemetryExportPreflight = withReadLock {
+        require(maximumFrames in 1 until Int.MAX_VALUE) { "maximumFrames must be positive" }
+        if (keys.isEmpty()) {
+            return@withReadLock TelemetryExportPreflight(0L, null, null)
+        }
+        val normalizedKeys = keys.map(TelemetryMetricCatalog::normalizeTopic).distinct()
+        val placeholders = normalizedKeys.joinToString(",") { "?" }
+        val sql = """
+            SELECT COUNT(*), MIN(timestamp_ms), MAX(timestamp_ms)
+            FROM (
+                SELECT timestamp_ms
+                FROM telemetry_frames
+                WHERE session_id = ? AND key IN ($placeholders)
+                LIMIT ?
+            ) AS bounded_export
+        """.trimIndent()
+        readConnectionFor(sessionId).prepareStatement(sql).use { statement ->
+            var parameter = 1
+            statement.setString(parameter++, sessionId)
+            normalizedKeys.forEach { statement.setString(parameter++, it) }
+            statement.setInt(parameter, maximumFrames + 1)
+            statement.executeQuery().use { result ->
+                check(result.next()) { "Telemetry export preflight did not return a result" }
+                val count = result.getLong(1)
+                val minValue = result.getLong(2)
+                val minTimestamp = if (result.wasNull()) null else minValue
+                val maxValue = result.getLong(3)
+                val maxTimestamp = if (result.wasNull()) null else maxValue
+                TelemetryExportPreflight(count, minTimestamp, maxTimestamp)
+            }
+        }
+    }
+
+    /** Returns the stored representation for each selected topic; MIXED cannot be one WPILOG entry. */
+    suspend fun getTelemetryExportValueTypes(
+        sessionId: String,
+        keys: List<String>,
+    ): Map<String, TelemetryExportValueType> = withReadLock {
+        if (keys.isEmpty()) return@withReadLock emptyMap()
+        val normalizedKeys = keys.map(TelemetryMetricCatalog::normalizeTopic).distinct()
+        val placeholders = normalizedKeys.joinToString(",") { "?" }
+        val sql = """
+            SELECT key,
+                   MAX(CASE WHEN string_value IS NULL THEN 1 ELSE 0 END) AS has_numeric,
+                   MAX(CASE WHEN string_value IS NOT NULL THEN 1 ELSE 0 END) AS has_string
+            FROM telemetry_frames
+            WHERE session_id = ? AND key IN ($placeholders)
+            GROUP BY key
+        """.trimIndent()
+        val valueTypes = LinkedHashMap<String, TelemetryExportValueType>()
+        readConnectionFor(sessionId).prepareStatement(sql).use { statement ->
+            var parameter = 1
+            statement.setString(parameter++, sessionId)
+            normalizedKeys.forEach { statement.setString(parameter++, it) }
+            statement.executeQuery().use { result ->
+                while (result.next()) {
+                    val hasNumeric = result.getInt("has_numeric") != 0
+                    val hasString = result.getInt("has_string") != 0
+                    valueTypes[result.getString("key")] = when {
+                        hasNumeric && hasString -> TelemetryExportValueType.MIXED
+                        hasString -> TelemetryExportValueType.STRING
+                        else -> TelemetryExportValueType.NUMERIC
+                    }
+                }
+            }
+        }
+        valueTypes
+    }
+
+    /**
+     * Reads one stable keyset page ordered by the complete export cursor. The cursor columns are
+     * unique because telemetry_frames is keyed by (session_id, key, timestamp_us, sample_order).
+     */
+    suspend fun getTelemetryExportPage(
+        sessionId: String,
+        keys: List<String>,
+        after: TelemetryExportCursor?,
+        limit: Int,
+    ): List<TelemetryFrame> = withReadLock {
+        require(limit in 1..50_000) { "limit must be between 1 and 50000" }
+        if (keys.isEmpty()) return@withReadLock emptyList()
+        val normalizedKeys = keys.map(TelemetryMetricCatalog::normalizeTopic).distinct()
+        val placeholders = normalizedKeys.joinToString(",") { "?" }
+        val cursorPredicate = if (after == null) {
+            ""
+        } else {
+            """
+                AND (
+                    timestamp_us > ?
+                    OR (timestamp_us = ? AND sample_order > ?)
+                    OR (timestamp_us = ? AND sample_order = ? AND key > ?)
+                )
+            """.trimIndent()
+        }
+        val sql = """
+            SELECT timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order
+            FROM telemetry_frames
+            WHERE session_id = ? AND key IN ($placeholders)
+            $cursorPredicate
+            ORDER BY timestamp_us ASC, sample_order ASC, key ASC
+            LIMIT ?
+        """.trimIndent()
+        val frames = ArrayList<TelemetryFrame>(limit)
+        readConnectionFor(sessionId).prepareStatement(sql).use { statement ->
+            var parameter = 1
+            statement.setString(parameter++, sessionId)
+            normalizedKeys.forEach { statement.setString(parameter++, it) }
+            if (after != null) {
+                statement.setLong(parameter++, after.timestampUs)
+                statement.setLong(parameter++, after.timestampUs)
+                statement.setLong(parameter++, after.sampleOrder)
+                statement.setLong(parameter++, after.timestampUs)
+                statement.setLong(parameter++, after.sampleOrder)
+                statement.setString(parameter++, after.key)
+            }
+            statement.setInt(parameter, limit)
+            statement.executeQuery().use { result ->
+                while (result.next()) frames.add(result.toTelemetryFrame())
+            }
+        }
+        frames
+    }
+
     suspend fun getDiagnosticsTelemetry(sessionId: String): List<TelemetryFrame> = withDbLock {
         val list = mutableListOf<TelemetryFrame>()
         conn.prepareStatement("SELECT * FROM telemetry_frames WHERE session_id = ? AND key LIKE 'Diagnostics/%'").use { ps ->
@@ -1104,6 +1264,13 @@ class MatchLogRepository(
         }
 
         bucketCounts.map { it.toFloat() / maxCount }
+    }
+
+    private companion object {
+        private const val RAW_QUERY_TIMEOUT_SECONDS = 5L
+        private val queryTimeoutExecutor = Executors.newSingleThreadScheduledExecutor { task ->
+            Thread(task, "ares-duckdb-query-timeout").apply { isDaemon = true }
+        }
     }
 
 }

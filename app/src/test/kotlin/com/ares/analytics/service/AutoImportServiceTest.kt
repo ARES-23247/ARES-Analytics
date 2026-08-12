@@ -1,14 +1,22 @@
 package com.ares.analytics.service
 
+import com.ares.analytics.di.awaitAutoImportBeforeClosingDependencies
 import com.ares.analytics.service.log.*
 import com.ares.analytics.shared.AppJson
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.serialization.decodeFromString
+import org.mockito.Mockito
 import java.io.File
+import java.nio.file.Files
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import javax.tools.ToolProvider
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /** Integration tests for durable, duplicate-safe local log import. */
@@ -36,7 +44,7 @@ class AutoImportServiceTest {
         // Write a mock log file
         val mockLog = File(logsDir, "test_run.csv")
         val mockContents = """
-            time, voltage, velocity
+            TimestampMs, voltage, velocity
             1000, 12.0, 1.5
             2000, 11.8, 1.6
             """.trimIndent()
@@ -58,6 +66,14 @@ class AutoImportServiceTest {
             scope = this,
             scanIntervalMs = 50L
         )
+        val archiveRoot = File(logsDir, "imported").apply { mkdirs() }
+        val traversalName = autoImportService.safeArchiveFile(
+            archiveRoot,
+            "0123456789abcdef",
+            "..\\..\\outside.csv"
+        )
+        assertEquals(archiveRoot.canonicalFile, traversalName.parentFile.canonicalFile)
+        assertTrue(traversalName.name.endsWith("outside.csv"))
 
         // Start scanner and wait for import
         autoImportService.start {
@@ -74,7 +90,7 @@ class AutoImportServiceTest {
             retries++
         }
 
-        autoImportService.stop()
+        autoImportService.stopAndJoin()
 
         // Verify the file was imported and moved
         assertTrue(importSuccessCalled, "onImportSuccess was not called")
@@ -109,8 +125,33 @@ class AutoImportServiceTest {
         )
         restarted.start { }
         kotlinx.coroutines.delay(300)
-        restarted.stop()
+        restarted.stopAndJoin()
         assertEquals(1, databaseService.getSessions().size, "same source identity was imported twice")
+
+        // Replacing the source with different bytes while preserving path, size, and mtime must
+        // not collide with the durable fingerprint. Metadata-only fingerprints suppressed this.
+        val changedContents = mockContents.replace("1.5", "2.5").replace("1.6", "2.6")
+        assertEquals(mockContents.toByteArray().size, changedContents.toByteArray().size)
+        mockLog.writeText(changedContents)
+        assertTrue(mockLog.setLastModified(originalLastModified))
+        var changedContentImported = false
+        val changedContentService = AutoImportService(
+            logParserService = logParserService,
+            hootDecoderService = hootDecoderService,
+            processManagerService = processManagerService,
+            configProvider = { config },
+            scope = this,
+            scanIntervalMs = 50L
+        )
+        changedContentService.start { changedContentImported = true }
+        retries = 0
+        while (!changedContentImported && retries < 50) {
+            delay(100L)
+            retries++
+        }
+        changedContentService.stopAndJoin()
+        assertTrue(changedContentImported, "same-metadata content replacement was suppressed")
+        assertEquals(2, databaseService.getSessions().size)
 
         // Clean up
         tempProjectDir.deleteRecursively()
@@ -155,7 +196,7 @@ class AutoImportServiceTest {
             kotlinx.coroutines.delay(25)
             attempts++
         }
-        service.stop()
+        service.stopAndJoin()
 
         assertTrue(sourceFile.exists(), "Rejected source should remain available for repair")
         val quarantined = quarantineDir.listFiles().orEmpty().single { it.name.endsWith("bad.csv") }
@@ -165,7 +206,7 @@ class AutoImportServiceTest {
         val report = AppJson.decodeFromString<ImportReport>(reportFile.readText())
         assertEquals(ImportStatus.REJECTED, report.status)
         assertEquals("bad.csv", report.sourceName)
-        assertTrue(report.error.orEmpty().contains("no timestamp column"))
+        assertTrue(report.error.orEmpty().contains("no supported timestamp column with an explicit unit"))
         assertEquals(0L, report.acceptedRecords)
         assertTrue(databaseService.getSessions().isEmpty())
 
@@ -180,7 +221,7 @@ class AutoImportServiceTest {
         )
         restarted.start { error("Quarantined fingerprint was retried as a success") }
         kotlinx.coroutines.delay(200)
-        restarted.stop()
+        restarted.stopAndJoin()
         assertEquals(reportModifiedAt, reportFile.lastModified(), "same rejected fingerprint was retried")
         assertEquals(1, quarantineDir.listFiles().orEmpty().count { it.name.endsWith(AutoImportService.IMPORT_REPORT_SUFFIX) })
 
@@ -189,5 +230,219 @@ class AutoImportServiceTest {
         projectDir.deleteRecursively()
         tempDb.delete()
         Unit
+    }
+
+    @Test
+    fun `scanner replacement cancels and joins the prior generation before starting another`() = runBlocking {
+        val activeCycles = AtomicInteger()
+        val maximumConcurrentCycles = AtomicInteger()
+        val cancelledCycles = AtomicInteger()
+        val cycleStarted = Channel<Unit>(Channel.UNLIMITED)
+        val service = bareService(
+            scope = this,
+            scanCycleOverride = {
+                val active = activeCycles.incrementAndGet()
+                maximumConcurrentCycles.updateAndGet { prior -> maxOf(prior, active) }
+                cycleStarted.send(Unit)
+                try {
+                    awaitCancellation()
+                } finally {
+                    activeCycles.decrementAndGet()
+                    cancelledCycles.incrementAndGet()
+                }
+            }
+        )
+
+        service.startAndJoinPrevious { }
+        withTimeout(1_000L) { cycleStarted.receive() }
+        service.startAndJoinPrevious { }
+        withTimeout(1_000L) { cycleStarted.receive() }
+        service.stopAndJoin()
+
+        assertEquals(1, maximumConcurrentCycles.get())
+        assertEquals(2, cancelledCycles.get())
+        assertEquals(0, activeCycles.get())
+        assertFalse(service.scannerActive)
+    }
+
+    @Test
+    fun `application disposal joins suspended import cleanup before database close`() = runBlocking {
+        val projectDir = Files.createTempDirectory("ares-auto-import-disposal").toFile()
+        val archiveDir = projectDir.resolve("logs/imported").apply { mkdirs() }
+        val partialFile = archiveDir.resolve(".suspended.partial")
+        val quarantineDir = projectDir.resolve("logs/quarantine")
+        val scanStarted = CompletableDeferred<Unit>()
+        val events = mutableListOf<String>()
+        val service = bareService(
+            scope = this,
+            scanCycleOverride = {
+                partialFile.writeText("incomplete")
+                scanStarted.complete(Unit)
+                try {
+                    awaitCancellation()
+                } finally {
+                    withContext(NonCancellable) {
+                        delay(25L)
+                        partialFile.delete()
+                        events += "import-cleaned"
+                    }
+                }
+            }
+        )
+
+        try {
+            service.start { }
+            withTimeout(1_000L) { scanStarted.await() }
+
+            awaitAutoImportBeforeClosingDependencies(
+                stopAutoImport = { service.stop() },
+                closeDependencies = {
+                    assertFalse(partialFile.exists(), "database closed before partial cleanup")
+                    assertFalse(quarantineDir.exists(), "cancellation must not quarantine a partial import")
+                    events += "database-closed"
+                }
+            )
+
+            assertEquals(listOf("import-cleaned", "database-closed"), events)
+            assertFalse(service.scannerActive)
+        } finally {
+            service.stop()
+            projectDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `timed out helper is killed before returning bounded output`() = runBlocking {
+        val service = bareService(this)
+        val probeDirectory = compiledProcessProbe()
+        val pidFile = File.createTempFile("auto-import-timeout", ".pid").apply { delete() }
+        val startedAt = System.nanoTime()
+
+        val result = service.executeProcessForTest(
+            probeCommand(probeDirectory, "hang", pidFile.absolutePath),
+            timeoutMs = 2_000L
+        )
+
+        val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+        val pid = requireNotNull(result.stdout.lineSequence().firstOrNull()?.trim()?.toLongOrNull())
+        assertTrue(result.timedOut)
+        assertTrue(elapsedMs < 5_000L, "timeout did not bound process completion")
+        assertTrue(result.stdout.toByteArray().size <= AutoImportService.MAX_PROCESS_OUTPUT_BYTES)
+        assertFalse(ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
+        pidFile.delete()
+        Unit
+    }
+
+    @Test
+    fun `cancelling helper kills child process and propagates cancellation`() = runBlocking {
+        val service = bareService(this)
+        val probeDirectory = compiledProcessProbe()
+        val pidFile = File.createTempFile("auto-import-cancel", ".pid").apply { delete() }
+        val execution = async {
+            service.executeProcessForTest(
+                probeCommand(probeDirectory, "hang", pidFile.absolutePath),
+                timeoutMs = 60_000L
+            )
+        }
+        withTimeout(3_000L) {
+            while (!pidFile.isFile || pidFile.readText().trim().toLongOrNull() == null) delay(10L)
+        }
+        val pid = requireNotNull(pidFile.readText().trim().toLongOrNull())
+
+        execution.cancelAndJoin()
+        withTimeout(3_000L) {
+            while (ProcessHandle.of(pid).map { it.isAlive }.orElse(false)) delay(10L)
+        }
+
+        assertTrue(execution.isCancelled)
+        assertFalse(ProcessHandle.of(pid).map { it.isAlive }.orElse(false))
+        pidFile.delete()
+        Unit
+    }
+
+    @Test
+    fun `helper drains both streams but retains only bounded prefixes`() = runBlocking {
+        val service = bareService(this)
+        val result = service.executeProcessForTest(
+            probeCommand(compiledProcessProbe(), "output"),
+            timeoutMs = 5_000L
+        )
+
+        assertTrue(result.succeeded)
+        assertEquals(AutoImportService.MAX_PROCESS_OUTPUT_BYTES, result.stdout.toByteArray().size)
+        assertEquals(AutoImportService.MAX_PROCESS_OUTPUT_BYTES, result.stderr.toByteArray().size)
+    }
+
+    private fun bareService(
+        scope: CoroutineScope,
+        scanCycleOverride: (suspend () -> Unit)? = null
+    ): AutoImportService = AutoImportService(
+        logParserService = Mockito.mock(LogParserService::class.java),
+        hootDecoderService = Mockito.mock(HootDecoderService::class.java),
+        processManagerService = Mockito.mock(ProcessManagerService::class.java),
+        configProvider = { null },
+        scope = scope,
+        scanIntervalMs = 10L,
+        scanCycleOverride = scanCycleOverride
+    )
+
+    private fun probeCommand(directory: File, mode: String, argument: String? = null): List<String> {
+        val executable = File(
+            System.getProperty("java.home"),
+            "bin/java" + if (System.getProperty("os.name").contains("win", ignoreCase = true)) ".exe" else ""
+        )
+        return buildList {
+            add(executable.absolutePath)
+            add("-cp")
+            add(directory.absolutePath)
+            add(PROCESS_PROBE_CLASS)
+            add(mode)
+            if (argument != null) add(argument)
+        }
+    }
+
+    private fun compiledProcessProbe(): File = synchronized(PROBE_LOCK) {
+        compiledProbeDirectory?.takeIf(File::isDirectory)?.let { return@synchronized it }
+        val directory = Files.createTempDirectory("auto-import-process-probe").toFile().apply { deleteOnExit() }
+        val source = File(directory, "$PROCESS_PROBE_CLASS.java").apply {
+            writeText(
+                """
+                import java.nio.file.Files;
+                import java.nio.file.Path;
+                import java.util.Arrays;
+
+                public final class $PROCESS_PROBE_CLASS {
+                    public static void main(String[] args) throws Exception {
+                        if ("hang".equals(args[0])) {
+                            long pid = ProcessHandle.current().pid();
+                            Files.writeString(Path.of(args[1]), Long.toString(pid));
+                            System.out.println(pid);
+                            System.out.flush();
+                            Thread.sleep(60_000L);
+                            return;
+                        }
+                        byte[] stdout = new byte[200_000];
+                        byte[] stderr = new byte[200_000];
+                        Arrays.fill(stdout, (byte) 'o');
+                        Arrays.fill(stderr, (byte) 'e');
+                        System.out.write(stdout);
+                        System.err.write(stderr);
+                        System.out.flush();
+                        System.err.flush();
+                    }
+                }
+                """.trimIndent()
+            )
+        }
+        val compiler = requireNotNull(ToolProvider.getSystemJavaCompiler()) { "Tests require a JDK compiler" }
+        assertEquals(0, compiler.run(null, null, null, "-d", directory.absolutePath, source.absolutePath))
+        compiledProbeDirectory = directory
+        directory
+    }
+
+    private companion object {
+        const val PROCESS_PROBE_CLASS = "AutoImportProcessProbe"
+        val PROBE_LOCK = Any()
+        var compiledProbeDirectory: File? = null
     }
 }

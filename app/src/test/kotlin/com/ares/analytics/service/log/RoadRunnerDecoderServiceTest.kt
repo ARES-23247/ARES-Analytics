@@ -9,8 +9,24 @@ import java.io.DataOutputStream
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 
 class RoadRunnerDecoderServiceTest {
+
+    @Test
+    fun `string and enum schemas flatten into string values`() = runTest {
+        withDecoderDatabase { database, tempDir ->
+            val log = tempDir.resolve("text.log")
+            log.writeBytes(textAndEnumLog())
+            val batcher = FrameBatcher(database)
+
+            RoadRunnerDecoderService().decode(log, "session", batcher)
+            batcher.flush()
+
+            assertEquals("ready", database.getTelemetryForKey("session", "label").single().stringValue)
+            assertEquals("RUNNING", database.getTelemetryForKey("session", "state").single().stringValue)
+        }
+    }
 
     @Test
     fun `struct pose is flattened and inches are converted to meters`() = runTest {
@@ -43,12 +59,31 @@ class RoadRunnerDecoderServiceTest {
             log.writeBytes(bytes)
             val batcher = FrameBatcher(database)
 
-            withTimeout(1_000) {
-                RoadRunnerDecoderService().decode(log, "session", batcher)
+            assertFailsWith<IllegalArgumentException> {
+                withTimeout(1_000) {
+                    RoadRunnerDecoderService().decode(log, "session", batcher)
+                }
             }
             batcher.flush()
 
             assertEquals(0, database.countTelemetryFrames("session"))
+        }
+    }
+
+    @Test
+    fun `concatenated segments retain a strictly increasing timeline`() = runTest {
+        withDecoderDatabase { database, tempDir ->
+            val log = tempDir.resolve("concatenated.log")
+            log.writeBytes(timestampedSegment(1_000_000_000L) + timestampedSegment(5_000_000_000L))
+            val batcher = FrameBatcher(database)
+
+            RoadRunnerDecoderService().decode(log, "session", batcher)
+            batcher.flush()
+
+            assertEquals(
+                listOf(0L, 5L, 6L, 11L),
+                database.getTelemetryForKey("session", "value").map { it.timestampMs }
+            )
         }
     }
 
@@ -72,6 +107,63 @@ class RoadRunnerDecoderServiceTest {
             data.writeDouble(xInches)
             data.writeDouble(yInches)
             data.writeDouble(heading)
+        }
+        return output.toByteArray()
+    }
+
+    private fun textAndEnumLog(): ByteArray {
+        val output = ByteArrayOutputStream()
+        DataOutputStream(output).use { data ->
+            data.writeBytes("RR")
+            data.writeShort(1)
+
+            data.writeInt(0)
+            data.writeUtf8String("label")
+            data.writeInt(4) // string schema
+
+            data.writeInt(0)
+            data.writeUtf8String("state")
+            data.writeInt(6) // enum schema
+            data.writeInt(2)
+            data.writeUtf8String("IDLE")
+            data.writeUtf8String("RUNNING")
+
+            data.writeInt(1)
+            data.writeInt(0)
+            data.writeUtf8String("ready")
+
+            data.writeInt(1)
+            data.writeInt(1)
+            data.writeInt(1)
+        }
+        return output.toByteArray()
+    }
+
+    private fun timestampedSegment(originNanos: Long): ByteArray {
+        val output = ByteArrayOutputStream()
+        DataOutputStream(output).use { data ->
+            data.writeBytes("RR")
+            data.writeShort(1)
+
+            data.writeInt(0)
+            data.writeUtf8String("TIMESTAMP")
+            data.writeInt(2) // long schema
+            data.writeInt(0)
+            data.writeUtf8String("value")
+            data.writeInt(3) // double schema
+
+            data.writeInt(1)
+            data.writeInt(0)
+            data.writeLong(originNanos)
+            data.writeInt(1)
+            data.writeInt(1)
+            data.writeDouble(1.0)
+            data.writeInt(1)
+            data.writeInt(0)
+            data.writeLong(originNanos + 5_000_000L)
+            data.writeInt(1)
+            data.writeInt(1)
+            data.writeDouble(2.0)
         }
         return output.toByteArray()
     }

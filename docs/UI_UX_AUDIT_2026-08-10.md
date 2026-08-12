@@ -34,7 +34,7 @@ This audit covers every user-facing area in the desktop application. It prioriti
 
 - The primary flow is now: choose Driver/Operator, select a visible control, then add an action.
 - Standard gamepad mappings are supplied for Desktop, FTC, and FRC. Raw hardware slots are hidden under an advanced Hardware setup section.
-- Legacy built-in profiles with no mappings are migrated to the verified defaults.
+- Built-in profiles ship with verified defaults; project-owned profiles are never silently remapped.
 - Draft edits cannot be stranded or silently replaced by changing controller/binding context.
 - Empty chord editing remains in chord mode instead of becoming impossible to rebuild.
 

@@ -79,29 +79,13 @@ fun MainScreen(services: ServiceRegistry) {
     LaunchedEffect(Unit) {
         services.updateCheckerService.checkForUpdates()
     }
-    val currentConfigProvider = rememberUpdatedState(config)
-    val autoImportService = remember {
-        AutoImportService(
-            logParserService = services.logParserService,
-            hootDecoderService = services.hootDecoderService,
-            processManagerService = services.processManagerService,
-            configProvider = { currentConfigProvider.value }
-        )
-    }
+    val autoImportService = services.autoImportService
 
     LaunchedEffect(config) {
-        if (config != null) {
-            autoImportService.start {
+        services.transitionAutoImport(config) {
+            if (config != null) {
                 mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload)
             }
-        } else {
-            autoImportService.stop()
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            autoImportService.stop()
         }
     }
     val currentConfig = config
@@ -118,19 +102,10 @@ fun MainScreen(services: ServiceRegistry) {
     val isNt4Connected by services.nt4ClientService.isConnected.collectAsState()
     LaunchedEffect(isNt4Connected, activeNav) {
         if (isNt4Connected) {
-            var lastVx: Double? = null
-            var lastVy: Double? = null
-            var lastOmega: Double? = null
-            var lastQ: Boolean? = null
-            var lastE: Boolean? = null
-            var lastShift: Boolean? = null
-            var lastJ: Boolean? = null
-            var lastL: Boolean? = null
-            var lastU: Boolean? = null
-
-            services.nt4ClientService.publishBoolean("ARES/Input/isTeleopMode", true)
-            services.nt4ClientService.publishBoolean("ARES/Input/isFieldCentric", false)
-            services.nt4ClientService.publishBoolean("ARES/Input/isRedAlliance", true)
+            val driveFrame = DoubleArray(8)
+            val driveSessionNonce = services.nt4ClientService.nextDriveSessionNonce()
+            var driveSequence = 0L
+            var sentNeutralHandshake = false
 
             while (true) {
                 val ks = services.keyboardDriveState
@@ -163,8 +138,8 @@ fun MainScreen(services: ServiceRegistry) {
                         else -> 0.0
                     }
                     val activeOmega = when {
-                        ks.isQPressed || ks.isLeftPressed -> 4.0
-                        ks.isEPressed || ks.isRightPressed -> -4.0
+                        ks.isLeftPressed -> 4.0
+                        ks.isRightPressed -> -4.0
                         else -> 0.0
                     }
                     Triple(activeVx, activeVy, activeOmega)
@@ -179,15 +154,37 @@ fun MainScreen(services: ServiceRegistry) {
                 val lPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.b else ks.isLPressed
                 val uPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.x else ks.isUPressed
 
-                if (vx != lastVx) { services.nt4ClientService.publishDouble("ARES/Input/vx", vx); lastVx = vx }
-                if (vy != lastVy) { services.nt4ClientService.publishDouble("ARES/Input/vy", vy); lastVy = vy }
-                if (omega != lastOmega) { services.nt4ClientService.publishDouble("ARES/Input/omega", omega); lastOmega = omega }
-                if (qPressed != lastQ) { services.nt4ClientService.publishBoolean("ARES/Input/isIntaking", qPressed); lastQ = qPressed }
-                if (ePressed != lastE) { services.nt4ClientService.publishBoolean("ARES/Input/isFlywheelOn", ePressed); lastE = ePressed }
-                if (shiftPressed != lastShift) { services.nt4ClientService.publishBoolean("ARES/Input/isTransferring", shiftPressed); lastShift = shiftPressed }
-                if (jPressed != lastJ) { services.nt4ClientService.publishBoolean("ARES/Input/isButtonAPressed", jPressed); lastJ = jPressed }
-                if (lPressed != lastL) { services.nt4ClientService.publishBoolean("ARES/Input/isButtonBPressed", lPressed); lastL = lPressed }
-                if (uPressed != lastU) { services.nt4ClientService.publishBoolean("ARES/Input/isButtonXPressed", uPressed); lastU = uPressed }
+                // Complete v2 command contract. Every new connection starts with a neutral
+                // actuation frame; consumers may arm only on a later sequence in this session.
+                var flags = 0L
+                if (sentNeutralHandshake && qPressed) flags = flags or (1L shl 0)
+                if (sentNeutralHandshake && ePressed) flags = flags or (1L shl 1)
+                if (sentNeutralHandshake && shiftPressed) flags = flags or (1L shl 2)
+                flags = flags or (1L shl 3) // teleop mode
+                // Bit 4 (field-centric) remains clear until the UI exposes an explicit setting.
+                if (services.nt4ClientService.selectedRedAlliance.value) flags = flags or (1L shl 5)
+                if (sentNeutralHandshake && jPressed) flags = flags or (1L shl 6)
+                if (sentNeutralHandshake && lPressed) flags = flags or (1L shl 7)
+                if (sentNeutralHandshake && uPressed) flags = flags or (1L shl 8)
+                // Bit 9 (pose reset) is edge-triggered and currently has no global shortcut.
+
+                driveFrame[0] = 2.0
+                driveFrame[1] = driveSessionNonce
+                driveFrame[2] = driveSequence.toDouble()
+                driveFrame[3] = (System.nanoTime() / 1_000_000L).toDouble()
+                driveFrame[4] = if (sentNeutralHandshake) vx else 0.0
+                driveFrame[5] = if (sentNeutralHandshake) vy else 0.0
+                driveFrame[6] = if (sentNeutralHandshake) omega else 0.0
+                driveFrame[7] = flags.toDouble()
+                val driveFrameTransmitted = services.nt4ClientService.publishDriveFrame(driveFrame)
+                if (!driveFrameTransmitted) {
+                    // isConnected becomes true before the NT4 clock offset is established. Keep
+                    // retrying the neutral sequence and do not emit legacy motion in that window.
+                    delay(20)
+                    continue
+                }
+                sentNeutralHandshake = true
+                driveSequence++
 
                 delay(20)
             }
@@ -356,7 +353,6 @@ fun MainScreen(services: ServiceRegistry) {
             robotId = currentConfig.robotId
         )
         services.phoenixDiagnosticsService.start(host = host)
-        services.ftcDashboardService.start(host = host)
     }
 
     Box(

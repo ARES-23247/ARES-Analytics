@@ -26,7 +26,8 @@ class FieldTopicSubscriber(
                         visionX = if (connected && currentState.visionHasTarget) currentState.visionX else null,
                         visionY = if (connected && currentState.visionHasTarget) currentState.visionY else null,
                         visionHeading = if (connected && currentState.visionHasTarget) currentState.visionHeading else null,
-                        visionPoses = if (connected && currentState.visionHasTarget) currentState.visionPoses else emptyMap()
+                        visionPoses = if (connected && currentState.visionHasTarget) currentState.visionPoses else emptyMap(),
+                        liveGamePieces = if (connected) currentState.liveGamePieces else emptyMap()
                     )
                 }
             }
@@ -105,7 +106,13 @@ class FieldTopicSubscriber(
                             }
                     }
 
-                    if (key.startsWith("ARES/GamePieces/")) {
+                    if (key == "ARES/GamePieces/Count") {
+                        val count = value.toInt().coerceAtLeast(0)
+                        val retained = next.liveGamePieces.filterKeys { it in 0 until count }
+                        if (retained.size != next.liveGamePieces.size) {
+                            next = next.copy(liveGamePieces = retained)
+                        }
+                    } else if (key.startsWith("ARES/GamePieces/")) {
                         val arrayIdx = key.substringAfterLast("/").toIntOrNull()
                         if (arrayIdx != null) {
                             val pieceIdx = arrayIdx / 7
@@ -132,9 +139,6 @@ class FieldTopicSubscriber(
                     next
                 }
 
-                if (key == "ARES/Input/isRedAlliance") {
-                    stateFlow.update { it.copy(isRedAlliance = value > 0.5) }
-                }
             }
         }
     }
