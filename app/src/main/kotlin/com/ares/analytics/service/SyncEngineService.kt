@@ -86,7 +86,7 @@ internal suspend fun installImmutableCloudObject(
  * performing efficient incremental delta syncs.
  *
  * ### Gateway & Sync Protocol:
- * - Gateway Endpoint: `https://ares-analytics-gateway-staging-205869391101.us-central1.run.app`
+ * - Gateway Endpoint: the protected production ARES Analytics gateway configured at build time
  * - GCS Ingestion: Acquires pre-signed PUT URLs from the gateway and streams binary Apache Parquet session files directly to Google Cloud Storage.
  *
  * ### Thread Safety & Performance Guarantees:
