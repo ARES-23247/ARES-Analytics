@@ -75,8 +75,11 @@ client and broker configuration together.
 - Deploy reviewed gateway changes only from `master` with the **Deploy Analytics Gateway** workflow.
   Configure its `gateway-production` environment with required reviewers and the public variables
   `GOOGLE_WORKLOAD_IDENTITY_PROVIDER` and `GOOGLE_GATEWAY_DEPLOY_SERVICE_ACCOUNT`. The OIDC service
-  account needs only the Cloud Build/Run deployment permissions required by the workflow; do not
-  store a service-account key in GitHub.
+  account needs `roles/cloudbuild.builds.editor`, `roles/serviceusage.serviceUsageConsumer`, and
+  `roles/run.viewer`. Give it `roles/storage.objectAdmin` and
+  `roles/storage.legacyBucketReader` only on the dedicated `aresfirst-portal_cloudbuild` source
+  bucket. The workflow pins `--gcs-source-staging-dir` to that bucket so this identity does not need
+  project-wide bucket listing or storage access. Do not store a service-account key in GitHub.
 
 ## Release verification
 
