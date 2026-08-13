@@ -1,6 +1,7 @@
 package com.ares.analytics.viewmodel
 
 import com.ares.analytics.service.Nt4ClientService
+import com.ares.analytics.service.tuning.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -10,321 +11,331 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.*
-import java.io.File
-import com.areslib.tuning.TuningTopics
+import com.ares.analytics.shared.TelemetryFrame
 
-data class BackupInfo(
-    val filename: String,
-    val formattedDate: String,
-    val filePath: String,
-    val count: Int
-)
+data class BackupInfo(val filename: String, val formattedDate: String, val filePath: String, val count: Int)
 
 data class TuningState(
-    val variables: Map<String, Double> = emptyMap(),      // Live values from Robot over NT4
-    val appVariables: Map<String, Double> = emptyMap(),   // Local App JSON values (robot_constants.json)
+    /** Live values are observational and never mutate the robot-owned profile. */
+    val variables: Map<String, Double> = emptyMap(),
+    /** Full typed observations keyed by declaration key. */
+    val liveTypedValues: Map<String, TuningValue> = emptyMap(),
     val projectPath: String = "",
+    val catalog: TuningComponentCatalog = emptyList(),
+    val profiles: List<RobotTuningProfile> = emptyList(),
+    val selectedProfileId: String = "competition",
+    val proposals: Map<String, TuningValue> = emptyMap(),
+    val proposalProvenance: Map<String, TuningValueProvenance> = emptyMap(),
+    val review: TuningProposalReview? = null,
+    val reviewerName: String = "",
+    val reviewSummary: String = "",
     val availableBackups: List<BackupInfo> = emptyList(),
     val isLoading: Boolean = false,
     val saveStatus: String = "",
     val errorMessage: String? = null
-)
+) {
+    val selectedProfile: RobotTuningProfile?
+        get() = profiles.firstOrNull { it.profileId == selectedProfileId }
+
+    val rows: List<ResolvedTuningValue>
+        get() = selectedProfile?.let { resolveTuningProfile(it, profiles, catalog, variables, proposals, liveTypedValues, proposalProvenance) }.orEmpty()
+}
 
 sealed class TuningIntent {
     data class LoadConstants(val projectPath: String) : TuningIntent()
+    data class SelectProfile(val profileId: String) : TuningIntent()
+    /** Stages a proposal only. It never writes a file or publishes NT4. */
     data class UpdateAppConstant(val key: String, val newValue: Double) : TuningIntent()
-    data class SaveConstant(val key: String, val newValue: Double) : TuningIntent()
+    data class UpdateTypedConstant(val key: String, val newValue: TuningValue) : TuningIntent()
+    data class InvalidateTypedConstant(val key: String, val message: String) : TuningIntent()
+    data class SetProposalProvenance(
+        val key: String,
+        val source: String,
+        val note: String,
+        val evidencePath: String? = null,
+        val evidenceSha256: String? = null
+    ) : TuningIntent()
+    data class SetReviewerName(val value: String) : TuningIntent()
+    data class SetReviewSummary(val value: String) : TuningIntent()
     data class PushToRobot(val key: String) : TuningIntent()
     data class PullFromRobot(val key: String) : TuningIntent()
     object PushAllToRobot : TuningIntent()
     object PullAllFromRobot : TuningIntent()
+    object ReviewPromotion : TuningIntent()
+    data class ConfirmPromotion(val confirmationToken: String) : TuningIntent()
+    object DiscardProposal : TuningIntent()
     object CreateBackup : TuningIntent()
     data class LoadBackup(val filename: String) : TuningIntent()
     object RefreshBackups : TuningIntent()
     object ClearSaveStatus : TuningIntent()
 }
 
-/** Maintains editable tuning values and synchronizes them with robot NT4 topics and source files. */
 class TuningViewModel(
     val nt4ClientService: Nt4ClientService,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val repository: TuningProfileRepository = TuningProfileRepository(),
+    proposalInbox: TuningProposalInbox? = null
 ) {
+    private var requestNonce = 0L
+    /** Serializes multi-parameter live tests so every Requested value receives a unique nonce. */
+    private val requestMutex = Mutex()
     private val _state = MutableStateFlow(TuningState())
     val state: StateFlow<TuningState> = _state.asStateFlow()
 
     init {
         scope.launch {
-            while (isActive) {
-                val topics = nt4ClientService.getActiveTopics().filter {
-                    it.startsWith("Tuning/") && it != TuningTopics.SCHEMA_VERSION_TOPIC
-                }
-                val currentMap = _state.value.variables.toMutableMap()
-                var changed = false
-
-                val activeKeys = mutableSetOf<String>()
-
-                for (topic in topics) {
-                    val canonicalTopic = TuningTopics.canonicalize(topic)
-                    activeKeys.add(canonicalTopic)
-                    val value = nt4ClientService.latestValues[topic]?.value ?: 0.0
-                    if (currentMap[canonicalTopic] != value) {
-                        currentMap[canonicalTopic] = value
-                        changed = true
+            nt4ClientService.isConnected.collect { connected ->
+                if (!connected) requestNonce = 0L
+            }
+        }
+        proposalInbox?.let { inbox ->
+            scope.launch {
+                inbox.proposals.collect { proposal ->
+                    proposal.values.forEach { (key, value) ->
+                        stage(key, value, proposal.source, proposal.summary, proposal.evidencePath, proposal.evidenceSha256)
                     }
+                    reviewPromotion()
                 }
-                val keysToRemove = currentMap.keys - activeKeys
-                if (keysToRemove.isNotEmpty()) {
-                    keysToRemove.forEach { currentMap.remove(it) }
-                    changed = true
+            }
+        }
+        scope.launch {
+            while (isActive) {
+                val declarations = _state.value.catalog
+                val typed = declarations.mapNotNull { declaration ->
+                    val frame = nt4ClientService.latestValues[TuningTransport.current(declaration)] ?: return@mapNotNull null
+                    frame.toTuningValue(declaration)?.let { declaration.key to it }
+                }.toMap()
+                val numeric = typed.mapNotNull { (key, value) -> value.numericValue()?.let { key to it } }.toMap()
+                if (_state.value.variables != numeric || _state.value.liveTypedValues != typed) {
+                    _state.update { it.copy(variables = numeric, liveTypedValues = typed) }
                 }
-
-                if (changed) {
-                    // Live telemetry is observation only. Project source changes require an
-                    // explicit Pull action so connecting a robot cannot rewrite constants.
-                    _state.update { currentState -> currentState.copy(variables = currentMap) }
-                }
-
-                delay(200) // Poll at 5Hz
+                delay(200)
             }
         }
     }
 
     fun onIntent(intent: TuningIntent) {
-        scope.launch {
-            when (intent) {
-                is TuningIntent.LoadConstants -> {
-                    val path = intent.projectPath
-                    if (path.isBlank()) {
-                        _state.update {
-                            it.copy(
-                                projectPath = "",
-                                appVariables = emptyMap(),
-                                availableBackups = emptyList(),
-                                saveStatus = "",
-                                errorMessage = null
-                            )
-                        }
-                    } else {
-                        val loadedMap = withContext(Dispatchers.IO) { loadAppConstants(path) }
-                        val backups = withContext(Dispatchers.IO) { listBackups(path) }
-                        _state.update { currentState ->
-                            currentState.copy(
-                                projectPath = path,
-                                appVariables = loadedMap,
-                                availableBackups = backups,
-                                saveStatus = "",
-                                errorMessage = null
-                            )
-                        }
+        when (intent) {
+            is TuningIntent.LoadConstants -> load(intent.projectPath)
+            is TuningIntent.SelectProfile -> selectProfile(intent.profileId)
+            is TuningIntent.UpdateAppConstant -> stage(intent.key, intent.newValue, "Student edit", "Entered in the ARES tuning proposal board.")
+            is TuningIntent.UpdateTypedConstant -> stageTyped(intent.key, intent.newValue, "Student edit", "Entered in the ARES tuning proposal board.")
+            is TuningIntent.InvalidateTypedConstant -> _state.update {
+                it.copy(
+                    proposals = it.proposals - intent.key,
+                    proposalProvenance = it.proposalProvenance - intent.key,
+                    review = null,
+                    saveStatus = "",
+                    errorMessage = intent.message,
+                )
+            }
+            is TuningIntent.SetProposalProvenance -> _state.update {
+                it.copy(proposalProvenance = it.proposalProvenance + (intent.key to TuningValueProvenance(intent.source, intent.note, intent.evidencePath, intent.evidenceSha256)), review = null)
+            }
+            is TuningIntent.SetReviewerName -> _state.update { it.copy(reviewerName = intent.value, review = null) }
+            is TuningIntent.SetReviewSummary -> _state.update { it.copy(reviewSummary = intent.value, review = null) }
+            is TuningIntent.PushToRobot -> pushOne(intent.key)
+            is TuningIntent.PullFromRobot -> pullOne(intent.key)
+            TuningIntent.PushAllToRobot -> pushAllExperimental()
+            TuningIntent.PullAllFromRobot -> pullAll()
+            TuningIntent.ReviewPromotion -> reviewPromotion()
+            is TuningIntent.ConfirmPromotion -> confirmPromotion(intent.confirmationToken)
+            TuningIntent.DiscardProposal -> _state.update { it.copy(proposals = emptyMap(), proposalProvenance = emptyMap(), review = null, saveStatus = "Discarded proposed values. The profile and robot were not changed.") }
+            TuningIntent.CreateBackup -> _state.update { it.copy(saveStatus = "Canonical profiles are backed up automatically before promotion.") }
+            is TuningIntent.LoadBackup -> _state.update { it.copy(errorMessage = "Use profile history to review old canonical content; backups never replace the active profile directly.") }
+            TuningIntent.RefreshBackups -> Unit
+            TuningIntent.ClearSaveStatus -> _state.update { it.copy(saveStatus = "", errorMessage = null) }
+        }
+    }
+
+    private fun load(projectPath: String) = scope.launch {
+        if (projectPath.isBlank()) {
+            _state.value = TuningState()
+            return@launch
+        }
+        _state.update { it.copy(isLoading = true, projectPath = projectPath, errorMessage = null) }
+        val result = withContext(Dispatchers.IO) { repository.load(projectPath) }
+        result.fold(onSuccess = { docs ->
+            val selected = docs.profiles.firstOrNull { it.profileId == _state.value.selectedProfileId } ?: docs.profiles.firstOrNull()
+            _state.update { it.copy(
+                catalog = docs.catalog,
+                profiles = docs.profiles,
+                selectedProfileId = selected?.profileId.orEmpty(),
+                proposals = emptyMap(), proposalProvenance = emptyMap(), review = null,
+                isLoading = false, saveStatus = if (selected == null) "Loaded ${docs.catalog.size} declarations; no canonical profile exists yet." else "Loaded ${docs.catalog.size} declared values from ${selected.displayName}.", errorMessage = null
+            ) }
+        }, onFailure = { failure -> _state.update { it.copy(isLoading = false, errorMessage = failure.message ?: "Could not load tuning profiles.") } })
+    }
+
+    private fun selectProfile(profileId: String) {
+        val state = _state.value
+        val profile = state.profiles.firstOrNull { it.profileId == profileId } ?: return
+        _state.update { it.copy(selectedProfileId = profileId, proposals = emptyMap(), proposalProvenance = emptyMap(), review = null, saveStatus = "Switched to ${profile.displayName}. Unsaved proposals were cleared.") }
+    }
+
+    private fun stage(
+        key: String,
+        value: Double,
+        source: String,
+        note: String,
+        evidencePath: String? = null,
+        evidenceSha256: String? = null
+    ) {
+        val declaration = _state.value.catalog.firstOrNull { it.key == key }
+        val typed = when (declaration?.type) {
+            TuningParameterType.INT -> value.takeIf { it.isFinite() && it % 1.0 == 0.0 && it in Int.MIN_VALUE.toDouble()..Int.MAX_VALUE.toDouble() }?.let { TuningValue(intValue = it.toInt()) }
+            else -> TuningValue(doubleValue = value)
+        }
+        if (typed == null) {
+            _state.update { it.copy(errorMessage = "Enter a whole number in the supported Int range for $key.") }
+            return
+        }
+        stageTyped(key, typed, source, note, evidencePath, evidenceSha256)
+    }
+
+    private fun stageTyped(
+        key: String,
+        value: TuningValue,
+        source: String,
+        note: String,
+        evidencePath: String? = null,
+        evidenceSha256: String? = null
+    ) {
+        val declaration = _state.value.catalog.firstOrNull { it.key == key }
+        if (declaration == null) {
+            _state.update { it.copy(errorMessage = "$key is not declared by a robot component.") }
+            return
+        }
+        if (declaration.applyPolicy == TuningApplyPolicy.READ_ONLY_VENDOR) {
+            _state.update { it.copy(errorMessage = "${declaration.displayName} is vendor-owned. Re-import its source instead of editing it.") }
+            return
+        }
+        _state.update { it.copy(
+            proposals = it.proposals + (key to value),
+            proposalProvenance = it.proposalProvenance + (key to TuningValueProvenance(source, note, evidencePath, evidenceSha256)),
+            review = null,
+            saveStatus = "Staged ${declaration.displayName}. Nothing has been written or pushed.",
+            errorMessage = null
+        ) }
+    }
+
+    private fun pullOne(key: String) {
+        val live = _state.value.liveTypedValues[key]
+        if (live == null) _state.update { it.copy(errorMessage = "No live value is available for $key.") }
+        else stageTyped(key, live, "Live robot observation", "Copied into the proposal by the student; connection alone never changes profiles.")
+    }
+
+    private fun pullAll() {
+        val state = _state.value
+        state.liveTypedValues.forEach { (key, value) ->
+            val declaration = state.catalog.firstOrNull { it.key == key }
+            if (declaration != null && declaration.applyPolicy != TuningApplyPolicy.READ_ONLY_VENDOR) stageTyped(key, value, "Live robot observation", "Explicitly copied into a proposal by the student.")
+        }
+    }
+
+    private fun pushOne(key: String) = scope.launch {
+        val state = _state.value
+        val declaration = state.catalog.firstOrNull { it.key == key }
+        val value = state.proposals[key]
+        when {
+            declaration == null -> _state.update { it.copy(errorMessage = "$key is undeclared and cannot be pushed.") }
+            declaration.applyPolicy != TuningApplyPolicy.LIVE_SAFE -> _state.update { it.copy(errorMessage = "${declaration.displayName} is ${declaration.applyPolicy.name.lowercase().replace('_', ' ')} and cannot be live-pushed.") }
+            value == null -> _state.update { it.copy(errorMessage = "Stage and review a proposed value before live testing.") }
+            buildTuningReview(state.selectedProfile ?: return@launch, state.profiles, state.catalog, mapOf(key to value), state.proposalProvenance).second.isNotEmpty() -> _state.update { it.copy(errorMessage = "${declaration.displayName} is invalid for live testing.") }
+            else -> requestMutex.withLock {
+                runCatching {
+                    val observedNonce = nt4ClientService.latestValues[TuningTransport.requestNonce(declaration)]?.value
+                    val nextNonce = nextTuningRequestNonce(requestNonce, observedNonce)
+                    when (declaration.type) {
+                        TuningParameterType.DOUBLE -> nt4ClientService.publishDouble(TuningTransport.requested(declaration), requireNotNull(value.doubleValue))
+                        TuningParameterType.INT -> nt4ClientService.publishDouble(TuningTransport.requested(declaration), requireNotNull(value.intValue).toDouble())
+                        TuningParameterType.BOOLEAN -> nt4ClientService.publishBoolean(TuningTransport.requested(declaration), requireNotNull(value.booleanValue))
+                        TuningParameterType.TEXT, TuningParameterType.ENUM -> nt4ClientService.publishString(TuningTransport.requested(declaration), requireNotNull(value.textValue))
+                    }
+                    requestNonce = nextNonce
+                    nt4ClientService.publishDouble(TuningTransport.requestNonce(declaration), requestNonce.toDouble())
+                    _state.update { it.copy(saveStatus = "Waiting for ${declaration.displayName} acknowledgement…", errorMessage = null) }
+                    val result = awaitTuningResult(declaration, requestNonce)
+                    require(result == "APPLIED") {
+                        "Robot rejected ${declaration.displayName}: ${result.lowercase().replace('_', ' ')}. The profile was not changed."
                     }
                 }
-                is TuningIntent.UpdateAppConstant -> {
-                    val updated = _state.value.appVariables + (intent.key to intent.newValue)
-                    _state.update { it.copy(appVariables = updated) }
-                    withContext(Dispatchers.IO) {
-                        saveAppConstants(_state.value.projectPath, updated)
-                    }
-                }
-                is TuningIntent.SaveConstant -> {
-                    val updated = _state.value.appVariables + (intent.key to intent.newValue)
-                    _state.update { it.copy(appVariables = updated, saveStatus = "") }
-                    withContext(Dispatchers.IO) {
-                        saveAppConstants(_state.value.projectPath, updated)
-                    }
-                    try {
-                        nt4ClientService.publishDouble(intent.key, intent.newValue)
-                        _state.update { it.copy(saveStatus = "Updated & Pushed ${intent.key.removePrefix("Tuning/")}") }
-                    } catch (e: Exception) {
-                        _state.update { it.copy(errorMessage = e.message ?: "Failed to push constant") }
-                    }
-                }
-                is TuningIntent.PushToRobot -> {
-                    val appVal = _state.value.appVariables[intent.key]
-                    if (appVal != null) {
-                        try {
-                            nt4ClientService.publishDouble(intent.key, appVal)
-                            _state.update { it.copy(saveStatus = "Pushed App Value to Robot: ${intent.key.removePrefix("Tuning/")} = $appVal") }
-                        } catch (e: Exception) {
-                            _state.update { it.copy(errorMessage = e.message ?: "Failed to push to robot") }
-                        }
-                    }
-                }
-                is TuningIntent.PullFromRobot -> {
-                    val robotVal = _state.value.variables[intent.key]
-                    if (robotVal != null) {
-                        val updated = _state.value.appVariables + (intent.key to robotVal)
-                        _state.update { it.copy(appVariables = updated, saveStatus = "Pulled Robot Value to App: ${intent.key.removePrefix("Tuning/")} = $robotVal") }
-                        withContext(Dispatchers.IO) {
-                            saveAppConstants(_state.value.projectPath, updated)
-                        }
-                    }
-                }
-                is TuningIntent.PushAllToRobot -> {
-                    val appVars = _state.value.appVariables
-                    var count = 0
-                    appVars.forEach { (key, value) ->
-                        try {
-                            nt4ClientService.publishDouble(key, value)
-                            count++
-                        } catch (_: Exception) {
-                            // Continue the batch; the success count intentionally excludes failed topics.
-                        }
-                    }
-                    _state.update { it.copy(saveStatus = "Pushed $count App values to Robot") }
-                }
-                is TuningIntent.PullAllFromRobot -> {
-                    val liveVars = _state.value.variables
-                    if (liveVars.isNotEmpty()) {
-                        val updated = _state.value.appVariables + liveVars
-                        _state.update { it.copy(appVariables = updated, saveStatus = "Pulled ${liveVars.size} Robot values into App JSON") }
-                        withContext(Dispatchers.IO) {
-                            saveAppConstants(_state.value.projectPath, updated)
-                        }
-                    } else {
-                        _state.update { it.copy(errorMessage = "No active Robot variables to pull") }
-                    }
-                }
-                is TuningIntent.CreateBackup -> {
-                    val appVars = _state.value.appVariables
-                    val path = _state.value.projectPath
-                    if (appVars.isNotEmpty() && path.isNotBlank()) {
-                        val filename = withContext(Dispatchers.IO) { createBackup(path, appVars) }
-                        if (filename != null) {
-                            val backups = withContext(Dispatchers.IO) { listBackups(path) }
-                            _state.update { it.copy(availableBackups = backups, saveStatus = "Backup saved: $filename (${appVars.size} constants)") }
-                        } else {
-                            _state.update { it.copy(errorMessage = "Failed to create backup file") }
-                        }
-                    } else {
-                        _state.update { it.copy(errorMessage = "No constants available to backup") }
-                    }
-                }
-                is TuningIntent.LoadBackup -> {
-                    val path = _state.value.projectPath
-                    val file = File(File(path, "constants_backups"), intent.filename)
-                    if (file.exists()) {
-                        val loadedMap = withContext(Dispatchers.IO) {
-                            try {
-                                val text = file.readText()
-                                val jsonObj = Json.parseToJsonElement(text).jsonObject
-                                jsonObj.mapValues { it.value.jsonPrimitive.double }
-                            } catch (_: Exception) {
-                                null
-                            }
-                        }
-                        if (loadedMap != null) {
-                            _state.update { currentState ->
-                                currentState.copy(
-                                    appVariables = loadedMap,
-                                    saveStatus = "Loaded backup '${intent.filename}' (${loadedMap.size} constants restored)"
-                                )
-                            }
-                            withContext(Dispatchers.IO) {
-                                saveAppConstants(path, loadedMap)
-                            }
-                        } else {
-                            _state.update { it.copy(errorMessage = "Failed to parse backup file ${intent.filename}") }
-                        }
-                    }
-                }
-                is TuningIntent.RefreshBackups -> {
-                    val path = _state.value.projectPath
-                    if (path.isNotBlank()) {
-                        val backups = withContext(Dispatchers.IO) { listBackups(path) }
-                        _state.update { it.copy(availableBackups = backups) }
-                    }
-                }
-                is TuningIntent.ClearSaveStatus -> {
-                    _state.update { it.copy(saveStatus = "") }
-                }
+                    .onSuccess { _state.update { it.copy(saveStatus = "Robot acknowledged ${declaration.displayName} as applied experimentally. The profile was not changed.", errorMessage = null) } }
+                    .onFailure { failure -> _state.update { it.copy(errorMessage = failure.message ?: "Live push failed.") } }
             }
         }
     }
 
-    private fun createBackup(projectPath: String, map: Map<String, Double>): String? {
-        if (projectPath.isBlank() || map.isEmpty()) return null
-        val dir = File(projectPath, "constants_backups")
-        if (!dir.exists()) dir.mkdirs()
-
-        val dateStr = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).format(java.util.Date())
-        val filename = "constants_$dateStr.json"
-        val file = File(dir, filename)
-
-        return try {
-            val jsonMap = map.mapValues { JsonPrimitive(it.value) }
-            val jsonObj = JsonObject(jsonMap)
-            val jsonFormatter = Json { prettyPrint = true }
-            file.writeText(jsonFormatter.encodeToString(JsonObject.serializer(), jsonObj))
-            filename
-        } catch (e: Exception) {
-            e.printStackTrace()
-            null
-        }
-    }
-
-    private fun listBackups(projectPath: String): List<BackupInfo> {
-        if (projectPath.isBlank()) return emptyList()
-        val dir = File(projectPath, "constants_backups")
-        if (!dir.exists()) return emptyList()
-
-        return dir.listFiles { _, name -> name.startsWith("constants_") && name.endsWith(".json") }
-            ?.mapNotNull { file ->
-                try {
-                    val text = file.readText()
-                    val jsonObj = Json.parseToJsonElement(text).jsonObject
-                    val count = jsonObj.size
-
-                    val rawTime = file.name.removePrefix("constants_").removeSuffix(".json")
-                    val formatted = try {
-                        val date = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.US).parse(rawTime)
-                        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US).format(date)
-                    } catch (_: Exception) {
-                        rawTime
-                    }
-
-                    BackupInfo(
-                        filename = file.name,
-                        formattedDate = formatted,
-                        filePath = file.absolutePath,
-                        count = count
-                    )
-                } catch (_: Exception) {
-                    null
-                }
+    private suspend fun awaitTuningResult(declaration: TuningParameterDeclaration, nonce: Long): String {
+        repeat(30) {
+            val processed = nt4ClientService.latestValues[TuningTransport.processedNonce(declaration)]?.value
+            if (processed == nonce.toDouble()) {
+                return nt4ClientService.latestValues[TuningTransport.lastResult(declaration)]?.stringValue
+                    ?: error("Robot acknowledged the request without a result.")
             }
-            ?.sortedByDescending { it.filename }
-            ?: emptyList()
+            delay(100)
+        }
+        error("Robot did not acknowledge the live tuning request within 3 seconds. Treat the result as unknown.")
     }
 
-    private fun loadAppConstants(projectPath: String): Map<String, Double> {
-        if (projectPath.isBlank()) return emptyMap()
-        val file = File(projectPath, "robot_constants.json")
-        if (!file.exists()) return emptyMap()
-        return try {
-            val text = file.readText()
-            val jsonObj = Json.parseToJsonElement(text).jsonObject
-            jsonObj.mapNotNull { (key, value) ->
-                value.jsonPrimitive.doubleOrNull?.takeIf { it.isFinite() }?.let {
-                    TuningTopics.canonicalize(key) to it
-                }
-            }.toMap()
-        } catch (e: Exception) {
-            emptyMap()
+    private fun pushAllExperimental() {
+        val eligible = _state.value.proposals.keys.filter { key ->
+            _state.value.catalog.firstOrNull { it.key == key }?.applyPolicy == TuningApplyPolicy.LIVE_SAFE
         }
+        if (eligible.isEmpty()) _state.update { it.copy(errorMessage = "No reviewed experimental-live proposals are available.") }
+        else eligible.forEach(::pushOne)
     }
 
-    private fun saveAppConstants(projectPath: String, map: Map<String, Double>) {
-        if (projectPath.isBlank()) return
-        try {
-            val file = File(projectPath, "robot_constants.json")
-            val jsonMap = map.mapValues { JsonPrimitive(it.value) }
-            val jsonObj = JsonObject(jsonMap)
-            val jsonFormatter = Json { prettyPrint = true }
-            file.writeText(jsonFormatter.encodeToString(JsonObject.serializer(), jsonObj))
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+    private fun reviewPromotion() {
+        val state = _state.value
+        val profile = state.selectedProfile ?: return
+        val (changes, valueErrors) = buildTuningReview(profile, state.profiles, state.catalog, state.proposals, state.proposalProvenance)
+        val errors = valueErrors + buildList {
+            if (state.reviewerName.isBlank()) add("Enter the reviewer name.")
+            if (state.reviewSummary.isBlank()) add("Enter a review summary.")
+            if (changes.any { it.policy == TuningApplyPolicy.CALIBRATION_ONLY && (it.provenance.evidencePath.isNullOrBlank() || it.provenance.evidenceSha256.isNullOrBlank()) }) add("Calibration-only changes require a project evidence path and SHA-256 before promotion.")
+        } + repository.evidenceErrors(state.projectPath, changes)
+        val hash = com.areslib.tuning.TuningProfileDocumentCodec.contentHash(profile, state.catalog)
+        val review = TuningProposalReview(profile.profileId, hash, changes, errors, repository.reviewToken(profile, state.catalog, changes, state.reviewerName, state.reviewSummary), state.reviewerName, state.reviewSummary)
+        _state.update { it.copy(review = review, errorMessage = errors.firstOrNull(), saveStatus = if (review.canPromote) "Review ${changes.size} structured profile changes, then confirm promotion." else "Promotion is blocked by validation.") }
     }
+
+    private fun confirmPromotion(token: String) = scope.launch {
+        val state = _state.value
+        val profile = state.selectedProfile ?: return@launch
+        val review = state.review
+        val currentHash = com.areslib.tuning.TuningProfileDocumentCodec.contentHash(profile, state.catalog)
+        if (review == null || !review.canPromote || token != review.confirmationToken || review.baseContentHash != currentHash) {
+            _state.update { it.copy(errorMessage = "The confirmation is missing or stale. Review a fresh structured diff.") }
+            return@launch
+        }
+        runCatching { withContext(Dispatchers.IO) { repository.promote(state.projectPath, profile, review.baseContentHash, state.catalog, review.changes, review.reviewedBy, review.reviewSummary) } }
+            .fold(onSuccess = { promoted ->
+                val profiles = state.profiles.map { if (it.profileId == promoted.profileId) promoted else it }
+                _state.update { it.copy(profiles = profiles, proposals = emptyMap(), proposalProvenance = emptyMap(), review = null, reviewerName = "", reviewSummary = "", saveStatus = "Promoted canonical profile atomically. Robot values were not pushed.", errorMessage = null) }
+            }, onFailure = { failure -> _state.update { it.copy(errorMessage = failure.message ?: "Profile promotion failed.") } })
+    }
+}
+
+private const val MAX_SAFE_REQUEST_NONCE = 9_007_199_254_740_991L
+
+internal fun nextTuningRequestNonce(local: Long, observed: Double?): Long {
+    val observedLong = observed?.takeIf { it.isFinite() && it % 1.0 == 0.0 && it in 0.0..MAX_SAFE_REQUEST_NONCE.toDouble() }?.toLong() ?: -1L
+    val base = maxOf(local, observedLong)
+    require(base < MAX_SAFE_REQUEST_NONCE) {
+        "The robot tuning request nonce is exhausted. Restart both robot and dashboard before another live test; no value was requested."
+    }
+    return base + 1L
+}
+
+private fun TelemetryFrame.toTuningValue(declaration: TuningParameterDeclaration): TuningValue? = when (declaration.type) {
+    TuningParameterType.DOUBLE -> value.takeIf(Double::isFinite)?.let { TuningValue(doubleValue = it) }
+    TuningParameterType.INT -> value.takeIf { it.isFinite() && it % 1.0 == 0.0 && it in Int.MIN_VALUE.toDouble()..Int.MAX_VALUE.toDouble() }
+        ?.let { TuningValue(intValue = it.toInt()) }
+    TuningParameterType.BOOLEAN -> stringValue?.toBooleanStrictOrNull()?.let { TuningValue(booleanValue = it) }
+        ?: value.takeIf(Double::isFinite)?.let { TuningValue(booleanValue = it != 0.0) }
+    TuningParameterType.TEXT, TuningParameterType.ENUM -> stringValue?.let { TuningValue(textValue = it) }
 }

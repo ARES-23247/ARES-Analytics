@@ -4,7 +4,9 @@ import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.viewmodel.SysIdState
 import com.areslib.control.assist.SysIdMechanism
 import com.areslib.control.assist.SysIdRoutine
-import com.areslib.tuning.TuningTopics
+import com.ares.analytics.service.tuning.ExternalTuningProposal
+import com.ares.analytics.service.tuning.TuningParameterKeys
+import com.ares.analytics.service.tuning.TuningProposalInbox
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -21,7 +23,8 @@ class SysIdSignalGenerator(
     private val nt4ClientService: Nt4ClientService,
     private val _state: MutableStateFlow<SysIdState>,
     private val scope: CoroutineScope,
-    private val calibrationTransport: CalibrationCommandTransport = Nt4CalibrationCommandTransport(nt4ClientService)
+    private val calibrationTransport: CalibrationCommandTransport = Nt4CalibrationCommandTransport(nt4ClientService),
+    private val tuningProposalInbox: TuningProposalInbox? = null
 ) {
     private var leaseJob: Job? = null
     private var leaseSequence = 0L
@@ -140,18 +143,13 @@ class SysIdSignalGenerator(
         }
     }
     suspend fun applyToRobotCode(recommendedExponent: Double, recommendedSlewRate: Double) {
-        _state.update { it.copy(exportStatus = "Applying to robot over NT4...") }
-        try {
-            nt4ClientService.publishDouble(TuningTopics.DRIVER_DEADBAND_EXPONENT, recommendedExponent)
-            val slewVal = if (recommendedSlewRate == Double.MAX_VALUE) 999.0 else recommendedSlewRate
-            nt4ClientService.publishDouble(TuningTopics.DRIVER_SLEW_RATE_LIMIT, slewVal)
-
-            _state.update {
-                it.copy(exportStatus = "Successfully applied! 🎉")
-            }
-        } catch (e: Exception) {
-            _state.update { it.copy(exportStatus = "Failed to apply: ${e.message}") }
-        }
+        val slewVal = if (recommendedSlewRate == Double.MAX_VALUE) 999.0 else recommendedSlewRate
+        val accepted = tuningProposalInbox?.submit(ExternalTuningProposal(
+            source = "Driver analysis",
+            summary = "Review driver response recommendations before any live test or profile promotion.",
+            values = mapOf(TuningParameterKeys.DRIVER_DEADBAND_EXPONENT to recommendedExponent, TuningParameterKeys.DRIVER_SLEW_RATE_LIMIT to slewVal)
+        )) == true
+        _state.update { it.copy(exportStatus = if (accepted) "Sent recommendations to the Tuning proposal board." else "Open Tuning before sending recommendations; no robot or source value changed.") }
     }
 
     suspend fun startRoutine(mechanism: SysIdMechanism, routine: SysIdRoutine) {
@@ -252,47 +250,32 @@ class SysIdSignalGenerator(
     }
 
     suspend fun applyCalibration(calibrationType: String) {
-        _state.update { it.copy(exportStatus = "Applying calibration to robot...") }
-        try {
-            when (calibrationType) {
+        val values = when (calibrationType) {
                 "PINPOINT_SPIN" -> {
                     val x = _state.value.recommendedPinpointXOffsetMm
                     val y = _state.value.recommendedPinpointYOffsetMm
                     if (x != null && y != null) {
-                        nt4ClientService.publishDouble(TuningTopics.PINPOINT_X_OFFSET, x)
-                        nt4ClientService.publishDouble(TuningTopics.PINPOINT_Y_OFFSET, y)
-                        _state.update { it.copy(exportStatus = "Applied Pinpoint Offsets! 🎉") }
-                    }
+                        mapOf(TuningParameterKeys.PINPOINT_X_OFFSET to x, TuningParameterKeys.PINPOINT_Y_OFFSET to y)
+                    } else emptyMap()
                 }
-                "TRACK_WIDTH_SPIN" -> {
-                    val tw = _state.value.recommendedTrackWidthMeters
-                    if (tw != null) {
-                        nt4ClientService.publishDouble(TuningTopics.DRIVE_TRACK_WIDTH, tw)
-                        _state.update { it.copy(exportStatus = "Applied Track Width! 🎉") }
-                    }
-                }
+                "TRACK_WIDTH_SPIN" -> _state.value.recommendedTrackWidthMeters?.let { mapOf(TuningParameterKeys.DRIVE_TRACK_WIDTH to it) }.orEmpty()
                 "VISION_CALIBRATION" -> {
                     val sx = _state.value.recommendedVisionStdDevsX
                     val sy = _state.value.recommendedVisionStdDevsY
                     val sh = _state.value.recommendedVisionStdDevsHeading
                     if (sx != null && sy != null && sh != null) {
-                        nt4ClientService.publishDouble(TuningTopics.VISION_STD_DEVS_X, sx)
-                        nt4ClientService.publishDouble(TuningTopics.VISION_STD_DEVS_Y, sy)
-                        nt4ClientService.publishDouble(TuningTopics.VISION_STD_DEVS_HEADING, sh)
-                        _state.update { it.copy(exportStatus = "Applied Vision Std Devs! 🎉") }
-                    }
+                        mapOf(TuningParameterKeys.VISION_STD_DEVS_X to sx, TuningParameterKeys.VISION_STD_DEVS_Y to sy, TuningParameterKeys.VISION_STD_DEVS_HEADING to sh)
+                    } else emptyMap()
                 }
-                "LINEAR_DRIVE" -> {
-                    val ticks = _state.value.recommendedTicksPerMeter
-                    if (ticks != null) {
-                        nt4ClientService.publishDouble(TuningTopics.FTC_TICKS_PER_METER, ticks)
-                        _state.update { it.copy(exportStatus = "Applied Ticks Per Meter! 🎉") }
-                    }
-                }
+                "LINEAR_DRIVE" -> _state.value.recommendedTicksPerMeter?.let { mapOf(TuningParameterKeys.FTC_TICKS_PER_METER to it) }.orEmpty()
+                else -> emptyMap()
             }
-        } catch (e: Exception) {
-            _state.update { it.copy(exportStatus = "Failed to apply calibration: ${e.message}") }
-        }
+        val accepted = values.isNotEmpty() && tuningProposalInbox?.submit(ExternalTuningProposal(
+            source = "Calibration workflow",
+            summary = "$calibrationType result. Attach the recorded run and its SHA-256 in Tuning before promotion.",
+            values = values
+        )) == true
+        _state.update { it.copy(exportStatus = if (accepted) "Sent calibration results to the Tuning proposal board." else "No complete calibration proposal was available; no robot or source value changed.") }
     }
 
     private fun requireMotionAuthorization() {

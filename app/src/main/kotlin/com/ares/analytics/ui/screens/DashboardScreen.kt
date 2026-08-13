@@ -26,6 +26,7 @@ import com.ares.analytics.viewmodel.DashboardViewModel
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Locale
+import com.ares.analytics.service.tuning.TuningParameterDeclaration
 
 /**
  * Primary telemetry analytics dashboard screen displaying real-time robot visualization cards.
@@ -63,6 +64,11 @@ fun DashboardScreen(
     val scope = rememberCoroutineScope()
     var newLayoutName by remember { mutableStateOf("") }
     var offlineGuideDismissed by remember { mutableStateOf(false) }
+    val tuningDeclarations by produceState<List<TuningParameterDeclaration>>(emptyList(), currentConfig.projectPath) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            services.tuningProfileRepository.load(currentConfig.projectPath).getOrNull()?.catalog.orEmpty()
+        }
+    }
 
     // Replay integration
     val replayEngine = services.replayEngineService
@@ -271,7 +277,7 @@ fun DashboardScreen(
                     PowerDistributionCard(services.nt4ClientService, mod)
                 },
                 "tuning_card" to { _, mod ->
-                    TuningCard(services.nt4ClientService, mod)
+                    TuningCard(services.nt4ClientService, mod, tuningDeclarations)
                 },
                 "ekf_telemetry" to { _, mod ->
                     EKFTelemetryCard(services.nt4ClientService, mod)

@@ -1,7 +1,7 @@
 package com.ares.analytics.service
 
 import com.areslib.control.assist.SysIdMechanism
-import com.areslib.tuning.TuningTopics
+import com.ares.analytics.service.tuning.TuningParameterKeys
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -11,6 +11,12 @@ import org.junit.Test
 import java.io.File
 import kotlin.math.exp
 import kotlin.math.sign
+import com.ares.analytics.service.tuning.TuningProposalInbox
+import com.ares.analytics.service.tuning.ExternalTuningProposal
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.flow.first
 
 class AutoTunerServiceTest {
     private lateinit var autoTunerService: AutoTunerService
@@ -34,7 +40,7 @@ class AutoTunerServiceTest {
         assertEquals(0.25, recommendation.recommendedkA, 0.2)
         assertTrue(recommendation.rSquared > 0.9)
         assertTrue(recommendation.recommendedGains.kP > 0.0)
-        assertTrue(recommendation.topicValues.containsKey(TuningTopics.DRIVE_FEEDFORWARD_KV))
+        assertTrue(recommendation.topicValues.containsKey(TuningParameterKeys.DRIVE_FEEDFORWARD_KV))
     }
 
     @Test
@@ -52,24 +58,17 @@ class AutoTunerServiceTest {
     }
 
     @Test
-    fun `approved gains use canonical topics and can roll back`() = runBlocking {
-        for (topic in listOf(
-            TuningTopics.DRIVE_FEEDFORWARD_KS,
-            TuningTopics.DRIVE_FEEDFORWARD_KV,
-            TuningTopics.DRIVE_FEEDFORWARD_KA,
-            TuningTopics.DRIVE_TRANSLATION_KP,
-            TuningTopics.DRIVE_TRANSLATION_KI,
-            TuningTopics.DRIVE_TRANSLATION_KD
-        )) mockNt4Service.publishDouble(topic, 0.1)
+    fun `approved gains become a review proposal without writing robot topics`() = runBlocking {
+        val latestBefore = mockNt4Service.latestValues.toMap()
+        val inbox = TuningProposalInbox()
+        autoTunerService = AutoTunerService(mockNt4Service, SysIdService(DatabaseService(File.createTempFile("proposal_db", ".sqlite").absolutePath)), inbox)
         val recommendation = autoTunerService.analyzeSamples(SysIdMechanism.LINEAR, syntheticBidirectionalRun())!!
+        val proposal = async<ExternalTuningProposal>(start = CoroutineStart.UNDISPATCHED) { withTimeout(2_000) { inbox.proposals.first() } }
 
         autoTunerService.approveAndApplyGains(recommendation)
-        assertEquals(TuningApplyPhase.APPLIED_AWAITING_VALIDATION, autoTunerService.applyState.value.phase)
-        assertEquals(recommendation.recommendedkV, mockNt4Service.latestValues[TuningTopics.DRIVE_FEEDFORWARD_KV]!!.value, 1e-9)
-
-        autoTunerService.rollback()
-        assertEquals(TuningApplyPhase.ROLLED_BACK, autoTunerService.applyState.value.phase)
-        assertEquals(0.1, mockNt4Service.latestValues[TuningTopics.DRIVE_FEEDFORWARD_KV]!!.value, 1e-9)
+        assertEquals(TuningApplyPhase.RECOMMENDED, autoTunerService.applyState.value.phase)
+        assertEquals(recommendation.topicValues, proposal.await().values)
+        assertEquals("AutoTuner approval must not publish any robot topic", latestBefore, mockNt4Service.latestValues.toMap())
     }
 
     private fun syntheticBidirectionalRun(): List<AlignedDataRow> {

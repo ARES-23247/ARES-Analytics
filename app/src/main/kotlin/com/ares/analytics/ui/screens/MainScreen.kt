@@ -37,6 +37,7 @@ import com.ares.analytics.ui.components.terminal.TerminalDrawer
 import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.*
+import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
 import kotlinx.coroutines.*
 
 /**
@@ -246,13 +247,16 @@ fun MainScreen(services: ServiceRegistry) {
             driverAnalysisService = services.driverAnalysisService,
             autoTunerService = services.autoTunerService,
             nt4ClientService = services.nt4ClientService,
-            scope = scope
+            scope = scope,
+            tuningProposalInbox = services.tuningProposalInbox
         )
     }
     val tuningViewModel = remember {
         TuningViewModel(
             nt4ClientService = services.nt4ClientService,
-            scope = scope
+            scope = scope,
+            repository = services.tuningProfileRepository,
+            proposalInbox = services.tuningProposalInbox
         )
     }
     LaunchedEffect(currentConfig.league) {
@@ -323,6 +327,16 @@ fun MainScreen(services: ServiceRegistry) {
     DisposableEffect(subsystemGeneratorViewModel) {
         onDispose { subsystemGeneratorViewModel.close() }
     }
+    val drivebaseBuilderViewModel = remember(currentConfig.projectPath, currentConfig.robotId) {
+        DrivebaseBuilderViewModel(
+            projectPath = currentConfig.projectPath ?: "",
+            projectId = currentConfig.robotId,
+            scope = scope,
+            repository = services.drivebaseProjectRepository
+        )
+    }
+    // This ViewModel owns no independent scope or hardware/service resource. Its jobs run in the
+    // screen's Compose scope and are cancelled automatically when MainScreen leaves composition.
     val dashboardState by dashboardViewModel.state.collectAsState()
     val primarySessionId = dashboardState.primarySessionId
     val compareSessionId = dashboardState.compareSessionId
@@ -764,6 +778,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 modifier = Modifier.fillMaxSize()
                             )
                             NavigationTarget.SUBSYSTEM_GEN -> SubsystemGeneratorScreen(subsystemGeneratorViewModel)
+                            NavigationTarget.DRIVEBASE_BUILDER -> DrivebaseBuilderScreen(drivebaseBuilderViewModel)
                             NavigationTarget.PROFILE -> ProfileScreen(
                                 viewModel = profileViewModel,
                                 config = currentConfig,

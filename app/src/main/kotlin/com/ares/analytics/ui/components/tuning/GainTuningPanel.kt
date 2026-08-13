@@ -1,503 +1,262 @@
 package com.ares.analytics.ui.components.tuning
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
-import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
-import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ares.analytics.service.tuning.*
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.TuningIntent
+import com.ares.analytics.viewmodel.TuningState
 import com.ares.analytics.viewmodel.TuningViewModel
-import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GainTuningPanel(
     viewModel: TuningViewModel,
-    state: com.ares.analytics.viewmodel.TuningState,
+    state: TuningState,
     modifier: Modifier = Modifier
 ) {
-    val allKeys = (state.variables.keys + state.appVariables.keys).toSet()
-    val syncedCount = allKeys.count { k ->
-        val r = state.variables[k]
-        val a = state.appVariables[k]
-        r != null && a != null && kotlin.math.abs(r - a) < 1e-5
-    }
-    val diffCount = allKeys.count { k ->
-        val r = state.variables[k]
-        val a = state.appVariables[k]
-        r != null && a != null && kotlin.math.abs(r - a) >= 1e-5
-    }
-
     Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
-            .background(AresSurface)
-            .border(1.dp, AresBorder, RoundedCornerShape(12.dp))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier.background(AresSurface, RoundedCornerShape(12.dp)).border(1.dp, AresBorder, RoundedCornerShape(12.dp)).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // Header Row with Global Batch Sync Controls
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Column {
-                Text("Constants Tuning Board", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = AresTextPrimary)
-                if (allKeys.isNotEmpty()) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        modifier = Modifier.padding(top = 2.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(6.dp)
-                                .background(if (diffCount == 0 && syncedCount > 0) AresGreen else AresAmber, RoundedCornerShape(3.dp))
-                        )
-                        Text(
-                            text = if (diffCount == 0 && syncedCount > 0) "All $syncedCount Constants Synced" else "$diffCount Out of Sync ($syncedCount Synced)",
-                            fontSize = 11.sp,
-                            color = if (diffCount == 0 && syncedCount > 0) AresGreen else AresAmber,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
+                Text("Robot tuning profiles", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Source is canonical. Live is observation. Proposed is an unsaved experiment.", color = AresTextSecondary, fontSize = 10.sp)
             }
-
-            var showBackupMenu by remember { mutableStateOf(false) }
-
-            // Global Push / Pull / Backup Action Buttons
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = { viewModel.onIntent(TuningIntent.PushAllToRobot) },
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-                    shape = RoundedCornerShape(6.dp),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = Color.Black, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Push All -> Robot", color = Color.Black, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-
-                OutlinedButton(
-                    onClick = { viewModel.onIntent(TuningIntent.PullAllFromRobot) },
-                    shape = RoundedCornerShape(6.dp),
-                    border = BorderStroke(1.dp, AresBorder),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, tint = AresTextPrimary, modifier = Modifier.size(14.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("<- Pull All to App", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                }
-
-                OutlinedButton(
-                    onClick = { viewModel.onIntent(TuningIntent.CreateBackup) },
-                    shape = RoundedCornerShape(6.dp),
-                    border = BorderStroke(1.dp, AresBorder),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp)
-                ) {
-                    Text("Save Backup", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                }
-
-                Box {
-                    OutlinedButton(
-                        onClick = {
-                            viewModel.onIntent(TuningIntent.RefreshBackups)
-                            showBackupMenu = true
-                        },
-                        shape = RoundedCornerShape(6.dp),
-                        border = BorderStroke(1.dp, AresBorder),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Text("Load Backup", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    }
-
-                    DropdownMenu(
-                        expanded = showBackupMenu,
-                        onDismissRequest = { showBackupMenu = false },
-                        modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
-                    ) {
-                        if (state.availableBackups.isEmpty()) {
-                            DropdownMenuItem(
-                                text = { Text("No backups found", color = AresTextTertiary, fontSize = 11.sp) },
-                                onClick = { showBackupMenu = false }
-                            )
-                        } else {
-                            state.availableBackups.forEach { backup ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Column {
-                                            Text(backup.formattedDate, color = AresCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                            Text("${backup.count} constants • ${backup.filename}", color = AresTextSecondary, fontSize = 10.sp)
-                                        }
-                                    },
-                                    onClick = {
-                                        viewModel.onIntent(TuningIntent.LoadBackup(backup.filename))
-                                        showBackupMenu = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            ProfileMenu(state, viewModel)
         }
-        Text(
-            "Live robot values are read-only. Use Pull to intentionally update robot_constants.json.",
-            color = AresTextSecondary,
-            fontSize = 11.sp
-        )
+        state.selectedProfile?.let { profile ->
+            Text(
+                "${profile.displayName} · ${com.areslib.tuning.TuningProfileDocumentCodec.contentHash(profile, state.catalog).take(12)}" + (profile.baseProfileUid?.let { " · inherits $it" } ?: " · no parent"),
+                color = AresCyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace
+            )
+        }
+        Text("Connecting a robot, Gemini proposal, or AutoTuner result cannot change this profile. Promotion requires validation, a structured diff, and explicit confirmation.", color = AresGold, fontSize = 10.sp)
+        state.errorMessage?.let { Banner(it, AresError) }
+        if (state.saveStatus.isNotBlank()) Banner(state.saveStatus, AresGreen)
+        Row(Modifier.fillMaxWidth().padding(end = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Header("Component / value", Modifier.weight(1.4f))
+            Header("Source", Modifier.width(86.dp))
+            Header("Live", Modifier.width(86.dp))
+            Header("Proposed", Modifier.width(106.dp))
+            Header("Policy", Modifier.width(116.dp))
+        }
         HorizontalDivider(color = AresBorder)
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            state.rows.groupBy { it.declaration.componentUid }.forEach { (component, rows) ->
+                Text(component, color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                rows.forEach { row -> TuningValueRow(row, viewModel) }
+            }
+            if (state.rows.isEmpty()) Text("No component declarations were found. Add a .arestuningcomponent file under .ares/tuning-components, or declare parameters in a drivetrain/subsystem document, then reload.", color = AresTextSecondary, fontSize = 11.sp)
+        }
+        HorizontalDivider(color = AresBorder)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                state.reviewerName,
+                { viewModel.onIntent(TuningIntent.SetReviewerName(it)) },
+                Modifier.weight(.7f).semantics { contentDescription = "Reviewer name required for canonical profile promotion" },
+                label = { Text("Reviewer") }, singleLine = true
+            )
+            OutlinedTextField(
+                state.reviewSummary,
+                { viewModel.onIntent(TuningIntent.SetReviewSummary(it)) },
+                Modifier.weight(1.3f).semantics { contentDescription = "Review summary explaining why the proposed tuning values should become canonical" },
+                label = { Text("Review summary") }, singleLine = true
+            )
+        }
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                OutlinedButton(onClick = { viewModel.onIntent(TuningIntent.DiscardProposal) }, enabled = state.proposals.isNotEmpty()) { Text("Discard proposal") }
+                OutlinedButton(onClick = { viewModel.onIntent(TuningIntent.PullAllFromRobot) }, enabled = state.liveTypedValues.isNotEmpty()) { Text("Propose all live") }
+                OutlinedButton(onClick = { viewModel.onIntent(TuningIntent.PushAllToRobot) }, enabled = state.proposals.isNotEmpty()) { Text("Live-test eligible") }
+            }
+            Button(onClick = { viewModel.onIntent(TuningIntent.ReviewPromotion) }, enabled = state.proposals.isNotEmpty(), colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) { Text("Review promotion") }
+        }
+        state.review?.let { PromotionReview(it, viewModel) }
+    }
+}
 
-        if (state.saveStatus.isNotEmpty()) {
-            Text(state.saveStatus, color = AresGreen, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-            LaunchedEffect(state.saveStatus) {
-                kotlinx.coroutines.delay(3000)
-                viewModel.onIntent(TuningIntent.ClearSaveStatus)
+@Composable
+private fun ProfileMenu(state: TuningState, viewModel: TuningViewModel) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }) { Text(state.selectedProfile?.displayName ?: "Choose profile") }
+        DropdownMenu(expanded, { expanded = false }) {
+            state.profiles.forEach { profile ->
+                DropdownMenuItem(
+                    text = { Column { Text(profile.displayName); Text("${profile.profileId} · ${profile.baseProfileUid?.let { "inherits $it" } ?: "root"}", color = AresTextSecondary, fontSize = 9.sp) } },
+                    onClick = { expanded = false; viewModel.onIntent(TuningIntent.SelectProfile(profile.profileId)) }
+                )
             }
         }
-        val error = state.errorMessage
-        if (error != null) {
-            Text(error, color = AresError, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-        }
+    }
+}
 
-        if (allKeys.isEmpty()) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Text("Waiting for live Tuning constants from Robot over NT4 or local project JSON...", color = AresTextTertiary, fontSize = 12.sp)
-            }
-        } else {
-            // Group by custom categories
-            val grouped = allKeys.groupBy { getCustomCategory(it) }
-
-            LazyVerticalStaggeredGrid(
-                columns = StaggeredGridCells.Adaptive(minSize = 360.dp),
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalItemSpacing = 12.dp
-            ) {
-                items(grouped.entries.toList().sortedBy { it.key }) { (category, keys) ->
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(AresSurfaceElevated, RoundedCornerShape(8.dp))
-                            .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
-                            .padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(
-                            text = category,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = AresCyan
-                        )
-
-                        // Column Headers: Name | App JSON | Sync | Robot NT4
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text("VARIABLE", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AresTextTertiary, modifier = Modifier.weight(1f))
-                            Text("APP (JSON)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AresCyan, modifier = Modifier.width(75.dp))
-                            Text("SYNC", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AresTextTertiary, modifier = Modifier.width(50.dp))
-                            Text("ROBOT (NT4)", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = AresTextSecondary, modifier = Modifier.width(75.dp))
-                        }
-                        HorizontalDivider(color = AresBorder.copy(alpha = 0.5f))
-
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            keys.sorted().forEach { constKey ->
-                                val parts = constKey.removePrefix("Tuning/").split("/")
-                                val displayName = if (parts.size > 1) parts.drop(1).joinToString("/") else parts[0]
-
-                                val robotVal = state.variables[constKey]
-                                val appVal = state.appVariables[constKey]
-
-                                val isSynced = robotVal != null && appVal != null && kotlin.math.abs(robotVal - appVal) < 1e-5
-                                val isDiff = robotVal != null && appVal != null && kotlin.math.abs(robotVal - appVal) >= 1e-5
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    val descAndRange = getConstantDescriptionAndRange(constKey)
-                                    val tooltipState = rememberTooltipState(isPersistent = true)
-                                    val scope = rememberCoroutineScope()
-
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .pointerInput(Unit) {
-                                                awaitPointerEventScope {
-                                                    while (true) {
-                                                        val event = awaitPointerEvent()
-                                                        when (event.type) {
-                                                            PointerEventType.Enter -> {
-                                                                scope.launch { tooltipState.show() }
-                                                            }
-                                                            PointerEventType.Exit -> {
-                                                                tooltipState.dismiss()
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                    ) {
-                                        TooltipBox(
-                                            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-                                            tooltip = {
-                                                PlainTooltip(
-                                                    containerColor = AresSurfaceElevated,
-                                                    contentColor = AresTextPrimary
-                                                ) {
-                                                    Column(modifier = Modifier.padding(4.dp)) {
-                                                        Text(displayName, fontSize = 12.sp, color = AresCyan, fontWeight = FontWeight.Bold)
-                                                        Spacer(modifier = Modifier.height(4.dp))
-                                                        Text(descAndRange.first, fontSize = 11.sp, fontWeight = FontWeight.Normal)
-                                                        Spacer(modifier = Modifier.height(2.dp))
-                                                        Text("Typical Range: ${descAndRange.second}", fontSize = 10.sp, color = AresCyan, fontWeight = FontWeight.SemiBold)
-                                                    }
-                                                }
-                                            },
-                                            state = tooltipState
-                                        ) {
-                                            Text(
-                                                text = displayName,
-                                                fontSize = 12.sp,
-                                                color = AresTextPrimary,
-                                                fontWeight = FontWeight.SemiBold,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.fillMaxWidth().clickable(onClick = {})
-                                            )
-                                        }
-                                    }
-
-                                    // App Value Input Field (Local JSON)
-                                    var appText by remember(appVal) { mutableStateOf(appVal?.toString() ?: "") }
-                                    BasicTextField(
-                                        value = appText,
-                                        onValueChange = { newText ->
-                                            appText = newText
-                                            newText.toDoubleOrNull()?.let { v ->
-                                                viewModel.onIntent(TuningIntent.UpdateAppConstant(constKey, v))
-                                            }
-                                        },
-                                        singleLine = true,
-                                        textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary, fontWeight = FontWeight.Bold),
-                                        cursorBrush = SolidColor(AresCyan),
-                                        modifier = Modifier
-                                            .width(75.dp)
-                                            .height(30.dp)
-                                            .background(AresSurface, RoundedCornerShape(6.dp))
-                                            .border(1.dp, if (isDiff) AresAmber else AresBorder, RoundedCornerShape(6.dp)),
-                                        decorationBox = { innerTextField ->
-                                            Row(
-                                                modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Box(modifier = Modifier.weight(1f)) {
-                                                    if (appText.isEmpty()) {
-                                                        Text("--", fontSize = 11.sp, color = AresTextTertiary)
-                                                    }
-                                                    innerTextField()
-                                                }
-                                            }
-                                        }
-                                    )
-
-                                    // Sync Transfer Controls: [Push ->] [Dot] [<- Pull]
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                        modifier = Modifier.width(50.dp)
-                                    ) {
-                                        // Push App -> Robot
-                                        IconButton(
-                                            onClick = { viewModel.onIntent(TuningIntent.PushToRobot(constKey)) },
-                                            modifier = Modifier.size(20.dp).background(AresCyan.copy(alpha = 0.2f), RoundedCornerShape(4.dp))
-                                        ) {
-                                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Push to Robot", tint = AresCyan, modifier = Modifier.size(12.dp))
-                                        }
-
-                                        // Status dot
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.dp)
-                                                .background(
-                                                    when {
-                                                        isSynced -> AresGreen
-                                                        isDiff -> AresAmber
-                                                        else -> AresTextTertiary
-                                                    },
-                                                    RoundedCornerShape(3.dp)
-                                                )
-                                        )
-
-                                        // Pull Robot -> App
-                                        IconButton(
-                                            onClick = { viewModel.onIntent(TuningIntent.PullFromRobot(constKey)) },
-                                            modifier = Modifier.size(20.dp).background(AresSurface, RoundedCornerShape(4.dp)).border(1.dp, AresBorder, RoundedCornerShape(4.dp))
-                                        ) {
-                                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Pull from Robot", tint = AresTextSecondary, modifier = Modifier.size(12.dp))
-                                        }
-                                    }
-
-                                    // Robot Live Value Display (NT4)
-                                    Box(
-                                        modifier = Modifier
-                                            .width(75.dp)
-                                            .height(30.dp)
-                                            .background(AresSurface, RoundedCornerShape(6.dp))
-                                            .border(1.dp, AresBorder, RoundedCornerShape(6.dp))
-                                            .padding(horizontal = 6.dp),
-                                        contentAlignment = Alignment.CenterStart
-                                    ) {
-                                        Text(
-                                            text = robotVal?.let { String.format("%.4f", it).trimEnd('0').trimEnd('.') } ?: "--",
-                                            fontSize = 11.sp,
-                                            color = if (robotVal != null) AresCyan else AresTextTertiary,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+@Composable
+private fun TuningValueRow(row: ResolvedTuningValue, viewModel: TuningViewModel) {
+    val d = row.declaration
+    var raw by remember(d.key, row.proposedTypedValue) { mutableStateOf(row.proposedTypedValue?.displayValue().orEmpty()) }
+    var rawEdited by remember(d.key) { mutableStateOf(false) }
+    var evidencePath by remember(d.key, row.provenance?.evidencePath) { mutableStateOf(row.provenance?.evidencePath.orEmpty()) }
+    var evidenceHash by remember(d.key, row.provenance?.evidenceSha256) { mutableStateOf(row.provenance?.evidenceSha256.orEmpty()) }
+    val policyText = when (d.applyPolicy) {
+        com.areslib.tuning.TuningApplyPolicy.LIVE_SAFE -> "LIVE-SAFE"
+        com.areslib.tuning.TuningApplyPolicy.DISABLED_ONLY -> "DISABLED ONLY"
+        com.areslib.tuning.TuningApplyPolicy.RESTART_REQUIRED -> "RESTART"
+        com.areslib.tuning.TuningApplyPolicy.REBUILD_REQUIRED -> "REBUILD"
+        com.areslib.tuning.TuningApplyPolicy.CALIBRATION_ONLY -> "CALIBRATION"
+        com.areslib.tuning.TuningApplyPolicy.READ_ONLY_VENDOR -> "READ-ONLY VENDOR"
+    }
+    Column(Modifier.fillMaxWidth().background(AresSurfaceElevated, RoundedCornerShape(8.dp)).border(1.dp, if (row.validationMessage == null) AresBorder else AresError, RoundedCornerShape(8.dp)).padding(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1.4f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(d.displayName, color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    TuningHelp("${d.description} Unit: ${d.unit}. Declared range: ${d.minimum}–${d.maximum}. Owner: ${d.owner().name.lowercase().replace('_', ' ')}. Policy: ${policyText.lowercase()}.")
                 }
+                Text("${d.unit.orEmpty()} · ${d.minimum ?: "unbounded"}–${d.maximum ?: "unbounded"} · owner ${d.owner().name.lowercase().replace('_', ' ')}", color = AresTextSecondary, fontSize = 9.sp)
+                Text(
+                    when {
+                        row.sourceProfileId != null && row.sourceProfileId != viewModel.state.value.selectedProfileId -> "Inherited from ${row.sourceProfileId}"
+                        row.provenance != null -> "Provenance: ${row.provenance.source} — ${row.provenance.note}"
+                        else -> "No source provenance recorded"
+                    },
+                    color = AresTextSecondary, fontSize = 9.sp, maxLines = 2
+                )
+            }
+            TypedValueCell(row.sourceTypedValue, d.unit, "Canonical source value from ${row.sourceProfileId ?: "no profile"}", Modifier.width(86.dp))
+            Column(Modifier.width(86.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                TypedValueCell(row.liveTypedValue, d.unit, "Observed live robot value. This never changes source.", Modifier.fillMaxWidth())
+                TextButton(onClick = { viewModel.onIntent(TuningIntent.PullFromRobot(d.key)) }, enabled = row.liveTypedValue != null && d.applyPolicy != com.areslib.tuning.TuningApplyPolicy.READ_ONLY_VENDOR, contentPadding = PaddingValues(0.dp)) { Text("Propose", fontSize = 9.sp) }
+            }
+            val rawError = rawEdited && when (d.type) {
+                com.areslib.tuning.TuningParameterType.INT -> raw.toIntOrNull() == null
+                com.areslib.tuning.TuningParameterType.DOUBLE -> raw.toDoubleOrNull()?.isFinite() != true
+                else -> false
+            }
+            TypedProposalEditor(row, raw, { raw = it; rawEdited = true }, rawError, viewModel, Modifier.width(106.dp))
+            Column(Modifier.width(116.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(policyText, color = when (d.applyPolicy) { com.areslib.tuning.TuningApplyPolicy.LIVE_SAFE -> AresGreen; com.areslib.tuning.TuningApplyPolicy.READ_ONLY_VENDOR -> AresTextSecondary; else -> AresGold }, fontWeight = FontWeight.Bold, fontSize = 8.sp)
+                OutlinedButton(onClick = { viewModel.onIntent(TuningIntent.PushToRobot(d.key)) }, enabled = row.proposedTypedValue != null && row.validationMessage == null && d.applyPolicy == com.areslib.tuning.TuningApplyPolicy.LIVE_SAFE, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) { Text("Live-test", fontSize = 8.sp) }
+            }
+        }
+        row.validationMessage?.let { Text(it, color = AresError, fontSize = 9.sp) }
+        if (rawEdited && row.proposedTypedValue == null && d.type in setOf(com.areslib.tuning.TuningParameterType.INT, com.areslib.tuning.TuningParameterType.DOUBLE)) {
+            Text("Enter a valid ${if (d.type == com.areslib.tuning.TuningParameterType.INT) "whole" else "finite"} number before live testing or review.", color = AresError, fontSize = 9.sp)
+        }
+        if (row.proposedTypedValue != null && (d.applyPolicy == com.areslib.tuning.TuningApplyPolicy.CALIBRATION_ONLY || row.provenance?.source?.contains("live", true) == true || row.provenance?.source?.contains("autotuner", true) == true)) {
+            Text("Evidence required for promotion", color = AresGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    evidencePath,
+                    { value ->
+                        evidencePath = value
+                        val provenance = row.provenance ?: TuningValueProvenance("Student evidence", "Added in proposal review")
+                        viewModel.onIntent(TuningIntent.SetProposalProvenance(d.key, provenance.source, provenance.note, value.ifBlank { null }, evidenceHash.ifBlank { null }))
+                    },
+                    Modifier.weight(1f).semantics { contentDescription = "Project-relative evidence path for ${d.displayName}" },
+                    label = { Text("Project evidence path") }, singleLine = true
+                )
+                OutlinedTextField(
+                    evidenceHash,
+                    { value ->
+                        evidenceHash = value
+                        val provenance = row.provenance ?: TuningValueProvenance("Student evidence", "Added in proposal review")
+                        viewModel.onIntent(TuningIntent.SetProposalProvenance(d.key, provenance.source, provenance.note, evidencePath.ifBlank { null }, value.ifBlank { null }))
+                    },
+                    Modifier.weight(1f).semantics { contentDescription = "SHA-256 evidence hash for ${d.displayName}" },
+                    label = { Text("Evidence SHA-256") }, singleLine = true
+                )
             }
         }
     }
 }
 
-private fun getCustomCategory(key: String): String {
-    val cleanKey = key.removePrefix("Tuning/")
-    val parts = cleanKey.split("/")
-    if (parts.size > 1) {
-        return when (parts[0]) {
-            "drive" -> when (parts.getOrNull(1)) {
-                "pathTranslationGains" -> "Path Translation PID"
-                "pathRotationGains" -> "Path Rotation PID"
-                "headingGains" -> "Heading Lock PID"
-                "driveFeedforward" -> "Linear Feedforward"
-                "angularFeedforward" -> "Angular Feedforward"
-                "ftc" -> "FTC Drivetrain"
-                else -> "Drivetrain"
+@Composable
+private fun TypedValueCell(value: TuningValue?, unit: String?, accessibility: String, modifier: Modifier) {
+    val display = value?.displayValue()
+    val shownUnit = unit.orEmpty()
+    Text(display?.let { "$it\n$shownUnit" } ?: "—\n$shownUnit", color = if (value == null) AresTextSecondary else AresTextPrimary, fontFamily = FontFamily.Monospace, fontSize = 9.sp, modifier = modifier.semantics { contentDescription = "$accessibility. ${display ?: "Unavailable"} $shownUnit" }, maxLines = 2)
+}
+
+@Composable
+private fun TypedProposalEditor(row: ResolvedTuningValue, raw: String, onRaw: (String) -> Unit, rawError: Boolean, viewModel: TuningViewModel, modifier: Modifier) {
+    val d = row.declaration
+    val enabled = d.applyPolicy != com.areslib.tuning.TuningApplyPolicy.READ_ONLY_VENDOR
+    when (d.type) {
+        com.areslib.tuning.TuningParameterType.BOOLEAN -> Switch(
+            checked = row.proposedTypedValue?.booleanValue ?: row.sourceTypedValue?.booleanValue ?: false,
+            onCheckedChange = { viewModel.onIntent(TuningIntent.UpdateTypedConstant(d.key, TuningValue(booleanValue = it))) },
+            enabled = enabled,
+            modifier = modifier.semantics { contentDescription = "Proposed ${d.displayName}. ${d.description}" }
+        )
+        com.areslib.tuning.TuningParameterType.ENUM -> {
+            var open by remember(d.key) { mutableStateOf(false) }
+            Box(modifier) {
+                OutlinedButton(onClick = { open = true }, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text(row.proposedTypedValue?.textValue ?: row.sourceTypedValue?.textValue ?: "Choose", fontSize = 9.sp) }
+                DropdownMenu(open, { open = false }) { d.enumOptions.forEach { option -> DropdownMenuItem({ Text(option) }, { open = false; viewModel.onIntent(TuningIntent.UpdateTypedConstant(d.key, TuningValue(textValue = option))) }) } }
             }
-            "localization" -> "Odometry & Localization"
-            "vision" -> "Limelight Vision"
-            "driver" -> "Driver Profile"
-            "subsystem" -> "Mechanism Tuning"
-            else -> parts[0].replace(Regex("([a-z])([A-Z]+)"), "$1 $2").replaceFirstChar { it.uppercase() }
         }
+        com.areslib.tuning.TuningParameterType.TEXT,
+        com.areslib.tuning.TuningParameterType.DOUBLE,
+        com.areslib.tuning.TuningParameterType.INT -> OutlinedTextField(
+            raw,
+            { text ->
+                onRaw(text)
+                when (d.type) {
+                    com.areslib.tuning.TuningParameterType.TEXT -> viewModel.onIntent(TuningIntent.UpdateTypedConstant(d.key, TuningValue(textValue = text)))
+                    com.areslib.tuning.TuningParameterType.INT -> text.toIntOrNull()
+                        ?.let { viewModel.onIntent(TuningIntent.UpdateTypedConstant(d.key, TuningValue(intValue = it))) }
+                        ?: viewModel.onIntent(TuningIntent.InvalidateTypedConstant(d.key, "${d.displayName} requires a whole number."))
+                    else -> text.toDoubleOrNull()?.takeIf(Double::isFinite)
+                        ?.let { viewModel.onIntent(TuningIntent.UpdateTypedConstant(d.key, TuningValue(doubleValue = it))) }
+                        ?: viewModel.onIntent(TuningIntent.InvalidateTypedConstant(d.key, "${d.displayName} requires a finite number."))
+                }
+            },
+            modifier.semantics { contentDescription = "Proposed ${d.displayName} in ${d.unit}. ${d.description}. Range ${d.minimum} to ${d.maximum}." },
+            enabled = enabled, singleLine = true, placeholder = { Text("—") }, isError = rawError || row.validationMessage != null
+        )
     }
+}
 
-    // Top-level variables
-    return when {
-        cleanKey == "pinpointXOffsetMm" ||
-        cleanKey == "pinpointYOffsetMm" ||
-        cleanKey == "pinpointEncoderResolution" ||
-        cleanKey == "ticksPerMeter" -> "Pinpoint Odometry"
-
-        cleanKey.startsWith("vision") -> "Limelight Vision"
-
-        cleanKey.startsWith("odomQ") -> "EKF Position Filter"
-
-        else -> "General Drivetrain Constants"
+@Composable
+private fun PromotionReview(review: TuningProposalReview, viewModel: TuningViewModel) {
+    Column(Modifier.fillMaxWidth().background(AresBackground.copy(alpha = .55f), RoundedCornerShape(8.dp)).border(1.dp, if (review.canPromote) AresCyan else AresError, RoundedCornerShape(8.dp)).padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("STRUCTURED PROFILE DIFF · base ${review.baseContentHash.take(12)}", color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+        review.changes.forEach { change -> Text("${change.displayName}: ${change.before?.displayValue() ?: "unset"} → ${change.after.displayValue()} ${change.unit} · ${change.policy.name.lowercase().replace('_', ' ')} · ${change.provenance.source}", color = AresTextPrimary, fontSize = 9.sp, fontFamily = FontFamily.Monospace) }
+        review.errors.forEach { Text("BLOCKED: $it", color = AresError, fontSize = 9.sp) }
+        Text("Confirmation ${review.confirmationToken}", color = AresTextSecondary, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+        Button(onClick = { viewModel.onIntent(TuningIntent.ConfirmPromotion(review.confirmationToken)) }, enabled = review.canPromote, colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent)) { Text("Confirm atomic profile promotion") }
+        Text("A history backup is created first. Promotion writes one .arestuning file and never pushes NT4 or edits source/vendor code.", color = AresTextSecondary, fontSize = 9.sp)
     }
 }
 
-private fun getConstantDescriptionAndRange(key: String): Pair<String, String> {
-    val cleanKey = key.removePrefix("Tuning/")
-    return when (cleanKey) {
-        "trackWidthMeters" -> Pair("Distance between center of left and right wheels.", "0.30 - 0.50 m")
-        "wheelBaseMeters" -> Pair("Distance between center of front and rear wheels.", "0.30 - 0.50 m")
-        "pathTranslationGains/kP" -> Pair("Proportional feedback gain for autonomous path translational errors.", "1.0 - 5.0")
-        "pathTranslationGains/kI" -> Pair("Integral feedback gain for autonomous path translational errors.", "0.0 - 0.1")
-        "pathTranslationGains/kD" -> Pair("Derivative feedback gain for autonomous path translational errors.", "0.01 - 0.1")
-        "pathTranslationGains/kF" -> Pair("Feedforward velocity feedback gain coefficient for translation.", "0.0")
-        "pathRotationGains/kP" -> Pair("Proportional feedback gain for autonomous path rotational heading errors.", "1.0 - 5.0")
-        "pathRotationGains/kI" -> Pair("Integral feedback gain for autonomous path rotational heading errors.", "0.0 - 0.1")
-        "pathRotationGains/kD" -> Pair("Derivative feedback gain for autonomous path rotational heading errors.", "0.01 - 0.1")
-        "pathRotationGains/kF" -> Pair("Feedforward velocity feedback gain coefficient for rotation.", "0.0")
-        "headingGains/kP" -> Pair("Proportional feedback gain to active hold current heading.", "2.0 - 6.0")
-        "headingGains/kI" -> Pair("Integral feedback gain to active hold current heading.", "0.0")
-        "headingGains/kD" -> Pair("Derivative feedback gain to active hold current heading.", "0.1 - 0.5")
-        "headingGains/kF" -> Pair("Feedforward velocity feedback gain coefficient for heading.", "0.0")
-        "headingDeadzoneDeg" -> Pair("Angular deadband before heading corrections are applied.", "0.1 - 1.0 deg")
-        "driveFeedforward/kS" -> Pair("Static friction feedforward voltage offset to overcome friction.", "0.02 - 0.08")
-        "driveFeedforward/kV" -> Pair("Velocity feedforward coefficient (1.0 / max physical speed).", "0.20 - 0.35")
-        "driveFeedforward/kA" -> Pair("Acceleration feedforward coefficient.", "0.0 - 0.05")
-        "driveSlewRateLimit" -> Pair("Maximum rate of velocity change (acceleration limit).", "2.0 - 4.0 m/s^2")
-        "motorGains/kP" -> Pair("Proportional gain for wheel-level closed-loop velocity tracking.", "5.0 - 15.0")
-        "motorGains/kI" -> Pair("Integral gain for wheel-level closed-loop velocity tracking.", "0.0 - 5.0")
-        "motorGains/kD" -> Pair("Derivative gain for wheel-level closed-loop velocity tracking.", "0.0")
-        "motorGains/kF" -> Pair("Feedforward gain for wheel-level closed-loop velocity tracking.", "0.0")
-        "visionStdDevsX" -> Pair("Expected measurement noise standard deviation along X-axis.", "0.02 - 0.15 m")
-        "visionStdDevsY" -> Pair("Expected measurement noise standard deviation along Y-axis.", "0.02 - 0.15 m")
-        "visionStdDevsHeading" -> Pair("Expected measurement noise standard deviation for heading rotation.", "0.05 - 0.20 rad")
-        "visionMaxDistanceMeters" -> Pair("Cutoff distance beyond which AprilTag decodes are discarded.", "4.0 - 7.0 m")
-        "visionMaxAmbiguity" -> Pair("Maximum pose ambiguity limit for accepting vision tag decodes.", "0.1 - 0.3")
-        "visionMahalanobisThreshold" -> Pair("Maximum standard deviations variance mismatch before EKF rejection.", "6.0 - 15.0")
-        "odomQx" -> Pair("EKF process noise covariance diagonal parameter for X-axis.", "0.001 - 0.05")
-        "odomQy" -> Pair("EKF process noise covariance diagonal parameter for Y-axis.", "0.001 - 0.05")
-        "odomQtheta" -> Pair("EKF process noise covariance diagonal parameter for heading.", "0.001 - 0.05")
-        "pinpointXOffsetMm" -> Pair("Mounting distance offset of the Pinpoint computer along robot X-axis.", "-200.0 - 200.0 mm")
-        "pinpointYOffsetMm" -> Pair("Mounting distance offset of the Pinpoint computer along robot Y-axis.", "-200.0 - 200.0 mm")
-        "pinpointEncoderResolution" -> Pair("Resolution calibration factor of the Pinpoint encoders.", "20.0 - 21.0 ticks/mm")
-        "ticksPerMeter" -> Pair("Odometry encoder ticks per meter of linear travel.", "1000.0 - 4000.0")
-        "driverDeadbandExponent" -> Pair("Input response curve scaling exponent for joysticks.", "1.0 - 2.0 (1.0 = linear)")
-        "driverSlewRateLimit" -> Pair("Slew rate acceleration limit mapping on driver input command.", "2.0 - 10.0")
-        "stolenRobotRejectionThreshold" -> Pair("Consecutive vision rejections before performing a reseed/snap.", "5 - 20 frames")
-        "stolenRobotVelocityThreshold" -> Pair("Robot velocity threshold below which the robot is considered stationary.", "0.01 - 0.10 m/s")
-        "pathVelocityScale" -> Pair("Scale factor applied to physical max speed limit during pathfinding.", "0.50 - 1.00 (0.85 = default)")
-        "pathAccelerationLimit" -> Pair("Maximum acceleration limit allowed during pathfinding.", "1.5 - 4.0 m/s^2")
-        "visionAlignTargetDistance" -> Pair("Target standoff distance to AprilTag center during auto alignment.", "1.5 - 3.5 m")
-        "visionAlignMaxHeadingChangeRad" -> Pair("Maximum allowed heading change per frame to reject PnP flips.", "0.10 - 0.50 rad")
-        "visionAlignAlphaTranslation" -> Pair("Low-pass filtering factor for vision-based translation tracking.", "0.1 - 0.8 (lower = smoother)")
-        "visionAlignAlphaHeading" -> Pair("Low-pass filtering factor for vision-based heading tracking.", "0.1 - 0.8")
-        "visionAlignKpTranslation" -> Pair("Proportional tracking gain for vision-assisted alignment translation.", "0.5 - 2.0")
-        "visionAlignKpRotation" -> Pair("Proportional tracking gain for vision-assisted alignment rotation.", "0.5 - 2.5")
-        "visionAlignKdRotation" -> Pair("Derivative tracking gain for vision-assisted alignment rotation damping.", "0.1 - 0.8")
-        "visionAlignKsRotational" -> Pair("Rotational scrubbing static friction feedforward offset.", "0.02 - 0.12")
-        "visionAlignTranslationDeadband" -> Pair("Translational deadband tolerance before alignment corrections end.", "0.01 - 0.08 m")
-        "visionAlignHeadingErrorDeadband" -> Pair("Rotational error deadband tolerance before alignment corrections end.", "0.01 - 0.05 rad")
-        "visionAlignClampTranslationX" -> Pair("Maximum translational X speed override command.", "0.2 - 0.8")
-        "visionAlignClampTranslationY" -> Pair("Maximum translational Y speed override command.", "0.2 - 0.8")
-        "visionAlignClampRotation" -> Pair("Maximum rotational speed override command.", "0.3 - 0.8")
-        "visionAlignSearchFirstSweepMs" -> Pair("First sweep duration when searching for lost AprilTag.", "500 - 2000 ms")
-        "visionAlignSearchSecondSweepMs" -> Pair("Second sweep duration (opposite direction) when searching.", "1000 - 4000 ms")
-        "visionAlignSearchSpeed" -> Pair("Rotational sweep velocity when searching for lost AprilTag.", "0.3 - 1.0")
-        "telemetryRateDivisor" -> Pair("Network tables telemetry streaming frame rate divisor.", "1 - 10 (1 = full speed, 3 = default)")
-        "motorCurrentPollingIntervalMs" -> Pair("Background motor current polling sleep interval duration.", "20 - 150 ms")
-        "intakeNominalVoltage" -> Pair("Nominal voltage applied to intake motors.", "8.0 - 12.0 V")
-        else -> Pair("No description available.", "Unknown")
+@Composable private fun Header(text: String, modifier: Modifier) { Text(text.uppercase(), color = AresTextSecondary, fontWeight = FontWeight.Bold, fontSize = 8.sp, modifier = modifier) }
+@Composable private fun Banner(text: String, color: androidx.compose.ui.graphics.Color) { Text(text, color = color, fontSize = 10.sp, modifier = Modifier.fillMaxWidth().background(color.copy(alpha = .08f), RoundedCornerShape(5.dp)).padding(7.dp)) }
+
+@Composable
+private fun TuningHelp(help: String) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }, Modifier.size(26.dp).semantics { contentDescription = "Help: $help" }) { Icon(Icons.Default.HelpOutline, "Show tuning field help", tint = AresTextSecondary, modifier = Modifier.size(14.dp)) }
+        DropdownMenu(open, { open = false }) { Text(help, color = AresTextPrimary, fontSize = 10.sp, modifier = Modifier.widthIn(max = 330.dp).padding(12.dp)) }
     }
 }
+
+private fun format(value: Double): String = "%.5f".format(value).trimEnd('0').trimEnd('.')

@@ -56,6 +56,32 @@ class SubsystemGeneratorViewModelTest {
     }
 
     @Test
+    fun `hand-authored subsystem can declare reorder and delete tuning metadata without generating source`() {
+        val root = Files.createTempDirectory("ares-hand-authored-tuning").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.registerHandAuthoredSubsystem()
+
+        viewModel.addTuningParameter()
+        val first = viewModel.state.value.draft!!.document.tuningParameters.single()
+        viewModel.addTuningParameter()
+        val second = viewModel.state.value.draft!!.document.tuningParameters.last()
+        viewModel.moveTuningParameter(second.uid, -1)
+
+        var state = viewModel.state.value
+        assertEquals(SubsystemBuilderStage.PURPOSE, state.activeStage)
+        assertEquals(listOf(second.uid, first.uid), state.draft!!.document.tuningParameters.map { it.uid })
+        assertTrue(state.previewFiles.isEmpty(), "Tuning metadata must not create hand-authored Kotlin starters")
+
+        viewModel.navigateToProblem("tuningParameters[0].key")
+        assertEquals(SubsystemBuilderStage.TUNING, viewModel.state.value.activeStage)
+        assertEquals(second.uid, viewModel.state.value.selectedTuningParameterUid)
+        viewModel.removeTuningParameter(second.uid)
+        state = viewModel.state.value
+        assertEquals(listOf(first.uid), state.draft!!.document.tuningParameters.map { it.uid })
+        viewModel.close()
+    }
+
+    @Test
     fun `guided builder stages advance deterministically and remain directly selectable`() {
         val root = Files.createTempDirectory("ares-subsystem-stages").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
@@ -354,10 +380,14 @@ class SubsystemGeneratorViewModelTest {
                     implementation = current.implementation.copy(
                         ownership = com.areslib.subsystem.SubsystemSourceOwnership.USER_OWNED,
                     ),
+                    tuningParameters = current.tuningParameters.map {
+                        it.copy(uid = "untrusted.parameter", key = "untrusted.parameter", componentUid = "untrusted.owner")
+                    },
                 ),
             )
         }
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC, designAssistant = assistant)
+        viewModel.addTuningParameter()
         val before = viewModel.state.value.draft!!.document
 
         viewModel.requestAiProposal("Add a safe reversed follower motor")
@@ -368,6 +398,9 @@ class SubsystemGeneratorViewModelTest {
         assertTrue(review!!.canApply)
         assertEquals(before.uid, review.proposal.candidate.uid)
         assertEquals(before.implementation, review.proposal.candidate.implementation)
+        assertEquals(before.tuningParameters.single().uid, review.proposal.candidate.tuningParameters.single().uid)
+        assertEquals(before.tuningParameters.single().key, review.proposal.candidate.tuningParameters.single().key)
+        assertEquals(before.tuningParameters.single().componentUid, review.proposal.candidate.tuningParameters.single().componentUid)
         assertTrue(review.diff.any { it.kind == SubsystemDiffLineKind.ADDED })
         assertEquals(before, requestedBase)
         assertEquals(before, viewModel.state.value.draft!!.document, "Review must not mutate the form")

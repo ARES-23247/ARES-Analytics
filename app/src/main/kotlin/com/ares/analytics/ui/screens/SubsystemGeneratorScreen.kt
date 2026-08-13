@@ -81,6 +81,7 @@ import com.ares.analytics.viewmodel.SubsystemDiffLineKind
 import com.ares.analytics.viewmodel.SubsystemFileChange
 import com.ares.analytics.viewmodel.SubsystemPreviewFile
 import com.ares.analytics.viewmodel.SubsystemProblemSeverity
+import com.ares.analytics.viewmodel.SubsystemTuningAuthoring
 import com.ares.analytics.viewmodel.subsystemTemplateOptions
 import com.areslib.codegen.GeneratedSubsystemSourceSet
 import com.areslib.codegen.SubsystemArtifactGroup
@@ -106,6 +107,10 @@ import com.areslib.subsystem.SubsystemTeachingLevel
 import com.areslib.subsystem.SubsystemValueType
 import com.areslib.subsystem.compatibleMeasurementSources
 import com.areslib.subsystem.valueType
+import com.areslib.tuning.TuningApplyPolicy
+import com.areslib.tuning.TuningParameterDeclaration
+import com.areslib.tuning.TuningParameterType
+import com.areslib.tuning.TuningValue
 
 /** Visual editor for project-backed subsystem DSL documents and their generated Kotlin. */
 @Composable
@@ -356,6 +361,7 @@ private fun StageContent(state: SubsystemGeneratorState, viewModel: SubsystemGen
         }
         SubsystemBuilderStage.HARDWARE -> HardwareStage(state, viewModel)
         SubsystemBuilderStage.STATE_AND_BEHAVIOR -> BehaviorStage(state, viewModel)
+        SubsystemBuilderStage.TUNING -> TuningStage(state, viewModel)
         SubsystemBuilderStage.SAFETY -> {
             SafetyInspector(state, viewModel)
             ConceptCard(
@@ -374,6 +380,204 @@ private fun StageContent(state: SubsystemGeneratorState, viewModel: SubsystemGen
             )
         }
     }
+}
+
+@Composable
+private fun TuningStage(state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    val document = state.draft?.document ?: return
+    val tuningProblems = state.problems.filter { it.path.startsWith("tuningParameters") }
+    if (tuningProblems.isNotEmpty()) {
+        EditorCard("Fix tuning details", Icons.Default.Warning) {
+            tuningProblems.forEach { problem ->
+                OutlinedButton(
+                    onClick = { viewModel.navigateToProblem(problem.path) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "${if (problem.severity == SubsystemProblemSeverity.ERROR) "Error" else "Warning"}: ${problem.message}",
+                        color = if (problem.severity == SubsystemProblemSeverity.ERROR) AresError else AresGold,
+                        fontSize = 11.sp,
+                    )
+                }
+            }
+        }
+    }
+    EditorCard("Typed tuning parameters", Icons.Default.Settings) {
+        Text(
+            "A declaration explains what a value means and when it may change. Named robot profiles own the values; this subsystem owns their types and safety policy.",
+            color = AresTextSecondary,
+            fontSize = 12.sp,
+        )
+        if (document.tuningParameters.isEmpty()) {
+            Text(
+                "No tunable values are declared. That is valid—do not expose constants that students should not change.",
+                color = AresTextSecondary,
+                fontSize = 12.sp,
+            )
+        }
+        document.tuningParameters.forEach { declaration ->
+            SelectableRow(
+                title = declaration.displayName,
+                subtitle = "${declaration.type.name.lowercase()} · ${declaration.applyPolicy.name.replace('_', ' ').lowercase()} · ${declaration.componentUid}",
+                selected = state.selectedTuningParameterUid == declaration.uid,
+                onClick = { viewModel.selectTuningParameter(declaration.uid) },
+            )
+        }
+        OutlinedButton(onClick = viewModel::addTuningParameter, modifier = Modifier.fillMaxWidth()) {
+            Text("+ Add typed parameter")
+        }
+    }
+    document.tuningParameters.firstOrNull { it.uid == state.selectedTuningParameterUid }?.let { declaration ->
+        TuningParameterInspector(document, declaration, viewModel)
+    }
+    TuningPresetCard(document, viewModel)
+    ConceptCard(
+        "Profiles own values",
+        "This form declares meaning, type, bounds, and apply policy. Robot-owned .arestuning profiles choose canonical values, while local experiments remain non-authoritative.",
+    )
+}
+
+@Composable
+private fun TuningPresetCard(document: com.areslib.subsystem.SubsystemDocument, viewModel: SubsystemGeneratorViewModel) {
+    val options = document.controlLoops.flatMap { loop ->
+        SubsystemTuningAuthoring.availablePresets(loop).map { loop to it }
+    }
+    EditorCard("Optional safe presets", Icons.Default.Add) {
+        Text(
+            "Presets copy only gains already present in a compatible controller. They never add a control mode, guess units, or force a parameter into the subsystem.",
+            color = AresTextSecondary,
+            fontSize = 12.sp,
+        )
+        if (options.isEmpty()) {
+            Text("No PID or feedforward controller is configured, so there are no truthful presets to offer.", color = AresTextSecondary, fontSize = 12.sp)
+        }
+        options.forEach { (loop, preset) ->
+            Column(
+                Modifier.fillMaxWidth().background(AresSurface, RoundedCornerShape(5.dp)).padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text("${loop.displayName}: ${preset.displayName}", color = AresTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                Text(preset.explanation, color = AresTextSecondary, fontSize = 11.sp)
+                OutlinedButton(onClick = { viewModel.applyTuningPreset(loop.uid, preset) }) {
+                    Text("Add ${preset.displayName}")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TuningParameterInspector(
+    document: com.areslib.subsystem.SubsystemDocument,
+    declaration: TuningParameterDeclaration,
+    viewModel: SubsystemGeneratorViewModel,
+) {
+    val owners = listOf(document.uid) + document.hardware.map { it.uid } + document.controlLoops.map { it.uid }
+    val index = document.tuningParameters.indexOfFirst { it.uid == declaration.uid }
+    EditorCard("Parameter details", Icons.Default.Edit) {
+        StableIdLabel(
+            "Parameter UID",
+            declaration.uid,
+            "Permanent identity used by profiles and runtime transport. Reordering or renaming the label does not change it.",
+        )
+        TextInput("Parameter key", declaration.key) { value ->
+            viewModel.updateTuningParameter(declaration.uid) { it.copy(key = value) }
+        }
+        DropdownSelector("Owning component", declaration.componentUid, owners) { owner ->
+            viewModel.updateTuningParameter(declaration.uid) { it.copy(componentUid = owner) }
+        }
+        TextInput("Display name", declaration.displayName) { value ->
+            viewModel.updateTuningParameter(declaration.uid) { it.copy(displayName = value) }
+        }
+        TextInput("What this parameter changes", declaration.description, singleLine = false) { value ->
+            viewModel.updateTuningParameter(declaration.uid) { it.copy(description = value) }
+        }
+        EnumSelector("Parameter type", declaration.type, TuningParameterType.entries) {
+            viewModel.changeTuningParameterType(declaration.uid, it)
+        }
+        if (declaration.type == TuningParameterType.DOUBLE || declaration.type == TuningParameterType.INT) {
+            TextInput("Unit (optional)", declaration.unit.orEmpty()) { raw ->
+                viewModel.updateTuningParameter(declaration.uid) { it.copy(unit = raw.trim().ifEmpty { null }) }
+            }
+            NullableDoubleInput("Minimum (optional)", declaration.minimum) { value ->
+                viewModel.updateTuningParameter(declaration.uid) { it.copy(minimum = value) }
+            }
+            NullableDoubleInput("Maximum (optional)", declaration.maximum) { value ->
+                viewModel.updateTuningParameter(declaration.uid) { it.copy(maximum = value) }
+            }
+        }
+        if (declaration.type == TuningParameterType.ENUM) {
+            TextInput("Allowed options (comma separated)", declaration.enumOptions.joinToString(", ")) { raw ->
+                val options = SubsystemTuningAuthoring.parseEnumOptions(raw)
+                viewModel.updateTuningParameter(declaration.uid) { current ->
+                    current.copy(
+                        enumOptions = options,
+                        defaultValue = current.defaultValue.takeIf { it.textValue in options }
+                            ?: TuningValue(textValue = options.firstOrNull().orEmpty()),
+                    )
+                }
+            }
+        }
+        TuningDefaultEditor(declaration) { value ->
+            viewModel.updateTuningParameter(declaration.uid) { it.copy(defaultValue = value) }
+        }
+        EnumSelector("Apply policy", declaration.applyPolicy, TuningApplyPolicy.entries) {
+            viewModel.updateTuningParameter(declaration.uid) { current -> current.copy(applyPolicy = it) }
+        }
+        Text(tuningPolicyExplanation(declaration.applyPolicy), color = AresTextSecondary, fontSize = 11.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(
+                onClick = { viewModel.moveTuningParameter(declaration.uid, -1) },
+                enabled = index > 0,
+                modifier = Modifier.weight(1f),
+            ) { Text("Move up") }
+            OutlinedButton(
+                onClick = { viewModel.moveTuningParameter(declaration.uid, 1) },
+                enabled = index in 0 until document.tuningParameters.lastIndex,
+                modifier = Modifier.weight(1f),
+            ) { Text("Move down") }
+        }
+        DeleteButton("Delete parameter") { viewModel.removeTuningParameter(declaration.uid) }
+    }
+}
+
+@Composable
+private fun TuningDefaultEditor(declaration: TuningParameterDeclaration, onChange: (TuningValue) -> Unit) {
+    when (declaration.type) {
+        TuningParameterType.DOUBLE -> DoubleInput("Default value", declaration.defaultValue.doubleValue ?: 0.0) {
+            onChange(TuningValue(doubleValue = it))
+        }
+        TuningParameterType.INT -> IntInput("Default value", declaration.defaultValue.intValue ?: 0) {
+            onChange(TuningValue(intValue = it))
+        }
+        TuningParameterType.BOOLEAN -> ToggleRow("Default value", declaration.defaultValue.booleanValue == true) {
+            onChange(TuningValue(booleanValue = it))
+        }
+        TuningParameterType.TEXT -> TextInput("Default value", declaration.defaultValue.textValue.orEmpty()) {
+            onChange(TuningValue(textValue = it))
+        }
+        TuningParameterType.ENUM -> {
+            val options = declaration.enumOptions
+            if (options.isEmpty()) {
+                Text("Add at least one allowed option before choosing a default.", color = AresError, fontSize = 11.sp)
+            } else {
+                EnumStringSelector(
+                    "Default option",
+                    declaration.defaultValue.textValue?.takeIf { it in options } ?: options.first(),
+                    options,
+                ) { onChange(TuningValue(textValue = it)) }
+            }
+        }
+    }
+}
+
+private fun tuningPolicyExplanation(policy: TuningApplyPolicy): String = when (policy) {
+    TuningApplyPolicy.LIVE_SAFE -> "May apply only while an explicit live-tuning session is armed. Use only for values proven safe to change while enabled."
+    TuningApplyPolicy.DISABLED_ONLY -> "May apply only while the tuning session is armed and the robot is disabled. Recommended for ordinary controller gains."
+    TuningApplyPolicy.RESTART_REQUIRED -> "The running robot rejects this change; restart before the new value can become active."
+    TuningApplyPolicy.REBUILD_REQUIRED -> "The running robot rejects this change; regenerate and rebuild the project."
+    TuningApplyPolicy.CALIBRATION_ONLY -> "May apply only inside an explicitly authorized calibration session for this parameter."
+    TuningApplyPolicy.READ_ONLY_VENDOR -> "Shown for understanding but never changed by ARES; the vendor-owned source remains authoritative."
 }
 
 @Composable
@@ -1808,6 +2012,8 @@ private fun subsystemConceptExplanation(title: String): String? = when {
         "Immutable state separates observed measurements from requested targets. Hardware scaffolds its natural values explicitly."
     title.contains("controller", true) || title.contains("control", true) ->
         "Feedback corrects measured error; feedforward predicts the effort required for requested motion."
+    title.contains("tuning", true) || title.contains("parameter", true) || title.contains("preset", true) ->
+        "Typed declarations explain what may change, who owns it, valid values, and when a robot may safely apply a request."
     title.contains("safety", true) ->
         "Safety gates every non-neutral output using freshness, health, homing, current validity, and fault recovery."
     title.contains("simulation", true) || title.contains("verification", true) ->
@@ -1824,6 +2030,7 @@ private fun subsystemConceptExplanation(title: String): String? = when {
 private fun subsystemConceptAnchor(title: String): String = when {
     title.contains("safety", true) -> "homing"
     title.contains("controller", true) || title.contains("control", true) -> "feedforward"
+    title.contains("tuning", true) || title.contains("parameter", true) || title.contains("preset", true) -> "typed-tuning-parameters"
     title.contains("hardware", true) -> "leader-and-follower-actuators"
     else -> "builder-workflow"
 }
@@ -1852,6 +2059,13 @@ private fun subsystemFieldHelp(label: String): Pair<String, String> {
             "A human-readable label shown to students. Renaming it does not change the stable code connection." to "builder-workflow"
         "code id" in normalized || "kotlin type" in normalized ->
             "An identifier used by generated Kotlin and saved references. Advanced renames update known references together; use letters and numbers without spaces." to "builder-workflow"
+        "parameter key" in normalized ->
+            "A project-wide dotted key used by generated typed access. Keep it stable after profiles begin referring to this parameter." to "typed-tuning-parameters"
+        "owning component" in normalized ->
+            "The subsystem, hardware device, or controller rule that consumes this value. Ownership must name one stable UID declared in this subsystem." to "typed-tuning-parameters"
+        "parameter type" in normalized || "apply policy" in normalized || "allowed options" in normalized ||
+            "minimum (optional)" in normalized || "maximum (optional)" in normalized || "default option" in normalized ->
+            "The type and bounds validate every profile and runtime request. Apply policy decides whether a live session, disabled robot, restart, rebuild, calibration, or vendor tool owns activation." to "typed-tuning-parameters"
         "hardware-map" in normalized ->
             "The exact FTC Robot Controller configuration name for this device. It must match the name configured on the Control Hub." to "io-contract-and-adapters"
         normalized == "can id" || normalized == "can bus" ->

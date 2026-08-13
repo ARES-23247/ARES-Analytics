@@ -1,0 +1,449 @@
+package com.ares.analytics.ui.screens
+
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.ares.analytics.service.drivebase.*
+import com.ares.analytics.ui.theme.*
+import com.ares.analytics.viewmodel.drivebase.*
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+
+@Composable
+fun DrivebaseBuilderScreen(viewModel: DrivebaseBuilderViewModel) {
+    val state by viewModel.state.collectAsState()
+    if (state.pendingDiscardAction != null) {
+        AlertDialog(
+            onDismissRequest = { viewModel.onIntent(DrivebaseBuilderIntent.CancelDiscard) },
+            title = { Text("Discard unsaved drivebase changes?") },
+            text = { Text("This replaces the current draft. Saved project files are not changed until you review and confirm a save.") },
+            confirmButton = { Button({ viewModel.onIntent(DrivebaseBuilderIntent.ConfirmDiscard) }) { Text("Discard draft") } },
+            dismissButton = { OutlinedButton({ viewModel.onIntent(DrivebaseBuilderIntent.CancelDiscard) }) { Text("Keep editing") } },
+        )
+    }
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Column {
+                Text("Drivebase Builder", color = AresTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("Describe how the robot moves, localizes, stops safely, and is calibrated.", color = AresTextSecondary, fontSize = 12.sp)
+                Text("Drafts never command hardware. Saving requires a content-hash-bound reviewed diff and creates a history backup.", color = AresGold, fontSize = 11.sp)
+                Text("PROJECT · ${state.projectPath}", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                Text("CANONICAL · .ares/drivetrains/${state.draft.documentId}.aresdrivetrain", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                Text("GENERATED · robot module build/generated/ares/drivebase (never hand-edit)", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(state.advanced, { viewModel.onIntent(DrivebaseBuilderIntent.SetAdvanced(it)) }, enabled = !state.loading)
+                    Text(" Advanced", color = AresTextPrimary, fontSize = 11.sp)
+                }
+                OutlinedButton(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.Reload) }, enabled = !state.loading) {
+                    Icon(Icons.Default.Refresh, "Reload drivebase document", Modifier.size(16.dp)); Text(" Reload")
+                }
+                Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) }, enabled = !state.loading && state.dirty, colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) {
+                    Text("Review changes")
+                }
+            }
+        }
+        state.error?.let { StatusBanner(it, AresError) }
+        if (state.status.isNotBlank()) StatusBanner(state.status, AresGreen)
+        if (state.loading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator(); Text("Loading the project drivebase before editing…", color = AresTextSecondary) }
+        } else Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            StepRail(state.step, viewModel, Modifier.width(190.dp).fillMaxHeight())
+            Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                when (state.step) {
+                    DrivebaseBuilderStep.DRIVE_TYPE -> DriveTypeStep(state, viewModel)
+                    DrivebaseBuilderStep.HARDWARE -> HardwareStep(state, viewModel)
+                    DrivebaseBuilderStep.GEOMETRY -> GeometryStep(state, viewModel)
+                    DrivebaseBuilderStep.LOCALIZATION -> LocalizationStep(state, viewModel)
+                    DrivebaseBuilderStep.SAFETY -> SafetyStep(state, viewModel)
+                    DrivebaseBuilderStep.LABS -> LabsStep(state, viewModel)
+                    DrivebaseBuilderStep.REVIEW -> ReviewStep(state, viewModel)
+                }
+            }
+            IssueRail(state, Modifier.width(260.dp).fillMaxHeight())
+        }
+    }
+}
+
+@Composable
+private fun StepRail(step: DrivebaseBuilderStep, viewModel: DrivebaseBuilderViewModel, modifier: Modifier) {
+    Column(modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("BUILD STEPS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        DrivebaseBuilderStep.entries.forEachIndexed { index, candidate ->
+            val label = when (candidate) {
+                DrivebaseBuilderStep.DRIVE_TYPE -> "Choose drive type"
+                DrivebaseBuilderStep.HARDWARE -> "Name hardware"
+                DrivebaseBuilderStep.GEOMETRY -> "Measure geometry"
+                DrivebaseBuilderStep.LOCALIZATION -> "Choose localization"
+                DrivebaseBuilderStep.SAFETY -> "Review safety"
+                DrivebaseBuilderStep.LABS -> "Try simulation labs"
+                DrivebaseBuilderStep.REVIEW -> "Review & save"
+            }
+            Text(
+                "${index + 1}. $label",
+                color = if (step == candidate) AresOnAccent else AresTextPrimary,
+                fontWeight = if (step == candidate) FontWeight.Bold else FontWeight.Normal,
+                fontSize = 11.sp,
+                modifier = Modifier.fillMaxWidth()
+                    .background(if (step == candidate) AresCyan else Color.Transparent, RoundedCornerShape(6.dp))
+                    .clickable { viewModel.onIntent(DrivebaseBuilderIntent.SelectStep(candidate)) }
+                    .padding(9.dp)
+                    .semantics { contentDescription = "Step ${index + 1}: $label" }
+            )
+        }
+    }
+}
+
+@Composable
+private fun DriveTypeStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+    SectionHeading("1 · Choose how the robot moves", "You can change this later; ARES will rebuild the editable draft and show the resulting checks.")
+    val cards = listOf(
+        Triple(DrivebaseKind.FTC_MECANUM, "FTC mecanum", "Four angled rollers allow forward, sideways, and turning motion."),
+        Triple(DrivebaseKind.FRC_CTRE_SWERVE, "FRC CTRE swerve", "Four independently steering modules; supports read-only TunerConstants import."),
+        Triple(DrivebaseKind.DIFFERENTIAL, "Differential", "Left and right wheel groups drive like a tank; no sideways motion."),
+        Triple(DrivebaseKind.CUSTOM, "Advanced/custom", "Start with a safe example motor and gyro, then add, remove, and classify team-maintained hardware explicitly.")
+    )
+    cards.chunked(2).forEach { row ->
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            row.forEach { (kind, title, explanation) ->
+                Column(
+                    Modifier.weight(1f).background(if (state.draft.kind == kind) AresCyan.copy(alpha = .14f) else AresSurfaceElevated, RoundedCornerShape(10.dp))
+                        .border(2.dp, if (state.draft.kind == kind) AresCyan else AresBorder, RoundedCornerShape(10.dp))
+                        .clickable { viewModel.onIntent(DrivebaseBuilderIntent.SelectKind(kind)) }.padding(14.dp)
+                        .semantics { contentDescription = "$title. $explanation" },
+                    verticalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Text(title, color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    Text(explanation, color = AresTextSecondary, fontSize = 11.sp)
+                    Text(if (state.draft.kind == kind) "SELECTED" else "Choose this drive", color = if (state.draft.kind == kind) AresCyan else AresTextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (row.size == 1) Spacer(Modifier.weight(1f))
+        }
+    }
+    if (state.draft.kind == DrivebaseKind.FRC_CTRE_SWERVE) CtreImportCard(state, viewModel)
+}
+
+@Composable
+private fun CtreImportCard(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+    Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        FieldHeading("Optional CTRE TunerConstants import", "ARES reads a snapshot of vendor-generated constants for review. It never edits, formats, or overwrites TunerConstants.java.")
+        OutlinedTextField(state.importPath, { viewModel.onIntent(DrivebaseBuilderIntent.SetImportPath(it)) }, Modifier.fillMaxWidth(), label = { Text("TunerConstants.java path") }, singleLine = true)
+        Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ImportCtre) }, enabled = state.importPath.isNotBlank()) { Text("Import read-only snapshot") }
+        Text("Import support fails closed when typed units, module positions, CAN bus, IDs, or inversion cannot be recognized. Review every imported field.", color = AresGold, fontSize = 10.sp)
+        state.importWarnings.forEach { Text("• $it", color = AresGold, fontSize = 10.sp) }
+    }
+}
+
+@Composable
+private fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+    SectionHeading("2 · Identify hardware", "Select a device on the top-down chassis, then enter the name or CAN information used by robot code.")
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        ChassisDiagram(state, viewModel, Modifier.weight(1f).height(380.dp))
+        val selected = state.draft.hardware.firstOrNull { it.id == state.selectedHardwareId } ?: state.draft.hardware.firstOrNull()
+        Column(Modifier.weight(1f).driveCard(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            if (selected == null) Text("Choose a drive type with hardware, or use Advanced/custom authoring.", color = AresTextSecondary)
+            else HardwareEditor(
+                selected, state.draft.hardware, state.advanced || state.draft.kind in setOf(DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM),
+                { viewModel.onIntent(DrivebaseBuilderIntent.UpdateHardware(it)) },
+                { viewModel.onIntent(DrivebaseBuilderIntent.RemoveHardware(selected.id)) },
+            )
+            if (state.advanced || state.draft.kind in setOf(DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM)) {
+                var addMenu by remember { mutableStateOf(false) }
+                Box {
+                    OutlinedButton({ addMenu = true }, Modifier.fillMaxWidth()) { Text("+ Add motor, sensor, or follower") }
+                    DropdownMenu(addMenu, { addMenu = false }) {
+                        DriveHardwareRole.entries.forEach { role ->
+                            DropdownMenuItem({ Text(role.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)) }, {
+                                addMenu = false
+                                viewModel.onIntent(DrivebaseBuilderIntent.AddHardware(role))
+                            })
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Text("Direction is always labeled in text: NORMAL or INVERTED. Color is only supplemental.", color = AresTextSecondary, fontSize = 10.sp)
+}
+
+@Composable
+private fun ChassisDiagram(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel, modifier: Modifier) {
+    Column(modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        FieldHeading("Top-down chassis", "The arrow points toward the robot front. Selectable hardware is listed below for keyboard users.")
+        Canvas(Modifier.fillMaxWidth().weight(1f)) {
+            val left = size.width * .2f; val right = size.width * .8f; val top = size.height * .17f; val bottom = size.height * .83f
+            drawRoundRect(AresBorder, Offset(left, top), androidx.compose.ui.geometry.Size(right - left, bottom - top), style = Stroke(3f))
+            drawLine(AresCyan, Offset(size.width / 2f, top + 10), Offset(size.width / 2f, top - 30), 5f)
+            drawLine(AresCyan, Offset(size.width / 2f, top - 30), Offset(size.width / 2f - 12, top - 12), 5f)
+            drawLine(AresCyan, Offset(size.width / 2f, top - 30), Offset(size.width / 2f + 12, top - 12), 5f)
+            val positions = listOf(Offset(left, top), Offset(right, top), Offset(left, bottom), Offset(right, bottom))
+            positions.forEachIndexed { index, position ->
+                val device = state.draft.hardware.getOrNull(index)
+                drawCircle(if (device?.id == state.selectedHardwareId) AresCyan else AresTextSecondary, 16f, position)
+            }
+        }
+        state.draft.hardware.forEach { device ->
+            OutlinedButton(
+                onClick = { viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(device.id)) },
+                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Select ${device.displayName}, ${if (device.inverted) "inverted" else "normal direction"}" }
+            ) {
+                Text("${device.displayName} · ${if (device.inverted) "INVERTED" else "NORMAL"}", Modifier.weight(1f), maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun HardwareEditor(
+    device: DriveHardwareDeclaration,
+    hardware: List<DriveHardwareDeclaration>,
+    advanced: Boolean,
+    onUpdate: (DriveHardwareDeclaration) -> Unit,
+    onRemove: () -> Unit,
+) {
+    Text(device.displayName, color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+    Text(device.role.name.lowercase().replace('_', ' '), color = AresTextSecondary, fontSize = 10.sp)
+    HelpedTextField("Display name", device.displayName, "A student-facing label. It does not change the stable device ID.") { onUpdate(device.copy(displayName = it)) }
+    HelpedTextField("Hardware-map name", device.hardwareName, "The exact configured name used by FTC or a named FRC device.") { onUpdate(device.copy(hardwareName = it)) }
+    if (advanced) {
+        var roleMenu by remember(device.id) { mutableStateOf(false) }
+        Box {
+            OutlinedButton({ roleMenu = true }, Modifier.fillMaxWidth()) { Text("Role · ${device.role.name.lowercase().replace('_', ' ')}") }
+            DropdownMenu(roleMenu, { roleMenu = false }) {
+                DriveHardwareRole.entries.forEach { role -> DropdownMenuItem({ Text(role.name.lowercase().replace('_', ' ')) }, {
+                    roleMenu = false
+                    onUpdate(device.copy(role = role, leaderId = if (role in setOf(DriveHardwareRole.LEFT_FOLLOWER, DriveHardwareRole.RIGHT_FOLLOWER)) device.leaderId else null))
+                }) }
+            }
+        }
+    }
+    if (device.role in setOf(DriveHardwareRole.LEFT_FOLLOWER, DriveHardwareRole.RIGHT_FOLLOWER)) {
+        var leaderMenu by remember(device.id) { mutableStateOf(false) }
+        val leaders = hardware.filter { it.id != device.id && it.role in setOf(DriveHardwareRole.LEFT_LEADER, DriveHardwareRole.RIGHT_LEADER, DriveHardwareRole.DRIVE_MOTOR) }
+        Box {
+            OutlinedButton({ leaderMenu = true }, Modifier.fillMaxWidth()) { Text("Leader · ${device.leaderId ?: "Choose a leader"}") }
+            DropdownMenu(leaderMenu, { leaderMenu = false }) {
+                leaders.forEach { leader -> DropdownMenuItem({ Text(leader.displayName) }, { leaderMenu = false; onUpdate(device.copy(leaderId = leader.id)) }) }
+            }
+        }
+        Text("Follower inversion below is relative to the leader and remains independent from the leader's own mounting inversion.", color = AresTextSecondary, fontSize = 9.sp)
+    }
+    if (advanced || device.canId != null) {
+        HelpedTextField("CAN ID", device.canId?.toString().orEmpty(), "The unique numeric CAN address. Valid ARES range: 0–62.") { onUpdate(device.copy(canId = it.toIntOrNull())) }
+        HelpedTextField("CAN bus", device.canBus.orEmpty(), "The named CAN network, for example rio or CANivore name.") { onUpdate(device.copy(canBus = it.ifBlank { null })) }
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Switch(device.inverted, { onUpdate(device.copy(inverted = it)) })
+        Text(if (device.inverted) " INVERTED direction" else " NORMAL direction", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+        HelpButton("Mounting inversion changes the sign at the hardware boundary. It is different from follower direction.")
+    }
+    if (advanced) OutlinedButton(onRemove, Modifier.fillMaxWidth()) { Text("Remove this hardware") }
+}
+
+@Composable
+private fun GeometryStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+    SectionHeading("3 · Measure geometry", "Use meters internally. Wheelbase and track width are center-to-center distances; robot dimensions include bumpers/frame perimeter.")
+    val geometry = state.draft.geometry
+    Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+        GeometryField("Wheel radius", geometry.wheelRadiusMeters, "m", "Measure from the axle center to the floor under normal robot weight.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(geometry.copy(wheelRadiusMeters = it))) }
+        GeometryField("Track width", geometry.trackWidthMeters, "m", "Center-to-center distance between the left and right wheel contact lines.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(geometry.copy(trackWidthMeters = it))) }
+        GeometryField("Wheelbase", geometry.wheelBaseMeters, "m", "Center-to-center distance between the front and rear wheel/module contact lines.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(geometry.copy(wheelBaseMeters = it))) }
+        Text("Overall bumper dimensions are intentionally not collected by drivetrain schema v1; field-collision dimensions belong to the robot geometry contract.", color = AresTextSecondary, fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun LocalizationStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+    SectionHeading("4 · Choose localization", "Localization estimates where the robot is. Multiple sources can be fused, but each must use CCW-positive headings and valid freshness.")
+    LocalizationKind.entries.forEach { kind ->
+        val description = when (kind) {
+            LocalizationKind.FTC_PINPOINT -> "goBILDA Pinpoint odometry computer; ARES normalizes heading at this boundary."
+            LocalizationKind.WHEEL_ODOMETRY_GYRO -> "Wheel encoders plus a gyro; works for differential and custom drives."
+            LocalizationKind.CTRE_POSE_ESTIMATOR -> "CTRE swerve module and Pigeon observations."
+            LocalizationKind.VISION_FUSION -> "AprilTag/vision corrections fused only when valid and statistically plausible."
+            LocalizationKind.CUSTOM -> "Team-maintained estimator with an explicit ARES adapter."
+        }
+        Row(Modifier.fillMaxWidth().driveCard(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) { Text(kind.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase), color = AresTextPrimary, fontWeight = FontWeight.Bold); Text(description, color = AresTextSecondary, fontSize = 10.sp) }
+            Checkbox(kind in state.draft.localization, { viewModel.onIntent(DrivebaseBuilderIntent.SetLocalization(kind, it)) }, Modifier.semantics { contentDescription = "Use ${kind.name.lowercase().replace('_', ' ')} localization" })
+        }
+    }
+}
+
+@Composable
+private fun SafetyStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+    SectionHeading("5 · Safety contract", "These requirements fail closed. A drivebase cannot be saved if safe neutral, configuration health, or explicit neutral recovery are disabled.")
+    val safety = state.draft.safety
+    Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SafetySwitch("Safe neutral required", safety.safeNeutralRequired, "Outputs become neutral at startup, disable, stop, fault, and close.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(safeNeutralRequired = it))) }
+        SafetySwitch("Configuration health required", safety.configurationHealthRequired, "Nonzero motion is blocked until every required device reports healthy configuration.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(configurationHealthRequired = it))) }
+        SafetySwitch("Explicit neutral recovery", safety.explicitNeutralRecoveryRequired, "After a fault, motion resumes only after a successful neutral write is confirmed.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(explicitNeutralRecoveryRequired = it))) }
+        SafetySwitch("Current monitoring required", safety.currentMonitoringRequired, "Unknown current is invalid rather than zero; monitoring must report validity.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(currentMonitoringRequired = it))) }
+        GeometryField("Feedback freshness timeout", safety.feedbackFreshnessTimeoutMs.toDouble(), "ms", "Feedback older than this is stale and blocks nonzero closed-loop output.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(feedbackFreshnessTimeoutMs = it.toInt()))) }
+        GeometryField("Maximum linear speed", safety.maxLinearSpeedMetersPerSecond, "m/s", "Hard command envelope used by control, simulation, and verification.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(maxLinearSpeedMetersPerSecond = it))) }
+        GeometryField("Maximum angular speed", safety.maxAngularSpeedRadiansPerSecond, "rad/s", "Positive rotation is counter-clockwise when viewed from above.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(maxAngularSpeedRadiansPerSecond = it))) }
+    }
+}
+
+@Composable
+private fun LabsStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+    SectionHeading("6 · Direction & field-relative lab", "This interactive diagram performs local math only. It never publishes NT4, starts a simulator process, or commands robot hardware.")
+    val lab = state.lab
+    val result = evaluateDriveLab(state.draft.kind, lab, state.draft.geometry, state.draft.hardware)
+    val geometryResult = evaluateGeometryLab(state.draft.geometry, lab.forward, lab.rotate)
+    val localizationResult = evaluateLocalizationFailure(lab.localizationScenario)
+    Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("SIMULATION ONLY · NO HARDWARE OUTPUT", color = AresGold, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+        LabSlider("Forward command", lab.forward, "Positive means away from the driver / toward robot front.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(forward = it))) }
+        LabSlider("Strafe command", lab.strafe, "Positive means robot-left in the CCW-positive coordinate convention.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(strafe = it))) }
+        LabSlider("Turn command", lab.rotate, "Positive means counter-clockwise when viewed from above.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(rotate = it))) }
+        LabSlider("Robot heading", lab.headingDegrees / 180.0, "Heading is shown in degrees here; runtime math uses radians.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(headingDegrees = it * 180.0))) }
+        Row(verticalAlignment = Alignment.CenterVertically) { Switch(lab.fieldRelative, { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(fieldRelative = it))) }); Text(" Field-relative input", color = AresTextPrimary); HelpButton("Field-relative means forward follows the field even when the robot turns. ARES rotates that command into the robot frame.") }
+        Text("Robot-frame result: forward ${"%.2f".format(result.robotForward)}, strafe ${"%.2f".format(result.robotStrafe)}", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+        result.wheelOutputs.forEach { (wheel, output) ->
+            val angle = result.moduleAnglesDegrees[wheel]?.let { " · module angle ${"%.1f".format(it)}°" }.orEmpty()
+            Text("${wheel.replace(Regex("([a-z])([A-Z])"), "$1 $2")}: ${if (output >= 0) "FORWARD" else "REVERSE"} ${"%.2f".format(kotlin.math.abs(output))}$angle", color = AresTextPrimary, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+        }
+        Text(result.explanation, color = AresTextSecondary, fontSize = 10.sp)
+        DirectionDiagram(lab.headingDegrees, result, Modifier.fillMaxWidth().height(220.dp))
+        HorizontalDivider(color = AresBorder)
+        FieldHeading("Geometry & turning-radius lab", "The center turning radius is linear command divided by angular command. Track width explains why outside wheels and modules travel farther.")
+        Text(geometryResult.explanation, color = AresTextPrimary, fontSize = 10.sp)
+        Text("Track-circle diameter: ${geometryResult.trackCircleDiameterMeters?.let { "%.2f m".format(it) } ?: "not applicable while driving straight"}", color = AresTextSecondary, fontSize = 10.sp)
+        HorizontalDivider(color = AresBorder)
+        FieldHeading("Localization failure lab", "Try each failure. Primary motion feedback and heading fail closed; optional vision may be rejected without disabling healthy odometry.")
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LocalizationFailureScenario.entries.chunked(2).forEach { scenarios ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    scenarios.forEach { scenario ->
+                        FilterChip(
+                            selected = lab.localizationScenario == scenario,
+                            onClick = { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(localizationScenario = scenario))) },
+                            label = { Text(scenario.name.lowercase().replace('_', ' '), fontSize = 9.sp) },
+                            modifier = Modifier.semantics { contentDescription = "Simulate localization scenario ${scenario.name.lowercase().replace('_', ' ')}" }
+                        )
+                    }
+                }
+            }
+        }
+        Text("Closed-loop drive: ${if (localizationResult.canDriveClosedLoop) "AVAILABLE" else "BLOCKED"} · vision correction: ${if (localizationResult.usesVisionCorrection) "USED WHEN VALID" else "NOT USED"}", color = if (localizationResult.canDriveClosedLoop) AresGreen else AresError, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+        Text(localizationResult.message, color = AresTextPrimary, fontSize = 10.sp)
+    }
+}
+
+@Composable
+private fun DirectionDiagram(headingDegrees: Double, result: DriveLabResult, modifier: Modifier) {
+    Canvas(modifier.background(AresBackground, RoundedCornerShape(8.dp)).border(1.dp, AresBorder, RoundedCornerShape(8.dp))) {
+        val center = Offset(size.width / 2, size.height / 2)
+        drawCircle(AresTextSecondary, 48f, center, style = Stroke(3f))
+        val angle = headingDegrees * PI / 180.0
+        val front = Offset(center.x + (cos(angle) * 70).toFloat(), center.y - (sin(angle) * 70).toFloat())
+        drawLine(AresCyan, center, front, 6f)
+        val command = Offset(center.x + (result.robotStrafe * 70).toFloat(), center.y - (result.robotForward * 70).toFloat())
+        drawLine(AresGold, center, command, 5f)
+    }
+}
+
+@Composable
+private fun ReviewStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+    SectionHeading("7 · Review & save", "Only the canonical .ares/drivetrains document changes. Generated plumbing/source generation is a later explicit project action.")
+    val review = state.saveReview
+    if (review == null) {
+        Text("Select Review changes to validate the draft and create a content-hash-bound structured diff.", color = AresTextSecondary)
+        Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) }) { Text("Create reviewed diff") }
+    } else {
+        Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("STRUCTURED DIFF · base ${review.baseContentHash?.take(12) ?: "new document"}", color = AresCyan, fontWeight = FontWeight.Bold)
+            review.changes.forEach { change ->
+                Column(Modifier.fillMaxWidth().background(AresBackground.copy(alpha = .55f), RoundedCornerShape(6.dp)).padding(8.dp)) {
+                    Text(change.path, color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    Text("Before: ${change.before}", color = AresTextSecondary, fontSize = 10.sp)
+                    Text("After:  ${change.after}", color = AresTextPrimary, fontSize = 10.sp)
+                }
+            }
+            Text("Confirmation ${review.confirmationToken}", color = AresTextSecondary, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+            Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ConfirmSave(review.confirmationToken)) }, enabled = review.changes.isNotEmpty(), colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent)) { Text("Confirm and save canonical drivebase") }
+            Text("ARES creates a history backup first. This does not push a robot value or edit CTRE vendor source.", color = AresTextSecondary, fontSize = 10.sp)
+        }
+    }
+}
+
+@Composable
+private fun IssueRail(state: DrivebaseBuilderState, modifier: Modifier) {
+    Column(modifier.driveCard().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text("READINESS CHECKS", color = AresTextSecondary, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+        if (state.issues.isEmpty()) Text("Ready for review", color = AresGreen, fontWeight = FontWeight.Bold)
+        state.issues.forEach { issue ->
+            val color = when (issue.severity) { DrivebaseIssueSeverity.ERROR -> AresError; DrivebaseIssueSeverity.WARNING -> AresGold; DrivebaseIssueSeverity.INFO -> AresCyan }
+            Column(Modifier.fillMaxWidth().background(color.copy(alpha = .08f), RoundedCornerShape(6.dp)).padding(8.dp)) {
+                Text(issue.severity.name, color = color, fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                Text(issue.message, color = AresTextPrimary, fontSize = 10.sp)
+                Text(issue.path, color = AresTextSecondary, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+            }
+        }
+        HorizontalDivider(color = AresBorder)
+        Text("RUNTIME FLOW", color = AresTextSecondary, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+        Text("Input → Redux action/reducer → immutable state → drive controller → IO contract → FTC/FRC or simulated adapter", color = AresTextPrimary, fontSize = 10.sp)
+    }
+}
+
+@Composable private fun SectionHeading(title: String, description: String) { Column(verticalArrangement = Arrangement.spacedBy(3.dp)) { Text(title, color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp); Text(description, color = AresTextSecondary, fontSize = 11.sp) } }
+@Composable private fun FieldHeading(title: String, help: String) { Row(verticalAlignment = Alignment.CenterVertically) { Text(title, color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp); HelpButton(help) } }
+
+@Composable
+private fun HelpButton(help: String) {
+    var show by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { show = true }, Modifier.size(28.dp).semantics { contentDescription = "Help: $help" }) { Icon(Icons.Default.HelpOutline, "Show help", tint = AresTextSecondary, modifier = Modifier.size(15.dp)) }
+        DropdownMenu(show, { show = false }) { Text(help, color = AresTextPrimary, fontSize = 11.sp, modifier = Modifier.widthIn(max = 320.dp).padding(12.dp)) }
+    }
+}
+
+@Composable
+private fun HelpedTextField(label: String, value: String, help: String, onValue: (String) -> Unit) {
+    Column { FieldHeading(label, help); OutlinedTextField(value, onValue, Modifier.fillMaxWidth().semantics { contentDescription = "$label. $help" }, singleLine = true) }
+}
+
+@Composable
+private fun GeometryField(label: String, value: Double, unit: String, help: String, onValue: (Double) -> Unit) {
+    var raw by remember(label, value) { mutableStateOf(value.toString()) }
+    Column { FieldHeading("$label ($unit)", help); OutlinedTextField(raw, { text -> raw = text; text.toDoubleOrNull()?.let(onValue) }, Modifier.fillMaxWidth().semantics { contentDescription = "$label in $unit. $help" }, singleLine = true) }
+}
+
+@Composable
+private fun SafetySwitch(label: String, checked: Boolean, help: String, onChecked: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) { Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) { Text(label, color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp); HelpButton(help) }; Switch(checked, onChecked, Modifier.semantics { contentDescription = "$label. $help" }) }
+}
+
+@Composable
+private fun LabSlider(label: String, value: Double, help: String, onValue: (Double) -> Unit) {
+    Column { Row(verticalAlignment = Alignment.CenterVertically) { Text("$label: ${"%.2f".format(value)}", color = AresTextPrimary, fontSize = 11.sp); HelpButton(help) }; Slider(value.toFloat(), { onValue(it.toDouble()) }, valueRange = -1f..1f, modifier = Modifier.semantics { contentDescription = "$label. $help" }) }
+}
+
+@Composable private fun StatusBanner(message: String, color: Color) { Text(message, color = color, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().background(color.copy(alpha = .08f), RoundedCornerShape(6.dp)).padding(8.dp)) }
+private fun Modifier.driveCard() = background(AresSurfaceElevated, RoundedCornerShape(10.dp)).border(1.dp, AresBorder, RoundedCornerShape(10.dp)).padding(12.dp)
