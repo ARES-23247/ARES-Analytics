@@ -1,5 +1,7 @@
 # ARES Analytics
 
+[ARES 23247 team website](https://aresfirst.org/) · [ARES GitHub organization](https://github.com/ARES-23247)
+
 ARES Analytics is the desktop mission-control, log-analysis, replay, and pit-diagnostics application for the ARES FTC and FRC robots. It receives live NetworkTables 4 (NT4) telemetry, imports robot logs into DuckDB, runs analysis locally, and optionally synchronizes artifacts through Google Drive.
 
 The robot remains offline-first: robot code never sends data directly to a cloud service. The desktop app owns every cloud interaction.

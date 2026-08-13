@@ -27,6 +27,11 @@ val AresCyan: Color get() = AresThemeSettings.currentColors.cyan
 val AresCyanDark: Color get() = AresThemeSettings.currentColors.cyanDark
 val AresCyanGlow: Color get() = AresThemeSettings.currentColors.cyanGlow
 val AresGold: Color get() = AresThemeSettings.currentColors.gold
+val AresBrandRed: Color get() = AresBrandTokens.Red
+val AresBrandRedReadable: Color get() = AresBrandTokens.RedReadableOnDark
+val AresBronze: Color get() = AresBrandTokens.Bronze
+val AresObsidian: Color get() = AresBrandTokens.Obsidian
+val AresMarble: Color get() = AresBrandTokens.Marble
 val AresAmber: Color get() = AresThemeSettings.currentColors.amber
 val AresGreen: Color get() = AresThemeSettings.currentColors.green
 /** Foreground for text and icons placed on any bright semantic accent fill. */
@@ -124,13 +129,13 @@ data class AresColorPalette(
 )
 
 fun getAresColors(colorblind: Boolean, highContrast: Boolean): AresColorPalette {
-    val textPrimary = Color(0xFFE8ECF4)
-    val textSecondary = if (highContrast) Color(0xFFF3F5F9) else Color(0xFF9CA3B4)
-    val textTertiary = if (highContrast) Color(0xFFCAD0DE) else Color(0xFF8992A6)
-    val green = if (colorblind) Color(0xFF2979FF) else Color(0xFF66BB6A)
-    val onAccent = Color(0xFF05070A)
-    val error = if (colorblind) Color(0xFFFF6D00) else Color(0xFFFF5252)
-    val gold = Color(0xFFFFD54F)
+    val textPrimary = AresBrandTokens.TextPrimary
+    val textSecondary = if (highContrast) Color(0xFFF3F5F9) else AresBrandTokens.TextSecondary
+    val textTertiary = if (highContrast) Color(0xFFCAD0DE) else AresBrandTokens.TextTertiary
+    val green = if (colorblind) AresBrandTokens.ColorblindSuccess else AresBrandTokens.Success
+    val onAccent = AresBrandTokens.OnBrightAccent
+    val error = if (colorblind) AresBrandTokens.ColorblindError else AresBrandTokens.Error
+    val gold = AresBrandTokens.Gold
     val amber = Color(0xFFFFA726)
     val deviationLow = green
     val deviationMedium = amber
@@ -138,14 +143,14 @@ fun getAresColors(colorblind: Boolean, highContrast: Boolean): AresColorPalette 
     val red = if (colorblind) Color(0xFFFF6D00) else Color(0xFFE53935)
     val redDark = if (colorblind) Color(0xFFE65100) else Color(0xFFB71C1C)
     val redGlow = if (colorblind) Color(0x40FF6D00) else Color(0x40E53935)
-    val cyan = Color(0xFF00E5FF)
+    val cyan = AresBrandTokens.TechnicalCyan
     val cyanDark = Color(0xFF00B8D4)
     val cyanGlow = Color(0x3000E5FF)
-    val background = Color(0xFF0D0F14)
-    val surface = Color(0xFF161A22)
-    val surfaceElevated = Color(0xFF1E2330)
-    val border = if (highContrast) Color(0xFF8B9BB8) else Color(0xFF6B7B98)
-    val borderFocused = if (highContrast) Color(0xFFBACCDD) else Color(0xFF8B9BB8)
+    val background = AresBrandTokens.AppBackground
+    val surface = AresBrandTokens.AppSurface
+    val surfaceElevated = AresBrandTokens.AppSurfaceElevated
+    val border = if (highContrast) AresBrandTokens.BorderFocused else AresBrandTokens.Border
+    val borderFocused = if (highContrast) Color(0xFFBACCDD) else AresBrandTokens.BorderFocused
     val glass = Color(0x1AFFFFFF)
     val glassBorder = Color(0x20FFFFFF)
 
