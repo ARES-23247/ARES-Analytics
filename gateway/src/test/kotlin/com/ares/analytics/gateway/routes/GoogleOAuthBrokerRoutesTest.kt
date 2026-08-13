@@ -7,14 +7,18 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
+import io.ktor.client.request.post
 import io.ktor.client.request.forms.FormDataContent
 import io.ktor.client.request.header
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.install
+import io.ktor.server.plugins.contentnegotiation.ContentNegotiation as ServerContentNegotiation
 import io.ktor.server.plugins.forwardedheaders.XForwardedHeaders
 import io.ktor.server.plugins.origin
 import io.ktor.server.plugins.ratelimit.RateLimit
@@ -225,6 +229,32 @@ class GoogleOAuthBrokerRoutesTest {
             assertEquals(HttpStatusCode.TooManyRequests, firstClientSecondRequest.status)
             assertEquals(HttpStatusCode.OK, secondClientFirstRequest.status)
         }
+
+    @Test
+    fun `malformed desktop JSON returns a safe client error`() = testApplication {
+        application {
+            install(ServerContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+            install(RateLimit) {
+                register(RateLimitName("oauth-exchange-global")) {
+                    rateLimiter(limit = 10, refillPeriod = 60.seconds)
+                }
+                register(RateLimitName("oauth-exchange")) {
+                    rateLimiter(limit = 10, refillPeriod = 60.seconds)
+                }
+            }
+            routing {
+                googleOAuthBrokerRoutes(brokerWith { error("Google must not receive malformed JSON") })
+            }
+        }
+
+        val response = client.post("/api/oauth/google/token") {
+            header(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+            setBody("{}")
+        }
+
+        assertEquals(HttpStatusCode.BadRequest, response.status)
+        assertTrue("invalid_request" in response.bodyAsText())
+    }
 
     private fun brokerWith(handler: io.ktor.client.engine.mock.MockRequestHandler): GoogleOAuthBroker =
         GoogleOAuthBroker(

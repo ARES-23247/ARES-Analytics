@@ -245,7 +245,7 @@ Camera extrinsics use the standard rigid transform and actual tag field coordina
 - a 1 MiB request body limit;
 - diagnostics request validation.
 
-The service exposes `GET /healthz` without authentication and mounts diagnostics routes behind
+The service exposes `GET /health` without authentication and mounts diagnostics routes behind
 Google authentication. The OAuth broker exposes only `POST /api/oauth/google/token` and
 `POST /api/oauth/google/refresh`. It validates the fixed `http://127.0.0.1:5805/callback` redirect,
 PKCE verifier, and request sizes before contacting Google. It must not log or persist authorization

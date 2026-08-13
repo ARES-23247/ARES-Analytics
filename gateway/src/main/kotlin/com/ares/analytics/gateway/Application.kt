@@ -131,7 +131,8 @@ fun main() {
         }
 
         routing {
-            get("/healthz") {
+            // Cloud Run reserves some paths ending in "z" and can intercept them before Ktor.
+            get("/health") {
                 call.respondText("ok")
             }
             googleOAuthBrokerRoutes(googleOAuthBroker)

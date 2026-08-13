@@ -91,7 +91,7 @@ Before publishing an installer:
 1. Confirm consent-screen branding verification and publishing status in Google Cloud.
 2. Confirm the Drive API and exact requested scopes are configured.
 3. Confirm the production broker has the matching protected client ID/secret and passes
-   `/healthz`; confirm the installer contains the stable HTTPS broker URL but no secret.
+   `/health`; confirm the installer contains the stable HTTPS broker URL but no secret.
 4. Build the MSI through the protected workflow so the managed ID and broker URL are present.
 5. On a clean Windows user profile, complete one-click sign-in with the production client.
 6. Create a personal/team destination and upload/download a small test session.

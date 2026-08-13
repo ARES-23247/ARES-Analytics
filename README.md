@@ -143,7 +143,7 @@ Parquet export is performed through the narrow `DatabaseService.exportSessionToP
 
 The gateway exposes:
 
-- `GET /healthz`
+- `GET /health`
 - authenticated pit-forensics routes under the diagnostics router
 - `POST /api/oauth/google/token` and `POST /api/oauth/google/refresh` for the managed desktop token exchange
 

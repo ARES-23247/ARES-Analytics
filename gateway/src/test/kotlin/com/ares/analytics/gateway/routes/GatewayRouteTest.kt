@@ -24,17 +24,17 @@ class GatewayRouteTest {
 
     @Test
     /**
-     * testHealthz fun.
+     * testHealth fun.
      */
-    fun testHealthz() = testApplication {
+    fun testHealth() = testApplication {
         application {
             routing {
-                get("/healthz") {
+                get("/health") {
                     call.respondText("ok")
                 }
             }
         }
-        val response = client.get("/healthz")
+        val response = client.get("/health")
         assertEquals(HttpStatusCode.OK, response.status)
         assertEquals("ok", response.bodyAsText())
     }
