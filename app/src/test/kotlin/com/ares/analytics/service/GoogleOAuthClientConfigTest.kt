@@ -59,6 +59,29 @@ class GoogleOAuthClientConfigTest {
         assertTrue(!deleted.contains(custom))
     }
 
+    @Test
+    fun `confidential client failure explains the safe administrator recovery`() {
+        val managedFailure = googleOAuthRecoveryMessage(
+            """{"error":"invalid_request","error_description":"client_secret is missing."}""",
+            GoogleOAuthClientSource.ARES_MANAGED,
+        )
+        val customFailure = googleOAuthRecoveryMessage(
+            """{"error":"invalid_request","error_description":"client_secret is missing."}""",
+            GoogleOAuthClientSource.CUSTOM,
+        )
+
+        assertTrue(managedFailure.contains("requires a client secret"))
+        assertTrue(managedFailure.contains("public Desktop OAuth client"))
+        assertTrue(customFailure.contains("custom OAuth client"))
+        assertTrue(!managedFailure.contains(managed))
+        assertTrue(!customFailure.contains(custom))
+    }
+
+    @Test
+    fun `desktop callback uses the numeric loopback address`() {
+        assertEquals("http://127.0.0.1:5805/callback", GOOGLE_DESKTOP_REDIRECT_URI)
+    }
+
     private fun workspace(
         googleClientId: String?,
         googleOAuthUseCustomClient: Boolean = false,

@@ -125,6 +125,9 @@ private data class GoogleOAuthErrorResponse(
     val error_description: String? = null,
 )
 
+private const val GOOGLE_CALLBACK_PORT = 5805
+internal const val GOOGLE_DESKTOP_REDIRECT_URI = "http://127.0.0.1:$GOOGLE_CALLBACK_PORT/callback"
+
 /** Decodes (without verifying signature — the gateway verifies) the payload of a Google ID token JWT. */
 private fun decodeIdToken(idToken: String): GoogleIdPayload = try {
     val payload = idToken.split(".").getOrNull(1) ?: return GoogleIdPayload()
@@ -158,6 +161,24 @@ internal fun googleOAuthRecoveryMessage(
         "Google revoked or expired this sign-in. The unusable session was cleared; choose Sign in with Google to reconnect."
     "access_denied" ->
         "Google sign-in was cancelled or access was denied. No cloud data was changed; you can keep using ARES offline or try again."
+    "invalid_client" -> if (source == GoogleOAuthClientSource.CUSTOM) {
+        "Google rejected this custom OAuth client. Confirm that it is an active Desktop client, then reconnect Google."
+    } else {
+        "Google rejected the ARES sign-in client. Update ARES Analytics or contact an ARES administrator."
+    }
+    "unauthorized_client" ->
+        "This Google OAuth client is not permitted to use the desktop authorization flow. An administrator must replace it with an active Desktop client."
+    "redirect_uri_mismatch" ->
+        "Google rejected the desktop callback address. Update ARES Analytics, then try Google sign-in again."
+    "invalid_request" -> if (responseBody.contains("client_secret", ignoreCase = true)) {
+        if (source == GoogleOAuthClientSource.CUSTOM) {
+            "This custom OAuth client requires a client secret and cannot be used safely by a desktop app. Replace it with a public Desktop OAuth client."
+        } else {
+            "The configured ARES Google client requires a client secret and cannot be used safely by the desktop app. An ARES administrator must replace it with a public Desktop OAuth client."
+        }
+    } else {
+        "Google rejected the desktop sign-in request. Update ARES Analytics and try again; if it continues, contact an ARES administrator."
+    }
     else ->
         "Google could not complete sign-in. Check your internet connection, then try again. If this continues, disconnect Google and reconnect."
 }
@@ -314,8 +335,8 @@ class OAuthService(
         val googleClientId = credentials.clientId
         val codeVerifier = generateCodeVerifier()
         val codeChallenge = generateCodeChallenge(codeVerifier)
-        val callbackPort = 5805
-        val redirectUri = "http://localhost:$callbackPort/callback"
+        val callbackPort = GOOGLE_CALLBACK_PORT
+        val redirectUri = GOOGLE_DESKTOP_REDIRECT_URI
         // Per-request CSRF state parameter (AUDIT H1): unguessable, validated on callback.
         val state = generateCodeVerifier()
         val loginUrl = "https://accounts.google.com/o/oauth2/v2/auth?" +
@@ -332,7 +353,7 @@ class OAuthService(
         val pendingRequest = PendingOAuthRequest(
             state = state,
             generation = generation,
-            successTitle = "Sign-In Successful",
+            successTitle = "Authorization Received",
             onCodeReceived = { code, _ -> try {
                 val bodyParams = mutableListOf(
                     "code" to code,
@@ -427,8 +448,8 @@ class OAuthService(
         }
         val codeVerifier = generateCodeVerifier()
         val codeChallenge = generateCodeChallenge(codeVerifier)
-        val callbackPort = 5805
-        val redirectUri = "http://localhost:$callbackPort/callback"
+        val callbackPort = GOOGLE_CALLBACK_PORT
+        val redirectUri = GOOGLE_DESKTOP_REDIRECT_URI
         val state = generateCodeVerifier()
         val pickerUrl = "https://accounts.google.com/o/oauth2/v2/auth?" +
             "client_id=${credentials.clientId}" +
@@ -448,7 +469,7 @@ class OAuthService(
         val request = PendingOAuthRequest(
             state = state,
             generation = generation,
-            successTitle = "Drive Folder Selected",
+            successTitle = "Folder Authorization Received",
             onCodeReceived = picker@{ code, parameters ->
                 val pickedIds = parameters["picked_file_ids"]
                     ?.split(',')
@@ -1011,7 +1032,7 @@ class OAuthService(
                             <body>
                                 <div class="card">
                                     <h1>${pending.successTitle}</h1>
-                                    <p>Verification completed. You can safely close this browser window and return to the application.</p>
+                                    <p>Google returned the authorization response. ARES is completing the secure exchange now. Return to the application to see the final result.</p>
                                 </div>
                             </body>
                             </html>
