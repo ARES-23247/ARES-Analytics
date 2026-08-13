@@ -334,7 +334,8 @@ fun TelemetryChartPanel(
             Button(
                 onClick = { isTreeVisible = !isTreeVisible },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isTreeVisible) AresCyan else AresSurfaceElevated
+                    containerColor = if (isTreeVisible) AresCyan else AresSurfaceElevated,
+                    contentColor = if (isTreeVisible) AresOnAccent else AresTextPrimary,
                 ),
                 border = ButtonDefaults.outlinedButtonBorder(enabled = true),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)

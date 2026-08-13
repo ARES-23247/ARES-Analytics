@@ -345,7 +345,7 @@ fun DatabaseViewerScreen(databaseService: DatabaseService) {
                     )
                     Button(
                         onClick = { runQuery() },
-                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                         shape = RoundedCornerShape(6.dp),
                         modifier = Modifier.height(36.dp)
                     ) {

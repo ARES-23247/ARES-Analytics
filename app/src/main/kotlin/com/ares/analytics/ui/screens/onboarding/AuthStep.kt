@@ -1,5 +1,7 @@
 package com.ares.analytics.ui.screens.onboarding
 
+import com.ares.analytics.ui.theme.AresOnAccent
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -110,7 +112,7 @@ fun AuthStep(
                     Button(
                         onClick = onSignInClick,
                         enabled = googleClientId.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     ) {
                         Text("Sign in with Google", color = AresBackground, fontWeight = FontWeight.Bold)

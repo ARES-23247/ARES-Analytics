@@ -94,7 +94,7 @@ fun UpdateNotificationBanner(
                                 e.printStackTrace()
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan)
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                     ) {
                         Text("Update", color = AresBackground)
                     }

@@ -127,7 +127,7 @@ fun AiCoachPanel(
                                 }
                             }
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                         shape = RoundedCornerShape(8.dp)
                     ) {
                         Text("Analyze Telemetry", color = AresBackground, fontWeight = FontWeight.Bold)
@@ -388,7 +388,7 @@ fun AiCoachPanel(
                                     },
                                     enabled = userQuestion.trim().isNotEmpty() && !isWaitingForReply,
                                     modifier = Modifier.height(36.dp),
-                                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                                     shape = RoundedCornerShape(6.dp),
                                     contentPadding = PaddingValues(horizontal = 12.dp)
                                 ) {

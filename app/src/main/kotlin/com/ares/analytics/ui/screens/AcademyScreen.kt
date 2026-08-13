@@ -1,5 +1,7 @@
 package com.ares.analytics.ui.screens
 
+import com.ares.analytics.ui.theme.AresOnAccent
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -269,7 +271,7 @@ private fun LessonDetail(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
                     onClick = onLaunch,
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                 ) {
                     Icon(if (lesson.action == LearningAction.START_SIMULATOR) Icons.Default.PlayArrow else Icons.AutoMirrored.Filled.Launch, null)
                     Spacer(Modifier.width(7.dp))

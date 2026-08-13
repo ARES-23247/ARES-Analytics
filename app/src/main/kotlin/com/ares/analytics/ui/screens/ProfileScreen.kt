@@ -300,7 +300,7 @@ fun ProfileScreen(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { viewModel.onIntent(ProfileIntent.PerformDeltaSync(auth.idToken)) },
-                                colors = ButtonDefaults.buttonColors(containerColor = AresCyan)
+                                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                             ) {
                                 Text("Sync Google Drive Now", color = AresBackground, fontWeight = FontWeight.Bold)
                             }
@@ -314,7 +314,7 @@ fun ProfileScreen(
                     }
                     is AuthState.Error -> {
                         Text("Authorization Error: ${auth.message}", color = AresError, fontSize = 12.sp)
-                        Button(onClick = { viewModel.onIntent(ProfileIntent.SignOut) }, colors = ButtonDefaults.buttonColors(containerColor = AresCyan)) {
+                        Button(onClick = { viewModel.onIntent(ProfileIntent.SignOut) }, colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) {
                             Text("Retry Login Flow", color = AresBackground)
                         }
                     }
@@ -640,7 +640,7 @@ fun ProfileScreen(
                 // MainViewModel owns the single persisted workspace update.
                 onConfigChanged(newConfig)
             },
-            colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
             enabled = ProjectLayout.validationError(projectPath, league) == null,
             modifier = Modifier.fillMaxWidth().height(if (touchOptimizedMode) 56.dp else 48.dp)
         ) {

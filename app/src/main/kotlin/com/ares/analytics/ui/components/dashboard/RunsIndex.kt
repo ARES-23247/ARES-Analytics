@@ -297,7 +297,7 @@ fun RunsIndex(
                             reloadSessions()
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan)
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                 ) {
                     Text("Save", color = AresOnAccent, fontWeight = FontWeight.Bold)
                 }

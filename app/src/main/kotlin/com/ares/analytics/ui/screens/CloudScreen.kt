@@ -142,7 +142,9 @@ fun CloudScreen(
                         viewModel.onIntent(CloudIntent.PerformDeltaSync(teamId, seasonId))
                     },
                     enabled = !state.isSyncing,
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, disabledContainerColor = AresSurfaceElevated)
+                    colors = ButtonDefaults.buttonColors(
+                    containerColor = AresCyan,
+                    contentColor = AresOnAccent, disabledContainerColor = AresSurfaceElevated)
                 ) {
                     if (state.isSyncing) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AresCyan, strokeWidth = 2.dp)
@@ -231,7 +233,7 @@ fun CloudScreen(
                                 )
                                 checkedRobotRuns.clear()
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                             modifier = Modifier.height(32.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                         ) {
@@ -245,7 +247,7 @@ fun CloudScreen(
                                     pendingDeletion = PendingCloudDeletion.RobotRuns(runs)
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = AresRed),
+                            colors = ButtonDefaults.buttonColors(containerColor = AresRed, contentColor = AresOnAccent),
                             modifier = Modifier.height(32.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                         ) {
@@ -345,7 +347,7 @@ fun CloudScreen(
                                     viewModel.onIntent(CloudIntent.DownloadMultipleSessions(remoteOnlySummaries))
                                     checkedSessions.clear()
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                                 modifier = Modifier.height(32.dp),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                             ) {
@@ -358,7 +360,7 @@ fun CloudScreen(
                                 onClick = {
                                     pendingDeletion = PendingCloudDeletion.LocalSessions(localSessions)
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = AresRed),
+                                colors = ButtonDefaults.buttonColors(containerColor = AresRed, contentColor = AresOnAccent),
                                 modifier = Modifier.height(32.dp),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                             ) {
@@ -371,7 +373,7 @@ fun CloudScreen(
                                 onClick = {
                                     pendingDeletion = PendingCloudDeletion.CloudSessions(remoteSessions)
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = AresRed),
+                                colors = ButtonDefaults.buttonColors(containerColor = AresRed, contentColor = AresOnAccent),
                                 modifier = Modifier.height(32.dp),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                             ) {
@@ -552,7 +554,7 @@ private fun CloudDeletionConfirmationDialog(
         confirmButton = {
             Button(
                 onClick = onConfirm,
-                colors = ButtonDefaults.buttonColors(containerColor = AresRed)
+                colors = ButtonDefaults.buttonColors(containerColor = AresRed, contentColor = AresOnAccent)
             ) {
                 Text(copy.confirmLabel, color = AresOnAccent, fontWeight = FontWeight.Bold)
             }

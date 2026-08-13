@@ -370,6 +370,7 @@ fun FtcDriverStationWidget(
             enabled = (matchState == MatchState.IDLE && selectedAutoOpMode != null && selectedTeleOpMode != null) || matchState != MatchState.IDLE,
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (matchState == MatchState.IDLE) AresCyan else AresError,
+                contentColor = AresOnAccent,
                 disabledContainerColor = AresSurfaceElevated
             ),
             modifier = Modifier.fillMaxWidth().height(48.dp)
@@ -398,6 +399,7 @@ fun FtcDriverStationWidget(
                 enabled = dsState == DsState.STOP && selectedOpMode != null,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AresCyan,
+                    contentColor = AresOnAccent,
                     disabledContainerColor = AresSurfaceElevated
                 ),
                 modifier = Modifier.weight(1f).height(48.dp)
@@ -417,6 +419,7 @@ fun FtcDriverStationWidget(
                 enabled = dsState == DsState.INIT,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AresGreen,
+                    contentColor = AresOnAccent,
                     disabledContainerColor = AresSurfaceElevated
                 ),
                 modifier = Modifier.weight(1f).height(48.dp)
@@ -437,7 +440,7 @@ fun FtcDriverStationWidget(
                 enabled = true, // Always allow emergency stop
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AresError,
-
+                    contentColor = AresOnAccent,
                     disabledContainerColor = AresSurfaceElevated
                 ),
                 modifier = Modifier.weight(1f).height(48.dp)

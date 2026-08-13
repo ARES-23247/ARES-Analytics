@@ -593,7 +593,7 @@ private fun ParamRow(label: String, value: String) {
 private fun ApplyButton(onClick: () -> Unit) {
     Button(
         onClick = onClick,
-        colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
         modifier = Modifier.fillMaxWidth().height(36.dp),
         shape = RoundedCornerShape(6.dp),
         contentPadding = PaddingValues(0.dp)

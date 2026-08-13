@@ -854,7 +854,7 @@ fun MainScreen(services: ServiceRegistry) {
                             mainViewModel.onIntent(MainIntent.DeleteWorkspace(workspaceId))
                             workspacePendingDeletion = null
                         },
-                        colors = ButtonDefaults.buttonColors(containerColor = AresError)
+                        colors = ButtonDefaults.buttonColors(containerColor = AresError, contentColor = AresOnAccent)
                     ) {
                         Text("Remove workspace")
                     }
