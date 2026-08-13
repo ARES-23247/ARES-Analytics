@@ -2,15 +2,19 @@ package com.ares.analytics.viewmodel
 
 import com.ares.analytics.service.AresGenerationState
 import com.ares.analytics.service.AresProjectGenerator
+import com.ares.analytics.service.SubsystemDesignAssistant
+import com.ares.analytics.service.SubsystemDesignProposal
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository
 import com.ares.analytics.viewmodel.project.SubsystemProjectRepository
 import com.areslib.catalog.CapabilityCatalogDocument
 import com.areslib.subsystem.SubsystemFieldRole
+import com.areslib.subsystem.SubsystemFollowerTransform
 import com.areslib.subsystem.SubsystemHardwareConnection
 import com.areslib.subsystem.SubsystemHardwareDocument
 import com.areslib.subsystem.SubsystemHardwareKind
+import com.areslib.subsystem.SubsystemHomingMethod
 import com.areslib.subsystem.SubsystemMeasurementSource
 import com.areslib.subsystem.SubsystemMeasurementDocument
 import com.areslib.subsystem.SubsystemTemplate
@@ -22,6 +26,7 @@ import com.areslib.codegen.SubsystemStarterPlan
 import com.areslib.codegen.SubsystemArtifactGroup
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -39,11 +44,11 @@ class SubsystemGeneratorViewModelTest {
         val state = viewModel.state.value
         assertEquals(
             com.areslib.subsystem.SubsystemImplementationKind.HAND_AUTHORED,
-            state.draft?.implementation?.kind,
+            state.draft?.document?.implementation?.kind,
         )
-        assertEquals(com.areslib.subsystem.SubsystemSourceOwnership.USER_OWNED, state.draft?.implementation?.ownership)
-        assertEquals(":TeamCode", state.draft?.implementation?.modulePath)
-        assertTrue(state.draft?.implementation?.sourceFiles.orEmpty().all { it.startsWith("TeamCode/src/main/java/") })
+        assertEquals(com.areslib.subsystem.SubsystemSourceOwnership.USER_OWNED, state.draft?.document?.implementation?.ownership)
+        assertEquals(":TeamCode", state.draft?.document?.implementation?.modulePath)
+        assertTrue(state.draft?.document?.implementation?.sourceFiles.orEmpty().all { it.startsWith("TeamCode/src/main/java/") })
         assertTrue(state.previewFiles.isEmpty(), "Hand-authored source must never enter starter replacement preview")
         assertTrue(state.dirty)
 
@@ -86,7 +91,7 @@ class SubsystemGeneratorViewModelTest {
 
         val saved = viewModel.state.value
         assertFalse(saved.dirty)
-        assertEquals(1, saved.draft?.revision)
+        assertEquals(1, saved.draft?.document?.revision)
         assertEquals(root.canonicalPath, generator.projectPath)
         assertEquals(League.FTC, generator.league)
         assertTrue(root.resolve(".ares/subsystems/new-subsystem.aressubsystem").isFile)
@@ -106,12 +111,12 @@ class SubsystemGeneratorViewModelTest {
         val repository = SubsystemProjectRepository()
         val original = minimalSubsystem("Indexer")
         val first = repository.save(root.path, original)
-        val second = repository.save(root.path, original.copy(name = "IndexerV2"))
+        val second = repository.save(root.path, original.copy(displayName = "Indexer V2"))
 
         assertEquals(1, first.document.revision)
         assertEquals(2, second.document.revision)
         assertEquals(2, repository.listRevisions(root.path, original.documentId).size)
-        assertEquals("IndexerV2", repository.load(root.path, original.documentId).name)
+        assertEquals("Indexer V2", repository.load(root.path, original.documentId).displayName)
     }
 
     @Test
@@ -123,10 +128,10 @@ class SubsystemGeneratorViewModelTest {
         viewModel.newSubsystem()
 
         val state = viewModel.state.value
-        assertEquals(SubsystemTemplate.HOMED_MECHANISM, state.draft?.template)
-        assertTrue(state.draft?.safety?.requiresHoming == true)
-        assertTrue(state.draft?.generateMockIo == true)
-        assertTrue(state.draft?.generateTest == true)
+        assertEquals(SubsystemTemplate.HOMED_MECHANISM, state.draft?.document?.template)
+        assertEquals(SubsystemHomingMethod.DIGITAL_SENSOR, state.draft?.document?.safety?.homing?.method)
+        assertTrue(state.draft?.document?.generateMockIo == true)
+        assertTrue(state.draft?.document?.generateTest == true)
         assertFalse(state.generatedPlumbingExpanded)
         assertTrue(state.previewFiles.all { it.description.isNotBlank() })
         assertTrue(state.previewFiles.all { it.moduleName.isNotBlank() && it.projectRelativePath.isNotBlank() })
@@ -236,9 +241,150 @@ class SubsystemGeneratorViewModelTest {
         )
     }
 
-    private fun minimalSubsystem(name: String) = com.areslib.subsystem.SubsystemDocument(
+    @Test
+    fun `adding a motor scaffolds natural cached state and undo restores the prior document`() {
+        val root = Files.createTempDirectory("ares-subsystem-natural-state").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        val before = viewModel.state.value.draft?.document
+
+        viewModel.addHardware(SubsystemHardwareKind.MOTOR)
+
+        val edited = viewModel.state.value
+        val fields = edited.draft?.document?.stateFields.orEmpty()
+        assertTrue(fields.any { it.fieldId.endsWith("Position") })
+        assertTrue(fields.any { it.fieldId.endsWith("Velocity") })
+        assertTrue(fields.any { it.fieldId.endsWith("CurrentAmps") })
+        assertTrue(fields.any { it.role == SubsystemFieldRole.TARGET })
+        assertTrue(edited.canUndo)
+
+        viewModel.undo()
+        assertEquals(before, viewModel.state.value.draft?.document)
+        assertTrue(viewModel.state.value.canRedo)
+        viewModel.close()
+    }
+
+    @Test
+    fun `invalid AI proposal remains review only and cannot be applied`() {
+        val root = Files.createTempDirectory("ares-subsystem-ai-invalid-").toFile()
+        File(root, ".ares/subsystems").mkdirs()
+        val assistant = SubsystemDesignAssistant { current, _ ->
+            SubsystemDesignProposal(
+                summary = "Unsafe incomplete proposal",
+                explanations = emptyList(),
+                candidate = current.copy(displayName = ""),
+            )
+        }
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC, designAssistant = assistant)
+        val before = viewModel.state.value.draft!!.document
+
+        viewModel.requestAiProposal("Make a mechanism")
+        waitFor { !viewModel.state.value.aiProposalInProgress }
+
+        val review = viewModel.state.value.aiProposal!!
+        assertFalse(review.canApply)
+        assertTrue(review.problems.any { it.severity == SubsystemProblemSeverity.ERROR })
+        viewModel.applyAiProposal()
+        assertEquals(before, viewModel.state.value.draft!!.document)
+        assertTrue(viewModel.state.value.aiProposalError!!.contains("validation", ignoreCase = true))
+        viewModel.close()
+    }
+
+    @Test
+    fun `stall homing selection creates bounded current evidence and navigates safety errors`() {
+        val root = Files.createTempDirectory("ares-subsystem-stall-homing").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.addHardware(SubsystemHardwareKind.MOTOR)
+
+        viewModel.setHomingMethod(SubsystemHomingMethod.CURRENT_STALL)
+
+        val homing = viewModel.state.value.draft?.document?.safety?.homing
+        assertEquals(SubsystemHomingMethod.CURRENT_STALL, homing?.method)
+        assertEquals(-2.0, homing?.searchOutput)
+        assertEquals(250L, homing?.dwellMs)
+        assertEquals(3_000L, homing?.timeoutMs)
+        assertTrue(homing?.evidence.orEmpty().any { it.fieldId.endsWith("currentAmps", ignoreCase = true) })
+        assertTrue(viewModel.state.value.draft?.document?.safety?.requiresCurrentMonitoring == true)
+
+        viewModel.navigateToProblem("safety.homing.evidence")
+        assertEquals(SubsystemBuilderStage.SAFETY, viewModel.state.value.activeStage)
+        viewModel.close()
+    }
+
+    @Test
+    fun `hardware reversal and follower direction remain separate and survive leader rename`() {
+        val root = Files.createTempDirectory("ares-subsystem-follower-direction").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        while (viewModel.state.value.draft!!.document.hardware.count { it.kind == SubsystemHardwareKind.MOTOR } < 2) {
+            viewModel.addHardware(SubsystemHardwareKind.MOTOR)
+        }
+        val motors = viewModel.state.value.draft!!.document.hardware.filter { it.kind == SubsystemHardwareKind.MOTOR }
+        val leader = motors.first()
+        val follower = motors.last()
+
+        viewModel.updateHardware(follower.hardwareId) { it.copy(inverted = true) }
+        viewModel.setHardwareFollower(follower.hardwareId, leader.hardwareId, SubsystemFollowerTransform.INVERTED)
+
+        var document = viewModel.state.value.draft!!.document
+        assertTrue(document.hardware.single { it.uid == follower.uid }.inverted)
+        assertEquals(
+            SubsystemFollowerTransform.INVERTED,
+            document.hardware.single { it.uid == follower.uid }.following?.transform,
+        )
+        assertTrue(document.controlLoops.none { it.actuatorId == follower.hardwareId })
+
+        viewModel.renameHardwareId(leader.hardwareId, "primaryMotor")
+        document = viewModel.state.value.draft!!.document
+        assertEquals("primaryMotor", document.hardware.single { it.uid == follower.uid }.following?.leaderId)
+        viewModel.close()
+    }
+
+    @Test
+    fun `AI proposal is review only preserves ownership and applies as one undoable form edit`() {
+        val root = Files.createTempDirectory("ares-subsystem-ai-proposal").toFile()
+        lateinit var requestedBase: com.areslib.subsystem.SubsystemDocument
+        val assistant = SubsystemDesignAssistant { current, request ->
+            requestedBase = current
+            assertEquals("Add a safe reversed follower motor", request)
+            SubsystemDesignProposal(
+                summary = "Add a clearly named mechanism proposal.",
+                explanations = listOf("The form remains locally validated."),
+                candidate = current.copy(
+                    displayName = "AI Proposed Mechanism",
+                    uid = "untrusted-replacement",
+                    implementation = current.implementation.copy(
+                        ownership = com.areslib.subsystem.SubsystemSourceOwnership.USER_OWNED,
+                    ),
+                ),
+            )
+        }
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC, designAssistant = assistant)
+        val before = viewModel.state.value.draft!!.document
+
+        viewModel.requestAiProposal("Add a safe reversed follower motor")
+        waitFor { !viewModel.state.value.aiProposalInProgress }
+
+        val review = viewModel.state.value.aiProposal
+        assertTrue(review != null)
+        assertTrue(review!!.canApply)
+        assertEquals(before.uid, review.proposal.candidate.uid)
+        assertEquals(before.implementation, review.proposal.candidate.implementation)
+        assertTrue(review.diff.any { it.kind == SubsystemDiffLineKind.ADDED })
+        assertEquals(before, requestedBase)
+        assertEquals(before, viewModel.state.value.draft!!.document, "Review must not mutate the form")
+
+        viewModel.applyAiProposal()
+        assertEquals("AI Proposed Mechanism", viewModel.state.value.draft!!.document.displayName)
+        assertTrue(viewModel.state.value.dirty)
+        assertTrue(viewModel.state.value.canUndo)
+        viewModel.undo()
+        assertEquals(before, viewModel.state.value.draft!!.document)
+        viewModel.close()
+    }
+
+    private fun minimalSubsystem(kotlinTypeName: String) = com.areslib.subsystem.SubsystemDocument(
         documentId = "indexer",
-        name = name,
+        displayName = kotlinTypeName.replace(Regex("(?<=[a-z])(?=[A-Z])"), " "),
+        kotlinTypeName = kotlinTypeName,
         platform = SubsystemPlatform.FTC,
         hardware = listOf(
             SubsystemHardwareDocument(
@@ -278,6 +424,14 @@ class SubsystemGeneratorViewModelTest {
             this.projectPath = java.io.File(projectPath).canonicalPath
             this.league = league
             replacementToken = confirmationToken
+        }
+    }
+
+    private fun waitFor(timeoutMs: Long = 3_000L, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + timeoutMs * 1_000_000L
+        while (!condition()) {
+            check(System.nanoTime() < deadline) { "Timed out waiting for asynchronous view-model work" }
+            Thread.sleep(10L)
         }
     }
 }

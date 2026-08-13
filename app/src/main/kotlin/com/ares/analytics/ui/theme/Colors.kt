@@ -55,6 +55,35 @@ val AresDeviationLow: Color get() = AresThemeSettings.currentColors.deviationLow
 val AresDeviationMedium: Color get() = AresThemeSettings.currentColors.deviationMedium
 val AresDeviationHigh: Color get() = AresThemeSettings.currentColors.deviationHigh
 
+/** WCAG-style contrast ratio used by palette regression tests and semantic UI reviews. */
+internal fun contrastRatio(foreground: Color, background: Color): Double {
+    fun linear(component: Float): Double = if (component <= 0.04045f) {
+        component.toDouble() / 12.92
+    } else {
+        Math.pow((component.toDouble() + 0.055) / 1.055, 2.4)
+    }
+    fun luminance(color: Color): Double =
+        0.2126 * linear(color.red) + 0.7152 * linear(color.green) + 0.0722 * linear(color.blue)
+
+    val foregroundLuminance = luminance(foreground)
+    val backgroundLuminance = luminance(background)
+    return (maxOf(foregroundLuminance, backgroundLuminance) + 0.05) /
+        (minOf(foregroundLuminance, backgroundLuminance) + 0.05)
+}
+
+/** Selects the higher-contrast semantic foreground for a custom fill. */
+internal fun readableForeground(
+    background: Color,
+    darkForeground: Color,
+    lightForeground: Color,
+): Color = if (
+    contrastRatio(darkForeground, background) >= contrastRatio(lightForeground, background)
+) {
+    darkForeground
+} else {
+    lightForeground
+}
+
 // ── Color Palette Generator ──────────────────────────────────────────────────
 data class AresColorPalette(
     val background: Color,

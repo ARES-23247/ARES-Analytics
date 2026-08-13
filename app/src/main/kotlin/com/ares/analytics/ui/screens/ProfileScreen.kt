@@ -403,9 +403,13 @@ fun ProfileScreen(
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Icon(Icons.Default.Psychology, contentDescription = null, tint = AresCyan, modifier = Modifier.size(20.dp))
-                    Text("AI Diagnostics Settings", fontWeight = FontWeight.Bold, color = AresTextPrimary, fontSize = 15.sp)
+                    Text("Gemini assistance", fontWeight = FontWeight.Bold, color = AresTextPrimary, fontSize = 15.sp)
                 }
-                Text("Choose your cloud model and credentials to query Gemini for real-time telemetry diagnostics.", color = AresTextSecondary, fontSize = 11.sp)
+                Text(
+                    "Choose the provider used by telemetry diagnostics and the Subsystem Builder's review-only form assistant.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                )
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

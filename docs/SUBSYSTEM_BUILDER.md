@@ -65,7 +65,9 @@ collapsed until you need them or a validation problem points to them.
 
 1. **Purpose** — choose a capability template, name the subsystem, and explain what it should do.
 2. **Hardware** — add motors, servos, and sensors using the exact Robot Controller configuration
-   names. Each declared measurement is cached once per robot loop.
+   names. Each declared measurement is cached once per robot loop. Adding hardware also adds its
+   normal explicit state: motor position/velocity/current, servo command/position, or the sensor's
+   typed reading. Add extra mechanism state only when it has meaning beyond those signals.
 3. **State & behavior** — distinguish observed status from requested targets, then connect bounded
    controller rules to actuators.
 4. **Safety** — complete feedback, homing, current, configuration-health, neutral-output, and fault
@@ -83,6 +85,93 @@ Saving creates immutable history under `.ares/history/subsystems`. **Save & Gene
 selected repository's Gradle wrapper. Generated output is deterministic: unchanged input produces
 byte-for-byte identical output, user-owned files are protected, and starter replacement is never
 silent.
+
+Every major editor card has a keyboard-focusable help button and hover explanation. Longer concepts
+link to this guide. The homing and feedforward sections include small interactive labs; those labs
+only explain the configured math and never connect to or command robot hardware.
+
+## Homing
+
+Homing establishes where a mechanism is physically located before normal motion is allowed. ARES
+supports several explicit evidence sources:
+
+- **Digital sensor** — a limit switch, beam break, or other Boolean home signal.
+- **Current stall** — current remains above a threshold while moving with a small bounded output.
+- **Velocity stall** — measured speed remains near zero while a bounded homing output is applied.
+- **Current and velocity stall** — recommended sensorless method: require both high current and low
+  velocity, so ordinary drag or an encoder glitch is less likely to be mistaken for the hard stop.
+- **Custom measurement** — an advanced combination of cached typed signals.
+
+Sensorless homing is not “drive until something happens.” The generated controller requires an
+explicit homing request, fresh and valid cached measurements, a limited search output, continuous
+evidence for the configured dwell, and a hard attempt timeout. It neutralizes before assigning the
+home position. Timeout, reset, or output-write failure latches a fault; a successful neutral cancel
+is required before retrying. Teams must choose a homing voltage low enough not to damage the
+mechanism and validate it on the real robot when hardware becomes available.
+
+## Feedforward
+
+Feedback and feedforward solve different problems:
+
+- **PID feedback** observes target error and corrects it.
+- **Feedforward** predicts the output required for the requested motion before error develops.
+
+The editor offers **simple motor** (`kS`, `kV`, `kA`), **elevator** (motor terms plus constant `kG`),
+and **arm** (motor terms plus `kG × cos(angle)`) models. The interactive preview shows the predicted
+voltage for velocity, acceleration, and angle; PID correction is added afterward. Units matter:
+`kV` and `kA` must match the units of the selected desired-velocity and acceleration fields, while
+arm angle is radians. Start with SysId data when possible and validate all gains in simulation before
+careful hardware testing.
+
+## Leader and follower actuators
+
+Use **Command source → Follow …** when two motors or servos should always receive one command. This
+is also called master/slave control in older documentation. A follower cannot own a second controller
+rule, preventing two policies from fighting the same mechanism.
+
+- Motors and continuous servos may follow in the same or inverted direction.
+- Positional servos may follow the same position or mirror it around the 0–1 range.
+- Physical FTC/FRC adapters and mock IO use the same transform.
+- Neutral output, output-fault latching, cleanup, and verification cover the full group. A failed
+  follower write safes the group rather than allowing asymmetric continued motion.
+- **Reverse hardware direction** is a separate per-device setting for reversed physical mounting.
+  The follower transform is applied first and mounting reversal second; using both deliberately
+  reverses twice.
+
+## AI-assisted form filling
+
+The **Help me design this** card sends the current subsystem form and a student's plain-language
+request to the Gemini provider configured in Profile. It does not send Kotlin source, robot logs,
+network telemetry, or credentials. Gemini returns a complete form proposal—not repository writes.
+
+A useful request describes the physical parts and the safe behavior, for example:
+
+> Add a second motor that follows the lift motor in the opposite direction. Home downward using
+> fresh current above 7 A and low velocity for 250 ms, stop the attempt after 3 seconds, and use
+> elevator feedforward with position feedback.
+
+You do not need to know the descriptor field names. The assistant should translate the physical
+description into the form; hover or press the help icon beside any proposed field to learn what it
+means. If important information is unknown—such as a safe current threshold—leave it unresolved
+and ask a mentor rather than accepting a guess.
+Students see plain-language reasoning, local validation results, and a structured before/after diff
+before choosing **Apply to form** or **Discard proposal**. Applying creates one normal Undo step;
+Save and Generate remain separate explicit actions. Protected platform, revision, source ownership,
+hand-authored class metadata, and catalog action keys are restored locally even if an untrusted model
+tries to change them. Accepted changes must still pass deterministic local validation, safety review,
+ownership checks, and starter replacement confirmation. AI will never
+silence safety warnings, invent a successful hardware test, generate around invalid data, or
+overwrite USER-OWNED Kotlin. This proposal boundary also allows the form to remain usable offline
+when Gemini is not configured.
+
+Before applying, check the proposal in this order:
+
+1. **Hardware:** device types, wiring names/IDs, physical reversal, and follower relationships.
+2. **Safety:** neutral output, feedback freshness, current validity, limits, homing dwell, and timeout.
+3. **Control:** measurement/target units, output bounds, feedback gains, and feedforward terms.
+4. **Simulation:** mock support and failure cases that can be tested without a robot.
+
+Gemini is a teaching and form-filling aid, not evidence that a mechanism is safe on hardware.
 
 ## Registering a subsystem that is already written by hand
 
