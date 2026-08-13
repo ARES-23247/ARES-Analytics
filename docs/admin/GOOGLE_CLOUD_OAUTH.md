@@ -79,7 +79,10 @@ client and broker configuration together.
   `roles/run.viewer`. Give it `roles/storage.objectAdmin` and
   `roles/storage.legacyBucketReader` only on the dedicated `aresfirst-portal_cloudbuild` source
   bucket. The workflow pins `--gcs-source-staging-dir` to that bucket so this identity does not need
-  project-wide bucket listing or storage access. Do not store a service-account key in GitHub.
+  project-wide bucket listing or storage access. The broker must use an enabled default URL and
+  Cloud Run's explicit `--no-invoker-iam-check` public-service mode; route validation, PKCE, request
+  limits, and rate limits remain enforced by the application. Do not store a service-account key in
+  GitHub.
 
 ## Release verification
 
