@@ -36,7 +36,7 @@ jobs:
           --project=aresfirst-portal
           --config=gateway/cloudbuild.yaml
           --gcs-source-staging-dir=gs://aresfirst-portal_cloudbuild/source
-          --service-account=analytics-cloudbuild-deployer@aresfirst-portal.iam.gserviceaccount.com
+          --service-account=projects/aresfirst-portal/serviceAccounts/analytics-cloudbuild-deployer@aresfirst-portal.iam.gserviceaccount.com
           --substitutions=COMMIT_SHA=${GITHUB_SHA}
 
       - name: Verify deployed health endpoint
