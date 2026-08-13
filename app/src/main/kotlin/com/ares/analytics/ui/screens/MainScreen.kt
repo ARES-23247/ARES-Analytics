@@ -315,6 +315,9 @@ fun MainScreen(services: ServiceRegistry) {
             projectPath = currentConfig.projectPath ?: "",
             league = currentConfig.league,
             projectGenerator = services.processManagerService,
+            designAssistant = com.ares.analytics.service.SubsystemDesignAssistant { current, request ->
+                services.syncEngineService.requestSubsystemDesignProposal(current, request)
+            },
         )
     }
     DisposableEffect(subsystemGeneratorViewModel) {

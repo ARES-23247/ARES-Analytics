@@ -50,6 +50,9 @@ fun CriticalAlertOverlay(
                 isLowBattery || isI2cError -> AresGold.copy(alpha = 0.95f)
                 else -> AresRedDark.copy(alpha = 0.95f)
             }
+            // Select the readable semantic foreground for both normal and colorblind palettes.
+            // This avoids the former low-contrast white-on-gold alert treatment.
+            val bannerForeground = readableForeground(bannerBg, AresOnAccent, AresTextPrimary)
 
             Card(
                 modifier = Modifier
@@ -75,7 +78,7 @@ fun CriticalAlertOverlay(
                         Icon(
                             imageVector = Icons.Default.Warning,
                             contentDescription = null,
-                            tint = Color.White,
+                            tint = bannerForeground,
                             modifier = Modifier.size(36.dp)
                         )
 
@@ -84,7 +87,7 @@ fun CriticalAlertOverlay(
                                 text = ruleName,
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White,
+                                color = bannerForeground,
                                 fontSize = 16.sp
                             )
 
@@ -100,7 +103,7 @@ fun CriticalAlertOverlay(
                             Text(
                                 text = detailText,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Color.White.copy(alpha = 0.9f),
+                                color = bannerForeground.copy(alpha = 0.9f),
                                 fontSize = 12.sp
                             )
                         }

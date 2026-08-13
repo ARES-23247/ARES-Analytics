@@ -1,13 +1,16 @@
 {
-  "schemaVersion": 5,
+  "schemaVersion": 6,
   "documentId": "smoke-indicator",
-  "name": "SmokeIndicator",
+  "uid": "smoke-indicator",
+  "displayName": "Smoke indicator",
+  "kotlinTypeName": "SmokeIndicator",
   "description": "Exercises packaged subsystem decoding.",
   "platform": "FTC",
   "revision": 1,
   "hardware": [
     {
       "hardwareId": "indicator",
+      "uid": "indicator",
       "displayName": "Smoke indicator",
       "kind": "POSITIONAL_SERVO",
       "connection": {"hardwareMapName": "smokeIndicator"},
@@ -19,6 +22,7 @@
   "stateFields": [
     {
       "fieldId": "position",
+      "uid": "position",
       "displayName": "Indicator position",
       "type": "DOUBLE",
       "role": "TARGET",
@@ -31,10 +35,12 @@
   "controlLoops": [
     {
       "loopId": "positionOutput",
+      "uid": "positionOutput",
       "displayName": "Indicator output",
       "strategy": "SERVO_POSITION",
       "actuatorId": "indicator",
       "targetFieldId": "position",
+      "feedforward": {"kind": "NONE"},
       "minimumOutput": 0.0,
       "maximumOutput": 1.0
     }
@@ -54,7 +60,7 @@
   "capabilityActionKeys": [],
   "safety": {
     "feedbackTimeoutMs": null,
-    "requiresHoming": false,
+    "homing": {"method": "NONE"},
     "requiresCalibration": false,
     "requiresConfigurationHealth": false,
     "requiresCurrentMonitoring": false,

@@ -4,6 +4,8 @@ package com.ares.analytics.service
 import com.ares.analytics.shared.AppJson
 
 import com.ares.analytics.shared.*
+import com.areslib.subsystem.SubsystemDocument
+import com.google.gson.GsonBuilder
 import io.ktor.client.*
 import io.ktor.client.call.body
 import io.ktor.client.plugins.contentnegotiation.*
@@ -117,6 +119,8 @@ class SyncEngineService(
         }
     }
 ) {
+    private val subsystemDocumentGson = GsonBuilder().create()
+
     private fun safeFileComponent(value: String): String = value
         .map { character ->
             when {
@@ -661,6 +665,109 @@ class SyncEngineService(
     /**
      * Requests diagnostics directly on the client using Google AI Studio or Vertex AI REST API.
      */
+    suspend fun requestSubsystemDesignProposal(
+        current: SubsystemDocument,
+        studentRequest: String,
+    ): SubsystemDesignProposal = withContext(Dispatchers.IO) {
+        require(studentRequest.isNotBlank()) { "Describe what you want the subsystem to do first." }
+        require(studentRequest.length <= 4_000) { "Subsystem design request is limited to 4,000 characters." }
+
+        // This descriptor contains form data only. No Kotlin source, credentials, logs, or robot
+        // network data are sent to Gemini by this workflow.
+        val currentJson = subsystemDocumentGson.toJson(current)
+        val prompt = """
+            You are the ARES Subsystem Builder form assistant for novice FTC and FRC students.
+            Propose edits to the supplied ARES subsystem descriptor. Do not write Kotlin source.
+
+            Safety and contract rules:
+            - Return a complete schemaVersion 6 descriptor using the exact JSON shape supplied.
+            - Preserve schemaVersion, documentId, uid, platform, revision, parentContentHash,
+              implementation, and capabilityActionKeys exactly. The desktop app also enforces this.
+            - Preserve existing uid values for existing hardware, state, and control entries.
+            - Use only enum names already visible in the descriptor or these supported choices:
+              homing NONE, DIGITAL_SENSOR, CURRENT_STALL, VELOCITY_STALL,
+              CURRENT_AND_VELOCITY_STALL, CUSTOM_MEASUREMENT; feedforward NONE, SIMPLE_MOTOR,
+              ELEVATOR, ARM; follower transforms SAME_DIRECTION, INVERTED, MIRRORED_POSITION.
+            - Hardware reads are cached once per loop. Unknown current is invalid, never zero.
+            - Keep configuration health, safe neutral output, failed-write latching, explicit neutral
+              recovery, telemetry, and zero-allocation periodic paths enabled for actuators.
+            - Sensorless homing requires bounded search output, fresh evidence, dwell, and timeout.
+            - Followers share one compatible leader and cannot own a controller or homing sequence.
+            - Device inversion corrects physical mounting; follower direction is a separate transform.
+            - Feedforward units and referenced state fields must be internally consistent.
+            - Do not invent unsupported hardware APIs, source paths, catalog actions, or secrets.
+
+            Respond only with one JSON object:
+            {
+              "summary": "one plain-language sentence",
+              "explanations": ["why change 1 helps", "why change 2 is safe"],
+              "proposedDocument": { complete schema-v6 descriptor object }
+            }
+
+            Student request:
+            $studentRequest
+
+            Current descriptor:
+            $currentJson
+        """.trimIndent()
+
+        parseSubsystemDesignProposalResponse(
+            current = current,
+            responseText = requestGeminiStructuredJson(prompt),
+            gson = subsystemDocumentGson,
+        )
+    }
+
+    private suspend fun requestGeminiStructuredJson(prompt: String): String {
+        val config = environmentService.loadConfig()
+            ?: throw IllegalStateException("No active workspace configuration loaded")
+        val aiMode = config.aiMode ?: "STUDIO"
+        val modelName = configuredGeminiModel(config.geminiModel)
+        val body = buildJsonObject {
+            put("contents", buildJsonArray {
+                add(buildJsonObject {
+                    put("role", "user")
+                    put("parts", buildJsonArray { add(buildJsonObject { put("text", prompt) }) })
+                })
+            })
+            put("generationConfig", buildJsonObject {
+                put("responseMimeType", "application/json")
+                put("temperature", 0.2)
+            })
+        }
+        val response = if (aiMode == "STUDIO") {
+            val apiKey = config.geminiApiKey
+                ?: throw IllegalStateException("Gemini API key is not configured in Profile → AI Diagnostics")
+            httpClient.post("https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent") {
+                header("x-goog-api-key", apiKey)
+                contentType(ContentType.Application.Json)
+                setBody(body)
+            }
+        } else {
+            val serviceAccountPath = config.vertexServiceAccountPath
+                ?: throw IllegalStateException("GCP Service Account path is not configured in Profile → AI Diagnostics")
+            val projectId = config.vertexProjectId
+                ?: throw IllegalStateException("GCP Project ID is not configured in Profile → AI Diagnostics")
+            val location = config.vertexLocation ?: "us-central1"
+            val accessToken = getVertexAccessToken(serviceAccountPath)
+            httpClient.post(
+                "https://$location-aiplatform.googleapis.com/v1/projects/$projectId/locations/$location/publishers/google/models/$modelName:generateContent"
+            ) {
+                header(HttpHeaders.Authorization, "Bearer $accessToken")
+                contentType(ContentType.Application.Json)
+                setBody(body)
+            }
+        }
+        if (response.status != HttpStatusCode.OK) {
+            throw IllegalStateException("Gemini subsystem proposal failed: ${response.bodyAsText().take(1_000)}")
+        }
+        val responseObject = response.body<JsonObject>()
+        return responseObject["candidates"]?.jsonArray?.firstOrNull()?.jsonObject
+            ?.get("content")?.jsonObject?.get("parts")?.jsonArray?.firstOrNull()?.jsonObject
+            ?.get("text")?.jsonPrimitive?.content
+            ?: throw IllegalStateException("Gemini returned no subsystem proposal text.")
+    }
+
     suspend fun requestForensics(request: ForensicsRequest, authToken: String? = null): ForensicsResponse = withContext(Dispatchers.IO) {
         val config = environmentService.loadConfig()
             ?: throw IllegalStateException("No active workspace configuration loaded")

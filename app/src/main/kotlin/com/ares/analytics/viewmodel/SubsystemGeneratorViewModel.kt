@@ -2,6 +2,9 @@ package com.ares.analytics.viewmodel
 
 import com.ares.analytics.service.AresGenerationPhase
 import com.ares.analytics.service.AresProjectGenerator
+import com.ares.analytics.service.SubsystemDesignAssistant
+import com.ares.analytics.service.SubsystemDesignProposal
+import com.ares.analytics.service.sanitizeSubsystemDesignCandidate
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentKind
@@ -17,9 +20,16 @@ import com.areslib.subsystem.SubsystemControlLoopDocument
 import com.areslib.subsystem.SubsystemControlStrategy
 import com.areslib.subsystem.SubsystemDocument
 import com.areslib.subsystem.SubsystemFieldRole
+import com.areslib.subsystem.SubsystemFollowerDocument
+import com.areslib.subsystem.SubsystemFollowerTransform
 import com.areslib.subsystem.SubsystemHardwareConnection
 import com.areslib.subsystem.SubsystemHardwareDocument
 import com.areslib.subsystem.SubsystemHardwareKind
+import com.areslib.subsystem.SubsystemHardwareScaffolding
+import com.areslib.subsystem.SubsystemHomingComparison
+import com.areslib.subsystem.SubsystemHomingDocument
+import com.areslib.subsystem.SubsystemHomingEvidenceDocument
+import com.areslib.subsystem.SubsystemHomingMethod
 import com.areslib.subsystem.SubsystemImplementationDocument
 import com.areslib.subsystem.SubsystemImplementationKind
 import com.areslib.subsystem.SubsystemMeasurementSource
@@ -34,6 +44,7 @@ import com.areslib.subsystem.SubsystemTemplate
 import com.areslib.subsystem.SubsystemTemplates
 import com.areslib.subsystem.SubsystemValueType
 import com.areslib.subsystem.validateSubsystemDocument
+import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -87,6 +98,15 @@ enum class SubsystemDiffLineKind { CONTEXT, ADDED, REMOVED }
 
 data class SubsystemDiffLine(val kind: SubsystemDiffLineKind, val text: String)
 
+data class SubsystemAiProposalReview(
+    val base: SubsystemDocument,
+    val proposal: SubsystemDesignProposal,
+    val diff: List<SubsystemDiffLine>,
+    val problems: List<SubsystemProblem>,
+) {
+    val canApply: Boolean get() = problems.none { it.severity == SubsystemProblemSeverity.ERROR }
+}
+
 data class SubsystemTemplateOption(
     val template: SubsystemTemplate,
     val label: String,
@@ -131,15 +151,44 @@ val subsystemTemplateOptions = listOf(
     ),
 )
 
+/**
+ * UI editing session kept separate from the strict persisted descriptor.
+ *
+ * The canonical document remains the generation contract; this layer owns reversible student
+ * edits and exposes a single compile boundary through [document].
+ */
+data class SubsystemEditorDraft(
+    val document: SubsystemDocument,
+    val undo: List<SubsystemDocument> = emptyList(),
+    val redo: List<SubsystemDocument> = emptyList(),
+) {
+    val canUndo: Boolean get() = undo.isNotEmpty()
+    val canRedo: Boolean get() = redo.isNotEmpty()
+
+    fun edit(transform: (SubsystemDocument) -> SubsystemDocument): SubsystemEditorDraft {
+        val next = transform(document)
+        if (next == document) return this
+        return copy(document = next, undo = (undo + document).takeLast(50), redo = emptyList())
+    }
+
+    fun undo(): SubsystemEditorDraft = undo.lastOrNull()?.let { previous ->
+        copy(document = previous, undo = undo.dropLast(1), redo = (redo + document).takeLast(50))
+    } ?: this
+
+    fun redo(): SubsystemEditorDraft = redo.lastOrNull()?.let { next ->
+        copy(document = next, undo = (undo + document).takeLast(50), redo = redo.dropLast(1))
+    } ?: this
+}
+
 data class SubsystemGeneratorState(
     val projectPath: String,
     val league: League,
     val documents: List<SubsystemDocument> = emptyList(),
     val selectedDocumentId: String? = null,
-    val draft: SubsystemDocument? = null,
-    val selectedHardwareId: String? = null,
-    val selectedFieldId: String? = null,
-    val selectedLoopId: String? = null,
+    val draft: SubsystemEditorDraft? = null,
+    val selectedHardwareUid: String? = null,
+    val selectedFieldUid: String? = null,
+    val selectedLoopUid: String? = null,
     val activeStage: SubsystemBuilderStage = SubsystemBuilderStage.PURPOSE,
     val selectedTemplate: SubsystemTemplate = SubsystemTemplate.POSITION_CONTROLLED_MECHANISM,
     val previewFiles: List<SubsystemPreviewFile> = emptyList(),
@@ -153,6 +202,9 @@ data class SubsystemGeneratorState(
     val generatedContentHash: String? = null,
     val status: String? = null,
     val loadError: String? = null,
+    val aiProposalInProgress: Boolean = false,
+    val aiProposal: SubsystemAiProposalReview? = null,
+    val aiProposalError: String? = null,
 ) {
     val canSave: Boolean
         get() = dirty && loadError == null && problems.none { it.severity == SubsystemProblemSeverity.ERROR }
@@ -164,6 +216,9 @@ data class SubsystemGeneratorState(
 
     val hasProtectedUserOwnedConflict: Boolean
         get() = previewFiles.any { it.change == SubsystemFileChange.PROTECTED_USER_OWNED }
+
+    val canUndo: Boolean get() = draft?.canUndo == true
+    val canRedo: Boolean get() = draft?.canRedo == true
 }
 
 /**
@@ -175,7 +230,9 @@ class SubsystemGeneratorViewModel(
     private val league: League,
     private val documents: AresProjectDocuments = AresProjectDocuments(),
     private val projectGenerator: AresProjectGenerator? = null,
+    private val designAssistant: SubsystemDesignAssistant? = null,
 ) : AutoCloseable {
+    private val reviewGson = GsonBuilder().setPrettyPrinting().create()
     private val platform = when (league) {
         League.FTC -> SubsystemPlatform.FTC
         League.FRC -> SubsystemPlatform.FRC
@@ -185,6 +242,7 @@ class SubsystemGeneratorViewModel(
         League.FRC -> "com.areslib.frc.subsystems"
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var aiProposalGeneration = 0L
     private val _state = MutableStateFlow(SubsystemGeneratorState(projectPath, league))
     val state: StateFlow<SubsystemGeneratorState> = _state.asStateFlow()
 
@@ -206,6 +264,7 @@ class SubsystemGeneratorViewModel(
     }
 
     fun reload() {
+        aiProposalGeneration++
         val current = _state.value
         if (current.projectPath.isBlank()) {
             _state.value = current.copy(loadError = "Choose a robot project directory to edit subsystems.")
@@ -221,14 +280,17 @@ class SubsystemGeneratorViewModel(
                 _state.value = current.copy(
                     documents = if (matching.isEmpty()) listOf(first) else matching,
                     selectedDocumentId = first.documentId,
-                    draft = first,
-                    selectedHardwareId = first.hardware.firstOrNull()?.hardwareId,
-                    selectedFieldId = null,
-                    selectedLoopId = null,
+                    draft = SubsystemEditorDraft(first),
+                    selectedHardwareUid = first.hardware.firstOrNull()?.uid,
+                    selectedFieldUid = null,
+                    selectedLoopUid = null,
                     selectedTemplate = first.template,
                     dirty = matching.isEmpty(),
                     status = if (matching.isEmpty()) "Create your first subsystem, then save it as a project revision." else null,
                     loadError = null,
+                    aiProposalInProgress = false,
+                    aiProposal = null,
+                    aiProposalError = null,
                 ).revalidated(projectProblems)
             }
             .onFailure { error ->
@@ -237,6 +299,7 @@ class SubsystemGeneratorViewModel(
     }
 
     fun newSubsystem() {
+        aiProposalGeneration++
         val used = _state.value.documents.mapTo(hashSetOf()) { it.documentId }
         var suffix = 1
         var id = "new-subsystem"
@@ -247,14 +310,17 @@ class SubsystemGeneratorViewModel(
             current.copy(
                 documents = current.documents + document,
                 selectedDocumentId = document.documentId,
-                draft = document,
-                selectedHardwareId = document.hardware.first().hardwareId,
-                selectedFieldId = null,
-                selectedLoopId = null,
+                draft = SubsystemEditorDraft(document),
+                selectedHardwareUid = document.hardware.first().uid,
+                selectedFieldUid = null,
+                selectedLoopUid = null,
                 activeStage = SubsystemBuilderStage.PURPOSE,
                 selectedTemplate = document.template,
                 dirty = true,
-                status = "New subsystem draft created."
+                status = "New subsystem draft created.",
+                aiProposalInProgress = false,
+                aiProposal = null,
+                aiProposalError = null,
             ).revalidated()
         }
     }
@@ -263,12 +329,42 @@ class SubsystemGeneratorViewModel(
 
     fun selectStage(stage: SubsystemBuilderStage) = _state.update { it.copy(activeStage = stage) }
 
+    fun navigateToProblem(path: String) = _state.update { current ->
+        val document = current.draft?.document ?: return@update current
+        val index = Regex("\\[(\\d+)]").find(path)?.groupValues?.getOrNull(1)?.toIntOrNull()
+        when {
+            path.startsWith("hardware") -> current.copy(
+                activeStage = SubsystemBuilderStage.HARDWARE,
+                selectedHardwareUid = index?.let { document.hardware.getOrNull(it)?.uid },
+                selectedFieldUid = null,
+                selectedLoopUid = null,
+            )
+            path.startsWith("stateFields") -> current.copy(
+                activeStage = SubsystemBuilderStage.STATE_AND_BEHAVIOR,
+                selectedFieldUid = index?.let { document.stateFields.getOrNull(it)?.uid },
+                selectedHardwareUid = null,
+                selectedLoopUid = null,
+            )
+            path.startsWith("controlLoops") -> current.copy(
+                activeStage = SubsystemBuilderStage.STATE_AND_BEHAVIOR,
+                selectedLoopUid = index?.let { document.controlLoops.getOrNull(it)?.uid },
+                selectedHardwareUid = null,
+                selectedFieldUid = null,
+            )
+            path.startsWith("safety") -> current.copy(activeStage = SubsystemBuilderStage.SAFETY)
+            path.startsWith("implementation") || path == "displayName" || path == "kotlinTypeName" || path == "documentId" ->
+                current.copy(activeStage = SubsystemBuilderStage.PURPOSE)
+            else -> current.copy(activeStage = SubsystemBuilderStage.REVIEW)
+        }
+    }
+
     fun previousStage() = _state.update { state ->
         val stages = SubsystemBuilderStage.entries
         state.copy(activeStage = stages[(state.activeStage.ordinal - 1).coerceAtLeast(0)])
     }
 
     fun registerHandAuthoredSubsystem() {
+        aiProposalGeneration++
         val used = _state.value.documents.mapTo(hashSetOf()) { it.documentId }
         var suffix = 1
         var id = "existing-subsystem"
@@ -301,14 +397,17 @@ class SubsystemGeneratorViewModel(
             current.copy(
                 documents = current.documents + document,
                 selectedDocumentId = id,
-                draft = document,
-                selectedHardwareId = null,
-                selectedFieldId = null,
-                selectedLoopId = null,
+                draft = SubsystemEditorDraft(document),
+                selectedHardwareUid = null,
+                selectedFieldUid = null,
+                selectedLoopUid = null,
                 activeStage = SubsystemBuilderStage.PURPOSE,
                 selectedTemplate = SubsystemTemplate.ADVANCED_CUSTOM,
                 dirty = true,
                 status = "Hand-authored subsystem registration created. Review its source and runtime contract.",
+                aiProposalInProgress = false,
+                aiProposal = null,
+                aiProposalError = null,
             ).revalidated()
         }
     }
@@ -326,50 +425,217 @@ class SubsystemGeneratorViewModel(
         _state.update { current ->
             if (current.dirty) return@update current.copy(status = "Save or reload the current draft before switching subsystems.")
             val document = current.documents.firstOrNull { it.documentId == documentId } ?: return@update current
+            aiProposalGeneration++
             current.copy(
                 selectedDocumentId = document.documentId,
-                draft = document,
-                selectedHardwareId = document.hardware.firstOrNull()?.hardwareId,
-                selectedFieldId = null,
-                selectedLoopId = null,
+                draft = SubsystemEditorDraft(document),
+                selectedHardwareUid = document.hardware.firstOrNull()?.uid,
+                selectedFieldUid = null,
+                selectedLoopUid = null,
                 activeStage = SubsystemBuilderStage.PURPOSE,
                 selectedTemplate = document.template,
                 status = null,
+                aiProposalInProgress = false,
+                aiProposal = null,
+                aiProposalError = null,
             ).revalidated()
         }
     }
 
     fun edit(transform: (SubsystemDocument) -> SubsystemDocument) {
+        aiProposalGeneration++
         _state.update { current ->
             val draft = current.draft ?: return@update current
-            current.copy(draft = transform(draft), dirty = true, status = null).revalidated()
+            current.copy(
+                draft = draft.edit(transform),
+                dirty = true,
+                status = null,
+                aiProposalInProgress = false,
+                aiProposal = null,
+                aiProposalError = null,
+            ).revalidated()
         }
     }
 
-    fun selectHardware(id: String?) = _state.update { it.copy(selectedHardwareId = id, selectedFieldId = null, selectedLoopId = null) }
-    fun selectField(id: String?) = _state.update { it.copy(selectedFieldId = id, selectedHardwareId = null, selectedLoopId = null) }
-    fun selectLoop(id: String?) = _state.update { it.copy(selectedLoopId = id, selectedHardwareId = null, selectedFieldId = null) }
+    fun undo() = _state.update { current ->
+        aiProposalGeneration++
+        val draft = current.draft ?: return@update current
+        current.copy(
+            draft = draft.undo(),
+            dirty = true,
+            status = "Undid the last edit.",
+            aiProposalInProgress = false,
+            aiProposal = null,
+            aiProposalError = null,
+        ).revalidated()
+    }
 
-    fun addHardware() {
-        val id = uniqueId("device", _state.value.draft?.hardware.orEmpty().map { it.hardwareId })
-        edit { document ->
-        val device = SubsystemHardwareDocument(
-            hardwareId = id,
-            displayName = "New device",
-            kind = SubsystemHardwareKind.DIGITAL_INPUT,
-            connection = when (platform) {
-                SubsystemPlatform.FTC -> SubsystemHardwareConnection(hardwareMapName = id)
-                SubsystemPlatform.FRC -> SubsystemHardwareConnection(channel = nextChannel(document))
-            },
+    fun redo() = _state.update { current ->
+        aiProposalGeneration++
+        val draft = current.draft ?: return@update current
+        current.copy(
+            draft = draft.redo(),
+            dirty = true,
+            status = "Redid the edit.",
+            aiProposalInProgress = false,
+            aiProposal = null,
+            aiProposalError = null,
+        ).revalidated()
+    }
+
+    /** Requests form edits only. The assistant cannot save, generate, or write project source. */
+    fun requestAiProposal(studentRequest: String) {
+        val request = studentRequest.trim()
+        val base = _state.value.draft?.document ?: return
+        val assistant = designAssistant
+        if (request.isBlank()) {
+            _state.update { it.copy(aiProposalError = "Describe the mechanism or the change you want first.") }
+            return
+        }
+        if (assistant == null) {
+            _state.update { it.copy(aiProposalError = "The AI form assistant is not available in this app session.") }
+            return
+        }
+        _state.update {
+            it.copy(aiProposalInProgress = true, aiProposal = null, aiProposalError = null)
+        }
+        val requestGeneration = ++aiProposalGeneration
+        scope.launch {
+            runCatching {
+                val rawProposal = assistant.propose(base, request)
+                val candidate = sanitizeSubsystemDesignCandidate(base, rawProposal.candidate)
+                val proposal = rawProposal.copy(candidate = candidate)
+                val problems = validateSubsystemDocument(candidate).map {
+                    SubsystemProblem(SubsystemProblemSeverity.ERROR, it.path, it.message)
+                } + safetyWarnings(candidate)
+                SubsystemAiProposalReview(
+                    base = base,
+                    proposal = proposal,
+                    diff = structuredLineDiff(
+                        reviewGson.toJson(base),
+                        reviewGson.toJson(candidate),
+                        contextLines = 2,
+                    ),
+                    problems = problems.distinctBy { Triple(it.severity, it.path, it.message) },
+                )
+            }
+                .onSuccess { review ->
+                    _state.update { current ->
+                        if (requestGeneration != aiProposalGeneration) {
+                            current
+                        } else if (current.draft?.document != base) {
+                            current.copy(
+                                aiProposalInProgress = false,
+                                aiProposalError = "The form changed while Gemini was working. Request a fresh proposal.",
+                            )
+                        } else {
+                            current.copy(aiProposalInProgress = false, aiProposal = review, aiProposalError = null)
+                        }
+                    }
+                }
+                .onFailure { error ->
+                    _state.update {
+                        if (requestGeneration != aiProposalGeneration) it else it.copy(
+                            aiProposalInProgress = false,
+                            aiProposal = null,
+                            aiProposalError = error.message ?: "Gemini could not create a subsystem proposal.",
+                        )
+                    }
+                }
+        }
+    }
+
+    fun dismissAiProposal() = _state.update { it.copy(aiProposal = null, aiProposalError = null) }
+
+    fun applyAiProposal() = _state.update { current ->
+        val review = current.aiProposal ?: return@update current
+        val draft = current.draft ?: return@update current
+        when {
+            !review.canApply -> current.copy(aiProposalError = "Fix the proposal's validation errors before applying it.")
+            draft.document != review.base -> current.copy(
+                aiProposal = null,
+                aiProposalError = "The form changed after this proposal was created. Request a fresh proposal.",
+            )
+            else -> current.copy(
+                draft = draft.edit { review.proposal.candidate },
+                dirty = true,
+                aiProposal = null,
+                aiProposalError = null,
+                status = "Applied Gemini's form proposal. Review it, then Save when you are satisfied.",
+            ).revalidated()
+        }
+    }
+
+    fun setHomingMethod(method: SubsystemHomingMethod) = edit { document ->
+        if (method == SubsystemHomingMethod.NONE) {
+            return@edit document.copy(safety = document.safety.copy(homing = SubsystemHomingDocument()))
+        }
+        val motor = document.hardware.firstOrNull { it.kind == SubsystemHardwareKind.MOTOR }
+        val measurements = document.hardware.flatMap { it.measurements }
+        val digital = measurements.firstOrNull { it.source == SubsystemMeasurementSource.DIGITAL_STATE }
+        val current = measurements.firstOrNull { it.source == SubsystemMeasurementSource.MOTOR_CURRENT_AMPS }
+        val velocity = measurements.firstOrNull { it.source == SubsystemMeasurementSource.MOTOR_VELOCITY_NATIVE_PER_SECOND }
+        val evidence = when (method) {
+            SubsystemHomingMethod.DIGITAL_SENSOR -> listOfNotNull(
+                digital?.let { SubsystemHomingEvidenceDocument(it.fieldId, SubsystemHomingComparison.TRUE) }
+            )
+            SubsystemHomingMethod.CURRENT_STALL -> listOfNotNull(
+                current?.let { SubsystemHomingEvidenceDocument(it.fieldId, SubsystemHomingComparison.AT_OR_ABOVE, 5.0) }
+            )
+            SubsystemHomingMethod.VELOCITY_STALL -> listOfNotNull(
+                velocity?.let { SubsystemHomingEvidenceDocument(it.fieldId, SubsystemHomingComparison.ABS_AT_OR_BELOW, 0.5) }
+            )
+            SubsystemHomingMethod.CURRENT_AND_VELOCITY_STALL -> listOfNotNull(
+                current?.let { SubsystemHomingEvidenceDocument(it.fieldId, SubsystemHomingComparison.AT_OR_ABOVE, 5.0) },
+                velocity?.let { SubsystemHomingEvidenceDocument(it.fieldId, SubsystemHomingComparison.ABS_AT_OR_BELOW, 0.5) },
+            )
+            SubsystemHomingMethod.CUSTOM_MEASUREMENT -> emptyList()
+            SubsystemHomingMethod.NONE -> emptyList()
+        }
+        document.copy(
+            safety = document.safety.copy(
+                homing = SubsystemHomingDocument(
+                    method = method,
+                    actuatorId = motor?.hardwareId,
+                    searchOutput = -2.0,
+                    evidence = evidence,
+                ),
+                requiresCurrentMonitoring = document.safety.requiresCurrentMonitoring ||
+                    method == SubsystemHomingMethod.CURRENT_STALL ||
+                    method == SubsystemHomingMethod.CURRENT_AND_VELOCITY_STALL,
+            )
         )
-        document.copy(hardware = document.hardware + device)
+    }
+
+    fun selectHardware(id: String?) = _state.update { it.copy(selectedHardwareUid = id, selectedFieldUid = null, selectedLoopUid = null) }
+    fun selectField(id: String?) = _state.update { it.copy(selectedFieldUid = id, selectedHardwareUid = null, selectedLoopUid = null) }
+    fun selectLoop(id: String?) = _state.update { it.copy(selectedLoopUid = id, selectedHardwareUid = null, selectedFieldUid = null) }
+
+    fun addHardware(kind: SubsystemHardwareKind = SubsystemHardwareKind.MOTOR) {
+        val id = uniqueId("device", _state.value.draft?.document?.hardware.orEmpty().map { it.hardwareId })
+        edit { document ->
+            val scaffold = SubsystemHardwareScaffolding.create(
+                kind = kind,
+                hardwareId = id,
+                displayName = kind.name.replace('_', ' ').lowercase().replaceFirstChar(Char::uppercase),
+                platform = platform,
+                canId = nextCanId(document),
+                channel = nextChannel(document),
+            )
+            document.copy(
+                hardware = document.hardware + scaffold.hardware,
+                stateFields = document.stateFields + scaffold.stateFields,
+                controlLoops = document.controlLoops + scaffold.controlLoops,
+            )
         }
         selectHardware(id)
     }
 
     fun removeHardware(id: String) = edit { document ->
         document.copy(
-            hardware = document.hardware.filterNot { it.hardwareId == id },
+            hardware = document.hardware.filterNot { it.hardwareId == id }.map { device ->
+                if (device.following?.leaderId == id) device.copy(following = null) else device
+            },
             controlLoops = document.controlLoops.filterNot { it.actuatorId == id },
         )
     }.also { selectHardware(null) }
@@ -378,15 +644,96 @@ class SubsystemGeneratorViewModel(
         document.copy(hardware = document.hardware.map { if (it.hardwareId == id) transform(it) else it })
     }
 
-    fun addStateField() {
-        val id = uniqueId("value", _state.value.draft?.stateFields.orEmpty().map { it.fieldId })
+    fun setHardwareFollower(
+        id: String,
+        leaderId: String?,
+        transform: SubsystemFollowerTransform = SubsystemFollowerTransform.SAME_DIRECTION,
+    ) = edit { document ->
+        document.copy(
+            hardware = document.hardware.map { device ->
+                if (device.hardwareId == id) {
+                    device.copy(following = leaderId?.let { SubsystemFollowerDocument(it, transform) })
+                } else device
+            },
+            controlLoops = if (leaderId == null) document.controlLoops else {
+                document.controlLoops.filterNot { it.actuatorId == id }
+            },
+            safety = if (leaderId != null && document.safety.homing.actuatorId == id) {
+                document.safety.copy(homing = SubsystemHomingDocument())
+            } else document.safety,
+        )
+    }
+
+    fun changeHardwareKind(id: String, kind: SubsystemHardwareKind) = edit { document ->
+        val existing = document.hardware.firstOrNull { it.hardwareId == id } ?: return@edit document
+        if (existing.kind == kind) return@edit document
+        val ownedLoops = document.controlLoops.filter { it.actuatorId == id }
+        val providedFieldIds = existing.measurements.mapTo(linkedSetOf()) { it.fieldId }.apply {
+            addAll(ownedLoops.map { it.targetFieldId })
+        }
+        val scaffold = SubsystemHardwareScaffolding.create(
+            kind,
+            id,
+            existing.displayName,
+            platform,
+            hardwareMapName = existing.connection.hardwareMapName ?: id,
+            canId = existing.connection.canId ?: nextCanId(document),
+            channel = existing.connection.channel ?: nextChannel(document),
+        )
+        document.copy(
+            hardware = document.hardware.map {
+                when {
+                    it.hardwareId == id -> scaffold.hardware.copy(uid = existing.uid)
+                    it.following?.leaderId == id -> it.copy(following = null)
+                    else -> it
+                }
+            },
+            stateFields = document.stateFields.filterNot { it.fieldId in providedFieldIds } + scaffold.stateFields,
+            controlLoops = document.controlLoops.filterNot { it.actuatorId == id } + scaffold.controlLoops,
+            safety = if (document.safety.homing.actuatorId == id) {
+                document.safety.copy(homing = SubsystemHomingDocument())
+            } else document.safety,
+        )
+    }
+
+    fun renameHardwareId(id: String, newId: String) {
+        if (newId == id) return
+        edit { document ->
+            document.copy(
+                hardware = document.hardware.map {
+                    when {
+                        it.hardwareId == id -> it.copy(hardwareId = newId)
+                        it.following?.leaderId == id -> it.copy(following = requireNotNull(it.following).copy(leaderId = newId))
+                        else -> it
+                    }
+                },
+                controlLoops = document.controlLoops.map { if (it.actuatorId == id) it.copy(actuatorId = newId) else it },
+                safety = document.safety.copy(
+                    homing = document.safety.homing.copy(
+                        actuatorId = document.safety.homing.actuatorId?.let { if (it == id) newId else it }
+                    )
+                ),
+            )
+        }
+        selectHardware(_state.value.draft?.document?.hardware?.firstOrNull { it.hardwareId == newId }?.uid)
+    }
+
+    fun addStateField(
+        displayName: String = "Additional value",
+        role: SubsystemFieldRole = SubsystemFieldRole.STATUS,
+        type: SubsystemValueType = SubsystemValueType.DOUBLE,
+    ) {
+        val id = uniqueId("value", _state.value.draft?.document?.stateFields.orEmpty().map { it.fieldId })
         edit { document ->
         val field = SubsystemStateFieldDocument(
             fieldId = id,
-            displayName = "New value",
-            type = SubsystemValueType.DOUBLE,
-            role = SubsystemFieldRole.STATUS,
-            defaultNumber = 0.0,
+            displayName = displayName,
+            type = type,
+            role = role,
+            defaultNumber = 0.0.takeIf { type == SubsystemValueType.DOUBLE },
+            defaultBoolean = false.takeIf { type == SubsystemValueType.BOOLEAN },
+            defaultInt = 0.takeIf { type == SubsystemValueType.INT },
+            defaultText = "".takeIf { type == SubsystemValueType.STRING },
         )
         document.copy(stateFields = document.stateFields + field)
         }
@@ -407,13 +754,46 @@ class SubsystemGeneratorViewModel(
         document.copy(stateFields = document.stateFields.map { if (it.fieldId == id) transform(it) else it })
     }
 
+    fun renameStateFieldId(id: String, newId: String) {
+        if (newId == id) return
+        edit { document ->
+            document.copy(
+                stateFields = document.stateFields.map { if (it.fieldId == id) it.copy(fieldId = newId) else it },
+                hardware = document.hardware.map { device ->
+                    device.copy(measurements = device.measurements.map { measurement ->
+                        if (measurement.fieldId == id) measurement.copy(fieldId = newId) else measurement
+                    })
+                },
+                controlLoops = document.controlLoops.map { loop ->
+                    loop.copy(
+                        targetFieldId = if (loop.targetFieldId == id) newId else loop.targetFieldId,
+                        measurementFieldId = loop.measurementFieldId?.let { if (it == id) newId else it },
+                        feedforward = loop.feedforward.copy(
+                            velocityFieldId = loop.feedforward.velocityFieldId?.let { if (it == id) newId else it },
+                            accelerationFieldId = loop.feedforward.accelerationFieldId?.let { if (it == id) newId else it },
+                            gravityAngleFieldId = loop.feedforward.gravityAngleFieldId?.let { if (it == id) newId else it },
+                        ),
+                    )
+                },
+                safety = document.safety.copy(
+                    homing = document.safety.homing.copy(
+                        evidence = document.safety.homing.evidence.map {
+                            if (it.fieldId == id) it.copy(fieldId = newId) else it
+                        }
+                    )
+                ),
+            )
+        }
+        selectField(_state.value.draft?.document?.stateFields?.firstOrNull { it.fieldId == newId }?.uid)
+    }
+
     fun addControlLoop() {
-        val current = _state.value.draft ?: return
-        val actuator = current.hardware.firstOrNull { it.kind.isActuator() } ?: return
+        val current = _state.value.draft?.document ?: return
+        val actuator = current.hardware.firstOrNull { it.kind.isActuator() && it.following == null } ?: return
         val target = current.stateFields.firstOrNull { it.role == SubsystemFieldRole.TARGET && it.type.isNumeric() } ?: return
         val id = uniqueId("control", current.controlLoops.map { it.loopId })
         edit { document ->
-        val actuator = document.hardware.firstOrNull { it.kind.isActuator() } ?: return@edit document
+        val actuator = document.hardware.firstOrNull { it.kind.isActuator() && it.following == null } ?: return@edit document
         val target = document.stateFields.firstOrNull { it.role == SubsystemFieldRole.TARGET && it.type.isNumeric() }
             ?: return@edit document
         val measurement = document.stateFields.firstOrNull { it.role == SubsystemFieldRole.MEASUREMENT && it.type.isNumeric() }
@@ -447,7 +827,7 @@ class SubsystemGeneratorViewModel(
 
     fun save(generateAfterSave: Boolean = false) {
         val current = _state.value
-        val draft = current.draft ?: return
+        val draft = current.draft?.document ?: return
         if (!current.canSave) {
             _state.update { it.copy(status = "Fix validation errors before saving.") }
             return
@@ -459,7 +839,7 @@ class SubsystemGeneratorViewModel(
                     state.copy(
                         documents = state.documents.filterNot { it.documentId == persisted.documentId } + persisted,
                         selectedDocumentId = persisted.documentId,
-                        draft = persisted,
+                        draft = SubsystemEditorDraft(persisted),
                         dirty = false,
                         status = "Saved revision ${persisted.revision} (${saved.contentHash.take(12)}…).",
                     ).revalidated()
@@ -503,7 +883,7 @@ class SubsystemGeneratorViewModel(
     private fun SubsystemGeneratorState.revalidated(
         external: List<SubsystemProblem> = problems.filter { it.path.startsWith("project:") },
     ): SubsystemGeneratorState {
-        val document = draft ?: return copy(previewFiles = emptyList(), problems = external)
+        val document = draft?.document ?: return copy(previewFiles = emptyList(), problems = external)
         val validation = validateSubsystemDocument(document).map {
             SubsystemProblem(SubsystemProblemSeverity.ERROR, it.path, it.message)
         }
@@ -610,6 +990,11 @@ class SubsystemGeneratorViewModel(
         fun nextChannel(document: SubsystemDocument): Int {
             val used = document.hardware.mapNotNullTo(hashSetOf()) { it.connection.channel }
             return (0..31).firstOrNull { it !in used } ?: 0
+        }
+
+        fun nextCanId(document: SubsystemDocument): Int {
+            val used = document.hardware.mapNotNullTo(hashSetOf()) { it.connection.canId }
+            return (1..62).firstOrNull { it !in used } ?: 1
         }
     }
 }

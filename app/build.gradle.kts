@@ -15,7 +15,7 @@ plugins {
 
 
 dependencies {
-    val aresVersion = providers.gradleProperty("aresVersion").orElse("3.0.0").get()
+    val aresVersion = providers.gradleProperty("aresVersion").orElse("4.0.0").get()
 
     // Compose Desktop
     implementation(compose.desktop.currentOs)
@@ -46,6 +46,7 @@ dependencies {
     implementation("io.ktor:ktor-server-cio:3.0.3")
 
     // Serialization
+    implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
 

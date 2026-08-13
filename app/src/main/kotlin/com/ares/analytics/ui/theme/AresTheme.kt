@@ -17,10 +17,11 @@ private fun aresColorScheme(colors: AresColorPalette) = darkColorScheme(
     primaryContainer = colors.cyanDark,
     onPrimaryContainer = colors.onAccent,
 
-    secondary = colors.red,
+    // Interactive selection is cyan; red remains reserved for explicit warning/error surfaces.
+    secondary = colors.cyan,
     onSecondary = colors.onAccent,
-    secondaryContainer = colors.redDark,
-    onSecondaryContainer = colors.textPrimary,
+    secondaryContainer = colors.cyanDark,
+    onSecondaryContainer = colors.onAccent,
 
     tertiary = colors.gold,
     onTertiary = colors.onAccent,
