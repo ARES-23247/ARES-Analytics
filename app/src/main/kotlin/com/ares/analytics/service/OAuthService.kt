@@ -1,6 +1,9 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.AppJson
+import com.ares.analytics.shared.GoogleAuthorizationCodeExchangeRequest
+import com.ares.analytics.shared.GoogleOAuthBrokerTokenResponse
+import com.ares.analytics.shared.GoogleRefreshTokenExchangeRequest
 import com.ares.analytics.shared.WorkspaceConfig
 import io.ktor.client.*
 import io.ktor.client.call.*
@@ -81,14 +84,6 @@ sealed class DrivePickerState {
 }
 
 @Serializable
-data class GoogleTokenResponse(
-    val access_token: String,
-    val id_token: String? = null,
-    val expires_in: Int,
-    val refresh_token: String? = null
-)
-
-@Serializable
 data class GithubTokenResponse(
     val access_token: String,
     val scope: String? = null
@@ -125,7 +120,10 @@ private data class GoogleOAuthErrorResponse(
     val error_description: String? = null,
 )
 
-/** Decodes (without verifying signature — the gateway verifies) the payload of a Google ID token JWT. */
+private const val GOOGLE_CALLBACK_PORT = 5805
+internal const val GOOGLE_DESKTOP_REDIRECT_URI = "http://127.0.0.1:$GOOGLE_CALLBACK_PORT/callback"
+
+/** Decodes identity claims from the ID token returned by Google's successful token exchange. */
 private fun decodeIdToken(idToken: String): GoogleIdPayload = try {
     val payload = idToken.split(".").getOrNull(1) ?: return GoogleIdPayload()
     val json = String(Base64.getUrlDecoder().decode(payload))
@@ -158,6 +156,27 @@ internal fun googleOAuthRecoveryMessage(
         "Google revoked or expired this sign-in. The unusable session was cleared; choose Sign in with Google to reconnect."
     "access_denied" ->
         "Google sign-in was cancelled or access was denied. No cloud data was changed; you can keep using ARES offline or try again."
+    "invalid_client" -> if (source == GoogleOAuthClientSource.CUSTOM) {
+        "Google rejected this custom OAuth client. Confirm that it is an active Desktop client, then reconnect Google."
+    } else {
+        "Google rejected the ARES sign-in client. Update ARES Analytics or contact an ARES administrator."
+    }
+    "unauthorized_client" ->
+        "This Google OAuth client is not permitted to use the desktop authorization flow. An administrator must replace it with an active Desktop client."
+    "redirect_uri_mismatch" ->
+        "Google rejected the desktop callback address. Update ARES Analytics, then try Google sign-in again."
+    "invalid_request" -> if (
+        responseBody.contains("client_secret", ignoreCase = true) ||
+        responseBody.contains("client secret", ignoreCase = true)
+    ) {
+        if (source == GoogleOAuthClientSource.CUSTOM) {
+            "Your organization's Google token service is not configured for this OAuth client. Ask its administrator to update the protected client credential, then reconnect Google."
+        } else {
+            "The ARES Google token service needs administrator attention. Keep using ARES offline and try sign-in again after the service is updated."
+        }
+    } else {
+        "Google rejected the desktop sign-in request. Update ARES Analytics and try again; if it continues, contact an ARES administrator."
+    }
     else ->
         "Google could not complete sign-in. Check your internet connection, then try again. If this continues, disconnect Google and reconnect."
 }
@@ -302,7 +321,7 @@ class OAuthService(
                     idToken = "dev-id-token",
                     accessToken = "dev-access-token",
                     refreshToken = null,
-                    expiresIn = 3600,
+                    expiresIn = 3600L,
                     emailFallback = "dev-user@aresrobotics.org",
                     nameFallback = "ARES Dev User",
                     googleClientId = credentials.clientId,
@@ -314,8 +333,8 @@ class OAuthService(
         val googleClientId = credentials.clientId
         val codeVerifier = generateCodeVerifier()
         val codeChallenge = generateCodeChallenge(codeVerifier)
-        val callbackPort = 5805
-        val redirectUri = "http://localhost:$callbackPort/callback"
+        val callbackPort = GOOGLE_CALLBACK_PORT
+        val redirectUri = GOOGLE_DESKTOP_REDIRECT_URI
         // Per-request CSRF state parameter (AUDIT H1): unguessable, validated on callback.
         val state = generateCodeVerifier()
         val loginUrl = "https://accounts.google.com/o/oauth2/v2/auth?" +
@@ -332,29 +351,24 @@ class OAuthService(
         val pendingRequest = PendingOAuthRequest(
             state = state,
             generation = generation,
-            successTitle = "Sign-In Successful",
+            successTitle = "Authorization Received",
             onCodeReceived = { code, _ -> try {
-                val bodyParams = mutableListOf(
-                    "code" to code,
-                    "client_id" to (googleClientId ?: ""),
-                    "redirect_uri" to redirectUri,
-                    "grant_type" to "authorization_code",
-                    "code_verifier" to codeVerifier
+                val response = exchangeAuthorizationCode(
+                    credentials = credentials,
+                    code = code,
+                    redirectUri = redirectUri,
+                    codeVerifier = codeVerifier,
                 )
-                val response = httpClient.post("https://oauth2.googleapis.com/token") {
-                    contentType(ContentType.Application.FormUrlEncoded)
-                    setBody(bodyParams.formUrlEncode())
-                }
 
                 if (response.status == HttpStatusCode.OK) {
-                    val tokenData = response.body<GoogleTokenResponse>()
-                    val idToken = tokenData.id_token?.takeIf(String::isNotBlank)
+                    val tokenData = response.body<GoogleOAuthBrokerTokenResponse>()
+                    val idToken = tokenData.idToken?.takeIf(String::isNotBlank)
                         ?: error("Google did not return an ID token during authorization")
                     applyGoogleTokens(
                         idToken = idToken,
-                        accessToken = tokenData.access_token,
-                        refreshToken = tokenData.refresh_token,
-                        expiresIn = tokenData.expires_in,
+                        accessToken = tokenData.accessToken,
+                        refreshToken = tokenData.refreshToken,
+                        expiresIn = tokenData.expiresIn,
                         emailFallback = "user@aresrobotics.org",
                         nameFallback = "Google User",
                         googleClientId = googleClientId,
@@ -369,8 +383,13 @@ class OAuthService(
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
-                updateStateIfCurrent(generation, AuthState.Error("Google token exchange error: ${e.message}"))
+            } catch (_: Exception) {
+                updateStateIfCurrent(
+                    generation,
+                    AuthState.Error(
+                        "ARES could not finish Google sign-in. Check your connection and try again; if it continues, contact an administrator.",
+                    ),
+                )
             } },
             onError = { error ->
                 updateStateIfCurrent(
@@ -427,8 +446,8 @@ class OAuthService(
         }
         val codeVerifier = generateCodeVerifier()
         val codeChallenge = generateCodeChallenge(codeVerifier)
-        val callbackPort = 5805
-        val redirectUri = "http://localhost:$callbackPort/callback"
+        val callbackPort = GOOGLE_CALLBACK_PORT
+        val redirectUri = GOOGLE_DESKTOP_REDIRECT_URI
         val state = generateCodeVerifier()
         val pickerUrl = "https://accounts.google.com/o/oauth2/v2/auth?" +
             "client_id=${credentials.clientId}" +
@@ -448,7 +467,7 @@ class OAuthService(
         val request = PendingOAuthRequest(
             state = state,
             generation = generation,
-            successTitle = "Drive Folder Selected",
+            successTitle = "Folder Authorization Received",
             onCodeReceived = picker@{ code, parameters ->
                 val pickedIds = parameters["picked_file_ids"]
                     ?.split(',')
@@ -462,25 +481,19 @@ class OAuthService(
                     return@picker
                 }
                 try {
-                    val response = httpClient.post("https://oauth2.googleapis.com/token") {
-                        contentType(ContentType.Application.FormUrlEncoded)
-                        setBody(
-                            listOf(
-                                "code" to code,
-                                "client_id" to credentials.clientId,
-                                "redirect_uri" to redirectUri,
-                                "grant_type" to "authorization_code",
-                                "code_verifier" to codeVerifier,
-                            ).formUrlEncode(),
-                        )
-                    }
+                    val response = exchangeAuthorizationCode(
+                        credentials = credentials,
+                        code = code,
+                        redirectUri = redirectUri,
+                        codeVerifier = codeVerifier,
+                    )
                     if (response.status != HttpStatusCode.OK) {
                         _drivePickerState.value = DrivePickerState.Error(
                             googleOAuthRecoveryMessage(response.bodyAsText(), credentials.source),
                         )
                         return@picker
                     }
-                    val pickerToken = response.body<GoogleTokenResponse>().access_token
+                    val pickerToken = response.body<GoogleOAuthBrokerTokenResponse>().accessToken
                     val about = httpClient.get("https://www.googleapis.com/drive/v3/about") {
                         header(HttpHeaders.Authorization, "Bearer $pickerToken")
                         parameter("fields", "user(emailAddress)")
@@ -537,7 +550,7 @@ class OAuthService(
             ?: error("Test must establish an authenticated identity first")
         return requireNotNull(
             beginGoogleDriveFolderPicker(
-                credentials = GoogleOAuthClientCredentials(clientId, GoogleOAuthClientSource.CUSTOM),
+                credentials = testGoogleCredentials(clientId),
                 identity = identity,
                 interactive = false,
                 onFolderPicked = onFolderPicked,
@@ -549,7 +562,7 @@ class OAuthService(
     internal fun beginGoogleLoginForTest(googleClientId: String): String =
         requireNotNull(
             beginGoogleLogin(
-                GoogleOAuthClientCredentials(googleClientId, GoogleOAuthClientSource.CUSTOM),
+                testGoogleCredentials(googleClientId),
                 interactive = false,
             )
         ) {
@@ -564,7 +577,7 @@ class OAuthService(
         idToken: String,
         accessToken: String,
         refreshToken: String?,
-        expiresIn: Int,
+        expiresIn: Long,
         emailFallback: String,
         nameFallback: String,
         googleClientId: String,
@@ -605,6 +618,36 @@ class OAuthService(
         return current && persisted
     }
 
+    private suspend fun exchangeAuthorizationCode(
+        credentials: GoogleOAuthClientCredentials,
+        code: String,
+        redirectUri: String,
+        codeVerifier: String,
+    ): HttpResponse = httpClient.post("${credentials.tokenBrokerUrl}/api/oauth/google/token") {
+        contentType(ContentType.Application.Json)
+        setBody(
+            GoogleAuthorizationCodeExchangeRequest(
+                code = code,
+                codeVerifier = codeVerifier,
+                redirectUri = redirectUri,
+            ),
+        )
+    }
+
+    private suspend fun exchangeRefreshToken(
+        credentials: GoogleOAuthClientCredentials,
+        refreshToken: String,
+    ): HttpResponse = httpClient.post("${credentials.tokenBrokerUrl}/api/oauth/google/refresh") {
+        contentType(ContentType.Application.Json)
+        setBody(GoogleRefreshTokenExchangeRequest(refreshToken))
+    }
+
+    private fun testGoogleCredentials(clientId: String) = GoogleOAuthClientCredentials(
+        clientId = clientId,
+        source = GoogleOAuthClientSource.CUSTOM,
+        tokenBrokerUrl = "https://oauth-broker.test",
+    )
+
     suspend fun refreshGoogleAccessToken(): String? {
         val credentials = when (val resolution = googleClientResolver.resolve(environmentService.loadConfig())) {
             is GoogleOAuthClientResolution.Available -> resolution.credentials
@@ -615,7 +658,7 @@ class OAuthService(
 
     internal suspend fun refreshGoogleAccessTokenForTest(clientId: String): String? =
         refreshGoogleAccessToken(
-            GoogleOAuthClientCredentials(clientId, GoogleOAuthClientSource.CUSTOM),
+            testGoogleCredentials(clientId),
             authGeneration.get(),
         )
 
@@ -644,31 +687,23 @@ class OAuthService(
             }
 
             try {
-                val bodyParams = mutableListOf(
-                    "client_id" to credentials.clientId,
-                    "refresh_token" to refreshToken,
-                    "grant_type" to "refresh_token"
-                )
-                val response = httpClient.post("https://oauth2.googleapis.com/token") {
-                    contentType(ContentType.Application.FormUrlEncoded)
-                    setBody(bodyParams.formUrlEncode())
-                }
+                val response = exchangeRefreshToken(credentials, refreshToken)
 
                 if (response.status == HttpStatusCode.OK) {
-                    val data = response.body<GoogleTokenResponse>()
-                    val newExpiresAt = System.currentTimeMillis() + (data.expires_in * 1000L)
+                    val data = response.body<GoogleOAuthBrokerTokenResponse>()
+                    val newExpiresAt = System.currentTimeMillis() + (data.expiresIn * 1000L)
                     val updatedAuth = saved.copy(
-                        googleAccessToken = data.access_token,
+                        googleAccessToken = data.accessToken,
                         googleTokenExpiresAt = newExpiresAt,
-                        googleRefreshToken = data.refresh_token ?: saved.googleRefreshToken,
-                        googleIdToken = data.id_token?.takeIf(String::isNotBlank) ?: saved.googleIdToken
+                        googleRefreshToken = data.refreshToken ?: saved.googleRefreshToken,
+                        googleIdToken = data.idToken?.takeIf(String::isNotBlank) ?: saved.googleIdToken
                     )
                     val committed = commitIfCurrent(generation) {
                         saveAuth(updatedAuth)
                         // Google commonly omits id_token on refresh. Refresh identity only when
                         // one is explicitly returned and otherwise retain the established identity.
                         val current = _authState.value
-                        val refreshedIdToken = data.id_token?.takeIf(String::isNotBlank)
+                        val refreshedIdToken = data.idToken?.takeIf(String::isNotBlank)
                         if (current is AuthState.Authenticated && refreshedIdToken != null) {
                             val payload = decodeIdToken(refreshedIdToken)
                             _authState.value = current.copy(
@@ -678,7 +713,7 @@ class OAuthService(
                             )
                         }
                     }
-                    return@withLock data.access_token.takeIf { committed }
+                    return@withLock data.accessToken.takeIf { committed }
                 } else {
                     val errorText = response.bodyAsText()
                     val parsedError = parseGoogleOAuthError(errorText)
@@ -1011,7 +1046,7 @@ class OAuthService(
                             <body>
                                 <div class="card">
                                     <h1>${pending.successTitle}</h1>
-                                    <p>Verification completed. You can safely close this browser window and return to the application.</p>
+                                    <p>Google returned the authorization response. ARES is completing the secure exchange now. Return to the application to see the final result.</p>
                                 </div>
                             </body>
                             </html>

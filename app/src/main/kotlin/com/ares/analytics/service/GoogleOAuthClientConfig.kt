@@ -13,6 +13,7 @@ enum class GoogleOAuthClientSource {
 data class GoogleOAuthClientCredentials(
     val clientId: String,
     val source: GoogleOAuthClientSource,
+    val tokenBrokerUrl: String,
 )
 
 sealed interface GoogleOAuthClientResolution {
@@ -27,37 +28,50 @@ internal fun isValidGoogleDesktopClientId(value: String?): Boolean {
         normalized.none(Char::isWhitespace)
 }
 
+internal fun isValidGoogleOAuthBrokerUrl(value: String?): Boolean {
+    val normalized = value?.trim()?.trimEnd('/').orEmpty()
+    if (!normalized.startsWith("https://") || normalized.length !in 12..512) return false
+    return runCatching {
+        val uri = java.net.URI(normalized)
+        uri.scheme == "https" && !uri.host.isNullOrBlank() && uri.userInfo == null && uri.query == null && uri.fragment == null
+    }.getOrDefault(false)
+}
+
 /**
- * Resolves the OAuth application identity without ever requiring a client secret.
+ * Resolves the OAuth application identity without placing a client secret in the desktop app.
  *
  * Existing workspace client IDs are intentionally ignored unless the administrator explicitly
  * enables the custom-client switch. This safely migrates installations that still contain the
- * deleted legacy client while preserving bring-your-own Google Cloud projects.
+ * deleted legacy client while preserving bring-your-own Google Cloud projects. The selected
+ * HTTPS broker owns any confidential Google credential required for token exchange.
  */
 class GoogleOAuthClientResolver(
     private val managedClientId: String = BuildConfig.GOOGLE_OAUTH_CLIENT_ID,
+    private val managedBrokerUrl: String = BuildConfig.GOOGLE_OAUTH_BROKER_URL,
 ) {
     val managedClientAvailable: Boolean
-        get() = isValidGoogleDesktopClientId(managedClientId)
+        get() = isValidGoogleDesktopClientId(managedClientId) && isValidGoogleOAuthBrokerUrl(managedBrokerUrl)
 
     fun resolve(config: WorkspaceConfig?): GoogleOAuthClientResolution {
         if (config?.googleOAuthUseCustomClient == true) {
             val customId = config.googleClientId?.trim()
-            return if (isValidGoogleDesktopClientId(customId)) {
+            val customBroker = config.googleOAuthBrokerUrl?.trim()?.trimEnd('/')
+            return if (isValidGoogleDesktopClientId(customId) && isValidGoogleOAuthBrokerUrl(customBroker)) {
                 GoogleOAuthClientResolution.Available(
-                    GoogleOAuthClientCredentials(customId!!, GoogleOAuthClientSource.CUSTOM),
+                    GoogleOAuthClientCredentials(customId!!, GoogleOAuthClientSource.CUSTOM, customBroker!!),
                 )
             } else {
                 GoogleOAuthClientResolution.Unavailable(
-                    "The custom Google OAuth client ID is invalid. Disable the custom client to use ARES-managed sign-in, or enter a Desktop client ID ending in .apps.googleusercontent.com.",
+                    "The custom Google OAuth setup is incomplete. Enter a Desktop client ID and its administrator-managed HTTPS token broker, or disable the custom client to use ARES-managed sign-in.",
                 )
             }
         }
 
         val bundled = managedClientId.trim()
-        return if (isValidGoogleDesktopClientId(bundled)) {
+        val broker = managedBrokerUrl.trim().trimEnd('/')
+        return if (isValidGoogleDesktopClientId(bundled) && isValidGoogleOAuthBrokerUrl(broker)) {
             GoogleOAuthClientResolution.Available(
-                GoogleOAuthClientCredentials(bundled, GoogleOAuthClientSource.ARES_MANAGED),
+                GoogleOAuthClientCredentials(bundled, GoogleOAuthClientSource.ARES_MANAGED, broker),
             )
         } else {
             GoogleOAuthClientResolution.Unavailable(

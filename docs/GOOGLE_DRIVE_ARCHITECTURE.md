@@ -8,9 +8,24 @@ consent. It does not grant Team 23247 access to a user's Drive and it does not s
 stored. Every user authenticates directly with Google; Google remains authoritative for identity,
 ownership, sharing, revocation, and quotas.
 
-ARES uses Authorization Code + PKCE and a localhost loopback callback. It requests `openid`,
-`userinfo.email`, `userinfo.profile`, and `drive.file`. No client secret is bundled, requested, or
-required.
+ARES uses Authorization Code + PKCE and the fixed desktop loopback callback
+`http://127.0.0.1:5805/callback`. It requests `openid`, `email`, `profile`, and the narrow
+`drive.file` scope. The public client ID and managed broker URL are compiled into official
+installers; no client secret is stored in or requested by the desktop app.
+
+Google currently requires the generated secret for the active ARES Desktop client during token
+exchange. A narrowly scoped HTTPS broker therefore adds the protected secret while exchanging a
+one-time authorization code or refresh token with Google. The broker returns Google's token
+response to the desktop and does not persist it. The desktop stores the user's tokens and performs
+all Drive list, upload, download, manifest, and delete operations directly. The broker never
+receives a workspace folder ID, Drive file content, telemetry, or the local database.
+
+```text
+browser consent -> loopback code + PKCE verifier -> ARES token broker -> Google token endpoint
+                                                     |
+                                                     v
+desktop token store -> selected workspace root -> Google Drive API
+```
 
 ## Destination behavior
 
@@ -33,7 +48,9 @@ deleted. A workspace/account mismatch fails before a network file operation.
 
 ARES does not call `drives.list`, because that endpoint requires a broader Drive scope. Google
 Picker is a second PKCE authorization requesting only `drive.file`; it returns the one folder the
-user selected. ARES verifies the picker account matches the signed-in account before storing the ID.
+user selected. Its code exchange uses the same broker, but the desktop calls Drive directly with
+the returned access token. ARES verifies the picker account matches the signed-in account before
+storing the ID.
 
 Google permissions are always authoritative. ARES may describe a person as a student or mentor for
 teaching workflows, but that label does not grant cloud access. If an ARES role conflicts with the
@@ -42,11 +59,17 @@ permission, removed sharing, or deletion rather than presenting an empty cloud.
 
 ## Advanced OAuth client ownership
 
-Official builds receive the team-owned public client ID through the protected
-`ARES_GOOGLE_OAUTH_CLIENT_ID` GitHub Actions variable. The normal UI has one **Sign in with Google**
-action. Schools may explicitly enable a custom Desktop OAuth client in Advanced administrator
-settings. Existing client IDs in old workspace files are ignored unless that switch is enabled,
-which migrates users away from the deleted legacy client safely.
+Official builds receive the team-owned public client ID and HTTPS broker URL through protected
+release configuration. The broker receives the matching client ID and secret through protected
+Cloud Run configuration; neither value is returned in an error. The normal UI has one **Sign in
+with Google** action and never displays a secret field.
+
+Schools may explicitly enable a custom Desktop OAuth client in **Advanced administrator settings**.
+That path requires both the organization's public Desktop client ID and the URL of an
+organization-managed HTTPS token broker configured for that same client. ARES never asks the
+administrator to put the matching client secret in the app or workspace file. Existing client IDs
+in old workspace files are ignored unless the custom-client switch is enabled, which migrates users
+away from the deleted legacy client safely.
 
 ## Token storage and revocation
 
@@ -58,7 +81,9 @@ does not print them in OAuth errors. Tokens and authorization response bodies ar
 
 Saved tokens record the OAuth client ID that issued them. A client mismatch, `deleted_client`,
 `invalid_grant`, revoked access, or an expired refresh token clears unusable state and requires a
-new sign-in.
+new sign-in. The broker does not retain refresh tokens between requests. Changing the selected
+workspace does not transfer authentication or a destination: the saved account subject/email and
+root ID must match before Drive work begins.
 
 ## Migration, disconnect, and export
 
@@ -72,3 +97,11 @@ Changing or disconnecting a destination never deletes remote files. The recommen
 
 Local DuckDB data and exported Parquet/CSV/WPILOG files remain independent of Google Drive, so a
 team is never locked into cloud synchronization.
+
+## Production release gate
+
+The broker design, unit tests, dashboard validation, packaged-runtime checks, and MSI build are
+necessary but not sufficient evidence for release. A new installer remains blocked until a clean
+installation completes production sign-in with the active `ARES-Analytics Desktop Client`, selects
+each supported destination type, and proves upload/download plus revocation and permission-loss
+recovery. Passing source-level tests must not be described as production OAuth verification.

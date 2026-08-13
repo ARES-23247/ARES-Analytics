@@ -219,8 +219,15 @@ Minimum local environment:
 $env:GOOGLE_CLOUD_PROJECT = "ares-analytics"
 $env:GOOGLE_CLOUD_LOCATION = "us-central1"
 $env:GOOGLE_OIDC_CLIENT_ID = "your-client-id.apps.googleusercontent.com"
+$env:ARES_GOOGLE_OAUTH_CLIENT_ID = "your-desktop-client-id.apps.googleusercontent.com"
+# Inject ARES_GOOGLE_OAUTH_CLIENT_SECRET from a local secret manager or protected shell.
 .\gradlew.bat :gateway:run
 ```
+
+`GOOGLE_OIDC_CLIENT_ID` is the accepted audience for authenticated diagnostics. The two
+`ARES_GOOGLE_OAUTH_*` values configure the separate desktop token broker. Never commit the secret,
+pass it as a Gradle property, include it in a command example, or enable body logging while testing.
+Production Cloud Run must inject it from the protected secret manager.
 
 Health check:
 
@@ -230,7 +237,28 @@ Invoke-WebRequest http://localhost:8080/healthz
 
 Browser CORS is disabled unless `CORS_ALLOWED_HOSTS` contains comma-separated HTTPS hosts. The desktop client does not require CORS.
 
-The diagnostics endpoint requires a Google ID token with the configured audience. Rate limits are per authenticated subject. Payloads larger than 1 MiB or beyond configured alert/topology limits are rejected.
+The diagnostics endpoint requires a Google ID token with the configured audience. Rate limits are
+per authenticated subject. Payloads larger than 1 MiB or beyond configured alert/topology limits
+are rejected.
+
+The broker accepts `POST /api/oauth/google/token` and `POST /api/oauth/google/refresh`. It is
+separately rate-limited and rejects an unexpected redirect URI, malformed PKCE verifier, missing
+configuration, and excessive input before calling Google. A `broker_unavailable` error means the
+gateway's protected OAuth configuration is incomplete; do not ask a student for a secret. The
+broker is not a Drive proxy and must never receive workspace data.
+
+For a local desktop build that deliberately targets a broker, set the non-secret values before the
+build:
+
+```powershell
+$env:ARES_GOOGLE_OAUTH_CLIENT_ID = "your-desktop-client-id.apps.googleusercontent.com"
+$env:ARES_GOOGLE_OAUTH_BROKER_URL = "https://your-broker.example.org"
+.\gradlew.bat :app:run
+```
+
+Clear the variables after the run. Custom clients entered in the app require the same pair: public
+Desktop client ID plus an administrator-operated HTTPS broker URL. A client secret never belongs in
+the app configuration.
 
 ## 11. Shutdown and recovery
 
@@ -258,8 +286,15 @@ If a previous Analytics JVM is still running, the root Gradle task checks Java p
 - [ ] Export/import a Parquet session containing string telemetry.
 - [ ] Verify target switching clears old robot state.
 - [ ] Verify gateway health, authentication, request limits, and rate limiting.
-- [ ] Confirm the protected repository variable `ARES_GOOGLE_OAUTH_CLIENT_ID` points to the active production Desktop client and ends in `.apps.googleusercontent.com`.
-- [ ] Verify one-click PKCE sign-in, destination creation/selection, a small upload/download, sign-out, and reconnect against the production client. Do not publish an installer before this passes.
+- [ ] Confirm the protected repository variables `ARES_GOOGLE_OAUTH_CLIENT_ID` and `ARES_GOOGLE_OAUTH_BROKER_URL` point to the active production Desktop client and stable HTTPS broker.
+- [ ] Confirm the broker receives the matching `ARES_GOOGLE_OAUTH_CLIENT_ID` and `ARES_GOOGLE_OAUTH_CLIENT_SECRET` from protected Cloud Run/secret-manager configuration, and that neither secret nor token bodies appear in logs.
+- [ ] Verify focused code-exchange, refresh, invalid-input, missing-configuration, error-redaction, and rate-limit tests.
+- [ ] Verify one-click PKCE sign-in, destination creation/selection, a small upload/download, sign-out, refresh, and reconnect against the active production client and broker on a clean installed profile. Do not publish an installer before this passes.
 - [ ] Verify a second workspace cannot list or synchronize the first workspace's root, and that removed folder permissions fail visibly.
-- [ ] Build the same native package used by the release workflow. Set `ARES_GOOGLE_OAUTH_CLIENT_ID` from the protected repository variable in the build environment (do not paste it into command arguments), then run `.\gradlew.bat :app:packageReleaseMsi "-ParesAnalyticsVersion=1.2.3" --no-daemon` and clear the environment value afterward.
+- [ ] Exercise personal folders, created team folders, existing shared folders, and Shared Drive folders when the test account supports them; verify account switching, revoked refresh tokens, deleted clients, offline startup, and concurrent sync.
+- [ ] Build the same native package used by the release workflow. Set `ARES_GOOGLE_OAUTH_CLIENT_ID` and `ARES_GOOGLE_OAUTH_BROKER_URL` from protected repository variables in the build environment (do not paste them into command arguments), then run `.\gradlew.bat :app:packageMsi "-ParesAnalyticsVersion=1.2.3" --no-daemon` and clear the environment values afterward.
 - [ ] Confirm `:app:verifyDistributableProjectLoading` passes. Native package tasks depend on this guard, which loads metadata, routines, subsystems, capabilities, and autonomous choices through the trimmed jlink runtime rather than the development JDK.
+
+The installer is not approved for publication until the production OAuth and Drive round trip above
+has actually passed. Successful automated tests, CodeQL, dashboard validation, and MSI packaging do
+not substitute for that external end-to-end verification.
