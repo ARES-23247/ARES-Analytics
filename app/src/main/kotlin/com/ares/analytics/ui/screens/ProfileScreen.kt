@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.AuthState
 import com.ares.analytics.service.isValidGoogleDesktopClientId
+import com.ares.analytics.service.isValidGoogleOAuthBrokerUrl
 import com.ares.analytics.service.writeFileAtomically
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
@@ -90,6 +91,9 @@ fun ProfileScreen(
 
     // Optional credential overrides
     var googleClientId by remember(state.googleClientId) { mutableStateOf(state.googleClientId) }
+    var googleOAuthBrokerUrl by remember(state.googleOAuthBrokerUrl) {
+        mutableStateOf(state.googleOAuthBrokerUrl)
+    }
     var useCustomGoogleClient by remember(state.googleOAuthUseCustomClient) {
         mutableStateOf(state.googleOAuthUseCustomClient)
     }
@@ -297,12 +301,13 @@ fun ProfileScreen(
                             color = AresTextSecondary,
                             fontSize = 11.sp,
                         )
-                        val customClientValid = isValidGoogleDesktopClientId(googleClientId)
+                        val customClientValid = isValidGoogleDesktopClientId(googleClientId) &&
+                            isValidGoogleOAuthBrokerUrl(googleOAuthBrokerUrl)
                         val signInAvailable = if (useCustomGoogleClient) customClientValid else state.managedGoogleSignInAvailable
                         if (!signInAvailable) {
                             Text(
                                 if (useCustomGoogleClient) {
-                                    "Enter a valid Desktop OAuth client ID in Advanced administrator settings, or turn off the custom client."
+                                    "Complete the organization client ID and secure token-service URL in Advanced administrator settings, or turn off the custom client."
                                 } else {
                                     "This development build has no managed Google client. Install an official ARES release or configure a custom client as an administrator."
                                 },
@@ -315,6 +320,9 @@ fun ProfileScreen(
                                 val updatedConfig = config.copy(
                                     googleOAuthUseCustomClient = useCustomGoogleClient,
                                     googleClientId = googleClientId.takeIf { useCustomGoogleClient && it.isNotBlank() },
+                                    googleOAuthBrokerUrl = googleOAuthBrokerUrl.takeIf {
+                                        useCustomGoogleClient && it.isNotBlank()
+                                    },
                                     googleClientSecret = null,
                                 )
                                 onConfigChanged(updatedConfig)
@@ -371,6 +379,9 @@ fun ProfileScreen(
                                 val updatedConfig = config.copy(
                                     googleOAuthUseCustomClient = useCustomGoogleClient,
                                     googleClientId = googleClientId.takeIf { useCustomGoogleClient && it.isNotBlank() },
+                                    googleOAuthBrokerUrl = googleOAuthBrokerUrl.takeIf {
+                                        useCustomGoogleClient && it.isNotBlank()
+                                    },
                                     googleClientSecret = null,
                                 )
                                 viewModel.onIntent(ProfileIntent.GoogleSignIn(updatedConfig))
@@ -579,7 +590,7 @@ fun ProfileScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text("Use your organization's OAuth client", color = AresTextPrimary, fontSize = 12.sp)
                             Text(
-                                "For schools that manage their own Google Cloud policies, quotas, and branding. Desktop clients use PKCE and do not need a client secret.",
+                                "For schools that manage their own Google Cloud policies, quotas, and branding. The app uses PKCE; your administrator's HTTPS token service keeps Google credentials out of student installers.",
                                 color = AresTextSecondary,
                                 fontSize = 10.sp,
                             )
@@ -596,6 +607,22 @@ fun ProfileScreen(
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder),
+                        )
+                        OutlinedTextField(
+                            value = googleOAuthBrokerUrl,
+                            onValueChange = { googleOAuthBrokerUrl = it },
+                            label = { Text("Organization token-service URL") },
+                            supportingText = {
+                                Text("HTTPS URL supplied by your administrator. Do not enter a client secret here.")
+                            },
+                            isError = googleOAuthBrokerUrl.isNotBlank() &&
+                                !isValidGoogleOAuthBrokerUrl(googleOAuthBrokerUrl),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = AresCyan,
+                                unfocusedBorderColor = AresBorder,
+                            ),
                         )
                     }
                 }
@@ -868,6 +895,9 @@ fun ProfileScreen(
                     projectPath = projectPath,
                     googleOAuthUseCustomClient = useCustomGoogleClient,
                     googleClientId = googleClientId.takeIf { useCustomGoogleClient && it.isNotBlank() },
+                    googleOAuthBrokerUrl = googleOAuthBrokerUrl.takeIf {
+                        useCustomGoogleClient && it.isNotBlank()
+                    },
                     googleClientSecret = null,
                     eventCode = eventCode.takeIf { it.isNotBlank() },
                     toaApiKey = toaApiKey.takeIf { it.isNotBlank() },

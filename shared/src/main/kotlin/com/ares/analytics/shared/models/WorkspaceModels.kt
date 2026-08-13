@@ -76,6 +76,8 @@ data class WorkspaceConfig(
     val googleClientSecret: String? = null,
     /** Developer-only opt-in. Normal installations use the bundled ARES Desktop OAuth client. */
     val googleOAuthUseCustomClient: Boolean = false,
+    /** HTTPS token broker owned by the administrator of a custom OAuth client. */
+    val googleOAuthBrokerUrl: String? = null,
     /** Explicit Drive isolation boundary. Cloud synchronization is disabled until selected. */
     val driveDestination: DriveDestinationConfig? = null,
     val simulatorCommand: String? = null,

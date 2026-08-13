@@ -44,12 +44,16 @@ The selected folder usually contains `settings.gradle` or `settings.gradle.kts`.
 
 ### 3. Optional connections
 
-1. Leave **Cloud sync (optional)** collapsed unless your mentor asks you to sign in. Google sign-in is not required for local telemetry, simulator work, imports, or replay.
-2. Leave **Connection settings (advanced, optional)** collapsed for normal setup.
-3. If a mentor asks you to expand it:
+1. Expand **Cloud sync (optional)** only if you want to set up Drive now. Choose **Sign in with
+   Google** to continue, or **Use ARES without Google** to close it and keep working locally.
+   Google sign-in is not required for local telemetry, authoring, simulator work, imports, or replay.
+2. After a successful sign-in, choose the personal, team, shared-folder, or Shared Drive destination
+   for this workspace. You can also add it later from **Profile & Settings → Google Drive**.
+3. Leave **Connection settings (advanced, optional)** collapsed for normal setup.
+4. If a mentor asks you to expand it:
    - **Robot NetworkTables address** is the saved **Live Robot** host. **Local Sim** uses `127.0.0.1` automatically later.
    - **Simulator command (optional)** can remain blank when the project's league default works.
-4. Select **Review setup**.
+5. Select **Review setup**.
 
 ### 4. Ready to finish
 
@@ -83,7 +87,8 @@ The sidebar shows labeled **NT4 on/off** and, for FTC, **ADB on/off** status. Th
 
 - First launch only saves a desktop workspace profile. It does not deploy code or enable a robot.
 - **Build & Deploy** is a separate toolbar action. Do not select it during setup unless a mentor has reviewed the target and code.
-- Do not paste secrets into screenshots or team chat. Google client credentials are mentor/admin settings.
+- Do not paste secrets into screenshots or team chat. Normal Google sign-in never asks a student
+  for a client secret; custom OAuth and broker configuration belong to an administrator.
 - If you made a profile for the wrong folder, create or select the correct workspace rather than moving project folders while Analytics is running.
 
 ## Mentor / advanced detail

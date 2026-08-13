@@ -21,6 +21,7 @@ dependencies {
     implementation("io.ktor:ktor-server-status-pages:3.0.3")
     implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.3")
     implementation("io.ktor:ktor-server-rate-limit:3.0.3")
+    implementation("io.ktor:ktor-server-forwarded-header:3.0.3")
     implementation("io.ktor:ktor-server-request-validation:3.0.3")
     implementation("io.ktor:ktor-server-body-limit:3.0.3")
 
@@ -45,6 +46,7 @@ dependencies {
 
     // Testing
     testImplementation(kotlin("test"))
+    testImplementation("io.ktor:ktor-client-mock-jvm:3.0.3")
     testImplementation("io.ktor:ktor-server-test-host:3.0.3")
     testImplementation("org.mockito:mockito-core:5.12.0")
 }

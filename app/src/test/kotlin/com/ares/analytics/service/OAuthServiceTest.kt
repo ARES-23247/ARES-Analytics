@@ -11,6 +11,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import io.ktor.http.content.OutgoingContent
 import io.ktor.http.parametersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CompletableDeferred
@@ -21,6 +22,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
@@ -45,6 +48,10 @@ import kotlin.test.assertTrue
 class OAuthServiceTest {
 
     private val managedClientId = "123456789012-test-client.apps.googleusercontent.com"
+    private val managedBrokerUrl = "https://oauth-broker.test"
+
+    private fun resolver(clientId: String = managedClientId) =
+        GoogleOAuthClientResolver(clientId, managedBrokerUrl)
 
     private lateinit var tempDir: File
     private lateinit var authFile: File
@@ -108,11 +115,11 @@ class OAuthServiceTest {
     private fun mockClient(refreshSucceeds: Boolean, includeIdToken: Boolean = true): HttpClient = HttpClient(MockEngine { _ ->
         if (refreshSucceeds) {
             val idTokenField = if (includeIdToken) {
-                "\"id_token\":\"${makeIdToken("sub-9", "u@x.com", "Refreshed")}\","
+                "\"idToken\":\"${makeIdToken("sub-9", "u@x.com", "Refreshed")}\","
             } else {
                 ""
             }
-            val body = """{"access_token":"new-access",$idTokenField"expires_in":3600,"refresh_token":"rt"}"""
+            val body = """{"accessToken":"new-access",$idTokenField"expiresIn":3600,"refreshToken":"rt"}"""
             respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()))
         } else {
             respond("invalid_grant", HttpStatusCode.BadRequest, headersOf(HttpHeaders.ContentType, ContentType.Text.Plain.toString()))
@@ -129,7 +136,7 @@ class OAuthServiceTest {
         requestCount.incrementAndGet()
         requestStarted.complete(Unit)
         releaseResponse.await()
-        val body = """{"access_token":"new-access","id_token":"${makeIdToken("sub-9", "u@x.com", "Refreshed")}","expires_in":3600,"refresh_token":"rt"}"""
+        val body = """{"accessToken":"new-access","idToken":"${makeIdToken("sub-9", "u@x.com", "Refreshed")}","expiresIn":3600,"refreshToken":"rt"}"""
         respond(body, HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()))
     }) {
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
@@ -142,10 +149,10 @@ class OAuthServiceTest {
                 request.url.encodedPath.endsWith("/token") -> {
                     val ordinal = tokenRequests.incrementAndGet()
                     val identity = if (ordinal == 1) {
-                        "\"id_token\":\"${makeIdToken("sub-9", "u@x.com", "User")}\","
+                        "\"idToken\":\"${makeIdToken("sub-9", "u@x.com", "User")}\","
                     } else ""
                     respond(
-                        """{"access_token":"access-$ordinal",${identity}"expires_in":3600,"refresh_token":"refresh-$ordinal"}""",
+                        """{"accessToken":"access-$ordinal",${identity}"expiresIn":3600,"refreshToken":"refresh-$ordinal"}""",
                         HttpStatusCode.OK,
                         headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
                     )
@@ -168,7 +175,7 @@ class OAuthServiceTest {
         writeConfig(clientId = "client-123")
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = mockClient(refreshSucceeds = true),
             loadPersistedAuthOnInit = false
@@ -188,7 +195,7 @@ class OAuthServiceTest {
         writeConfig(clientId = "client-123")
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = mockClient(refreshSucceeds = true, includeIdToken = false),
             loadPersistedAuthOnInit = false
@@ -208,7 +215,7 @@ class OAuthServiceTest {
         writeConfig(clientId = "client-123")
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = mockClient(refreshSucceeds = false),
             loadPersistedAuthOnInit = false
@@ -229,7 +236,7 @@ class OAuthServiceTest {
         writeConfig(clientId = null)
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(""),
+            googleClientResolver = resolver(""),
             authFilePath = authFile.absolutePath,
             httpClient = mockClient(refreshSucceeds = true), // must never be called
             loadPersistedAuthOnInit = false
@@ -256,7 +263,7 @@ class OAuthServiceTest {
         }
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = client,
             loadPersistedAuthOnInit = false,
@@ -277,7 +284,7 @@ class OAuthServiceTest {
         val client = HttpClient(MockEngine { throw IOException("offline") })
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = client,
             loadPersistedAuthOnInit = false,
@@ -296,7 +303,7 @@ class OAuthServiceTest {
         val picked = mutableListOf<String>()
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = pickerClient("u@x.com"),
             loadPersistedAuthOnInit = false,
@@ -331,7 +338,7 @@ class OAuthServiceTest {
         val picked = mutableListOf<String>()
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = pickerClient("mentor@another-team.example"),
             loadPersistedAuthOnInit = false,
@@ -361,12 +368,90 @@ class OAuthServiceTest {
     }
 
     @Test
+    fun `authorization exchange sends only one-time PKCE material to configured broker`() = runBlocking {
+        var observedPath: String? = null
+        var observedBody: String? = null
+        val client = HttpClient(MockEngine { request ->
+            observedPath = request.url.encodedPath
+            observedBody = (request.body as OutgoingContent.ByteArrayContent).bytes().decodeToString()
+            respond(
+                """{"accessToken":"access","idToken":"${makeIdToken("sub-9", "u@x.com", "User")}","expiresIn":3600,"refreshToken":"refresh"}""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+        val service = OAuthService(
+            environmentService = envService,
+            googleClientResolver = resolver(),
+            authFilePath = authFile.absolutePath,
+            httpClient = client,
+            loadPersistedAuthOnInit = false,
+        )
+        try {
+            val state = service.beginGoogleLoginForTest(managedClientId)
+            withTimeout(5_000) {
+                assertNotNull(service.dispatchOAuthCallbackForTest(state, "authorization-code")).join()
+            }
+
+            assertEquals("/api/oauth/google/token", observedPath)
+            val json = Json.parseToJsonElement(assertNotNull(observedBody)).jsonObject
+            assertEquals(setOf("code", "codeVerifier", "redirectUri"), json.keys)
+            assertEquals("authorization-code", json.getValue("code").jsonPrimitive.content)
+            assertEquals(GOOGLE_DESKTOP_REDIRECT_URI, json.getValue("redirectUri").jsonPrimitive.content)
+            assertTrue(json.getValue("codeVerifier").jsonPrimitive.content.length >= 43)
+            assertTrue(observedBody?.contains(managedClientId) == false)
+            assertTrue(observedBody?.contains("client_secret", ignoreCase = true) == false)
+        } finally {
+            service.dispose()
+        }
+    }
+
+    @Test
+    fun `refresh exchange sends the desktop-owned refresh token only to configured broker`() = runBlocking {
+        writeAuth(refreshToken = "sensitive-refresh", expired = true)
+        var observedPath: String? = null
+        var observedBody: String? = null
+        val client = HttpClient(MockEngine { request ->
+            observedPath = request.url.encodedPath
+            observedBody = (request.body as OutgoingContent.ByteArrayContent).bytes().decodeToString()
+            respond(
+                """{"accessToken":"new-access","expiresIn":3600}""",
+                HttpStatusCode.OK,
+                headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+        val service = OAuthService(
+            environmentService = envService,
+            googleClientResolver = resolver(),
+            authFilePath = authFile.absolutePath,
+            httpClient = client,
+            loadPersistedAuthOnInit = false,
+        )
+        try {
+            assertEquals("new-access", service.refreshGoogleAccessTokenForTest(managedClientId))
+
+            assertEquals("/api/oauth/google/refresh", observedPath)
+            val json = Json.parseToJsonElement(assertNotNull(observedBody)).jsonObject
+            assertEquals(setOf("refreshToken"), json.keys)
+            assertEquals("sensitive-refresh", json.getValue("refreshToken").jsonPrimitive.content)
+            assertTrue(observedBody?.contains(managedClientId) == false)
+            assertTrue(observedBody?.contains("client_secret", ignoreCase = true) == false)
+        } finally {
+            service.dispose()
+        }
+    }
+
+    @Test
     fun `legacy token without issuing client is cleared with recovery guidance`() = runBlocking {
         writeAuth(refreshToken = "rt", expired = true, clientId = null)
         writeConfig(clientId = "deleted-legacy.apps.googleusercontent.com")
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = mockClient(refreshSucceeds = true),
             loadPersistedAuthOnInit = false,
@@ -388,7 +473,7 @@ class OAuthServiceTest {
         writeConfig(clientId = null)
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = mockClient(refreshSucceeds = false),
             loadPersistedAuthOnInit = false,
@@ -405,13 +490,43 @@ class OAuthServiceTest {
     }
 
     @Test
+    fun `deleted managed client clears unusable persisted auth with recovery guidance`() = runBlocking {
+        writeAuth(refreshToken = "rt", expired = true)
+        val client = HttpClient(MockEngine {
+            respond(
+                """{"error":"deleted_client","errorDescription":"ARES Google sign-in is temporarily unavailable."}""",
+                HttpStatusCode.BadRequest,
+                headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+        val service = OAuthService(
+            environmentService = envService,
+            googleClientResolver = resolver(),
+            authFilePath = authFile.absolutePath,
+            httpClient = client,
+            loadPersistedAuthOnInit = false,
+        )
+        try {
+            assertNull(service.refreshGoogleAccessToken())
+
+            val error = assertIs<AuthState.Error>(service.authState.value)
+            assertTrue(error.message.contains("ARES Google sign-in client is unavailable"))
+            assertFalse(authFile.exists())
+        } finally {
+            service.dispose()
+        }
+    }
+
+    @Test
     fun `logout generation rejects a delayed refresh commit`() = runBlocking {
         writeAuth(refreshToken = "rt", expired = true)
         val requestStarted = CompletableDeferred<Unit>()
         val releaseResponse = CompletableDeferred<Unit>()
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = delayedSuccessClient(requestStarted, releaseResponse),
             loadPersistedAuthOnInit = false
@@ -440,7 +555,7 @@ class OAuthServiceTest {
         val releaseResponse = CompletableDeferred<Unit>()
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = delayedSuccessClient(requestStarted, releaseResponse),
             loadPersistedAuthOnInit = false
@@ -470,7 +585,7 @@ class OAuthServiceTest {
         val requestCount = AtomicInteger()
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = delayedSuccessClient(requestStarted, releaseResponse, requestCount),
             loadPersistedAuthOnInit = false
@@ -498,7 +613,7 @@ class OAuthServiceTest {
         authFile.writeBytes(previousBytes)
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            googleClientResolver = resolver(),
             authFilePath = authFile.absolutePath,
             httpClient = mockClient(refreshSucceeds = true),
             loadPersistedAuthOnInit = false,
@@ -525,7 +640,7 @@ class OAuthServiceTest {
     fun `interactive login without a client id fails with setup guidance`() {
         val service = OAuthService(
             environmentService = envService,
-            googleClientResolver = GoogleOAuthClientResolver(""),
+            googleClientResolver = resolver(""),
             httpClient = mockClient(refreshSucceeds = false),
             authFilePath = authFile.absolutePath,
             loadPersistedAuthOnInit = false,

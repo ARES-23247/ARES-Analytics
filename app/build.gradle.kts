@@ -10,6 +10,11 @@ val googleOAuthClientId = providers.gradleProperty("googleOAuthClientId")
     .orElse("")
     .get()
     .trim()
+val googleOAuthBrokerUrl = providers.gradleProperty("googleOAuthBrokerUrl")
+    .orElse(providers.environmentVariable("ARES_GOOGLE_OAUTH_BROKER_URL"))
+    .orElse("")
+    .get()
+    .trimEnd('/')
 
 plugins {
     kotlin("jvm")
@@ -90,13 +95,19 @@ val generatedBuildConfigDir = layout.buildDirectory.dir("generated/buildconfig/s
 tasks.register("generateBuildConfig") {
     val version = aresAnalyticsVersion
     val oauthClientId = googleOAuthClientId
+    val oauthBrokerUrl = googleOAuthBrokerUrl
     inputs.property("aresAnalyticsVersion", version)
     inputs.property("googleOAuthClientId", oauthClientId)
+    inputs.property("googleOAuthBrokerUrl", oauthBrokerUrl)
     outputs.dir(generatedBuildConfigDir)
     doLast {
         val pkgDir = generatedBuildConfigDir.get().asFile.resolve("com/ares/analytics")
         pkgDir.mkdirs()
         val escapedOAuthClientId = oauthClientId
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("$", "\\$")
+        val escapedOAuthBrokerUrl = oauthBrokerUrl
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
             .replace("$", "\\$")
@@ -107,6 +118,7 @@ tasks.register("generateBuildConfig") {
             |object BuildConfig {
             |    const val VERSION = "$version"
             |    const val GOOGLE_OAUTH_CLIENT_ID = "$escapedOAuthClientId"
+            |    const val GOOGLE_OAUTH_BROKER_URL = "$escapedOAuthBrokerUrl"
             |}
             """.trimMargin()
         )
@@ -197,6 +209,9 @@ tasks.matching { task ->
                 googleOAuthClientId.none(Char::isWhitespace)
         ) {
             "Official packages require -PgoogleOAuthClientId (or ARES_GOOGLE_OAUTH_CLIENT_ID) with a valid Google Desktop OAuth client ID"
+        }
+        require(googleOAuthBrokerUrl.startsWith("https://") && googleOAuthBrokerUrl.length <= 512) {
+            "Official packages require an HTTPS Google OAuth broker URL"
         }
     }
 }

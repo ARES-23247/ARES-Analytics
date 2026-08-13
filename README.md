@@ -20,7 +20,7 @@ safety expectations, and the equivalent hand-authored IO/Redux workflow.
 | --- | --- |
 | `app` | Compose Desktop UI, NT4 client, DuckDB persistence, log import, replay, analytics, simulation controls, and Google Drive synchronization |
 | `shared` | Serializable models and unit-conversion helpers shared by the desktop app and gateway |
-| `gateway` | Small authenticated Ktor service exposing the Vertex AI pit-forensics endpoint |
+| `gateway` | Small Ktor service exposing authenticated Vertex AI pit forensics and the narrowly scoped Google OAuth token broker |
 
 The application consumes the versioned `org.aresfirst.ares:ares-bom` plus `core` and `codegen` artifacts. Normal builds resolve the pinned release from Maven Central; library developers can opt into the sibling checkout with `-ParesUseSiblingLib=true`.
 
@@ -106,6 +106,12 @@ log decoder -> FrameBatcher -> DuckDB -> summaries / SysId / replay
 desktop app -> Google Drive or authenticated gateway
 ```
 
+For Google sign-in, the desktop uses Authorization Code + PKCE and a loopback callback. Official
+installers contain the public OAuth client ID and an HTTPS broker URL, never a client secret. The
+broker adds its protected secret only during code/refresh exchange and does not persist tokens or
+handle Drive data; the desktop stores tokens and calls Drive directly within the selected workspace
+destination. See [OAuth and Drive architecture](docs/GOOGLE_DRIVE_ARCHITECTURE.md).
+
 Important invariants:
 
 - Topic names are stored without leading `/`; the wire client accepts either form.
@@ -139,6 +145,7 @@ The gateway exposes:
 
 - `GET /healthz`
 - authenticated pit-forensics routes under the diagnostics router
+- `POST /api/oauth/google/token` and `POST /api/oauth/google/refresh` for the managed desktop token exchange
 
 Relevant environment variables:
 
@@ -149,8 +156,13 @@ Relevant environment variables:
 | `GOOGLE_CLOUD_PROJECT` | Vertex AI project | `ares-analytics` |
 | `GOOGLE_CLOUD_LOCATION` | Vertex AI region | `us-central1` |
 | `CORS_ALLOWED_HOSTS` | comma-separated HTTPS browser origins | none |
+| `ARES_GOOGLE_OAUTH_CLIENT_ID` | Desktop OAuth application identity used by the broker | none |
+| `ARES_GOOGLE_OAUTH_CLIENT_SECRET` | matching secret, injected from protected secret storage | none |
 
-The Compose client is not subject to browser CORS. Browser access must be explicitly allowlisted. Requests are limited to 1 MiB and forensics requests are rate-limited per authenticated subject.
+The Compose client is not subject to browser CORS. Browser access must be explicitly allowlisted.
+Requests are limited to 1 MiB; forensics requests are rate-limited per authenticated subject and
+OAuth exchanges use a separate limit. Never enable request-body logging for OAuth routes or expose
+the secret to a desktop build.
 
 ## Documentation
 

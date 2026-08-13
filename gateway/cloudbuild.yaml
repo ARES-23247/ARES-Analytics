@@ -22,8 +22,12 @@ steps:
       '--platform', 'managed',
       '--allow-unauthenticated',
       '--max-instances', '5',
-      '--set-env-vars', 'GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=us-central1'
+      '--set-env-vars', 'GOOGLE_CLOUD_PROJECT=$PROJECT_ID,GOOGLE_CLOUD_LOCATION=us-central1',
+      '--set-secrets', 'ARES_GOOGLE_OAUTH_CLIENT_ID=ares-google-oauth-client-id:latest,ARES_GOOGLE_OAUTH_CLIENT_SECRET=ares-google-oauth-client-secret:latest'
     ]
 
 images:
   - 'gcr.io/$PROJECT_ID/ares-analytics-gateway:$COMMIT_SHA'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

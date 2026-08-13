@@ -26,6 +26,7 @@ class ModelsTest {
             nt4Host = "192.168.43.1",
             googleClientId = "my-gcp-client-id",
             googleOAuthUseCustomClient = true,
+            googleOAuthBrokerUrl = "https://oauth.team.example",
             driveDestination = DriveDestinationConfig(
                 type = DriveDestinationType.TEAM_FOLDER,
                 rootFolderId = "stable-folder-id",
@@ -43,6 +44,7 @@ class ModelsTest {
         assertEquals(config.nt4Host, decoded.nt4Host)
         assertEquals("my-gcp-client-id", decoded.googleClientId)
         assertTrue(decoded.googleOAuthUseCustomClient)
+        assertEquals("https://oauth.team.example", decoded.googleOAuthBrokerUrl)
         assertEquals("stable-folder-id", decoded.driveDestination?.rootFolderId)
         assertEquals(WorkspaceCollaborationMode.TEAM, decoded.driveDestination?.collaborationMode)
         assertTrue(decoded.largeTextMode)
@@ -57,6 +59,7 @@ class ModelsTest {
 
         assertFalse(decoded.largeTextMode)
         assertFalse(decoded.googleOAuthUseCustomClient)
+        assertEquals(null, decoded.googleOAuthBrokerUrl)
         assertEquals(null, decoded.driveDestination)
     }
 

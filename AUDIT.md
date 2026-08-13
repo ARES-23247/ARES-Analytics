@@ -34,7 +34,7 @@
 ### C1. Hardcoded Google OAuth Client Secret (committed, "reversed" is not encryption)
 - **File:** `app/src/main/kotlin/com/ares/analytics/service/GoogleDriveService.kt:52-57`
 - **Category:** Security
-- The string `"_xLIrcFXWhqNpYO1gwPrlZpkRqOs-XPSCOG".reversed()` decodes to a live Google OAuth **Client Secret** (`GOCSPX-…` prefix). String reversal is plaintext in git. Anyone with read access can impersonate this OAuth client.
+- A now-redacted reversed string decoded to a Google OAuth **Client Secret**. String reversal is plaintext, not encryption; the historical credential was removed and must remain revoked.
 - **Fix:** Remove the literal; load only from config/env. **Rotate the secret** — it's in git history regardless.
 
 ### C2. Hardcoded Google OAuth Client ID in multiple places

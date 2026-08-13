@@ -46,7 +46,11 @@ The Compose Desktop process. It owns:
 
 ### `gateway`
 
-A small Ktor/Netty service for authenticated pit-forensics requests. It does not store telemetry, manage session archives, or replace the local database. Storage synchronization is desktop-owned.
+A small Ktor/Netty service for authenticated pit-forensics requests and the ARES-managed Google
+OAuth token exchange. Its OAuth broker adds a protected client secret to code/refresh exchanges so
+the secret is never shipped in the desktop installer. It does not persist OAuth tokens, call Drive,
+store telemetry, manage session archives, or replace the local database. Drive synchronization and
+token storage are desktop-owned.
 
 ## 3. Application composition and ownership
 
@@ -237,10 +241,21 @@ Camera extrinsics use the standard rigid transform and actual tag field coordina
 - generic exception responses with server-side detailed logging;
 - Google OIDC authentication;
 - per-authenticated-subject rate limiting;
+- a separately rate-limited Google OAuth code/refresh broker;
 - a 1 MiB request body limit;
 - diagnostics request validation.
 
-The service exposes `GET /healthz` without authentication and mounts diagnostics routes behind Google authentication.
+The service exposes `GET /healthz` without authentication and mounts diagnostics routes behind
+Google authentication. The OAuth broker exposes only `POST /api/oauth/google/token` and
+`POST /api/oauth/google/refresh`. It validates the fixed `http://127.0.0.1:5805/callback` redirect,
+PKCE verifier, and request sizes before contacting Google. It must not log or persist authorization
+codes, verifiers, refresh tokens, access tokens, client credentials, or Google's token body.
+
+Official installers contain the public Google Desktop client ID and HTTPS broker URL. The matching
+client secret exists only in protected gateway configuration. The desktop receives and securely
+stores tokens, then calls Drive directly within the selected workspace root; the gateway never
+receives Drive IDs or file contents. A custom OAuth client is valid only with the matching
+administrator-operated HTTPS broker.
 
 Never key rate limiting on Ktor's default `Unit` key; that creates one global bucket for all users. Never return raw exception messages to clients.
 
