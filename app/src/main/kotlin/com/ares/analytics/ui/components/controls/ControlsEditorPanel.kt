@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -27,6 +28,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
@@ -96,12 +99,30 @@ fun ControlsEditorPanel(
     modifier: Modifier = Modifier
 ) {
     val liveState = if (state.selectedControllerSlot == "operator") gamepad2State else gamepad1State
+    state.aiProposal?.let { review ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissAiProposal,
+            title = { Text("Review Gemini's binding proposal") },
+            text = {
+                Column(Modifier.heightIn(max = 540.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(review.proposal.summary, color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    review.proposal.explanations.forEach { Text("• $it", color = AresTextSecondary, fontSize = 11.sp) }
+                    HorizontalDivider(color = AresBorder)
+                    review.changes.forEach { Text(it, color = AresTextPrimary, fontSize = 11.sp) }
+                    review.problems.forEach { ProblemBanner(it.message, it.severity) }
+                }
+            },
+            confirmButton = { Button(viewModel::applyAiProposal, enabled = review.canApply) { Text("Apply to form") } },
+            dismissButton = { OutlinedButton(viewModel::dismissAiProposal) { Text("Keep current bindings") } },
+        )
+    }
     LaunchedEffect(liveState.rawButtons, liveState.rawAxes, state.learning) {
         if (state.learning != null) viewModel.observeDesktopInput(liveState)
     }
 
     Column(modifier.fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ProjectHeader(state, viewModel)
+        ControlsAiAssistantCard(state, viewModel)
         if (state.loadError != null) {
             ProblemBanner(state.loadError, ControlsProblemSeverity.ERROR)
             return@Column
@@ -145,6 +166,33 @@ fun ControlsEditorPanel(
                 ProblemsCard(state)
             }
         }
+    }
+}
+
+@Composable
+private fun ControlsAiAssistantCard(state: ControlsEditorState, viewModel: ControlsEditorViewModel) {
+    var request by remember(state.selectedSchemeId) { mutableStateOf("") }
+    Column(cardModifier(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AresCyan)
+            Text("Help me create bindings", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+        }
+        Text("Describe how the driver and operator should control the robot. Gemini may propose only catalog actions, routines, and mapped controls. Nothing is saved automatically.", color = AresTextSecondary, fontSize = 11.sp)
+        OutlinedTextField(
+            value = request,
+            onValueChange = { request = it.take(4_000) },
+            label = { Text("Example: operator right bumper runs intake while held") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 2,
+            enabled = !state.aiProposalInProgress,
+        )
+        Button(
+            onClick = { viewModel.requestAiProposal(request) },
+            enabled = request.isNotBlank() && !state.aiProposalInProgress && state.selectedScheme != null,
+            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+        ) { Text(if (state.aiProposalInProgress) "Preparing proposal…" else "Ask Gemini for binding suggestions") }
+        state.aiProposalError?.let { Text(it, color = AresError, fontSize = 11.sp) }
+        Text("Configure Gemini in Profile → Gemini assistance. Review source, event, timing, target, and arguments before applying.", color = AresTextSecondary, fontSize = 10.sp)
     }
 }
 

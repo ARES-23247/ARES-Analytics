@@ -74,7 +74,10 @@ class GoogleDriveService(
         accessTokenOverride?.let { return it() }
         val config = environmentService.loadConfig()
             ?: throw IllegalStateException("No active workspace configuration loaded")
-        val clientId = config.googleClientId ?: "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com"
+        val clientId = config.googleClientId?.trim()?.takeIf(String::isNotEmpty)
+            ?: throw IllegalStateException(
+                "Google Drive is not configured. Add a Google Desktop OAuth client ID in Profile → Google Drive → Developer OAuth Credentials."
+            )
         val clientSecret = config.googleClientSecret // Optional for PKCE native apps
 
         return oauthService.refreshGoogleAccessToken(clientId, clientSecret)

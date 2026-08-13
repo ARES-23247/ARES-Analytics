@@ -39,6 +39,7 @@ import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
 import com.ares.analytics.ui.theme.AresError
 import com.ares.analytics.ui.theme.AresGreen
+import com.ares.analytics.ui.theme.AresGold
 import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
@@ -99,8 +100,16 @@ fun AuthStep(
                 )
 
                 if (authState !is AuthState.Authenticated) {
+                    if (googleClientId.isBlank()) {
+                        Text(
+                            "To enable cloud sync, create a Google Desktop OAuth client with the Drive API enabled and paste its client ID below. You may skip this step.",
+                            color = AresGold,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                     Button(
                         onClick = onSignInClick,
+                        enabled = googleClientId.isNotBlank(),
                         colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     ) {
@@ -113,11 +122,11 @@ fun AuthStep(
                 }
 
                 OutlinedButton(onClick = { developerFieldsExpanded = !developerFieldsExpanded }) {
-                    Text(if (developerFieldsExpanded) "Hide custom OAuth settings" else "Use custom OAuth settings")
+                    Text(if (developerFieldsExpanded) "Hide OAuth setup" else "Configure Google OAuth")
                 }
                 if (developerFieldsExpanded) {
                     Text(
-                        "Advanced: leave these unchanged unless your team manages its own Google OAuth app.",
+                        "ARES does not ship a shared Google credential. Use a Desktop app OAuth client owned by your team; a client secret is normally unnecessary.",
                         color = AresTextSecondary,
                         style = MaterialTheme.typography.bodySmall,
                     )

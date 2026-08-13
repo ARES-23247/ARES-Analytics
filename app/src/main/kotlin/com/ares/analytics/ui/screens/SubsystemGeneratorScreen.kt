@@ -185,6 +185,11 @@ private fun SubsystemHeader(
                 color = AresTextSecondary,
                 fontSize = 12.sp,
             )
+            Text(
+                "Open or create a subsystem, then use Help me design this at the top of Configure for reviewed Gemini suggestions.",
+                color = AresCyan,
+                fontSize = 11.sp,
+            )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = viewModel::undo, enabled = state.canUndo) { Text("Undo") }

@@ -7,6 +7,7 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 | I want to... | Start with | What you will use |
 | --- | --- | --- |
 | Open ARES Analytics for the first time | [First launch](start/FIRST_LAUNCH.md) | A local robot workspace and JDK 17 |
+| Enable optional Google Drive sync | [Google Drive setup](start/GOOGLE_DRIVE_SETUP.md) | A team-owned Desktop OAuth client |
 | Learn where screens and controls are | [App tour](start/APP_TOUR.md) | A map of the window, status language, and common workflows |
 | See a robot without risking hardware | [Connect the simulator](start/CONNECT_SIMULATOR.md) | Live simulator telemetry on this computer |
 | Review a practice or match log | [Bring in a run](operate/BRING_IN_A_RUN.md) | An imported, persistent run and replay controls |
@@ -17,6 +18,7 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 | Build autonomous routines or controller bindings | [Routines and controls](ROUTINES_AND_CONTROLS.md) | Offline project authoring |
 | Add a robot mechanism | [Subsystem Builder](SUBSYSTEM_BUILDER.md) | Generated IO, state, actions, reducers, and controllers |
 | Configure how the robot moves | [Drivebase Builder](DRIVEBASE_BUILDER.md) | Drive type, hardware, geometry, localization, safety, and simulation labs |
+| Ask Gemini to help fill an authoring form | [AI design assistants](learn/AI_DESIGN_ASSISTANTS.md) | Review-only subsystem, drivebase, and binding proposals |
 | Tune from evidence without overwriting source | [Robot-owned tuning profiles](TUNING_PROFILES.md) | Source/live/proposed values, policies, provenance, diff review, and atomic promotion |
 | Register existing subsystem Kotlin | [Hand-authored subsystem prototype](SUBSYSTEM_HAND_AUTHORED_PROTOTYPE.md) | USER-OWNED registration, lighting examples, and migration evidence |
 | Diagnose or administer the application | [Operations guide](OPERATIONS.md) | Ports, storage, recovery, and release checks |

@@ -19,7 +19,6 @@ enum class OnboardingStep(val number: Int) {
     OPTIONAL(3),
     REVIEW(4),
 }
-
 data class OnboardingFieldErrors(
     val projectPath: String? = null,
     val teamId: String? = null,
@@ -41,7 +40,7 @@ data class OnboardingState(
     val robotName: String = "",
     val league: League = League.FTC,
     val nt4Host: String = "192.168.43.1",
-    val googleClientId: String = DEFAULT_GOOGLE_CLIENT_ID,
+    val googleClientId: String = "",
     val googleClientSecret: String = "",
     val isVerifyingJava: Boolean = false,
     val javaEnvValid: Boolean? = null,
@@ -372,6 +371,3 @@ internal fun validateOnboardingFields(
         },
     )
 }
-
-internal const val DEFAULT_GOOGLE_CLIENT_ID =
-    "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com"

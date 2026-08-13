@@ -1,6 +1,7 @@
 package com.ares.analytics.ui.screens
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,6 +37,29 @@ import kotlin.math.sin
 @Composable
 fun DrivebaseBuilderScreen(viewModel: DrivebaseBuilderViewModel) {
     val state by viewModel.state.collectAsState()
+    state.aiProposal?.let { review ->
+        AlertDialog(
+            onDismissRequest = viewModel::dismissAiProposal,
+            title = { Text("Review Gemini's drivebase proposal") },
+            text = {
+                Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(review.proposal.summary, color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    review.proposal.explanations.forEach { Text("• $it", color = AresTextSecondary, fontSize = 11.sp) }
+                    HorizontalDivider(color = AresBorder)
+                    review.changes.forEach { change ->
+                        Text(change.path, color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Text("Before: ${change.before}", color = AresTextSecondary, fontSize = 10.sp)
+                        Text("After: ${change.after}", color = AresTextPrimary, fontSize = 10.sp)
+                    }
+                    review.issues.forEach { issue ->
+                        Text("${issue.path}: ${issue.message}", color = if (issue.severity == DrivebaseIssueSeverity.ERROR) AresError else AresGold, fontSize = 10.sp)
+                    }
+                }
+            },
+            confirmButton = { Button(viewModel::applyAiProposal, enabled = review.canApply) { Text("Apply to form") } },
+            dismissButton = { OutlinedButton(viewModel::dismissAiProposal) { Text("Keep current form") } },
+        )
+    }
     if (state.pendingDiscardAction != null) {
         AlertDialog(
             onDismissRequest = { viewModel.onIntent(DrivebaseBuilderIntent.CancelDiscard) },
@@ -67,6 +92,7 @@ fun DrivebaseBuilderScreen(viewModel: DrivebaseBuilderViewModel) {
                 }
             }
         }
+        DrivebaseAiAssistantCard(state, viewModel)
         state.error?.let { StatusBanner(it, AresError) }
         if (state.status.isNotBlank()) StatusBanner(state.status, AresGreen)
         if (state.loading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -85,6 +111,37 @@ fun DrivebaseBuilderScreen(viewModel: DrivebaseBuilderViewModel) {
                 }
             }
             IssueRail(state, Modifier.width(260.dp).fillMaxHeight())
+        }
+    }
+}
+
+@Composable
+private fun DrivebaseAiAssistantCard(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+    var request by remember(state.draft.documentId) { mutableStateOf("") }
+    Card(colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated), border = BorderStroke(1.dp, AresBorder)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AresCyan)
+                Text("Help me design this drivebase", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+            }
+            Text("Describe the robot in ordinary language. Gemini proposes reviewed form edits only; it cannot save, generate, edit CTRE source, or command hardware.", color = AresTextSecondary, fontSize = 11.sp)
+            OutlinedTextField(
+                value = request,
+                onValueChange = { request = it.take(4_000) },
+                label = { Text("What should this drivebase do?") },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !state.loading && !state.aiProposalInProgress,
+                minLines = 2,
+            )
+            Button(
+                onClick = { viewModel.requestAiProposal(request) },
+                enabled = request.isNotBlank() && !state.loading && !state.aiProposalInProgress,
+                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+            ) {
+                Text(if (state.aiProposalInProgress) "Preparing proposal…" else "Ask Gemini for a form proposal")
+            }
+            state.aiProposalError?.let { Text(it, color = AresError, fontSize = 11.sp) }
+            Text("Configure Gemini in Profile → Gemini assistance. Your source files, robot logs, and credentials are not sent.", color = AresTextTertiary, fontSize = 10.sp)
         }
     }
 }

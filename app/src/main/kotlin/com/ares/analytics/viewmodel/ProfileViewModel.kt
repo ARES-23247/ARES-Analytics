@@ -109,8 +109,13 @@ class ProfileViewModel(
                     }
                 }
                 is ProfileIntent.GoogleSignIn -> {
-                    val targetClientId = intent.clientId.takeIf { it.isNotBlank() }
-                        ?: "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com"
+                    val targetClientId = intent.clientId.trim().takeIf { it.isNotBlank() }
+                    if (targetClientId == null) {
+                        _state.update {
+                            it.copy(syncStatus = "Add a Google Desktop OAuth client ID under Developer OAuth Credentials before signing in.")
+                        }
+                        return@launch
+                    }
                     val targetClientSecret = _state.value.googleClientSecret.takeIf { it.isNotBlank() }
 
                     oauthService.startGoogleLogin(targetClientId, targetClientSecret)

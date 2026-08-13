@@ -1,6 +1,9 @@
 package com.ares.analytics.viewmodel.drivebase
 
+import com.ares.analytics.service.DrivebaseDesignAssistant
+import com.ares.analytics.service.DrivebaseDesignProposal
 import com.ares.analytics.service.drivebase.*
+import com.areslib.drivetrain.DrivetrainDocumentCodec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +44,16 @@ data class DrivebaseSaveReview(
     val baseContentHash: String?
 )
 
+data class DrivebaseAiProposalReview(
+    val proposal: DrivebaseDesignProposal,
+    val candidate: DrivebaseDocument,
+    val changes: List<DrivebaseChange>,
+    val issues: List<DrivebaseIssue>,
+    val baseContentHash: String,
+) {
+    val canApply: Boolean get() = issues.none { it.severity == DrivebaseIssueSeverity.ERROR }
+}
+
 data class DrivebaseBuilderState(
     val projectPath: String,
     val projectId: String,
@@ -60,6 +73,9 @@ data class DrivebaseBuilderState(
     val dirty: Boolean = false,
     val pendingDiscardAction: DrivebaseDiscardAction? = null,
     val pendingKind: DrivebaseKind? = null,
+    val aiProposalInProgress: Boolean = false,
+    val aiProposal: DrivebaseAiProposalReview? = null,
+    val aiProposalError: String? = null,
 )
 
 sealed interface DrivebaseBuilderIntent {
@@ -87,7 +103,8 @@ class DrivebaseBuilderViewModel(
     projectPath: String,
     projectId: String,
     private val scope: CoroutineScope,
-    private val repository: DrivebaseProjectRepository = DrivebaseProjectRepository()
+    private val repository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
+    private val designAssistant: DrivebaseDesignAssistant? = null,
 ) {
     private val _state = MutableStateFlow(DrivebaseBuilderState(projectPath, projectId))
     val state: StateFlow<DrivebaseBuilderState> = _state.asStateFlow()
@@ -155,7 +172,73 @@ class DrivebaseBuilderViewModel(
     }
 
     private fun edit(candidate: DrivebaseDocument) = _state.update {
-        it.copy(draft = candidate, issues = validateDrivebase(candidate), saveReview = null, status = "", dirty = true)
+        it.copy(
+            draft = candidate,
+            issues = validateDrivebase(candidate),
+            saveReview = null,
+            status = "",
+            dirty = true,
+            aiProposal = null,
+            aiProposalError = null,
+        )
+    }
+
+    fun requestAiProposal(studentRequest: String) {
+        val request = studentRequest.trim()
+        val assistant = designAssistant
+        val base = _state.value.draft.canonical
+        when {
+            request.isBlank() -> _state.update { it.copy(aiProposalError = "Describe the drivebase or change you want first.") }
+            assistant == null -> _state.update { it.copy(aiProposalError = "Gemini is not available in this app session.") }
+            base == null -> _state.update { it.copy(aiProposalError = "The current drivebase is not a canonical document yet.") }
+            else -> {
+                val baseHash = DrivetrainDocumentCodec.contentHash(base)
+                _state.update { it.copy(aiProposalInProgress = true, aiProposal = null, aiProposalError = null) }
+                scope.launch {
+                    runCatching { assistant.propose(base, request) }
+                        .onSuccess { proposal ->
+                            val candidate = proposal.candidate.toUiDrivebase()
+                            val review = DrivebaseAiProposalReview(
+                                proposal = proposal,
+                                candidate = candidate,
+                                changes = diffDrivebase(_state.value.draft, candidate),
+                                issues = validateDrivebase(candidate),
+                                baseContentHash = baseHash,
+                            )
+                            _state.update { current ->
+                                val currentHash = current.draft.canonical?.let(DrivetrainDocumentCodec::contentHash)
+                                if (currentHash != baseHash) current.copy(
+                                    aiProposalInProgress = false,
+                                    aiProposalError = "The drivebase changed while Gemini was working. Request a fresh proposal.",
+                                ) else current.copy(aiProposalInProgress = false, aiProposal = review)
+                            }
+                        }
+                        .onFailure { error -> _state.update {
+                            it.copy(aiProposalInProgress = false, aiProposalError = error.message ?: "Gemini could not create a drivebase proposal.")
+                        } }
+                }
+            }
+        }
+    }
+
+    fun dismissAiProposal() = _state.update { it.copy(aiProposal = null, aiProposalError = null) }
+
+    fun applyAiProposal() = _state.update { current ->
+        val review = current.aiProposal ?: return@update current
+        val currentHash = current.draft.canonical?.let(DrivetrainDocumentCodec::contentHash)
+        when {
+            !review.canApply -> current.copy(aiProposalError = "Gemini's proposal has blocking validation errors.")
+            currentHash != review.baseContentHash -> current.copy(aiProposal = null, aiProposalError = "The drivebase changed. Request a fresh proposal.")
+            else -> current.copy(
+                draft = review.candidate,
+                issues = review.issues,
+                dirty = true,
+                saveReview = null,
+                aiProposal = null,
+                aiProposalError = null,
+                status = "Applied Gemini's proposal locally. Review every step before saving.",
+            )
+        }
     }
 
     private fun addHardware(role: DriveHardwareRole) {

@@ -295,7 +295,10 @@ fun MainScreen(services: ServiceRegistry) {
         com.ares.analytics.viewmodel.controls.ControlsEditorViewModel(
             projectPath = currentConfig.projectPath,
             league = currentConfig.league,
-            projectGenerator = services.processManagerService
+            projectGenerator = services.processManagerService,
+            designAssistant = com.ares.analytics.service.ControlsDesignAssistant { current, context, request ->
+                services.syncEngineService.requestControlsDesignProposal(current, context, request)
+            },
         )
     }
     val controlsEditorState by controlsEditorViewModel.state.collectAsState()
@@ -332,7 +335,10 @@ fun MainScreen(services: ServiceRegistry) {
             projectPath = currentConfig.projectPath ?: "",
             projectId = currentConfig.robotId,
             scope = scope,
-            repository = services.drivebaseProjectRepository
+            repository = services.drivebaseProjectRepository,
+            designAssistant = com.ares.analytics.service.DrivebaseDesignAssistant { current, request ->
+                services.syncEngineService.requestDrivebaseDesignProposal(current, request)
+            },
         )
     }
     // This ViewModel owns no independent scope or hardware/service resource. Its jobs run in the

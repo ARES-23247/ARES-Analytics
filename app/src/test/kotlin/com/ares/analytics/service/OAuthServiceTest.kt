@@ -317,4 +317,22 @@ class OAuthServiceTest {
             service.dispose()
         }
     }
+
+    @Test
+    fun `interactive login without a client id fails with setup guidance`() {
+        val service = OAuthService(
+            environmentService = envService,
+            httpClient = mockClient(refreshSucceeds = false),
+            authFilePath = authFile.absolutePath,
+            loadPersistedAuthOnInit = false,
+        )
+        try {
+            service.startGoogleLogin(null)
+
+            val error = assertIs<AuthState.Error>(service.authState.value)
+            assertTrue(error.message.contains("Desktop OAuth client ID"))
+        } finally {
+            service.dispose()
+        }
+    }
 }
