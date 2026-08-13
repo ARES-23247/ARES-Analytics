@@ -98,7 +98,32 @@ data class WorkspaceConfig(
     val robotLengthMeters: Double? = null,
     /** Bumper-to-bumper robot width used for field-boundary validation. */
     val robotWidthMeters: Double? = null
-)
+) {
+    /**
+     * Diagnostics-safe summary. Secret-bearing fields are intentionally never rendered.
+     * Serialization is unaffected; this only prevents accidental credential disclosure in logs.
+     */
+    override fun toString(): String = buildString {
+        append("WorkspaceConfig(")
+        append("id=").append(id)
+        append(", teamId=").append(teamId)
+        append(", seasonId=").append(seasonId)
+        append(", robotId=").append(robotId)
+        append(", league=").append(league)
+        append(", projectPath=").append(projectPath)
+        append(", nt4Host=").append(nt4Host)
+        append(", googleOAuthUseCustomClient=").append(googleOAuthUseCustomClient)
+        append(", driveDestinationType=").append(driveDestination?.type)
+        append(", aiMode=").append(aiMode)
+        append(", hasToaApiKey=").append(!toaApiKey.isNullOrBlank())
+        append(", hasTbaApiKey=").append(!tbaApiKey.isNullOrBlank())
+        append(", hasGoogleClientId=").append(!googleClientId.isNullOrBlank())
+        append(", hasGoogleClientSecret=").append(!googleClientSecret.isNullOrBlank())
+        append(", hasGeminiApiKey=").append(!geminiApiKey.isNullOrBlank())
+        append(", hasVertexServiceAccount=").append(!vertexServiceAccountPath.isNullOrBlank())
+        append(')')
+    }
+}
 
 @Serializable
 data class AppWorkspaces(

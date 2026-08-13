@@ -11,6 +11,36 @@ import kotlin.test.assertTrue
  * ModelsTest class.
  */
 class ModelsTest {
+    @Test
+    fun `workspace diagnostics never render credentials`() {
+        val secrets = listOf(
+            "toa-secret",
+            "tba-secret",
+            "google-client-id",
+            "legacy-google-secret",
+            "gemini-secret",
+            "C:/private/service-account.json",
+        )
+        val rendered = WorkspaceConfig(
+            id = "workspace",
+            teamId = "23247",
+            seasonId = "2026",
+            robotId = "robot",
+            projectPath = "C:/robot",
+            league = League.FTC,
+            toaApiKey = secrets[0],
+            tbaApiKey = secrets[1],
+            googleClientId = secrets[2],
+            googleClientSecret = secrets[3],
+            geminiApiKey = secrets[4],
+            vertexServiceAccountPath = secrets[5],
+        ).toString()
+
+        secrets.forEach { secret -> assertTrue(secret !in rendered) }
+        assertTrue("hasGeminiApiKey=true" in rendered)
+        assertTrue("hasGoogleClientSecret=true" in rendered)
+    }
+
 
     @Test
     /**
