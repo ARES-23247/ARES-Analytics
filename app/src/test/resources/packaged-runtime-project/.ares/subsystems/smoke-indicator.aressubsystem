@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 6,
+  "schemaVersion": 7,
   "documentId": "smoke-indicator",
   "uid": "smoke-indicator",
   "displayName": "Smoke indicator",
@@ -45,6 +45,7 @@
       "maximumOutput": 1.0
     }
   ],
+  "tuningParameters": [],
   "template": "SIMPLE_ACTUATOR",
   "implementation": {
     "kind": "GENERATED_STARTER",

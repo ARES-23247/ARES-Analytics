@@ -12,15 +12,8 @@ import org.slf4j.LoggerFactory
 
 private val oidcLogger = LoggerFactory.getLogger("GoogleOidcAuth")
 
-/**
- * Known ARES Google OAuth client ID (the same one the desktop app uses). Used as the
- * mandatory audience default so that ID tokens minted for any other client are rejected.
- */
-private const val DEFAULT_OIDC_AUDIENCE =
-    "205869391101-nlcsea4539vjuo50i58bpo0t10d5s0ic.apps.googleusercontent.com"
-
-private val clientId: String =
-    System.getenv("GOOGLE_OIDC_CLIENT_ID") ?: DEFAULT_OIDC_AUDIENCE
+private val clientId: String? =
+    System.getenv("GOOGLE_OIDC_CLIENT_ID")?.trim()?.takeIf(String::isNotEmpty)
 
 /**
  * Hoisted, lazily-built verifier. A new `NetHttpTransport()` + `GoogleIdTokenVerifier`
@@ -28,8 +21,10 @@ private val clientId: String =
  * This single instance caches the JWK set and is reused for the process lifetime.
  */
 private val idTokenVerifier by lazy {
+    val configuredClientId = clientId
+        ?: error("GOOGLE_OIDC_CLIENT_ID must be configured before Google OIDC authentication is enabled")
     GoogleIdTokenVerifier.Builder(NetHttpTransport(), GsonFactory.getDefaultInstance())
-        .setAudience(listOf(clientId))
+        .setAudience(listOf(configuredClientId))
         .build()
 }
 
@@ -42,11 +37,15 @@ data class GooglePrincipal(
 
 /**
  * Verifies a Google OIDC ID token: signature against Google's published certs plus issuer.
- * Audience is **always** enforced (defaults to [DEFAULT_OIDC_AUDIENCE] when
- * `GOOGLE_OIDC_CLIENT_ID` is unset) so a token minted for any other OAuth client is
- * rejected. Tests inject a fake via [GoogleOidcAuthenticationProvider.Config.tokenVerifier].
+ * Audience is **always** enforced. Deployments must configure `GOOGLE_OIDC_CLIENT_ID`; no
+ * deleted or developer-owned client is embedded in the gateway. Tests inject a fake via
+ * [GoogleOidcAuthenticationProvider.Config.tokenVerifier].
  */
 fun verifyGoogleIdToken(idTokenString: String): GooglePrincipal? {
+    if (clientId == null) {
+        oidcLogger.error("Google OIDC is disabled because GOOGLE_OIDC_CLIENT_ID is not configured")
+        return null
+    }
     val token = idTokenVerifier.verify(idTokenString) ?: return null
     val payload = token.payload
     return GooglePrincipal(

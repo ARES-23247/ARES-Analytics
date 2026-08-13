@@ -44,6 +44,8 @@ import com.areslib.subsystem.SubsystemTemplate
 import com.areslib.subsystem.SubsystemTemplates
 import com.areslib.subsystem.SubsystemValueType
 import com.areslib.subsystem.validateSubsystemDocument
+import com.areslib.tuning.TuningParameterDeclaration
+import com.areslib.tuning.TuningParameterType
 import com.google.gson.GsonBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +68,7 @@ enum class SubsystemBuilderStage(
     PURPOSE("Purpose", "Choose what the subsystem does and how its source is owned."),
     HARDWARE("Hardware", "Describe each motor, servo, sensor, or other device."),
     STATE_AND_BEHAVIOR("State & behavior", "Define cached inputs, targets, and controller rules."),
+    TUNING("Tuning", "Declare typed values students may adjust through named robot profiles."),
     SAFETY("Safety", "Decide when outputs are permitted and how faults recover."),
     CAPABILITIES("Capabilities", "Review what drivers and autonomous routines can command."),
     SIMULATION_AND_TESTING("Simulation & testing", "Choose mock support and generated verification."),
@@ -189,6 +192,7 @@ data class SubsystemGeneratorState(
     val selectedHardwareUid: String? = null,
     val selectedFieldUid: String? = null,
     val selectedLoopUid: String? = null,
+    val selectedTuningParameterUid: String? = null,
     val activeStage: SubsystemBuilderStage = SubsystemBuilderStage.PURPOSE,
     val selectedTemplate: SubsystemTemplate = SubsystemTemplate.POSITION_CONTROLLED_MECHANISM,
     val previewFiles: List<SubsystemPreviewFile> = emptyList(),
@@ -284,6 +288,7 @@ class SubsystemGeneratorViewModel(
                     selectedHardwareUid = first.hardware.firstOrNull()?.uid,
                     selectedFieldUid = null,
                     selectedLoopUid = null,
+                    selectedTuningParameterUid = first.tuningParameters.firstOrNull()?.uid,
                     selectedTemplate = first.template,
                     dirty = matching.isEmpty(),
                     status = if (matching.isEmpty()) "Create your first subsystem, then save it as a project revision." else null,
@@ -314,6 +319,7 @@ class SubsystemGeneratorViewModel(
                 selectedHardwareUid = document.hardware.first().uid,
                 selectedFieldUid = null,
                 selectedLoopUid = null,
+                selectedTuningParameterUid = document.tuningParameters.firstOrNull()?.uid,
                 activeStage = SubsystemBuilderStage.PURPOSE,
                 selectedTemplate = document.template,
                 dirty = true,
@@ -350,6 +356,13 @@ class SubsystemGeneratorViewModel(
                 selectedLoopUid = index?.let { document.controlLoops.getOrNull(it)?.uid },
                 selectedHardwareUid = null,
                 selectedFieldUid = null,
+            )
+            path.startsWith("tuningParameters") -> current.copy(
+                activeStage = SubsystemBuilderStage.TUNING,
+                selectedTuningParameterUid = index?.let { document.tuningParameters.getOrNull(it)?.uid },
+                selectedHardwareUid = null,
+                selectedFieldUid = null,
+                selectedLoopUid = null,
             )
             path.startsWith("safety") -> current.copy(activeStage = SubsystemBuilderStage.SAFETY)
             path.startsWith("implementation") || path == "displayName" || path == "kotlinTypeName" || path == "documentId" ->
@@ -401,6 +414,7 @@ class SubsystemGeneratorViewModel(
                 selectedHardwareUid = null,
                 selectedFieldUid = null,
                 selectedLoopUid = null,
+                selectedTuningParameterUid = document.tuningParameters.firstOrNull()?.uid,
                 activeStage = SubsystemBuilderStage.PURPOSE,
                 selectedTemplate = SubsystemTemplate.ADVANCED_CUSTOM,
                 dirty = true,
@@ -432,6 +446,7 @@ class SubsystemGeneratorViewModel(
                 selectedHardwareUid = document.hardware.firstOrNull()?.uid,
                 selectedFieldUid = null,
                 selectedLoopUid = null,
+                selectedTuningParameterUid = document.tuningParameters.firstOrNull()?.uid,
                 activeStage = SubsystemBuilderStage.PURPOSE,
                 selectedTemplate = document.template,
                 status = null,
@@ -607,9 +622,42 @@ class SubsystemGeneratorViewModel(
         )
     }
 
-    fun selectHardware(id: String?) = _state.update { it.copy(selectedHardwareUid = id, selectedFieldUid = null, selectedLoopUid = null) }
-    fun selectField(id: String?) = _state.update { it.copy(selectedFieldUid = id, selectedHardwareUid = null, selectedLoopUid = null) }
-    fun selectLoop(id: String?) = _state.update { it.copy(selectedLoopUid = id, selectedHardwareUid = null, selectedFieldUid = null) }
+    fun selectHardware(id: String?) = _state.update { it.copy(selectedHardwareUid = id, selectedFieldUid = null, selectedLoopUid = null, selectedTuningParameterUid = null) }
+    fun selectField(id: String?) = _state.update { it.copy(selectedFieldUid = id, selectedHardwareUid = null, selectedLoopUid = null, selectedTuningParameterUid = null) }
+    fun selectLoop(id: String?) = _state.update { it.copy(selectedLoopUid = id, selectedHardwareUid = null, selectedFieldUid = null, selectedTuningParameterUid = null) }
+    fun selectTuningParameter(uid: String?) = _state.update {
+        it.copy(selectedTuningParameterUid = uid, selectedHardwareUid = null, selectedFieldUid = null, selectedLoopUid = null)
+    }
+
+    fun addTuningParameter() {
+        val document = _state.value.draft?.document ?: return
+        val declaration = SubsystemTuningAuthoring.newParameter(document)
+        edit { it.copy(tuningParameters = it.tuningParameters + declaration) }
+        selectTuningParameter(declaration.uid)
+    }
+
+    fun updateTuningParameter(
+        uid: String,
+        transform: (TuningParameterDeclaration) -> TuningParameterDeclaration,
+    ) = edit { document ->
+        document.copy(tuningParameters = document.tuningParameters.map { if (it.uid == uid) transform(it) else it })
+    }
+
+    fun changeTuningParameterType(uid: String, type: TuningParameterType) = updateTuningParameter(uid) {
+        SubsystemTuningAuthoring.changeType(it, type)
+    }
+
+    fun removeTuningParameter(uid: String) = edit { document ->
+        document.copy(tuningParameters = document.tuningParameters.filterNot { it.uid == uid })
+    }.also { selectTuningParameter(null) }
+
+    fun moveTuningParameter(uid: String, offset: Int) = edit { document ->
+        document.copy(tuningParameters = SubsystemTuningAuthoring.moveByUid(document.tuningParameters, uid, offset))
+    }
+
+    fun applyTuningPreset(loopUid: String, preset: SubsystemTuningPreset) = edit { document ->
+        SubsystemTuningAuthoring.applyPreset(document, loopUid, preset)
+    }
 
     fun addHardware(kind: SubsystemHardwareKind = SubsystemHardwareKind.MOTOR) {
         val id = uniqueId("device", _state.value.draft?.document?.hardware.orEmpty().map { it.hardwareId })

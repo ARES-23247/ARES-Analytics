@@ -81,6 +81,27 @@ internal fun sanitizeSubsystemDesignCandidate(
         current.controlLoops.firstOrNull { it.uid == loop.uid || it.loopId == loop.loopId }?.uid
             ?: "ai-control-${index + 1}-${loop.loopId}".take(64)
 
+    val sanitizedHardware = proposed.hardware.mapIndexed { index, device -> device.copy(uid = hardwareUid(device, index)) }
+    val sanitizedFields = proposed.stateFields.mapIndexed { index, field -> field.copy(uid = fieldUid(field, index)) }
+    val sanitizedLoops = proposed.controlLoops.mapIndexed { index, loop -> loop.copy(uid = loopUid(loop, index)) }
+    val permittedOwners = sanitizedHardware.mapTo(hashSetOf()) { it.uid }
+        .apply { addAll(sanitizedLoops.map { it.uid }); add(current.uid) }
+    val sanitizedParameters = proposed.tuningParameters.mapIndexed { index, parameter ->
+        val existing = current.tuningParameters.firstOrNull { it.uid == parameter.uid || it.key == parameter.key }
+            ?: current.tuningParameters.getOrNull(index).takeIf {
+                proposed.tuningParameters.size == current.tuningParameters.size
+            }
+        when {
+            existing != null -> parameter.copy(
+                uid = existing.uid,
+                key = existing.key,
+                componentUid = existing.componentUid,
+            )
+            parameter.componentUid in permittedOwners -> parameter
+            else -> parameter.copy(componentUid = current.uid)
+        }
+    }
+
     return proposed.copy(
         schemaVersion = current.schemaVersion,
         documentId = current.documentId,
@@ -90,8 +111,9 @@ internal fun sanitizeSubsystemDesignCandidate(
         parentContentHash = current.parentContentHash,
         implementation = current.implementation,
         capabilityActionKeys = current.capabilityActionKeys,
-        hardware = proposed.hardware.mapIndexed { index, device -> device.copy(uid = hardwareUid(device, index)) },
-        stateFields = proposed.stateFields.mapIndexed { index, field -> field.copy(uid = fieldUid(field, index)) },
-        controlLoops = proposed.controlLoops.mapIndexed { index, loop -> loop.copy(uid = loopUid(loop, index)) },
+        hardware = sanitizedHardware,
+        stateFields = sanitizedFields,
+        controlLoops = sanitizedLoops,
+        tuningParameters = sanitizedParameters,
     )
 }

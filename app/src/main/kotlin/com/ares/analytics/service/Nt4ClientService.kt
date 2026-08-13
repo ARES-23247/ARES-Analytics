@@ -878,6 +878,23 @@ open class Nt4ClientService(
         publishInputDouble(pubuid, value)
     }
 
+    /** Publishes a typed boolean topic; tuning must not encode booleans as doubles. */
+    suspend fun publishBoolean(key: String, value: Boolean) {
+        val cleanKey = key.removePrefix("/")
+        require(!cleanKey.startsWith("ARES/Input/")) { "ARES/Input controls must use the atomic driveFrame publisher" }
+        val pubuid = dynamicPubMutex.withLock {
+            require(publisherTypes.putIfAbsent(cleanKey, "boolean") in arrayOf(null, "boolean")) {
+                "NT4 topic $cleanKey was already published with a different type"
+            }
+            dynamicPubUids[cleanKey] ?: nextPubUid++.also { id ->
+                dynamicPubUids[cleanKey] = id
+                webSocketSession?.send(Frame.Text(buildPublishMessage(cleanKey, id, "boolean")))
+            }
+        }
+        telemetryStore.accept(TelemetryFrame(System.currentTimeMillis(), _currentSession.value?.sessionId ?: "live-telemetry", cleanKey, if (value) 1.0 else 0.0))
+        sendBinaryUpdate(pubuid, 0.toByte(), byteArrayOf(if (value) 0xc3.toByte() else 0xc2.toByte()))
+    }
+
     suspend fun publishString(key: String, value: String) {
         val cleanKey = key.removePrefix("/")
         require(!cleanKey.startsWith("ARES/Input/") || cleanKey in ALLOWED_INPUT_STRING_TOPICS) {

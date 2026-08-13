@@ -19,6 +19,7 @@ class NavigationModelTest {
         val grouped = primaryNavigationSections.flatMap { section -> section.targets().map { it to section } }.toMap()
         assertEquals(NavigationSection.ROBOT, grouped[NavigationTarget.CONTROLS])
         assertEquals(NavigationSection.ROBOT, grouped[NavigationTarget.TUNING])
+        assertEquals(NavigationSection.ROBOT, grouped[NavigationTarget.DRIVEBASE_BUILDER])
         assertEquals(NavigationSection.AUTONOMOUS, grouped[NavigationTarget.FIELD_EDITOR])
         assertFalse(grouped.containsKey(NavigationTarget.MATCH_STRATEGY))
         assertEquals(NavigationSection.DATA, grouped[NavigationTarget.CLOUD])
@@ -44,5 +45,6 @@ class NavigationModelTest {
         assertEquals(listOf(NavigationTarget.ACADEMY), filterNavigationTargets("start here", false))
         assertTrue(filterNavigationTargets("disconnected", false).contains(NavigationTarget.DASHBOARD))
         assertTrue(filterNavigationTargets("gamepad", false).contains(NavigationTarget.CONTROLS))
+        assertEquals(listOf(NavigationTarget.DRIVEBASE_BUILDER), filterNavigationTargets("mecanum", false))
     }
 }

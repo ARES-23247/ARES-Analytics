@@ -1,0 +1,471 @@
+package com.ares.analytics.viewmodel.drivebase
+
+import com.ares.analytics.service.DrivebaseDesignAssistant
+import com.ares.analytics.service.DrivebaseDesignProposal
+import com.ares.analytics.service.drivebase.*
+import com.areslib.drivetrain.DrivetrainDocumentCodec
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.security.MessageDigest
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+
+enum class DrivebaseBuilderStep { DRIVE_TYPE, HARDWARE, GEOMETRY, LOCALIZATION, SAFETY, LABS, REVIEW }
+enum class DrivebaseDiscardAction { RELOAD, CHANGE_KIND }
+
+data class DriveLabState(
+    val forward: Double = 0.0,
+    val strafe: Double = 0.0,
+    val rotate: Double = 0.0,
+    val headingDegrees: Double = 0.0,
+    val fieldRelative: Boolean = true,
+    val localizationScenario: LocalizationFailureScenario = LocalizationFailureScenario.ALL_HEALTHY
+)
+
+data class DriveLabResult(
+    val robotForward: Double,
+    val robotStrafe: Double,
+    val wheelOutputs: Map<String, Double>,
+    val moduleAnglesDegrees: Map<String, Double> = emptyMap(),
+    val explanation: String
+)
+
+data class DrivebaseSaveReview(
+    val changes: List<DrivebaseChange>,
+    val confirmationToken: String,
+    val baseContentHash: String?
+)
+
+data class DrivebaseAiProposalReview(
+    val proposal: DrivebaseDesignProposal,
+    val candidate: DrivebaseDocument,
+    val changes: List<DrivebaseChange>,
+    val issues: List<DrivebaseIssue>,
+    val baseContentHash: String,
+) {
+    val canApply: Boolean get() = issues.none { it.severity == DrivebaseIssueSeverity.ERROR }
+}
+
+data class DrivebaseBuilderState(
+    val projectPath: String,
+    val projectId: String,
+    val saved: DrivebaseDocument? = null,
+    val draft: DrivebaseDocument = defaultDrivebase(projectId, DrivebaseKind.FTC_MECANUM),
+    val step: DrivebaseBuilderStep = DrivebaseBuilderStep.DRIVE_TYPE,
+    val selectedHardwareId: String? = null,
+    val advanced: Boolean = false,
+    val issues: List<DrivebaseIssue> = emptyList(),
+    val lab: DriveLabState = DriveLabState(),
+    val saveReview: DrivebaseSaveReview? = null,
+    val importPath: String = "",
+    val importWarnings: List<String> = emptyList(),
+    val status: String = "",
+    val error: String? = null,
+    val loading: Boolean = true,
+    val dirty: Boolean = false,
+    val pendingDiscardAction: DrivebaseDiscardAction? = null,
+    val pendingKind: DrivebaseKind? = null,
+    val aiProposalInProgress: Boolean = false,
+    val aiProposal: DrivebaseAiProposalReview? = null,
+    val aiProposalError: String? = null,
+)
+
+sealed interface DrivebaseBuilderIntent {
+    data object Reload : DrivebaseBuilderIntent
+    data class SelectStep(val step: DrivebaseBuilderStep) : DrivebaseBuilderIntent
+    data class SelectKind(val kind: DrivebaseKind) : DrivebaseBuilderIntent
+    data class SelectHardware(val id: String) : DrivebaseBuilderIntent
+    data class UpdateHardware(val device: DriveHardwareDeclaration) : DrivebaseBuilderIntent
+    data class AddHardware(val role: DriveHardwareRole) : DrivebaseBuilderIntent
+    data class RemoveHardware(val id: String) : DrivebaseBuilderIntent
+    data class UpdateGeometry(val geometry: DriveGeometry) : DrivebaseBuilderIntent
+    data class SetLocalization(val kind: LocalizationKind, val enabled: Boolean) : DrivebaseBuilderIntent
+    data class UpdateSafety(val safety: DriveSafetyDeclaration) : DrivebaseBuilderIntent
+    data class SetAdvanced(val enabled: Boolean) : DrivebaseBuilderIntent
+    data class UpdateLab(val lab: DriveLabState) : DrivebaseBuilderIntent
+    data class SetImportPath(val path: String) : DrivebaseBuilderIntent
+    data object ImportCtre : DrivebaseBuilderIntent
+    data object ReviewSave : DrivebaseBuilderIntent
+    data class ConfirmSave(val token: String) : DrivebaseBuilderIntent
+    data object ConfirmDiscard : DrivebaseBuilderIntent
+    data object CancelDiscard : DrivebaseBuilderIntent
+}
+
+class DrivebaseBuilderViewModel(
+    projectPath: String,
+    projectId: String,
+    private val scope: CoroutineScope,
+    private val repository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
+    private val designAssistant: DrivebaseDesignAssistant? = null,
+) {
+    private val _state = MutableStateFlow(DrivebaseBuilderState(projectPath, projectId))
+    val state: StateFlow<DrivebaseBuilderState> = _state.asStateFlow()
+
+    init { onIntent(DrivebaseBuilderIntent.Reload) }
+
+    fun onIntent(intent: DrivebaseBuilderIntent) {
+        when (intent) {
+            DrivebaseBuilderIntent.Reload -> if (_state.value.dirty) requestDiscard(DrivebaseDiscardAction.RELOAD) else load()
+            is DrivebaseBuilderIntent.SelectStep -> _state.update { it.copy(step = intent.step) }
+            is DrivebaseBuilderIntent.SelectKind -> if (_state.value.dirty && intent.kind != _state.value.draft.kind) {
+                _state.update { it.copy(pendingDiscardAction = DrivebaseDiscardAction.CHANGE_KIND, pendingKind = intent.kind) }
+            } else if (intent.kind != _state.value.draft.kind) edit(defaultDrivebase(_state.value.projectId, intent.kind))
+            is DrivebaseBuilderIntent.SelectHardware -> _state.update { it.copy(selectedHardwareId = intent.id) }
+            is DrivebaseBuilderIntent.UpdateHardware -> edit(_state.value.draft.copy(
+                hardware = _state.value.draft.hardware.map { if (it.id == intent.device.id) intent.device else it }
+            ))
+            is DrivebaseBuilderIntent.AddHardware -> addHardware(intent.role)
+            is DrivebaseBuilderIntent.RemoveHardware -> removeHardware(intent.id)
+            is DrivebaseBuilderIntent.UpdateGeometry -> edit(_state.value.draft.copy(geometry = intent.geometry))
+            is DrivebaseBuilderIntent.SetLocalization -> {
+                val existing = _state.value.draft.localization
+                val updated = when {
+                    !intent.enabled -> existing - intent.kind
+                    intent.kind == LocalizationKind.VISION_FUSION -> (existing + intent.kind).distinct()
+                    else -> (existing.filter { it == LocalizationKind.VISION_FUSION } + intent.kind).distinct()
+                }
+                edit(_state.value.draft.copy(localization = updated))
+            }
+            is DrivebaseBuilderIntent.UpdateSafety -> edit(_state.value.draft.copy(safety = intent.safety))
+            is DrivebaseBuilderIntent.SetAdvanced -> _state.update { it.copy(advanced = intent.enabled) }
+            is DrivebaseBuilderIntent.UpdateLab -> _state.update { it.copy(lab = intent.lab) }
+            is DrivebaseBuilderIntent.SetImportPath -> _state.update { it.copy(importPath = intent.path) }
+            DrivebaseBuilderIntent.ImportCtre -> importCtre()
+            DrivebaseBuilderIntent.ReviewSave -> reviewSave()
+            is DrivebaseBuilderIntent.ConfirmSave -> confirmSave(intent.token)
+            DrivebaseBuilderIntent.ConfirmDiscard -> confirmDiscard()
+            DrivebaseBuilderIntent.CancelDiscard -> _state.update { it.copy(pendingDiscardAction = null, pendingKind = null) }
+        }
+    }
+
+    private fun requestDiscard(action: DrivebaseDiscardAction) = _state.update { it.copy(pendingDiscardAction = action, pendingKind = null) }
+
+    private fun confirmDiscard() {
+        val action = _state.value.pendingDiscardAction
+        val kind = _state.value.pendingKind
+        _state.update { it.copy(pendingDiscardAction = null, pendingKind = null, dirty = false) }
+        when (action) {
+            DrivebaseDiscardAction.RELOAD -> load()
+            DrivebaseDiscardAction.CHANGE_KIND -> kind?.let { edit(defaultDrivebase(_state.value.projectId, it)) }
+            null -> Unit
+        }
+    }
+
+    private fun load() = scope.launch {
+        _state.update { it.copy(loading = true, error = null) }
+        val result = withContext(Dispatchers.IO) { repository.load(_state.value.projectPath) }
+        result.fold(
+            onSuccess = { saved ->
+                val draft = saved ?: defaultDrivebase(_state.value.projectId, DrivebaseKind.FTC_MECANUM)
+                _state.update { it.copy(saved = saved, draft = draft, issues = validateDrivebase(draft), loading = false, dirty = false, error = null, selectedHardwareId = draft.hardware.firstOrNull()?.id) }
+            },
+            onFailure = { failure -> _state.update { it.copy(loading = false, error = failure.message ?: "Could not load the drivebase document.") } }
+        )
+    }
+
+    private fun edit(candidate: DrivebaseDocument) = _state.update {
+        it.copy(
+            draft = candidate,
+            issues = validateDrivebase(candidate),
+            saveReview = null,
+            status = "",
+            dirty = true,
+            aiProposal = null,
+            aiProposalError = null,
+        )
+    }
+
+    fun requestAiProposal(studentRequest: String) {
+        val request = studentRequest.trim()
+        val assistant = designAssistant
+        val base = _state.value.draft.canonical
+        when {
+            request.isBlank() -> _state.update { it.copy(aiProposalError = "Describe the drivebase or change you want first.") }
+            assistant == null -> _state.update { it.copy(aiProposalError = "Gemini is not available in this app session.") }
+            base == null -> _state.update { it.copy(aiProposalError = "The current drivebase is not a canonical document yet.") }
+            else -> {
+                val baseHash = DrivetrainDocumentCodec.contentHash(base)
+                _state.update { it.copy(aiProposalInProgress = true, aiProposal = null, aiProposalError = null) }
+                scope.launch {
+                    runCatching { assistant.propose(base, request) }
+                        .onSuccess { proposal ->
+                            val candidate = proposal.candidate.toUiDrivebase()
+                            val review = DrivebaseAiProposalReview(
+                                proposal = proposal,
+                                candidate = candidate,
+                                changes = diffDrivebase(_state.value.draft, candidate),
+                                issues = validateDrivebase(candidate),
+                                baseContentHash = baseHash,
+                            )
+                            _state.update { current ->
+                                val currentHash = current.draft.canonical?.let(DrivetrainDocumentCodec::contentHash)
+                                if (currentHash != baseHash) current.copy(
+                                    aiProposalInProgress = false,
+                                    aiProposalError = "The drivebase changed while Gemini was working. Request a fresh proposal.",
+                                ) else current.copy(aiProposalInProgress = false, aiProposal = review)
+                            }
+                        }
+                        .onFailure { error -> _state.update {
+                            it.copy(aiProposalInProgress = false, aiProposalError = error.message ?: "Gemini could not create a drivebase proposal.")
+                        } }
+                }
+            }
+        }
+    }
+
+    fun dismissAiProposal() = _state.update { it.copy(aiProposal = null, aiProposalError = null) }
+
+    fun applyAiProposal() = _state.update { current ->
+        val review = current.aiProposal ?: return@update current
+        val currentHash = current.draft.canonical?.let(DrivetrainDocumentCodec::contentHash)
+        when {
+            !review.canApply -> current.copy(aiProposalError = "Gemini's proposal has blocking validation errors.")
+            currentHash != review.baseContentHash -> current.copy(aiProposal = null, aiProposalError = "The drivebase changed. Request a fresh proposal.")
+            else -> current.copy(
+                draft = review.candidate,
+                issues = review.issues,
+                dirty = true,
+                saveReview = null,
+                aiProposal = null,
+                aiProposalError = null,
+                status = "Applied Gemini's proposal locally. Review every step before saving.",
+            )
+        }
+    }
+
+    private fun addHardware(role: DriveHardwareRole) {
+        val existing = _state.value.draft.hardware
+        val next = generateSequence(1) { it + 1 }.map { "drive.user-$it" }.first { id -> existing.none { it.id == id } }
+        val leader = when (role) {
+            DriveHardwareRole.LEFT_FOLLOWER -> existing.firstOrNull { it.role == DriveHardwareRole.LEFT_LEADER }?.id
+            DriveHardwareRole.RIGHT_FOLLOWER -> existing.firstOrNull { it.role == DriveHardwareRole.RIGHT_LEADER }?.id
+            else -> null
+        }
+        val device = DriveHardwareDeclaration(next, "New ${role.name.lowercase().replace('_', ' ')}", role, leaderId = leader)
+        edit(_state.value.draft.copy(hardware = existing + device))
+        _state.update { it.copy(selectedHardwareId = next) }
+    }
+
+    private fun removeHardware(id: String) {
+        val remaining = _state.value.draft.hardware.filterNot { it.id == id }.map { if (it.leaderId == id) it.copy(leaderId = null) else it }
+        edit(_state.value.draft.copy(hardware = remaining))
+        _state.update { it.copy(selectedHardwareId = remaining.firstOrNull()?.id) }
+    }
+
+    private fun importCtre() = scope.launch {
+        val state = _state.value
+        val result = withContext(Dispatchers.IO) { repository.importCtreTunerConstants(File(state.importPath)) }
+        result.fold(onSuccess = { imported ->
+            val projectRoot = File(state.projectPath).canonicalFile.toPath()
+            val source = File(imported.sourcePath).canonicalFile.toPath()
+            if (!source.startsWith(projectRoot)) {
+                _state.update { it.copy(error = "TunerConstants.java must be inside the selected project so provenance remains project-relative.") }
+                return@fold
+            }
+            val relativeSource = projectRoot.relativize(source).toString().replace('\\', '/')
+            val calibration = DriveCalibrationRecord(
+                id = "ctre-${imported.sourceHash.take(12)}",
+                source = CalibrationSource.CTRE_TUNER_IMPORT,
+                sourcePath = relativeSource,
+                sourceHash = imported.sourceHash,
+                notes = "Read-only CTRE TunerConstants import; review every value before saving.",
+                values = imported.values
+            )
+            val base = defaultDrivebase(state.projectId, DrivebaseKind.FRC_CTRE_SWERVE).canonical!!
+            val cornerByRole = mapOf(
+                DriveHardwareRole.FRONT_LEFT_DRIVE to "front-left", DriveHardwareRole.FRONT_LEFT_STEER to "front-left", DriveHardwareRole.FRONT_LEFT_ENCODER to "front-left",
+                DriveHardwareRole.FRONT_RIGHT_DRIVE to "front-right", DriveHardwareRole.FRONT_RIGHT_STEER to "front-right", DriveHardwareRole.FRONT_RIGHT_ENCODER to "front-right",
+                DriveHardwareRole.REAR_LEFT_DRIVE to "rear-left", DriveHardwareRole.REAR_LEFT_STEER to "rear-left", DriveHardwareRole.REAR_LEFT_ENCODER to "rear-left",
+                DriveHardwareRole.REAR_RIGHT_DRIVE to "rear-right", DriveHardwareRole.REAR_RIGHT_STEER to "rear-right", DriveHardwareRole.REAR_RIGHT_ENCODER to "rear-right"
+            )
+            val components = imported.hardware.map { device ->
+                if (device.role == DriveHardwareRole.GYRO) {
+                    return@map com.areslib.drivetrain.DrivetrainComponentDocument(
+                        uid = "drive.gyro", displayName = device.displayName,
+                        role = com.areslib.drivetrain.DrivetrainComponentRole.GYRO,
+                        hardwareId = device.canId.toString(), controllerModel = "Pigeon2"
+                    )
+                }
+                val corner = cornerByRole.getValue(device.role)
+                val sharedRole = when {
+                    device.role.name.endsWith("DRIVE") -> com.areslib.drivetrain.DrivetrainComponentRole.DRIVE_MOTOR
+                    device.role.name.endsWith("STEER") -> com.areslib.drivetrain.DrivetrainComponentRole.STEER_MOTOR
+                    else -> com.areslib.drivetrain.DrivetrainComponentRole.ABSOLUTE_ENCODER
+                }
+                val kindPrefix = when (sharedRole) {
+                    com.areslib.drivetrain.DrivetrainComponentRole.DRIVE_MOTOR -> "drive"
+                    com.areslib.drivetrain.DrivetrainComponentRole.STEER_MOTOR -> "steer"
+                    else -> "encoder"
+                }
+                com.areslib.drivetrain.DrivetrainComponentDocument(
+                    uid = "$kindPrefix.$corner", displayName = device.displayName, role = sharedRole,
+                    hardwareId = device.canId.toString(), moduleUid = "module.$corner",
+                    controllerModel = if (sharedRole == com.areslib.drivetrain.DrivetrainComponentRole.ABSOLUTE_ENCODER) null else "TalonFX",
+                    encoderModel = if (sharedRole == com.areslib.drivetrain.DrivetrainComponentRole.ABSOLUTE_ENCODER) "CANcoder" else null,
+                    currentMeasurementRequired = sharedRole == com.areslib.drivetrain.DrivetrainComponentRole.DRIVE_MOTOR,
+                    currentMeasurementAvailable = sharedRole == com.areslib.drivetrain.DrivetrainComponentRole.DRIVE_MOTOR,
+                    // CTRE's slip-current characterization is evidence, not proof that the motor
+                    // controller has an enforced current limit. Keep it in calibration provenance.
+                    currentLimitAmps = null,
+                    xMeters = imported.values["${corner.substringBefore('-')}${corner.substringAfter('-').replaceFirstChar(Char::uppercase)}X"],
+                    yMeters = imported.values["${corner.substringBefore('-')}${corner.substringAfter('-').replaceFirstChar(Char::uppercase)}Y"],
+                    inverted = device.inverted
+                )
+            }
+            val modules = listOf("front-left", "front-right", "rear-left", "rear-right").map { corner ->
+                val compact = corner.substringBefore('-') + corner.substringAfter('-').replaceFirstChar(Char::uppercase)
+                com.areslib.drivetrain.DrivetrainModuleDocument(
+                    "module.$corner", corner.replace('-', ' ').replaceFirstChar(Char::uppercase),
+                    listOf("drive.$corner", "steer.$corner", "encoder.$corner"),
+                    imported.values["${compact}X"] ?: base.modules.first { it.uid == "module.$corner" }.xMeters,
+                    imported.values["${compact}Y"] ?: base.modules.first { it.uid == "module.$corner" }.yMeters
+                )
+            }
+            val canonical = base.copy(
+                components = components, modules = modules,
+                geometry = base.geometry.copy(
+                    wheelDiameterMeters = imported.geometry!!.wheelRadiusMeters * 2.0,
+                    trackWidthMeters = imported.geometry.trackWidthMeters,
+                    wheelBaseMeters = imported.geometry!!.wheelBaseMeters,
+                    driveGearRatio = requireNotNull(imported.values["driveGearRatio"]),
+                    steerGearRatio = requireNotNull(imported.values["steerGearRatio"]),
+                    maxLinearSpeedMetersPerSecond = requireNotNull(imported.values["speedAt12Volts"])
+                ),
+                localization = base.localization.copy(primaryOdometry = base.localization.primaryOdometry.copy(componentUids = components.map { it.uid }), headingSourceUid = components.first { it.role == com.areslib.drivetrain.DrivetrainComponentRole.GYRO }.uid),
+                ctreImport = com.areslib.drivetrain.CtreSwerveImportDocument(
+                    relativeSource, imported.sourceHash, "CTRE Tuner", "imported", "frc.robot.generated.TunerConstants",
+                    imported.hardware.mapNotNull { it.canBus }.distinct().singleOrNull()
+                        ?: error("CTRE CAN bus was not recognized or was inconsistent; import is fail-closed.")
+                ),
+                calibrationProvenance = listOf(com.areslib.drivetrain.CalibrationProvenanceDocument("calibration.ctre-import", com.areslib.drivetrain.CalibrationProvenanceKind.VENDOR_GENERATED, emptyList(), relativeSource, imported.sourceHash, calibration.notes))
+            )
+            val candidate = canonical.toUiDrivebase()
+            _state.update { it.copy(draft = candidate, issues = validateDrivebase(candidate), importWarnings = imported.warnings, status = "Imported a read-only CTRE snapshot. Vendor code was not changed.", saveReview = null, dirty = true) }
+        }, onFailure = { failure -> _state.update { it.copy(error = failure.message ?: "CTRE import failed.") } })
+    }
+
+    private fun reviewSave() {
+        val state = _state.value
+        val issues = validateDrivebase(state.draft)
+        if (issues.any { it.severity == DrivebaseIssueSeverity.ERROR }) {
+            _state.update { it.copy(issues = issues, error = "Fix the blocking checks before reviewing the save.") }
+            return
+        }
+        val changes = diffDrivebase(state.saved, state.draft)
+        val baseHash = state.saved?.canonical?.let(com.areslib.drivetrain.DrivetrainDocumentCodec::contentHash)
+        val token = reviewToken(baseHash, changes)
+        _state.update { it.copy(step = DrivebaseBuilderStep.REVIEW, saveReview = DrivebaseSaveReview(changes, token, baseHash), error = null) }
+    }
+
+    private fun confirmSave(token: String) = scope.launch {
+        val state = _state.value
+        val review = state.saveReview
+        val currentHash = state.saved?.canonical?.let(com.areslib.drivetrain.DrivetrainDocumentCodec::contentHash)
+        if (review == null || review.confirmationToken != token || review.baseContentHash != currentHash) {
+            _state.update { it.copy(error = "The reviewed drivebase changed. Review a fresh diff before saving.") }
+            return@launch
+        }
+        runCatching {
+            withContext(Dispatchers.IO) { repository.saveReviewed(state.projectPath, currentHash, state.draft) }
+        }.fold(
+            onSuccess = { saved -> _state.update { it.copy(saved = saved, draft = saved, saveReview = null, status = "Saved reviewed drivebase ${saved.canonical?.let(com.areslib.drivetrain.DrivetrainDocumentCodec::contentHash)?.take(12)}. No robot or vendor source was written.", error = null, dirty = false) } },
+            onFailure = { failure -> _state.update { it.copy(error = failure.message ?: "Could not save the drivebase." ) } }
+        )
+    }
+
+}
+
+data class GeometryLabResult(val turningRadiusMeters: Double?, val trackCircleDiameterMeters: Double?, val explanation: String)
+enum class LocalizationFailureScenario { ALL_HEALTHY, PRIMARY_STALE, HEADING_INVALID, VISION_REJECTED }
+data class LocalizationLabResult(val canDriveClosedLoop: Boolean, val usesVisionCorrection: Boolean, val message: String)
+
+fun evaluateDriveLab(
+    kind: DrivebaseKind,
+    input: DriveLabState,
+    geometry: DriveGeometry = DriveGeometry(),
+    hardware: List<DriveHardwareDeclaration> = emptyList()
+): DriveLabResult {
+    val heading = input.headingDegrees * PI / 180.0
+    val forward = if (input.fieldRelative) input.forward * cos(heading) + input.strafe * sin(heading) else input.forward
+    val strafe = if (input.fieldRelative) -input.forward * sin(heading) + input.strafe * cos(heading) else input.strafe
+    var moduleAngles = emptyMap<String, Double>()
+    val raw = when (kind) {
+        DrivebaseKind.FTC_MECANUM, DrivebaseKind.CUSTOM -> linkedMapOf(
+            "frontLeft" to forward + strafe + input.rotate,
+            "frontRight" to forward - strafe - input.rotate,
+            "rearLeft" to forward - strafe + input.rotate,
+            "rearRight" to forward + strafe - input.rotate
+        )
+        DrivebaseKind.FRC_CTRE_SWERVE -> {
+            val positions = linkedMapOf(
+                "frontLeft" to (geometry.wheelBaseMeters / 2.0 to geometry.trackWidthMeters / 2.0),
+                "frontRight" to (geometry.wheelBaseMeters / 2.0 to -geometry.trackWidthMeters / 2.0),
+                "rearLeft" to (-geometry.wheelBaseMeters / 2.0 to geometry.trackWidthMeters / 2.0),
+                "rearRight" to (-geometry.wheelBaseMeters / 2.0 to -geometry.trackWidthMeters / 2.0)
+            )
+            val vectors = positions.mapValues { (_, position) ->
+                val (x, y) = position
+                val moduleForward = forward - input.rotate * y
+                val moduleStrafe = strafe + input.rotate * x
+                moduleForward to moduleStrafe
+            }
+            moduleAngles = vectors.mapValues { (_, vector) -> Math.toDegrees(kotlin.math.atan2(vector.second, vector.first)) }
+            vectors.mapValues { (_, vector) -> kotlin.math.hypot(vector.first, vector.second) }.toMap(LinkedHashMap())
+        }
+        DrivebaseKind.DIFFERENTIAL -> linkedMapOf("left" to forward + input.rotate, "right" to forward - input.rotate)
+    }
+    val inversionRoles = mapOf(
+        "frontLeft" to setOf(DriveHardwareRole.FRONT_LEFT, DriveHardwareRole.FRONT_LEFT_DRIVE),
+        "frontRight" to setOf(DriveHardwareRole.FRONT_RIGHT, DriveHardwareRole.FRONT_RIGHT_DRIVE),
+        "rearLeft" to setOf(DriveHardwareRole.REAR_LEFT, DriveHardwareRole.REAR_LEFT_DRIVE),
+        "rearRight" to setOf(DriveHardwareRole.REAR_RIGHT, DriveHardwareRole.REAR_RIGHT_DRIVE),
+        "left" to setOf(DriveHardwareRole.LEFT_LEADER),
+        "right" to setOf(DriveHardwareRole.RIGHT_LEADER)
+    )
+    val afterInversion = raw.mapValues { (name, output) ->
+        val inverted = hardware.any { it.inverted && it.role in inversionRoles[name].orEmpty() }
+        if (inverted) -output else output
+    }.toMutableMap()
+    hardware.filter { it.role in setOf(DriveHardwareRole.LEFT_FOLLOWER, DriveHardwareRole.RIGHT_FOLLOWER) }.forEach { follower ->
+        val side = if (follower.role == DriveHardwareRole.LEFT_FOLLOWER) "left" else "right"
+        val leaderOutput = afterInversion[side] ?: 0.0
+        afterInversion["follower:${follower.id}"] = if (follower.inverted) -leaderOutput else leaderOutput
+    }
+    val scale = afterInversion.values.maxOfOrNull { kotlin.math.abs(it) }?.coerceAtLeast(1.0) ?: 1.0
+    return DriveLabResult(
+        robotForward = forward,
+        robotStrafe = strafe,
+        wheelOutputs = afterInversion.mapValues { it.value / scale },
+        moduleAnglesDegrees = moduleAngles,
+        explanation = "Simulation only: text includes each declared drive inversion after field-to-robot transformation. This does not connect to or move hardware."
+    )
+}
+
+fun evaluateGeometryLab(geometry: DriveGeometry, linearCommand: Double, angularCommand: Double): GeometryLabResult {
+    val radius = if (kotlin.math.abs(angularCommand) < 1e-9) null else kotlin.math.abs(linearCommand / angularCommand)
+    return GeometryLabResult(
+        turningRadiusMeters = radius,
+        trackCircleDiameterMeters = radius?.let { 2.0 * (it + geometry.trackWidthMeters / 2.0) },
+        explanation = if (radius == null) "Zero turn command predicts a straight path." else "The chassis center follows a ${"%.2f".format(radius)} m radius; the outside wheel/module travels a larger circle."
+    )
+}
+
+fun evaluateLocalizationFailure(scenario: LocalizationFailureScenario): LocalizationLabResult = when (scenario) {
+    LocalizationFailureScenario.ALL_HEALTHY -> LocalizationLabResult(true, true, "Primary odometry and heading are fresh. Valid vision may correct drift.")
+    LocalizationFailureScenario.PRIMARY_STALE -> LocalizationLabResult(false, false, "Primary odometry is stale, so closed-loop driving fails closed. Vision is not a substitute for fresh primary motion feedback.")
+    LocalizationFailureScenario.HEADING_INVALID -> LocalizationLabResult(false, false, "Heading is invalid, so field-relative and closed-loop rotation are blocked.")
+    LocalizationFailureScenario.VISION_REJECTED -> LocalizationLabResult(true, false, "Primary odometry and heading remain usable. Rejected vision is ignored rather than snapping the pose.")
+}
+
+private fun reviewToken(contentHash: String?, changes: List<DrivebaseChange>): String {
+    val content = "$contentHash|" + changes.joinToString("|") { "${it.path}:${it.before}->${it.after}" }
+    return MessageDigest.getInstance("SHA-256").digest(content.toByteArray()).take(8).joinToString("") { "%02x".format(it) }
+}

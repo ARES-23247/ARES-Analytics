@@ -263,7 +263,14 @@ fun ProfileScreen(
 
                 when (val auth = state.authState) {
                     is AuthState.Unauthenticated -> {
-                        Text("Connect your Google Account to automatically synchronize registered robots, configurations, and Parquet data blocks with your team.", color = AresTextSecondary, fontSize = 11.sp)
+                        Text("Connect your Google Account to synchronize registered robots, configurations, and Parquet data blocks with your team.", color = AresTextSecondary, fontSize = 11.sp)
+                        if (googleClientId.isBlank()) {
+                            Text(
+                                "Setup required: create a Google Desktop OAuth client, enable the Drive API, then paste its client ID below. ARES no longer embeds a shared client credential.",
+                                color = AresGold,
+                                fontSize = 11.sp,
+                            )
+                        }
                         Button(
                             onClick = {
                                 val updatedConfig = config.copy(
@@ -273,9 +280,10 @@ fun ProfileScreen(
                                 onConfigChanged(updatedConfig)
                                 viewModel.onIntent(ProfileIntent.GoogleSignIn(googleClientId))
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan)
+                            enabled = googleClientId.isNotBlank(),
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                         ) {
-                            Text("Google Sign-In", color = AresBackground, fontWeight = FontWeight.Bold)
+                            Text("Google Sign-In", fontWeight = FontWeight.Bold)
                         }
                     }
                     is AuthState.Authenticating -> {
@@ -324,14 +332,14 @@ fun ProfileScreen(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("Developer OAuth Credentials (Advanced)", color = AresTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Google OAuth setup", color = AresTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
 
                 if (showAdvanced) {
                     OutlinedTextField(
                         value = googleClientId,
                         onValueChange = { googleClientId = it },
-                        label = { Text("Custom Google Client ID") },
+                        label = { Text("Desktop OAuth client ID (required)") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
@@ -339,7 +347,7 @@ fun ProfileScreen(
                     OutlinedTextField(
                         value = googleClientSecret,
                         onValueChange = { googleClientSecret = it },
-                        label = { Text("Custom Google Client Secret") },
+                        label = { Text("Client secret (usually blank for Desktop clients)") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
@@ -406,10 +414,13 @@ fun ProfileScreen(
                     Text("Gemini assistance", fontWeight = FontWeight.Bold, color = AresTextPrimary, fontSize = 15.sp)
                 }
                 Text(
-                    "Choose the provider used by telemetry diagnostics and the Subsystem Builder's review-only form assistant.",
+                    "Choose the provider used by telemetry diagnostics and the review-only assistants in Subsystem Builder, Drivebase Builder, and Controller Bindings.",
                     color = AresTextSecondary,
                     fontSize = 11.sp,
                 )
+                if (aiMode == "STUDIO" && geminiApiKey.isBlank()) {
+                    Text("Add a Google AI Studio API key, then save this profile before using an editor assistant.", color = AresGold, fontSize = 11.sp)
+                }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

@@ -1,0 +1,32 @@
+package com.ares.analytics.service.tuning
+
+/** Canonical declaration keys used by analysis proposals. These are metadata keys, never NT4 topics. */
+object TuningParameterKeys {
+    const val DRIVE_TRACK_WIDTH = "drive.trackWidthMeters"
+    const val DRIVE_TRANSLATION_KP = "drive.pathTranslationGains.kP"
+    const val DRIVE_TRANSLATION_KI = "drive.pathTranslationGains.kI"
+    const val DRIVE_TRANSLATION_KD = "drive.pathTranslationGains.kD"
+    const val DRIVE_ROTATION_KP = "drive.pathRotationGains.kP"
+    const val DRIVE_ROTATION_KI = "drive.pathRotationGains.kI"
+    const val DRIVE_ROTATION_KD = "drive.pathRotationGains.kD"
+    const val DRIVE_FEEDFORWARD_KS = "drive.driveFeedforward.kS"
+    const val DRIVE_FEEDFORWARD_KV = "drive.driveFeedforward.kV"
+    const val DRIVE_FEEDFORWARD_KA = "drive.driveFeedforward.kA"
+    const val DRIVE_ANGULAR_FEEDFORWARD_KS = "drive.angularFeedforward.kS"
+    const val DRIVE_ANGULAR_FEEDFORWARD_KV = "drive.angularFeedforward.kV"
+    const val DRIVE_ANGULAR_FEEDFORWARD_KA = "drive.angularFeedforward.kA"
+    const val FTC_TICKS_PER_METER = "drive.ftc.ticksPerMeter"
+    const val PINPOINT_X_OFFSET = "localization.ftcPinpoint.xOffsetMm"
+    const val PINPOINT_Y_OFFSET = "localization.ftcPinpoint.yOffsetMm"
+    const val VISION_STD_DEVS_X = "vision.stdDevsX"
+    const val VISION_STD_DEVS_Y = "vision.stdDevsY"
+    const val VISION_STD_DEVS_HEADING = "vision.stdDevsHeading"
+    const val DRIVER_DEADBAND_EXPONENT = "driver.deadbandExponent"
+    const val DRIVER_SLEW_RATE_LIMIT = "driver.slewRateLimit"
+    const val FLYWHEEL_FEEDFORWARD_KS = "subsystem.flywheel.feedforward.kS"
+    const val FLYWHEEL_FEEDFORWARD_KV = "subsystem.flywheel.feedforward.kV"
+    const val FLYWHEEL_FEEDFORWARD_KA = "subsystem.flywheel.feedforward.kA"
+    const val FLYWHEEL_VELOCITY_KP = "subsystem.flywheel.velocityGains.kP"
+    const val FLYWHEEL_VELOCITY_KI = "subsystem.flywheel.velocityGains.kI"
+    const val FLYWHEEL_VELOCITY_KD = "subsystem.flywheel.velocityGains.kD"
+}

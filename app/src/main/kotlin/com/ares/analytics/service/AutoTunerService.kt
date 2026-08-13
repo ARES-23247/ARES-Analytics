@@ -1,7 +1,7 @@
 package com.ares.analytics.service
 
 import com.areslib.control.assist.SysIdMechanism
-import com.areslib.tuning.TuningTopics
+import com.ares.analytics.service.tuning.TuningParameterKeys
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.Json
@@ -9,6 +9,8 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
+import com.ares.analytics.service.tuning.ExternalTuningProposal
+import com.ares.analytics.service.tuning.TuningProposalInbox
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -58,7 +60,8 @@ data class TuningApplyState(
  */
 class AutoTunerService(
     private val nt4ClientService: Nt4ClientService,
-    private val sysIdService: SysIdService
+    private val sysIdService: SysIdService,
+    private val proposalInbox: TuningProposalInbox = TuningProposalInbox()
 ) {
     data class TuningRecommendation(
         val mechanism: SysIdMechanism,
@@ -177,23 +180,22 @@ class AutoTunerService(
             _applyState.value = TuningApplyState(TuningApplyPhase.FAILED, "Rejected recommendations cannot be applied.")
             return
         }
-        val previous = LinkedHashMap<String, Double>()
-        for (topic in rec.topicValues.keys) {
-            nt4ClientService.latestValues[topic]?.value?.takeIf { it.isFinite() }?.let { previous[topic] = it }
-        }
-        nt4ClientService.publishDouble(TuningTopics.SCHEMA_VERSION_TOPIC, TuningTopics.SCHEMA_VERSION.toDouble())
-        for ((topic, value) in rec.topicValues) nt4ClientService.publishDouble(topic, value)
-
-        _currentRecommendation.value = rec.copy(studentApproved = true)
+        proposalInbox.submit(
+            ExternalTuningProposal(
+                source = "AutoTuner",
+                summary = "${rec.mechanismName} recommendation from ${rec.logSource}; confidence ${"%.1f".format(rec.confidence * 100)}%.",
+                values = rec.topicValues,
+                evidencePath = null,
+                evidenceSha256 = null
+            )
+        )
         _applyState.value = TuningApplyState(
-            phase = TuningApplyPhase.APPLIED_AWAITING_VALIDATION,
-            message = "Applied. Re-run the same routine to validate model repeatability.",
-            appliedValues = rec.topicValues,
-            previousValues = previous
+            phase = TuningApplyPhase.RECOMMENDED,
+            message = "Sent to the Tuning proposal board. Review validation, policy, provenance, and diff before any live test or profile promotion."
         )
     }
 
-    /** Validates a second independent run and automatically rolls back unstable recommendations. */
+    /** Legacy state evaluator retained for reports; proposals themselves never apply robot values. */
     suspend fun validateOrRollback(validation: TuningRecommendation): Boolean {
         val state = _applyState.value
         if (state.phase != TuningApplyPhase.APPLIED_AWAITING_VALIDATION) return false
@@ -212,13 +214,12 @@ class AutoTunerService(
             )
             return true
         }
-        rollback("Validation failed; previous gains restored.")
+        rollback("Validation failed; proposal remains un-applied.")
         return false
     }
 
-    suspend fun rollback(reason: String = "Previous gains restored.") {
+    suspend fun rollback(reason: String = "Proposal discarded; no robot values were changed.") {
         val state = _applyState.value
-        for ((topic, value) in state.previousValues) nt4ClientService.publishDouble(topic, value)
         _applyState.value = state.copy(phase = TuningApplyPhase.ROLLED_BACK, message = reason)
     }
 
@@ -230,28 +231,28 @@ class AutoTunerService(
         gains: AutoTunerPIDFGains
     ): Map<String, Double> = when (mechanism) {
         SysIdMechanism.LINEAR -> linkedMapOf(
-            TuningTopics.DRIVE_FEEDFORWARD_KS to kS,
-            TuningTopics.DRIVE_FEEDFORWARD_KV to kV,
-            TuningTopics.DRIVE_FEEDFORWARD_KA to kA,
-            TuningTopics.DRIVE_TRANSLATION_KP to gains.kP,
-            TuningTopics.DRIVE_TRANSLATION_KI to gains.kI,
-            TuningTopics.DRIVE_TRANSLATION_KD to gains.kD
+            TuningParameterKeys.DRIVE_FEEDFORWARD_KS to kS,
+            TuningParameterKeys.DRIVE_FEEDFORWARD_KV to kV,
+            TuningParameterKeys.DRIVE_FEEDFORWARD_KA to kA,
+            TuningParameterKeys.DRIVE_TRANSLATION_KP to gains.kP,
+            TuningParameterKeys.DRIVE_TRANSLATION_KI to gains.kI,
+            TuningParameterKeys.DRIVE_TRANSLATION_KD to gains.kD
         )
         SysIdMechanism.ANGULAR -> linkedMapOf(
-            TuningTopics.DRIVE_ANGULAR_FEEDFORWARD_KS to kS,
-            TuningTopics.DRIVE_ANGULAR_FEEDFORWARD_KV to kV,
-            TuningTopics.DRIVE_ANGULAR_FEEDFORWARD_KA to kA,
-            TuningTopics.DRIVE_ROTATION_KP to gains.kP,
-            TuningTopics.DRIVE_ROTATION_KI to gains.kI,
-            TuningTopics.DRIVE_ROTATION_KD to gains.kD
+            TuningParameterKeys.DRIVE_ANGULAR_FEEDFORWARD_KS to kS,
+            TuningParameterKeys.DRIVE_ANGULAR_FEEDFORWARD_KV to kV,
+            TuningParameterKeys.DRIVE_ANGULAR_FEEDFORWARD_KA to kA,
+            TuningParameterKeys.DRIVE_ROTATION_KP to gains.kP,
+            TuningParameterKeys.DRIVE_ROTATION_KI to gains.kI,
+            TuningParameterKeys.DRIVE_ROTATION_KD to gains.kD
         )
         SysIdMechanism.FLYWHEEL -> linkedMapOf(
-            TuningTopics.FLYWHEEL_FEEDFORWARD_KS to kS,
-            TuningTopics.FLYWHEEL_FEEDFORWARD_KV to kV,
-            TuningTopics.FLYWHEEL_FEEDFORWARD_KA to kA,
-            TuningTopics.FLYWHEEL_VELOCITY_KP to gains.kP,
-            TuningTopics.FLYWHEEL_VELOCITY_KI to gains.kI,
-            TuningTopics.FLYWHEEL_VELOCITY_KD to gains.kD
+            TuningParameterKeys.FLYWHEEL_FEEDFORWARD_KS to kS,
+            TuningParameterKeys.FLYWHEEL_FEEDFORWARD_KV to kV,
+            TuningParameterKeys.FLYWHEEL_FEEDFORWARD_KA to kA,
+            TuningParameterKeys.FLYWHEEL_VELOCITY_KP to gains.kP,
+            TuningParameterKeys.FLYWHEEL_VELOCITY_KI to gains.kI,
+            TuningParameterKeys.FLYWHEEL_VELOCITY_KD to gains.kD
         )
     }
 

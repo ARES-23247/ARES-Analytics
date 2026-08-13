@@ -49,6 +49,9 @@ class ServiceRegistry {
     val layoutPreferenceService by lazy { LayoutPreferenceService() }
     val updateCheckerService by lazy { UpdateCheckerService() }
     val learningProgressService by lazy { LearningProgressService() }
+    val tuningProposalInbox by lazy { com.ares.analytics.service.tuning.TuningProposalInbox() }
+    val drivebaseProjectRepository by lazy { com.ares.analytics.service.drivebase.DrivebaseProjectRepository() }
+    val tuningProfileRepository by lazy { com.ares.analytics.service.tuning.TuningProfileRepository() }
 
     // ── Tier 1: Depend on Tier 0 ─────────────────────────────────────────────
     val nt4ClientService by lazy { Nt4ClientService(databaseService) }
@@ -56,7 +59,7 @@ class ServiceRegistry {
     val parquetExporterService by lazy { ParquetExporterService(databaseService) }
     val replayEngineService by lazy { ReplayEngineService(databaseService, nt4ClientService) }
     val sysIdService by lazy { SysIdService(databaseService) }
-    val autoTunerService by lazy { AutoTunerService(nt4ClientService, sysIdService) }
+    val autoTunerService by lazy { AutoTunerService(nt4ClientService, sysIdService, tuningProposalInbox) }
     val calibrationService by lazy { CalibrationService(databaseService) }
     val oauthService by lazy { OAuthService(environmentService) }
     val exportService by lazy { ExportService(databaseService) }

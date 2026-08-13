@@ -34,6 +34,7 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     DATABASE_VIEWER("Database", Icons.Default.Storage),
     CONTROLS("TeleOp Controls", Icons.Default.SportsEsports),
     TUNING("Tuning", Icons.Default.Tune),
+    DRIVEBASE_BUILDER("Drivebase Builder", Icons.Default.Settings),
     SUBSYSTEM_GEN("Subsystem Builder", Icons.Default.Construction),
     PROFILE("Profile", Icons.Default.Person),
     ADMIN("Admin Panel", Icons.Default.SupervisorAccount)
@@ -59,7 +60,7 @@ val developerToolTargets = setOf(
 fun NavigationTarget.section(): NavigationSection? = when (this) {
     NavigationTarget.DASHBOARD -> NavigationSection.DASHBOARD
     NavigationTarget.PIT_DIAGNOSTICS, NavigationTarget.CONTROLS,
-    NavigationTarget.TUNING, NavigationTarget.SUBSYSTEM_GEN -> NavigationSection.ROBOT
+    NavigationTarget.TUNING, NavigationTarget.DRIVEBASE_BUILDER, NavigationTarget.SUBSYSTEM_GEN -> NavigationSection.ROBOT
     NavigationTarget.PATH_PLANNER, NavigationTarget.FIELD_EDITOR -> NavigationSection.AUTONOMOUS
     NavigationTarget.RUN_HISTORY -> NavigationSection.ANALYSIS
     NavigationTarget.IMPORT_CENTER, NavigationTarget.CLOUD -> NavigationSection.DATA
@@ -81,6 +82,7 @@ fun NavigationSection.targets(): List<NavigationTarget> = when (this) {
     NavigationSection.DASHBOARD -> listOf(NavigationTarget.DASHBOARD)
     NavigationSection.ROBOT -> listOf(
         NavigationTarget.SUBSYSTEM_GEN,
+        NavigationTarget.DRIVEBASE_BUILDER,
         NavigationTarget.CONTROLS,
         NavigationTarget.PIT_DIAGNOSTICS,
         NavigationTarget.TUNING,
@@ -116,6 +118,7 @@ fun NavigationTarget.searchTerms(): Set<String> = when (this) {
     NavigationTarget.DATABASE_VIEWER -> setOf("sql", "duckdb", "table")
     NavigationTarget.CONTROLS -> setOf("gamepad", "button", "driver", "operator", "binding")
     NavigationTarget.TUNING -> setOf("pid", "sysid", "feedforward", "calibration")
+    NavigationTarget.DRIVEBASE_BUILDER -> setOf("drivetrain", "mecanum", "swerve", "differential", "ctre", "tuner constants", "wheelbase", "track width", "localization")
     NavigationTarget.SUBSYSTEM_GEN -> setOf("mechanism", "motor", "sensor", "redux", "io", "generator")
     NavigationTarget.PROFILE -> setOf("workspace", "robot", "team", "accessibility", "project folder")
     NavigationTarget.ADMIN -> setOf("roster", "shared robots", "administrator")

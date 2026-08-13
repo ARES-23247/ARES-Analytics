@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.ares.analytics.service.tuning.TuningProposalInbox
 
 enum class CalibrationArmPhase { NOT_REQUIRED, DISARMED, ARMING, ARMED }
 
@@ -121,13 +122,14 @@ class SysIdViewModel(
     private val driverAnalysisService: DriverAnalysisService,
     private val autoTunerService: AutoTunerService,
     val nt4ClientService: Nt4ClientService,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    tuningProposalInbox: TuningProposalInbox? = null
 ) {
     private val _state = MutableStateFlow(SysIdState())
     val state: StateFlow<SysIdState> = _state.asStateFlow()
 
     private val regressionSolver = SysIdRegressionSolver(nt4ClientService, _state)
-    private val signalGenerator = SysIdSignalGenerator(nt4ClientService, _state, scope)
+    private val signalGenerator = SysIdSignalGenerator(nt4ClientService, _state, scope, tuningProposalInbox = tuningProposalInbox)
     private val dataCollector = SysIdDataCollector(
         nt4ClientService,
         sysIdService,

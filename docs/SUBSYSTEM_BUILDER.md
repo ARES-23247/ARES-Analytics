@@ -60,7 +60,7 @@ defaults.
 
 ## Builder workflow
 
-The builder uses seven guided stages. You can move backward at any time; advanced settings remain
+The builder uses eight guided stages. You can move backward at any time; advanced settings remain
 collapsed until you need them or a validation problem points to them.
 
 1. **Purpose** — choose a capability template, name the subsystem, and explain what it should do.
@@ -70,12 +70,15 @@ collapsed until you need them or a validation problem points to them.
    typed reading. Add extra mechanism state only when it has meaning beyond those signals.
 3. **State & behavior** — distinguish observed status from requested targets, then connect bounded
    controller rules to actuators.
-4. **Safety** — complete feedback, homing, current, configuration-health, neutral-output, and fault
+4. **Tuning** — optionally declare typed component-owned parameters, their units/bounds/defaults,
+   and when the runtime is allowed to apply a requested value. This works for generated and
+   hand-authored subsystems; declaring metadata never generates or replaces hand-authored Kotlin.
+5. **Safety** — complete feedback, homing, current, configuration-health, neutral-output, and fault
    recovery requirements. The summary shows the protections currently enabled.
-5. **Capabilities** — review the typed driver/autonomous actions that the subsystem exposes.
-6. **Simulation & testing** — choose mock support and generated contract verification so the design
+6. **Capabilities** — review the typed driver/autonomous actions that the subsystem exposes.
+7. **Simulation & testing** — choose mock support and generated contract verification so the design
    can be exercised without a physical robot.
-7. **Review** — resolve warnings, inspect ownership and module destinations, then save or generate.
+8. **Review** — resolve warnings, inspect ownership and module destinations, then save or generate.
 
 Save creates the canonical document revision. Review any starter replacement diff and confirm only
 when discarding the existing customization is intentional. Generate, then run the generated
@@ -122,6 +125,38 @@ voltage for velocity, acceleration, and angle; PID correction is added afterward
 `kV` and `kA` must match the units of the selected desired-velocity and acceleration fields, while
 arm angle is radians. Start with SysId data when possible and validate all gains in simulation before
 careful hardware testing.
+
+## Typed tuning parameters
+
+Schema-7 subsystem documents may declare `tuningParameters`. A declaration is not a loose mutable
+constant: it gives the value a stable UID, a project-wide key, a component owner, a novice-facing
+name and explanation, a type, optional units/bounds/options, a default, and an apply policy. Named
+robot profiles own authoritative values; the subsystem only owns their meaning and constraints.
+
+The Builder provides a type-specific default editor for double, integer, Boolean, text, and enum
+parameters. Numeric values may have finite minimum/maximum bounds. Enum values require non-empty,
+unique options and a default selected from those options. Duplicate UIDs or keys, unknown component
+owners, invalid bounds, and mismatched defaults block saving with a link back to the parameter.
+
+Apply policies are intentionally explicit:
+
+- **Live safe** still requires an explicitly armed tuning session and should be rare.
+- **Disabled only** requires an armed session and a disabled robot; it is the default for ordinary
+  controller gains.
+- **Restart required** and **Rebuild required** never mutate the running value.
+- **Calibration only** requires an authorized calibration session for that parameter.
+- **Read-only vendor** documents vendor-owned values but never lets ARES change them.
+
+Optional PID and feedforward presets are offered only when a compatible controller already exists.
+They copy the controller's current `kP`/`kI`/`kD` or applicable `kS`/`kV`/`kA`/`kG` values, use the
+controller's stable UID as owner, and default to **Disabled only**. They do not invent units, add a
+control mode, or force a subsystem to be tunable. Parameters can be reordered or deleted without
+changing the stable identity used by profiles and generated runtime metadata.
+
+Hand-authored subsystems use this same form. Their declarations become part of the project-wide
+generated tuning catalog while their `USER-OWNED` Kotlin files, classes, module, simulation source,
+and ownership metadata remain protected. AI form proposals are also prevented from rewriting those
+protected fields or the stable identity/owner of an existing tuning declaration.
 
 ## Leader and follower actuators
 

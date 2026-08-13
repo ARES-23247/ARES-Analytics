@@ -337,7 +337,7 @@ fun TuningScreen(
                                     enabled = recommendation.quality != RecommendationQuality.REJECTED,
                                     onClick = { sysIdViewModel.onIntent(SysIdIntent.ApproveRecommendation(recommendation)) }
                                 ) {
-                                    Text(if (recommendation.quality == RecommendationQuality.REVIEW_REQUIRED) "Review & Apply" else "Approve & Apply")
+                                    Text(if (recommendation.quality == RecommendationQuality.REVIEW_REQUIRED) "Review on proposal board" else "Send to proposal board")
                                 }
                             }
                         }
@@ -598,7 +598,7 @@ private fun ApplyButton(onClick: () -> Unit) {
         shape = RoundedCornerShape(6.dp),
         contentPadding = PaddingValues(0.dp)
     ) {
-        Text("Send temporary values to robot", color = AresOnAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+        Text("Send result to proposal board", color = AresOnAccent, fontWeight = FontWeight.Bold, fontSize = 12.sp)
     }
 }
 

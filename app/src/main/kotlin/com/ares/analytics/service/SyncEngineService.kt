@@ -5,6 +5,10 @@ import com.ares.analytics.shared.AppJson
 
 import com.ares.analytics.shared.*
 import com.areslib.subsystem.SubsystemDocument
+import com.areslib.controls.ControlSchemeCodec
+import com.areslib.controls.ControlSchemeDocument
+import com.areslib.drivetrain.DrivetrainDocument
+import com.areslib.drivetrain.DrivetrainDocumentCodec
 import com.google.gson.GsonBuilder
 import io.ktor.client.*
 import io.ktor.client.call.body
@@ -680,7 +684,7 @@ class SyncEngineService(
             Propose edits to the supplied ARES subsystem descriptor. Do not write Kotlin source.
 
             Safety and contract rules:
-            - Return a complete schemaVersion 6 descriptor using the exact JSON shape supplied.
+             - Return a complete schemaVersion ${current.schemaVersion} descriptor using the exact JSON shape supplied.
             - Preserve schemaVersion, documentId, uid, platform, revision, parentContentHash,
               implementation, and capabilityActionKeys exactly. The desktop app also enforces this.
             - Preserve existing uid values for existing hardware, state, and control entries.
@@ -701,7 +705,7 @@ class SyncEngineService(
             {
               "summary": "one plain-language sentence",
               "explanations": ["why change 1 helps", "why change 2 is safe"],
-              "proposedDocument": { complete schema-v6 descriptor object }
+               "proposedDocument": { complete descriptor object matching the supplied schema }
             }
 
             Student request:
@@ -718,6 +722,86 @@ class SyncEngineService(
         )
     }
 
+    suspend fun requestDrivebaseDesignProposal(
+        current: DrivetrainDocument,
+        studentRequest: String,
+    ): DrivebaseDesignProposal = withContext(Dispatchers.IO) {
+        require(studentRequest.isNotBlank()) { "Describe the drivebase or change you want first." }
+        require(studentRequest.length <= 4_000) { "Drivebase design request is limited to 4,000 characters." }
+        val prompt = """
+            You are the ARES Drivebase Builder form assistant for novice FTC and FRC students.
+            Propose edits to the supplied canonical drivetrain document. Do not write source code,
+            edit vendor files, invent calibration evidence, or command hardware.
+
+            Rules:
+            - Return the complete JSON document using the exact supplied schema and enum names.
+            - Preserve schemaVersion, uid, drivebaseId, kind, platform, canonicalProfileUid,
+              parameters, calibrationProvenance, and ctreImport exactly.
+            - Preserve existing component/module uid values when they represent the same device.
+            - Keep one primary localization source; vision may only be a secondary source.
+            - Keep CCW-positive heading, cached inputs, safe neutral, disabled neutral output,
+              configuration health, feedback freshness, fault latching, explicit neutral recovery,
+              and zero-allocation periodic requirements enabled.
+            - A follower must reference one direct drive-motor leader; no follower chains.
+            - Inversion describes physical mounting and remains independent from following.
+            - Unknown current is invalid, not zero. Do not claim a current limit unless the
+              controller actually enforces it.
+
+            Respond only with:
+            {"summary":"one sentence","explanations":["reason"],"proposedDocument":{}}
+
+            Student request:
+            $studentRequest
+
+            Current drivetrain document:
+            ${DrivetrainDocumentCodec.encode(current)}
+        """.trimIndent()
+        parseDrivebaseDesignProposalResponse(current, requestGeminiStructuredJson(prompt))
+    }
+
+    suspend fun requestControlsDesignProposal(
+        current: ControlSchemeDocument,
+        context: ControlsDesignContext,
+        studentRequest: String,
+    ): ControlsDesignProposal = withContext(Dispatchers.IO) {
+        require(studentRequest.isNotBlank()) { "Describe the controls you want first." }
+        require(studentRequest.length <= 4_000) { "Controller design request is limited to 4,000 characters." }
+        val controls = context.profileControls.entries.joinToString("\n") { (profile, ids) ->
+            "$profile: ${ids.sorted().joinToString()}"
+        }
+        val prompt = """
+            You are the ARES Controller Bindings form assistant for novice FTC and FRC students.
+            Propose edits to the supplied control scheme. Do not write source code, save files, or
+            invent action/routine/control keys.
+
+            Rules:
+            - Return a complete control-scheme JSON document matching the supplied schema.
+            - Preserve schemaVersion, documentId, revision, parentContentHash, and controllers.
+            - Targets may use only the allowed action keys or routine IDs below.
+            - Sources may use only controls belonging to that controller's assigned profile.
+            - Prefer PRESS for one-shot actions, HELD only for actions safe while held, VALUE for
+              analog actions, and explicit maximum-active/cooldown policies for risky mechanisms.
+            - Do not bind the same input ambiguously. Give chords higher priority and suppress
+              constituent bindings when appropriate.
+            - Preserve all existing valid bindings unless the student explicitly asks to replace them.
+
+            Allowed actions: ${context.actionKeys.sorted().joinToString()}
+            Allowed routines: ${context.routineIds.sorted().joinToString()}
+            Profile controls:
+            $controls
+
+            Respond only with:
+            {"summary":"one sentence","explanations":["reason"],"proposedDocument":{}}
+
+            Student request:
+            $studentRequest
+
+            Current control scheme:
+            ${ControlSchemeCodec.encode(current)}
+        """.trimIndent()
+        parseControlsDesignProposalResponse(current, context, requestGeminiStructuredJson(prompt))
+    }
+
     private suspend fun requestGeminiStructuredJson(prompt: String): String {
         val config = environmentService.loadConfig()
             ?: throw IllegalStateException("No active workspace configuration loaded")
@@ -732,7 +816,6 @@ class SyncEngineService(
             })
             put("generationConfig", buildJsonObject {
                 put("responseMimeType", "application/json")
-                put("temperature", 0.2)
             })
         }
         val response = if (aiMode == "STUDIO") {
@@ -759,7 +842,7 @@ class SyncEngineService(
             }
         }
         if (response.status != HttpStatusCode.OK) {
-            throw IllegalStateException("Gemini subsystem proposal failed: ${response.bodyAsText().take(1_000)}")
+            throw IllegalStateException("Gemini structured proposal failed: ${response.bodyAsText().take(1_000)}")
         }
         val responseObject = response.body<JsonObject>()
         return responseObject["candidates"]?.jsonArray?.firstOrNull()?.jsonObject

@@ -26,8 +26,8 @@ class UpdateCheckerServiceTest {
             respond(
                 content = """
                 {
-                    "tag_name": "v1.2.0",
-                    "html_url": "https://github.com/ares-robotics/ares-analytics/releases/tag/v1.2.0",
+                    "tag_name": "v1.3.0",
+                    "html_url": "https://github.com/ares-robotics/ares-analytics/releases/tag/v1.3.0",
                     "body": "Bug fixes and performance improvements"
                 }
                 """.trimIndent(),
@@ -56,8 +56,8 @@ class UpdateCheckerServiceTest {
 
         println("Actual update state: $state")
         assertTrue(state is UpdateCheckerService.UpdateState.UpdateAvailable)
-        assertEquals("v1.2.0", state.latestVersion)
-        assertEquals("https://github.com/ares-robotics/ares-analytics/releases/tag/v1.2.0", state.downloadUrl)
+        assertEquals("v1.3.0", state.latestVersion)
+        assertEquals("https://github.com/ares-robotics/ares-analytics/releases/tag/v1.3.0", state.downloadUrl)
         assertEquals("Bug fixes and performance improvements", state.releaseNotes)
 
         service.dispose()

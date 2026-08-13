@@ -46,7 +46,6 @@ import com.ares.analytics.ui.theme.AresCyanGlow
 import com.ares.analytics.ui.theme.AresError
 import com.ares.analytics.ui.theme.AresSurface
 import com.ares.analytics.ui.theme.AresTextPrimary
-import com.ares.analytics.viewmodel.DEFAULT_GOOGLE_CLIENT_ID
 import com.ares.analytics.viewmodel.OnboardingIntent
 import com.ares.analytics.viewmodel.OnboardingStep
 import com.ares.analytics.viewmodel.OnboardingViewModel
@@ -116,7 +115,7 @@ fun OnboardingScreen(
                         },
                         onSignInClick = {
                             oauthService.startGoogleLogin(
-                                googleClientId = state.googleClientId.trim().ifBlank { DEFAULT_GOOGLE_CLIENT_ID },
+                                googleClientId = state.googleClientId.trim().takeIf(String::isNotEmpty),
                                 googleClientSecret = state.googleClientSecret.trim().takeIf(String::isNotEmpty),
                             )
                         },

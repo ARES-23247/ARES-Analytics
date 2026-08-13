@@ -230,7 +230,7 @@ class OAuthService(
         ) ?: return null
         val generation = attempt.generation
 
-        if ((interactive && isDevMode()) || googleClientId.isNullOrEmpty() || googleClientId == "mock") {
+        if (interactive && isDevMode()) {
             launchAuthWork(generation) {
                 applyGoogleTokens(
                     idToken = "dev-id-token",
@@ -240,6 +240,14 @@ class OAuthService(
                     emailFallback = "dev-user@aresrobotics.org",
                     nameFallback = "ARES Dev User",
                     generation = generation
+                )
+            }
+            return null
+        }
+        if (googleClientId.isNullOrBlank() || googleClientId == "mock") {
+            commitIfCurrent(generation) {
+                _authState.value = AuthState.Error(
+                    "Google Drive needs a valid Desktop OAuth client ID. Configure it in Profile → Google Drive → Developer OAuth Credentials."
                 )
             }
             return null
