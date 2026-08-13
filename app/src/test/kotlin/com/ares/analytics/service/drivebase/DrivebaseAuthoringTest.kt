@@ -173,6 +173,20 @@ class DrivebaseAuthoringTest {
     }
 
     @Test
+    fun `CTRE provenance hash is stable across checkout line endings`() {
+        val lf = liveTunerConstants().readText().replace("\r\n", "\n")
+        val crlfFile = Files.createTempFile("TunerConstants-crlf", ".java").toFile().apply {
+            writeText(lf.replace("\n", "\r\n"))
+        }
+        val lfFile = Files.createTempFile("TunerConstants-lf", ".java").toFile().apply { writeText(lf) }
+
+        assertEquals(
+            CtreTunerConstantsReader.read(lfFile).sourceHash,
+            CtreTunerConstantsReader.read(crlfFile).sourceHash,
+        )
+    }
+
+    @Test
     fun `localization requires one compatible primary and optional vision`() {
         val base = defaultDrivebase("team", DrivebaseKind.FTC_MECANUM)
         val multiple = base.copy(localization = listOf(LocalizationKind.FTC_PINPOINT, LocalizationKind.WHEEL_ODOMETRY_GYRO))

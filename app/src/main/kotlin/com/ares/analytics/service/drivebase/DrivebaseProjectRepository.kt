@@ -211,8 +211,9 @@ object CtreTunerConstantsReader {
             else -> null
         }
     }
+    /** Hashes source text canonically so a reviewed vendor file has one identity on Windows and Linux. */
     private fun sha256(text: String): String = MessageDigest.getInstance("SHA-256")
-        .digest(text.toByteArray()).joinToString("") { "%02x".format(it) }
+        .digest(text.replace("\r\n", "\n").toByteArray()).joinToString("") { "%02x".format(it) }
 }
 
 fun defaultDrivebase(projectId: String, kind: DrivebaseKind): DrivebaseDocument = canonicalTemplate(projectId, kind).toUiDrivebase()
