@@ -1,10 +1,14 @@
 package com.ares.analytics.viewmodel
 
 import com.ares.analytics.service.AuthState
+import com.ares.analytics.service.DrivePickerState
 import com.ares.analytics.service.OAuthService
+import com.ares.analytics.service.DriveDestinationStatus
+import com.ares.analytics.service.GoogleDriveService
 import com.ares.analytics.service.SyncEngineService
 import com.ares.analytics.shared.RobotProfile
 import com.ares.analytics.shared.WorkspaceConfig
+import com.ares.analytics.shared.DriveDestinationType
 import com.ares.analytics.shared.DEFAULT_GEMINI_MODEL
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +26,11 @@ data class ProfileState(
     val robotProfiles: List<RobotProfile> = emptyList(),
     val syncStatus: String = "",
     val googleClientId: String = "",
-    val googleClientSecret: String = "",
+    val googleOAuthUseCustomClient: Boolean = false,
+    val managedGoogleSignInAvailable: Boolean = false,
+    val driveDestinationStatus: DriveDestinationStatus? = null,
+    val isDriveDestinationBusy: Boolean = false,
+    val pendingConfigUpdate: WorkspaceConfig? = null,
     val eventCode: String = "",
     val toaApiKey: String = "",
     val tbaApiKey: String = "",
@@ -40,7 +48,25 @@ sealed class ProfileIntent {
 
     data class LoadConfig(val config: WorkspaceConfig) : ProfileIntent()
 
-    data class GoogleSignIn(val clientId: String) : ProfileIntent()
+    data class GoogleSignIn(val config: WorkspaceConfig) : ProfileIntent()
+
+    data class ConfigureDriveDestination(
+        val config: WorkspaceConfig,
+        val type: DriveDestinationType,
+        val displayName: String,
+        val existingFolderReference: String? = null,
+        val sharedDriveId: String? = null,
+    ) : ProfileIntent()
+
+    data class RefreshDriveDestination(val config: WorkspaceConfig) : ProfileIntent()
+
+    data class PickExistingDriveDestination(
+        val config: WorkspaceConfig,
+        val type: DriveDestinationType,
+        val displayName: String,
+    ) : ProfileIntent()
+
+    object ConfigUpdateApplied : ProfileIntent()
 
     data class LinkGitHub(val clientId: String) : ProfileIntent()
 
@@ -54,10 +80,13 @@ sealed class ProfileIntent {
 /** Manages account linking, event settings, and explicit cloud synchronization actions. */
 class ProfileViewModel(
     private val oauthService: OAuthService,
+    private val googleDriveService: GoogleDriveService,
     private val syncEngineService: SyncEngineService,
     private val scope: CoroutineScope
 ) {
-    private val _state = MutableStateFlow(ProfileState())
+    private val _state = MutableStateFlow(
+        ProfileState(managedGoogleSignInAvailable = oauthService.managedGoogleClientAvailable)
+    )
     val state: StateFlow<ProfileState> = _state.asStateFlow()
 
     init {
@@ -65,13 +94,35 @@ class ProfileViewModel(
             oauthService.authState.collectLatest { state ->
                 _state.update { it.copy(authState = state) }
                 if (state is AuthState.Authenticated) {
-                    onIntent(ProfileIntent.PerformDeltaSync(state.idToken))
-                    try {
-                        val remoteProfiles = syncEngineService.getRemoteRobotProfiles()
-                        _state.update { it.copy(robotProfiles = remoteProfiles) }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
+                    if (_state.value.config?.driveDestination != null) {
+                        onIntent(ProfileIntent.PerformDeltaSync(state.idToken))
+                        try {
+                            val remoteProfiles = syncEngineService.getRemoteRobotProfiles()
+                            _state.update { it.copy(robotProfiles = remoteProfiles) }
+                        } catch (e: Exception) {
+                            _state.update {
+                                it.copy(errorMessage = e.message ?: "The Drive destination is unavailable.")
+                            }
+                        }
+                    } else {
+                        _state.update {
+                            it.copy(syncStatus = "Signed in. Choose a Drive destination for this workspace to enable cloud sync.")
+                        }
                     }
+                }
+            }
+        }
+        scope.launch {
+            oauthService.drivePickerState.collectLatest { picker ->
+                when (picker) {
+                    DrivePickerState.Picking -> _state.update {
+                        it.copy(isDriveDestinationBusy = true, errorMessage = null)
+                    }
+                    is DrivePickerState.Error -> _state.update {
+                        it.copy(isDriveDestinationBusy = false, errorMessage = picker.message)
+                    }
+                    DrivePickerState.Idle,
+                    is DrivePickerState.Selected -> Unit
                 }
             }
         }
@@ -82,18 +133,22 @@ class ProfileViewModel(
             when (intent) {
                 is ProfileIntent.LoadConfig -> {
                     val cfg = intent.config
-                    val remoteProfiles = try {
-                        syncEngineService.getRemoteRobotProfiles()
-                    } catch (e: Exception) {
-                        emptyList()
-                    }
+                    val remoteProfiles = if (
+                        cfg.driveDestination != null && oauthService.authState.value is AuthState.Authenticated
+                    ) {
+                        try {
+                            syncEngineService.getRemoteRobotProfiles()
+                        } catch (_: Exception) {
+                            emptyList()
+                        }
+                    } else emptyList()
 
                     _state.update {
                         it.copy(
                             config = cfg,
                             robotProfiles = remoteProfiles,
                             googleClientId = cfg.googleClientId ?: "",
-                            googleClientSecret = cfg.googleClientSecret ?: "",
+                            googleOAuthUseCustomClient = cfg.googleOAuthUseCustomClient,
                             eventCode = cfg.eventCode ?: "",
                             toaApiKey = cfg.toaApiKey ?: "",
                             tbaApiKey = cfg.tbaApiKey ?: "",
@@ -107,19 +162,45 @@ class ProfileViewModel(
                             vertexLocation = cfg.vertexLocation ?: "us-central1"
                         )
                     }
+                    if (cfg.driveDestination != null && oauthService.authState.value is AuthState.Authenticated) {
+                        onIntent(ProfileIntent.RefreshDriveDestination(cfg))
+                    }
                 }
                 is ProfileIntent.GoogleSignIn -> {
-                    val targetClientId = intent.clientId.trim().takeIf { it.isNotBlank() }
-                    if (targetClientId == null) {
-                        _state.update {
-                            it.copy(syncStatus = "Add a Google Desktop OAuth client ID under Developer OAuth Credentials before signing in.")
-                        }
-                        return@launch
-                    }
-                    val targetClientSecret = _state.value.googleClientSecret.takeIf { it.isNotBlank() }
-
-                    oauthService.startGoogleLogin(targetClientId, targetClientSecret)
+                    oauthService.startGoogleLogin(intent.config)
                 }
+                is ProfileIntent.PickExistingDriveDestination -> {
+                    _state.update { it.copy(isDriveDestinationBusy = true, errorMessage = null) }
+                    oauthService.startGoogleDriveFolderPicker(intent.config) { folderId ->
+                        configureDriveDestination(
+                            ProfileIntent.ConfigureDriveDestination(
+                                config = intent.config,
+                                type = intent.type,
+                                displayName = intent.displayName,
+                                existingFolderReference = folderId,
+                            ),
+                        )
+                    }
+                }
+                is ProfileIntent.ConfigureDriveDestination -> {
+                    configureDriveDestination(intent)
+                }
+                is ProfileIntent.RefreshDriveDestination -> {
+                    _state.update { it.copy(isDriveDestinationBusy = true, errorMessage = null) }
+                    try {
+                        val status = googleDriveService.inspectDestination(intent.config.driveDestination)
+                        _state.update { it.copy(driveDestinationStatus = status, isDriveDestinationBusy = false) }
+                    } catch (e: Exception) {
+                        _state.update {
+                            it.copy(
+                                driveDestinationStatus = null,
+                                isDriveDestinationBusy = false,
+                                errorMessage = e.message ?: "The Drive destination is inaccessible.",
+                            )
+                        }
+                    }
+                }
+                ProfileIntent.ConfigUpdateApplied -> _state.update { it.copy(pendingConfigUpdate = null) }
                 is ProfileIntent.LinkGitHub -> {
                     oauthService.startGithubLogin(intent.clientId.takeIf { it.isNotBlank() } ?: "mock-github-client-id")
                 }
@@ -141,6 +222,36 @@ class ProfileViewModel(
                 is ProfileIntent.ClearSyncStatus -> {
                     _state.update { it.copy(syncStatus = "") }
                 }
+            }
+        }
+    }
+
+    private suspend fun configureDriveDestination(intent: ProfileIntent.ConfigureDriveDestination) {
+        _state.update { it.copy(isDriveDestinationBusy = true, errorMessage = null) }
+        try {
+            val destination = googleDriveService.configureDestination(
+                type = intent.type,
+                displayName = intent.displayName,
+                existingFolderReference = intent.existingFolderReference,
+                sharedDriveId = intent.sharedDriveId,
+            )
+            val updatedConfig = intent.config.copy(driveDestination = destination)
+            val status = googleDriveService.inspectDestination(destination)
+            _state.update {
+                it.copy(
+                    config = updatedConfig,
+                    driveDestinationStatus = status,
+                    isDriveDestinationBusy = false,
+                    pendingConfigUpdate = updatedConfig,
+                    syncStatus = "Drive destination ready. Existing local data stays on this computer until you choose Sync.",
+                )
+            }
+        } catch (failure: Exception) {
+            _state.update {
+                it.copy(
+                    isDriveDestinationBusy = false,
+                    errorMessage = failure.message ?: "The Drive destination could not be configured.",
+                )
             }
         }
     }

@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ares.analytics.service.AuthState
+import com.ares.analytics.service.DrivePickerState
 import com.ares.analytics.service.OAuthService
 import com.ares.analytics.ui.screens.onboarding.AuthStep
 import com.ares.analytics.ui.screens.onboarding.JavaVerificationStep
@@ -63,6 +64,7 @@ fun OnboardingScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val authState by oauthService.authState.collectAsState()
+    val drivePickerState by oauthService.drivePickerState.collectAsState()
     val token = (authState as? AuthState.Authenticated)?.idToken
 
     LaunchedEffect(state.teamId, token) {
@@ -103,23 +105,33 @@ fun OnboardingScreen(
                 if (state.currentStep == OnboardingStep.OPTIONAL) {
                     AuthStep(
                         authState = authState,
-                        googleClientId = state.googleClientId,
-                        googleClientSecret = state.googleClientSecret,
+                        managedGoogleSignInAvailable = oauthService.managedGoogleClientAvailable,
+                        driveDestination = state.driveDestination,
+                        isDriveDestinationBusy = state.isDriveDestinationBusy || drivePickerState is DrivePickerState.Picking,
+                        driveDestinationError = (drivePickerState as? DrivePickerState.Error)?.message
+                            ?: state.driveDestinationError,
                         expanded = state.cloudSetupExpanded,
                         onExpandedChange = {
                             viewModel.handleIntent(OnboardingIntent.SetCloudSetupExpanded(it))
                         },
-                        onClientIdChange = {
-                            viewModel.handleIntent(OnboardingIntent.UpdateGoogleClientId(it))
-                        },
-                        onClientSecretChange = {
-                            viewModel.handleIntent(OnboardingIntent.UpdateGoogleClientSecret(it))
-                        },
                         onSignInClick = {
-                            oauthService.startGoogleLogin(
-                                googleClientId = state.googleClientId.trim().takeIf(String::isNotEmpty),
-                                googleClientSecret = state.googleClientSecret.trim().takeIf(String::isNotEmpty),
+                            oauthService.startGoogleLogin()
+                        },
+                        onConfigureDestination = { type, name, folder, drive ->
+                            viewModel.handleIntent(
+                                OnboardingIntent.ConfigureDriveDestination(type, name, folder, drive),
                             )
+                        },
+                        onPickExistingDestination = { type, name ->
+                            oauthService.startGoogleDriveFolderPicker { folderId ->
+                                viewModel.handleIntent(
+                                    OnboardingIntent.ConfigureDriveDestination(
+                                        type = type,
+                                        displayName = name,
+                                        existingFolderReference = folderId,
+                                    ),
+                                )
+                            }
                         },
                     )
                 }

@@ -1,5 +1,8 @@
 package com.ares.analytics.service
 
+import com.ares.analytics.shared.DriveDestinationConfig
+import com.ares.analytics.shared.DriveDestinationType
+import com.ares.analytics.shared.WorkspaceCollaborationMode
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -66,22 +69,251 @@ class GoogleDriveService(
     private val oauthService: OAuthService,
     private val environmentService: EnvironmentService,
     private val httpClient: HttpClient = createGoogleDriveHttpClient(),
-    private val accessTokenOverride: (suspend () -> String)? = null
+    private val accessTokenOverride: (suspend () -> String)? = null,
+    private val enforceWorkspaceScope: Boolean = accessTokenOverride == null,
 ) {
     private val folderMutationMutex = Mutex()
 
+    private data class DriveScope(
+        val token: String,
+        val workspaceId: String,
+        val destination: DriveDestinationConfig,
+    )
+
+    private data class DriveMetadata(
+        val id: String,
+        val name: String,
+        val mimeType: String,
+        val parents: List<String>,
+        val driveId: String?,
+        val ownedByMe: Boolean,
+        val canRead: Boolean,
+        val canWrite: Boolean,
+        val webViewLink: String?,
+        val ownerEmails: List<String>,
+        val permissionLabels: List<String>,
+    )
+
     private suspend fun getAccessToken(): String {
         accessTokenOverride?.let { return it() }
-        val config = environmentService.loadConfig()
-            ?: throw IllegalStateException("No active workspace configuration loaded")
-        val clientId = config.googleClientId?.trim()?.takeIf(String::isNotEmpty)
-            ?: throw IllegalStateException(
-                "Google Drive is not configured. Add a Google Desktop OAuth client ID in Profile → Google Drive → Developer OAuth Credentials."
-            )
-        val clientSecret = config.googleClientSecret // Optional for PKCE native apps
+        return oauthService.refreshGoogleAccessToken()
+            ?: throw IllegalStateException("Google sign-in expired or was revoked. Sign in with Google again; local ARES features remain available.")
+    }
 
-        return oauthService.refreshGoogleAccessToken(clientId, clientSecret)
-            ?: throw IllegalStateException("Not logged in to Google. Please authenticate first.")
+    private suspend fun activeScope(): DriveScope {
+        val config = environmentService.loadConfig()
+            ?: throw DriveDestinationAccessException("Choose an active ARES workspace before using Google Drive.")
+        val destination = config.driveDestination
+            ?: throw DriveDestinationAccessException(
+                "Choose a Drive destination for this workspace before synchronizing. No files were scanned or changed.",
+            )
+        requireValidDriveDestination(destination)
+        val identity = oauthService.authState.value as? AuthState.Authenticated
+            ?: throw DriveDestinationAccessException("Sign in with Google before using this workspace's Drive destination.")
+        if (identity.uid != destination.accountSubject || !identity.email.equals(destination.accountEmail, ignoreCase = true)) {
+            throw DriveDestinationAccessException(
+                "This workspace belongs to ${destination.accountEmail}, but ARES is signed in as ${identity.email}. Switch Google accounts or choose a new destination.",
+            )
+        }
+        return DriveScope(getAccessToken(), config.id, destination)
+    }
+
+    private fun driveApiFailure(operation: String, status: HttpStatusCode): DriveDestinationAccessException {
+        val failure = when (status) {
+            HttpStatusCode.Unauthorized -> DriveDestinationAccessException(
+                "$operation failed because Google sign-in expired or was revoked. Sign in again.",
+            )
+            HttpStatusCode.Forbidden -> DriveDestinationAccessException(
+                "$operation was denied by Google Drive. Ask the folder or Shared Drive owner for access, or choose another destination.",
+            )
+            HttpStatusCode.NotFound -> DriveDestinationAccessException(
+                "$operation could not find the selected Drive item. It may have been deleted or sharing may have been removed.",
+            )
+            else -> DriveDestinationAccessException("$operation failed with Google Drive status ${status.value}.")
+        }
+        if (status == HttpStatusCode.Unauthorized) {
+            oauthService.clearGoogleSessionForRecovery(failure.message.orEmpty())
+        }
+        return failure
+    }
+
+    private suspend fun readMetadata(fileId: String, token: String): DriveMetadata {
+        require(fileId.matches(Regex("[A-Za-z0-9_-]{10,256}"))) { "Google Drive file ID is invalid" }
+        val response = httpClient.get("https://www.googleapis.com/drive/v3/files/$fileId") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            parameter("supportsAllDrives", "true")
+            parameter(
+                "fields",
+                "id,name,mimeType,parents,driveId,ownedByMe,webViewLink," +
+                    "capabilities(canDownload,canListChildren,canEdit,canAddChildren)," +
+                    "owners(emailAddress),permissions(type,role,emailAddress)",
+            )
+        }
+        if (response.status != HttpStatusCode.OK) throw driveApiFailure("Reading the selected destination", response.status)
+        val body = response.body<JsonObject>()
+        val capabilities = body["capabilities"]?.jsonObject
+        val owners = body["owners"]?.jsonArray.orEmpty().mapNotNull {
+            it.jsonObject["emailAddress"]?.jsonPrimitive?.contentOrNull
+        }
+        val permissions = body["permissions"]?.jsonArray.orEmpty().mapNotNull { item ->
+            val permission = item.jsonObject
+            val role = permission["role"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+            val type = permission["type"]?.jsonPrimitive?.contentOrNull ?: "user"
+            val email = permission["emailAddress"]?.jsonPrimitive?.contentOrNull
+            listOfNotNull(role, type, email).joinToString(" · ")
+        }
+        return DriveMetadata(
+            id = body.requiredDriveId("Drive metadata"),
+            name = body["name"]?.jsonPrimitive?.contentOrNull ?: "Google Drive destination",
+            mimeType = body["mimeType"]?.jsonPrimitive?.contentOrNull.orEmpty(),
+            parents = body["parents"]?.jsonArray.orEmpty().mapNotNull { it.jsonPrimitive.contentOrNull },
+            driveId = body["driveId"]?.jsonPrimitive?.contentOrNull,
+            ownedByMe = body["ownedByMe"]?.jsonPrimitive?.booleanOrNull == true,
+            canRead = capabilities?.get("canListChildren")?.jsonPrimitive?.booleanOrNull != false,
+            canWrite = capabilities?.get("canEdit")?.jsonPrimitive?.booleanOrNull == true ||
+                capabilities?.get("canAddChildren")?.jsonPrimitive?.booleanOrNull == true,
+            webViewLink = body["webViewLink"]?.jsonPrimitive?.contentOrNull,
+            ownerEmails = owners,
+            permissionLabels = permissions,
+        )
+    }
+
+    private suspend fun requireWithinDestination(fileId: String, scope: DriveScope) {
+        if (!enforceWorkspaceScope) return
+        val rootId = scope.destination.rootFolderId
+        var currentId = fileId
+        val visited = mutableSetOf<String>()
+        repeat(MAX_DRIVE_ANCESTRY_DEPTH) {
+            if (currentId == rootId) return
+            require(visited.add(currentId)) { "Google Drive parent graph contains a cycle" }
+            val metadata = readMetadata(currentId, scope.token)
+            if (scope.destination.type == DriveDestinationType.SHARED_DRIVE &&
+                metadata.driveId != scope.destination.sharedDriveId
+            ) {
+                throw DriveDestinationAccessException("The requested file is outside this workspace's Shared Drive.")
+            }
+            currentId = metadata.parents.singleOrNull()
+                ?: throw DriveDestinationAccessException("The requested Drive item is outside this workspace's selected folder.")
+        }
+        throw DriveDestinationAccessException("The requested Drive item has an unexpectedly deep parent chain.")
+    }
+
+    /** Returns the only root under which synchronization may list or mutate files. */
+    suspend fun workspaceRootId(): String {
+        val scope = activeScope()
+        val metadata = readMetadata(scope.destination.rootFolderId, scope.token)
+        if (metadata.mimeType != GOOGLE_FOLDER_MIME_TYPE || !metadata.canWrite) {
+            throw DriveDestinationAccessException(
+                "The selected Drive destination is no longer writable. Ask its owner to restore access or choose another destination.",
+            )
+        }
+        return scope.destination.rootFolderId
+    }
+
+    /** Creates or validates a destination without searching unrelated Drive files. */
+    suspend fun configureDestination(
+        type: DriveDestinationType,
+        displayName: String,
+        existingFolderReference: String? = null,
+        sharedDriveId: String? = null,
+    ): DriveDestinationConfig = withContext(Dispatchers.IO) {
+        val identity = oauthService.authState.value as? AuthState.Authenticated
+            ?: throw DriveDestinationAccessException("Sign in with Google before choosing a Drive destination.")
+        val token = getAccessToken()
+        val requestedName = displayName.trim().takeIf(String::isNotEmpty)
+            ?: throw IllegalArgumentException("Enter a name for the Drive destination")
+
+        val rootId = when (type) {
+            DriveDestinationType.PERSONAL_FOLDER,
+            DriveDestinationType.TEAM_FOLDER -> createTopLevelFolder(requestedName, token)
+
+            DriveDestinationType.SHARED_FOLDER,
+            DriveDestinationType.SHARED_DRIVE -> extractGoogleDriveFolderId(
+                existingFolderReference ?: sharedDriveId.orEmpty(),
+            ) ?: throw IllegalArgumentException("Choose a folder with Google Drive Picker")
+        }
+        val metadata = readMetadata(rootId, token)
+        require(metadata.mimeType == GOOGLE_FOLDER_MIME_TYPE) { "The selected Drive item is not a folder" }
+        if (!metadata.canWrite) {
+            throw DriveDestinationAccessException(
+                "ARES can read the selected destination but cannot add files. Ask its owner for Contributor or Editor access.",
+            )
+        }
+        if (type == DriveDestinationType.SHARED_DRIVE && metadata.driveId == null) {
+            throw DriveDestinationAccessException("The selected folder is not inside a Google Shared Drive.")
+        }
+        val resolvedSharedDriveId = metadata.driveId
+        DriveDestinationConfig(
+            type = type,
+            rootFolderId = rootId,
+            displayName = metadata.name.ifBlank { requestedName },
+            accountSubject = identity.uid,
+            accountEmail = identity.email,
+            sharedDriveId = resolvedSharedDriveId,
+            collaborationMode = if (type == DriveDestinationType.PERSONAL_FOLDER) {
+                WorkspaceCollaborationMode.PERSONAL
+            } else {
+                WorkspaceCollaborationMode.TEAM
+            },
+        )
+    }
+
+    private suspend fun createTopLevelFolder(name: String, token: String): String {
+        val response = httpClient.post("https://www.googleapis.com/drive/v3/files") {
+            header(HttpHeaders.Authorization, "Bearer $token")
+            parameter("supportsAllDrives", "true")
+            contentType(ContentType.Application.Json)
+            setBody(buildJsonObject {
+                put("name", name)
+                put("mimeType", GOOGLE_FOLDER_MIME_TYPE)
+            })
+        }
+        if (response.status != HttpStatusCode.OK && response.status != HttpStatusCode.Created) {
+            throw driveApiFailure("Creating the Drive folder", response.status)
+        }
+        return response.body<JsonObject>().requiredDriveId("a created destination folder")
+    }
+
+    suspend fun inspectDestination(destination: DriveDestinationConfig? = null): DriveDestinationStatus {
+        val selected: DriveDestinationConfig
+        val token: String
+        if (destination == null) {
+            val scope = activeScope()
+            selected = scope.destination
+            token = scope.token
+        } else {
+            val identity = oauthService.authState.value as? AuthState.Authenticated
+                ?: throw DriveDestinationAccessException("Sign in with Google before inspecting a Drive destination.")
+            if (identity.uid != destination.accountSubject || !identity.email.equals(destination.accountEmail, true)) {
+                throw DriveDestinationAccessException("The selected destination belongs to ${destination.accountEmail}, not ${identity.email}.")
+            }
+            selected = destination
+            token = getAccessToken()
+        }
+        val metadata = readMetadata(selected.rootFolderId, token)
+        val owner = when {
+            selected.type == DriveDestinationType.SHARED_DRIVE -> "Owned by the Google Workspace organization"
+            metadata.ownedByMe -> "Owned by ${selected.accountEmail}"
+            metadata.ownerEmails.isNotEmpty() -> "Owned by ${metadata.ownerEmails.joinToString()}"
+            else -> "Ownership is managed by Google Drive"
+        }
+        val sharing = when {
+            selected.type == DriveDestinationType.SHARED_DRIVE -> "Shared Drive membership controls access"
+            metadata.permissionLabels.size > 1 -> "Shared with ${metadata.permissionLabels.size - 1} additional principal(s)"
+            metadata.ownedByMe -> "Private until shared in Google Drive"
+            else -> "Shared with this account"
+        }
+        return DriveDestinationStatus(
+            type = selected.type,
+            displayName = metadata.name,
+            accountEmail = selected.accountEmail,
+            ownerLabel = owner,
+            sharingLabel = sharing,
+            canRead = metadata.canRead,
+            canWrite = metadata.canWrite,
+            webViewLink = metadata.webViewLink,
+            sharedDriveId = selected.sharedDriveId,
+        )
     }
 
     private suspend fun findFolderIds(name: String, parentId: String?, token: String): List<String> {
@@ -101,7 +333,7 @@ class GoogleDriveService(
             parameter("includeItemsFromAllDrives", "true")
         }
         if (response.status != HttpStatusCode.OK) {
-            throw Exception("Failed to search folder: ${response.bodyAsText()}")
+            throw driveApiFailure("Searching the workspace folder", response.status)
         }
         return response.body<JsonObject>()["files"]?.jsonArray
             ?.map { it.requiredDriveId("a folder search result") }
@@ -111,8 +343,12 @@ class GoogleDriveService(
     suspend fun findOrCreateFolder(name: String, parentId: String? = null): String =
         folderMutationMutex.withLock {
             withContext(Dispatchers.IO) {
-                val token = getAccessToken()
-                val existingIds = findFolderIds(name, parentId, token).distinct().sorted()
+                val scope = if (!enforceWorkspaceScope) null else activeScope()
+                val token = scope?.token ?: getAccessToken()
+                val effectiveParentId = parentId ?: scope?.destination?.rootFolderId
+                    ?: throw DriveDestinationAccessException("A parent folder is required in this test context.")
+                if (scope != null) requireWithinDestination(effectiveParentId, scope)
+                val existingIds = findFolderIds(name, effectiveParentId, token).distinct().sorted()
                 if (existingIds.isNotEmpty()) {
                     return@withContext existingIds.first()
                 }
@@ -120,24 +356,23 @@ class GoogleDriveService(
                 val createBody = buildJsonObject {
                     put("name", name)
                     put("mimeType", "application/vnd.google-apps.folder")
-                    if (parentId != null) {
-                        put("parents", buildJsonArray { add(parentId) })
-                    }
+                    put("parents", buildJsonArray { add(effectiveParentId) })
                 }
                 val createResponse = httpClient.post("https://www.googleapis.com/drive/v3/files") {
                     header(HttpHeaders.Authorization, "Bearer $token")
+                    parameter("supportsAllDrives", "true")
                     contentType(ContentType.Application.Json)
                     setBody(createBody)
                 }
 
                 if (createResponse.status != HttpStatusCode.OK) {
-                    throw Exception("Failed to create folder: ${createResponse.bodyAsText()}")
+                    throw driveApiFailure("Creating a workspace subfolder", createResponse.status)
                 }
                 val createdId = createResponse.body<JsonObject>().requiredDriveId("a created folder")
                 // A second dashboard process can win the same first-run race. Re-list and
                 // discard only this process's newly-created empty loser. A pre-existing
                 // folder may contain data and is never deleted here.
-                val observedIds = (findFolderIds(name, parentId, token) + createdId).distinct().sorted()
+                val observedIds = (findFolderIds(name, effectiveParentId, token) + createdId).distinct().sorted()
                 val canonicalId = observedIds.first()
                 if (createdId != canonicalId) runCatching { deleteFile(createdId) }
                 canonicalId
@@ -145,7 +380,9 @@ class GoogleDriveService(
         }
 
     suspend fun findFiles(name: String, parentId: String): List<String> = withContext(Dispatchers.IO) {
-        val token = getAccessToken()
+        val scope = if (!enforceWorkspaceScope) null else activeScope()
+        val token = scope?.token ?: getAccessToken()
+        if (scope != null) requireWithinDestination(parentId, scope)
         val escapedName = escapeDriveQuery(name)
         val escapedParent = escapeDriveQuery(parentId)
         val query = "name = '$escapedName' and '$escapedParent' in parents and trashed = false"
@@ -162,7 +399,7 @@ class GoogleDriveService(
                 parameter("includeItemsFromAllDrives", "true")
             }
             if (response.status != HttpStatusCode.OK) {
-                throw Exception("Failed to search file: ${response.bodyAsText()}")
+                throw driveApiFailure("Listing workspace files", response.status)
             }
             val searchResult = response.body<JsonObject>()
             searchResult["files"]?.jsonArray
@@ -174,10 +411,12 @@ class GoogleDriveService(
     }
 
     private companion object {
+        const val GOOGLE_FOLDER_MIME_TYPE = "application/vnd.google-apps.folder"
         const val DRIVE_LIST_PAGE_SIZE = 1_000
         const val DRIVE_STREAM_BUFFER_BYTES = 64 * 1024
         const val MAX_DRIVE_METADATA_BYTES = 8 * 1024 * 1024
         const val MAX_DRIVE_DOWNLOAD_BYTES = 2L * 1024L * 1024L * 1024L
+        const val MAX_DRIVE_ANCESTRY_DEPTH = 64
     }
 
     suspend fun findFile(name: String, parentId: String): String? {
@@ -187,14 +426,17 @@ class GoogleDriveService(
     }
 
     suspend fun readFile(fileId: String): ByteArray = withContext(Dispatchers.IO) {
-        val token = getAccessToken()
+        val scope = if (!enforceWorkspaceScope) null else activeScope()
+        val token = scope?.token ?: getAccessToken()
+        if (scope != null) requireWithinDestination(fileId, scope)
         val response = httpClient.get("https://www.googleapis.com/drive/v3/files/$fileId") {
             header(HttpHeaders.Authorization, "Bearer $token")
             parameter("alt", "media")
+            parameter("supportsAllDrives", "true")
         }
 
         if (response.status != HttpStatusCode.OK) {
-            throw Exception("Failed to download file: ${response.bodyAsText()}")
+            throw driveApiFailure("Downloading a workspace file", response.status)
         }
 
         readBoundedBytes(response, MAX_DRIVE_METADATA_BYTES)
@@ -202,13 +444,16 @@ class GoogleDriveService(
 
     /** Reads content together with the revision ETag used for optimistic concurrency. */
     internal suspend fun readFileSnapshot(fileId: String): DriveFileSnapshot = withContext(Dispatchers.IO) {
-        val token = getAccessToken()
+        val scope = if (!enforceWorkspaceScope) null else activeScope()
+        val token = scope?.token ?: getAccessToken()
+        if (scope != null) requireWithinDestination(fileId, scope)
         val response = httpClient.get("https://www.googleapis.com/drive/v3/files/$fileId") {
             header(HttpHeaders.Authorization, "Bearer $token")
             parameter("alt", "media")
+            parameter("supportsAllDrives", "true")
         }
         if (response.status != HttpStatusCode.OK) {
-            throw Exception("Failed to download file: ${response.bodyAsText()}")
+            throw driveApiFailure("Reading workspace metadata", response.status)
         }
         DriveFileSnapshot(readBoundedBytes(response, MAX_DRIVE_METADATA_BYTES), response.headers[HttpHeaders.ETag])
     }
@@ -227,14 +472,17 @@ class GoogleDriveService(
         require(expectedName.isNotBlank()) { "Cloud manifest filename is missing" }
         require(expectedBytes in 1L..MAX_DRIVE_DOWNLOAD_BYTES) { "Cloud manifest size is invalid" }
         require(expectedSha256.matches(Regex("[0-9a-f]{64}"))) { "Cloud manifest SHA-256 is invalid" }
-        val token = getAccessToken()
+        val scope = if (!enforceWorkspaceScope) null else activeScope()
+        val token = scope?.token ?: getAccessToken()
+        if (scope != null) requireWithinDestination(fileId, scope)
         try {
             val metadataResponse = httpClient.get("https://www.googleapis.com/drive/v3/files/$fileId") {
                 header(HttpHeaders.Authorization, "Bearer $token")
                 parameter("fields", "id,name,size")
+                parameter("supportsAllDrives", "true")
             }
             if (metadataResponse.status != HttpStatusCode.OK) {
-                throw Exception("Failed to read Drive metadata: ${metadataResponse.bodyAsText()}")
+                throw driveApiFailure("Reading workspace file metadata", metadataResponse.status)
             }
             val metadata = metadataResponse.body<JsonObject>()
             require(metadata["id"]?.jsonPrimitive?.contentOrNull == fileId) { "Drive file identity changed" }
@@ -244,9 +492,10 @@ class GoogleDriveService(
             httpClient.prepareGet("https://www.googleapis.com/drive/v3/files/$fileId") {
                 header(HttpHeaders.Authorization, "Bearer $token")
                 parameter("alt", "media")
+                parameter("supportsAllDrives", "true")
             }.execute { response ->
                 if (response.status != HttpStatusCode.OK) {
-                    throw Exception("Failed to download file: ${response.bodyAsText()}")
+                    throw driveApiFailure("Downloading a workspace file", response.status)
                 }
                 response.contentLength()?.let { length ->
                     require(length == expectedBytes) { "Drive response length does not match manifest" }
@@ -306,11 +555,16 @@ class GoogleDriveService(
         fileId: String? = null,
         expectedEtag: String? = null
     ): String = withContext(Dispatchers.IO) {
-        val token = getAccessToken()
+        val scope = if (!enforceWorkspaceScope) null else activeScope()
+        val token = scope?.token ?: getAccessToken()
+        if (scope != null) {
+            requireWithinDestination(parentId, scope)
+            if (fileId != null) requireWithinDestination(fileId, scope)
+        }
 
         if (fileId != null) {
             // Overwrite existing file media content
-            return@withContext httpClient.preparePatch("https://www.googleapis.com/upload/drive/v3/files/$fileId?uploadType=media") {
+            return@withContext httpClient.preparePatch("https://www.googleapis.com/upload/drive/v3/files/$fileId?uploadType=media&supportsAllDrives=true") {
                 header(HttpHeaders.Authorization, "Bearer $token")
                 if (expectedEtag != null) header(HttpHeaders.IfMatch, expectedEtag)
                 contentType(ContentType.parse(mimeType))
@@ -320,7 +574,7 @@ class GoogleDriveService(
                     throw DrivePreconditionFailedException("Google Drive file $fileId changed concurrently")
                 }
                 if (response.status != HttpStatusCode.OK) {
-                    throw Exception("Failed to overwrite file content: ${response.bodyAsText()}")
+                    throw driveApiFailure("Updating a workspace file", response.status)
                 }
                 fileId
             }
@@ -330,7 +584,7 @@ class GoogleDriveService(
                 put("name", name)
                 put("parents", buildJsonArray { add(parentId) })
             }.toString()
-            val response = httpClient.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart") {
+            val response = httpClient.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true") {
                 header(HttpHeaders.Authorization, "Bearer $token")
                 setBody(
                     io.ktor.client.request.forms.MultiPartFormDataContent(
@@ -348,7 +602,7 @@ class GoogleDriveService(
             }
 
             if (response.status != HttpStatusCode.OK) {
-                throw Exception("Failed to upload multipart file: ${response.bodyAsText()}")
+                throw driveApiFailure("Uploading a workspace file", response.status)
             }
             response.body<JsonObject>().requiredDriveId("an uploaded file")
         }
@@ -364,7 +618,9 @@ class GoogleDriveService(
         parentId: String,
         mimeType: String
     ): String = withContext(Dispatchers.IO) {
-        val token = getAccessToken()
+        val scope = if (!enforceWorkspaceScope) null else activeScope()
+        val token = scope?.token ?: getAccessToken()
+        if (scope != null) requireWithinDestination(parentId, scope)
 
         // Session Parquet objects are immutable. Create metadata first and stream the media through
         // a resumable upload session; this API intentionally has no existing-file ID/PATCH path.
@@ -373,7 +629,7 @@ class GoogleDriveService(
             put("parents", buildJsonArray { add(parentId) })
         }
         val sessionResponse = httpClient.post(
-            "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable"
+            "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true"
         ) {
             header(HttpHeaders.Authorization, "Bearer $token")
             header("X-Upload-Content-Type", mimeType)
@@ -382,7 +638,7 @@ class GoogleDriveService(
             setBody(metadata)
         }
         if (sessionResponse.status != HttpStatusCode.OK) {
-            throw Exception("Failed to create resumable upload: ${sessionResponse.bodyAsText()}")
+            throw driveApiFailure("Starting a workspace upload", sessionResponse.status)
         }
         val uploadUrl = sessionResponse.headers[HttpHeaders.Location]
             ?: throw IllegalStateException("Google Drive resumable upload omitted its session URL")
@@ -397,19 +653,22 @@ class GoogleDriveService(
             })
         }.execute { response ->
             if (response.status != HttpStatusCode.OK && response.status != HttpStatusCode.Created) {
-                throw Exception("Failed to stream resumable upload: ${response.bodyAsText()}")
+                throw driveApiFailure("Uploading a workspace file", response.status)
             }
             response.body<JsonObject>().requiredDriveId("an uploaded file")
         }
     }
 
     suspend fun deleteFile(fileId: String): Unit = withContext(Dispatchers.IO) {
-        val token = getAccessToken()
+        val scope = if (!enforceWorkspaceScope) null else activeScope()
+        val token = scope?.token ?: getAccessToken()
+        if (scope != null) requireWithinDestination(fileId, scope)
         httpClient.prepareDelete("https://www.googleapis.com/drive/v3/files/$fileId") {
             header(HttpHeaders.Authorization, "Bearer $token")
+            parameter("supportsAllDrives", "true")
         }.execute { response ->
             if (response.status != HttpStatusCode.OK && response.status != HttpStatusCode.NoContent) {
-                throw Exception("Failed to delete file: ${response.bodyAsText()}")
+                throw driveApiFailure("Deleting a workspace file", response.status)
             }
         }
     }

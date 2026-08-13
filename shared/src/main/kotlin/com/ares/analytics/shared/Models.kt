@@ -10,6 +10,9 @@ const val DEFAULT_GEMINI_MODEL = "gemini-3.6-flash"
 typealias League = com.ares.analytics.shared.models.League
 typealias WorkspaceConfig = com.ares.analytics.shared.models.WorkspaceConfig
 typealias AppWorkspaces = com.ares.analytics.shared.models.AppWorkspaces
+typealias WorkspaceCollaborationMode = com.ares.analytics.shared.models.WorkspaceCollaborationMode
+typealias DriveDestinationType = com.ares.analytics.shared.models.DriveDestinationType
+typealias DriveDestinationConfig = com.ares.analytics.shared.models.DriveDestinationConfig
 typealias RobotProfile = com.ares.analytics.shared.models.RobotProfile
 
 typealias SessionMode = com.ares.analytics.shared.models.SessionMode

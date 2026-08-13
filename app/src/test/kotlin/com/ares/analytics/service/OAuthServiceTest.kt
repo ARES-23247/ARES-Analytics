@@ -11,6 +11,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
+import io.ktor.http.parametersOf
 import io.ktor.serialization.kotlinx.json.json
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,8 @@ import kotlin.test.assertTrue
  */
 class OAuthServiceTest {
 
+    private val managedClientId = "123456789012-test-client.apps.googleusercontent.com"
+
     private lateinit var tempDir: File
     private lateinit var authFile: File
     private lateinit var envService: EnvironmentService
@@ -62,8 +65,9 @@ class OAuthServiceTest {
         tempDir.deleteRecursively()
     }
 
-    private fun writeAuth(refreshToken: String?, expired: Boolean) {
+    private fun writeAuth(refreshToken: String?, expired: Boolean, clientId: String? = managedClientId) {
         val auth = OAuthSavedAuth(
+            googleClientId = clientId,
             googleAccessToken = "old-access",
             googleRefreshToken = refreshToken,
             googleTokenExpiresAt = if (expired) System.currentTimeMillis() - 60_000 else System.currentTimeMillis() + 3_600_000,
@@ -131,12 +135,40 @@ class OAuthServiceTest {
         install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
     }
 
+    private fun pickerClient(pickerEmail: String): HttpClient {
+        val tokenRequests = AtomicInteger()
+        return HttpClient(MockEngine { request ->
+            when {
+                request.url.encodedPath.endsWith("/token") -> {
+                    val ordinal = tokenRequests.incrementAndGet()
+                    val identity = if (ordinal == 1) {
+                        "\"id_token\":\"${makeIdToken("sub-9", "u@x.com", "User")}\","
+                    } else ""
+                    respond(
+                        """{"access_token":"access-$ordinal",${identity}"expires_in":3600,"refresh_token":"refresh-$ordinal"}""",
+                        HttpStatusCode.OK,
+                        headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+                    )
+                }
+                request.url.encodedPath.endsWith("/about") -> respond(
+                    """{"user":{"emailAddress":"$pickerEmail"}}""",
+                    HttpStatusCode.OK,
+                    headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+                )
+                else -> error("Unexpected OAuth picker request ${request.url.encodedPath}")
+            }
+        }) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+    }
+
     @Test
     fun `refresh success restores Authenticated`() = runBlocking {
         writeAuth(refreshToken = "rt", expired = true)
         writeConfig(clientId = "client-123")
         val service = OAuthService(
             environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
             authFilePath = authFile.absolutePath,
             httpClient = mockClient(refreshSucceeds = true),
             loadPersistedAuthOnInit = false
@@ -156,6 +188,7 @@ class OAuthServiceTest {
         writeConfig(clientId = "client-123")
         val service = OAuthService(
             environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
             authFilePath = authFile.absolutePath,
             httpClient = mockClient(refreshSucceeds = true, includeIdToken = false),
             loadPersistedAuthOnInit = false
@@ -170,29 +203,33 @@ class OAuthServiceTest {
     }
 
     @Test
-    fun `refresh failure leaves Unauthenticated`() = runBlocking {
+    fun `refresh failure clears session and reports recovery`() = runBlocking {
         writeAuth(refreshToken = "rt", expired = true)
         writeConfig(clientId = "client-123")
         val service = OAuthService(
             environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
             authFilePath = authFile.absolutePath,
             httpClient = mockClient(refreshSucceeds = false),
             loadPersistedAuthOnInit = false
         )
         try {
             service.loadPersistedAuth()
-            assertEquals(AuthState.Unauthenticated, service.authState.value)
+            val error = assertIs<AuthState.Error>(service.authState.value)
+            assertTrue(error.message.contains("revoked or expired"))
+            assertFalse(authFile.exists())
         } finally {
             service.dispose()
         }
     }
 
     @Test
-    fun `no client config leaves Unauthenticated`() = runBlocking {
+    fun `build without a managed client leaves Unauthenticated`() = runBlocking {
         writeAuth(refreshToken = "rt", expired = true)
         writeConfig(clientId = null)
         val service = OAuthService(
             environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(""),
             authFilePath = authFile.absolutePath,
             httpClient = mockClient(refreshSucceeds = true), // must never be called
             loadPersistedAuthOnInit = false
@@ -206,19 +243,182 @@ class OAuthServiceTest {
     }
 
     @Test
+    fun `deleted custom client clears unusable session with administrator recovery`() = runBlocking {
+        writeAuth(refreshToken = "rt", expired = true)
+        val client = HttpClient(MockEngine {
+            respond(
+                """{"error":"deleted_client","error_description":"The OAuth client was deleted."}""",
+                HttpStatusCode.BadRequest,
+                headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString()),
+            )
+        }) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+        val service = OAuthService(
+            environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            authFilePath = authFile.absolutePath,
+            httpClient = client,
+            loadPersistedAuthOnInit = false,
+        )
+        try {
+            assertNull(service.refreshGoogleAccessTokenForTest(managedClientId))
+            val error = assertIs<AuthState.Error>(service.authState.value)
+            assertTrue(error.message.contains("custom Google OAuth client was deleted"))
+            assertFalse(authFile.exists())
+        } finally {
+            service.dispose()
+        }
+    }
+
+    @Test
+    fun `offline startup keeps persisted credentials but does not claim authenticated`() = runBlocking {
+        writeAuth(refreshToken = "rt", expired = true)
+        val client = HttpClient(MockEngine { throw IOException("offline") })
+        val service = OAuthService(
+            environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            authFilePath = authFile.absolutePath,
+            httpClient = client,
+            loadPersistedAuthOnInit = false,
+        )
+        try {
+            service.loadPersistedAuth()
+            assertEquals(AuthState.Unauthenticated, service.authState.value)
+            assertTrue(authFile.isFile, "A temporary network outage must not revoke a reusable refresh token")
+        } finally {
+            service.dispose()
+        }
+    }
+
+    @Test
+    fun `drive picker returns one folder only for the signed in Google account`() = runBlocking {
+        val picked = mutableListOf<String>()
+        val service = OAuthService(
+            environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            authFilePath = authFile.absolutePath,
+            httpClient = pickerClient("u@x.com"),
+            loadPersistedAuthOnInit = false,
+        )
+        try {
+            val loginState = service.beginGoogleLoginForTest(managedClientId)
+            withTimeout(5_000) {
+                assertNotNull(service.dispatchOAuthCallbackForTest(loginState, "login-code")).join()
+            }
+            assertIs<AuthState.Authenticated>(service.authState.value)
+
+            val pickerState = service.beginGoogleDriveFolderPickerForTest(managedClientId) { picked += it }
+            withTimeout(5_000) {
+                assertNotNull(
+                    service.dispatchOAuthCallbackForTest(
+                        pickerState,
+                        "picker-code",
+                        parametersOf("picked_file_ids", "shared-folder-01"),
+                    ),
+                ).join()
+            }
+
+            assertEquals(listOf("shared-folder-01"), picked)
+            assertEquals(DrivePickerState.Selected("shared-folder-01"), service.drivePickerState.value)
+        } finally {
+            service.dispose()
+        }
+    }
+
+    @Test
+    fun `drive picker rejects an account switch before saving a destination`() = runBlocking {
+        val picked = mutableListOf<String>()
+        val service = OAuthService(
+            environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            authFilePath = authFile.absolutePath,
+            httpClient = pickerClient("mentor@another-team.example"),
+            loadPersistedAuthOnInit = false,
+        )
+        try {
+            val loginState = service.beginGoogleLoginForTest(managedClientId)
+            withTimeout(5_000) {
+                assertNotNull(service.dispatchOAuthCallbackForTest(loginState, "login-code")).join()
+            }
+            val pickerState = service.beginGoogleDriveFolderPickerForTest(managedClientId) { picked += it }
+            withTimeout(5_000) {
+                assertNotNull(
+                    service.dispatchOAuthCallbackForTest(
+                        pickerState,
+                        "picker-code",
+                        parametersOf("picked_file_ids", "shared-folder-01"),
+                    ),
+                ).join()
+            }
+
+            assertTrue(picked.isEmpty())
+            val error = assertIs<DrivePickerState.Error>(service.drivePickerState.value)
+            assertTrue(error.message.contains("ARES is signed in as u@x.com"))
+        } finally {
+            service.dispose()
+        }
+    }
+
+    @Test
+    fun `legacy token without issuing client is cleared with recovery guidance`() = runBlocking {
+        writeAuth(refreshToken = "rt", expired = true, clientId = null)
+        writeConfig(clientId = "deleted-legacy.apps.googleusercontent.com")
+        val service = OAuthService(
+            environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            authFilePath = authFile.absolutePath,
+            httpClient = mockClient(refreshSucceeds = true),
+            loadPersistedAuthOnInit = false,
+        )
+        try {
+            service.loadPersistedAuth()
+
+            val error = assertIs<AuthState.Error>(service.authState.value)
+            assertTrue(error.message.contains("previous Google sign-in"))
+            assertFalse(authFile.exists())
+        } finally {
+            service.dispose()
+        }
+    }
+
+    @Test
+    fun `revoked refresh token clears unusable persisted auth`() = runBlocking {
+        writeAuth(refreshToken = "rt", expired = true)
+        writeConfig(clientId = null)
+        val service = OAuthService(
+            environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
+            authFilePath = authFile.absolutePath,
+            httpClient = mockClient(refreshSucceeds = false),
+            loadPersistedAuthOnInit = false,
+        )
+        try {
+            assertNull(service.refreshGoogleAccessToken())
+
+            val error = assertIs<AuthState.Error>(service.authState.value)
+            assertTrue(error.message.contains("revoked or expired"))
+            assertFalse(authFile.exists())
+        } finally {
+            service.dispose()
+        }
+    }
+
+    @Test
     fun `logout generation rejects a delayed refresh commit`() = runBlocking {
         writeAuth(refreshToken = "rt", expired = true)
         val requestStarted = CompletableDeferred<Unit>()
         val releaseResponse = CompletableDeferred<Unit>()
         val service = OAuthService(
             environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
             authFilePath = authFile.absolutePath,
             httpClient = delayedSuccessClient(requestStarted, releaseResponse),
             loadPersistedAuthOnInit = false
         )
         try {
             val refresh = async(Dispatchers.Default) {
-                service.refreshGoogleAccessToken("client-123", "secret")
+                service.refreshGoogleAccessTokenForTest(managedClientId)
             }
             withTimeout(5_000) { requestStarted.await() }
 
@@ -240,12 +440,13 @@ class OAuthServiceTest {
         val releaseResponse = CompletableDeferred<Unit>()
         val service = OAuthService(
             environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
             authFilePath = authFile.absolutePath,
             httpClient = delayedSuccessClient(requestStarted, releaseResponse),
             loadPersistedAuthOnInit = false
         )
         try {
-            val state = service.beginGoogleLoginForTest("client-123", "secret")
+            val state = service.beginGoogleLoginForTest(managedClientId)
             val exchangeJob = assertNotNull(service.dispatchOAuthCallbackForTest(state, "authorization-code"))
             withTimeout(5_000) { requestStarted.await() }
 
@@ -269,12 +470,13 @@ class OAuthServiceTest {
         val requestCount = AtomicInteger()
         val service = OAuthService(
             environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
             authFilePath = authFile.absolutePath,
             httpClient = delayedSuccessClient(requestStarted, releaseResponse, requestCount),
             loadPersistedAuthOnInit = false
         )
         try {
-            val state = service.beginGoogleLoginForTest("client-123", "secret")
+            val state = service.beginGoogleLoginForTest(managedClientId)
             val dispatched = listOf("code-a", "code-b").map { code ->
                 async(Dispatchers.Default) { service.dispatchOAuthCallbackForTest(state, code) }
             }.awaitAll()
@@ -296,6 +498,7 @@ class OAuthServiceTest {
         authFile.writeBytes(previousBytes)
         val service = OAuthService(
             environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(managedClientId),
             authFilePath = authFile.absolutePath,
             httpClient = mockClient(refreshSucceeds = true),
             loadPersistedAuthOnInit = false,
@@ -306,7 +509,7 @@ class OAuthServiceTest {
             },
         )
         try {
-            val state = service.beginGoogleLoginForTest("client-123", "secret")
+            val state = service.beginGoogleLoginForTest(managedClientId)
             val exchange = assertNotNull(service.dispatchOAuthCallbackForTest(state, "authorization-code"))
             withTimeout(5_000) { exchange.join() }
 
@@ -322,15 +525,16 @@ class OAuthServiceTest {
     fun `interactive login without a client id fails with setup guidance`() {
         val service = OAuthService(
             environmentService = envService,
+            googleClientResolver = GoogleOAuthClientResolver(""),
             httpClient = mockClient(refreshSucceeds = false),
             authFilePath = authFile.absolutePath,
             loadPersistedAuthOnInit = false,
         )
         try {
-            service.startGoogleLogin(null)
+            service.startGoogleLogin()
 
             val error = assertIs<AuthState.Error>(service.authState.value)
-            assertTrue(error.message.contains("Desktop OAuth client ID"))
+            assertTrue(error.message.contains("unavailable in this build"))
         } finally {
             service.dispose()
         }

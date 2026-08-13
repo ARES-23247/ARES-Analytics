@@ -5,6 +5,11 @@ import org.gradle.api.tasks.testing.Test
 // Single source of truth for the application version. Consumed both by the native
 // distribution packaging below and by the generated BuildConfig (see generateBuildConfig).
 val aresAnalyticsVersion = providers.gradleProperty("aresAnalyticsVersion").orElse("1.2.2").get()
+val googleOAuthClientId = providers.gradleProperty("googleOAuthClientId")
+    .orElse(providers.environmentVariable("ARES_GOOGLE_OAUTH_CLIENT_ID"))
+    .orElse("")
+    .get()
+    .trim()
 
 plugins {
     kotlin("jvm")
@@ -50,6 +55,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
 
+    // Windows Credential Protection (DPAPI) for OAuth refresh-token persistence.
+    implementation("net.java.dev.jna:jna-platform:5.15.0")
+
     // Math & Signal Processing
     implementation("org.ejml:ejml-simple:0.43.1")
     implementation("org.apache.commons:commons-math3:3.6.1")
@@ -81,17 +89,24 @@ dependencies {
 val generatedBuildConfigDir = layout.buildDirectory.dir("generated/buildconfig/src/main/kotlin")
 tasks.register("generateBuildConfig") {
     val version = aresAnalyticsVersion
+    val oauthClientId = googleOAuthClientId
     inputs.property("aresAnalyticsVersion", version)
+    inputs.property("googleOAuthClientId", oauthClientId)
     outputs.dir(generatedBuildConfigDir)
     doLast {
         val pkgDir = generatedBuildConfigDir.get().asFile.resolve("com/ares/analytics")
         pkgDir.mkdirs()
+        val escapedOAuthClientId = oauthClientId
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("$", "\\$")
         pkgDir.resolve("BuildConfig.kt").writeText(
             """
             |package com.ares.analytics
             |
             |object BuildConfig {
             |    const val VERSION = "$version"
+            |    const val GOOGLE_OAUTH_CLIENT_ID = "$escapedOAuthClientId"
             |}
             """.trimMargin()
         )
@@ -169,9 +184,21 @@ val verifyDistributableProjectLoading = tasks.register<Exec>("verifyDistributabl
 }
 
 tasks.matching { task ->
-    task.name in setOf("packageMsi", "packageDmg", "packageDeb")
+    task.name in setOf(
+        "packageMsi", "packageDmg", "packageDeb",
+        "packageReleaseMsi", "packageReleaseDmg", "packageReleaseDeb",
+    )
 }.configureEach {
     dependsOn(verifyDistributableProjectLoading)
+    doFirst {
+        require(
+            googleOAuthClientId.length in 30..256 &&
+                googleOAuthClientId.endsWith(".apps.googleusercontent.com") &&
+                googleOAuthClientId.none(Char::isWhitespace)
+        ) {
+            "Official packages require -PgoogleOAuthClientId (or ARES_GOOGLE_OAUTH_CLIENT_ID) with a valid Google Desktop OAuth client ID"
+        }
+    }
 }
 
 private val validationPropertyNames = listOf(

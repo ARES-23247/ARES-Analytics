@@ -25,6 +25,14 @@ class ModelsTest {
             league = League.FTC,
             nt4Host = "192.168.43.1",
             googleClientId = "my-gcp-client-id",
+            googleOAuthUseCustomClient = true,
+            driveDestination = DriveDestinationConfig(
+                type = DriveDestinationType.TEAM_FOLDER,
+                rootFolderId = "stable-folder-id",
+                displayName = "Team 23247",
+                accountSubject = "google-subject",
+                accountEmail = "student@example.com",
+            ),
             largeTextMode = true
         )
         val json = Json.encodeToString(config)
@@ -34,6 +42,9 @@ class ModelsTest {
         assertEquals(config.league, decoded.league)
         assertEquals(config.nt4Host, decoded.nt4Host)
         assertEquals("my-gcp-client-id", decoded.googleClientId)
+        assertTrue(decoded.googleOAuthUseCustomClient)
+        assertEquals("stable-folder-id", decoded.driveDestination?.rootFolderId)
+        assertEquals(WorkspaceCollaborationMode.TEAM, decoded.driveDestination?.collaborationMode)
         assertTrue(decoded.largeTextMode)
         assertFalse(decoded.developerMode)
     }
@@ -45,6 +56,8 @@ class ModelsTest {
         )
 
         assertFalse(decoded.largeTextMode)
+        assertFalse(decoded.googleOAuthUseCustomClient)
+        assertEquals(null, decoded.driveDestination)
     }
 
     @Test

@@ -83,8 +83,6 @@ class OnboardingModelTest {
                 teamId = "23247",
                 seasonId = "2026",
                 robotId = "AresIII",
-                googleClientId = "",
-                googleClientSecret = "",
                 nt4Host = "",
                 simulatorCommand = "",
             )

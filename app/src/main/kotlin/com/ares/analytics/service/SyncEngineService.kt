@@ -338,7 +338,7 @@ class SyncEngineService(
      */
     private suspend fun readRemoteIndexState(): RemoteIndexState = withContext(Dispatchers.IO) {
         val rootFolderId = try {
-            googleDriveService.findOrCreateFolder("ARES-Analytics")
+            googleDriveService.workspaceRootId()
         } catch (e: Exception) {
             e.printStackTrace()
             return@withContext RemoteIndexState.Failed
@@ -379,7 +379,7 @@ class SyncEngineService(
         try {
             parquetExporterService.exportSessionToParquet(sessionId, tempFile)
             // 2. Locate or create folder structure in Google Drive
-            val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
+            val rootFolderId = googleDriveService.workspaceRootId()
             val sessionsFolderId = googleDriveService.findOrCreateFolder("sessions", rootFolderId)
 
             val uploadSummary = summary.copy(
@@ -439,21 +439,16 @@ class SyncEngineService(
      * Gets all session summaries recorded in the Google Drive index.json file.
      */
     suspend fun getRemoteSummaries(): List<SessionSummary> = withContext(Dispatchers.IO) {
-        try {
-            val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
-            val indexFileIds = googleDriveService.findFiles("index.json", rootFolderId)
-            mergeIndexSummaries(indexFileIds.map { readIndex(it).first })
-        } catch (e: Exception) {
-            e.printStackTrace()
-            emptyList()
-        }
+        val rootFolderId = googleDriveService.workspaceRootId()
+        val indexFileIds = googleDriveService.findFiles("index.json", rootFolderId)
+        mergeIndexSummaries(indexFileIds.map { readIndex(it).first })
     }
 
     /**
      * Gets all registered robot profiles recorded in the Google Drive robots.json file.
      */
     suspend fun getRemoteRobotProfiles(): List<RobotProfile> = withContext(Dispatchers.IO) {
-        val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
+        val rootFolderId = googleDriveService.workspaceRootId()
         val fileIds = googleDriveService.findFiles("robots.json", rootFolderId).sorted()
         if (fileIds.isEmpty()) emptyList()
         else mergeRobotProfiles(fileIds.map { readRobotProfiles(it).first })
@@ -467,7 +462,7 @@ class SyncEngineService(
     suspend fun mutateRemoteRobotProfiles(
         transform: (List<RobotProfile>) -> List<RobotProfile>
     ): List<RobotProfile> = withContext(Dispatchers.IO) {
-        val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
+        val rootFolderId = googleDriveService.workspaceRootId()
         robotProfilesMutex.withLock {
             repeat(INDEX_UPDATE_ATTEMPTS) { attempt ->
                 val fileIds = googleDriveService.findFiles("robots.json", rootFolderId).sorted()
@@ -1261,7 +1256,7 @@ class SyncEngineService(
             val parquetFileId = requireNotNull(removedSummary.cloudFileId) {
                 "Cloud session manifest is missing its immutable file id"
             }
-            val rootFolderId = googleDriveService.findOrCreateFolder("ARES-Analytics")
+            val rootFolderId = googleDriveService.workspaceRootId()
             mutateRemoteIndex(rootFolderId) { indexList ->
                 indexList.filter { it.sessionId != sessionId }
             }

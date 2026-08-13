@@ -9,6 +9,50 @@ enum class League {
     FTC, FRC
 }
 
+/** Whether one workspace is private to a student or intentionally shared by a team. */
+@Serializable
+enum class WorkspaceCollaborationMode {
+    PERSONAL,
+    TEAM
+}
+
+/** Google Drive container used as the hard isolation boundary for one ARES workspace. */
+@Serializable
+enum class DriveDestinationType {
+    /** A folder created by ARES in the signed-in user's My Drive. */
+    PERSONAL_FOLDER,
+
+    /** A folder created by ARES for the user to share with their team. */
+    TEAM_FOLDER,
+
+    /** An existing folder that the signed-in user has explicitly selected or joined. */
+    SHARED_FOLDER,
+
+    /** The root of a Google Shared Drive available to the signed-in account. */
+    SHARED_DRIVE,
+}
+
+/**
+ * Stable, workspace-scoped Google Drive destination.
+ *
+ * The OAuth client identifies ARES Analytics; it does not own this data. Google remains
+ * authoritative for account identity, ownership, sharing, and write permissions. The root ID
+ * is persisted so cloud code never searches a user's unrelated Drive files.
+ */
+@Serializable
+data class DriveDestinationConfig(
+    val type: DriveDestinationType,
+    val rootFolderId: String,
+    val displayName: String,
+    val accountSubject: String,
+    val accountEmail: String,
+    val sharedDriveId: String? = null,
+    val collaborationMode: WorkspaceCollaborationMode = when (type) {
+        DriveDestinationType.PERSONAL_FOLDER -> WorkspaceCollaborationMode.PERSONAL
+        else -> WorkspaceCollaborationMode.TEAM
+    },
+)
+
 /**
  * User configuration for one robot project.
  *
@@ -30,6 +74,10 @@ data class WorkspaceConfig(
     val tbaApiKey: String? = null,
     val googleClientId: String? = null,
     val googleClientSecret: String? = null,
+    /** Developer-only opt-in. Normal installations use the bundled ARES Desktop OAuth client. */
+    val googleOAuthUseCustomClient: Boolean = false,
+    /** Explicit Drive isolation boundary. Cloud synchronization is disabled until selected. */
+    val driveDestination: DriveDestinationConfig? = null,
     val simulatorCommand: String? = null,
     val aiMode: String? = "STUDIO",
     val geminiApiKey: String? = null,

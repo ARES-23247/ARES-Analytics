@@ -1,6 +1,7 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.AppJson
+import com.ares.analytics.shared.WorkspaceConfig
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -28,7 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
 import java.awt.Desktop
 import java.io.File
 import java.net.URI
@@ -72,6 +73,13 @@ sealed class AuthState {
     data class Error(val message: String) : AuthState()
 }
 
+sealed class DrivePickerState {
+    object Idle : DrivePickerState()
+    object Picking : DrivePickerState()
+    data class Selected(val folderId: String) : DrivePickerState()
+    data class Error(val message: String) : DrivePickerState()
+}
+
 @Serializable
 data class GoogleTokenResponse(
     val access_token: String,
@@ -87,12 +95,14 @@ data class GithubTokenResponse(
 )
 
 /**
- * Persisted Google identity + OAuth tokens, stored at `~/.ares-analytics/auth.json`.
- * Replaces the former Firebase SavedAuth: no Firebase refresh token, identity comes
- * straight from the verified Google ID token.
+ * Persisted Google identity + OAuth tokens. [OAuthTokenStore] protects this record with
+ * current-user DPAPI on Windows and owner-only atomic files on other desktop platforms;
+ * `auth.json` is read only as a one-time legacy migration source.
  */
 @Serializable
 data class OAuthSavedAuth(
+    /** OAuth application identity that issued the refresh token. */
+    val googleClientId: String? = null,
     val googleAccessToken: String,
     val googleRefreshToken: String?,
     val googleTokenExpiresAt: Long?,
@@ -109,6 +119,12 @@ private data class GoogleIdPayload(
     val name: String? = null
 )
 
+@Serializable
+private data class GoogleOAuthErrorResponse(
+    val error: String = "",
+    val error_description: String? = null,
+)
+
 /** Decodes (without verifying signature — the gateway verifies) the payload of a Google ID token JWT. */
 private fun decodeIdToken(idToken: String): GoogleIdPayload = try {
     val payload = idToken.split(".").getOrNull(1) ?: return GoogleIdPayload()
@@ -116,6 +132,34 @@ private fun decodeIdToken(idToken: String): GoogleIdPayload = try {
     AppJson.decodeFromString<GoogleIdPayload>(json)
 } catch (e: Exception) {
     GoogleIdPayload()
+}
+
+private fun parseGoogleOAuthError(body: String): String = try {
+    AppJson.decodeFromString<GoogleOAuthErrorResponse>(body).error
+} catch (_: Exception) {
+    when {
+        body.contains("deleted_client", ignoreCase = true) -> "deleted_client"
+        body.contains("invalid_grant", ignoreCase = true) -> "invalid_grant"
+        body.contains("access_denied", ignoreCase = true) -> "access_denied"
+        else -> "unknown"
+    }
+}
+
+internal fun googleOAuthRecoveryMessage(
+    responseBody: String,
+    source: GoogleOAuthClientSource,
+): String = when (parseGoogleOAuthError(responseBody)) {
+    "deleted_client" -> if (source == GoogleOAuthClientSource.CUSTOM) {
+        "This custom Google OAuth client was deleted. Disable the custom client to use ARES-managed sign-in, or create a replacement Desktop client in Google Cloud."
+    } else {
+        "The ARES Google sign-in client is unavailable. Update ARES Analytics or contact an ARES administrator."
+    }
+    "invalid_grant" ->
+        "Google revoked or expired this sign-in. The unusable session was cleared; choose Sign in with Google to reconnect."
+    "access_denied" ->
+        "Google sign-in was cancelled or access was denied. No cloud data was changed; you can keep using ARES offline or try again."
+    else ->
+        "Google could not complete sign-in. Check your internet connection, then try again. If this continues, disconnect Google and reconnect."
 }
 
 /**
@@ -127,6 +171,7 @@ private fun decodeIdToken(idToken: String): GoogleIdPayload = try {
  */
 class OAuthService(
     private val environmentService: EnvironmentService,
+    private val googleClientResolver: GoogleOAuthClientResolver = GoogleOAuthClientResolver(),
     private val authFilePath: String = System.getProperty("user.home") + "/.ares-analytics/auth.json",
     private val httpClient: HttpClient = HttpClient {
         install(ContentNegotiation) {
@@ -148,13 +193,18 @@ class OAuthService(
     private val _authState = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
+    private val _drivePickerState = MutableStateFlow<DrivePickerState>(DrivePickerState.Idle)
+    val drivePickerState: StateFlow<DrivePickerState> = _drivePickerState.asStateFlow()
+
     private var server: EmbeddedServer<CIOApplicationEngine, CIOApplicationEngine.Configuration>? = null
     private var serverGeneration: Long? = null
 
     private data class PendingOAuthRequest(
         val state: String,
         val generation: Long,
-        val onCodeReceived: suspend (String) -> Unit
+        val successTitle: String,
+        val onCodeReceived: suspend (String, Parameters) -> Unit,
+        val onError: (String) -> Unit,
     )
 
     private data class AuthAttempt(
@@ -164,7 +214,7 @@ class OAuthService(
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
 
-    private val authFile = File(authFilePath)
+    private val tokenStore: OAuthTokenStore = createOAuthTokenStore(authFilePath, secretsWriter)
 
     init {
         // On startup, re-establish Authenticated state from persisted Google tokens.
@@ -176,21 +226,31 @@ class OAuthService(
 
     fun isDevMode(): Boolean = System.getenv("DEV_MODE") == "true"
 
+    val managedGoogleClientAvailable: Boolean
+        get() = googleClientResolver.managedClientAvailable
+
     internal suspend fun loadPersistedAuth() = loadPersistedAuth(authGeneration.get())
 
     private suspend fun loadPersistedAuth(generation: Long) {
         if (!isGenerationCurrent(generation)) return
-        if (getSavedAuth() == null) return
+        val saved = getSavedAuth() ?: return
         val config = environmentService.loadConfig()
-        val clientId = config?.googleClientId
-        // No config (or network-down reading it) → leave Unauthenticated; the UI will
-        // re-prompt once settings exist. Don't crash on startup.
-        if (clientId.isNullOrEmpty()) return
+        val credentials = when (val resolution = googleClientResolver.resolve(config)) {
+            is GoogleOAuthClientResolution.Available -> resolution.credentials
+            is GoogleOAuthClientResolution.Unavailable -> return
+        }
+        if (saved.googleClientId != credentials.clientId) {
+            clearUnusableAuth(
+                generation,
+                "Your previous Google sign-in used an unavailable OAuth client and was cleared. Sign in again with Google.",
+            )
+            return
+        }
         // Refresh yields a fresh access token and may omit the optional ID token. Only restore
         // Authenticated when the refresh actually round-tripped —
         // otherwise a revoked/disabled account would look logged-in while gateway calls 401.
         val refreshed = try {
-            refreshGoogleAccessToken(clientId, config.googleClientSecret, generation) != null
+            refreshGoogleAccessToken(credentials, generation) != null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -215,13 +275,19 @@ class OAuthService(
         }
     }
 
-    fun startGoogleLogin(googleClientId: String?, googleClientSecret: String? = null) {
-        beginGoogleLogin(googleClientId, googleClientSecret, interactive = true)
+    /** Starts the normal one-click flow or the workspace's explicit administrator override. */
+    fun startGoogleLogin(workspaceConfig: WorkspaceConfig? = null) {
+        when (val resolution = googleClientResolver.resolve(workspaceConfig)) {
+            is GoogleOAuthClientResolution.Available -> beginGoogleLogin(resolution.credentials, interactive = true)
+            is GoogleOAuthClientResolution.Unavailable -> {
+                val generation = authGeneration.get()
+                commitIfCurrent(generation) { _authState.value = AuthState.Error(resolution.message) }
+            }
+        }
     }
 
     private fun beginGoogleLogin(
-        googleClientId: String?,
-        googleClientSecret: String?,
+        credentials: GoogleOAuthClientCredentials,
         interactive: Boolean
     ): String? {
         val attempt = beginAuthAttempt(
@@ -239,19 +305,13 @@ class OAuthService(
                     expiresIn = 3600,
                     emailFallback = "dev-user@aresrobotics.org",
                     nameFallback = "ARES Dev User",
+                    googleClientId = credentials.clientId,
                     generation = generation
                 )
             }
             return null
         }
-        if (googleClientId.isNullOrBlank() || googleClientId == "mock") {
-            commitIfCurrent(generation) {
-                _authState.value = AuthState.Error(
-                    "Google Drive needs a valid Desktop OAuth client ID. Configure it in Profile → Google Drive → Developer OAuth Credentials."
-                )
-            }
-            return null
-        }
+        val googleClientId = credentials.clientId
         val codeVerifier = generateCodeVerifier()
         val codeChallenge = generateCodeChallenge(codeVerifier)
         val callbackPort = 5805
@@ -269,8 +329,11 @@ class OAuthService(
                 "&code_challenge_method=S256" +
                 "&state=$state"
 
-        val pendingRequest = PendingOAuthRequest(state, generation) { code ->
-            try {
+        val pendingRequest = PendingOAuthRequest(
+            state = state,
+            generation = generation,
+            successTitle = "Sign-In Successful",
+            onCodeReceived = { code, _ -> try {
                 val bodyParams = mutableListOf(
                     "code" to code,
                     "client_id" to (googleClientId ?: ""),
@@ -278,9 +341,6 @@ class OAuthService(
                     "grant_type" to "authorization_code",
                     "code_verifier" to codeVerifier
                 )
-                if (!googleClientSecret.isNullOrBlank()) {
-                    bodyParams.add("client_secret" to googleClientSecret)
-                }
                 val response = httpClient.post("https://oauth2.googleapis.com/token") {
                     contentType(ContentType.Application.FormUrlEncoded)
                     setBody(bodyParams.formUrlEncode())
@@ -297,22 +357,28 @@ class OAuthService(
                         expiresIn = tokenData.expires_in,
                         emailFallback = "user@aresrobotics.org",
                         nameFallback = "Google User",
+                        googleClientId = googleClientId,
                         generation = generation
                     )
                 } else {
                     val errorText = response.bodyAsText()
-                    val sentParamsInfo = "Sent client_id: $googleClientId (Secret present: ${!googleClientSecret.isNullOrBlank()})"
                     updateStateIfCurrent(
                         generation,
-                        AuthState.Error("Failed to exchange Google code: $errorText\nDetails: $sentParamsInfo")
+                        AuthState.Error(googleOAuthRecoveryMessage(errorText, credentials.source))
                     )
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
                 updateStateIfCurrent(generation, AuthState.Error("Google token exchange error: ${e.message}"))
-            }
-        }
+            } },
+            onError = { error ->
+                updateStateIfCurrent(
+                    generation,
+                    AuthState.Error(googleOAuthRecoveryMessage("{\"error\":\"$error\"}", credentials.source)),
+                )
+            },
+        )
         if (!registerPendingRequest(pendingRequest)) return null
 
         if (interactive) {
@@ -322,9 +388,171 @@ class OAuthService(
         return state
     }
 
+    /**
+     * Opens Google's desktop folder picker using only `drive.file`.
+     *
+     * This resource-specific authorization grants ARES access to one existing folder without
+     * granting visibility into unrelated Drive content. The picker account must match the account
+     * already signed into ARES before the selected ID is released to workspace configuration.
+     */
+    fun startGoogleDriveFolderPicker(
+        workspaceConfig: WorkspaceConfig? = null,
+        onFolderPicked: suspend (String) -> Unit,
+    ) {
+        val identity = _authState.value as? AuthState.Authenticated
+        if (identity == null) {
+            _drivePickerState.value = DrivePickerState.Error("Sign in with Google before choosing a Drive folder.")
+            return
+        }
+        val credentials = when (val resolution = googleClientResolver.resolve(workspaceConfig)) {
+            is GoogleOAuthClientResolution.Available -> resolution.credentials
+            is GoogleOAuthClientResolution.Unavailable -> {
+                _drivePickerState.value = DrivePickerState.Error(resolution.message)
+                return
+            }
+        }
+        beginGoogleDriveFolderPicker(credentials, identity, interactive = true, onFolderPicked = onFolderPicked)
+    }
+
+    private fun beginGoogleDriveFolderPicker(
+        credentials: GoogleOAuthClientCredentials,
+        identity: AuthState.Authenticated,
+        interactive: Boolean,
+        onFolderPicked: suspend (String) -> Unit,
+    ): String? {
+        val generation = authGeneration.get()
+        if (!isGenerationCurrent(generation) || pendingOAuthRequest.get() != null) {
+            _drivePickerState.value = DrivePickerState.Error("Another Google authorization is already in progress.")
+            return null
+        }
+        val codeVerifier = generateCodeVerifier()
+        val codeChallenge = generateCodeChallenge(codeVerifier)
+        val callbackPort = 5805
+        val redirectUri = "http://localhost:$callbackPort/callback"
+        val state = generateCodeVerifier()
+        val pickerUrl = "https://accounts.google.com/o/oauth2/v2/auth?" +
+            "client_id=${credentials.clientId}" +
+            "&redirect_uri=${URLEncoder.encode(redirectUri, "UTF-8")}" +
+            "&response_type=code" +
+            "&scope=${URLEncoder.encode("https://www.googleapis.com/auth/drive.file", "UTF-8")}" +
+            "&access_type=offline" +
+            "&prompt=consent" +
+            "&include_granted_scopes=false" +
+            "&trigger_onepick=true" +
+            "&allow_folder_selection=true" +
+            "&login_hint=${URLEncoder.encode(identity.email, "UTF-8")}" +
+            "&code_challenge=$codeChallenge" +
+            "&code_challenge_method=S256" +
+            "&state=$state"
+
+        val request = PendingOAuthRequest(
+            state = state,
+            generation = generation,
+            successTitle = "Drive Folder Selected",
+            onCodeReceived = picker@{ code, parameters ->
+                val pickedIds = parameters["picked_file_ids"]
+                    ?.split(',')
+                    ?.map(String::trim)
+                    ?.filter(String::isNotEmpty)
+                    .orEmpty()
+                if (pickedIds.size != 1 || !pickedIds.single().matches(Regex("[A-Za-z0-9_-]{10,256}"))) {
+                    _drivePickerState.value = DrivePickerState.Error(
+                        "Google did not return one valid Drive folder. Try choosing the folder again.",
+                    )
+                    return@picker
+                }
+                try {
+                    val response = httpClient.post("https://oauth2.googleapis.com/token") {
+                        contentType(ContentType.Application.FormUrlEncoded)
+                        setBody(
+                            listOf(
+                                "code" to code,
+                                "client_id" to credentials.clientId,
+                                "redirect_uri" to redirectUri,
+                                "grant_type" to "authorization_code",
+                                "code_verifier" to codeVerifier,
+                            ).formUrlEncode(),
+                        )
+                    }
+                    if (response.status != HttpStatusCode.OK) {
+                        _drivePickerState.value = DrivePickerState.Error(
+                            googleOAuthRecoveryMessage(response.bodyAsText(), credentials.source),
+                        )
+                        return@picker
+                    }
+                    val pickerToken = response.body<GoogleTokenResponse>().access_token
+                    val about = httpClient.get("https://www.googleapis.com/drive/v3/about") {
+                        header(HttpHeaders.Authorization, "Bearer $pickerToken")
+                        parameter("fields", "user(emailAddress)")
+                    }
+                    if (about.status != HttpStatusCode.OK) {
+                        _drivePickerState.value = DrivePickerState.Error(
+                            "Google could not verify the account that selected this folder. Try again.",
+                        )
+                        return@picker
+                    }
+                    val pickerEmail = about.body<JsonObject>()["user"]
+                        ?.jsonObject
+                        ?.get("emailAddress")
+                        ?.jsonPrimitive
+                        ?.contentOrNull
+                    if (!pickerEmail.equals(identity.email, ignoreCase = true)) {
+                        _drivePickerState.value = DrivePickerState.Error(
+                            "That folder was selected with ${pickerEmail ?: "another Google account"}, but ARES is signed in as ${identity.email}. Choose the same account.",
+                        )
+                        return@picker
+                    }
+                    onFolderPicked(pickedIds.single())
+                    _drivePickerState.value = DrivePickerState.Selected(pickedIds.single())
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    _drivePickerState.value = DrivePickerState.Error(
+                        "The Drive folder selection could not be completed: ${failure.message ?: "unknown error"}",
+                    )
+                }
+            },
+            onError = { error ->
+                _drivePickerState.value = DrivePickerState.Error(
+                    googleOAuthRecoveryMessage("{\"error\":\"$error\"}", credentials.source),
+                )
+            },
+        )
+        if (!registerPendingRequest(request)) return null
+        _drivePickerState.value = DrivePickerState.Picking
+        if (interactive) {
+            bootCallbackServer(callbackPort, generation)
+            launchBrowser(pickerUrl, generation) { message ->
+                _drivePickerState.value = DrivePickerState.Error(message)
+            }
+        }
+        return state
+    }
+
+    internal fun beginGoogleDriveFolderPickerForTest(
+        clientId: String,
+        onFolderPicked: suspend (String) -> Unit,
+    ): String {
+        val identity = _authState.value as? AuthState.Authenticated
+            ?: error("Test must establish an authenticated identity first")
+        return requireNotNull(
+            beginGoogleDriveFolderPicker(
+                credentials = GoogleOAuthClientCredentials(clientId, GoogleOAuthClientSource.CUSTOM),
+                identity = identity,
+                interactive = false,
+                onFolderPicked = onFolderPicked,
+            ),
+        )
+    }
+
     /** Deterministic non-interactive seam for callback lifecycle tests. */
-    internal fun beginGoogleLoginForTest(googleClientId: String, googleClientSecret: String? = null): String =
-        requireNotNull(beginGoogleLogin(googleClientId, googleClientSecret, interactive = false)) {
+    internal fun beginGoogleLoginForTest(googleClientId: String): String =
+        requireNotNull(
+            beginGoogleLogin(
+                GoogleOAuthClientCredentials(googleClientId, GoogleOAuthClientSource.CUSTOM),
+                interactive = false,
+            )
+        ) {
             "Google authentication could not be started"
         }
 
@@ -339,6 +567,7 @@ class OAuthService(
         expiresIn: Int,
         emailFallback: String,
         nameFallback: String,
+        googleClientId: String,
         generation: Long
     ): Boolean {
         val payload = decodeIdToken(idToken)
@@ -347,6 +576,7 @@ class OAuthService(
         val uid = payload.sub.ifEmpty { "google-$email" }
         val expiresAt = System.currentTimeMillis() + (expiresIn * 1000L)
         val saved = OAuthSavedAuth(
+            googleClientId = googleClientId,
             googleAccessToken = accessToken,
             googleRefreshToken = refreshToken,
             googleTokenExpiresAt = expiresAt,
@@ -375,17 +605,34 @@ class OAuthService(
         return current && persisted
     }
 
-    suspend fun refreshGoogleAccessToken(clientId: String, clientSecret: String?): String? =
-        refreshGoogleAccessToken(clientId, clientSecret, authGeneration.get())
+    suspend fun refreshGoogleAccessToken(): String? {
+        val credentials = when (val resolution = googleClientResolver.resolve(environmentService.loadConfig())) {
+            is GoogleOAuthClientResolution.Available -> resolution.credentials
+            is GoogleOAuthClientResolution.Unavailable -> return null
+        }
+        return refreshGoogleAccessToken(credentials, authGeneration.get())
+    }
+
+    internal suspend fun refreshGoogleAccessTokenForTest(clientId: String): String? =
+        refreshGoogleAccessToken(
+            GoogleOAuthClientCredentials(clientId, GoogleOAuthClientSource.CUSTOM),
+            authGeneration.get(),
+        )
 
     private suspend fun refreshGoogleAccessToken(
-        clientId: String,
-        clientSecret: String?,
+        credentials: GoogleOAuthClientCredentials,
         generation: Long
     ): String? = withContext(Dispatchers.IO) {
         refreshMutex.withLock {
             if (!isGenerationCurrent(generation)) return@withLock null
             val saved = getSavedAuth() ?: return@withLock null
+            if (saved.googleClientId != credentials.clientId) {
+                clearUnusableAuth(
+                    generation,
+                    "The saved Google session belongs to a different OAuth client and was cleared. Sign in again.",
+                )
+                return@withLock null
+            }
             val refreshToken = saved.googleRefreshToken ?: return@withLock valueIfCurrent(generation) {
                 saved.googleAccessToken
             }
@@ -398,13 +645,10 @@ class OAuthService(
 
             try {
                 val bodyParams = mutableListOf(
-                    "client_id" to clientId,
+                    "client_id" to credentials.clientId,
                     "refresh_token" to refreshToken,
                     "grant_type" to "refresh_token"
                 )
-                if (!clientSecret.isNullOrBlank()) {
-                    bodyParams.add("client_secret" to clientSecret)
-                }
                 val response = httpClient.post("https://oauth2.googleapis.com/token") {
                     contentType(ContentType.Application.FormUrlEncoded)
                     setBody(bodyParams.formUrlEncode())
@@ -436,13 +680,21 @@ class OAuthService(
                     }
                     return@withLock data.access_token.takeIf { committed }
                 } else {
-                    println("Failed to refresh Google access token: ${response.bodyAsText()}")
+                    val errorText = response.bodyAsText()
+                    val parsedError = parseGoogleOAuthError(errorText)
+                    if (parsedError == "deleted_client" || parsedError == "invalid_grant") {
+                        clearUnusableAuth(
+                            generation,
+                            googleOAuthRecoveryMessage(errorText, credentials.source),
+                        )
+                    }
                     null
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: Exception) {
-                e.printStackTrace()
+            } catch (_: Exception) {
+                // An offline startup is expected and must not leak request details or revoke the
+                // persisted refresh token. The UI remains signed out until a later retry.
                 null
             }
         }
@@ -479,8 +731,11 @@ class OAuthService(
                 "&scope=read:org" +
                 "&state=$state"
 
-        val pendingRequest = PendingOAuthRequest(state, generation) { code ->
-            try {
+        val pendingRequest = PendingOAuthRequest(
+            state = state,
+            generation = generation,
+            successTitle = "GitHub Link Successful",
+            onCodeReceived = { code, _ -> try {
                 val response = httpClient.post("https://github.com/login/oauth/access_token") {
                     header(HttpHeaders.Accept, "application/json")
                     contentType(ContentType.Application.FormUrlEncoded)
@@ -508,8 +763,11 @@ class OAuthService(
                 throw e
             } catch (e: Exception) {
                 updateStateIfCurrent(generation, AuthState.Error("GitHub token exchange error: ${e.message}"))
-            }
-        }
+            } },
+            onError = { error ->
+                updateStateIfCurrent(generation, AuthState.Error("GitHub authorization was not completed: $error"))
+            },
+        )
         if (!registerPendingRequest(pendingRequest)) return
 
         bootCallbackServer(callbackPort, generation)
@@ -524,20 +782,38 @@ class OAuthService(
         )
     }
 
+    /** Used when Google APIs prove that the current access grant is no longer usable. */
+    fun clearGoogleSessionForRecovery(message: String) {
+        invalidateAuth(
+            nextState = AuthState.Error(message),
+            deletePersistedAuth = true,
+            markDisposed = false,
+        )
+    }
+
+    private fun clearUnusableAuth(generation: Long, message: String) {
+        commitIfCurrent(generation) {
+            val removed = tokenStore.delete()
+            _authState.value = if (removed) {
+                AuthState.Error(message)
+            } else {
+                AuthState.Error("$message ARES could not remove the old local token file; close the app and remove it from Settings before retrying.")
+            }
+        }
+    }
+
     fun getSavedAuth(): OAuthSavedAuth? {
-        if (!authFile.exists()) return null
         return try {
-            AppJson.decodeFromString<OAuthSavedAuth>(authFile.readText())
+            val bytes = tokenStore.read() ?: return null
+            AppJson.decodeFromString<OAuthSavedAuth>(String(bytes, Charsets.UTF_8))
         } catch (e: Exception) {
             null
         }
     }
 
     private fun saveAuth(auth: OAuthSavedAuth) {
-        // Shared writeSecrets helper applies owner-only POSIX perms (AUDIT H2) the same way
-        // EnvironmentService does for workspaces.json — keeps auth.json secret handling in
-        // one place instead of a bespoke try/setPosixFilePermissions block here.
-        secretsWriter(authFile, Json.encodeToString(auth).toByteArray(Charsets.UTF_8))
+        // OAuthTokenStore owns platform protection, atomic replacement, and legacy migration.
+        tokenStore.write(Json.encodeToString(auth).toByteArray(Charsets.UTF_8))
     }
 
     private fun beginAuthAttempt(
@@ -591,6 +867,13 @@ class OAuthService(
             if (pendingOAuthRequest.compareAndSet(pending, null)) pending else null
         }
 
+    private fun clearPendingRequest(generation: Long) {
+        synchronized(authLifecycleLock) {
+            val pending = pendingOAuthRequest.get()
+            if (pending?.generation == generation) pendingOAuthRequest.compareAndSet(pending, null)
+        }
+    }
+
     private fun launchAuthWork(generation: Long, block: suspend () -> Unit): Job? {
         val job = serviceScope.launch(start = CoroutineStart.LAZY) {
             if (isGenerationCurrent(generation)) block()
@@ -614,19 +897,27 @@ class OAuthService(
         return null
     }
 
-    private fun launchPendingCodeExchange(pending: PendingOAuthRequest, code: String): Job? =
+    private fun launchPendingCodeExchange(
+        pending: PendingOAuthRequest,
+        code: String,
+        parameters: Parameters = Parameters.Empty,
+    ): Job? =
         launchAuthWork(pending.generation) {
             try {
-                pending.onCodeReceived(code)
+                pending.onCodeReceived(code, parameters)
             } finally {
                 stopServer(pending.generation)
             }
         }
 
     /** Deterministic seam used to exercise callback replay and cancellation without a TCP server. */
-    internal fun dispatchOAuthCallbackForTest(returnedState: String?, code: String): Job? {
+    internal fun dispatchOAuthCallbackForTest(
+        returnedState: String?,
+        code: String,
+        parameters: Parameters = Parameters.Empty,
+    ): Job? {
         val pending = consumePendingRequest(returnedState) ?: return null
-        return launchPendingCodeExchange(pending, code)
+        return launchPendingCodeExchange(pending, code, parameters)
     }
 
     private fun commitIfCurrent(generation: Long, block: () -> Unit): Boolean =
@@ -667,7 +958,8 @@ class OAuthService(
             server = null
             serverGeneration = null
             _authState.value = nextState
-            if (deletePersistedAuth && authFile.exists()) authFile.delete()
+            _drivePickerState.value = DrivePickerState.Idle
+            if (deletePersistedAuth) tokenStore.delete()
         }
         jobsToCancel.forEach { it.cancel() }
         stopEmbeddedServer(serverToStop)
@@ -718,7 +1010,7 @@ class OAuthService(
                             </head>
                             <body>
                                 <div class="card">
-                                    <h1>Sign-In Successful</h1>
+                                    <h1>${pending.successTitle}</h1>
                                     <p>Verification completed. You can safely close this browser window and return to the application.</p>
                                 </div>
                             </body>
@@ -726,11 +1018,10 @@ class OAuthService(
                             """.trimIndent(),
                             io.ktor.http.ContentType.Text.Html
                         )
-                        launchPendingCodeExchange(pending, code)
+                        launchPendingCodeExchange(pending, code, call.request.queryParameters)
                     } else {
-                        val msg = error ?: "Unknown auth error"
-                        call.respondText("Authentication failed: $msg")
-                        updateStateIfCurrent(pending.generation, AuthState.Error(msg))
+                        call.respondText("Authentication was not completed. Return to ARES Analytics for recovery steps.")
+                        pending.onError(error ?: "unknown")
                         serviceScope.launch { stopServer(pending.generation) }
                     }
                 }
@@ -749,24 +1040,29 @@ class OAuthService(
         if (!installed) stopEmbeddedServer(candidate)
     }
 
-    private fun launchBrowser(url: String, generation: Long) {
+    private fun launchBrowser(
+        url: String,
+        generation: Long,
+        onFailure: (String) -> Unit = { message ->
+            updateStateIfCurrent(generation, AuthState.Error(message))
+        },
+    ) {
         launchAuthWork(generation) {
             try {
                 withContext(Dispatchers.IO) {
                     if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
                         Desktop.getDesktop().browse(URI(url))
                     } else {
-                        updateStateIfCurrent(
-                            generation,
-                            AuthState.Error("System browser not supported on this platform.")
-                        )
+                        onFailure("System browser not supported on this platform.")
+                        clearPendingRequest(generation)
                         stopServer(generation)
                     }
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                updateStateIfCurrent(generation, AuthState.Error("Failed to launch system browser: ${e.message}"))
+                onFailure("Failed to launch system browser: ${e.message}")
+                clearPendingRequest(generation)
                 stopServer(generation)
             }
         }

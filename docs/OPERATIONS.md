@@ -7,6 +7,8 @@ Task-focused guides:
 - [First launch](start/FIRST_LAUNCH.md) — create and verify a robot workspace.
 - [Connect the simulator](start/CONNECT_SIMULATOR.md) — novice-safe live telemetry and recovery.
 - [Bring in a run](operate/BRING_IN_A_RUN.md) — completed-log collection, import evidence, and replay.
+- [Google Drive setup](start/GOOGLE_DRIVE_SETUP.md) — optional one-click sign-in, destination selection, and recovery.
+- [OAuth and Drive architecture](GOOGLE_DRIVE_ARCHITECTURE.md) — multi-team isolation and administrator policy.
 
 ## 1. Build environment
 
@@ -256,5 +258,8 @@ If a previous Analytics JVM is still running, the root Gradle task checks Java p
 - [ ] Export/import a Parquet session containing string telemetry.
 - [ ] Verify target switching clears old robot state.
 - [ ] Verify gateway health, authentication, request limits, and rate limiting.
-- [ ] Build the same native package used by the release workflow. On Windows, quote the complete dotted Gradle property so PowerShell passes it as one argument: `.\gradlew.bat :app:packageMsi "-ParesAnalyticsVersion=1.1.1"`.
+- [ ] Confirm the protected repository variable `ARES_GOOGLE_OAUTH_CLIENT_ID` points to the active production Desktop client and ends in `.apps.googleusercontent.com`.
+- [ ] Verify one-click PKCE sign-in, destination creation/selection, a small upload/download, sign-out, and reconnect against the production client. Do not publish an installer before this passes.
+- [ ] Verify a second workspace cannot list or synchronize the first workspace's root, and that removed folder permissions fail visibly.
+- [ ] Build the same native package used by the release workflow. Set `ARES_GOOGLE_OAUTH_CLIENT_ID` from the protected repository variable in the build environment (do not paste it into command arguments), then run `.\gradlew.bat :app:packageReleaseMsi "-ParesAnalyticsVersion=1.2.3" --no-daemon` and clear the environment value afterward.
 - [ ] Confirm `:app:verifyDistributableProjectLoading` passes. Native package tasks depend on this guard, which loads metadata, routines, subsystems, capabilities, and autonomous choices through the trimmed jlink runtime rather than the development JDK.

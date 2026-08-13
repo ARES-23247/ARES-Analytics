@@ -204,7 +204,12 @@ fun MainScreen(services: ServiceRegistry) {
 
     if (currentConfig == null) {
         val onboardingViewModel = remember {
-            OnboardingViewModel(services.environmentService, services.syncEngineService, scope) { loaded ->
+            OnboardingViewModel(
+                services.environmentService,
+                services.syncEngineService,
+                services.googleDriveService,
+                scope,
+            ) { loaded ->
                 mainViewModel.onIntent(MainIntent.SaveConfig(loaded))
             }
         }
@@ -270,6 +275,7 @@ fun MainScreen(services: ServiceRegistry) {
     val profileViewModel = remember {
         ProfileViewModel(
             oauthService = services.oauthService,
+            googleDriveService = services.googleDriveService,
             syncEngineService = services.syncEngineService,
             scope = scope
         )
