@@ -4,12 +4,11 @@ import com.ares.analytics.ui.theme.AresOnAccent
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -23,8 +22,11 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,7 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ares.analytics.service.AuthState
-import com.ares.analytics.ui.components.forms.AresTextField
+import com.ares.analytics.shared.DriveDestinationConfig
+import com.ares.analytics.shared.DriveDestinationType
 import com.ares.analytics.ui.theme.AresBackground
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
@@ -51,16 +54,19 @@ import com.ares.analytics.ui.theme.AresTextTertiary
 @Composable
 fun AuthStep(
     authState: AuthState,
-    googleClientId: String,
-    googleClientSecret: String,
+    managedGoogleSignInAvailable: Boolean,
+    driveDestination: DriveDestinationConfig?,
+    isDriveDestinationBusy: Boolean,
+    driveDestinationError: String?,
     expanded: Boolean,
     onExpandedChange: (Boolean) -> Unit,
-    onClientIdChange: (String) -> Unit,
-    onClientSecretChange: (String) -> Unit,
     onSignInClick: () -> Unit,
+    onConfigureDestination: (DriveDestinationType, String, String?, String?) -> Unit,
+    onPickExistingDestination: (DriveDestinationType, String) -> Unit,
 ) {
-    var developerFieldsExpanded by remember { mutableStateOf(false) }
-
+    var destinationType by remember { mutableStateOf(DriveDestinationType.PERSONAL_FOLDER) }
+    var destinationMenuExpanded by remember { mutableStateOf(false) }
+    var destinationName by remember { mutableStateOf("ARES Analytics") }
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
@@ -102,51 +108,132 @@ fun AuthStep(
                 )
 
                 if (authState !is AuthState.Authenticated) {
-                    if (googleClientId.isBlank()) {
+                    if (!managedGoogleSignInAvailable) {
                         Text(
-                            "To enable cloud sync, create a Google Desktop OAuth client with the Drive API enabled and paste its client ID below. You may skip this step.",
+                            "Google sign-in is unavailable in this development build. You can finish setup and use every local ARES feature without it.",
                             color = AresGold,
                             style = MaterialTheme.typography.bodySmall,
                         )
                     }
-                    Button(
-                        onClick = onSignInClick,
-                        enabled = googleClientId.isNotBlank(),
-                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    ) {
-                        Text("Sign in with Google", color = AresBackground, fontWeight = FontWeight.Bold)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = onSignInClick,
+                            enabled = managedGoogleSignInAvailable,
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            Text("Sign in with Google", color = AresBackground, fontWeight = FontWeight.Bold)
+                        }
+                        OutlinedButton(onClick = { onExpandedChange(false) }) {
+                            Text("Use ARES without Google")
+                        }
                     }
+                    Text(
+                        "ARES identifies itself to Google, but your files stay in your account or the team folder you choose next. ARES requests access only to files it creates or you explicitly select.",
+                        color = AresTextTertiary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
 
                 if (authState is AuthState.Error) {
                     Text(authState.message, color = AresError, style = MaterialTheme.typography.bodySmall)
                 }
 
-                OutlinedButton(onClick = { developerFieldsExpanded = !developerFieldsExpanded }) {
-                    Text(if (developerFieldsExpanded) "Hide OAuth setup" else "Configure Google OAuth")
-                }
-                if (developerFieldsExpanded) {
-                    Text(
-                        "ARES does not ship a shared Google credential. Use a Desktop app OAuth client owned by your team; a client secret is normally unnecessary.",
-                        color = AresTextSecondary,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    AresTextField(
-                        value = googleClientId,
-                        onValueChange = onClientIdChange,
-                        label = "Google OAuth client ID",
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    AresTextField(
-                        value = googleClientSecret,
-                        onValueChange = onClientSecretChange,
-                        label = "Google OAuth client secret (optional)",
-                        modifier = Modifier.fillMaxWidth(),
-                    )
+                if (authState is AuthState.Authenticated) {
+                    if (driveDestination != null) {
+                        Text("Drive destination ready", color = AresGreen, fontWeight = FontWeight.Bold)
+                        Text(
+                            "${driveDestination.displayName} · ${driveDestination.accountEmail}",
+                            color = AresTextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    } else {
+                        Text("Now choose where this workspace stores ARES files.", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                        Text(
+                            "ARES will only list files inside this destination. You can change it later without deleting either local or Drive data.",
+                            color = AresTextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { destinationMenuExpanded = true },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    when (destinationType) {
+                                        DriveDestinationType.PERSONAL_FOLDER -> "Personal Drive folder"
+                                        DriveDestinationType.TEAM_FOLDER -> "Create a team folder"
+                                        DriveDestinationType.SHARED_FOLDER -> "Join an existing shared folder"
+                                        DriveDestinationType.SHARED_DRIVE -> "Google Shared Drive"
+                                    },
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = destinationMenuExpanded,
+                                onDismissRequest = { destinationMenuExpanded = false },
+                            ) {
+                                DriveDestinationType.entries.forEach { type ->
+                                    DropdownMenuItem(
+                                        text = { Text(type.studentLabel()) },
+                                        onClick = {
+                                            destinationType = type
+                                            destinationMenuExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = destinationName,
+                            onValueChange = { destinationName = it },
+                            label = { Text("Destination name") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        if (destinationType == DriveDestinationType.SHARED_FOLDER ||
+                            destinationType == DriveDestinationType.SHARED_DRIVE
+                        ) {
+                            Text(
+                                if (destinationType == DriveDestinationType.SHARED_DRIVE) {
+                                    "Google will open a folder picker. Choose a folder inside the Shared Drive."
+                                } else {
+                                    "Google will open a folder picker. Choose the shared team folder so ARES receives access only to that folder."
+                                },
+                                color = AresTextSecondary,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                if (destinationType == DriveDestinationType.SHARED_FOLDER ||
+                                    destinationType == DriveDestinationType.SHARED_DRIVE
+                                ) {
+                                    onPickExistingDestination(destinationType, destinationName)
+                                } else {
+                                    onConfigureDestination(destinationType, destinationName, null, null)
+                                }
+                            },
+                            enabled = !isDriveDestinationBusy && destinationName.isNotBlank(),
+                        ) {
+                            Text(
+                                if (destinationType == DriveDestinationType.SHARED_FOLDER ||
+                                    destinationType == DriveDestinationType.SHARED_DRIVE
+                                ) "Choose folder in Google Drive" else "Create this destination",
+                            )
+                        }
+                        driveDestinationError?.let { error ->
+                            Text(error, color = AresError, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             }
         }
     }
+}
+
+private fun DriveDestinationType.studentLabel(): String = when (this) {
+    DriveDestinationType.PERSONAL_FOLDER -> "Personal Drive folder"
+    DriveDestinationType.TEAM_FOLDER -> "Create a team folder"
+    DriveDestinationType.SHARED_FOLDER -> "Join an existing shared folder"
+    DriveDestinationType.SHARED_DRIVE -> "Google Shared Drive"
 }

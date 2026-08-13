@@ -1,7 +1,10 @@
 package com.ares.analytics.viewmodel
 
 import com.ares.analytics.service.EnvironmentService
+import com.ares.analytics.service.GoogleDriveService
 import com.ares.analytics.service.SyncEngineService
+import com.ares.analytics.shared.DriveDestinationConfig
+import com.ares.analytics.shared.DriveDestinationType
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.RobotProfile
 import com.ares.analytics.shared.WorkspaceConfig
@@ -40,8 +43,6 @@ data class OnboardingState(
     val robotName: String = "",
     val league: League = League.FTC,
     val nt4Host: String = "192.168.43.1",
-    val googleClientId: String = "",
-    val googleClientSecret: String = "",
     val isVerifyingJava: Boolean = false,
     val javaEnvValid: Boolean? = null,
     val javaEnvMsg: String = "JDK 17 has not been checked yet.",
@@ -56,6 +57,9 @@ data class OnboardingState(
     val selectedOptionText: String = "Select a saved robot...",
     val cloudSetupExpanded: Boolean = false,
     val advancedSetupExpanded: Boolean = false,
+    val driveDestination: DriveDestinationConfig? = null,
+    val isDriveDestinationBusy: Boolean = false,
+    val driveDestinationError: String? = null,
 ) {
     val isProjectReady: Boolean
         get() = projectPath.isNotBlank() && fieldErrors.projectPath == null
@@ -73,13 +77,17 @@ sealed class OnboardingIntent {
     data class UpdateRobotName(val robotName: String) : OnboardingIntent()
     data class UpdateLeague(val league: League) : OnboardingIntent()
     data class UpdateNt4Host(val nt4Host: String) : OnboardingIntent()
-    data class UpdateGoogleClientId(val googleClientId: String) : OnboardingIntent()
-    data class UpdateGoogleClientSecret(val googleClientSecret: String) : OnboardingIntent()
     data class UpdateSimulatorCommand(val simulatorCommand: String) : OnboardingIntent()
     data class UpdateSelectedOptionText(val text: String) : OnboardingIntent()
     data class FetchCloudRobots(val token: String) : OnboardingIntent()
     data class SetCloudSetupExpanded(val expanded: Boolean) : OnboardingIntent()
     data class SetAdvancedSetupExpanded(val expanded: Boolean) : OnboardingIntent()
+    data class ConfigureDriveDestination(
+        val type: DriveDestinationType,
+        val displayName: String,
+        val existingFolderReference: String? = null,
+        val sharedDriveId: String? = null,
+    ) : OnboardingIntent()
     object DetectLeague : OnboardingIntent()
     object NextStep : OnboardingIntent()
     object PreviousStep : OnboardingIntent()
@@ -91,6 +99,7 @@ sealed class OnboardingIntent {
 class OnboardingViewModel(
     private val environmentService: EnvironmentService,
     private val syncEngineService: SyncEngineService,
+    private val googleDriveService: GoogleDriveService,
     private val scope: CoroutineScope,
     private val onConfigured: (WorkspaceConfig) -> Unit,
 ) {
@@ -128,12 +137,11 @@ class OnboardingViewModel(
                     )
                 }
                 is OnboardingIntent.UpdateNt4Host -> _state.update { it.copy(nt4Host = intent.nt4Host) }
-                is OnboardingIntent.UpdateGoogleClientId -> _state.update { it.copy(googleClientId = intent.googleClientId) }
-                is OnboardingIntent.UpdateGoogleClientSecret -> _state.update { it.copy(googleClientSecret = intent.googleClientSecret) }
                 is OnboardingIntent.UpdateSimulatorCommand -> _state.update { it.copy(simulatorCommand = intent.simulatorCommand) }
                 is OnboardingIntent.UpdateSelectedOptionText -> _state.update { it.copy(selectedOptionText = intent.text) }
                 is OnboardingIntent.SetCloudSetupExpanded -> _state.update { it.copy(cloudSetupExpanded = intent.expanded) }
                 is OnboardingIntent.SetAdvancedSetupExpanded -> _state.update { it.copy(advancedSetupExpanded = intent.expanded) }
+                is OnboardingIntent.ConfigureDriveDestination -> configureDriveDestination(intent)
                 is OnboardingIntent.FetchCloudRobots -> fetchCloudRobots()
                 OnboardingIntent.DetectLeague -> detectProject()
                 OnboardingIntent.NextStep -> moveNext()
@@ -261,9 +269,8 @@ class OnboardingViewModel(
                 projectPath = current.projectPath.trim(),
                 league = current.league,
                 nt4Host = current.nt4Host.trim().takeIf(String::isNotEmpty),
-                googleClientId = current.googleClientId.trim().takeIf(String::isNotEmpty),
-                googleClientSecret = current.googleClientSecret.trim().takeIf(String::isNotEmpty),
                 simulatorCommand = current.simulatorCommand.trim().takeIf(String::isNotEmpty),
+                driveDestination = current.driveDestination,
             )
             environmentService.saveConfig(config)
 
@@ -293,6 +300,33 @@ class OnboardingViewModel(
             }
         }
     }
+
+    private suspend fun configureDriveDestination(intent: OnboardingIntent.ConfigureDriveDestination) {
+        _state.update { it.copy(isDriveDestinationBusy = true, driveDestinationError = null) }
+        try {
+            val destination = googleDriveService.configureDestination(
+                type = intent.type,
+                displayName = intent.displayName,
+                existingFolderReference = intent.existingFolderReference,
+                sharedDriveId = intent.sharedDriveId,
+            )
+            _state.update {
+                it.copy(
+                    driveDestination = destination,
+                    isDriveDestinationBusy = false,
+                    driveDestinationError = null,
+                )
+            }
+        } catch (e: Exception) {
+            _state.update {
+                it.copy(
+                    isDriveDestinationBusy = false,
+                    driveDestinationError = e.message ?: "The Drive destination could not be configured.",
+                )
+            }
+        }
+    }
+
 }
 
 internal data class Java17Readiness(

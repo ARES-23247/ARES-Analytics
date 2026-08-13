@@ -57,8 +57,9 @@ class GoogleDriveServiceIntegrityTest {
         val service = GoogleDriveService(
             mock(OAuthService::class.java),
             mock(EnvironmentService::class.java),
-            client
-        ) { "token" }
+            client,
+            accessTokenOverride = { "token" },
+        )
         val parquet = Files.createTempFile("ares-immutable-upload", ".parquet").toFile()
         parquet.writeBytes("immutable parquet".toByteArray())
         try {
@@ -102,8 +103,9 @@ class GoogleDriveServiceIntegrityTest {
         val service = GoogleDriveService(
             mock(OAuthService::class.java),
             mock(EnvironmentService::class.java),
-            client
-        ) { "token" }
+            client,
+            accessTokenOverride = { "token" },
+        )
         val tempDir = Files.createTempDirectory("ares-drive-integrity").toFile()
         try {
             val valid = tempDir.resolve("valid.parquet")
@@ -137,8 +139,9 @@ class GoogleDriveServiceIntegrityTest {
         val service = GoogleDriveService(
             mock(OAuthService::class.java),
             mock(EnvironmentService::class.java),
-            client
-        ) { "token" }
+            client,
+            accessTokenOverride = { "token" },
+        )
         try {
             assertFailsWith<IllegalArgumentException> { service.findFile("canonical.parquet", "folder") }
         } finally {

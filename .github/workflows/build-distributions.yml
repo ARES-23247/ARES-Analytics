@@ -65,9 +65,13 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
 
       - name: Build native package
+        env:
+          ARES_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.ARES_GOOGLE_OAUTH_CLIENT_ID }}
         run: |
           cd ARES-Analytics
           chmod +x ./gradlew
+          # The public desktop client ID is supplied through the protected repository variable.
+          # Keeping it out of command arguments avoids echoing it unnecessarily in build logs.
           ./gradlew ${{ matrix.task }} "-ParesAnalyticsVersion=${{ steps.version.outputs.version }}" --no-daemon
         shell: bash
 

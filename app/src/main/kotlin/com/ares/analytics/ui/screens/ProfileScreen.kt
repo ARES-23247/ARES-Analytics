@@ -24,13 +24,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.AuthState
+import com.ares.analytics.service.isValidGoogleDesktopClientId
+import com.ares.analytics.service.writeFileAtomically
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
+import com.ares.analytics.shared.DriveDestinationType
+import com.ares.analytics.shared.WorkspaceCollaborationMode
+import com.ares.analytics.shared.AppJson
 import com.ares.analytics.ui.components.core.chooseProjectDirectory
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.viewmodel.ProfileIntent
 import com.ares.analytics.viewmodel.ProfileViewModel
+import java.awt.Desktop
+import java.net.URI
+import javax.swing.JFileChooser
+import kotlinx.serialization.encodeToString
 
 /**
  * User account profile, developer preferences, and workspace configuration screen.
@@ -54,6 +63,13 @@ fun ProfileScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
+    LaunchedEffect(state.pendingConfigUpdate) {
+        state.pendingConfigUpdate?.let { updated ->
+            onConfigChanged(updated)
+            viewModel.onIntent(ProfileIntent.ConfigUpdateApplied)
+        }
+    }
+
     LaunchedEffect(config) {
         viewModel.onIntent(ProfileIntent.LoadConfig(config))
     }
@@ -74,8 +90,21 @@ fun ProfileScreen(
 
     // Optional credential overrides
     var googleClientId by remember(state.googleClientId) { mutableStateOf(state.googleClientId) }
-    var googleClientSecret by remember(state.googleClientSecret) { mutableStateOf(state.googleClientSecret) }
+    var useCustomGoogleClient by remember(state.googleOAuthUseCustomClient) {
+        mutableStateOf(state.googleOAuthUseCustomClient)
+    }
     var showAdvanced by remember { mutableStateOf(false) }
+    var showDestinationSetup by remember(config.driveDestination) {
+        mutableStateOf(config.driveDestination == null)
+    }
+    var destinationType by remember { mutableStateOf(DriveDestinationType.PERSONAL_FOLDER) }
+    var destinationName by remember(config.robotName, config.teamId) {
+        mutableStateOf(
+            "ARES ${config.robotName.ifBlank { "Team ${config.teamId}" }}",
+        )
+    }
+    var destinationTypeMenuExpanded by remember { mutableStateOf(false) }
+    var destinationNotice by remember { mutableStateOf<String?>(null) }
 
     // Match integration overrides
     var eventCode by remember(state.eventCode) { mutableStateOf(state.eventCode) }
@@ -263,10 +292,20 @@ fun ProfileScreen(
 
                 when (val auth = state.authState) {
                     is AuthState.Unauthenticated -> {
-                        Text("Connect your Google Account to synchronize registered robots, configurations, and Parquet data blocks with your team.", color = AresTextSecondary, fontSize = 11.sp)
-                        if (googleClientId.isBlank()) {
+                        Text(
+                            "Sign in to choose a personal or team Drive folder. The ARES client identifies this app; your files stay in the Google account and folder you select.",
+                            color = AresTextSecondary,
+                            fontSize = 11.sp,
+                        )
+                        val customClientValid = isValidGoogleDesktopClientId(googleClientId)
+                        val signInAvailable = if (useCustomGoogleClient) customClientValid else state.managedGoogleSignInAvailable
+                        if (!signInAvailable) {
                             Text(
-                                "Setup required: create a Google Desktop OAuth client, enable the Drive API, then paste its client ID below. ARES no longer embeds a shared client credential.",
+                                if (useCustomGoogleClient) {
+                                    "Enter a valid Desktop OAuth client ID in Advanced administrator settings, or turn off the custom client."
+                                } else {
+                                    "This development build has no managed Google client. Install an official ARES release or configure a custom client as an administrator."
+                                },
                                 color = AresGold,
                                 fontSize = 11.sp,
                             )
@@ -274,16 +313,29 @@ fun ProfileScreen(
                         Button(
                             onClick = {
                                 val updatedConfig = config.copy(
-                                    googleClientId = googleClientId.takeIf { it.isNotBlank() },
-                                    googleClientSecret = googleClientSecret.takeIf { it.isNotBlank() }
+                                    googleOAuthUseCustomClient = useCustomGoogleClient,
+                                    googleClientId = googleClientId.takeIf { useCustomGoogleClient && it.isNotBlank() },
+                                    googleClientSecret = null,
                                 )
                                 onConfigChanged(updatedConfig)
-                                viewModel.onIntent(ProfileIntent.GoogleSignIn(googleClientId))
+                                viewModel.onIntent(ProfileIntent.GoogleSignIn(updatedConfig))
                             },
-                            enabled = googleClientId.isNotBlank(),
+                            enabled = signInAvailable,
                             colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                         ) {
-                            Text("Google Sign-In", fontWeight = FontWeight.Bold)
+                            Text("Sign in with Google", fontWeight = FontWeight.Bold)
+                        }
+                        Text(
+                            "ARES requests only your basic identity and access to Drive files created or explicitly selected for ARES. Google Drive is optional.",
+                            color = AresTextTertiary,
+                            fontSize = 10.sp,
+                        )
+                        config.driveDestination?.let { saved ->
+                            Text(
+                                "Saved destination: ${saved.displayName} · reconnect as ${saved.accountEmail}",
+                                color = AresTextSecondary,
+                                fontSize = 11.sp,
+                            )
                         }
                     }
                     is AuthState.Authenticating -> {
@@ -314,9 +366,196 @@ fun ProfileScreen(
                     }
                     is AuthState.Error -> {
                         Text("Authorization Error: ${auth.message}", color = AresError, fontSize = 12.sp)
-                        Button(onClick = { viewModel.onIntent(ProfileIntent.SignOut) }, colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) {
-                            Text("Retry Login Flow", color = AresBackground)
+                        Button(
+                            onClick = {
+                                val updatedConfig = config.copy(
+                                    googleOAuthUseCustomClient = useCustomGoogleClient,
+                                    googleClientId = googleClientId.takeIf { useCustomGoogleClient && it.isNotBlank() },
+                                    googleClientSecret = null,
+                                )
+                                viewModel.onIntent(ProfileIntent.GoogleSignIn(updatedConfig))
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                        ) {
+                            Text("Try Google sign-in again", color = AresOnAccent)
                         }
+                    }
+                }
+
+                if (state.authState is AuthState.Authenticated) {
+                    HorizontalDivider(color = AresBorder)
+                    val destination = config.driveDestination
+                    if (destination != null && !showDestinationSetup) {
+                        Text(
+                            if (destination.collaborationMode == WorkspaceCollaborationMode.PERSONAL) {
+                                "Personal workspace Drive destination"
+                            } else {
+                                "Team workspace Drive destination"
+                            },
+                            color = AresTextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                        )
+                        Text(destination.displayName, color = AresCyan, fontSize = 12.sp)
+                        Text("Signed-in account: ${destination.accountEmail}", color = AresTextSecondary, fontSize = 11.sp)
+                        val status = state.driveDestinationStatus
+                        if (status != null) {
+                            Text(status.ownerLabel, color = AresTextSecondary, fontSize = 11.sp)
+                            Text(status.sharingLabel, color = AresTextSecondary, fontSize = 11.sp)
+                            Text(
+                                if (status.canRead && status.canWrite) "Access: Read and write verified" else "Access: Needs attention",
+                                color = if (status.canRead && status.canWrite) AresGreen else AresError,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        } else if (state.isDriveDestinationBusy) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = AresCyan)
+                                Text("Checking folder permissions…", color = AresTextSecondary, fontSize = 11.sp)
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { viewModel.onIntent(ProfileIntent.RefreshDriveDestination(config)) }) {
+                                Text("Check access")
+                            }
+                            status?.webViewLink?.let { link ->
+                                OutlinedButton(onClick = { runCatching { Desktop.getDesktop().browse(URI(link)) } }) {
+                                    Text("Open in Drive")
+                                }
+                            }
+                            OutlinedButton(onClick = { showDestinationSetup = true }) {
+                                Text("Change destination")
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    destinationNotice = exportDriveDestinationRecord(destination)
+                                },
+                            ) {
+                                Text("Export destination record")
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    onConfigChanged(config.copy(driveDestination = null))
+                                    showDestinationSetup = true
+                                },
+                            ) {
+                                Text("Disconnect destination")
+                            }
+                        }
+                        Text(
+                            "Changing or disconnecting never deletes Drive files. Import or download any remote-only sessions before switching, then sync local sessions to the new destination.",
+                            color = AresTextTertiary,
+                            fontSize = 10.sp,
+                        )
+                        destinationNotice?.let { notice ->
+                            Text(notice, color = AresTextSecondary, fontSize = 10.sp)
+                        }
+                    } else {
+                        Text("Choose where this workspace stores ARES files", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(
+                            "ARES will list and synchronize only inside the folder or Shared Drive saved here. Other Drive files are never scanned.",
+                            color = AresTextSecondary,
+                            fontSize = 11.sp,
+                        )
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { destinationTypeMenuExpanded = true },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    when (destinationType) {
+                                        DriveDestinationType.PERSONAL_FOLDER -> "Personal Drive folder"
+                                        DriveDestinationType.TEAM_FOLDER -> "Create a team folder"
+                                        DriveDestinationType.SHARED_FOLDER -> "Join an existing shared folder"
+                                        DriveDestinationType.SHARED_DRIVE -> "Google Shared Drive"
+                                    },
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = destinationTypeMenuExpanded,
+                                onDismissRequest = { destinationTypeMenuExpanded = false },
+                            ) {
+                                DriveDestinationType.entries.forEach { type ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                when (type) {
+                                                    DriveDestinationType.PERSONAL_FOLDER -> "Personal Drive folder"
+                                                    DriveDestinationType.TEAM_FOLDER -> "Create a team folder"
+                                                    DriveDestinationType.SHARED_FOLDER -> "Join existing shared folder"
+                                                    DriveDestinationType.SHARED_DRIVE -> "Google Shared Drive"
+                                                },
+                                            )
+                                        },
+                                        onClick = {
+                                            destinationType = type
+                                            destinationTypeMenuExpanded = false
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        OutlinedTextField(
+                            value = destinationName,
+                            onValueChange = { destinationName = it },
+                            label = { Text("Destination name") },
+                            supportingText = {
+                                Text(
+                                    if (destinationType == DriveDestinationType.TEAM_FOLDER) {
+                                        "ARES creates the folder; share it with students and mentors in Google Drive."
+                                    } else {
+                                        "This label helps students recognize the correct workspace."
+                                    },
+                                )
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        if (destinationType == DriveDestinationType.SHARED_FOLDER ||
+                            destinationType == DriveDestinationType.SHARED_DRIVE
+                        ) {
+                            Text(
+                                if (destinationType == DriveDestinationType.SHARED_DRIVE) {
+                                    "Google will open a folder picker. Choose a folder inside the Shared Drive; Workspace membership remains authoritative."
+                                } else {
+                                    "Google will open a folder picker. Choose the shared team folder so ARES receives access to that folder only."
+                                },
+                                color = AresTextSecondary,
+                                fontSize = 11.sp,
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    val sharedSelection = destinationType == DriveDestinationType.SHARED_FOLDER ||
+                                        destinationType == DriveDestinationType.SHARED_DRIVE
+                                    viewModel.onIntent(
+                                        if (sharedSelection) ProfileIntent.PickExistingDriveDestination(
+                                            config = config,
+                                            type = destinationType,
+                                            displayName = destinationName,
+                                        ) else ProfileIntent.ConfigureDriveDestination(
+                                            config = config,
+                                            type = destinationType,
+                                            displayName = destinationName,
+                                        ),
+                                    )
+                                },
+                                enabled = !state.isDriveDestinationBusy && destinationName.isNotBlank(),
+                            ) {
+                                Text(
+                                    if (destinationType == DriveDestinationType.SHARED_FOLDER ||
+                                        destinationType == DriveDestinationType.SHARED_DRIVE
+                                    ) "Choose folder in Google Drive" else "Create this destination",
+                                )
+                            }
+                            if (destination != null) {
+                                OutlinedButton(onClick = { showDestinationSetup = false }) { Text("Cancel") }
+                            }
+                        }
+                    }
+                    state.errorMessage?.let { message ->
+                        Text(message, color = AresError, fontSize = 11.sp)
                     }
                 }
 
@@ -332,26 +571,33 @@ fun ProfileScreen(
                         modifier = Modifier.size(16.dp)
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text("Google OAuth setup", color = AresTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Advanced administrator settings", color = AresTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
 
                 if (showAdvanced) {
-                    OutlinedTextField(
-                        value = googleClientId,
-                        onValueChange = { googleClientId = it },
-                        label = { Text("Desktop OAuth client ID (required)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
-                    )
-                    OutlinedTextField(
-                        value = googleClientSecret,
-                        onValueChange = { googleClientSecret = it },
-                        label = { Text("Client secret (usually blank for Desktop clients)") },
-                        modifier = Modifier.fillMaxWidth(),
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Use your organization's OAuth client", color = AresTextPrimary, fontSize = 12.sp)
+                            Text(
+                                "For schools that manage their own Google Cloud policies, quotas, and branding. Desktop clients use PKCE and do not need a client secret.",
+                                color = AresTextSecondary,
+                                fontSize = 10.sp,
+                            )
+                        }
+                        Switch(checked = useCustomGoogleClient, onCheckedChange = { useCustomGoogleClient = it })
+                    }
+                    if (useCustomGoogleClient) {
+                        OutlinedTextField(
+                            value = googleClientId,
+                            onValueChange = { googleClientId = it },
+                            label = { Text("Desktop OAuth client ID") },
+                            supportingText = { Text("Ends in .apps.googleusercontent.com. Never enter a client secret.") },
+                            isError = googleClientId.isNotBlank() && !isValidGoogleDesktopClientId(googleClientId),
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder),
+                        )
+                    }
                 }
             }
         }
@@ -620,8 +866,9 @@ fun ProfileScreen(
                     league = league,
                     seasonId = seasonId,
                     projectPath = projectPath,
-                    googleClientId = googleClientId.takeIf { it.isNotBlank() },
-                    googleClientSecret = googleClientSecret.takeIf { it.isNotBlank() },
+                    googleOAuthUseCustomClient = useCustomGoogleClient,
+                    googleClientId = googleClientId.takeIf { useCustomGoogleClient && it.isNotBlank() },
+                    googleClientSecret = null,
                     eventCode = eventCode.takeIf { it.isNotBlank() },
                     toaApiKey = toaApiKey.takeIf { it.isNotBlank() },
                     tbaApiKey = tbaApiKey.takeIf { it.isNotBlank() },
@@ -646,5 +893,24 @@ fun ProfileScreen(
         ) {
             Text("Save Profile & Settings", color = AresBackground, fontWeight = FontWeight.Bold, fontSize = if (touchOptimizedMode) 18.sp else 16.sp)
         }
+    }
+}
+
+private fun exportDriveDestinationRecord(destination: com.ares.analytics.shared.DriveDestinationConfig): String {
+    val chooser = JFileChooser().apply {
+        dialogTitle = "Export ARES Drive destination record"
+        selectedFile = java.io.File("ares-drive-destination.json")
+    }
+    if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return "Export cancelled."
+    return runCatching {
+        val selected = chooser.selectedFile.let { file ->
+            if (file.extension.equals("json", ignoreCase = true)) file else java.io.File(file.parentFile, "${file.name}.json")
+        }
+        writeFileAtomically(selected) { temporary ->
+            temporary.writeText(AppJson.encodeToString(destination))
+        }
+        "Destination record exported to ${selected.name}. It contains folder/account identifiers, never OAuth tokens."
+    }.getOrElse { failure ->
+        "Destination record could not be exported: ${failure.message ?: failure.javaClass.simpleName}"
     }
 }
