@@ -242,6 +242,7 @@ class SubsystemGeneratorViewModel(
         League.FRC -> "com.areslib.frc.subsystems"
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var aiProposalGeneration = 0L
     private val _state = MutableStateFlow(SubsystemGeneratorState(projectPath, league))
     val state: StateFlow<SubsystemGeneratorState> = _state.asStateFlow()
 
@@ -263,6 +264,7 @@ class SubsystemGeneratorViewModel(
     }
 
     fun reload() {
+        aiProposalGeneration++
         val current = _state.value
         if (current.projectPath.isBlank()) {
             _state.value = current.copy(loadError = "Choose a robot project directory to edit subsystems.")
@@ -297,6 +299,7 @@ class SubsystemGeneratorViewModel(
     }
 
     fun newSubsystem() {
+        aiProposalGeneration++
         val used = _state.value.documents.mapTo(hashSetOf()) { it.documentId }
         var suffix = 1
         var id = "new-subsystem"
@@ -361,6 +364,7 @@ class SubsystemGeneratorViewModel(
     }
 
     fun registerHandAuthoredSubsystem() {
+        aiProposalGeneration++
         val used = _state.value.documents.mapTo(hashSetOf()) { it.documentId }
         var suffix = 1
         var id = "existing-subsystem"
@@ -421,6 +425,7 @@ class SubsystemGeneratorViewModel(
         _state.update { current ->
             if (current.dirty) return@update current.copy(status = "Save or reload the current draft before switching subsystems.")
             val document = current.documents.firstOrNull { it.documentId == documentId } ?: return@update current
+            aiProposalGeneration++
             current.copy(
                 selectedDocumentId = document.documentId,
                 draft = SubsystemEditorDraft(document),
@@ -438,12 +443,14 @@ class SubsystemGeneratorViewModel(
     }
 
     fun edit(transform: (SubsystemDocument) -> SubsystemDocument) {
+        aiProposalGeneration++
         _state.update { current ->
             val draft = current.draft ?: return@update current
             current.copy(
                 draft = draft.edit(transform),
                 dirty = true,
                 status = null,
+                aiProposalInProgress = false,
                 aiProposal = null,
                 aiProposalError = null,
             ).revalidated()
@@ -451,22 +458,26 @@ class SubsystemGeneratorViewModel(
     }
 
     fun undo() = _state.update { current ->
+        aiProposalGeneration++
         val draft = current.draft ?: return@update current
         current.copy(
             draft = draft.undo(),
             dirty = true,
             status = "Undid the last edit.",
+            aiProposalInProgress = false,
             aiProposal = null,
             aiProposalError = null,
         ).revalidated()
     }
 
     fun redo() = _state.update { current ->
+        aiProposalGeneration++
         val draft = current.draft ?: return@update current
         current.copy(
             draft = draft.redo(),
             dirty = true,
             status = "Redid the edit.",
+            aiProposalInProgress = false,
             aiProposal = null,
             aiProposalError = null,
         ).revalidated()
@@ -488,6 +499,7 @@ class SubsystemGeneratorViewModel(
         _state.update {
             it.copy(aiProposalInProgress = true, aiProposal = null, aiProposalError = null)
         }
+        val requestGeneration = ++aiProposalGeneration
         scope.launch {
             runCatching {
                 val rawProposal = assistant.propose(base, request)
@@ -509,7 +521,9 @@ class SubsystemGeneratorViewModel(
             }
                 .onSuccess { review ->
                     _state.update { current ->
-                        if (current.draft?.document != base) {
+                        if (requestGeneration != aiProposalGeneration) {
+                            current
+                        } else if (current.draft?.document != base) {
                             current.copy(
                                 aiProposalInProgress = false,
                                 aiProposalError = "The form changed while Gemini was working. Request a fresh proposal.",
@@ -521,7 +535,7 @@ class SubsystemGeneratorViewModel(
                 }
                 .onFailure { error ->
                     _state.update {
-                        it.copy(
+                        if (requestGeneration != aiProposalGeneration) it else it.copy(
                             aiProposalInProgress = false,
                             aiProposal = null,
                             aiProposalError = error.message ?: "Gemini could not create a subsystem proposal.",
