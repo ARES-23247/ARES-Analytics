@@ -182,7 +182,7 @@ fun FieldEditorScreen(
                             viewModel.onIntent(FieldEditorIntent.UpdateFieldImageConfig(state.fieldImageConfig, projectPath, league))
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Icon(Icons.Default.Upload, contentDescription = null, tint = AresBackground)
@@ -221,7 +221,7 @@ fun FieldEditorScreen(
                                         },
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = if (isSelected) AresCyan else AresSurfaceElevated,
-                                            contentColor = if (isSelected) AresBackground else AresTextPrimary
+                                            contentColor = if (isSelected) AresOnAccent else AresTextPrimary
                                         ),
                                         modifier = Modifier.weight(1f),
                                         contentPadding = PaddingValues(horizontal = 2.dp)
@@ -293,7 +293,7 @@ fun FieldEditorScreen(
                                 },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (isSelected) AresCyan else AresSurfaceElevated,
-                                    contentColor = if (isSelected) AresBackground else AresTextPrimary
+                                    contentColor = if (isSelected) AresOnAccent else AresTextPrimary
                                 )
                                 ,
                                 modifier = Modifier.weight(1f),
@@ -318,7 +318,7 @@ fun FieldEditorScreen(
                     onClick = {
                         viewModel.onIntent(FieldEditorIntent.SaveDocument)
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text("Save Configuration", color = AresBackground, fontWeight = FontWeight.Bold)

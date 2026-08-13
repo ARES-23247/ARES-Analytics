@@ -94,7 +94,7 @@ fun NumericValueField(
                 if (parsed != null) onSave(parsed)
             },
             modifier = Modifier.width(60.dp).height(32.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
             shape = RoundedCornerShape(6.dp),
             contentPadding = PaddingValues(0.dp)
         ) {

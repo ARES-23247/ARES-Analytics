@@ -103,7 +103,7 @@ fun TerminalDrawer(
                                 buildLog.clear()
                                 processManagerService.runBuild(projectPath, league)
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                             shape = RoundedCornerShape(6.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) {
@@ -117,7 +117,7 @@ fun TerminalDrawer(
                                 logcatLog.clear()
                                 processManagerService.startLogcat()
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                             shape = RoundedCornerShape(6.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) {

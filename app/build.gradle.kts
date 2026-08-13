@@ -4,7 +4,7 @@ import org.gradle.api.tasks.testing.Test
 
 // Single source of truth for the application version. Consumed both by the native
 // distribution packaging below and by the generated BuildConfig (see generateBuildConfig).
-val aresAnalyticsVersion = providers.gradleProperty("aresAnalyticsVersion").orElse("1.2.0").get()
+val aresAnalyticsVersion = providers.gradleProperty("aresAnalyticsVersion").orElse("1.2.1").get()
 
 plugins {
     kotlin("jvm")

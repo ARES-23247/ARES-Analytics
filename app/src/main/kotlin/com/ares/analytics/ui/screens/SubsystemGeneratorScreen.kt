@@ -202,7 +202,7 @@ private fun SubsystemHeader(
             Button(
                 onClick = { viewModel.save() },
                 enabled = state.canSave,
-                colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
             ) {
                 Icon(Icons.Default.Save, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(5.dp))
@@ -211,7 +211,7 @@ private fun SubsystemHeader(
             Button(
                 onClick = viewModel::generate,
                 enabled = state.canSave || state.canGenerate,
-                colors = ButtonDefaults.buttonColors(containerColor = AresGreen),
+                colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent),
             ) {
                 Icon(Icons.Default.Build, null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(5.dp))

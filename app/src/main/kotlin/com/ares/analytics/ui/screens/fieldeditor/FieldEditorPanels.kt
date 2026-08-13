@@ -1,5 +1,7 @@
 package com.ares.analytics.ui.screens.fieldeditor
 
+import com.ares.analytics.ui.theme.AresOnAccent
+
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -131,7 +133,7 @@ fun FieldEditorCommandBar(
                         )
                     )
                 }
-                Button(onClick = onPushToSimulator, colors = ButtonDefaults.buttonColors(containerColor = AresCyan)) {
+                Button(onClick = onPushToSimulator, colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) {
                     Icon(Icons.Default.CloudUpload, null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Push to Sim", fontSize = 11.sp)

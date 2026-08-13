@@ -50,7 +50,7 @@ fun AresDialog(
                 Button(
                     onClick = onConfirm,
                     enabled = isConfirmEnabled,
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan)
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                 ) {
                     Text(confirmText, color = AresBackground, fontWeight = FontWeight.Bold)
                 }

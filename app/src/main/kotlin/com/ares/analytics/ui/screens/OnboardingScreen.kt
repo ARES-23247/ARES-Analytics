@@ -1,5 +1,7 @@
 package com.ares.analytics.ui.screens
 
+import com.ares.analytics.ui.theme.AresOnAccent
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -224,7 +226,9 @@ private fun NavigationButtons(
             onClick = if (step == OnboardingStep.REVIEW) onFinish else onNext,
             enabled = !isSaving && (step != OnboardingStep.REVIEW || canFinish),
             modifier = Modifier.weight(2f),
-            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, disabledContainerColor = AresBorder),
+            colors = ButtonDefaults.buttonColors(
+                    containerColor = AresCyan,
+                    contentColor = AresOnAccent, disabledContainerColor = AresBorder),
         ) {
             if (isSaving) {
                 CircularProgressIndicator(modifier = Modifier.size(20.dp), color = AresBackground, strokeWidth = 2.dp)

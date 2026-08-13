@@ -115,7 +115,7 @@ fun AdminScreen(
                     }
                     Button(
                         onClick = { showAddDialog = true },
-                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan)
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                     ) {
                         Icon(imageVector = Icons.Default.Add, contentDescription = null, tint = AresBackground)
                         Spacer(Modifier.width(4.dp))
@@ -365,7 +365,7 @@ fun AdminScreen(
                             }
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan)
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                 ) {
                     Text("Register Profile", color = AresBackground, fontWeight = FontWeight.Bold)
                 }

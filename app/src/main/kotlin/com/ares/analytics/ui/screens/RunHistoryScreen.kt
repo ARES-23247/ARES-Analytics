@@ -567,7 +567,7 @@ fun RunHistoryScreen(
                     },
                     enabled = userQueryText.trim().isNotEmpty() && !isAnalystLoading,
                     modifier = Modifier.height(36.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                     shape = RoundedCornerShape(6.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp)
                 ) {

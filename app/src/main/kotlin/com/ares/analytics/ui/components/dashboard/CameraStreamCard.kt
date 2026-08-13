@@ -117,7 +117,7 @@ fun CameraStreamCard(
                                     viewModel.onIntent(CameraStreamIntent.Connect)
                                     onPropertiesChanged(mapOf("streamUrl" to state.streamUrl))
                                 },
-                                colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                                 modifier = Modifier.align(Alignment.End)
                             ) {
                                 Text("Connect", color = AresBackground, fontWeight = FontWeight.Bold)

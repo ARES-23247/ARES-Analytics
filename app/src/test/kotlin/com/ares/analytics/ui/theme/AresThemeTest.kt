@@ -42,6 +42,35 @@ class AresThemeTest {
         assertTrue(contrastRatio(Color.White, palette.cyan) < 4.5)
         assertTrue(contrastRatio(palette.onAccent, palette.cyan) >= 4.5)
     }
+
+    @Test
+    fun `typography inherits semantic foreground from its component`() {
+        val styles = listOf(
+            AresTypography.displayLarge,
+            AresTypography.displayMedium,
+            AresTypography.displaySmall,
+            AresTypography.headlineLarge,
+            AresTypography.headlineMedium,
+            AresTypography.headlineSmall,
+            AresTypography.titleLarge,
+            AresTypography.titleMedium,
+            AresTypography.titleSmall,
+            AresTypography.bodyLarge,
+            AresTypography.bodyMedium,
+            AresTypography.bodySmall,
+            AresTypography.labelLarge,
+            AresTypography.labelMedium,
+            AresTypography.labelSmall,
+        )
+
+        styles.forEach { style ->
+            assertEquals(
+                Color.Unspecified,
+                style.color,
+                "Typography must not override a button, dialog, card, or disabled-state content color",
+            )
+        }
+    }
 }
 
 private fun contrastRatio(first: Color, second: Color): Double {

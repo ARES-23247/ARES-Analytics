@@ -1,5 +1,7 @@
 package com.ares.analytics.ui.screens
 
+import com.ares.analytics.ui.theme.AresOnAccent
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -303,7 +305,7 @@ private fun ImportEvidenceRow(
                     Button(
                         onClick = { retry(entry) },
                         enabled = retryEnabled,
-                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         modifier = Modifier.height(30.dp)
                     ) {

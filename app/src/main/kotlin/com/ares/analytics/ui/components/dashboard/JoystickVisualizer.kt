@@ -81,11 +81,14 @@ fun JoystickVisualizer(
                         keyboardState.releaseAll()
                         keyboardState.useGamepad = !keyboardState.useGamepad
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = if (keyboardState.useGamepad) AresCyan else AresSurfaceElevated),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (keyboardState.useGamepad) AresCyan else AresSurfaceElevated,
+                        contentColor = if (keyboardState.useGamepad) AresOnAccent else AresTextPrimary,
+                    ),
                     shape = RoundedCornerShape(6.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                 ) {
-                    Text(if (keyboardState.useGamepad) "Input: Gamepad" else "Input: Keyboard", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(if (keyboardState.useGamepad) "Input: Gamepad" else "Input: Keyboard", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
                 if (nt4ClientService != null) {
                     Button(
@@ -93,7 +96,8 @@ fun JoystickVisualizer(
                             if (keyboardControlEnabled) keyboardState.disarm() else keyboardState.enabled = true
                         },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (keyboardControlEnabled) AresGold else AresCyan
+                            containerColor = if (keyboardControlEnabled) AresGold else AresCyan,
+                            contentColor = AresOnAccent,
                         ),
                         shape = RoundedCornerShape(6.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)

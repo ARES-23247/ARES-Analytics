@@ -288,7 +288,7 @@ fun VideoPlayerPanel(
                                     videoSyncService.alignTimestamp(currentVideoTimeMs, currentLogTime)
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                             shape = RoundedCornerShape(4.dp)
                         ) {
                             Icon(Icons.Default.Link, null, tint = AresBackground, modifier = Modifier.size(16.dp))

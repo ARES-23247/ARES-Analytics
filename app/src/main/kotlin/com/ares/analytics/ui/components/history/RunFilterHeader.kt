@@ -41,7 +41,10 @@ fun RunFilterHeader(
 
         Button(
             onClick = onToggleAiAnalyst,
-            colors = ButtonDefaults.buttonColors(containerColor = if (isAiAnalystOpen) AresCyan.copy(alpha = 0.2f) else AresCyan),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isAiAnalystOpen) AresCyan.copy(alpha = 0.2f) else AresCyan,
+                contentColor = if (isAiAnalystOpen) AresCyan else AresOnAccent,
+            ),
             shape = RoundedCornerShape(8.dp),
             border = BorderStroke(1.dp, AresCyan),
             contentPadding = PaddingValues(horizontal = 12.dp)

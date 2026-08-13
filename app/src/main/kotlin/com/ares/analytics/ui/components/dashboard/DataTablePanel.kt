@@ -189,7 +189,7 @@ fun DataTablePanel(
             Box {
                 Button(
                     onClick = { keyDropdownExpanded = true },
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan),
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                     shape = RoundedCornerShape(6.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                     modifier = Modifier.height(32.dp)
