@@ -232,7 +232,7 @@ Production Cloud Run must inject it from the protected secret manager.
 Health check:
 
 ```powershell
-Invoke-WebRequest http://localhost:8080/healthz
+Invoke-WebRequest http://localhost:8080/health
 ```
 
 Browser CORS is disabled unless `CORS_ALLOWED_HOSTS` contains comma-separated HTTPS hosts. The desktop client does not require CORS.

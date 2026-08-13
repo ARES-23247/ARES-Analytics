@@ -15,7 +15,10 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Parameters
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.ApplicationCall
 import io.ktor.server.application.call
+import io.ktor.server.plugins.BadRequestException
+import io.ktor.server.plugins.ContentTransformationException
 import io.ktor.server.plugins.ratelimit.RateLimitName
 import io.ktor.server.plugins.ratelimit.rateLimit
 import io.ktor.server.request.receive
@@ -25,6 +28,7 @@ import io.ktor.server.routing.post
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.CancellationException
 
 internal const val ARES_GOOGLE_REDIRECT_URI = "http://127.0.0.1:5805/callback"
 private const val GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
@@ -159,13 +163,7 @@ internal class GoogleOAuthBroker(
         ),
     )
 
-    private fun invalidRequest() = GoogleBrokerResult.Failure(
-        HttpStatusCode.BadRequest,
-        GoogleOAuthBrokerErrorResponse(
-            error = "invalid_request",
-            errorDescription = "The desktop authorization request was invalid.",
-        ),
-    )
+    private fun invalidRequest() = invalidDesktopRequest()
 
     private fun safeGoogleErrorDescription(error: String): String = when (error) {
         "invalid_grant" -> "Google rejected or expired this authorization. Sign in again."
@@ -182,17 +180,21 @@ internal fun Route.googleOAuthBrokerRoutes(broker: GoogleOAuthBroker) {
     rateLimit(RateLimitName("oauth-exchange-global")) {
         rateLimit(RateLimitName("oauth-exchange")) {
             post("/api/oauth/google/token") {
-                respond(call, broker.exchangeAuthorizationCode(call.receive()))
+                val request = call.receiveBrokerRequest<GoogleAuthorizationCodeExchangeRequest>()
+                    ?: return@post respond(call, invalidDesktopRequest())
+                respond(call, broker.exchangeAuthorizationCode(request))
             }
             post("/api/oauth/google/refresh") {
-                respond(call, broker.refresh(call.receive()))
+                val request = call.receiveBrokerRequest<GoogleRefreshTokenExchangeRequest>()
+                    ?: return@post respond(call, invalidDesktopRequest())
+                respond(call, broker.refresh(request))
             }
         }
     }
 }
 
 private suspend fun respond(
-    call: io.ktor.server.application.ApplicationCall,
+    call: ApplicationCall,
     result: GoogleBrokerResult,
 ) {
     when (result) {
@@ -200,3 +202,22 @@ private suspend fun respond(
         is GoogleBrokerResult.Failure -> call.respond(result.status, result.error)
     }
 }
+
+private suspend inline fun <reified T : Any> ApplicationCall.receiveBrokerRequest(): T? =
+    try {
+        receive<T>()
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: ContentTransformationException) {
+        null
+    } catch (_: BadRequestException) {
+        null
+    }
+
+private fun invalidDesktopRequest() = GoogleBrokerResult.Failure(
+    HttpStatusCode.BadRequest,
+    GoogleOAuthBrokerErrorResponse(
+        error = "invalid_request",
+        errorDescription = "The desktop authorization request was invalid.",
+    ),
+)

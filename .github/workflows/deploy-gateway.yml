@@ -43,4 +43,4 @@ jobs:
         run: |
           service_url="$(gcloud run services describe ares-analytics-gateway --project=aresfirst-portal --region=us-central1 --format='value(status.url)')"
           test -n "$service_url"
-          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$service_url/healthz"
+          curl --fail --silent --show-error --retry 5 --retry-delay 3 "$service_url/health"
