@@ -385,7 +385,10 @@ fun MainScreen(services: ServiceRegistry) {
 
     // Start NT4 connection once config is resolved or target/simulator status changes
     LaunchedEffect(currentConfig, targetSelection, liveRobotIp, isSimRunning) {
-        println("[MainScreen LaunchedEffect] RUNNING: config=$currentConfig (hash=${System.identityHashCode(currentConfig)}), targetSelection=$targetSelection, liveRobotIp=$liveRobotIp, isSimRunning=$isSimRunning")
+        println(
+            "[MainScreen LaunchedEffect] RUNNING: workspace=${currentConfig.id}, " +
+                "targetSelection=$targetSelection, isSimRunning=$isSimRunning",
+        )
         focusRequester.requestFocus()
         val host = if (targetSelection == TargetSelection.LOCAL_SIM) {
             "127.0.0.1"
