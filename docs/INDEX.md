@@ -7,6 +7,7 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 | I want to... | Start with | What you will use |
 | --- | --- | --- |
 | Open ARES Analytics for the first time | [First launch](start/FIRST_LAUNCH.md) | A local robot workspace and JDK 17 |
+| Understand ARES colors, logo, and product styling | [ARES product design system](DESIGN_SYSTEM.md) | None |
 | Enable optional Google Drive sync | [Google Drive setup](start/GOOGLE_DRIVE_SETUP.md) | A team-owned Desktop OAuth client |
 | Learn where screens and controls are | [App tour](start/APP_TOUR.md) | A map of the window, status language, and common workflows |
 | See a robot without risking hardware | [Connect the simulator](start/CONNECT_SIMULATOR.md) | Live simulator telemetry on this computer |

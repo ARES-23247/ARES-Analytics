@@ -128,6 +128,7 @@ compose.desktop {
                 msiPackageVersion = aresAnalyticsVersion
                 menuGroup = "ARES"
                 upgradeUuid = "a3e52324-7000-4224-8700-1c7b8d9e2a3c"
+                iconFile.set(project.file("src/main/resources/brand/ares.ico"))
             }
 
             macOS {

@@ -5,6 +5,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,24 +37,22 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.shared.League
-import com.ares.analytics.ui.theme.AresBackground
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
 import com.ares.analytics.ui.theme.AresCyanGlow
 import com.ares.analytics.ui.theme.AresGreen
-import com.ares.analytics.ui.theme.AresRed
-import com.ares.analytics.ui.theme.AresRedDark
 import com.ares.analytics.ui.theme.AresSurface
-import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresTextTertiary
+import com.ares.analytics.ui.theme.AresBrandDestination
+import com.ares.analytics.ui.theme.openAresBrandDestination
+import com.ares.analytics.ui.theme.rememberAresLogoPainter
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -76,11 +75,36 @@ internal fun Sidebar(
         verticalArrangement = Arrangement.SpaceBetween
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            val logoBgColors = if (isSimRunning) listOf(AresGreen, AresGreen.copy(alpha = 0.7f)) else listOf(AresRed, AresRedDark)
-            Box(Modifier.size(40.dp).clip(CircleShape).background(Brush.linearGradient(logoBgColors)), contentAlignment = Alignment.Center) {
-                Text("A", color = if (isSimRunning) AresBackground else AresTextPrimary, fontWeight = FontWeight.Black, fontSize = 18.sp)
+            TooltipBox(
+                positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                tooltip = { PlainTooltip { Text("Visit the ARES 23247 team website") } },
+                state = rememberTooltipState(),
+            ) {
+                Box(contentAlignment = Alignment.BottomEnd) {
+                    IconButton(
+                        onClick = { openAresBrandDestination(AresBrandDestination.TEAM_WEBSITE) },
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Image(
+                            painter = rememberAresLogoPainter(),
+                            contentDescription = "ARES 23247 team logo — open team website",
+                            modifier = Modifier.size(42.dp),
+                        )
+                    }
+                    if (isSimRunning) {
+                        Box(
+                            Modifier
+                                .size(11.dp)
+                                .clip(CircleShape)
+                                .background(AresSurface)
+                                .padding(2.dp)
+                                .clip(CircleShape)
+                                .background(AresGreen),
+                        )
+                    }
+                }
             }
-            Spacer(Modifier.height(14.dp))
+            Spacer(Modifier.height(6.dp))
             primaryNavigationSections.filter { it != NavigationSection.SETTINGS }.forEach { section ->
                 SidebarSectionIcon(section, activeSection == section) { onNavigate(section.defaultTarget()) }
             }

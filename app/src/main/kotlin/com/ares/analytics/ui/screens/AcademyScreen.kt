@@ -69,6 +69,8 @@ import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresTextTertiary
+import com.ares.analytics.ui.theme.AresBrandDestination
+import com.ares.analytics.ui.theme.openAresBrandDestination
 import kotlinx.coroutines.launch
 
 /**
@@ -193,7 +195,20 @@ private fun LearningHeader(practiced: Int, total: Int) {
                 lineHeight = 19.sp,
             )
             Text("Practiced locally: $practiced of $total", color = AresGreen, fontWeight = FontWeight.SemiBold)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AresResourceButton(AresBrandDestination.TEAM_WEBSITE)
+                AresResourceButton(AresBrandDestination.TEAM_GITHUB)
+            }
         }
+    }
+}
+
+@Composable
+private fun AresResourceButton(destination: AresBrandDestination) {
+    OutlinedButton(onClick = { openAresBrandDestination(destination) }) {
+        Icon(Icons.AutoMirrored.Filled.Launch, contentDescription = null, modifier = Modifier.size(15.dp))
+        Spacer(Modifier.width(5.dp))
+        Text(destination.buttonLabel, fontSize = 11.sp)
     }
 }
 

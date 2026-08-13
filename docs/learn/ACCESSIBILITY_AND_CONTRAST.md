@@ -27,3 +27,10 @@ These preferences belong to the current workspace profile. Recheck them after sw
 Record the screen name, the exact label, and whether **Colorblind-Friendly Palette**, **Enhanced High Contrast**, or **Larger Text** is enabled. A screenshot is useful, but include the text because screenshots can reproduce display colors inaccurately.
 
 ARES button and status color pairs are checked automatically against WCAG contrast thresholds in the application test suite. Reporting a hard-to-read combination is still valuable: contrast ratios do not catch font size, glare, crowding, or every form of color-vision difference.
+
+## Why the app and website use color differently
+
+ARES Analytics and [aresfirst.org](https://aresfirst.org/) share the same logo and team palette.
+The website uses ARES red for expressive public calls to action. Analytics uses technical cyan for
+ordinary actions and selection so brand identity is not confused with an error, fault, or emergency
+stop. See the [ARES product design system](../DESIGN_SYSTEM.md) for the complete mapping.

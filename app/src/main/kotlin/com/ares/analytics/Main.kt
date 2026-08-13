@@ -9,6 +9,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.ares.analytics.di.ServiceRegistry
 import com.ares.analytics.ui.theme.AresTheme
 import com.ares.analytics.ui.screens.MainScreen
+import com.ares.analytics.ui.theme.rememberAresLogoPainter
 import kotlin.system.exitProcess
 
 /** Starts the single-instance Compose desktop application and owns process-level cleanup. */
@@ -88,7 +89,8 @@ private fun launchDesktopApplication() {
                 exitApplication()
             },
             title = "ARES Analytics — Mission Control",
-            state = windowState
+            state = windowState,
+            icon = rememberAresLogoPainter(),
         ) {
             DisposableEffect(window) {
                 val listener = object : java.awt.event.WindowAdapter() {
