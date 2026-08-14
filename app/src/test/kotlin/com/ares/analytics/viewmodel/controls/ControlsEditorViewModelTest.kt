@@ -343,6 +343,177 @@ class ControlsEditorViewModelTest {
     }
 
     @Test
+    fun `custom control schemes and button binding configurations can be added updated and removed`() = withProject { project ->
+        val documents = seededDocuments(project)
+        val profile = ControllerProfileDocument(
+            documentId = "custom-pad",
+            displayName = "Custom Pad",
+            controls = listOf(
+                ControllerControlDocument(
+                    controlId = "button_x",
+                    displayName = "X",
+                    type = ControllerControlTypeDocument.BUTTON,
+                    anchor = ControllerAnchorDocument(.5, .5),
+                    mappings = listOf(
+                        ControllerInputMappingDocument(ControllerInputPlatform.FTC, buttonIndex = 2),
+                        ControllerInputMappingDocument(ControllerInputPlatform.DESKTOP_GLFW, buttonIndex = 2)
+                    )
+                ),
+                ControllerControlDocument(
+                    controlId = "button_y",
+                    displayName = "Y",
+                    type = ControllerControlTypeDocument.BUTTON,
+                    anchor = ControllerAnchorDocument(.5, .3),
+                    mappings = listOf(
+                        ControllerInputMappingDocument(ControllerInputPlatform.FTC, buttonIndex = 3),
+                        ControllerInputMappingDocument(ControllerInputPlatform.DESKTOP_GLFW, buttonIndex = 3)
+                    )
+                )
+            )
+        )
+        documents.controllers.save(project.path, profile)
+
+        val customTeleopScheme = ControlSchemeDocument(
+            documentId = "custom-teleop",
+            name = "Custom Teleop",
+            controllers = listOf(
+                ControllerAssignment("driver", "Driver", profile.documentId, devicePort = 0),
+                ControllerAssignment("operator", "Operator", profile.documentId, devicePort = 1)
+            ),
+            bindings = emptyList()
+        )
+        val customEndgameScheme = ControlSchemeDocument(
+            documentId = "custom-endgame",
+            name = "Custom Endgame",
+            controllers = listOf(
+                ControllerAssignment("driver", "Driver", profile.documentId, devicePort = 0)
+            ),
+            bindings = emptyList()
+        )
+        documents.controls.save(project.path, customTeleopScheme)
+        documents.controls.save(project.path, customEndgameScheme)
+
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+
+        val initialSchemeIds = viewModel.state.value.schemes.map { it.documentId }
+        assertTrue(initialSchemeIds.contains("custom-teleop"))
+        assertTrue(initialSchemeIds.contains("custom-endgame"))
+
+        viewModel.selectScheme("custom-teleop")
+        assertEquals("custom-teleop", viewModel.state.value.selectedSchemeId)
+        assertEquals("Custom Teleop", viewModel.state.value.selectedScheme?.name)
+
+        viewModel.selectControl("button_x")
+        viewModel.createBinding()
+        assertNotNull(viewModel.state.value.draftBinding)
+        assertTrue(viewModel.state.value.draftHasUnappliedChanges)
+
+        viewModel.updateDraft { draft ->
+            draft.copy(
+                displayName = "Intake Pulse",
+                event = ControlEvent.PRESS,
+                timing = draft.timing.copy(pressDebounceSeconds = 0.05, releaseDebounceSeconds = 0.02)
+            )
+        }
+        viewModel.setTarget(ControlTargetKind.ACTION, "intake.run")
+        viewModel.applyDraft()
+
+        val teleopBindings = viewModel.state.value.selectedScheme?.bindings.orEmpty()
+        assertEquals(1, teleopBindings.size)
+        val addedBinding = teleopBindings.single()
+        assertEquals("Intake Pulse", addedBinding.displayName)
+        assertEquals(ControlEvent.PRESS, addedBinding.event)
+        assertEquals(0.05, addedBinding.timing.pressDebounceSeconds)
+        assertEquals(0.02, addedBinding.timing.releaseDebounceSeconds)
+        assertEquals("intake.run", addedBinding.target.key)
+        assertTrue(viewModel.state.value.dirty)
+        assertTrue(viewModel.state.value.dirtySchemeIds.contains("custom-teleop"))
+
+        viewModel.save()
+        assertFalse(viewModel.state.value.dirty)
+        val savedTeleop = documents.controls.load(project.path, "custom-teleop")
+        assertEquals(1, savedTeleop.bindings.size)
+        assertEquals("Intake Pulse", savedTeleop.bindings.single().displayName)
+
+        viewModel.selectScheme("custom-teleop")
+        val bindingId = addedBinding.bindingId
+        viewModel.editBinding(bindingId)
+        assertEquals(bindingId, viewModel.state.value.selectedBindingId)
+        assertEquals("Intake Pulse", viewModel.state.value.draftBinding?.displayName)
+
+        viewModel.updateDraft { draft ->
+            draft.copy(
+                displayName = "Intake While Held",
+                event = ControlEvent.HELD,
+                timing = draft.timing.copy(
+                    pressDebounceSeconds = 0.08,
+                    holdAfterSeconds = 0.45,
+                    maximumActiveSeconds = 5.0
+                )
+            )
+        }
+        viewModel.applyDraft()
+
+        val updatedBindings = viewModel.state.value.selectedScheme?.bindings.orEmpty()
+        assertEquals(1, updatedBindings.size)
+        val updatedBinding = updatedBindings.single()
+        assertEquals(bindingId, updatedBinding.bindingId)
+        assertEquals("Intake While Held", updatedBinding.displayName)
+        assertEquals(ControlEvent.HELD, updatedBinding.event)
+        assertEquals(0.08, updatedBinding.timing.pressDebounceSeconds)
+        assertEquals(0.45, updatedBinding.timing.holdAfterSeconds)
+        assertEquals(5.0, updatedBinding.timing.maximumActiveSeconds)
+
+        viewModel.save()
+        val reloadedTeleop = documents.controls.load(project.path, "custom-teleop")
+        assertEquals(ControlEvent.HELD, reloadedTeleop.bindings.single().event)
+        assertEquals(0.45, reloadedTeleop.bindings.single().timing.holdAfterSeconds)
+        assertEquals("Intake While Held", reloadedTeleop.bindings.single().displayName)
+
+        viewModel.selectScheme("custom-endgame")
+        assertEquals("custom-endgame", viewModel.state.value.selectedSchemeId)
+        viewModel.selectControl("button_y")
+        viewModel.createBinding()
+        viewModel.updateDraft { draft ->
+            draft.copy(
+                displayName = "Endgame Action",
+                event = ControlEvent.RELEASE
+            )
+        }
+        viewModel.setTarget(ControlTargetKind.ACTION, "intake.run")
+        viewModel.applyDraft()
+        viewModel.save()
+
+        val savedEndgame = documents.controls.load(project.path, "custom-endgame")
+        assertEquals(1, savedEndgame.bindings.size)
+        assertEquals("Endgame Action", savedEndgame.bindings.single().displayName)
+        assertEquals(ControlEvent.RELEASE, savedEndgame.bindings.single().event)
+
+        viewModel.selectScheme("custom-teleop")
+        assertEquals(1, viewModel.state.value.selectedScheme?.bindings.orEmpty().size)
+        viewModel.deleteBinding(bindingId)
+
+        assertTrue(viewModel.state.value.selectedScheme?.bindings.orEmpty().isEmpty())
+        assertNull(viewModel.state.value.selectedBindingId)
+        assertNull(viewModel.state.value.draftBinding)
+        assertTrue(viewModel.state.value.dirty)
+
+        viewModel.save()
+        val clearedTeleop = documents.controls.load(project.path, "custom-teleop")
+        assertTrue(clearedTeleop.bindings.isEmpty())
+
+        val teleopFile = File(project, ".ares/controls/custom-teleop.arescontrols")
+        assertTrue(teleopFile.exists())
+        assertTrue(teleopFile.delete())
+
+        viewModel.reload()
+        val remainingSchemeIds = viewModel.state.value.schemes.map { it.documentId }
+        assertFalse(remainingSchemeIds.contains("custom-teleop"))
+        assertTrue(remainingSchemeIds.contains("custom-endgame"))
+        assertEquals("custom-endgame", viewModel.state.value.selectedSchemeId)
+    }
+
+    @Test
     fun `save and generate uses the selected local project without requiring robot state`() = withProject { project ->
         val documents = seededDocuments(project)
         val generator = RecordingGenerator()
