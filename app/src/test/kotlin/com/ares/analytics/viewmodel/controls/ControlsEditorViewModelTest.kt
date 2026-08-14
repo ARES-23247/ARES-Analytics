@@ -327,6 +327,22 @@ class ControlsEditorViewModelTest {
     }
 
     @Test
+    fun `deleteBinding removes binding from scheme and sets dirty state`() = withProject { project ->
+        val documents = seededDocuments(project)
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+
+        viewModel.selectControl("a")
+        viewModel.createBinding()
+        viewModel.applyDraft()
+        val bindingId = viewModel.state.value.selectedScheme?.bindings?.firstOrNull()?.bindingId
+        assertNotNull(bindingId)
+
+        viewModel.deleteBinding(bindingId)
+        assertTrue(viewModel.state.value.selectedScheme?.bindings.orEmpty().isEmpty())
+        assertTrue(viewModel.state.value.dirty)
+    }
+
+    @Test
     fun `save and generate uses the selected local project without requiring robot state`() = withProject { project ->
         val documents = seededDocuments(project)
         val generator = RecordingGenerator()
