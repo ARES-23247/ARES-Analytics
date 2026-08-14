@@ -249,6 +249,38 @@ class DatabaseServiceIntegrationTest {
         }
     }
 
+    @Test
+    fun `deleteSession removes session records and summaries`() = runTest {
+        withDatabase { database ->
+            val session = Session("del-session", "23247", "2026", "bot", 1000L)
+            database.insertSession(session)
+            database.insertTelemetryFrames(
+                listOf(TelemetryFrame(1000L, "del-session", "Drive/Pose_X", 5.0))
+            )
+            val summary = SessionSummary(
+                sessionId = "del-session",
+                teamId = "23247",
+                seasonId = "2026",
+                robotId = "bot",
+                createdAt = 1000L,
+                minBatteryVoltage = 12.2,
+                maxEkfDrift = 0.05,
+                avgLoopTimeMs = 20.0
+            )
+            database.insertSessionSummary(summary)
+
+            assertEquals(1, database.getSessions().size)
+            assertEquals(summary, database.getSessionSummary("del-session"))
+            assertEquals(1, database.getTelemetryForKey("del-session", "Drive/Pose_X").size)
+
+            database.deleteSession("del-session")
+
+            assertEquals(0, database.getSessions().size)
+            assertNull(database.getSessionSummary("del-session"))
+            assertEquals(0, database.getTelemetryForKey("del-session", "Drive/Pose_X").size)
+        }
+    }
+
     private suspend fun withDatabase(block: suspend (DatabaseService) -> Unit) {
         val tempDir = Files.createTempDirectory("ares-database-integration").toFile()
         val database = DatabaseService(tempDir.resolve("telemetry.duckdb").absolutePath)
