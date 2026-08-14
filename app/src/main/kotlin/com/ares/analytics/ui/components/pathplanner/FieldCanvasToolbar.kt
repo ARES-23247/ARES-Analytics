@@ -15,10 +15,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.runtime.*
+import com.ares.analytics.shared.GamePieceType
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.Obstacle
 import com.ares.analytics.shared.PathPoint
 import com.ares.analytics.ui.theme.*
+import com.ares.analytics.viewmodel.field.FieldDocumentMapper
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
@@ -42,8 +46,20 @@ fun FieldCanvasToolbar(
     showCostmap: Boolean,
     onShowCostmapChanged: (Boolean) -> Unit,
     viewRotation: Float,
-    onViewRotationChanged: (Float) -> Unit
+    onViewRotationChanged: (Float) -> Unit,
+    gamePieceTypes: List<GamePieceType> = emptyList(),
+    onGamePieceTypesChanged: ((List<GamePieceType>) -> Unit)? = null,
 ) {
+    var showCatalogDialog by remember { mutableStateOf(false) }
+
+    if (showCatalogDialog && onGamePieceTypesChanged != null) {
+        GamePieceCatalogDialog(
+            gamePieceTypes = if (gamePieceTypes.isNotEmpty()) gamePieceTypes else FieldDocumentMapper.defaultGamePieceTypes(league),
+            onTypesChanged = onGamePieceTypesChanged,
+            onDismiss = { showCatalogDialog = false },
+        )
+    }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -143,42 +159,36 @@ fun FieldCanvasToolbar(
 
             if (showObstacleControls && editorMode == EditorMode.PLACE_GAME_PIECE) {
                 Box(modifier = Modifier.height(24.dp).width(1.dp).background(AresBorder))
-                if (league == League.FTC) {
-                    listOf("Sample (Yellow)", "Sample (Red)", "Sample (Blue)", "Specimen", "Decode (Ball)").forEach { type ->
-                        val isSel = activeGamePieceType == type
-                        val color = when (type) {
-                            "Sample (Yellow)" -> Color.Yellow
-                            "Sample (Red)" -> AresRed
-                            "Sample (Blue)" -> AresCyan
-                            "Decode (Ball)" -> Color.White
-                            else -> Color.Magenta
-                        }
-                        TextButton(
-                            onClick = { onActiveGamePieceTypeChanged(type) },
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
+                val availableTypes = if (gamePieceTypes.isNotEmpty()) gamePieceTypes else FieldDocumentMapper.defaultGamePieceTypes(league)
+                availableTypes.forEach { type ->
+                    val isSel = activeGamePieceType == type.name
+                    val parsedColor = remember(type.colorHex) {
+                        val clean = type.colorHex.removePrefix("#").trim()
+                        val fullHex = if (clean.length == 6) "FF$clean" else clean
+                        val intVal = fullHex.toLongOrNull(16) ?: 0xFFFFD700
+                        Color(intVal)
+                    }
+                    TextButton(
+                        onClick = { onActiveGamePieceTypeChanged(type.name) },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Box(Modifier.size(8.dp).background(parsedColor, CircleShape))
                             Text(
-                                text = type.substringAfter("(").substringBefore(")").take(3),
-                                color = if (isSel) color else AresTextSecondary,
+                                text = type.name.take(12),
+                                color = if (isSel) parsedColor else AresTextSecondary,
                                 fontSize = 11.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
                             )
                         }
                     }
-                } else {
-                    listOf("Note", "High Note").forEach { type ->
-                        val isSel = activeGamePieceType == type
-                        TextButton(
-                            onClick = { onActiveGamePieceTypeChanged(type) },
-                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = type,
-                                color = if (isSel) AresAmber else AresTextSecondary,
-                                fontSize = 11.sp,
-                                fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
+                }
+                if (onGamePieceTypesChanged != null) {
+                    TooltipButton(
+                        tooltipText = "Manage Game Piece Types",
+                        onClick = { showCatalogDialog = true },
+                    ) {
+                        Icon(Icons.Default.Tune, contentDescription = "Manage Types", modifier = Modifier.size(14.dp), tint = AresCyan)
                     }
                 }
             }

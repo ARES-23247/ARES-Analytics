@@ -144,6 +144,57 @@ internal object FieldDocumentMapper {
         }
     }
 
+    fun gamePieceTypes(document: RobotFieldConfig): List<com.ares.analytics.shared.GamePieceType> {
+        if (document.elementTypes.isNotEmpty()) {
+            return document.elementTypes.map { it.toGamePieceType() }
+        }
+        val league = if (document.fieldType == FieldType.FTC) League.FTC else League.FRC
+        return defaultGamePieceTypes(league)
+    }
+
+    fun defaultGamePieceTypes(league: League): List<com.ares.analytics.shared.GamePieceType> = when (league) {
+        League.FTC -> listOf(
+            com.ares.analytics.shared.GamePieceType("ftc-sample-yellow", "Sample (Yellow)", "box", 0.15, 0.15, 0.05, "#FDD835", 0.20, 0.6, 0.3),
+            com.ares.analytics.shared.GamePieceType("ftc-sample-red", "Sample (Red)", "box", 0.15, 0.15, 0.05, "#E53935", 0.20, 0.6, 0.3),
+            com.ares.analytics.shared.GamePieceType("ftc-sample-blue", "Sample (Blue)", "box", 0.15, 0.15, 0.05, "#1E88E5", 0.20, 0.6, 0.3),
+            com.ares.analytics.shared.GamePieceType("ftc-specimen", "Specimen", "box", 0.15, 0.04, 0.08, "#00ACC1", 0.22, 0.6, 0.2),
+            com.ares.analytics.shared.GamePieceType("ftc-decode-ball", "Decode (Ball)", "sphere", 0.15, 0.15, 0.15, "#43A047", 0.15, 0.5, 0.7),
+        )
+        League.FRC -> listOf(
+            com.ares.analytics.shared.GamePieceType("frc-note", "Note", "circle", 0.3556, 0.3556, 0.05, "#F57C00", 0.235, 0.6, 0.3),
+            com.ares.analytics.shared.GamePieceType("frc-coral", "Coral", "cylinder", 0.25, 0.10, 0.10, "#9C27B0", 0.30, 0.6, 0.2),
+            com.ares.analytics.shared.GamePieceType("frc-algae", "Algae", "sphere", 0.20, 0.20, 0.20, "#26A69A", 0.18, 0.5, 0.6),
+        )
+    }
+
+    private fun RobotFieldElementType.toGamePieceType(): com.ares.analytics.shared.GamePieceType = com.ares.analytics.shared.GamePieceType(
+        id = id,
+        name = name.ifBlank { id },
+        shape = shape,
+        diameter = diameter ?: width,
+        width = width,
+        height = height,
+        colorHex = color,
+        massKg = massKg,
+        friction = friction,
+        restitution = restitution
+    )
+
+    fun com.ares.analytics.shared.GamePieceType.toCanonical(): RobotFieldElementType = RobotFieldElementType(
+        id = id,
+        name = name,
+        shape = shape,
+        width = width,
+        height = height,
+        depth = width,
+        diameter = diameter,
+        color = colorHex,
+        massKg = massKg,
+        friction = friction,
+        restitution = restitution,
+        movable = true
+    )
+
     fun aprilTags(document: RobotFieldConfig): List<AprilTagPlacement> = document.apriltags.map { tag ->
         AprilTagPlacement(
             id = tag.editorId.ifBlank { "apriltag_${tag.id}" },

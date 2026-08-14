@@ -58,6 +58,8 @@ fun FieldCanvas(
     onObstaclesChanged: ((List<Obstacle>) -> Unit)? = null,
     gamePieces: List<GamePiece>? = null,
     onGamePiecesChanged: ((List<GamePiece>) -> Unit)? = null,
+    gamePieceTypes: List<com.ares.analytics.shared.GamePieceType>? = null,
+    onGamePieceTypesChanged: ((List<com.ares.analytics.shared.GamePieceType>) -> Unit)? = null,
     aprilTags: List<AprilTagPlacement>? = null,
     onAprilTagsChanged: ((List<AprilTagPlacement>) -> Unit)? = null,
     fieldWaypoints: List<FieldWaypoint>? = null,
@@ -239,7 +241,9 @@ fun FieldCanvas(
                 onViewRotationChanged = {
                     viewRotation = it
                     onViewRotationChanged?.invoke(it)
-                }
+                },
+                gamePieceTypes = gamePieceTypes ?: FieldDocumentMapper.defaultGamePieceTypes(league),
+                onGamePieceTypesChanged = onGamePieceTypesChanged,
             )
         }
 

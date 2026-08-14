@@ -71,4 +71,31 @@ class LinkageAndBehaviorComponentsTest {
         assertEquals(BehaviorStatus.SUCCESS, status)
         assertEquals(listOf("indexer.intake_and_hold"), fired)
     }
+
+    @Test
+    fun `game piece type catalog converts to canonical field element types`() {
+        val customType = com.ares.analytics.shared.GamePieceType(
+            id = "frc-reefscape-coral",
+            name = "Reefscape Coral",
+            shape = "cylinder",
+            diameter = 0.25,
+            width = 0.10,
+            height = 0.10,
+            colorHex = "#9C27B0",
+            massKg = 0.30,
+            friction = 0.65,
+            restitution = 0.25,
+        )
+
+        val canonical = with(com.ares.analytics.viewmodel.field.FieldDocumentMapper) { customType.toCanonical() }
+        assertEquals("frc-reefscape-coral", canonical.id)
+        assertEquals("Reefscape Coral", canonical.name)
+        assertEquals("cylinder", canonical.shape)
+        assertEquals(0.25, canonical.diameter)
+        assertEquals("#9C27B0", canonical.color)
+        assertEquals(0.30, canonical.massKg, 1e-4)
+        assertEquals(0.65, canonical.friction, 1e-4)
+        assertEquals(0.25, canonical.restitution, 1e-4)
+        assertTrue(canonical.movable)
+    }
 }
