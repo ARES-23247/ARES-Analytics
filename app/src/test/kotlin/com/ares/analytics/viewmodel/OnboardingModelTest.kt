@@ -42,6 +42,31 @@ class OnboardingModelTest {
     }
 
     @Test
+    fun `command execution failure returns invalid status and indicates Java could not be started`() {
+        val result = evaluateJava17(
+            commandSucceeded = false,
+            rawMessage = "java: command not found",
+        )
+
+        assertFalse(result.isValid)
+        assertNull(result.majorVersion)
+        assertEquals(
+            "JDK 17 is required. Java could not be started. Set JAVA_HOME to a JDK 17 installation, then check again.",
+            result.message,
+        )
+    }
+
+    @Test
+    fun `parseJavaMajorVersion safely returns null for empty blank or malformed version strings`() {
+        assertNull(parseJavaMajorVersion(""))
+        assertNull(parseJavaMajorVersion("   \t\n"))
+        assertNull(parseJavaMajorVersion("invalid version text"))
+        assertNull(parseJavaMajorVersion("java version \"invalid\""))
+        assertNull(parseJavaMajorVersion("openjdk version \"\""))
+        assertNull(parseJavaMajorVersion("version = malformed"))
+    }
+
+    @Test
     fun `project step reports only its own field error`() {
         val errors = validateOnboardingFields(OnboardingState(), OnboardingStep.PROJECT)
 
