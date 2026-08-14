@@ -37,9 +37,11 @@ class AlertEngineCompositeTest {
                 mockNt4Service.emitReplayFrame(curFrame)
             }
 
-            kotlinx.coroutines.delay(250)
-
-            val activeAlerts = alertService.alerts.value
+            val activeAlerts = kotlinx.coroutines.withTimeout(3000) {
+                alertService.alerts.first { list ->
+                    list.any { it.ruleKey.contains("Hardware/Motors/fl/Stall") }
+                }
+            }
             val stallAlert = activeAlerts.firstOrNull { it.ruleKey.contains("Hardware/Motors/fl/Stall") }
 
             assertNotNull(stallAlert)
@@ -53,9 +55,12 @@ class AlertEngineCompositeTest {
             TelemetryFrame(100L, "can-session", "Diagnostics/CANBus/CAN2/Utilization", 0.91)
         )
 
-        kotlinx.coroutines.delay(250)
-
-        val canAlert = alertService.alerts.value.firstOrNull {
+        val activeAlerts = kotlinx.coroutines.withTimeout(3000) {
+            alertService.alerts.first { list ->
+                list.any { it.sessionId == "can-session" && it.ruleKey == "Diagnostics/CANBus/CAN2/Utilization" }
+            }
+        }
+        val canAlert = activeAlerts.firstOrNull {
             it.sessionId == "can-session" && it.ruleKey == "Diagnostics/CANBus/CAN2/Utilization"
         }
         assertNotNull(canAlert)
