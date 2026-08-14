@@ -39,4 +39,34 @@ class FrameBatcherTest {
             tempDir.deleteRecursively()
         }
     }
+
+    @Test
+    fun `multi-session frame batching isolates data across sessions and handles empty flushes`() = runTest {
+        val tempDir = Files.createTempDirectory("ares-batcher-multi-session").toFile()
+        val database = DatabaseService(tempDir.resolve("telemetry.duckdb").absolutePath)
+        try {
+            val batcher = FrameBatcher(
+                databaseService = database,
+                batchSize = 5,
+                keyTransform = { it.removePrefix("/") }
+            )
+
+            // Flush before any data is added - verify zero error on empty batch
+            batcher.flush()
+            assertEquals(0, batcher.frameCount)
+
+            // Insert frames for two different sessions
+            batcher.add(TelemetryFrame(100, "session_1", "/Drive/Pose_X", 1.5))
+            batcher.add(TelemetryFrame(100, "session_2", "/Drive/Pose_X", 4.2))
+            batcher.flush()
+
+            assertEquals(1, database.countTelemetryFrames("session_1"))
+            assertEquals(1, database.countTelemetryFrames("session_2"))
+            assertEquals(1.5, database.getTelemetryForKey("session_1", "Drive/Pose_X").single().value)
+            assertEquals(4.2, database.getTelemetryForKey("session_2", "Drive/Pose_X").single().value)
+        } finally {
+            database.close()
+            tempDir.deleteRecursively()
+        }
+    }
 }
