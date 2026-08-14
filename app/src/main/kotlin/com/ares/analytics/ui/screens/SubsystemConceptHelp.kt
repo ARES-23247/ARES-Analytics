@@ -147,7 +147,9 @@ internal fun FeedforwardConceptLab(loop: SubsystemControlLoopDocument) {
     val gravity = when (feedforward.kind) {
         SubsystemFeedforwardKind.NONE, SubsystemFeedforwardKind.SIMPLE_MOTOR -> 0.0
         SubsystemFeedforwardKind.ELEVATOR -> feedforward.kG
-        SubsystemFeedforwardKind.ARM -> feedforward.kG * cos(Math.toRadians(angleDegrees.toDouble()))
+        SubsystemFeedforwardKind.ARM,
+        SubsystemFeedforwardKind.FOUR_BAR_LINKAGE,
+        SubsystemFeedforwardKind.TWO_DOF_ARM -> feedforward.kG * cos(Math.toRadians(angleDegrees.toDouble()))
     }
     val output = static + feedforward.kV * velocityValue + feedforward.kA * accelerationValue + gravity
 

@@ -682,6 +682,17 @@ private fun BehaviorStage(state: SubsystemGeneratorState, viewModel: SubsystemGe
         if (!canAddControl) Text("Add an actuator and numeric target value first.", color = AresTextSecondary, fontSize = 12.sp)
     }
     document.controlLoops.firstOrNull { it.uid == state.selectedLoopUid }?.let { ControlInspector(state, it, viewModel) }
+
+    val showLinkage = document.linkage.enabled || document.controlLoops.any {
+        it.feedforward.kind == com.areslib.subsystem.SubsystemFeedforwardKind.TWO_DOF_ARM ||
+            it.feedforward.kind == com.areslib.subsystem.SubsystemFeedforwardKind.FOUR_BAR_LINKAGE
+    }
+    if (showLinkage) {
+        com.ares.analytics.ui.components.linkage.LinkageEditorCanvas(
+            linkage = document.linkage,
+            onLinkageChanged = { newLinkage -> viewModel.edit { it.copy(linkage = newLinkage) } },
+        )
+    }
 }
 
 @Composable
@@ -1709,6 +1720,8 @@ private fun ControlInspector(
                     SubsystemFeedforwardKind.SIMPLE_MOTOR -> "kS overcomes static friction; kV and kA predict velocity and acceleration effort."
                     SubsystemFeedforwardKind.ELEVATOR -> "Motor feedforward plus constant kG to oppose gravity."
                     SubsystemFeedforwardKind.ARM -> "Motor feedforward plus kG × cos(angle) for an arm measured in radians."
+                    SubsystemFeedforwardKind.FOUR_BAR_LINKAGE -> "Four-bar virtual linkage with variable center-of-mass gravity torque."
+                    SubsystemFeedforwardKind.TWO_DOF_ARM -> "2-DOF articulated linkage with Lagrangian multivariable continuous gravity compensation."
                 },
                 color = AresTextSecondary,
                 fontSize = 12.sp,
