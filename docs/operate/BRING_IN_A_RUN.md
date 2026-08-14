@@ -63,7 +63,7 @@ Successful automatic imports are archived under `<robot-project>/logs/imported/`
 4. Use **Play**, **Pause**, **Step Back**, **Step Forward**, or drag the timeline.
 5. Confirm that the field, chart, or console follows the replay time.
 
-Use **Run History** for across-run calculated metrics and trends. Use the Dashboard **Recorded Sessions** widget and timeline for time-based replay.
+Use **Analysis → Guided Run Review** for the student-first evidence path from source identity through a safe next action. Use **Run History** for advanced across-run calculated metrics and trends. Use the Dashboard **Recorded Sessions** widget and timeline for exact time-based replay. See [Guided run review](GUIDED_RUN_REVIEW.md).
 
 ## Success check
 

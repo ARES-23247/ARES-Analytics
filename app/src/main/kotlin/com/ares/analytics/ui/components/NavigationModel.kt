@@ -31,6 +31,7 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     KDOC_VIEWER("Developer Reference", Icons.Default.Book),
     PIT_DIAGNOSTICS("Pit Self-Test", Icons.Default.Build),
     MATCH_STRATEGY("Strategy Preview", Icons.Default.Analytics),
+    GUIDED_RUN_ANALYSIS("Guided Run Review", Icons.Default.Analytics),
     RUN_HISTORY("Run History", Icons.Default.TableChart),
     DATABASE_VIEWER("Database", Icons.Default.Storage),
     CONTROLS("TeleOp Controls", Icons.Default.SportsEsports),
@@ -64,7 +65,7 @@ fun NavigationTarget.section(): NavigationSection? = when (this) {
     NavigationTarget.ROBOT_STUDIO, NavigationTarget.PIT_DIAGNOSTICS, NavigationTarget.CONTROLS,
     NavigationTarget.TUNING, NavigationTarget.DRIVEBASE_BUILDER, NavigationTarget.SUBSYSTEM_GEN -> NavigationSection.ROBOT
     NavigationTarget.PATH_PLANNER, NavigationTarget.FIELD_EDITOR -> NavigationSection.AUTONOMOUS
-    NavigationTarget.RUN_HISTORY -> NavigationSection.ANALYSIS
+    NavigationTarget.GUIDED_RUN_ANALYSIS, NavigationTarget.RUN_HISTORY -> NavigationSection.ANALYSIS
     NavigationTarget.IMPORT_CENTER, NavigationTarget.CLOUD -> NavigationSection.DATA
     NavigationTarget.PROFILE, NavigationTarget.ADMIN -> NavigationSection.SETTINGS
     NavigationTarget.ACADEMY, NavigationTarget.KDOC_VIEWER,
@@ -75,7 +76,7 @@ fun NavigationSection.defaultTarget(): NavigationTarget = when (this) {
     NavigationSection.DASHBOARD -> NavigationTarget.DASHBOARD
     NavigationSection.ROBOT -> NavigationTarget.ROBOT_STUDIO
     NavigationSection.AUTONOMOUS -> NavigationTarget.PATH_PLANNER
-    NavigationSection.ANALYSIS -> NavigationTarget.RUN_HISTORY
+    NavigationSection.ANALYSIS -> NavigationTarget.GUIDED_RUN_ANALYSIS
     NavigationSection.DATA -> NavigationTarget.IMPORT_CENTER
     NavigationSection.SETTINGS -> NavigationTarget.PROFILE
 }
@@ -91,7 +92,7 @@ fun NavigationSection.targets(): List<NavigationTarget> = when (this) {
         NavigationTarget.TUNING,
     )
     NavigationSection.AUTONOMOUS -> listOf(NavigationTarget.PATH_PLANNER, NavigationTarget.FIELD_EDITOR)
-    NavigationSection.ANALYSIS -> listOf(NavigationTarget.RUN_HISTORY)
+    NavigationSection.ANALYSIS -> listOf(NavigationTarget.GUIDED_RUN_ANALYSIS, NavigationTarget.RUN_HISTORY)
     NavigationSection.DATA -> listOf(NavigationTarget.IMPORT_CENTER, NavigationTarget.CLOUD)
     NavigationSection.SETTINGS -> listOf(NavigationTarget.PROFILE, NavigationTarget.ADMIN)
 }
@@ -117,6 +118,7 @@ fun NavigationTarget.searchTerms(): Set<String> = when (this) {
     NavigationTarget.KDOC_VIEWER -> setOf("api", "code reference", "kdoc", "source", "architecture", "units")
     NavigationTarget.PIT_DIAGNOSTICS -> setOf("hardware", "readiness", "pit", "self test", "freshness")
     NavigationTarget.MATCH_STRATEGY -> setOf("match", "strategy", "preview")
+    NavigationTarget.GUIDED_RUN_ANALYSIS -> setOf("analyze", "evidence", "possible cause", "safe next step", "guided review", "compare runs")
     NavigationTarget.RUN_HISTORY -> setOf("replay", "review", "compare", "past run", "session")
     NavigationTarget.DATABASE_VIEWER -> setOf("sql", "duckdb", "table")
     NavigationTarget.CONTROLS -> setOf("gamepad", "button", "driver", "operator", "binding")

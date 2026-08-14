@@ -49,6 +49,7 @@ class ServiceRegistry {
     val layoutPreferenceService by lazy { LayoutPreferenceService() }
     val updateCheckerService by lazy { UpdateCheckerService() }
     val learningProgressService by lazy { LearningProgressService() }
+    val importArchiveService by lazy { ImportArchiveService() }
     val tuningProposalInbox by lazy { com.ares.analytics.service.tuning.TuningProposalInbox() }
     val drivebaseProjectRepository by lazy { com.ares.analytics.service.drivebase.DrivebaseProjectRepository() }
     val tuningProfileRepository by lazy { com.ares.analytics.service.tuning.TuningProfileRepository() }
@@ -69,6 +70,15 @@ class ServiceRegistry {
     val alertEngineService by lazy { AlertEngineService(databaseService, nt4ClientService) }
     val driverAnalysisService by lazy { DriverAnalysisService(databaseService, sysIdService) }
     val diagnosticCoachService by lazy { DiagnosticCoachService(databaseService) }
+    val guidedRunAnalysisService by lazy {
+        GuidedRunAnalysisService(
+            databaseService = databaseService,
+            importArchiveService = importArchiveService,
+            advancedAnalyticsService = advancedAnalyticsService,
+            diagnosticCoachService = diagnosticCoachService,
+            driverAnalysisService = driverAnalysisService,
+        )
+    }
     val robotProjectReadinessService by lazy {
         RobotProjectReadinessService(
             databaseService = databaseService,

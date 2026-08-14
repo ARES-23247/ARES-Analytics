@@ -83,3 +83,5 @@ Ask for observable answers instead of “Do you understand?” Good prompts incl
 - “What would you preserve before changing one thing?”
 
 Continue with [Teaching with ARES](../mentor/TEACHING_WITH_ARES.md) for a group lesson plan and physical-robot gate.
+
+When a lesson asks you to compare evidence, open **Analysis → Guided Run Review** and follow the source, timestamp, confidence, observation, hypothesis, and safe-next-action steps. The detailed workflow is documented in [Guided run review](../operate/GUIDED_RUN_REVIEW.md).

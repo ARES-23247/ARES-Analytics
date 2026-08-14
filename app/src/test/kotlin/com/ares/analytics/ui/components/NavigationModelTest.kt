@@ -23,6 +23,8 @@ class NavigationModelTest {
         assertEquals(NavigationSection.ROBOT, grouped[NavigationTarget.ROBOT_STUDIO])
         assertEquals(NavigationTarget.ROBOT_STUDIO, NavigationSection.ROBOT.defaultTarget())
         assertEquals(NavigationSection.AUTONOMOUS, grouped[NavigationTarget.FIELD_EDITOR])
+        assertEquals(NavigationSection.ANALYSIS, grouped[NavigationTarget.GUIDED_RUN_ANALYSIS])
+        assertEquals(NavigationTarget.GUIDED_RUN_ANALYSIS, NavigationSection.ANALYSIS.defaultTarget())
         assertFalse(grouped.containsKey(NavigationTarget.MATCH_STRATEGY))
         assertEquals(NavigationSection.DATA, grouped[NavigationTarget.CLOUD])
         assertEquals(NavigationSection.SETTINGS, grouped[NavigationTarget.ADMIN])
@@ -42,6 +44,7 @@ class NavigationModelTest {
     fun `command search matches destination and group`() {
         assertEquals(listOf(NavigationTarget.TUNING), filterNavigationTargets("tuning", false))
         assertTrue(filterNavigationTargets("analysis", false).contains(NavigationTarget.RUN_HISTORY))
+        assertTrue(filterNavigationTargets("possible cause", false).contains(NavigationTarget.GUIDED_RUN_ANALYSIS))
         assertTrue(filterNavigationTargets("database", false).isEmpty())
         assertEquals(listOf(NavigationTarget.DATABASE_VIEWER), filterNavigationTargets("database", true))
         assertEquals(listOf(NavigationTarget.ACADEMY), filterNavigationTargets("start here", false))

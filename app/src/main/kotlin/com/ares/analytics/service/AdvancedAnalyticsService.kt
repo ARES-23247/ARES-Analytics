@@ -25,6 +25,7 @@ data class SessionComparison(
 
 data class MetricComparison(
     val metric: String,
+    val unit: String,
     val current: Double,
     val baselineAverage: Double,
     val percentChange: Double,
@@ -87,9 +88,17 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
         sessionId: String,
         baselineCount: Int = 3
     ): OperationResult<AdvancedAnalyticsReport> {
-        val baselineIds = databaseService.getAllSessionSummaries()
+        val current = databaseService.getSessionSummary(sessionId)
+        val baselineIds = if (current == null) emptyList() else databaseService.getAllSessionSummaries()
             .asSequence()
             .filter { it.sessionId != sessionId }
+            // Comparing another team, season, or robot can manufacture a persuasive but invalid
+            // regression. A guided review is allowed to say that no compatible baseline exists.
+            .filter {
+                it.teamId == current.teamId &&
+                    it.seasonId == current.seasonId &&
+                    it.robotId == current.robotId
+            }
             .sortedByDescending { it.createdAt }
             .take(baselineCount.coerceAtLeast(0))
             .map { it.sessionId }
@@ -179,13 +188,13 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
     private fun compareSummaries(current: SessionSummary, baselines: List<SessionSummary>): SessionComparison? {
         if (baselines.isEmpty()) return null
         val definitions = listOf(
-            MetricDefinition("minimum battery voltage", current.minBatteryVoltage, false) { it.minBatteryVoltage },
-            MetricDefinition("EKF drift", current.maxEkfDrift, true) { it.maxEkfDrift },
-            MetricDefinition("p95 loop time", current.p95LoopTimeMs, true) { it.p95LoopTimeMs },
-            MetricDefinition("cross-track error", current.avgCrossTrackError, true) { it.avgCrossTrackError },
-            MetricDefinition("battery resistance", current.avgBatteryResistance, true) { it.avgBatteryResistance },
-            MetricDefinition("vision latency", current.avgVisionLatencyMs, true) { it.avgVisionLatencyMs },
-            MetricDefinition("vision acceptance", current.visionAcceptanceRate, false) { it.visionAcceptanceRate }
+            MetricDefinition("minimum battery voltage", "V", current.minBatteryVoltage, false) { it.minBatteryVoltage },
+            MetricDefinition("EKF drift", "m", current.maxEkfDrift, true) { it.maxEkfDrift },
+            MetricDefinition("p95 loop time", "ms", current.p95LoopTimeMs, true) { it.p95LoopTimeMs },
+            MetricDefinition("cross-track error", "m", current.avgCrossTrackError, true) { it.avgCrossTrackError },
+            MetricDefinition("battery resistance", "ohm", current.avgBatteryResistance, true) { it.avgBatteryResistance },
+            MetricDefinition("vision latency", "ms", current.avgVisionLatencyMs, true) { it.avgVisionLatencyMs },
+            MetricDefinition("vision acceptance", "fraction", current.visionAcceptanceRate, false) { it.visionAcceptanceRate }
         )
         val metrics = definitions.mapNotNull { definition ->
             val values = baselines.map(definition.extract).filter { it.isFinite() && it != 0.0 }
@@ -193,6 +202,7 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
             val baseline = values.average()
             MetricComparison(
                 metric = definition.name,
+                unit = definition.unit,
                 current = definition.current,
                 baselineAverage = baseline,
                 percentChange = ((definition.current - baseline) / abs(baseline)) * 100.0,
@@ -402,6 +412,7 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
 
     private data class MetricDefinition(
         val name: String,
+        val unit: String,
         val current: Double,
         val lowerIsBetter: Boolean,
         val extract: (SessionSummary) -> Double
