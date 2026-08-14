@@ -182,4 +182,28 @@ class CalibrationServiceTest {
         databaseService.close()
         tempDb.delete()
     }
+
+    @Test
+    fun testRunExtrinsicCalibrationWithDiagnosticsEmptySession() = runTest {
+        val tempDb = File.createTempFile("calib_empty_session_test", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val calibrationService = CalibrationService(databaseService)
+
+        val diag = calibrationService.runExtrinsicCalibrationWithDiagnostics("non-existent-session", 0)
+        assertEquals(Pose3d(0.0, 0.0, 0.0, 0.0, 0.0, 0.0), diag.pose)
+        assertEquals(6, diag.standardErrors.size)
+        diag.standardErrors.forEach { se ->
+            assertEquals(0.0, se)
+        }
+        assertEquals(6, diag.covarianceMatrix.size)
+        diag.covarianceMatrix.forEach { row ->
+            assertEquals(6, row.size)
+            row.forEach { cov -> assertEquals(0.0, cov) }
+        }
+        assertEquals(0.0, diag.reducedChiSquared)
+
+        databaseService.close()
+        tempDb.delete()
+    }
 }
+
