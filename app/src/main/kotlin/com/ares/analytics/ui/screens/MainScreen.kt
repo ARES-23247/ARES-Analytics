@@ -28,6 +28,7 @@ import com.ares.analytics.service.MatchInfo
 import com.ares.analytics.service.UpdateCheckerService
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.CommandPalette
+import com.ares.analytics.ui.components.LearningCoachBar
 import com.ares.analytics.ui.components.NavigationTarget
 import com.ares.analytics.ui.components.SectionNavigationBar
 import com.ares.analytics.ui.components.Sidebar
@@ -35,9 +36,13 @@ import com.ares.analytics.ui.components.core.TargetSelection
 import com.ares.analytics.ui.components.core.ExecutionToolbar
 import com.ares.analytics.ui.components.terminal.TerminalDrawer
 import com.ares.analytics.ui.help.LearningCatalog
+import com.ares.analytics.ui.help.AcademyRuntimeSnapshot
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.*
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
+import com.ares.analytics.viewmodel.robotstudio.RobotStudioAction
+import com.ares.analytics.viewmodel.robotstudio.RobotStudioRuntimeEvidence
+import com.ares.analytics.viewmodel.robotstudio.RobotStudioViewModel
 import kotlinx.coroutines.*
 
 /**
@@ -336,15 +341,22 @@ fun MainScreen(services: ServiceRegistry) {
     DisposableEffect(subsystemGeneratorViewModel) {
         onDispose { subsystemGeneratorViewModel.close() }
     }
-    val drivebaseBuilderViewModel = remember(currentConfig.projectPath, currentConfig.robotId) {
+    val drivebaseBuilderViewModel = remember(currentConfig.projectPath, currentConfig.robotId, currentConfig.league) {
         DrivebaseBuilderViewModel(
             projectPath = currentConfig.projectPath ?: "",
             projectId = currentConfig.robotId,
+            league = currentConfig.league,
             scope = scope,
             repository = services.drivebaseProjectRepository,
             designAssistant = com.ares.analytics.service.DrivebaseDesignAssistant { current, request ->
                 services.syncEngineService.requestDrivebaseDesignProposal(current, request)
             },
+        )
+    }
+    val robotStudioViewModel = remember(currentConfig.id) {
+        RobotStudioViewModel(
+            readinessService = services.robotProjectReadinessService,
+            scope = scope,
         )
     }
     // This ViewModel owns no independent scope or hardware/service resource. Its jobs run in the
@@ -369,6 +381,27 @@ fun MainScreen(services: ServiceRegistry) {
     }
     val isLiveRobotOnline by services.targetScannerService.isLiveRobotOnline.collectAsState()
     val isLocalSimOnline by services.targetScannerService.isLocalSimOnline.collectAsState()
+
+    LaunchedEffect(currentConfig, runsIndexReloadTrigger) {
+        robotStudioViewModel.load(currentConfig)
+    }
+    LaunchedEffect(isBuildRunning, isSimRunning, isLocalSimOnline, isNt4Connected) {
+        robotStudioViewModel.updateRuntime(
+            RobotStudioRuntimeEvidence(
+                buildRunning = isBuildRunning,
+                simulatorRunning = isSimRunning,
+                localSimulatorOnline = isLocalSimOnline,
+                nt4Connected = isNt4Connected,
+            )
+        )
+    }
+    val academyRuntime = AcademyRuntimeSnapshot(
+        isAvailable = true,
+        isLocalSimulatorSelected = targetSelection == TargetSelection.LOCAL_SIM,
+        isSimulatorRunning = isSimRunning,
+        isLocalSimulatorOnline = isLocalSimOnline,
+        isNt4Connected = isNt4Connected,
+    )
 
     LaunchedEffect(liveRobotIp) {
         services.targetScannerService.startScanning(liveRobotIp)
@@ -672,6 +705,33 @@ fun MainScreen(services: ServiceRegistry) {
 
                     }
 
+                    if (activeNav != NavigationTarget.ACADEMY) {
+                        LearningCoachBar(
+                            progressService = services.learningProgressService,
+                            runtime = academyRuntime,
+                            onOpenAcademy = { lessonId ->
+                                requestedLessonId = lessonId
+                                mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
+                            },
+                            onSelectLocalSimulator = { targetSelection = TargetSelection.LOCAL_SIM },
+                            onStartSimulator = {
+                                targetSelection = TargetSelection.LOCAL_SIM
+                                services.processManagerService.runSimulation(
+                                    currentConfig.projectPath,
+                                    currentConfig.league,
+                                    currentConfig.simulatorCommand,
+                                )
+                                mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                            },
+                            onOpenDashboard = {
+                                mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DASHBOARD))
+                            },
+                            onStopSimulator = {
+                                services.processManagerService.killActiveSim()
+                            },
+                        )
+                    }
+
                     // ── Screen Router ────────────────────────────────────────
                     Box(modifier = Modifier.weight(1f)) {
                         when (activeNav) {
@@ -761,7 +821,8 @@ fun MainScreen(services: ServiceRegistry) {
                                     )
                                     mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
                                 },
-                                initialLessonId = requestedLessonId
+                                initialLessonId = requestedLessonId,
+                                runtime = academyRuntime,
                             )
                             NavigationTarget.KDOC_VIEWER -> KDocViewerScreen()
                             NavigationTarget.PIT_DIAGNOSTICS -> HardwareSelfTestWizard(nt4ClientService = services.nt4ClientService)
@@ -784,6 +845,46 @@ fun MainScreen(services: ServiceRegistry) {
                                 viewModel = tuningViewModel,
                                 sysIdViewModel = sysIdViewModel,
                                 projectPath = currentConfig.projectPath ?: ""
+                            )
+                            NavigationTarget.ROBOT_STUDIO -> RobotStudioScreen(
+                                viewModel = robotStudioViewModel,
+                                onAction = { action ->
+                                    when (action) {
+                                        RobotStudioAction.OPEN_PROFILE ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PROFILE))
+                                        RobotStudioAction.OPEN_DRIVEBASE ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
+                                        RobotStudioAction.OPEN_SUBSYSTEMS ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
+                                        RobotStudioAction.OPEN_CONTROLS ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS))
+                                        RobotStudioAction.OPEN_AUTONOMOUS ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PATH_PLANNER))
+                                        RobotStudioAction.OPEN_TUNING ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.TUNING))
+                                        RobotStudioAction.OPEN_IMPORTS ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.IMPORT_CENTER))
+                                        RobotStudioAction.OPEN_RUN_HISTORY ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.RUN_HISTORY))
+                                        RobotStudioAction.RUN_BUILD -> {
+                                            services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
+                                            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                        }
+                                        RobotStudioAction.RUN_SIMULATOR -> {
+                                            targetSelection = TargetSelection.LOCAL_SIM
+                                            services.processManagerService.runSimulation(
+                                                currentConfig.projectPath,
+                                                currentConfig.league,
+                                                currentConfig.simulatorCommand,
+                                            )
+                                            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                        }
+                                    }
+                                },
+                                onOpenAcademy = {
+                                    requestedLessonId = "robot-studio-tour"
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
+                                },
                             )
                             NavigationTarget.CONTROLS -> com.ares.analytics.ui.components.controls.ControlsEditorPanel(
                                 state = controlsEditorState,

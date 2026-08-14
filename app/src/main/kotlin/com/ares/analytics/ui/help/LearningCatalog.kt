@@ -15,7 +15,32 @@ enum class LearningTrack(val label: String) {
     UNDERSTAND("Understand the system"),
 }
 
-enum class LearningAction { OPEN_SCREEN, START_SIMULATOR }
+enum class LearningAction { OPEN_SCREEN, START_SIMULATOR, OPEN_LAB }
+
+enum class LearningLab(val label: String) {
+    CONTROL("Control response"),
+    SENSOR_FUSION("Sensor fusion"),
+    MOTION_PROFILE("Motion profile"),
+    MECHANISM_SIZING("Mechanism sizing"),
+}
+
+data class LearningLabGuide(
+    val lab: LearningLab,
+    val title: String,
+    val outcome: String,
+    val beforeYouStart: List<String>,
+    val tryThis: List<String>,
+    val reflectionQuestions: List<String>,
+    val successLooksLike: String,
+)
+
+data class LearningPath(
+    val id: String,
+    val title: String,
+    val summary: String,
+    val level: LearningLevel,
+    val lessonIds: List<String>,
+)
 
 data class LearningLesson(
     val id: String,
@@ -32,9 +57,81 @@ data class LearningLesson(
     val successLooksLike: String,
     val safetyNote: String? = null,
     val keywords: Set<String> = emptySet(),
+    val prerequisiteLessonIds: Set<String> = emptySet(),
+    val checkpoints: List<LearningCheckpoint> = emptyList(),
+    val lab: LearningLab? = null,
 )
 
 object LearningCatalog {
+    val labGuides: List<LearningLabGuide> = listOf(
+        LearningLabGuide(
+            lab = LearningLab.CONTROL,
+            title = "See how a controller changes mechanism response",
+            outcome = "Relate proportional, integral, derivative, and feedforward terms to a simplified response plot.",
+            beforeYouStart = listOf("This teaching model is not the production controller.", "Keep the displayed response bounded."),
+            tryThis = listOf(
+                "Run the baseline and note rise time, overshoot, and final error.",
+                "Change only one gain, predict what will happen, then run again.",
+                "Restore the baseline before comparing a different gain.",
+            ),
+            reflectionQuestions = listOf(
+                "Which measurement changed in the direction you predicted?",
+                "What evidence would you still need before proposing a robot tuning change?",
+            ),
+            successLooksLike = "You can describe one tradeoff using the plotted evidence without claiming the values are safe for hardware.",
+        ),
+        LearningLabGuide(
+            lab = LearningLab.SENSOR_FUSION,
+            title = "Combine imperfect position estimates",
+            outcome = "See why odometry drift, measurement noise, and uncertainty affect a fused estimate.",
+            beforeYouStart = listOf("This is a simplified diagonal teaching filter, not the production ARES EKF."),
+            tryThis = listOf(
+                "Compare truth, drifting odometry, and the fused estimate.",
+                "Increase one uncertainty and predict which source the estimate will trust less.",
+                "Reset and compare the same time window again.",
+            ),
+            reflectionQuestions = listOf(
+                "Why can a smooth estimate still be wrong?",
+                "Which timestamp, frame, and units would a real vision measurement need?",
+            ),
+            successLooksLike = "You can explain that fusion weighs uncertain evidence; it does not turn a sensor into ground truth.",
+        ),
+        LearningLabGuide(
+            lab = LearningLab.MOTION_PROFILE,
+            title = "Trade speed for acceleration and smoothness",
+            outcome = "Compare bounded motion profiles before using them in an autonomous routine.",
+            beforeYouStart = listOf("The profile is a teaching preview and does not prove field clearance or traction."),
+            tryThis = listOf(
+                "Start with the conservative preset and inspect position, velocity, and acceleration.",
+                "Change one limit and predict how total time changes.",
+                "Compare the result with the robot's documented speed and acceleration envelope.",
+            ),
+            reflectionQuestions = listOf(
+                "Which constraint limited the move?",
+                "What robot or field evidence is missing from this one-dimensional model?",
+            ),
+            successLooksLike = "You can explain how one constraint changed the profile without calling the preview a validated autonomous path.",
+        ),
+        LearningLabGuide(
+            lab = LearningLab.MECHANISM_SIZING,
+            title = "Estimate mechanism load and speed",
+            outcome = "Explore how geometry, gearing, mass, and efficiency affect a simplified mechanism estimate.",
+            beforeYouStart = listOf("Use measured units where possible.", "A simplified estimate cannot replace vendor limits or a mechanical review."),
+            tryThis = listOf(
+                "Choose a mechanism and record the baseline load and speed estimate.",
+                "Change gearing or geometry while holding every other input constant.",
+                "Check whether the result stays inside the stated model assumptions.",
+            ),
+            reflectionQuestions = listOf(
+                "Which input had the largest effect?",
+                "What current, thermal, structural, or friction evidence would a real design still need?",
+            ),
+            successLooksLike = "You can use the estimate to ask a better design question, not to certify a mechanism.",
+        ),
+    )
+
+    fun labGuide(lab: LearningLab): LearningLabGuide = labGuides.first { it.lab == lab }
+
     val lessons: List<LearningLesson> = listOf(
         LearningLesson(
             id = "start-simulator",
@@ -55,6 +152,47 @@ object LearningCatalog {
             successLooksLike = "The app reports a local simulator connection and dashboard values change over time.",
             safetyNote = "Simulator commands never authorize a physical robot. Confirm the target says Local Sim.",
             keywords = setOf("offline", "practice", "connect", "simulation"),
+            checkpoints = listOf(
+                LearningCheckpoint(
+                    id = FirstMissionCheckpointIds.LOCAL_SIM_SELECTED,
+                    title = "Select Local Sim",
+                    instruction = "Choose Local Sim in the execution toolbar before launching anything.",
+                    successText = "Local Sim is the selected execution target.",
+                    evidence = LearningCheckpointEvidence.LOCAL_SIMULATOR_SELECTED,
+                    action = LearningCheckpointAction.SELECT_LOCAL_SIMULATOR,
+                ),
+                LearningCheckpoint(
+                    id = FirstMissionCheckpointIds.SIMULATOR_RUNNING,
+                    title = "Start the simulator",
+                    instruction = "Launch one simulator and keep its terminal output visible.",
+                    successText = "ARES can see its managed simulator process running.",
+                    evidence = LearningCheckpointEvidence.SIMULATOR_RUNNING,
+                    action = LearningCheckpointAction.START_SIMULATOR,
+                ),
+                LearningCheckpoint(
+                    id = FirstMissionCheckpointIds.LOCAL_SIM_CONNECTED,
+                    title = "Wait for local telemetry",
+                    instruction = "Wait until the local simulator and NT4 connection both report ready.",
+                    successText = "ARES observes an NT4 connection to the local simulator.",
+                    evidence = LearningCheckpointEvidence.LOCAL_SIMULATOR_CONNECTED,
+                    action = LearningCheckpointAction.OPEN_LESSON,
+                ),
+                LearningCheckpoint(
+                    id = FirstMissionCheckpointIds.IDENTIFIED_DATA_SOURCE,
+                    title = "Name the data source",
+                    instruction = "Open Dashboard, find one changing value, and say that it is live simulator data—not replay and not a physical robot.",
+                    successText = "You identified the source, one changing value, and its meaning.",
+                    action = LearningCheckpointAction.OPEN_DASHBOARD,
+                ),
+                LearningCheckpoint(
+                    id = FirstMissionCheckpointIds.SIMULATOR_STOPPED,
+                    title = "Stop the simulator",
+                    instruction = "Use the Analytics Stop action and confirm the managed simulator process ends.",
+                    successText = "ARES no longer sees the simulator process. This does not indicate a physical robot's enabled state.",
+                    evidence = LearningCheckpointEvidence.SIMULATOR_STOPPED_AFTER_RUNNING,
+                    action = LearningCheckpointAction.STOP_SIMULATOR,
+                ),
+            ),
         ),
         LearningLesson(
             id = "read-connection-state",
@@ -73,6 +211,14 @@ object LearningCatalog {
             successLooksLike = "You can state where the displayed data came from before changing robot behavior.",
             safetyNote = "Never assume a disconnected indicator means a robot is disabled; Driver Station owns enable state.",
             keywords = setOf("nt4", "disconnected", "live", "replay"),
+            prerequisiteLessonIds = setOf("start-simulator"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "read-connection-state.source",
+                    "Explain the source",
+                    "Name whether the values are from Live Robot, Local Sim, Replay, or no current source.",
+                ),
+            ),
         ),
         LearningLesson(
             id = "bring-in-run",
@@ -91,6 +237,14 @@ object LearningCatalog {
             ),
             successLooksLike = "You can identify the run source, timestamp, robot, and any warnings without guessing.",
             keywords = setOf("log", "import", "quarantine", "history", "replay"),
+            prerequisiteLessonIds = setOf("read-connection-state"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "bring-in-run.evidence",
+                    "Describe one saved run",
+                    "Record its source, timestamp, robot identity, and one observed warning or result.",
+                ),
+            ),
         ),
         LearningLesson(
             id = "first-routine",
@@ -110,6 +264,14 @@ object LearningCatalog {
             successLooksLike = "The routine saves, validates, and previews without bounds or capability warnings.",
             safetyNote = "A valid preview is not physical clearance proof. Recheck on a real field before enabling a robot.",
             keywords = setOf("auto", "routine", "path", "drive to"),
+            prerequisiteLessonIds = setOf("drivebase-blueprint"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "first-routine.preview",
+                    "Review the validated preview",
+                    "Confirm the routine has no unresolved validation warning and describe what still needs a physical field check.",
+                ),
+            ),
         ),
         LearningLesson(
             id = "map-one-control",
@@ -129,6 +291,69 @@ object LearningCatalog {
             successLooksLike = "The binding has no conflicts and its generated destination is clearly identified.",
             safetyNote = "Test mechanism controls with the robot disabled and lifted or mechanically secured as appropriate.",
             keywords = setOf("teleop", "gamepad", "button", "binding"),
+            prerequisiteLessonIds = setOf("safe-subsystem"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "map-one-control.review",
+                    "Review the control",
+                    "Name the controller, input event, robot action, conflict result, and safe test plan.",
+                ),
+            ),
+        ),
+        LearningLesson(
+            id = "robot-studio-tour",
+            level = LearningLevel.STARTER,
+            track = LearningTrack.BUILD,
+            title = "Follow one robot from idea to evidence",
+            outcome = "Use Robot Studio to find the next incomplete stage without confusing documents, builds, simulation, and physical validation.",
+            durationMinutes = 12,
+            destination = NavigationTarget.ROBOT_STUDIO,
+            beforeYouStart = listOf("Select the intended robot workspace.", "Practice the data-source lesson first."),
+            steps = listOf(
+                "Open Robot Studio and read the workspace path and league before changing anything.",
+                "Find the first stage labeled Needs action, Blocked, Invalid, or Code required.",
+                "Open its specialized builder and identify the canonical file it owns.",
+                "Return to Robot Studio, refresh, and explain what evidence changed.",
+                "Name what a successful build or simulator run still cannot prove about physical hardware.",
+            ),
+            successLooksLike = "You can explain the stage labels, storage destination, runtime consumer, and physical-validation boundary for one robot project.",
+            safetyNote = "Robot Studio does not enable hardware. A green build or simulator result is not permission to run a physical mechanism.",
+            keywords = setOf("robot studio", "workflow", "project", "readiness", "build robot", "no code"),
+            prerequisiteLessonIds = setOf("read-connection-state"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "robot-studio-tour.boundary",
+                    "Explain one stage",
+                    "Name its status, canonical file, runtime consumer, supporting evidence, and one physical check that remains.",
+                ),
+            ),
+        ),
+        LearningLesson(
+            id = "drivebase-blueprint",
+            level = LearningLevel.BUILDER,
+            track = LearningTrack.BUILD,
+            title = "Describe how your robot moves",
+            outcome = "Create a drivebase descriptor with explicit geometry, hardware direction, localization, limits, and simulation assumptions.",
+            durationMinutes = 20,
+            destination = NavigationTarget.DRIVEBASE_BUILDER,
+            beforeYouStart = listOf("Have measured wheelbase, track width, and wheel size when possible.", "Use the simulator before a physical drive test."),
+            steps = listOf(
+                "Choose the real drivetrain type and inspect the diagram.",
+                "Enter hardware identity, direction, geometry, and localization sources.",
+                "Review the speed, acceleration, stale-feedback, and neutral-output limits.",
+                "Run the geometry and localization teaching labs, then review generated destinations.",
+            ),
+            successLooksLike = "The descriptor validates and you can explain every physical dimension, inversion choice, sensor source, and safety envelope.",
+            safetyNote = "A generated drivebase is not calibrated hardware. Verify motor direction with wheels clear and motion authority controlled.",
+            keywords = setOf("drivebase", "drivetrain", "mecanum", "swerve", "geometry", "inversion", "localization"),
+            prerequisiteLessonIds = setOf("read-connection-state"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "drivebase-blueprint.review",
+                    "Explain the blueprint",
+                    "Name the drive type, dimensions and units, localization source, motor directions, and safe command envelope.",
+                ),
+            ),
         ),
         LearningLesson(
             id = "safe-subsystem",
@@ -147,6 +372,19 @@ object LearningCatalog {
             ),
             successLooksLike = "No safety warning remains and you can name the state, controller, IO, mock, and lifecycle roles.",
             keywords = setOf("redux", "io", "generator", "motor", "sensor", "homing"),
+            prerequisiteLessonIds = setOf("read-connection-state"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "safe-subsystem.flow",
+                    "Trace the runtime flow",
+                    "Explain input → Redux action/reducer → immutable state → controller → IO → hardware or simulation.",
+                ),
+                reflectionCheckpoint(
+                    "safe-subsystem.safety",
+                    "Review the safety contract",
+                    "Name safe neutral, stale/invalid feedback behavior, homing or calibration, limits, and fault recovery.",
+                ),
+            ),
         ),
         LearningLesson(
             id = "pit-readiness",
@@ -167,6 +405,41 @@ object LearningCatalog {
             successLooksLike = "You can explain which evidence was observed and which checks still require hardware.",
             safetyNote = "This page is read-only telemetry readiness. It does not prove that motors or mechanisms moved safely.",
             keywords = setOf("pit", "self test", "hardware", "freshness"),
+            prerequisiteLessonIds = setOf("compare-run-evidence"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "pit-readiness.boundary",
+                    "Separate evidence from pending work",
+                    "List one observed result and one physical or missing-data check that remains unresolved.",
+                ),
+            ),
+        ),
+        LearningLesson(
+            id = "compare-run-evidence",
+            level = LearningLevel.BUILDER,
+            track = LearningTrack.OPERATE,
+            title = "Compare two robot runs",
+            outcome = "Make one bounded claim from repeatable run evidence instead of relying on memory.",
+            durationMinutes = 12,
+            destination = NavigationTarget.RUN_HISTORY,
+            beforeYouStart = listOf("Have two compatible imported simulator or robot runs.", "Confirm their robot identity and units match."),
+            steps = listOf(
+                "Choose a baseline run and a comparison run.",
+                "Select one behavior and the smallest useful set of signals.",
+                "Compare the same time window, units, and operating state.",
+                "Write one observed difference and one limitation of the evidence.",
+            ),
+            successLooksLike = "Your claim names the runs, signal, unit, time window, observed difference, and an important limitation.",
+            safetyNote = "Historical evidence cannot prove the robot is currently safe or configured the same way.",
+            keywords = setOf("compare", "baseline", "replay", "analysis", "evidence", "run history"),
+            prerequisiteLessonIds = setOf("bring-in-run"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "compare-run-evidence.claim",
+                    "State an evidence-based comparison",
+                    "Record the runs, signal, unit, time window, difference, and limitation.",
+                ),
+            ),
         ),
         LearningLesson(
             id = "tuning-evidence",
@@ -187,6 +460,109 @@ object LearningCatalog {
             successLooksLike = "You can explain the evidence for a change and how to restore the previous configuration.",
             safetyNote = "SysId intentionally moves mechanisms. Use physical testing only with supervision, clear space, and an emergency stop plan.",
             keywords = setOf("sysid", "pid", "feedforward", "closed loop"),
+            prerequisiteLessonIds = setOf("compare-run-evidence", "control-response-lab"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "tuning-evidence.proposal",
+                    "Explain a reversible proposal",
+                    "Name the source evidence, units, safety envelope, reviewer, and rollback path without applying it to hardware.",
+                ),
+            ),
+        ),
+        LearningLesson(
+            id = "control-response-lab",
+            level = LearningLevel.BUILDER,
+            track = LearningTrack.UNDERSTAND,
+            title = "Lab: predict a control response",
+            outcome = labGuide(LearningLab.CONTROL).outcome,
+            durationMinutes = 15,
+            destination = NavigationTarget.ACADEMY,
+            action = LearningAction.OPEN_LAB,
+            beforeYouStart = labGuide(LearningLab.CONTROL).beforeYouStart,
+            steps = labGuide(LearningLab.CONTROL).tryThis,
+            successLooksLike = labGuide(LearningLab.CONTROL).successLooksLike,
+            safetyNote = "Teaching-model results never authorize live tuning or mechanism motion.",
+            keywords = setOf("pid", "feedforward", "response", "overshoot", "control lab"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "control-response-lab.reflection",
+                    "Explain one control tradeoff",
+                    labGuide(LearningLab.CONTROL).reflectionQuestions.joinToString(" "),
+                ),
+            ),
+            lab = LearningLab.CONTROL,
+        ),
+        LearningLesson(
+            id = "sensor-fusion-lab",
+            level = LearningLevel.BUILDER,
+            track = LearningTrack.UNDERSTAND,
+            title = "Lab: weigh sensor evidence",
+            outcome = labGuide(LearningLab.SENSOR_FUSION).outcome,
+            durationMinutes = 15,
+            destination = NavigationTarget.ACADEMY,
+            action = LearningAction.OPEN_LAB,
+            beforeYouStart = labGuide(LearningLab.SENSOR_FUSION).beforeYouStart,
+            steps = labGuide(LearningLab.SENSOR_FUSION).tryThis,
+            successLooksLike = labGuide(LearningLab.SENSOR_FUSION).successLooksLike,
+            safetyNote = "This simplified filter cannot validate a production estimator or sensor calibration.",
+            keywords = setOf("ekf", "sensor", "fusion", "odometry", "vision", "uncertainty"),
+            prerequisiteLessonIds = setOf("read-connection-state"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "sensor-fusion-lab.reflection",
+                    "Explain one fusion tradeoff",
+                    labGuide(LearningLab.SENSOR_FUSION).reflectionQuestions.joinToString(" "),
+                ),
+            ),
+            lab = LearningLab.SENSOR_FUSION,
+        ),
+        LearningLesson(
+            id = "motion-profile-lab",
+            level = LearningLevel.BUILDER,
+            track = LearningTrack.UNDERSTAND,
+            title = "Lab: shape a bounded motion",
+            outcome = labGuide(LearningLab.MOTION_PROFILE).outcome,
+            durationMinutes = 15,
+            destination = NavigationTarget.ACADEMY,
+            action = LearningAction.OPEN_LAB,
+            beforeYouStart = labGuide(LearningLab.MOTION_PROFILE).beforeYouStart,
+            steps = labGuide(LearningLab.MOTION_PROFILE).tryThis,
+            successLooksLike = labGuide(LearningLab.MOTION_PROFILE).successLooksLike,
+            safetyNote = "A one-dimensional teaching profile does not prove traction, collision clearance, or mechanism safety.",
+            keywords = setOf("motion", "profile", "velocity", "acceleration", "autonomous"),
+            prerequisiteLessonIds = setOf("drivebase-blueprint"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "motion-profile-lab.reflection",
+                    "Explain one profile tradeoff",
+                    labGuide(LearningLab.MOTION_PROFILE).reflectionQuestions.joinToString(" "),
+                ),
+            ),
+            lab = LearningLab.MOTION_PROFILE,
+        ),
+        LearningLesson(
+            id = "mechanism-sizing-lab",
+            level = LearningLevel.BUILDER,
+            track = LearningTrack.UNDERSTAND,
+            title = "Lab: estimate a mechanism",
+            outcome = labGuide(LearningLab.MECHANISM_SIZING).outcome,
+            durationMinutes = 15,
+            destination = NavigationTarget.ACADEMY,
+            action = LearningAction.OPEN_LAB,
+            beforeYouStart = labGuide(LearningLab.MECHANISM_SIZING).beforeYouStart,
+            steps = labGuide(LearningLab.MECHANISM_SIZING).tryThis,
+            successLooksLike = labGuide(LearningLab.MECHANISM_SIZING).successLooksLike,
+            safetyNote = "Ask a mechanical mentor to review loads, structure, pinch points, and vendor limits before construction.",
+            keywords = setOf("mechanism", "gearing", "torque", "speed", "mass", "sizing"),
+            prerequisiteLessonIds = setOf("safe-subsystem"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "mechanism-sizing-lab.reflection",
+                    "Explain one sizing tradeoff",
+                    labGuide(LearningLab.MECHANISM_SIZING).reflectionQuestions.joinToString(" "),
+                ),
+            ),
+            lab = LearningLab.MECHANISM_SIZING,
         ),
         LearningLesson(
             id = "developer-reference",
@@ -206,6 +582,58 @@ object LearningCatalog {
             successLooksLike = "You can identify the owning module, source path, units, and safety invariant for the concept.",
             safetyNote = "The reference is a curated map, not generated API documentation. Current source and tests remain authoritative.",
             keywords = setOf("developer", "source", "kdoc", "api", "architecture", "units"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "developer-reference.source",
+                    "Verify one source concept",
+                    "Record its owning module, source path, unit, invariant, and nearest focused test.",
+                ),
+            ),
+        ),
+    )
+
+    val paths: List<LearningPath> = listOf(
+        LearningPath(
+            id = "first-mission",
+            title = "New student · First mission",
+            summary = "Start safely in Local Sim, identify the data source, then preserve and review evidence.",
+            level = LearningLevel.STARTER,
+            lessonIds = listOf("start-simulator", "read-connection-state", "bring-in-run", "compare-run-evidence"),
+        ),
+        LearningPath(
+            id = "driver-operator",
+            title = "Driver & operator",
+            summary = "Understand the active data source, map controls, and use run evidence to practice consistently.",
+            level = LearningLevel.BUILDER,
+            lessonIds = listOf("start-simulator", "read-connection-state", "map-one-control", "bring-in-run", "compare-run-evidence"),
+        ),
+        LearningPath(
+            id = "robot-builder",
+            title = "Robot builder",
+            summary = "Describe the drivetrain and mechanisms, expose safe actions, then verify behavior in simulation.",
+            level = LearningLevel.BUILDER,
+            lessonIds = listOf("robot-studio-tour", "drivebase-blueprint", "safe-subsystem", "mechanism-sizing-lab", "control-response-lab", "tuning-evidence"),
+        ),
+        LearningPath(
+            id = "autonomous-developer",
+            title = "Autonomous developer",
+            summary = "Understand localization and motion limits, then preview a bounded routine before generation.",
+            level = LearningLevel.BUILDER,
+            lessonIds = listOf("read-connection-state", "drivebase-blueprint", "sensor-fusion-lab", "motion-profile-lab", "first-routine"),
+        ),
+        LearningPath(
+            id = "data-analyst",
+            title = "Data analyst",
+            summary = "Preserve runs, separate measurement from inference, compare evidence, and propose reversible next checks.",
+            level = LearningLevel.BUILDER,
+            lessonIds = listOf("bring-in-run", "compare-run-evidence", "sensor-fusion-lab", "control-response-lab", "tuning-evidence"),
+        ),
+        LearningPath(
+            id = "mentor",
+            title = "Mentor",
+            summary = "Lead simulator-first activities, challenge misconceptions, and keep physical validation boundaries explicit.",
+            level = LearningLevel.ADVANCED,
+            lessonIds = listOf("start-simulator", "read-connection-state", "safe-subsystem", "pit-readiness", "compare-run-evidence", "developer-reference"),
         ),
     )
 
@@ -215,19 +643,30 @@ object LearningCatalog {
         NavigationTarget.RUN_HISTORY to "bring-in-run",
         NavigationTarget.PATH_PLANNER to "first-routine",
         NavigationTarget.CONTROLS to "map-one-control",
+        NavigationTarget.DRIVEBASE_BUILDER to "drivebase-blueprint",
         NavigationTarget.SUBSYSTEM_GEN to "safe-subsystem",
         NavigationTarget.PIT_DIAGNOSTICS to "pit-readiness",
         NavigationTarget.TUNING to "tuning-evidence",
+        NavigationTarget.ROBOT_STUDIO to "robot-studio-tour",
         NavigationTarget.KDOC_VIEWER to "developer-reference",
     )
 
     fun lessonFor(target: NavigationTarget): LearningLesson? =
         contextualLessonIds[target]?.let { id -> lessons.firstOrNull { it.id == id } }
 
-    fun search(query: String, level: LearningLevel? = null): List<LearningLesson> {
+    fun lesson(id: String): LearningLesson? = lessons.firstOrNull { it.id == id }
+
+    fun path(id: String): LearningPath? = paths.firstOrNull { it.id == id }
+
+    fun lessonsForPath(pathId: String): List<LearningLesson> =
+        path(pathId)?.lessonIds.orEmpty().mapNotNull(::lesson)
+
+    fun search(query: String, level: LearningLevel? = null, pathId: String? = null): List<LearningLesson> {
         val normalized = query.trim().lowercase()
+        val pathLessonIds = pathId?.let(::path)?.lessonIds?.toSet()
         return lessons.filter { lesson ->
             (level == null || lesson.level == level) &&
+                (pathLessonIds == null || lesson.id in pathLessonIds) &&
                 (normalized.isBlank() || listOf(
                     lesson.title,
                     lesson.outcome,
@@ -238,3 +677,14 @@ object LearningCatalog {
         }
     }
 }
+
+private fun reflectionCheckpoint(
+    id: String,
+    title: String,
+    instruction: String,
+): LearningCheckpoint = LearningCheckpoint(
+    id = id,
+    title = title,
+    instruction = instruction,
+    successText = "You recorded the claim in your own words and can show the supporting screen or evidence.",
+)

@@ -61,6 +61,10 @@ The selected folder usually contains `settings.gradle` or `settings.gradle.kts`.
 2. Check the **JDK 17** result. Select **Check** again after fixing Java if necessary.
 3. Select **Create workspace**.
 
+After Dashboard opens, choose **Help & Learn → First mission**. This is the recommended
+hardware-free handoff from setup into the app. The lesson coach can keep the next checkpoint
+visible while you select Local Sim, open Dashboard, and stop the simulator.
+
 ## Success check
 
 Setup is complete when:
@@ -69,6 +73,9 @@ Setup is complete when:
 - the workspace selector shows the robot you chose;
 - the execution toolbar offers **Live Robot** and **Local Sim** targets; and
 - no required-field or JDK error remains.
+
+Setup does not mark a Robot Academy lesson complete. Academy records only observable simulator
+facts automatically; students still identify the data source and explain their evidence themselves.
 
 The sidebar shows labeled **NT4 on/off** and, for FTC, **ADB on/off** status. These are connectivity indicators, not setup scores. They can say `off` until a robot or simulator is running.
 
@@ -97,4 +104,4 @@ The workspace identity (`teamId`, `seasonId`, `robotId`) is attached to imported
 
 The configured NT4 host is used for the **Live Robot** target. Choosing **Local Sim** overrides the active connection host with loopback (`127.0.0.1`) without rewriting the saved robot address.
 
-Next: [Connect the simulator](CONNECT_SIMULATOR.md).
+Next: [Robot Academy](../learn/ROBOT_ACADEMY.md), then [Connect the simulator](CONNECT_SIMULATOR.md).

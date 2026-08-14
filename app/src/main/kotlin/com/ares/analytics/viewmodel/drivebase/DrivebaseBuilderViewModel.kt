@@ -3,6 +3,7 @@ package com.ares.analytics.viewmodel.drivebase
 import com.ares.analytics.service.DrivebaseDesignAssistant
 import com.ares.analytics.service.DrivebaseDesignProposal
 import com.ares.analytics.service.drivebase.*
+import com.ares.analytics.shared.League
 import com.areslib.drivetrain.DrivetrainDocumentCodec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,8 +58,9 @@ data class DrivebaseAiProposalReview(
 data class DrivebaseBuilderState(
     val projectPath: String,
     val projectId: String,
+    val league: League,
     val saved: DrivebaseDocument? = null,
-    val draft: DrivebaseDocument = defaultDrivebase(projectId, DrivebaseKind.FTC_MECANUM),
+    val draft: DrivebaseDocument = defaultDrivebase(projectId, defaultNoCodeDrivebaseKind(league)),
     val step: DrivebaseBuilderStep = DrivebaseBuilderStep.DRIVE_TYPE,
     val selectedHardwareId: String? = null,
     val advanced: Boolean = false,
@@ -102,11 +104,12 @@ sealed interface DrivebaseBuilderIntent {
 class DrivebaseBuilderViewModel(
     projectPath: String,
     projectId: String,
+    league: League,
     private val scope: CoroutineScope,
     private val repository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
     private val designAssistant: DrivebaseDesignAssistant? = null,
 ) {
-    private val _state = MutableStateFlow(DrivebaseBuilderState(projectPath, projectId))
+    private val _state = MutableStateFlow(DrivebaseBuilderState(projectPath, projectId, league))
     val state: StateFlow<DrivebaseBuilderState> = _state.asStateFlow()
 
     init { onIntent(DrivebaseBuilderIntent.Reload) }
@@ -115,9 +118,15 @@ class DrivebaseBuilderViewModel(
         when (intent) {
             DrivebaseBuilderIntent.Reload -> if (_state.value.dirty) requestDiscard(DrivebaseDiscardAction.RELOAD) else load()
             is DrivebaseBuilderIntent.SelectStep -> _state.update { it.copy(step = intent.step) }
-            is DrivebaseBuilderIntent.SelectKind -> if (_state.value.dirty && intent.kind != _state.value.draft.kind) {
-                _state.update { it.copy(pendingDiscardAction = DrivebaseDiscardAction.CHANGE_KIND, pendingKind = intent.kind) }
-            } else if (intent.kind != _state.value.draft.kind) edit(defaultDrivebase(_state.value.projectId, intent.kind))
+            is DrivebaseBuilderIntent.SelectKind -> when {
+                intent.kind !in drivebaseKindsForLeague(_state.value.league) -> _state.update {
+                    it.copy(error = "${intent.kind} is not available for this ${it.league.name} project.")
+                }
+                _state.value.dirty && intent.kind != _state.value.draft.kind -> {
+                    _state.update { it.copy(pendingDiscardAction = DrivebaseDiscardAction.CHANGE_KIND, pendingKind = intent.kind) }
+                }
+                intent.kind != _state.value.draft.kind -> edit(defaultDrivebase(_state.value.projectId, intent.kind))
+            }
             is DrivebaseBuilderIntent.SelectHardware -> _state.update { it.copy(selectedHardwareId = intent.id) }
             is DrivebaseBuilderIntent.UpdateHardware -> edit(_state.value.draft.copy(
                 hardware = _state.value.draft.hardware.map { if (it.id == intent.device.id) intent.device else it }
@@ -164,8 +173,8 @@ class DrivebaseBuilderViewModel(
         val result = withContext(Dispatchers.IO) { repository.load(_state.value.projectPath) }
         result.fold(
             onSuccess = { saved ->
-                val draft = saved ?: defaultDrivebase(_state.value.projectId, DrivebaseKind.FTC_MECANUM)
-                _state.update { it.copy(saved = saved, draft = draft, issues = validateDrivebase(draft), loading = false, dirty = false, error = null, selectedHardwareId = draft.hardware.firstOrNull()?.id) }
+                val draft = saved ?: defaultDrivebase(_state.value.projectId, defaultNoCodeDrivebaseKind(_state.value.league))
+                _state.update { it.copy(saved = saved, draft = draft, issues = validateDrivebaseForLeague(draft, it.league), loading = false, dirty = false, error = null, selectedHardwareId = draft.hardware.firstOrNull()?.id) }
             },
             onFailure = { failure -> _state.update { it.copy(loading = false, error = failure.message ?: "Could not load the drivebase document.") } }
         )
@@ -174,7 +183,7 @@ class DrivebaseBuilderViewModel(
     private fun edit(candidate: DrivebaseDocument) = _state.update {
         it.copy(
             draft = candidate,
-            issues = validateDrivebase(candidate),
+            issues = validateDrivebaseForLeague(candidate, it.league),
             saveReview = null,
             status = "",
             dirty = true,
@@ -202,7 +211,7 @@ class DrivebaseBuilderViewModel(
                                 proposal = proposal,
                                 candidate = candidate,
                                 changes = diffDrivebase(_state.value.draft, candidate),
-                                issues = validateDrivebase(candidate),
+                                issues = validateDrivebaseForLeague(candidate, _state.value.league),
                                 baseContentHash = baseHash,
                             )
                             _state.update { current ->
@@ -262,6 +271,10 @@ class DrivebaseBuilderViewModel(
 
     private fun importCtre() = scope.launch {
         val state = _state.value
+        if (state.league != League.FRC) {
+            _state.update { it.copy(error = "CTRE swerve import is available only in an FRC project.") }
+            return@launch
+        }
         val result = withContext(Dispatchers.IO) { repository.importCtreTunerConstants(File(state.importPath)) }
         result.fold(onSuccess = { imported ->
             val projectRoot = File(state.projectPath).canonicalFile.toPath()
@@ -348,13 +361,13 @@ class DrivebaseBuilderViewModel(
                 calibrationProvenance = listOf(com.areslib.drivetrain.CalibrationProvenanceDocument("calibration.ctre-import", com.areslib.drivetrain.CalibrationProvenanceKind.VENDOR_GENERATED, emptyList(), relativeSource, imported.sourceHash, calibration.notes))
             )
             val candidate = canonical.toUiDrivebase()
-            _state.update { it.copy(draft = candidate, issues = validateDrivebase(candidate), importWarnings = imported.warnings, status = "Imported a read-only CTRE snapshot. Vendor code was not changed.", saveReview = null, dirty = true) }
+            _state.update { it.copy(draft = candidate, issues = validateDrivebaseForLeague(candidate, it.league), importWarnings = imported.warnings, status = "Imported a read-only CTRE snapshot. Vendor code was not changed.", saveReview = null, dirty = true) }
         }, onFailure = { failure -> _state.update { it.copy(error = failure.message ?: "CTRE import failed.") } })
     }
 
     private fun reviewSave() {
         val state = _state.value
-        val issues = validateDrivebase(state.draft)
+        val issues = validateDrivebaseForLeague(state.draft, state.league)
         if (issues.any { it.severity == DrivebaseIssueSeverity.ERROR }) {
             _state.update { it.copy(issues = issues, error = "Fix the blocking checks before reviewing the save.") }
             return

@@ -37,18 +37,24 @@ Rotate roles rather than letting the most experienced student perform every acti
 ### Activity
 
 1. Use [First launch](../start/FIRST_LAUNCH.md) to create/select one workspace.
-2. Before launching anything, ask each student to predict which indicators will change.
-3. Follow [Connect the simulator](../start/CONNECT_SIMULATOR.md).
-4. Choose one value, such as X pose, heading, battery, or mechanism state. Record:
+2. Open **Help & Learn → First mission** and assign one student to read the lesson coach aloud.
+3. Before launching anything, ask each student to predict which indicators will change.
+4. Follow [Connect the simulator](../start/CONNECT_SIMULATOR.md).
+5. Choose one value, such as X pose, heading, battery, or mechanism state. Record:
    - source: simulator;
    - topic/widget;
    - unit;
    - expected behavior;
    - observed behavior.
-5. Pause and ask: “Would this same number mean the same thing in replay?” The unit and topic can be the same, but the time/source is historical.
-6. Stop the simulator cleanly.
-7. If the activity created a completed log, follow [Bring in a run](../operate/BRING_IN_A_RUN.md), then replay the same evidence.
-8. End with a one-minute student handoff: they must name the workspace, source mode, success signal, and recovery action.
+6. Pause and ask: “Would this same number mean the same thing in replay?” The unit and topic can be the same, but the time/source is historical.
+7. Stop the simulator cleanly.
+8. If the activity created a completed log, follow [Bring in a run](../operate/BRING_IN_A_RUN.md), then replay the same evidence.
+9. End with a one-minute student handoff: they must name the workspace, source mode, success signal, and recovery action.
+
+Robot Academy deliberately separates **Observed by ARES** checkpoints from **Your reflection**.
+A process or connection fact may be recorded automatically; source interpretation, learning, code
+quality, and physical safety must never be inferred from it. Practice marks are local reminders, not
+grades or certification.
 
 ## The evidence loop
 
@@ -113,6 +119,9 @@ Once students can complete the task without prompts, add one layer at a time:
 - **Operations layer:** ADB versus SSH/SCP, ports `5810` and `5002`, quarantine, cloud sync.
 
 Have students cite the [Telemetry contract](../TELEMETRY_CONTRACT.md) or [Glossary](../learn/GLOSSARY.md) rather than memorizing unexplained acronyms.
+
+The [Robot Academy guide](../learn/ROBOT_ACADEMY.md) describes all paths, checkpoint meanings,
+lab boundaries, progress migration, and recovery behavior.
 
 ## Lesson preparation checklist
 

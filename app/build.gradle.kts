@@ -1,5 +1,6 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.gradle.api.tasks.Exec
+import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.testing.Test
 
 // Single source of truth for the application version. Consumed both by the native
@@ -135,10 +136,36 @@ tasks.named("compileKotlin") {
     dependsOn("generateBuildConfig")
 }
 
+// A local validation repository is an explicit developer choice. Forward only a file URI to the
+// running desktop app so its nested robot-project Gradle wrappers resolve the same ARES binaries.
+// Native installers never embed this machine-local path, and mavenLocal is intentionally unused.
+val nestedAresRepositoryUri = providers.gradleProperty("aresRepository").map { configured ->
+    rootProject.uri(configured)
+}.map { configuredUri ->
+    require(configuredUri.scheme.equals("file", ignoreCase = true)) {
+        "Nested robot builds require -ParesRepository to resolve to a local file URI"
+    }
+    configuredUri.toASCIIString()
+}
+tasks.withType<JavaExec>().configureEach {
+    nestedAresRepositoryUri.orNull?.let { uri ->
+        systemProperty("ares.repository.uri", uri)
+    }
+}
+
 compose.desktop {
     application {
         mainClass = "com.ares.analytics.MainKt"
         jvmArgs("-Dorg.jetbrains.skiko.renderApi=OPENGL", "-Dorg.jetbrains.skiko.renderApi.fallback=SOFTWARE")
+
+        // The desktop app intentionally carries reflective and platform-specific libraries (DuckDB,
+        // Ktor, JNA, and LWJGL). ProGuard cannot prove those optional entry points and aborts release
+        // packaging with thousands of false unresolved-reference warnings. Keep the verified jlink
+        // runtime image, but do not bytecode-shrink the release jars; packaged-project loading below
+        // remains the executable release gate.
+        buildTypes.release.proguard {
+            isEnabled.set(false)
+        }
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)

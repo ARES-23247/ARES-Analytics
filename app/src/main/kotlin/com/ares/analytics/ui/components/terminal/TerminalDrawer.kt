@@ -183,7 +183,8 @@ fun TerminalDrawer(
                                 Text(
                                     text = parseAnsi(line),
                                     fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp
+                                    fontSize = 12.sp,
+                                    color = AresTextPrimary
                                 )
                             }
                         }
@@ -198,7 +199,8 @@ fun TerminalDrawer(
                                 Text(
                                     text = parseAnsi(line),
                                     fontFamily = FontFamily.Monospace,
-                                    fontSize = 12.sp
+                                    fontSize = 12.sp,
+                                    color = AresTextPrimary
                                 )
                             }
                         }
@@ -209,49 +211,57 @@ fun TerminalDrawer(
     }
 }
 
-private fun parseAnsi(input: String): androidx.compose.ui.text.AnnotatedString {
+internal fun parseAnsi(input: String): androidx.compose.ui.text.AnnotatedString {
     return androidx.compose.ui.text.buildAnnotatedString {
         var currentIndex = 0
+        var activeStyle = androidx.compose.ui.text.SpanStyle(color = AresTextPrimary)
+
+        fun appendReadable(text: String) {
+            if (text.isEmpty()) return
+            pushStyle(activeStyle)
+            append(text)
+            pop()
+        }
+
         while (currentIndex < input.length) {
             val escIndex = input.indexOf("\u001B[", currentIndex)
             if (escIndex == -1) {
-                append(input.substring(currentIndex))
+                appendReadable(input.substring(currentIndex))
                 break
             }
             if (escIndex > currentIndex) {
-                append(input.substring(currentIndex, escIndex))
+                appendReadable(input.substring(currentIndex, escIndex))
             }
             val mIndex = input.indexOf('m', escIndex)
             if (mIndex == -1) {
-                append(input.substring(escIndex))
+                appendReadable(input.substring(escIndex))
                 break
             }
             val codeStr = input.substring(escIndex + 2, mIndex)
             val codes = codeStr.split(';').mapNotNull { it.toIntOrNull() }
-            var style = androidx.compose.ui.text.SpanStyle()
             var idx = 0
             while (idx < codes.size) {
                 val code = codes[idx]
                 when {
                     code == 0 -> {
-                        style = androidx.compose.ui.text.SpanStyle()
+                        activeStyle = androidx.compose.ui.text.SpanStyle(color = AresTextPrimary)
                     }
                     code == 1 -> {
-                        style = style.copy(fontWeight = FontWeight.Bold)
+                        activeStyle = activeStyle.copy(fontWeight = FontWeight.Bold)
                     }
                     code in 30..37 -> {
-                        style = style.copy(color = getAnsiColor(code - 30, bright = false))
+                        activeStyle = activeStyle.copy(color = getAnsiColor(code - 30, bright = false))
                     }
                     code in 90..97 -> {
-                        style = style.copy(color = getAnsiColor(code - 90, bright = true))
+                        activeStyle = activeStyle.copy(color = getAnsiColor(code - 90, bright = true))
                     }
                     code == 38 && idx + 2 < codes.size && codes[idx + 1] == 5 -> {
                         val colorIndex = codes[idx + 2]
-                        style = style.copy(color = get256Color(colorIndex))
+                        activeStyle = activeStyle.copy(color = get256Color(colorIndex))
                         idx += 2
                     }
                     code == 39 -> {
-                        style = style.copy(color = AresTextPrimary)
+                        activeStyle = activeStyle.copy(color = AresTextPrimary)
                     }
                 }
                 idx++
@@ -263,22 +273,18 @@ private fun parseAnsi(input: String): androidx.compose.ui.text.AnnotatedString {
                 input.substring(mIndex + 1, nextEsc)
             }
 
-            if (style != androidx.compose.ui.text.SpanStyle()) {
-                pushStyle(style)
-                append(textSegment)
-                pop()
-            } else {
-                append(textSegment)
-            }
+            appendReadable(textSegment)
 
             currentIndex = mIndex + 1 + textSegment.length
         }
     }
 }
 
-private fun getAnsiColor(code: Int, bright: Boolean): Color {
+internal fun getAnsiColor(code: Int, bright: Boolean): Color {
     return when (code) {
-        0 -> if (bright) Color(0xFF555555) else Color(0xFF000000)
+        // ANSI black is designed for light terminals. Adapt it to a readable neutral on ARES dark
+        // surfaces while retaining the normal/bright distinction.
+        0 -> if (bright) AresTextPrimary else AresTextSecondary
         1 -> if (bright) AresRed else AresRedDark
         2 -> if (bright) AresGreen else AresGreen.copy(alpha = 0.8f)
         3 -> if (bright) AresGold else AresAmber

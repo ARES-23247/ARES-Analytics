@@ -1,5 +1,6 @@
 package com.ares.analytics.service
 
+import com.ares.analytics.shared.League
 import com.ares.analytics.service.drivebase.DrivebaseKind
 import com.ares.analytics.service.drivebase.canonicalTemplate
 import com.ares.analytics.viewmodel.controls.describeControlsChanges
@@ -99,7 +100,7 @@ class DesignAssistantsTest {
             DrivebaseDesignProposal("Rename", listOf("Use a student-friendly name"), current.copy(displayName = "Practice drive"))
         }
         try {
-            val viewModel = DrivebaseBuilderViewModel(root.path, "team", scope, designAssistant = assistant)
+            val viewModel = DrivebaseBuilderViewModel(root.path, "team", League.FTC, scope, designAssistant = assistant)
             withTimeout(5_000) { viewModel.state.first { !it.loading } }
 
             viewModel.requestAiProposal("Give this a clearer name")
