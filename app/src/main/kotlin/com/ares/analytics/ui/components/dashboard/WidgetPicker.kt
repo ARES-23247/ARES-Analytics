@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -88,7 +89,7 @@ val availableWidgetsList = listOf(
     AvailableWidget("session_summary", "Session Summary", "Headline metrics for the selected recording.", Icons.Default.Summarize, WidgetCategory.ANALYSIS),
     AvailableWidget("ai_coach", "AI Forensics Coach", "Evidence-backed pit diagnostics and repair guidance.", Icons.Default.Psychology, WidgetCategory.ANALYSIS),
     AvailableWidget("driver_motion_review", "Driver Motion Review", "Practice prompts from timestamp-synchronized chassis motion; never a driver score.", Icons.Default.SportsEsports, WidgetCategory.ANALYSIS),
-    AvailableWidget("pit_evidence_checklist", "Pit Evidence Checklist", "Observed telemetry thresholds, possible causes, and verification steps without pretending to diagnose.", Icons.Default.FactCheck, WidgetCategory.DIAGNOSTICS),
+    AvailableWidget("pit_evidence_checklist", "Pit Evidence Checklist", "Observed telemetry thresholds, possible causes, and verification steps without pretending to diagnose.", Icons.AutoMirrored.Filled.FactCheck, WidgetCategory.DIAGNOSTICS),
     AvailableWidget("vision_quality", "Vision & EKF Quality", "AprilTag acceptance, latency, and estimator quality.", Icons.Default.Camera, WidgetCategory.ANALYSIS),
     AvailableWidget("motor_health", "Motor Health", "Current draw, thermal risk, and stall warnings.", Icons.Default.ElectricBolt, WidgetCategory.ANALYSIS),
 

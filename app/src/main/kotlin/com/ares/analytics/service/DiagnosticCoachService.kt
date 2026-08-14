@@ -37,13 +37,12 @@ data class PitDiagnosticSummary(
 class DiagnosticCoachService(private val databaseService: DatabaseService) {
     suspend fun analyze(sessionId: String): PitDiagnosticSummary = withContext(Dispatchers.Default) {
         require(sessionId.isNotBlank()) { "Select a recorded session before running the checklist" }
-        val batteryFrames = TelemetryMetricCatalog.BATTERY_VOLTAGE.keys
-            .asSequence()
-            .map { key -> databaseService.getTelemetryForKey(sessionId, key) }
-            .firstOrNull(List<TelemetryFrame>::isNotEmpty)
-            .orEmpty()
-            .filter { it.value.isFinite() }
-            .sortedBy { it.timestampUs }
+        var rawBatteryFrames: List<TelemetryFrame> = emptyList()
+        for (key in TelemetryMetricCatalog.BATTERY_VOLTAGE.keys) {
+            rawBatteryFrames = databaseService.getTelemetryForKey(sessionId, key)
+            if (rawBatteryFrames.isNotEmpty()) break
+        }
+        val batteryFrames = rawBatteryFrames.filter { it.value.isFinite() }.sortedBy { it.timestampUs }
         val currentFrames = databaseService.getTelemetryForKeyPatterns(
             sessionId,
             listOf("Hardware/Motors/%/CurrentAmps", "Hardware/Motors/%/Current")
