@@ -157,6 +157,97 @@ class RobotStudioModelTest {
         assertEquals("Retry verification", canceled.actionLabel)
     }
 
+    @Test
+    fun `build execution state transitions evaluate appropriate stage statuses and action labels`() {
+        val evidence = completeEvidence()
+
+        // 1. Initial idle verification state
+        val idle = evaluateRobotStudioStages(
+            evidence,
+            RobotStudioRuntimeEvidence(build = buildState(BuildExecutionPhase.IDLE)),
+        ).first { it.id == RobotStudioStageId.GENERATE_VERIFY }
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, idle.status)
+        assertEquals("Verify & build", idle.actionLabel)
+        assertEquals(RobotStudioAction.RUN_BUILD, idle.action)
+        assertTrue(idle.issues.isEmpty())
+
+        // 2. Active build running state
+        val running = evaluateRobotStudioStages(
+            evidence,
+            RobotStudioRuntimeEvidence(build = buildState(BuildExecutionPhase.RUNNING)),
+        ).first { it.id == RobotStudioStageId.GENERATE_VERIFY }
+        assertEquals(RobotStudioStageStatus.RUNNING, running.status)
+        assertEquals("Verification running", running.actionLabel)
+        assertEquals(RobotStudioAction.RUN_BUILD, running.action)
+        assertTrue(running.issues.isEmpty())
+
+        // 3. Timed out build execution state (failure with timeout diagnostics)
+        val timedOutState = BuildExecutionState(
+            phase = BuildExecutionPhase.FAILED,
+            projectPath = "C:/fixture/robot",
+            league = League.FTC,
+            message = "Project verification timed out after 120 seconds. No deployment was performed.",
+            exitCode = 124,
+            requestId = 2L,
+        )
+        val timedOut = evaluateRobotStudioStages(
+            evidence,
+            RobotStudioRuntimeEvidence(build = timedOutState),
+        ).first { it.id == RobotStudioStageId.GENERATE_VERIFY }
+        assertEquals(RobotStudioStageStatus.INVALID, timedOut.status)
+        assertEquals("Retry verification", timedOut.actionLabel)
+        assertEquals(RobotStudioAction.RUN_BUILD, timedOut.action)
+        assertEquals(listOf("Project verification timed out after 120 seconds. No deployment was performed."), timedOut.issues)
+        assertTrue(timedOut.explanation.contains("timed out"))
+
+        // 4. Retry / rebuild execution running state
+        val retrying = evaluateRobotStudioStages(
+            evidence,
+            RobotStudioRuntimeEvidence(build = buildState(BuildExecutionPhase.RUNNING).copy(requestId = 3L)),
+        ).first { it.id == RobotStudioStageId.GENERATE_VERIFY }
+        assertEquals(RobotStudioStageStatus.RUNNING, retrying.status)
+        assertEquals("Verification running", retrying.actionLabel)
+        assertTrue(retrying.issues.isEmpty())
+
+        // 5. Canceled build execution state
+        val canceledState = BuildExecutionState(
+            phase = BuildExecutionPhase.CANCELED,
+            projectPath = "C:/fixture/robot",
+            league = League.FTC,
+            message = "Project verification was canceled. No deployment was performed.",
+            exitCode = null,
+            requestId = 4L,
+        )
+        val canceled = evaluateRobotStudioStages(
+            evidence,
+            RobotStudioRuntimeEvidence(build = canceledState),
+        ).first { it.id == RobotStudioStageId.GENERATE_VERIFY }
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, canceled.status)
+        assertEquals("Retry verification", canceled.actionLabel)
+        assertEquals(RobotStudioAction.RUN_BUILD, canceled.action)
+        assertTrue(canceled.issues.isEmpty())
+        assertTrue(canceled.explanation.contains("canceled"))
+
+        // 6. Succeeded build execution state
+        val succeededState = BuildExecutionState(
+            phase = BuildExecutionPhase.SUCCEEDED,
+            projectPath = "C:/fixture/robot",
+            league = League.FTC,
+            message = "Verification passed. Nothing was deployed; rebuild after edits.",
+            exitCode = 0,
+            requestId = 5L,
+        )
+        val succeeded = evaluateRobotStudioStages(
+            evidence,
+            RobotStudioRuntimeEvidence(build = succeededState),
+        ).first { it.id == RobotStudioStageId.GENERATE_VERIFY }
+        assertEquals(RobotStudioStageStatus.READY, succeeded.status)
+        assertEquals("Verify again", succeeded.actionLabel)
+        assertEquals(RobotStudioAction.RUN_BUILD, succeeded.action)
+        assertTrue(succeeded.issues.isEmpty())
+        assertTrue(succeeded.explanation.contains("Nothing was deployed"))
+    }
+
     private fun completeEvidence() = RobotProjectReadinessEvidence(
         projectPath = "C:/fixture/robot",
         league = League.FTC,

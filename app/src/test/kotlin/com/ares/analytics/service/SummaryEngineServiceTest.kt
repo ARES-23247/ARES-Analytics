@@ -107,4 +107,62 @@ class SummaryEngineServiceTest {
         databaseService.close()
         tempDb.delete()
     }
+
+    @Test
+    fun testBatterySagCalculationWithActiveHighCurrentDrawSamples() = runTest {
+        val tempDb = File.createTempFile("summary_battery_sag_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val driverAnalysisService = DriverAnalysisService(databaseService, sysIdService)
+        val summaryEngine = SummaryEngineService(databaseService, sysIdService, driverAnalysisService)
+        val session = Session(
+            sessionId = "battery-sag-session",
+            teamId = "23247",
+            seasonId = "2026",
+            robotId = "ares-bot",
+            createdAt = 1000L,
+            durationMs = 60000L,
+            tags = listOf("match", "battery-pack-1")
+        )
+
+        // Telemetry frames modeling battery sag under high current draw
+        // dv / di calculations:
+        // t=1000: V=12.6V, I=2.0A (resting / baseline)
+        // t=1100: V=11.6V, I=22.0A -> dV=-1.0V, dI=+20.0A -> R = 1.0/20.0 = 0.050 Ohm
+        // t=1200: V=10.1V, I=52.0A -> dV=-1.5V, dI=+30.0A -> R = 1.5/30.0 = 0.050 Ohm
+        // t=1300: V=12.5V, I=4.0A  -> dV=+2.4V, dI=-48.0A -> R = 2.4/48.0 = 0.050 Ohm
+        // t=1400: V=12.5V, I=4.2A  -> quiescent noise (dI=0.2A <= 0.5A threshold, ignored)
+        val frames = listOf(
+            TelemetryFrame(1000L, session.sessionId, "/Battery/Voltage", 12.6),
+            TelemetryFrame(1000L, session.sessionId, "/Battery/Current", 2.0),
+
+            TelemetryFrame(1100L, session.sessionId, "/Battery/Voltage", 11.6),
+            TelemetryFrame(1100L, session.sessionId, "/Battery/Current", 22.0),
+
+            TelemetryFrame(1200L, session.sessionId, "/Battery/Voltage", 10.1),
+            TelemetryFrame(1200L, session.sessionId, "/Battery/Current", 52.0),
+
+            TelemetryFrame(1300L, session.sessionId, "/Battery/Voltage", 12.5),
+            TelemetryFrame(1300L, session.sessionId, "/Battery/Current", 4.0),
+
+            TelemetryFrame(1400L, session.sessionId, "/Battery/Voltage", 12.5),
+            TelemetryFrame(1400L, session.sessionId, "/Battery/Current", 4.2)
+        )
+
+        databaseService.insertTelemetryFrames(frames)
+        val summary = summaryEngine.generateSummary(session)
+
+        assertEquals("battery-sag-session", summary.sessionId)
+        assertEquals(10.1, summary.minBatteryVoltage, 0.001)
+        assertEquals(0.050, summary.avgBatteryResistance, 0.001)
+
+        // Verify summary was saved in DB and matches in-memory calculation
+        val saved = databaseService.getSessionSummary(session.sessionId)
+        assertTrue(saved != null)
+        assertEquals(10.1, saved.minBatteryVoltage, 0.001)
+        assertEquals(0.050, saved.avgBatteryResistance, 0.001)
+
+        databaseService.close()
+        tempDb.delete()
+    }
 }
