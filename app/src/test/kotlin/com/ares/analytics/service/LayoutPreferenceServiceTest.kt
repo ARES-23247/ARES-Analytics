@@ -78,6 +78,30 @@ class LayoutPreferenceServiceTest {
     fun testDefaultLayouts() {
         val tempDir = File(System.getProperty("java.io.tmpdir"), "ares_layout_test_default")
         val service = LayoutPreferenceService(tempDir.absolutePath)
+        val studentLayout = service.getDefaultLayout("student")
+        assertTrue(studentLayout.widgets.any { it.type == "field_viewer" })
+        assertTrue(studentLayout.widgets.any { it.type == "system_health" })
+        assertTrue(studentLayout.widgets.any { it.type == "autonomous_selector" })
+
+        val driverLayout = service.getDefaultLayout("driver")
+        assertTrue(driverLayout.widgets.any { it.type == "joystick_visualizer" })
+
+        val builderLayout = service.getDefaultLayout("builder")
+        assertTrue(builderLayout.widgets.any { it.type == "hardware_topology" })
+        assertTrue(builderLayout.widgets.any { it.type == "power_distribution" })
+
+        val autonomousLayout = service.getDefaultLayout("autonomous")
+        assertTrue(autonomousLayout.widgets.any { it.type == "path_tuning" })
+        assertTrue(autonomousLayout.widgets.any { it.type == "ekf_telemetry" })
+
+        val analystLayout = service.getDefaultLayout("analyst")
+        assertTrue(analystLayout.widgets.any { it.type == "runs_index" })
+        assertTrue(analystLayout.widgets.any { it.type == "trends_card" })
+
+        val mentorLayout = service.getDefaultLayout("mentor")
+        assertTrue(mentorLayout.widgets.any { it.type == "pit_evidence_checklist" })
+        assertTrue(mentorLayout.widgets.any { it.type == "control_profiler" })
+
         val programmerLayout = service.getDefaultLayout("programmer")
         assertTrue(programmerLayout.widgets.isNotEmpty())
         val chart = programmerLayout.widgets.first { it.type == "telemetry_chart" }

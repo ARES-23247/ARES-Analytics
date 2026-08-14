@@ -770,6 +770,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 },
                                 reloadTrigger = runsIndexReloadTrigger,
                                 onImportSuccess = { mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload) },
+                                onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) },
                                 onOpenKeybindings = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS)) },
                                 onOpenRunHistory = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.RUN_HISTORY)) },
                                 onOpenHelp = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY)) }
