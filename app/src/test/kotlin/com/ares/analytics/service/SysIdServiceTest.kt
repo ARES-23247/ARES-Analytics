@@ -123,4 +123,24 @@ class SysIdServiceTest {
         assertEquals(TransientClassification.CRITICALLY_DAMPED, summary.transientClassification)
         tempDb.delete()
     }
+
+    @Test
+    fun testAnalyzeRawDataInsufficientDataReturnsDefaultSummary() {
+        val tempDb = File.createTempFile("sysid_insufficient_data_test", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+
+        // Under 10 samples
+        val fewRows = (1..5).map { i ->
+            AlignedDataRow(i * 20L, 12.0, 1.0, 0.0)
+        }
+        val summary = sysIdService.analyzeRawData(fewRows)
+        assertEquals(0.0, summary.kS)
+        assertEquals(0.0, summary.kV)
+        assertEquals(0.0, summary.kA)
+        assertEquals(0.0, summary.rSquared)
+        assertEquals(TransientClassification.UNKNOWN, summary.transientClassification)
+
+        tempDb.delete()
+    }
 }
