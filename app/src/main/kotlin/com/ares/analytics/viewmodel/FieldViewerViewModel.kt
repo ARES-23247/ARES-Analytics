@@ -39,13 +39,16 @@ data class LivePoseState(
 /** User-controlled field-view state; pose samples are kept separately in [LivePoseState]. */
 data class FieldViewerState(
     val poseHistory: List<Waypoint> = emptyList(),
-    val isRedAlliance: Boolean = true
+    val isRedAlliance: Boolean = true,
+    val selectedWaypointIndex: Int? = null
 )
 
 sealed class FieldViewerIntent {
     object ClearTrace : FieldViewerIntent()
 
     object ToggleAlliance : FieldViewerIntent()
+
+    data class SelectWaypoint(val index: Int?) : FieldViewerIntent()
 }
 
 /**
@@ -60,6 +63,8 @@ class FieldViewerViewModel(
         FieldViewerState(isRedAlliance = nt4ClientService.selectedRedAlliance.value)
     )
     val state: StateFlow<FieldViewerState> = _state.asStateFlow()
+
+    val selectedWaypointIndex: Int? get() = _state.value.selectedWaypointIndex
 
     private val _livePose = MutableStateFlow(LivePoseState())
     val livePose: StateFlow<LivePoseState> = _livePose.asStateFlow()
@@ -78,6 +83,9 @@ class FieldViewerViewModel(
                 }
                 is FieldViewerIntent.ClearTrace -> {
                     poseBufferManager.clearTrace()
+                }
+                is FieldViewerIntent.SelectWaypoint -> {
+                    _state.update { it.copy(selectedWaypointIndex = intent.index) }
                 }
             }
         }
