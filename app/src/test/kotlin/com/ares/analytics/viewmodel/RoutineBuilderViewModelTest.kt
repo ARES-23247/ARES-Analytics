@@ -146,4 +146,46 @@ class RoutineBuilderViewModelTest {
             projectB.deleteRecursively()
         }
     }
+
+    @Test
+    fun `marker progress validation rejects out-of-range progress values`() = runTest {
+        val viewModel = PathPlannerViewModel(this)
+        viewModel.onIntent(PathPlannerIntent.CreateRoutine("Marker test"))
+        advanceUntilIdle()
+
+        val driveStep = RoutineStep.driveTo(
+            com.areslib.routine.RoutineDriveStep(
+                target = com.areslib.routine.RoutinePose(0.5, 0.5, 0.0),
+                markers = listOf(com.areslib.routine.RoutineDriveMarker(progress = 1.5, actionKey = "intake"))
+            )
+        )
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.DRIVE_TO))
+        advanceUntilIdle()
+        val stepId = viewModel.state.value.routine.steps.first { it.kind == RoutineStepKind.DRIVE_TO }.stepId
+        viewModel.onIntent(PathPlannerIntent.UpdateRoutineStep(stepId, driveStep.copy(stepId = stepId)))
+        advanceUntilIdle()
+
+        val issues = viewModel.state.value.routineValidation
+        assertTrue(issues.any { it.code == "invalid_marker_progress" })
+    }
+
+    @Test
+    fun `duration and timeout bounds are validated on routine steps`() = runTest {
+        val viewModel = PathPlannerViewModel(this)
+        viewModel.onIntent(PathPlannerIntent.CreateRoutine("Timeout test"))
+        advanceUntilIdle()
+
+        val waitStep = RoutineStep(
+            kind = RoutineStepKind.WAIT,
+            durationSeconds = 150.0
+        )
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.WAIT))
+        advanceUntilIdle()
+        val stepId = viewModel.state.value.routine.steps.first { it.kind == RoutineStepKind.WAIT }.stepId
+        viewModel.onIntent(PathPlannerIntent.UpdateRoutineStep(stepId, waitStep.copy(stepId = stepId)))
+        advanceUntilIdle()
+
+        val issues = viewModel.state.value.routineValidation
+        assertTrue(issues.any { it.code == "invalid_duration" })
+    }
 }

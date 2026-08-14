@@ -194,6 +194,32 @@ private fun validateStepFields(
             if (drive.target != clampRoutinePose(drive.target, league, dimensions)) {
                 issues += routineIssue(routine, "$stepPath.drive.target", "robot_outside_field", "Drive goal robot footprint crosses the field boundary")
             }
+            drive.markers.forEachIndexed { index, marker ->
+                if (marker.progress !in 0.0..1.0) {
+                    issues += routineIssue(routine, "$stepPath.drive.markers[$index]", "invalid_marker_progress", "Marker progress must be between 0% and 100% (0.0 to 1.0)")
+                }
+                if (actions.isNotEmpty() && marker.actionKey !in actions) {
+                    issues += routineIssue(routine, "$stepPath.drive.markers[$index].actionKey", "unknown_marker_action", "Marker references unknown action '${marker.actionKey}'")
+                }
+            }
+            if (actions.isNotEmpty()) {
+                drive.duringActionKeys.filter { it !in actions }.forEach { missing ->
+                    issues += routineIssue(routine, "$stepPath.drive.duringActionKeys", "unknown_during_action", "During-motion action '$missing' is not declared in action catalog")
+                }
+                drive.arrivalActionKeys.filter { it !in actions }.forEach { missing ->
+                    issues += routineIssue(routine, "$stepPath.drive.arrivalActionKeys", "unknown_arrival_action", "Arrival action '$missing' is not declared in action catalog")
+                }
+            }
+        }
+        step.durationSeconds?.let { dur ->
+            if (dur < 0.0 || dur > 120.0 || !dur.isFinite()) {
+                issues += routineIssue(routine, "$stepPath.durationSeconds", "invalid_duration", "Duration must be between 0.0 and 120.0 seconds")
+            }
+        }
+        step.timeoutSeconds?.let { timeout ->
+            if (timeout <= 0.0 || timeout > 120.0 || !timeout.isFinite()) {
+                issues += routineIssue(routine, "$stepPath.timeoutSeconds", "invalid_timeout", "Timeout must be between 0.0 and 120.0 seconds")
+            }
         }
         when (step.kind) {
             RoutineStepKind.ACTION -> actions[step.actionKey]?.let { descriptor ->
