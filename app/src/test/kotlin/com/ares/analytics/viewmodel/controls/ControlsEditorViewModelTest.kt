@@ -11,6 +11,7 @@ import com.areslib.catalog.CapabilityParameterDescriptor
 import com.areslib.catalog.CapabilityParameterType
 import com.areslib.controls.ControlEvent
 import com.areslib.controls.ControlSourceKind
+import com.areslib.controls.ControlTargetKind
 import com.areslib.controls.ControllerInputPlatform
 import com.areslib.controls.ControlSchemeDocument
 import com.areslib.controls.ControllerAnchorDocument
@@ -22,6 +23,11 @@ import com.areslib.controls.ControllerProfileDocument
 import com.areslib.project.AresCoordinateConvention
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataDocument
+import com.areslib.subsystem.SubsystemPlatform
+import com.areslib.subsystem.SubsystemTemplate
+import com.areslib.subsystem.SubsystemTemplates
+import com.areslib.subsystem.subsystemCalibrationConfirmationActionKey
+import com.areslib.subsystem.subsystemNeutralRecoveryActionKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
@@ -115,6 +121,8 @@ class ControlsEditorViewModelTest {
         assertEquals(0, mappings.single { it.platform == ControllerInputPlatform.FTC }.buttonIndex)
         assertEquals(0, mappings.single { it.platform == ControllerInputPlatform.DESKTOP_GLFW }.buttonIndex)
         assertEquals(0, mappings.single { it.platform == ControllerInputPlatform.FRC }.buttonIndex)
+        assertEquals(0, savedScheme.controllers.single { it.slot == "driver" }.devicePort)
+        assertEquals(1, savedScheme.controllers.single { it.slot == "operator" }.devicePort)
         assertFalse(viewModel.state.value.dirty)
     }
 
@@ -185,6 +193,50 @@ class ControlsEditorViewModelTest {
     }
 
     @Test
+    fun `generated safety handshakes are visible and saveable without Kotlin`() = withProject { project ->
+        val documents = seededDocuments(project)
+        val lift = SubsystemTemplates.create(
+            template = SubsystemTemplate.HOMED_MECHANISM,
+            documentId = "lift",
+            kotlinTypeName = "Lift",
+            platform = SubsystemPlatform.FTC,
+        ).let { document ->
+            document.copy(safety = document.safety.copy(requiresCalibration = true))
+        }
+        documents.subsystems.save(project.path, lift)
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+        val recoveryKey = subsystemNeutralRecoveryActionKey("lift")
+        val calibrationKey = subsystemCalibrationConfirmationActionKey("lift")
+
+        assertTrue(viewModel.state.value.actions.any { it.key == recoveryKey && "neutral" in it.displayName.lowercase() })
+        assertTrue(viewModel.state.value.actions.any { it.key == calibrationKey && "calibration" in it.displayName.lowercase() })
+
+        viewModel.selectControl("a")
+        viewModel.createBinding()
+        viewModel.setTarget(ControlTargetKind.ACTION, recoveryKey)
+        assertTrue(viewModel.state.value.problems.any { it.message.contains("Recover with neutral is required") })
+        viewModel.setTargetArgument("value", "true")
+        viewModel.applyDraft()
+        viewModel.selectControl("b")
+        viewModel.createBinding()
+        viewModel.setTarget(ControlTargetKind.ACTION, calibrationKey)
+        assertTrue(viewModel.state.value.problems.any { it.message.contains("Calibration is complete is required") })
+        viewModel.setTargetArgument("value", "true")
+        viewModel.applyDraft()
+        assertTrue(
+            viewModel.state.value.canSave,
+            viewModel.state.value.problems.joinToString(" | ") { it.message } +
+                " status=" + viewModel.state.value.status,
+        )
+        viewModel.save()
+
+        assertEquals(
+            setOf(recoveryKey, calibrationKey),
+            documents.controls.load(project.path, "competition-controls").bindings.map { it.target.key }.toSet(),
+        )
+    }
+
+    @Test
     fun `switching schemes preserves and saves every applied edit`() = withProject { project ->
         val documents = seededDocuments(project)
         val profile = ControllerProfileDocument(
@@ -207,7 +259,7 @@ class ControlsEditorViewModelTest {
                 ControlSchemeDocument(
                     documentId = id,
                     name = id.replaceFirstChar(Char::uppercase),
-                    controllers = listOf(ControllerAssignment("driver", "Driver", profile.documentId)),
+                    controllers = listOf(ControllerAssignment("driver", "Driver", profile.documentId, devicePort = 0)),
                     bindings = emptyList()
                 )
             )
@@ -272,6 +324,22 @@ class ControlsEditorViewModelTest {
         assertEquals(originalDraftId, viewModel.state.value.draftBinding?.bindingId)
         assertEquals("Unsaved intake", viewModel.state.value.draftBinding?.displayName)
         assertTrue(viewModel.state.value.status.orEmpty().contains("Apply or discard"))
+    }
+
+    @Test
+    fun `deleteBinding removes binding from scheme and sets dirty state`() = withProject { project ->
+        val documents = seededDocuments(project)
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+
+        viewModel.selectControl("a")
+        viewModel.createBinding()
+        viewModel.applyDraft()
+        val bindingId = viewModel.state.value.selectedScheme?.bindings?.firstOrNull()?.bindingId
+        assertNotNull(bindingId)
+
+        viewModel.deleteBinding(bindingId)
+        assertTrue(viewModel.state.value.selectedScheme?.bindings.orEmpty().isEmpty())
+        assertTrue(viewModel.state.value.dirty)
     }
 
     @Test

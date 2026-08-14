@@ -194,4 +194,63 @@ class ReplayEngineServiceTest {
             tempDb.delete()
         }
     }
+
+    @Test
+    fun `playback speed rate adjustments apply cleanly to replay state`() = runTest {
+        val tempDb = File.createTempFile("replay_speed", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val replayEngine = ReplayEngineService(databaseService)
+        try {
+            val session = Session("speed-test", "23247", "2026", "bot", 1000L)
+            databaseService.insertSession(session)
+            databaseService.insertTelemetryFrames(listOf(TelemetryFrame(1000L, session.sessionId, "Test", 1.0)))
+            replayEngine.loadSession(session.sessionId)
+
+            assertEquals(1.0, replayEngine.speed.value)
+
+            replayEngine.setSpeed(2.0)
+            assertEquals(2.0, replayEngine.speed.value)
+
+            replayEngine.setSpeed(0.5)
+            assertEquals(0.5, replayEngine.speed.value)
+        } finally {
+            replayEngine.dispose()
+            databaseService.close()
+            tempDb.delete()
+        }
+    }
+
+    @Test
+    fun `loading empty session resets playhead and safely ignores play requests`() = runTest {
+        val tempDb = File.createTempFile("replay_empty_session", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val replayEngine = ReplayEngineService(databaseService)
+        try {
+            val session = Session("empty-replay", "23247", "2026", "bot", 1000L)
+            databaseService.insertSession(session)
+            replayEngine.loadSession(session.sessionId)
+
+            assertEquals(ReplayState.STOPPED, replayEngine.state.value)
+            assertEquals(null, replayEngine.currentFrame.value)
+            assertEquals(0.0, replayEngine.progress.value)
+            assertTrue(replayEngine.telemetryDensity.value.isEmpty())
+            assertTrue(replayEngine.sessionActions.value.isEmpty())
+
+            // Play should safely no-op when there are no timestamps
+            replayEngine.play()
+            assertEquals(ReplayState.STOPPED, replayEngine.state.value)
+
+            // Pause / Step / Stop should also safely no-op
+            replayEngine.pause()
+            assertEquals(ReplayState.STOPPED, replayEngine.state.value)
+            replayEngine.stepForward()
+            replayEngine.stepBackward()
+            replayEngine.stop()
+            assertEquals(ReplayState.STOPPED, replayEngine.state.value)
+        } finally {
+            replayEngine.dispose()
+            databaseService.close()
+            tempDb.delete()
+        }
+    }
 }

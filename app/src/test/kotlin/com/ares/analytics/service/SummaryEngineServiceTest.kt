@@ -73,6 +73,38 @@ class SummaryEngineServiceTest {
         val saved = databaseService.getSessionSummary(session.sessionId)
         assertTrue(saved != null)
         assertEquals(11.2, saved.minBatteryVoltage)
+        databaseService.close()
+        tempDb.delete()
+    }
+
+    @Test
+    fun testGenerateSummaryEmptySessionReturnsSafeDefaults() = runTest {
+        val tempDb = File.createTempFile("summary_empty_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val driverAnalysisService = DriverAnalysisService(databaseService, sysIdService)
+        val summaryEngine = SummaryEngineService(databaseService, sysIdService, driverAnalysisService)
+        val session = Session(
+            sessionId = "empty-session",
+            teamId = "23247",
+            seasonId = "2026",
+            robotId = "ares-bot",
+            createdAt = 5000L,
+            durationMs = 0L,
+            tags = emptyList()
+        )
+
+        val summary = summaryEngine.generateSummary(session)
+        assertEquals("empty-session", summary.sessionId)
+        assertEquals(12.0, summary.minBatteryVoltage)
+        assertEquals(0.0, summary.maxEkfDrift)
+        assertEquals(0.0, summary.avgLoopTimeMs)
+        assertEquals(0.0, summary.p95LoopTimeMs)
+        assertTrue(summary.motorCurrentAverages.isEmpty())
+        assertEquals(0.0, summary.visionAcceptanceRate)
+        assertEquals(0.0, summary.avgCrossTrackError)
+
+        databaseService.close()
         tempDb.delete()
     }
 }

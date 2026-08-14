@@ -164,3 +164,236 @@ are the remaining delivery steps for this cycle.
   a stable canonical ID.
 - No physical validation is claimed. Any later physical recommendation still needs a supervised
   team procedure.
+
+## Cycle 3 — Homing, freshness, and safe-recovery teaching lab
+
+### Objective
+
+Give a robot-builder student a hardware-free way to understand why homing and fault recovery need
+valid cached evidence, freshness, bounded dwell, and a confirmed neutral write.
+
+### User-visible outcome
+
+- Robot Academy now includes a fifth interactive lab, **Homing & safe recovery**.
+- Students can compare digital-sensor, current-stall, velocity-stall, and combined-stall evidence.
+- The model exposes configuration health, cached-feedback age, measurement validity, evidence
+  dwell, home-reference state, a latched output fault, and successful or failed neutral recovery.
+- The decision is stated as **MOTION PERMITTED** or **MOTION BLOCKED** with explanatory text and an
+  icon; color is supplemental.
+- The Robot builder path includes the lab after safe subsystem design.
+- The mentor guide includes objectives, an activity sequence, misconceptions, and explicit model
+  and physical-safety limits.
+
+### Safety and ownership decisions
+
+- The lab is a pure immutable teaching model. It owns no NT4 publisher, service, project file,
+  simulator command, or hardware reference.
+- Stale or invalid required evidence fails closed and resets the modeled dwell.
+- A latched output fault clears only after the modeled neutral write succeeds.
+- Establishing a home reference does not bypass later configuration, freshness, validity, or fault
+  checks.
+
+### Verification evidence
+
+- Focused model and catalog tests: 13 tests, 0 failures.
+- Full Analytics app suite: 428 tests, 0 failures, 0 errors, 2 intentional skips.
+- Dashboard smoke: passed.
+- Trimmed distributable project loading: passed for one routine and one subsystem document.
+- `git diff --check`: passed; only line-ending notices were emitted.
+- No ARESLib contract changed in this slice, so no local validation-repository publication or
+  consumer dependency substitution was required.
+
+### Delivery and limitations
+
+- Implementation is on `codex/academy-homing-safety-lab-v5`, based on the still-open safe-build
+  Analytics change so its current Academy wording is preserved. It must be rebased or retargeted
+  after that dependency merges before opening its protected PR.
+- A post-unlock visual walkthrough in normal, colorblind, high-contrast, large-text, keyboard, and
+  narrow-window modes remains required. The available desktop capture is still blocked by the
+  Windows PIN screen; no credential was entered or bypassed.
+- No physical robot was used. Real thresholds, directions, neutral behavior, and homing mechanics
+  still require supervised hardware-in-the-loop validation.
+
+## Cycle 4 — Controller-to-telemetry state-flow lab
+
+### Objective
+
+Let a novice manipulate one complete, hardware-free ARES-style signal flow instead of memorizing
+an architecture diagram.
+
+### User-visible outcome
+
+- Robot Academy now includes **Input, state & telemetry** for the Driver/operator and Robot builder
+  paths.
+- Students can trace a motor command plus cached encoder, a positional-servo command, or a
+  distance-sensor sample.
+- The lab keeps the retained previous Redux snapshot visible beside the reducer's new immutable
+  snapshot.
+- Each trace shows typed action text, the controller decision, mock IO result, telemetry topic,
+  value, unit, validity, and freshness.
+- Device inversion, controller deadband, stale/invalid cached measurements, unhealthy
+  configuration, and a failed mock output write all produce explicit textual outcomes.
+- Student and mentor guides now include the activity sequence, misconceptions, and model boundary.
+
+### Safety and ownership decisions
+
+- The flow is a pure teaching model. It does not use the production Redux store, NT4, project
+  files, simulator commands, or physical hardware.
+- Motor output becomes neutral when required cached encoder feedback is invalid or stale.
+- Sensor-only flow refreshes cached state and telemetry without inventing an actuator command.
+- Failed mock output writes latch a visible fault in the new teaching snapshot.
+- The model does not claim generated-code, simulator, or physical parity.
+
+### Verification evidence
+
+- Focused state-flow and catalog tests: 14 tests, 0 failures.
+- Full Analytics app suite: 434 tests, 0 failures, 0 errors, 2 intentional skips.
+- Dashboard smoke: passed.
+- Trimmed distributable project loading: passed for one routine and one subsystem document.
+- No ARESLib contract changed, so an isolated Maven publication was not required for this slice.
+
+### Delivery and limitations
+
+- Implementation is on `codex/academy-redux-signal-lab-v6`, stacked on the validated homing lab and
+  safe-build Analytics work. Retarget or rebase it in dependency order before opening its protected
+  PR.
+- Normal, colorblind, high-contrast, large-text, keyboard, and narrow-window visual walkthroughs
+  remain required after the Windows desktop is unlocked.
+- No physical robot was used. Production state flow and hardware behavior remain subject to source,
+  generated-verification, simulator, and later supervised hardware-in-the-loop evidence.
+
+## Cycle 5 - Reviewed Project Identity setup
+
+### Objective
+
+Remove the novice dead end where Robot Studio detected a missing `.ares/project.json` but routed
+students to workspace settings, which could not create or safely repair the canonical document.
+
+### User-visible outcome
+
+- Robot Studio's identity and platform stages now open a dedicated **Project Identity** workflow.
+- The screen shows the selected repository, canonical destination, runtime consumers, stable
+  project ID, fixed league/convention, measured robot footprint, and editable field frame.
+- Missing physical dimensions remain blank unless the workspace already contains measured values;
+  the app does not invent robot geometry.
+- Current league field dimensions are visibly labeled as a preset that must be verified for the
+  season.
+- Creation and updates require a structured before/after review and explicit confirmation.
+- Project Identity is also discoverable under the Robot navigation section, command search,
+  contextual Academy help, First Launch, and the documentation index.
+
+### Safety, ownership, and recovery decisions
+
+- The stable project ID is locked after creation in this editor so an ordinary rename cannot break
+  references across drivebase, subsystem, controls, autonomous, and tuning documents.
+- A valid prior project document is checkpointed under `.ares/history/project/<content-hash>.json`
+  before an atomic update.
+- The reviewed save uses the previewed content hash as an optimistic-concurrency boundary. A file
+  changed after preview is preserved and the save fails visibly.
+- Corrupt existing content and workspace/canonical league mismatches are protected. The editor does
+  not overwrite or silently migrate either one.
+- The screen explicitly states that document validation is not build, simulation, deployment, or
+  physical-robot safety evidence.
+
+### Verification evidence
+
+- Focused repository, view-model, Robot Studio, navigation, and Academy catalog tests: passed.
+- Full Analytics app suite: 445 tests, 0 failures, 0 errors, 2 intentional skips.
+- Dashboard smoke: passed.
+- Trimmed distributable project loading: passed for one routine and one subsystem document.
+- `git diff --check`: passed; only line-ending notices were emitted.
+- No ARESLib contract changed, so no local validation-repository publication was required.
+
+### Delivery and limitations
+
+- Implementation is on `codex/project-identity-setup-v7`, stacked on the validated Academy and
+  safe-build Analytics work. Retarget or rebase it in dependency order before opening its protected
+  PR.
+- The post-unlock normal, colorblind, high-contrast, large-text, keyboard, and narrow-window visual
+  walkthrough remains required. The available desktop capture is still blocked by the Windows PIN
+  screen; no credential was entered or bypassed.
+- No physical robot was used or required. Robot measurements and season field dimensions still need
+  human verification before this metadata can support later physical work.
+
+## Cycle 6 - Local dependency propagation and no-code safety actions
+
+### Objective
+
+Prove that the merged ARESLib generated-subsystem safety contracts propagate through the real FTC,
+FRC, and Analytics consumers without relying on `mavenLocal()` or stale cached artifacts.
+
+### Outcome and verification evidence
+
+- A clean branch at ARESLib `origin/master` passed `apiCheck`, all module tests, and
+  `publishReleaseValidation` into the isolated `build/release-repository`.
+- FTC resolved that repository explicitly, regenerated and verified the project, passed 96 TeamCode
+  tests and simulator tests, and assembled the debug APK. Its worktree remained clean.
+- FRC resolved the same repository explicitly, regenerated and verified the project, passed its full
+  tests and coverage gate, and completed the normal build. Its worktree remained clean.
+- Analytics resolved the same repository explicitly and exposed one real compatibility gap: new
+  controller assignments require stable device ports. The default Driver/Operator scheme now uses
+  ports 0/1 and tests preserve those assignments.
+- The Controller Bindings integration test now proves that a generated homed/calibrated subsystem's
+  **Recover with neutral** and **Confirm calibration** actions appear offline, require explicit
+  boolean confirmation, and save as typed bindings without Kotlin.
+- Final Analytics suite: 446 tests, 0 failures, 0 errors, 2 intentional skips. Dashboard smoke and
+  packaged-project loading also passed against the isolated repository.
+
+### Boundaries
+
+- These results prove source, generated code, desktop UI, simulator, tests, and packaging agree. They
+  do not prove wiring, sensor polarity, neutral output, calibration procedure, or physical safety.
+- A supervised physical test remains required before a team uses either safety action on hardware.
+
+## Cycle 7 - Autonomous planning teaching lab
+
+### Objective
+
+Replace the Academy's prose-only autonomous lesson prerequisite with a hardware-free interactive
+lab that teaches the validation decisions a student must understand before using the real routine
+builder.
+
+### User-visible outcome
+
+- Robot Academy now includes **Autonomous planning** in the Autonomous developer path before the
+  safe first routine lesson.
+- Students can move a starting and target pose, compare drive speed with timeout margin, toggle a
+  named mechanism action and its condition, create a parallel resource conflict, and compare
+  failure policies.
+- Results always say **PREVIEW READY** or **PREVIEW BLOCKED** with an icon and written reasons; color
+  is supplemental.
+- The lab explains units and the complete robot-footprint check, and it links conceptually into the
+  existing canonical routine-builder workflow without duplicating or modifying that builder.
+- Mentor material now includes objectives, an activity sequence, misconceptions, and the boundary
+  between the teaching model, generated verification, simulation, and physical field testing.
+
+### Safety and ownership decisions
+
+- The evaluator is a pure immutable teaching model. It has no project repository, NT4 publisher,
+  simulator process, generated-source writer, or hardware command path.
+- Missing actions, missing conditions, invalid geometry, insufficient timeout margin, resource
+  conflicts, and unsafe continue-on-failure choices fail closed.
+- A false but available condition is shown as a deliberate skip rather than misreported as a
+  validation failure.
+- A passing result is explicitly not collision, traction, generated-code, or physical-safety
+  evidence.
+
+### Verification evidence
+
+- Focused autonomous-model and Academy-catalog tests: passed.
+- Full Analytics app suite: 455 tests, 0 failures, 0 errors, 2 intentional skips.
+- Dashboard smoke: passed.
+- Packaged distributable project loading: passed for one routine and one subsystem document.
+- Validation resolved ARESLib from
+  `file:///C:/Users/david/dev/robotics/ares/ARESLib-Kotlin/build/release-repository`; it did not use
+  `mavenLocal()` or stale Maven Central binaries.
+- Final `git diff --check`: passed with only line-ending notices.
+
+### Delivery and limitations
+
+- Work is on `codex/academy-autonomous-planning-v8`, stacked on the validated Project Identity and
+  earlier Academy slices. Retarget or rebase it in dependency order before protected review.
+- Normal, colorblind, high-contrast, large-text, keyboard, and narrow-window walkthroughs remain
+  pending until the Windows desktop can be inspected without the lock-screen obstruction.
+- No physical robot was used or required. Real paths still require simulator evidence and later
+  supervised field and hardware validation.

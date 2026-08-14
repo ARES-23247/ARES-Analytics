@@ -203,9 +203,17 @@ class DrivebaseAuthoringTest {
 
     @Test
     fun `geometry and localization labs fail closed deterministically`() {
-        val turn = evaluateGeometryLab(DriveGeometry(trackWidthMeters = .4), linearCommand = 1.0, angularCommand = 2.0)
+        val turn = evaluateGeometryLab(
+            geometry = DriveGeometry(trackWidthMeters = .4, wheelBaseMeters = .3),
+            linearCommand = 1.0,
+            angularCommand = 2.0,
+            configuredMaxLinearSpeedMps = 4.0,
+            useCornerModuleRadius = true
+        )
         assertEquals(.5, turn.turningRadiusMeters)
         assertEquals(1.4, turn.trackCircleDiameterMeters!!, 1e-9)
+        assertEquals(4.0, turn.maxLinearSpeedMps)
+        assertEquals(16.0, turn.maxAngularSpeedRadPerSec!!, 1e-9)
         assertFalse(evaluateLocalizationFailure(LocalizationFailureScenario.PRIMARY_STALE).canDriveClosedLoop)
         assertTrue(evaluateLocalizationFailure(LocalizationFailureScenario.VISION_REJECTED).canDriveClosedLoop)
         assertFalse(evaluateLocalizationFailure(LocalizationFailureScenario.VISION_REJECTED).usesVisionCorrection)

@@ -39,6 +39,7 @@ fun TerminalDrawer(
     var activeTab by remember { mutableStateOf(0) } // 0 = Build, 1 = Logcat
     val buildLines by processManagerService.buildOutput.collectAsState(initial = "")
     val logcatLines by processManagerService.logcatOutput.collectAsState(initial = "")
+    val isBuildRunning by processManagerService.isBuildRunning.collectAsState()
     val buildListState = rememberLazyListState()
     val logcatListState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -103,13 +104,18 @@ fun TerminalDrawer(
                                 buildLog.clear()
                                 processManagerService.runBuild(projectPath, league)
                             },
+                            enabled = !isBuildRunning,
                             colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                             shape = RoundedCornerShape(6.dp),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            Icon(imageVector = Icons.Default.Build, contentDescription = null, tint = AresBackground, modifier = Modifier.size(16.dp))
+                            if (isBuildRunning) {
+                                CircularProgressIndicator(modifier = Modifier.size(15.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(imageVector = Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp))
+                            }
                             Spacer(Modifier.width(4.dp))
-                            Text("Build (Ctrl+B)", color = AresBackground, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(if (isBuildRunning) "Verifying" else "Verify & build (Ctrl+B)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     } else {
                         Button(

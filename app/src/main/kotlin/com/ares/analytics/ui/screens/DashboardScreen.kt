@@ -46,16 +46,22 @@ import com.ares.analytics.service.tuning.TuningParameterDeclaration
  * @see FieldViewerViewModel
  * @see MecanumVisualizer
  */
+import com.ares.analytics.ui.components.NavigationTarget
+import com.ares.analytics.ui.components.dashboard.DashboardMissionHeader
+import com.ares.analytics.ui.components.dashboard.DashboardMissionSnapshot
+
 @Composable
 fun DashboardScreen(
     viewModel: DashboardViewModel,
     services: ServiceRegistry,
     currentConfig: WorkspaceConfig,
+    isLocalSimulatorSelected: Boolean,
     matches: List<MatchInfo>,
     onForensicsCompleted: (ForensicsResponse) -> Unit,
     onSelectMatch: (MatchInfo, String) -> Unit,
     reloadTrigger: Int,
     onImportSuccess: () -> Unit,
+    onNavigate: (NavigationTarget) -> Unit = {},
     onOpenKeybindings: () -> Unit = {},
     onOpenRunHistory: () -> Unit = {},
     onOpenHelp: () -> Unit = {}
@@ -64,9 +70,54 @@ fun DashboardScreen(
     val scope = rememberCoroutineScope()
     var newLayoutName by remember { mutableStateOf("") }
     var offlineGuideDismissed by remember { mutableStateOf(false) }
+    var loopTimeMs by remember { mutableStateOf<Double?>(null) }
+    var batteryVoltage by remember { mutableStateOf<Double?>(null) }
+    var brownoutCount by remember { mutableStateOf<Int?>(null) }
+    var loopOverruns by remember { mutableStateOf<Int?>(null) }
+    var lastUpdateTimestampMs by remember { mutableStateOf(-1L) }
+    var lastUpdateAgeMs by remember { mutableStateOf(-1L) }
+
+    val isSimRunning by services.processManagerService.isSimRunning.collectAsState()
+    val isLocalSimulator = isLocalSimulatorSelected
+    val healthSnapshot by services.dashboardHealthService.health.collectAsState()
+    val frameRateHz = healthSnapshot.ingestFramesPerSecond
+    val isReplayActive by services.nt4ClientService.isReplayActive.collectAsState()
+
     val tuningDeclarations by produceState<List<TuningParameterDeclaration>>(emptyList(), currentConfig.projectPath) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             services.tuningProfileRepository.load(currentConfig.projectPath).getOrNull()?.catalog.orEmpty()
+        }
+    }
+
+    // Telemetry flow listener for health metrics and freshness tracking
+    LaunchedEffect(Unit) {
+        scope.launch {
+            services.nt4ClientService.telemetryFlow.collect { frame ->
+                lastUpdateTimestampMs = System.currentTimeMillis()
+                val key = frame.key.lowercase()
+                val value = frame.value
+
+                when {
+                    key.contains("looptime") || key.contains("loop_time") -> {
+                        loopTimeMs = value as? Double
+                    }
+                    key.contains("batteryvoltage") || key.contains("battery_voltage") -> {
+                        batteryVoltage = value as? Double
+                    }
+                    key.contains("brownoutcount") || key.contains("brownout_count") -> {
+                        brownoutCount = (value as? Double)?.toInt() ?: (value as? Int)
+                    }
+                    key.contains("loopoverruns") || key.contains("loop_overruns") -> {
+                        loopOverruns = (value as? Double)?.toInt() ?: (value as? Int)
+                    }
+                }
+            }
+        }
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(500)
+                lastUpdateAgeMs = if (lastUpdateTimestampMs > 0) System.currentTimeMillis() - lastUpdateTimestampMs else -1L
+            }
         }
     }
 
@@ -119,22 +170,39 @@ fun DashboardScreen(
         }
     }
 
+    val missionSnapshot = DashboardMissionSnapshot(
+        workspace = currentConfig,
+        isConnected = state.isConnected,
+        isLocalSimulator = isLocalSimulator,
+        isSimulatorRunning = isSimRunning,
+        isReplayActive = isReplayActive || isReplayMode,
+        primarySessionId = state.primarySessionId,
+        loopTimeMs = loopTimeMs,
+        batteryVoltage = batteryVoltage,
+        brownoutCount = brownoutCount,
+        loopOverruns = loopOverruns,
+        activeAlerts = state.alerts,
+        frameRateHz = frameRateHz,
+        lastUpdateAgeMs = lastUpdateAgeMs,
+        hostIp = if (isLocalSimulator) "127.0.0.1" else currentConfig.nt4Host?.ifBlank { "127.0.0.1" } ?: "127.0.0.1"
+    )
+
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+
+        // Mission Control Header & Quick Actions
+        DashboardMissionHeader(
+            snapshot = missionSnapshot,
+            onNavigate = onNavigate,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+        )
 
         // Configurable widgets area
         val layout = state.currentLayout
         if (layout != null) {
-            if (shouldShowDashboardOfflineGuide(state.isConnected, state.primarySessionId, offlineGuideDismissed)) {
-                DashboardOfflineGuide(
-                    onOpenRunHistory = onOpenRunHistory,
-                    onOpenHelp = onOpenHelp,
-                    onDismiss = { offlineGuideDismissed = true }
-                )
-            }
             DashboardCommandBar(
                 profileName = state.currentRoleProfile,
                 availableProfiles = state.availableProfiles,

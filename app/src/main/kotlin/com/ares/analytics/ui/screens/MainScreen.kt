@@ -40,6 +40,7 @@ import com.ares.analytics.ui.help.AcademyRuntimeSnapshot
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.*
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
+import com.ares.analytics.viewmodel.project.ProjectIdentityViewModel
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioAction
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioRuntimeEvidence
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioViewModel
@@ -360,6 +361,9 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope,
         )
     }
+    val projectIdentityViewModel = remember(currentConfig.id) {
+        ProjectIdentityViewModel(scope = scope)
+    }
     val guidedRunAnalysisViewModel = remember(currentConfig.id) {
         GuidedRunAnalysisViewModel(
             service = services.guidedRunAnalysisService,
@@ -375,6 +379,7 @@ fun MainScreen(services: ServiceRegistry) {
     val adbConnected by services.processManagerService.adbConnected.collectAsState()
     val isSimRunning by services.processManagerService.isSimRunning.collectAsState()
     val isBuildRunning by services.processManagerService.isBuildRunning.collectAsState()
+    val buildExecutionState by services.processManagerService.buildExecutionState.collectAsState()
     var targetSelection by remember { mutableStateOf(TargetSelection.LIVE_ROBOT) }
     var liveRobotIp by remember(currentConfig.nt4Host) {
         mutableStateOf(currentConfig.nt4Host ?: "192.168.43.1")
@@ -393,10 +398,10 @@ fun MainScreen(services: ServiceRegistry) {
         robotStudioViewModel.load(currentConfig)
         guidedRunAnalysisViewModel.load(currentConfig)
     }
-    LaunchedEffect(isBuildRunning, isSimRunning, isLocalSimOnline, isNt4Connected) {
+    LaunchedEffect(buildExecutionState, isSimRunning, isLocalSimOnline, isNt4Connected) {
         robotStudioViewModel.updateRuntime(
             RobotStudioRuntimeEvidence(
-                buildRunning = isBuildRunning,
+                build = buildExecutionState,
                 simulatorRunning = isSimRunning,
                 localSimulatorOnline = isLocalSimOnline,
                 nt4Connected = isNt4Connected,
@@ -747,6 +752,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 viewModel = dashboardViewModel,
                                 services = services,
                                 currentConfig = currentConfig,
+                                isLocalSimulatorSelected = targetSelection == TargetSelection.LOCAL_SIM,
                                 matches = matches,
                                 onForensicsCompleted = { mainViewModel.onIntent(MainIntent.SetDiagnosticsResponse(it)) },
                                 onSelectMatch = { match, allianceColor ->
@@ -765,6 +771,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 },
                                 reloadTrigger = runsIndexReloadTrigger,
                                 onImportSuccess = { mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload) },
+                                onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) },
                                 onOpenKeybindings = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS)) },
                                 onOpenRunHistory = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.RUN_HISTORY)) },
                                 onOpenHelp = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY)) }
@@ -878,8 +885,8 @@ fun MainScreen(services: ServiceRegistry) {
                                 viewModel = robotStudioViewModel,
                                 onAction = { action ->
                                     when (action) {
-                                        RobotStudioAction.OPEN_PROFILE ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PROFILE))
+                                        RobotStudioAction.OPEN_PROJECT_IDENTITY ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PROJECT_IDENTITY))
                                         RobotStudioAction.OPEN_DRIVEBASE ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
                                         RobotStudioAction.OPEN_SUBSYSTEMS ->
@@ -923,6 +930,13 @@ fun MainScreen(services: ServiceRegistry) {
                             )
                             NavigationTarget.SUBSYSTEM_GEN -> SubsystemGeneratorScreen(subsystemGeneratorViewModel)
                             NavigationTarget.DRIVEBASE_BUILDER -> DrivebaseBuilderScreen(drivebaseBuilderViewModel)
+                            NavigationTarget.PROJECT_IDENTITY -> ProjectIdentityScreen(
+                                viewModel = projectIdentityViewModel,
+                                config = currentConfig,
+                                onBackToStudio = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ROBOT_STUDIO))
+                                },
+                            )
                             NavigationTarget.PROFILE -> ProfileScreen(
                                 viewModel = profileViewModel,
                                 config = currentConfig,

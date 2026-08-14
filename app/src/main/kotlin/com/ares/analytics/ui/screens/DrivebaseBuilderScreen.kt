@@ -331,10 +331,44 @@ private fun HardwareEditor(
 private fun GeometryStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
     SectionHeading("3 · Measure geometry", "Use meters internally. Wheelbase and track width are center-to-center distances; robot dimensions include bumpers/frame perimeter.")
     val geometry = state.draft.geometry
+    val labResult = evaluateGeometryLab(
+        geometry = geometry,
+        linearCommand = 1.0,
+        angularCommand = 0.0,
+        configuredMaxLinearSpeedMps = state.draft.safety.maxLinearSpeedMetersPerSecond,
+        useCornerModuleRadius = state.draft.kind == DrivebaseKind.FRC_CTRE_SWERVE
+    )
     Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
         GeometryField("Wheel radius", geometry.wheelRadiusMeters, "m", "Measure from the axle center to the floor under normal robot weight.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(geometry.copy(wheelRadiusMeters = it))) }
         GeometryField("Track width", geometry.trackWidthMeters, "m", "Center-to-center distance between the left and right wheel contact lines.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(geometry.copy(trackWidthMeters = it))) }
         GeometryField("Wheelbase", geometry.wheelBaseMeters, "m", "Center-to-center distance between the front and rear wheel/module contact lines.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(geometry.copy(wheelBaseMeters = it))) }
+        
+        HorizontalDivider(color = AresBorder)
+        FieldHeading("Configured Kinematic Limits", "Derived from this drivebase's reviewed safety envelope and measured geometry; no motor or gear ratio is guessed.")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(Modifier.weight(1f), color = AresSurface, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AresBorder)) {
+                Column(Modifier.padding(10.dp)) {
+                    Text("Linear Limit", color = AresTextSecondary, fontSize = 11.sp)
+                    Text(labResult.maxLinearSpeedMps?.let { "%.2f m/s".format(it) } ?: "Not configured", color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("≈ ${"%.1f".format((labResult.maxLinearSpeedMps ?: 0.0) * 3.28084)} ft/s", color = AresTextTertiary, fontSize = 10.sp)
+                }
+            }
+            Surface(Modifier.weight(1f), color = AresSurface, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AresBorder)) {
+                Column(Modifier.padding(10.dp)) {
+                    Text("Max Angular Rate", color = AresTextSecondary, fontSize = 11.sp)
+                    Text("${"%.1f".format(labResult.maxAngularSpeedRadPerSec ?: 0.0)} rad/s", color = AresGreen, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("≈ ${"%.0f".format((labResult.maxAngularSpeedRadPerSec ?: 0.0) * 180.0 / Math.PI)}°/s", color = AresTextTertiary, fontSize = 10.sp)
+                }
+            }
+            Surface(Modifier.weight(1f), color = AresSurface, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AresBorder)) {
+                Column(Modifier.padding(10.dp)) {
+                    val ratio = if (geometry.trackWidthMeters > 0.01) geometry.wheelBaseMeters / geometry.trackWidthMeters else 1.0
+                    Text("Aspect Ratio (L/W)", color = AresTextSecondary, fontSize = 11.sp)
+                    Text("%.2f".format(ratio), color = if (ratio in 0.7..1.4) AresTextPrimary else AresGold, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(if (ratio in 0.7..1.4) "Balanced turning" else "High scrub risk", color = if (ratio in 0.7..1.4) AresGreen else AresGold, fontSize = 10.sp)
+                }
+            }
+        }
         Text("Overall bumper dimensions are intentionally not collected by drivetrain schema v1; field-collision dimensions belong to the robot geometry contract.", color = AresTextSecondary, fontSize = 10.sp)
     }
 }
@@ -377,7 +411,13 @@ private fun LabsStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderVi
     SectionHeading("6 · Direction & field-relative lab", "This interactive diagram performs local math only. It never publishes NT4, starts a simulator process, or commands robot hardware.")
     val lab = state.lab
     val result = evaluateDriveLab(state.draft.kind, lab, state.draft.geometry, state.draft.hardware)
-    val geometryResult = evaluateGeometryLab(state.draft.geometry, lab.forward, lab.rotate)
+    val geometryResult = evaluateGeometryLab(
+        geometry = state.draft.geometry,
+        linearCommand = lab.forward,
+        angularCommand = lab.rotate,
+        configuredMaxLinearSpeedMps = state.draft.safety.maxLinearSpeedMetersPerSecond,
+        useCornerModuleRadius = state.draft.kind == DrivebaseKind.FRC_CTRE_SWERVE
+    )
     val localizationResult = evaluateLocalizationFailure(lab.localizationScenario)
     Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("SIMULATION ONLY · NO HARDWARE OUTPUT", color = AresGold, fontWeight = FontWeight.Bold, fontSize = 11.sp)

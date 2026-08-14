@@ -27,6 +27,23 @@ data class AresGenerationState(
     val contentHash: String? = null
 )
 
+enum class BuildExecutionPhase { IDLE, RUNNING, SUCCEEDED, FAILED, CANCELED }
+
+/**
+ * Observable evidence from the most recent project verification build.
+ *
+ * This reports only the selected project, Gradle result, and process outcome. A successful build
+ * never implies deployment, a running simulator, or physical-robot validation.
+ */
+data class BuildExecutionState(
+    val phase: BuildExecutionPhase = BuildExecutionPhase.IDLE,
+    val projectPath: String = "",
+    val league: League? = null,
+    val message: String = "No project verification build has run in this app session.",
+    val exitCode: Int? = null,
+    val requestId: Long = 0L,
+)
+
 /** Small testable boundary used by offline authoring screens. */
 interface AresProjectGenerator {
     val aresGenerationState: StateFlow<AresGenerationState>
@@ -99,6 +116,9 @@ class ProcessManagerService internal constructor(
     private val _isBuildRunning = MutableStateFlow(false)
     val isBuildRunning: StateFlow<Boolean> = _isBuildRunning.asStateFlow()
 
+    private val _buildExecutionState = MutableStateFlow(BuildExecutionState())
+    val buildExecutionState: StateFlow<BuildExecutionState> = _buildExecutionState.asStateFlow()
+
     private val _aresGenerationState = MutableStateFlow(AresGenerationState())
     override val aresGenerationState: StateFlow<AresGenerationState> = _aresGenerationState.asStateFlow()
 
@@ -160,41 +180,100 @@ class ProcessManagerService internal constructor(
     }
 
     private suspend fun executeBuild(generation: Long, projectPath: String, league: League) {
+        val projectIdentity = normalizedProjectIdentity(projectPath)
+        updateBuildExecutionStateIfOwner(
+            generation,
+            BuildExecutionState(
+                phase = BuildExecutionPhase.RUNNING,
+                projectPath = projectIdentity,
+                league = league,
+                message = "Verifying generated files, tests, and the ${league.name} project package. No deployment is performed.",
+                requestId = generation,
+            ),
+        )
         try {
+            val projectRoot = requireSafeProjectRoot(projectPath)
             val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
-            val command = withAresRepository(if (isWindows) {
-                when (league) {
-                    League.FTC -> listOf("cmd.exe", "/c", "gradlew.bat", ":TeamCode:assembleDebug")
-                    League.FRC -> listOf("cmd.exe", "/c", "gradlew.bat", "assemble")
-                }
-            } else {
-                when (league) {
-                    League.FTC -> listOf("./gradlew", ":TeamCode:assembleDebug")
-                    League.FRC -> listOf("./gradlew", "assemble")
-                }
-            })
+            val command = verificationBuildCommand(league, isWindows)
 
-            _buildOutput.emit("[SYSTEM] Starting Gradle build: ${command.joinToString(" ")}")
+            _buildOutput.emit("[SYSTEM] Starting compile-only project verification: ${command.joinToString(" ")}")
             val exitCode = runOwnedBuildProcess(
                 generation,
                 withAresRepositoryEnvironment(ProcessBuilder(command)
-                    .directory(File(projectPath))
+                    .directory(projectRoot)
                     .redirectErrorStream(true))
             ) { line -> _buildOutput.emit(line) }
             currentCoroutineContext().ensureActive()
-            _buildOutput.emit("[SYSTEM] Build finished with exit code $exitCode")
-
-            // Auto-deploy on success for FTC
-            if (exitCode == 0 && league == League.FTC) {
-                runAdbDeploy(projectPath)
+            val result = if (exitCode == 0) {
+                BuildExecutionState(
+                    phase = BuildExecutionPhase.SUCCEEDED,
+                    projectPath = projectIdentity,
+                    league = league,
+                    message = "Verification, tests, and package build passed. Nothing was deployed; rebuild after changing project files.",
+                    exitCode = exitCode,
+                    requestId = generation,
+                )
+            } else {
+                BuildExecutionState(
+                    phase = BuildExecutionPhase.FAILED,
+                    projectPath = projectIdentity,
+                    league = league,
+                    message = "Project verification failed with exit code $exitCode. Review the Build terminal, fix the first reported error, then run verification again.",
+                    exitCode = exitCode,
+                    requestId = generation,
+                )
             }
+            updateBuildExecutionStateIfOwner(generation, result)
+            _buildOutput.emit("[SYSTEM] ${result.message}")
         } catch (cancelled: CancellationException) {
+            updateBuildExecutionStateIfOwner(
+                generation,
+                BuildExecutionState(
+                    phase = BuildExecutionPhase.CANCELED,
+                    projectPath = projectIdentity,
+                    league = league,
+                    message = "Project verification was canceled before a result was available. No deployment was performed.",
+                    requestId = generation,
+                ),
+            )
             throw cancelled
         } catch (error: Exception) {
             currentCoroutineContext().ensureActive()
-            _buildOutput.emit("[SYSTEM] Error running build: ${error.message}")
+            val result = BuildExecutionState(
+                phase = BuildExecutionPhase.FAILED,
+                projectPath = projectIdentity,
+                league = league,
+                message = "Project verification could not run: ${error.message ?: "unknown process error"}. Check the selected project and Build terminal, then try again.",
+                requestId = generation,
+            )
+            updateBuildExecutionStateIfOwner(generation, result)
+            _buildOutput.emit("[SYSTEM] ${result.message}")
         }
     }
+
+    private fun verificationBuildCommand(league: League, isWindows: Boolean): List<String> =
+        withAresRepository(buildList {
+            if (isWindows) {
+                add("cmd.exe")
+                add("/c")
+                add("gradlew.bat")
+            } else {
+                add("./gradlew")
+            }
+            when (league) {
+                League.FTC -> addAll(
+                    listOf(
+                        ":TeamCode:verifyAresProject",
+                        ":TeamCode:testDebugUnitTest",
+                        ":simulator:test",
+                        ":TeamCode:assembleDebug",
+                    )
+                )
+                League.FRC -> addAll(listOf("verifyAresProject", "test", "build"))
+            }
+            add("--no-parallel")
+            add("--console=plain")
+        })
 
     /**
      * Regenerates the checked-in Kotlin bridge from canonical `.ares` documents.
@@ -521,6 +600,14 @@ class ProcessManagerService internal constructor(
         }
     }
 
+    private fun updateBuildExecutionStateIfOwner(generation: Long, state: BuildExecutionState) {
+        synchronized(buildStateLock) {
+            if (activeBuildGeneration == generation && activeBuildKind == BuildOperationKind.BUILD) {
+                _buildExecutionState.value = state
+            }
+        }
+    }
+
     fun runSimulation(projectPath: String, league: League, simulatorCommand: String? = null) {
         if (shuttingDown.get()) return
         killActiveSim()
@@ -622,39 +709,6 @@ class ProcessManagerService internal constructor(
         return "adb"
     }
 
-    private suspend fun runAdbDeploy(projectPath: String) {
-        _buildOutput.emit("[SYSTEM] Auto-deploying to FTC Control Hub...")
-        val adb = resolveAdbPath()
-        val connectPb = ProcessBuilder(adb, "connect", "192.168.43.1:5555").redirectErrorStream(true)
-        val connectProc = connectPb.start()
-        val connectExit = waitForProcess(connectProc, 10) { line -> _buildOutput.emit("[ADB] $line") }
-        if (connectExit == null) {
-            _buildOutput.emit("[SYSTEM] Warning: adb connect timed out. Attempting install anyway.")
-        }
-        if (connectExit != null && connectExit != 0) {
-            _buildOutput.emit("[SYSTEM] Warning: adb connect returned non-zero exit code $connectExit. Attempting install anyway.")
-        }
-
-        // Try installing debug apk
-        var apkPath = File(projectPath, "ftc-app/TeamCode/build/outputs/apk/debug/TeamCode-debug.apk")
-        if (!apkPath.exists()) {
-            apkPath = File(projectPath, "TeamCode/build/outputs/apk/debug/TeamCode-debug.apk")
-        }
-        val installPb = ProcessBuilder(adb, "install", "-r", apkPath.absolutePath).redirectErrorStream(true)
-        val installProc = installPb.start()
-        val installResult = waitForProcess(installProc, 30) { line -> _buildOutput.emit("[ADB] $line") }
-        if (installResult == null) {
-            _buildOutput.emit("[SYSTEM] Error: ADB Deploy timed out.")
-        }
-        val installExit = installResult ?: -1
-        _buildOutput.emit("[SYSTEM] ADB Deploy finished with exit code $installExit")
-
-        // Auto restart logcat on successful deploy
-        if (installExit == 0) {
-            startLogcat()
-        }
-    }
-
     fun killActiveBuild() {
         runBlocking { killActiveBuildAndJoin() }
     }
@@ -686,6 +740,16 @@ class ProcessManagerService internal constructor(
             }
         }
         if (released || ownership.job != null) _isBuildRunning.value = false
+        if (
+            ownership.kind == BuildOperationKind.BUILD &&
+            _buildExecutionState.value.phase == BuildExecutionPhase.RUNNING
+        ) {
+            _buildExecutionState.value = _buildExecutionState.value.copy(
+                phase = BuildExecutionPhase.CANCELED,
+                message = "Project verification was canceled before a result was available. No deployment was performed.",
+                exitCode = null,
+            )
+        }
         if (ownership.kind == BuildOperationKind.GENERATION &&
             _aresGenerationState.value.phase == AresGenerationPhase.RUNNING
         ) {
@@ -821,6 +885,57 @@ class ProcessManagerService internal constructor(
     internal fun configuredGradleCommandForTest(command: List<String>): List<String> =
         withAresRepository(command)
 
+    /** Exact compile-only verification command used by the student-facing Build action. */
+    internal fun verificationBuildCommandForTest(league: League, isWindows: Boolean): List<String> =
+        verificationBuildCommand(league, isWindows)
+
+    /** Test seam for success, failure, cancellation, and replacement result ownership. */
+    internal fun runVerificationProcessForTest(command: List<String>, projectPath: String, league: League) {
+        require(command.isNotEmpty()) { "Process command must not be empty" }
+        enqueueBuildOperation(BuildOperationKind.BUILD) { generation ->
+            val projectIdentity = normalizedProjectIdentity(projectPath)
+            updateBuildExecutionStateIfOwner(
+                generation,
+                BuildExecutionState(
+                    phase = BuildExecutionPhase.RUNNING,
+                    projectPath = projectIdentity,
+                    league = league,
+                    message = "Test verification running. No deployment is performed.",
+                    requestId = generation,
+                ),
+            )
+            try {
+                val exitCode = runOwnedBuildProcess(
+                    generation,
+                    ProcessBuilder(command).directory(requireSafeProjectRoot(projectPath)).redirectErrorStream(true),
+                ) { }
+                updateBuildExecutionStateIfOwner(
+                    generation,
+                    BuildExecutionState(
+                        phase = if (exitCode == 0) BuildExecutionPhase.SUCCEEDED else BuildExecutionPhase.FAILED,
+                        projectPath = projectIdentity,
+                        league = league,
+                        message = if (exitCode == 0) "Test verification passed." else "Test verification failed.",
+                        exitCode = exitCode,
+                        requestId = generation,
+                    ),
+                )
+            } catch (cancelled: CancellationException) {
+                updateBuildExecutionStateIfOwner(
+                    generation,
+                    BuildExecutionState(
+                        phase = BuildExecutionPhase.CANCELED,
+                        projectPath = projectIdentity,
+                        league = league,
+                        message = "Test verification canceled. No deployment was performed.",
+                        requestId = generation,
+                    ),
+                )
+                throw cancelled
+            }
+        }
+    }
+
     /** Focused test seam for environment propagation into arbitrary child simulator commands. */
     internal fun configuredAresRepositoryEnvironmentForTest(): String? =
         withAresRepositoryEnvironment(ProcessBuilder("ares-environment-test"))
@@ -839,6 +954,10 @@ class ProcessManagerService internal constructor(
         require(directory.isDirectory) { "ARES repository override directory does not exist: $directory" }
         return directory.toURI().toASCIIString()
     }
+
+    private fun normalizedProjectIdentity(projectPath: String): String =
+        runCatching { File(projectPath).absoluteFile.normalize().path }
+            .getOrDefault(projectPath.trim())
 
     private fun readGeneratedContentHash(root: File, league: League): String? {
         val relative = when (league) {

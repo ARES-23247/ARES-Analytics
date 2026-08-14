@@ -21,6 +21,7 @@ class NavigationModelTest {
         assertEquals(NavigationSection.ROBOT, grouped[NavigationTarget.TUNING])
         assertEquals(NavigationSection.ROBOT, grouped[NavigationTarget.DRIVEBASE_BUILDER])
         assertEquals(NavigationSection.ROBOT, grouped[NavigationTarget.ROBOT_STUDIO])
+        assertEquals(NavigationSection.ROBOT, grouped[NavigationTarget.PROJECT_IDENTITY])
         assertEquals(NavigationTarget.ROBOT_STUDIO, NavigationSection.ROBOT.defaultTarget())
         assertEquals(NavigationSection.AUTONOMOUS, grouped[NavigationTarget.FIELD_EDITOR])
         assertEquals(NavigationSection.ANALYSIS, grouped[NavigationTarget.GUIDED_RUN_ANALYSIS])
@@ -52,5 +53,12 @@ class NavigationModelTest {
         assertTrue(filterNavigationTargets("gamepad", false).contains(NavigationTarget.CONTROLS))
         assertEquals(listOf(NavigationTarget.DRIVEBASE_BUILDER), filterNavigationTargets("mecanum", false))
         assertEquals(listOf(NavigationTarget.ROBOT_STUDIO), filterNavigationTargets("build robot", false))
+        assertEquals(listOf(NavigationTarget.PROJECT_IDENTITY), filterNavigationTargets("robot dimensions", false))
+    }
+
+    @Test
+    fun `command search matches subsystem builder and field editor`() {
+        assertTrue(filterNavigationTargets("subsystem", false).contains(NavigationTarget.SUBSYSTEM_GEN))
+        assertTrue(filterNavigationTargets("field", false).contains(NavigationTarget.FIELD_EDITOR))
     }
 }

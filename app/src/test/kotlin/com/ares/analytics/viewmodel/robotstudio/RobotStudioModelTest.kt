@@ -1,5 +1,7 @@
 package com.ares.analytics.viewmodel.robotstudio
 
+import com.ares.analytics.service.BuildExecutionPhase
+import com.ares.analytics.service.BuildExecutionState
 import com.ares.analytics.service.RobotProjectReadinessEvidence
 import com.ares.analytics.service.drivebase.DrivebaseKind
 import com.ares.analytics.shared.League
@@ -42,6 +44,31 @@ class RobotStudioModelTest {
     }
 
     @Test
+    fun `missing or invalid metadata routes students to reviewed project identity setup`() {
+        val missing = evaluateRobotStudioStages(
+            completeEvidence().copy(metadataPresent = false, metadataLeagueMatches = false),
+            RobotStudioRuntimeEvidence(),
+        )
+        val invalidPlatform = evaluateRobotStudioStages(
+            completeEvidence().copy(metadataLeagueMatches = false),
+            RobotStudioRuntimeEvidence(),
+        )
+
+        assertEquals(
+            RobotStudioAction.OPEN_PROJECT_IDENTITY,
+            missing.first { it.id == RobotStudioStageId.WORKSPACE }.action,
+        )
+        assertEquals(
+            "Set up project identity",
+            missing.first { it.id == RobotStudioStageId.WORKSPACE }.actionLabel,
+        )
+        assertEquals(
+            RobotStudioAction.OPEN_PROJECT_IDENTITY,
+            invalidPlatform.first { it.id == RobotStudioStageId.PLATFORM }.action,
+        )
+    }
+
+    @Test
     fun `unsupported drive runtime is visibly code required and blocks no-code workflow`() {
         val stages = evaluateRobotStudioStages(
             completeEvidence().copy(
@@ -79,7 +106,7 @@ class RobotStudioModelTest {
         val stages = evaluateRobotStudioStages(
             completeEvidence().copy(importedRunCount = 2),
             RobotStudioRuntimeEvidence(
-                buildRunning = true,
+                build = buildState(BuildExecutionPhase.RUNNING),
                 simulatorRunning = true,
                 localSimulatorOnline = true,
                 nt4Connected = true,
@@ -90,6 +117,44 @@ class RobotStudioModelTest {
         assertEquals(RobotStudioStageStatus.RUNNING, stages.status(RobotStudioStageId.SIMULATE))
         assertEquals(RobotStudioStageStatus.READY, stages.status(RobotStudioStageId.ANALYZE))
         assertEquals(RobotStudioAction.OPEN_GUIDED_ANALYSIS, stages.first { it.id == RobotStudioStageId.ANALYZE }.action)
+    }
+
+    @Test
+    fun `successful verification is project correlated and explicitly compile only`() {
+        val matching = evaluateRobotStudioStages(
+            completeEvidence(),
+            RobotStudioRuntimeEvidence(build = buildState(BuildExecutionPhase.SUCCEEDED)),
+        )
+        val otherProject = evaluateRobotStudioStages(
+            completeEvidence(),
+            RobotStudioRuntimeEvidence(
+                build = buildState(BuildExecutionPhase.SUCCEEDED).copy(projectPath = "C:/fixture/another-robot"),
+            ),
+        )
+
+        val matchingStage = matching.first { it.id == RobotStudioStageId.GENERATE_VERIFY }
+        assertEquals(RobotStudioStageStatus.READY, matchingStage.status)
+        assertTrue(matchingStage.explanation.contains("Nothing was deployed"))
+        assertTrue(matchingStage.outcome.contains("without deploying"))
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, otherProject.status(RobotStudioStageId.GENERATE_VERIFY))
+    }
+
+    @Test
+    fun `failed and canceled verification remain actionable without claiming readiness`() {
+        val failed = evaluateRobotStudioStages(
+            completeEvidence(),
+            RobotStudioRuntimeEvidence(build = buildState(BuildExecutionPhase.FAILED, exitCode = 7)),
+        ).first { it.id == RobotStudioStageId.GENERATE_VERIFY }
+        val canceled = evaluateRobotStudioStages(
+            completeEvidence(),
+            RobotStudioRuntimeEvidence(build = buildState(BuildExecutionPhase.CANCELED)),
+        ).first { it.id == RobotStudioStageId.GENERATE_VERIFY }
+
+        assertEquals(RobotStudioStageStatus.INVALID, failed.status)
+        assertTrue(failed.issues.single().contains("exit code 7"))
+        assertEquals("Retry verification", failed.actionLabel)
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, canceled.status)
+        assertEquals("Retry verification", canceled.actionLabel)
     }
 
     private fun completeEvidence() = RobotProjectReadinessEvidence(
@@ -113,4 +178,19 @@ class RobotStudioModelTest {
 
     private fun List<RobotStudioStage>.status(id: RobotStudioStageId): RobotStudioStageStatus =
         first { it.id == id }.status
+
+    private fun buildState(phase: BuildExecutionPhase, exitCode: Int? = null) = BuildExecutionState(
+        phase = phase,
+        projectPath = "C:/fixture/robot",
+        league = League.FTC,
+        message = when (phase) {
+            BuildExecutionPhase.SUCCEEDED -> "Verification passed. Nothing was deployed; rebuild after edits."
+            BuildExecutionPhase.FAILED -> "Project verification failed with exit code ${exitCode ?: 1}. Review the terminal."
+            BuildExecutionPhase.CANCELED -> "Project verification was canceled. No deployment was performed."
+            BuildExecutionPhase.RUNNING -> "Project verification is running. No deployment is performed."
+            BuildExecutionPhase.IDLE -> "No verification has run."
+        },
+        exitCode = exitCode,
+        requestId = 1L,
+    )
 }

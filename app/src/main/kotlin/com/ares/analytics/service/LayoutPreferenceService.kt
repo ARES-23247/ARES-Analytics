@@ -153,6 +153,62 @@ class LayoutPreferenceService(
 
     fun getDefaultLayout(profileName: String): DashboardLayoutConfig {
         return when (profileKey(profileName)) {
+            "student" -> DashboardLayoutConfig(
+                listOf(
+                    WidgetConfig("field_viewer", "field_viewer", 0, 0, 5, 7),
+                    WidgetConfig("system_health", "system_health", 0, 7, 3, 5),
+                    WidgetConfig("autonomous_selector", "autonomous_selector", 3, 7, 2, 5),
+                    WidgetConfig("telemetry_chart", "telemetry_chart", 5, 0, 5, 7),
+                    WidgetConfig("alerts", "alerts", 5, 7, 5, 5)
+                )
+            )
+            "driver" -> DashboardLayoutConfig(
+                listOf(
+                    WidgetConfig("field_viewer", "field_viewer", 0, 0, 6, 8),
+                    WidgetConfig("joystick_visualizer", "joystick_visualizer", 0, 8, 3, 4),
+                    WidgetConfig("system_health", "system_health", 3, 8, 3, 4),
+                    WidgetConfig("telemetry_chart", "telemetry_chart", 6, 0, 4, 8),
+                    WidgetConfig("alerts", "alerts", 6, 8, 4, 4)
+                )
+            )
+            "builder" -> DashboardLayoutConfig(
+                listOf(
+                    WidgetConfig("hardware_topology", "hardware_topology", 0, 0, 5, 7),
+                    WidgetConfig("system_health", "system_health", 0, 7, 3, 5),
+                    WidgetConfig("motor_health", "motor_health", 3, 7, 4, 5),
+                    WidgetConfig("power_distribution", "power_distribution", 5, 0, 4, 4),
+                    WidgetConfig("battery_health", "battery_health", 5, 4, 4, 3),
+                    WidgetConfig("alerts", "alerts", 7, 7, 2, 5)
+                )
+            )
+            "autonomous" -> DashboardLayoutConfig(
+                listOf(
+                    WidgetConfig("field_viewer", "field_viewer", 0, 0, 6, 7),
+                    WidgetConfig("autonomous_selector", "autonomous_selector", 0, 7, 3, 5),
+                    WidgetConfig("pose_viewer", "pose_viewer", 3, 7, 3, 5),
+                    WidgetConfig("path_tuning", "path_tuning", 6, 0, 5, 6),
+                    WidgetConfig("ekf_telemetry", "ekf_telemetry", 6, 6, 5, 6)
+                )
+            )
+            "analyst" -> DashboardLayoutConfig(
+                listOf(
+                    WidgetConfig("runs_index", "runs_index", 0, 0, 3, 12),
+                    WidgetConfig("telemetry_chart", "telemetry_chart", 3, 0, 5, 8),
+                    WidgetConfig("session_summary", "session_summary", 3, 8, 5, 4),
+                    WidgetConfig("advanced_analytics", "advanced_analytics", 8, 0, 5, 6),
+                    WidgetConfig("trends_card", "trends_card", 8, 6, 5, 6)
+                )
+            )
+            "mentor" -> DashboardLayoutConfig(
+                listOf(
+                    WidgetConfig("system_health", "system_health", 0, 0, 3, 6),
+                    WidgetConfig("alerts", "alerts", 0, 6, 3, 6),
+                    WidgetConfig("pit_evidence_checklist", "pit_evidence_checklist", 3, 0, 5, 6),
+                    WidgetConfig("ai_coach", "ai_coach", 3, 6, 5, 6),
+                    WidgetConfig("runs_index", "runs_index", 8, 0, 4, 6),
+                    WidgetConfig("control_profiler", "control_profiler", 8, 6, 4, 6)
+                )
+            )
             "driver_coach" -> DashboardLayoutConfig(
                 listOf(
                     WidgetConfig("field_viewer", "field_viewer", 0, 0, 5, 7),
@@ -238,7 +294,11 @@ class LayoutPreferenceService(
     }
 
     fun getAvailableLayouts(): List<String> {
-        val defaults = listOf("Standard", "Driver Coach", "Programmer", "Pit Crew", "Match Review", "Pit Diagnostics", "Driver Practice", "Replay")
+        val defaults = listOf(
+            "Student", "Driver", "Builder", "Autonomous", "Analyst", "Mentor",
+            "Standard", "Driver Coach", "Programmer", "Pit Crew", "Match Review",
+            "Pit Diagnostics", "Driver Practice", "Replay"
+        )
         val saved = getSavedLayouts()
         return (defaults + saved).distinct()
     }

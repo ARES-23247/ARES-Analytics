@@ -143,4 +143,43 @@ class CalibrationServiceTest {
         databaseService.close()
         tempDb.delete()
     }
+
+    @Test
+    fun testSolveCameraExtrinsicsEmptyMeasurementsReturnsZero() {
+        val tempDb = File.createTempFile("calib_empty_test", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val calibrationService = CalibrationService(databaseService)
+
+        val solved = calibrationService.solveCameraExtrinsics(emptyList())
+        assertEquals(0.0, solved.x)
+        assertEquals(0.0, solved.y)
+        assertEquals(0.0, solved.z)
+        assertEquals(0.0, solved.roll)
+        assertEquals(0.0, solved.pitch)
+        assertEquals(0.0, solved.yaw)
+
+        databaseService.close()
+        tempDb.delete()
+    }
+
+    @Test
+    fun testSolveCameraExtrinsicsWithDiagnosticsEmptyMeasurementsReturnsZero() {
+        val tempDb = File.createTempFile("calib_empty_diag_test", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val calibrationService = CalibrationService(databaseService)
+
+        val diag = calibrationService.solveCameraExtrinsicsWithDiagnostics(emptyList())
+        assertEquals(0.0, diag.pose.x)
+        assertEquals(0.0, diag.pose.y)
+        assertEquals(0.0, diag.pose.z)
+        assertEquals(0.0, diag.pose.roll)
+        assertEquals(0.0, diag.pose.pitch)
+        assertEquals(0.0, diag.pose.yaw)
+        assertEquals(6, diag.standardErrors.size)
+        assertEquals(6, diag.covarianceMatrix.size)
+        assertEquals(0.0, diag.reducedChiSquared)
+
+        databaseService.close()
+        tempDb.delete()
+    }
 }
