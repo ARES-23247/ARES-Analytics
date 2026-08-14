@@ -356,4 +356,36 @@ class RoutineBuilderViewModelTest {
         assertTrue(viewModel.state.value.routine.steps.isEmpty())
         assertEquals(listOf("empty_routine"), viewModel.state.value.routineValidation.map { it.code })
     }
+
+    @Test
+    fun `updating routine name and description updates state, marks unsaved changes, and synchronizes autonomous entry display name`() = runTest {
+        val viewModel = PathPlannerViewModel(this)
+        viewModel.onIntent(PathPlannerIntent.CreateRoutine("Initial Name"))
+        advanceUntilIdle()
+
+        viewModel.onIntent(PathPlannerIntent.SetAutonomousAvailability(true, League.FTC))
+        advanceUntilIdle()
+
+        assertEquals("Initial Name", viewModel.state.value.routine.name)
+        assertEquals("Initial Name", viewModel.state.value.autonomousEntry?.displayName)
+
+        // Update routine name
+        viewModel.onIntent(PathPlannerIntent.UpdateRoutineName("Updated Autonomous Routine"))
+        advanceUntilIdle()
+
+        assertEquals("Updated Autonomous Routine", viewModel.state.value.routine.name)
+        assertEquals("Updated Autonomous Routine", viewModel.state.value.autonomousEntry?.displayName)
+
+        // Update description
+        viewModel.onIntent(PathPlannerIntent.UpdateRoutineDescription("Autonomous routine description for match play"))
+        advanceUntilIdle()
+
+        assertEquals("Autonomous routine description for match play", viewModel.state.value.routine.description)
+
+        // Empty description becomes null
+        viewModel.onIntent(PathPlannerIntent.UpdateRoutineDescription("   "))
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.routine.description)
+    }
 }
