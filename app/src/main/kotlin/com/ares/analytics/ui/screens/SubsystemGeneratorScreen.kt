@@ -793,7 +793,121 @@ private fun VerificationInspector(state: SubsystemGeneratorState, viewModel: Sub
             fontSize = 11.sp,
         )
     }
+    FieldInteractionCard(document, viewModel)
     ArtifactPlan(state, viewModel)
+}
+
+@Composable
+private fun FieldInteractionCard(document: com.areslib.subsystem.SubsystemDocument, viewModel: SubsystemGeneratorViewModel) {
+    val sim = document.implementation.simulation
+    val interaction = sim.interaction
+
+    EditorCard("Field element interaction (Dyn4j physics)", Icons.Default.Build) {
+        Text(
+            "Configure how this subsystem physically interacts with field elements (e.g. game piece intake or projectile launch) in the Dyn4j simulator.",
+            color = AresTextSecondary,
+            fontSize = 12.sp,
+        )
+
+        EnumSelector(
+            "Interaction role",
+            interaction.role,
+            com.areslib.subsystem.SimInteractionRole.entries,
+        ) { role ->
+            viewModel.edit { doc ->
+                val currentSim = doc.implementation.simulation
+                doc.copy(
+                    implementation = doc.implementation.copy(
+                        simulation = currentSim.copy(
+                            interaction = currentSim.interaction.copy(role = role),
+                        ),
+                    ),
+                )
+            }
+        }
+
+        when (interaction.role) {
+            com.areslib.subsystem.SimInteractionRole.INTAKE_COLLECTOR -> {
+                DoubleInput("Capture range (m)", interaction.intakeDistanceMeters) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(intakeDistanceMeters = value.coerceAtLeast(0.05)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+                DoubleInput("Capture radius (m)", interaction.captureRadiusMeters) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(captureRadiusMeters = value.coerceAtLeast(0.05)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+                IntInput("Storage capacity", interaction.storageCapacity) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(storageCapacity = value.coerceAtLeast(1)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+            }
+            com.areslib.subsystem.SimInteractionRole.PROJECTILE_LAUNCHER -> {
+                DoubleInput("Launch velocity (m/s)", interaction.launchSpeedMps) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(launchSpeedMps = value.coerceAtLeast(0.5)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+                DoubleInput("Launch elevation (deg)", interaction.launchElevationDeg) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(launchElevationDeg = value.coerceIn(0.0, 90.0)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+            }
+            com.areslib.subsystem.SimInteractionRole.CONVEYOR_INDEXER -> {
+                IntInput("Storage capacity", interaction.storageCapacity) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(storageCapacity = value.coerceAtLeast(1)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+            }
+            com.areslib.subsystem.SimInteractionRole.NONE -> Unit
+        }
+    }
 }
 
 @Composable
