@@ -1,5 +1,6 @@
 package com.ares.analytics.service.drivebase
 
+import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.drivebase.DriveLabState
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderIntent
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
@@ -23,6 +24,69 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 
 class DrivebaseAuthoringTest {
+    @Test
+    fun `league catalog exposes only its runnable no-code drive and labels advanced kinds as code required`() {
+        assertEquals(
+            listOf(DrivebaseKind.FTC_MECANUM, DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM),
+            drivebaseKindsForLeague(League.FTC),
+        )
+        assertEquals(
+            listOf(DrivebaseKind.FRC_CTRE_SWERVE, DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM),
+            drivebaseKindsForLeague(League.FRC),
+        )
+        assertEquals(DrivebaseRuntimeSupport.NO_CODE_RUNNABLE, DrivebaseKind.FTC_MECANUM.runtimeSupport(League.FTC))
+        assertEquals(DrivebaseRuntimeSupport.NO_CODE_RUNNABLE, DrivebaseKind.FRC_CTRE_SWERVE.runtimeSupport(League.FRC))
+        assertEquals(DrivebaseRuntimeSupport.CODE_REQUIRED, DrivebaseKind.DIFFERENTIAL.runtimeSupport(League.FTC))
+        assertEquals(DrivebaseRuntimeSupport.CODE_REQUIRED, DrivebaseKind.CUSTOM.runtimeSupport(League.FRC))
+        assertEquals(DrivebaseRuntimeSupport.UNAVAILABLE_FOR_LEAGUE, DrivebaseKind.FRC_CTRE_SWERVE.runtimeSupport(League.FTC))
+    }
+
+    @Test
+    fun `no-code validation blocks cross-league and team-written runtime architectures`() {
+        val differential = defaultDrivebase("team", DrivebaseKind.DIFFERENTIAL)
+        val crossLeague = defaultDrivebase("team", DrivebaseKind.FRC_CTRE_SWERVE)
+
+        assertTrue(validateDrivebaseForLeague(differential, League.FTC).any {
+            it.path == "runtime" && it.severity == DrivebaseIssueSeverity.ERROR && it.message.contains("CODE REQUIRED")
+        })
+        assertTrue(validateDrivebaseForLeague(crossLeague, League.FTC).any {
+            it.path == "runtime" && it.severity == DrivebaseIssueSeverity.ERROR && it.message.contains("different competition platform")
+        })
+        assertTrue(validateDrivebaseForLeague(defaultDrivebase("team", DrivebaseKind.FTC_MECANUM), League.FTC).none {
+            it.path == "runtime"
+        })
+    }
+
+    @Test
+    fun `view model defaults by league and refuses unsupported runnable saves`() = runBlocking {
+        val ftcRoot = Files.createTempDirectory("ares-ftc-drivebase-platform").toFile()
+        val frcRoot = Files.createTempDirectory("ares-frc-drivebase-platform").toFile()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val ftc = DrivebaseBuilderViewModel(ftcRoot.path, "ftc-team", League.FTC, scope)
+        val frc = DrivebaseBuilderViewModel(frcRoot.path, "frc-team", League.FRC, scope)
+        try {
+            withTimeout(5_000) { ftc.state.first { !it.loading } }
+            withTimeout(5_000) { frc.state.first { !it.loading } }
+            assertEquals(DrivebaseKind.FTC_MECANUM, ftc.state.value.draft.kind)
+            assertEquals(DrivebaseKind.FRC_CTRE_SWERVE, frc.state.value.draft.kind)
+
+            ftc.onIntent(DrivebaseBuilderIntent.SelectKind(DrivebaseKind.FRC_CTRE_SWERVE))
+            assertEquals(DrivebaseKind.FTC_MECANUM, ftc.state.value.draft.kind)
+            assertTrue(ftc.state.value.error.orEmpty().contains("not available"))
+
+            ftc.onIntent(DrivebaseBuilderIntent.SelectKind(DrivebaseKind.DIFFERENTIAL))
+            assertEquals(DrivebaseKind.DIFFERENTIAL, ftc.state.value.draft.kind)
+            ftc.onIntent(DrivebaseBuilderIntent.ReviewSave)
+            assertEquals(null, ftc.state.value.saveReview)
+            assertTrue(ftc.state.value.issues.any { it.path == "runtime" && it.severity == DrivebaseIssueSeverity.ERROR })
+            assertFalse(File(ftcRoot, ".ares/drivetrains").exists())
+        } finally {
+            scope.cancel()
+            ftcRoot.deleteRecursively()
+            frcRoot.deleteRecursively()
+        }
+    }
+
     @Test
     fun `FTC and full CTRE canonical documents round trip exactly through UI adapter`() {
         val ftc = canonicalTemplate("team", DrivebaseKind.FTC_MECANUM).copy(
@@ -254,7 +318,7 @@ class DrivebaseAuthoringTest {
         val root = Files.createTempDirectory("ares-drivebase-dirty").toFile()
         DrivebaseProjectRepository().saveReviewed(root.path, null, defaultDrivebase("team", DrivebaseKind.FTC_MECANUM))
         val viewModelScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val viewModel = DrivebaseBuilderViewModel(root.path, "team", viewModelScope)
+        val viewModel = DrivebaseBuilderViewModel(root.path, "team", League.FTC, viewModelScope)
         try {
             withTimeout(5_000) { viewModel.state.first { !it.loading } }
 

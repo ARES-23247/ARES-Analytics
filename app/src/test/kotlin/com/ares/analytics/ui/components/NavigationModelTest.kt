@@ -20,6 +20,8 @@ class NavigationModelTest {
         assertEquals(NavigationSection.ROBOT, grouped[NavigationTarget.CONTROLS])
         assertEquals(NavigationSection.ROBOT, grouped[NavigationTarget.TUNING])
         assertEquals(NavigationSection.ROBOT, grouped[NavigationTarget.DRIVEBASE_BUILDER])
+        assertEquals(NavigationSection.ROBOT, grouped[NavigationTarget.ROBOT_STUDIO])
+        assertEquals(NavigationTarget.ROBOT_STUDIO, NavigationSection.ROBOT.defaultTarget())
         assertEquals(NavigationSection.AUTONOMOUS, grouped[NavigationTarget.FIELD_EDITOR])
         assertFalse(grouped.containsKey(NavigationTarget.MATCH_STRATEGY))
         assertEquals(NavigationSection.DATA, grouped[NavigationTarget.CLOUD])
@@ -46,5 +48,6 @@ class NavigationModelTest {
         assertTrue(filterNavigationTargets("disconnected", false).contains(NavigationTarget.DASHBOARD))
         assertTrue(filterNavigationTargets("gamepad", false).contains(NavigationTarget.CONTROLS))
         assertEquals(listOf(NavigationTarget.DRIVEBASE_BUILDER), filterNavigationTargets("mecanum", false))
+        assertEquals(listOf(NavigationTarget.ROBOT_STUDIO), filterNavigationTargets("build robot", false))
     }
 }

@@ -10,7 +10,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.*
@@ -74,6 +74,7 @@ fun DrivebaseBuilderScreen(viewModel: DrivebaseBuilderViewModel) {
             Column {
                 Text("Drivebase Builder", color = AresTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                 Text("Describe how the robot moves, localizes, stops safely, and is calibrated.", color = AresTextSecondary, fontSize = 12.sp)
+                Text("${state.league.name} PROJECT · ${state.draft.kind.runtimeSupportLabel(state.league)}", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 Text("Drafts never command hardware. Saving requires a content-hash-bound reviewed diff and creates a history backup.", color = AresGold, fontSize = 11.sp)
                 Text("PROJECT · ${state.projectPath}", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                 Text("CANONICAL · .ares/drivetrains/${state.draft.documentId}.aresdrivetrain", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
@@ -95,6 +96,9 @@ fun DrivebaseBuilderScreen(viewModel: DrivebaseBuilderViewModel) {
         DrivebaseAiAssistantCard(state, viewModel)
         state.error?.let { StatusBanner(it, AresError) }
         if (state.status.isNotBlank()) StatusBanner(state.status, AresGreen)
+        if (state.draft.kind.runtimeSupport(state.league) == DrivebaseRuntimeSupport.CODE_REQUIRED) {
+            StatusBanner("CODE REQUIRED · You can inspect and learn from this architecture, but ARES cannot save it as a runnable no-code ${state.league.name} drivebase until a team-written adapter and lifecycle wiring exist.", AresGold)
+        }
         if (state.loading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator(); Text("Loading the project drivebase before editing…", color = AresTextSecondary) }
         } else Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -183,7 +187,7 @@ private fun DriveTypeStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuil
         Triple(DrivebaseKind.FRC_CTRE_SWERVE, "FRC CTRE swerve", "Four independently steering modules; supports read-only TunerConstants import."),
         Triple(DrivebaseKind.DIFFERENTIAL, "Differential", "Left and right wheel groups drive like a tank; no sideways motion."),
         Triple(DrivebaseKind.CUSTOM, "Advanced/custom", "Start with a safe example motor and gyro, then add, remove, and classify team-maintained hardware explicitly.")
-    )
+    ).filter { (kind, _, _) -> kind in drivebaseKindsForLeague(state.league) }
     cards.chunked(2).forEach { row ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             row.forEach { (kind, title, explanation) ->
@@ -195,6 +199,7 @@ private fun DriveTypeStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuil
                     verticalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
                     Text(title, color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    Text(kind.runtimeSupportLabel(state.league), color = if (kind.runtimeSupport(state.league) == DrivebaseRuntimeSupport.NO_CODE_RUNNABLE) AresGreen else AresGold, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                     Text(explanation, color = AresTextSecondary, fontSize = 11.sp)
                     Text(if (state.draft.kind == kind) "SELECTED" else "Choose this drive", color = if (state.draft.kind == kind) AresCyan else AresTextSecondary, fontSize = 9.sp, fontWeight = FontWeight.Bold)
                 }
@@ -430,9 +435,11 @@ private fun DirectionDiagram(headingDegrees: Double, result: DriveLabResult, mod
 private fun ReviewStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
     SectionHeading("7 · Review & save", "Only the canonical .ares/drivetrains document changes. Generated plumbing/source generation is a later explicit project action.")
     val review = state.saveReview
+    val noCodeRunnable = state.draft.kind.runtimeSupport(state.league) == DrivebaseRuntimeSupport.NO_CODE_RUNNABLE
     if (review == null) {
         Text("Select Review changes to validate the draft and create a content-hash-bound structured diff.", color = AresTextSecondary)
-        Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) }) { Text("Create reviewed diff") }
+        Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) }, enabled = noCodeRunnable) { Text(if (noCodeRunnable) "Create reviewed diff" else "Code required before save") }
+        if (!noCodeRunnable) Text("This builder will not claim an architecture is runnable when the selected ${state.league.name} season shell has no matching adapter.", color = AresGold, fontSize = 10.sp)
     } else {
         Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
             Text("STRUCTURED DIFF · base ${review.baseContentHash?.take(12) ?: "new document"}", color = AresCyan, fontWeight = FontWeight.Bold)
@@ -476,7 +483,7 @@ private fun IssueRail(state: DrivebaseBuilderState, modifier: Modifier) {
 private fun HelpButton(help: String) {
     var show by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { show = true }, Modifier.size(28.dp).semantics { contentDescription = "Help: $help" }) { Icon(Icons.Default.HelpOutline, "Show help", tint = AresTextSecondary, modifier = Modifier.size(15.dp)) }
+        IconButton(onClick = { show = true }, Modifier.size(28.dp).semantics { contentDescription = "Help: $help" }) { Icon(Icons.AutoMirrored.Filled.HelpOutline, "Show help", tint = AresTextSecondary, modifier = Modifier.size(15.dp)) }
         DropdownMenu(show, { show = false }) { Text(help, color = AresTextPrimary, fontSize = 11.sp, modifier = Modifier.widthIn(max = 320.dp).padding(12.dp)) }
     }
 }

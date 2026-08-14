@@ -11,15 +11,16 @@ Use this task for the safest first live-data experience. The simulator produces 
 
 ## Launch and connect
 
-1. Open **Dashboard**.
-2. In the execution toolbar, open the target selector and choose **Local Sim**.
-3. Select the monitor-shaped **Launch Simulator** control. Its tooltip is **Launch Desktop Simulator (Ctrl+D)**.
-4. Keep the terminal drawer open while the project builds and starts.
-5. Wait for both signs of success:
+1. For a guided first attempt, open **Help & Learn → First mission**. Keep its coach visible while navigating.
+2. Open **Dashboard**.
+3. In the execution toolbar, open the target selector and choose **Local Sim**.
+4. Select the monitor-shaped **Launch Simulator** control. Its tooltip is **Launch Desktop Simulator (Ctrl+D)**.
+5. Keep the terminal drawer open while the project builds and starts.
+6. Wait for both signs of success:
    - the **Local Sim** dot in the toolbar turns green; and
    - the application's connection indicator reports connected.
-6. Watch a live widget. Good first choices are the field viewer, robot pose, system health, or a telemetry chart.
-7. If the simulation routine drives the model, confirm that pose or another value changes over time.
+7. Watch a live widget. Good first choices are the field viewer, robot pose, system health, or a telemetry chart.
+8. If the simulation routine drives the model, confirm that pose or another value changes over time.
 
 Analytics switches its NT4 connection to `127.0.0.1` for **Local Sim**. You do not need to replace the saved live-robot address.
 
@@ -30,6 +31,10 @@ You are connected when the simulator is still running, the target is **Local Sim
 Say which mode you are in:
 
 > “This is live simulator data. It is not a recorded replay, and it cannot move the physical robot.”
+
+Robot Academy may automatically record that Local Sim was selected, the managed process was
+running, and local NT4 connected. You must still identify the source and meaning of the evidence;
+connection status cannot demonstrate understanding or safety.
 
 ## Stop cleanly
 

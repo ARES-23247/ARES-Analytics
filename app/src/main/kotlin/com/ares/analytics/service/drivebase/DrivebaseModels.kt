@@ -1,8 +1,42 @@
 package com.ares.analytics.service.drivebase
 
+import com.ares.analytics.shared.League
 import com.areslib.drivetrain.*
 
 enum class DrivebaseKind { FTC_MECANUM, FRC_CTRE_SWERVE, DIFFERENTIAL, CUSTOM }
+
+/** Whether the selected season shell can execute this drivebase without team-written runtime code. */
+enum class DrivebaseRuntimeSupport { NO_CODE_RUNNABLE, CODE_REQUIRED, UNAVAILABLE_FOR_LEAGUE }
+
+fun DrivebaseKind.runtimeSupport(league: League): DrivebaseRuntimeSupport = when (this) {
+    DrivebaseKind.FTC_MECANUM -> if (league == League.FTC) {
+        DrivebaseRuntimeSupport.NO_CODE_RUNNABLE
+    } else {
+        DrivebaseRuntimeSupport.UNAVAILABLE_FOR_LEAGUE
+    }
+    DrivebaseKind.FRC_CTRE_SWERVE -> if (league == League.FRC) {
+        DrivebaseRuntimeSupport.NO_CODE_RUNNABLE
+    } else {
+        DrivebaseRuntimeSupport.UNAVAILABLE_FOR_LEAGUE
+    }
+    DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM -> DrivebaseRuntimeSupport.CODE_REQUIRED
+}
+
+fun drivebaseKindsForLeague(league: League): List<DrivebaseKind> = when (league) {
+    League.FTC -> listOf(DrivebaseKind.FTC_MECANUM, DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM)
+    League.FRC -> listOf(DrivebaseKind.FRC_CTRE_SWERVE, DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM)
+}
+
+fun defaultNoCodeDrivebaseKind(league: League): DrivebaseKind = when (league) {
+    League.FTC -> DrivebaseKind.FTC_MECANUM
+    League.FRC -> DrivebaseKind.FRC_CTRE_SWERVE
+}
+
+fun DrivebaseKind.runtimeSupportLabel(league: League): String = when (runtimeSupport(league)) {
+    DrivebaseRuntimeSupport.NO_CODE_RUNNABLE -> "NO-CODE RUNNABLE"
+    DrivebaseRuntimeSupport.CODE_REQUIRED -> "CODE REQUIRED"
+    DrivebaseRuntimeSupport.UNAVAILABLE_FOR_LEAGUE -> "NOT AVAILABLE FOR ${league.name}"
+}
 
 enum class DriveHardwareRole {
     FRONT_LEFT, FRONT_RIGHT, REAR_LEFT, REAR_RIGHT,
@@ -140,6 +174,26 @@ fun validateDrivebase(document: DrivebaseDocument): List<DrivebaseIssue> = build
         onFailure = { failure -> add(error("canonical", failure.message ?: "Could not adapt the drivebase to the shared canonical contract.")) }
     )
 }
+
+/** Adds season-runtime truth to the schema-level checks used by the no-code builder. */
+fun validateDrivebaseForLeague(document: DrivebaseDocument, league: League): List<DrivebaseIssue> =
+    validateDrivebase(document) + when (document.kind.runtimeSupport(league)) {
+        DrivebaseRuntimeSupport.NO_CODE_RUNNABLE -> emptyList()
+        DrivebaseRuntimeSupport.CODE_REQUIRED -> listOf(
+            DrivebaseIssue(
+                DrivebaseIssueSeverity.ERROR,
+                "runtime",
+                "${document.kind.runtimeSupportLabel(league)}: this architecture needs a team-written ${league.name} adapter and lifecycle wiring. The no-code builder will not save it as runnable.",
+            )
+        )
+        DrivebaseRuntimeSupport.UNAVAILABLE_FOR_LEAGUE -> listOf(
+            DrivebaseIssue(
+                DrivebaseIssueSeverity.ERROR,
+                "runtime",
+                "${document.kind} belongs to a different competition platform and cannot run in this ${league.name} project.",
+            )
+        )
+    }
 
 fun diffDrivebase(before: DrivebaseDocument?, after: DrivebaseDocument): List<DrivebaseChange> = buildList {
     if (before == null) {

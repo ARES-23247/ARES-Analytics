@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.net.URI
+import java.nio.file.Paths
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
@@ -65,10 +67,25 @@ private data class SubsystemStarterInputs(
  * @see TargetScannerService
  */
 class ProcessManagerService internal constructor(
-    private val monitorAdbConnection: Boolean
+    private val monitorAdbConnection: Boolean,
+    aresRepositoryUri: String?,
 ) : AresProjectGenerator {
 
-    constructor() : this(monitorAdbConnection = true)
+    constructor() : this(
+        monitorAdbConnection = true,
+        aresRepositoryUri = System.getProperty(ARES_REPOSITORY_URI_PROPERTY),
+    )
+
+    internal constructor(monitorAdbConnection: Boolean) : this(
+        monitorAdbConnection = monitorAdbConnection,
+        aresRepositoryUri = null,
+    )
+
+    private val aresRepositoryFileUri = aresRepositoryUri
+        ?.takeIf(String::isNotBlank)
+        ?.let(::validatedAresRepositoryUri)
+    private val aresRepositoryArgument = aresRepositoryFileUri
+        ?.let { "-ParesRepository=$it" }
 
     private val _buildOutput = MutableSharedFlow<String>(replay = 200)
     val buildOutput: SharedFlow<String> = _buildOutput.asSharedFlow()
@@ -145,7 +162,7 @@ class ProcessManagerService internal constructor(
     private suspend fun executeBuild(generation: Long, projectPath: String, league: League) {
         try {
             val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
-            val command = if (isWindows) {
+            val command = withAresRepository(if (isWindows) {
                 when (league) {
                     League.FTC -> listOf("cmd.exe", "/c", "gradlew.bat", ":TeamCode:assembleDebug")
                     League.FRC -> listOf("cmd.exe", "/c", "gradlew.bat", "assemble")
@@ -155,14 +172,14 @@ class ProcessManagerService internal constructor(
                     League.FTC -> listOf("./gradlew", ":TeamCode:assembleDebug")
                     League.FRC -> listOf("./gradlew", "assemble")
                 }
-            }
+            })
 
             _buildOutput.emit("[SYSTEM] Starting Gradle build: ${command.joinToString(" ")}")
             val exitCode = runOwnedBuildProcess(
                 generation,
-                ProcessBuilder(command)
+                withAresRepositoryEnvironment(ProcessBuilder(command)
                     .directory(File(projectPath))
-                    .redirectErrorStream(true)
+                    .redirectErrorStream(true))
             ) { line -> _buildOutput.emit(line) }
             currentCoroutineContext().ensureActive()
             _buildOutput.emit("[SYSTEM] Build finished with exit code $exitCode")
@@ -231,7 +248,7 @@ class ProcessManagerService internal constructor(
             System.getProperty("java.home"),
             "bin/${if (System.getProperty("os.name").contains("win", true)) "java.exe" else "java"}"
         ).canonicalFile
-        val command = buildList {
+        val command = withAresRepository(buildList {
             add(javaExecutable.path)
             add("-classpath")
             add(wrapperJar.path)
@@ -239,12 +256,12 @@ class ProcessManagerService internal constructor(
             add(task)
             add("--console=plain")
             confirmationToken?.let { add("-Pares.subsystemReplacementToken=$it") }
-        }
+        })
         val diagnosticLines = ArrayDeque<String>(GENERATION_DIAGNOSTIC_LINE_LIMIT)
         try {
             val exitCode = runOwnedBuildProcess(
                 generation,
-                ProcessBuilder(command).directory(root).redirectErrorStream(true),
+                withAresRepositoryEnvironment(ProcessBuilder(command).directory(root).redirectErrorStream(true)),
             ) { line ->
                 if (diagnosticLines.size == GENERATION_DIAGNOSTIC_LINE_LIMIT) diagnosticLines.removeFirst()
                 diagnosticLines.addLast(line)
@@ -317,20 +334,20 @@ class ProcessManagerService internal constructor(
             ).canonicalFile
             require(javaExecutable.isFile) { "The app Java runtime could not be found" }
 
-            val command = listOf(
+            val command = withAresRepository(listOf(
                 javaExecutable.path,
                 "-classpath",
                 wrapperJar.path,
                 "org.gradle.wrapper.GradleWrapperMain",
                 "generateAresProject",
                 "--console=plain"
-            )
+            ))
             _buildOutput.emit("[ARES] Generating checked-in Kotlin from canonical project files")
             val exitCode = runOwnedBuildProcess(
                 generation,
-                ProcessBuilder(command)
+                withAresRepositoryEnvironment(ProcessBuilder(command)
                     .directory(root)
-                    .redirectErrorStream(true)
+                    .redirectErrorStream(true))
             ) { line ->
                 if (diagnosticLines.size == GENERATION_DIAGNOSTIC_LINE_LIMIT) diagnosticLines.removeFirst()
                 diagnosticLines.addLast(line)
@@ -520,16 +537,16 @@ class ProcessManagerService internal constructor(
                     userCmd != null && isWindows -> listOf("cmd.exe", "/d", "/s", "/c", userCmd)
                     userCmd != null -> listOf("sh", "-c", userCmd)
                     fatJarFile.exists() -> listOf(javaExe, "-jar", fatJarFile.absolutePath)
-                    isWindows && league == League.FTC -> listOf("cmd.exe", "/c", "gradlew.bat", ":TeamCode:runSim")
-                    isWindows -> listOf("cmd.exe", "/c", "gradlew.bat", "simulateJava")
-                    league == League.FTC -> listOf("./gradlew", ":TeamCode:runSim")
-                    else -> listOf("./gradlew", "simulateJava")
+                    isWindows && league == League.FTC -> withAresRepository(listOf("cmd.exe", "/c", "gradlew.bat", ":TeamCode:runSim"))
+                    isWindows -> withAresRepository(listOf("cmd.exe", "/c", "gradlew.bat", "simulateJava"))
+                    league == League.FTC -> withAresRepository(listOf("./gradlew", ":TeamCode:runSim"))
+                    else -> withAresRepository(listOf("./gradlew", "simulateJava"))
                 }
 
                 _buildOutput.emit("[SYSTEM] Starting Simulation: ${cmd.joinToString(" ")}")
-                val pb = ProcessBuilder(cmd)
+                val pb = withAresRepositoryEnvironment(ProcessBuilder(cmd)
                     .directory(File(projectPath))
-                    .redirectErrorStream(true)
+                    .redirectErrorStream(true))
                 val proc = pb.start()
                 ownedProcess = proc
                 simProcess = proc
@@ -790,6 +807,39 @@ class ProcessManagerService internal constructor(
         return root
     }
 
+    private fun withAresRepository(command: List<String>): List<String> =
+        aresRepositoryArgument?.let { argument -> command + argument } ?: command
+
+    private fun withAresRepositoryEnvironment(processBuilder: ProcessBuilder): ProcessBuilder =
+        processBuilder.also { builder ->
+            aresRepositoryFileUri?.let { uri ->
+                builder.environment()[ARES_REPOSITORY_GRADLE_ENVIRONMENT] = uri
+            }
+        }
+
+    /** Focused test seam for the shared command decoration used by build, generation, and sim. */
+    internal fun configuredGradleCommandForTest(command: List<String>): List<String> =
+        withAresRepository(command)
+
+    /** Focused test seam for environment propagation into arbitrary child simulator commands. */
+    internal fun configuredAresRepositoryEnvironmentForTest(): String? =
+        withAresRepositoryEnvironment(ProcessBuilder("ares-environment-test"))
+            .environment()[ARES_REPOSITORY_GRADLE_ENVIRONMENT]
+
+    private fun validatedAresRepositoryUri(rawUri: String): String {
+        val uri = runCatching { URI.create(rawUri) }.getOrElse {
+            throw IllegalArgumentException("ARES repository override must be a valid file URI", it)
+        }
+        require(uri.scheme.equals("file", ignoreCase = true)) {
+            "ARES repository override must use a file URI; remote and implicit local repositories are not forwarded"
+        }
+        val directory = runCatching { Paths.get(uri).toFile().canonicalFile }.getOrElse {
+            throw IllegalArgumentException("ARES repository override must identify a local directory", it)
+        }
+        require(directory.isDirectory) { "ARES repository override directory does not exist: $directory" }
+        return directory.toURI().toASCIIString()
+    }
+
     private fun readGeneratedContentHash(root: File, league: League): String? {
         val relative = when (league) {
             League.FTC -> "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/generated/GeneratedAresProject.kt"
@@ -801,6 +851,8 @@ class ProcessManagerService internal constructor(
     }
 
     private companion object {
+        const val ARES_REPOSITORY_URI_PROPERTY = "ares.repository.uri"
+        const val ARES_REPOSITORY_GRADLE_ENVIRONMENT = "ORG_GRADLE_PROJECT_aresRepository"
         const val GENERATION_DIAGNOSTIC_LINE_LIMIT = 24
         const val GENERATION_DIAGNOSTIC_CHARACTER_LIMIT = 4_000
         const val MAX_MONITOR_OUTPUT_CHARS = 64 * 1024

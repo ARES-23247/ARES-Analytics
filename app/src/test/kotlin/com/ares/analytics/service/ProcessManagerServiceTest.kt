@@ -20,6 +20,62 @@ import kotlin.test.assertTrue
 class ProcessManagerServiceTest {
 
     @Test
+    fun `explicit isolated repository file URI decorates every nested Gradle command`() {
+        val repository = Files.createTempDirectory("ares-release-repository").toFile()
+        val service = ProcessManagerService(
+            monitorAdbConnection = false,
+            aresRepositoryUri = repository.toURI().toASCIIString(),
+        )
+        try {
+            val expected = "-ParesRepository=${repository.canonicalFile.toURI().toASCIIString()}"
+            assertEquals(
+                repository.canonicalFile.toURI().toASCIIString(),
+                service.configuredAresRepositoryEnvironmentForTest(),
+                "Arbitrary child simulator commands must inherit the equivalent Gradle project property without shell mutation",
+            )
+            val representativeCommands = listOf(
+                listOf("gradlew.bat", ":TeamCode:assembleDebug"),
+                listOf("java", "org.gradle.wrapper.GradleWrapperMain", "generateAresProject"),
+                listOf("./gradlew", "simulateJava"),
+            )
+
+            representativeCommands.forEach { base ->
+                val configured = service.configuredGradleCommandForTest(base)
+                assertEquals(base + expected, configured)
+                assertFalse(configured.any { it.contains("mavenLocal", ignoreCase = true) })
+            }
+        } finally {
+            service.shutdown()
+            repository.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `repository forwarding rejects non-file and missing locations`() {
+        assertFailsWith<IllegalArgumentException> {
+            ProcessManagerService(false, "https://repo.example/ares")
+        }
+        val missing = Files.createTempDirectory("missing-ares-repository").resolve("gone").toFile()
+        assertFailsWith<IllegalArgumentException> {
+            ProcessManagerService(false, missing.toURI().toASCIIString())
+        }
+    }
+
+    @Test
+    fun `normal installer command construction adds no implicit local repository`() {
+        val service = ProcessManagerService(monitorAdbConnection = false)
+        try {
+            assertEquals(
+                listOf("./gradlew", "assemble"),
+                service.configuredGradleCommandForTest(listOf("./gradlew", "assemble")),
+            )
+            assertEquals(null, service.configuredAresRepositoryEnvironmentForTest())
+        } finally {
+            service.shutdown()
+        }
+    }
+
+    @Test
     fun `starter preview token is hash-bound and stale apply is rejected before Gradle`() {
         val service = ProcessManagerService(monitorAdbConnection = false)
         val root = Files.createTempDirectory("process-manager-starter-plan").toFile()

@@ -1,5 +1,7 @@
 # ARES Analytics documentation
 
+Cycle evidence: [product improvement cycle log](CYCLE_LOG.md).
+
 Start here if ARES Analytics is new to you. You do not need to understand every screen before you begin.
 
 ## Choose what you are trying to do
@@ -16,6 +18,8 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 | See a robot without risking hardware | [Connect the simulator](start/CONNECT_SIMULATOR.md) | Live simulator telemetry on this computer |
 | Review a practice or match log | [Bring in a run](operate/BRING_IN_A_RUN.md) | An imported, persistent run and replay controls |
 | Understand an unfamiliar word | [Glossary](learn/GLOSSARY.md) | Short definitions with mentor notes |
+| Follow a complete beginner-to-builder path | [Robot Academy](learn/ROBOT_ACADEMY.md) | Guided missions, checkpoints, interactive labs, and local progress |
+| Create or review one complete robot project | [Robot Studio](learn/ROBOT_STUDIO.md) | One guided route through existing drivebase, subsystem, controls, auto, build, simulation, and analysis tools |
 | Make the interface easier to read | [Accessibility and contrast](learn/ACCESSIBILITY_AND_CONTRAST.md) | Colorblind, contrast, larger-text, and touch settings |
 | Find the right screen or owning source file | [Find help and current source](learn/FIND_HELP_AND_SOURCE.md) | Contextual lessons, connection labels, and developer reference |
 | Lead a student activity | [Teaching with ARES](mentor/TEACHING_WITH_ARES.md) | A safe simulator-first lesson sequence |
@@ -46,10 +50,11 @@ The robot never uploads directly to the cloud. The laptop receives or pulls data
 ## A good first 15 minutes
 
 1. Complete [First launch](start/FIRST_LAUNCH.md).
-2. Follow [Connect the simulator](start/CONNECT_SIMULATOR.md).
-3. On **Dashboard**, watch the field pose or a telemetry chart change.
-4. Stop the simulator with the square **Stop** control in the execution toolbar.
-5. Say out loud which mode supplied the data: **local simulator**, not replay and not a live robot.
+2. Open **Help & Learn → First mission**. The lesson coach keeps the current checkpoint visible.
+3. Follow [Connect the simulator](start/CONNECT_SIMULATOR.md).
+4. On **Dashboard**, watch the field pose or a telemetry chart change.
+5. Stop the simulator with the square **Stop** control in the execution toolbar.
+6. Say out loud which mode supplied the data: **local simulator**, not replay and not a live robot.
 
 You have succeeded when you can identify the active workspace, the selected target, and one changing telemetry value.
 

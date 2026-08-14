@@ -9,6 +9,7 @@ import androidx.compose.material.icons.filled.Construction
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PrecisionManufacturing
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
@@ -34,6 +35,7 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     DATABASE_VIEWER("Database", Icons.Default.Storage),
     CONTROLS("TeleOp Controls", Icons.Default.SportsEsports),
     TUNING("Tuning", Icons.Default.Tune),
+    ROBOT_STUDIO("Robot Studio", Icons.Default.PrecisionManufacturing),
     DRIVEBASE_BUILDER("Drivebase Builder", Icons.Default.Settings),
     SUBSYSTEM_GEN("Subsystem Builder", Icons.Default.Construction),
     PROFILE("Profile", Icons.Default.Person),
@@ -59,7 +61,7 @@ val developerToolTargets = setOf(
 
 fun NavigationTarget.section(): NavigationSection? = when (this) {
     NavigationTarget.DASHBOARD -> NavigationSection.DASHBOARD
-    NavigationTarget.PIT_DIAGNOSTICS, NavigationTarget.CONTROLS,
+    NavigationTarget.ROBOT_STUDIO, NavigationTarget.PIT_DIAGNOSTICS, NavigationTarget.CONTROLS,
     NavigationTarget.TUNING, NavigationTarget.DRIVEBASE_BUILDER, NavigationTarget.SUBSYSTEM_GEN -> NavigationSection.ROBOT
     NavigationTarget.PATH_PLANNER, NavigationTarget.FIELD_EDITOR -> NavigationSection.AUTONOMOUS
     NavigationTarget.RUN_HISTORY -> NavigationSection.ANALYSIS
@@ -71,7 +73,7 @@ fun NavigationTarget.section(): NavigationSection? = when (this) {
 
 fun NavigationSection.defaultTarget(): NavigationTarget = when (this) {
     NavigationSection.DASHBOARD -> NavigationTarget.DASHBOARD
-    NavigationSection.ROBOT -> NavigationTarget.PIT_DIAGNOSTICS
+    NavigationSection.ROBOT -> NavigationTarget.ROBOT_STUDIO
     NavigationSection.AUTONOMOUS -> NavigationTarget.PATH_PLANNER
     NavigationSection.ANALYSIS -> NavigationTarget.RUN_HISTORY
     NavigationSection.DATA -> NavigationTarget.IMPORT_CENTER
@@ -81,6 +83,7 @@ fun NavigationSection.defaultTarget(): NavigationTarget = when (this) {
 fun NavigationSection.targets(): List<NavigationTarget> = when (this) {
     NavigationSection.DASHBOARD -> listOf(NavigationTarget.DASHBOARD)
     NavigationSection.ROBOT -> listOf(
+        NavigationTarget.ROBOT_STUDIO,
         NavigationTarget.SUBSYSTEM_GEN,
         NavigationTarget.DRIVEBASE_BUILDER,
         NavigationTarget.CONTROLS,
@@ -118,6 +121,7 @@ fun NavigationTarget.searchTerms(): Set<String> = when (this) {
     NavigationTarget.DATABASE_VIEWER -> setOf("sql", "duckdb", "table")
     NavigationTarget.CONTROLS -> setOf("gamepad", "button", "driver", "operator", "binding")
     NavigationTarget.TUNING -> setOf("pid", "sysid", "feedforward", "calibration")
+    NavigationTarget.ROBOT_STUDIO -> setOf("create robot", "build robot", "robot workflow", "project readiness", "start robot")
     NavigationTarget.DRIVEBASE_BUILDER -> setOf("drivetrain", "mecanum", "swerve", "differential", "ctre", "tuner constants", "wheelbase", "track width", "localization")
     NavigationTarget.SUBSYSTEM_GEN -> setOf("mechanism", "motor", "sensor", "redux", "io", "generator")
     NavigationTarget.PROFILE -> setOf("workspace", "robot", "team", "accessibility", "project folder")
