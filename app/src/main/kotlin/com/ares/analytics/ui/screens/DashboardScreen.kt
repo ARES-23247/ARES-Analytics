@@ -291,6 +291,9 @@ fun DashboardScreen(
                 "profiling_diagnostics" to { _, mod ->
                     ProfilingDiagnosticsCard(services.nt4ClientService, mod)
                 },
+                "hardware_topology" to { _, mod ->
+                    HardwareTopologyCard(services, state.primarySessionId, mod)
+                },
                 "indicator_lights" to { _, mod ->
                     IndicatorLightsCard(services.nt4ClientService, mod)
                 }

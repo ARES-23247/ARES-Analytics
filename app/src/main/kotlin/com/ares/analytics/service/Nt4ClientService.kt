@@ -118,6 +118,13 @@ open class Nt4ClientService(
     private val _currentSession = MutableStateFlow<Session?>(null)
     val currentSession: StateFlow<Session?> = _currentSession.asStateFlow()
 
+    private val _latestTopology = MutableStateFlow<HardwareTopology?>(null)
+    val latestTopology: StateFlow<HardwareTopology?> = _latestTopology.asStateFlow()
+
+    fun setLatestTopology(topology: HardwareTopology?) {
+        _latestTopology.value = topology
+    }
+
     private var webSocketSession: DefaultClientWebSocketSession? = null
     @Volatile private var serverTimeOffsetUs: Long? = null
     @Volatile private var bestClockRoundTripUs: Long = Long.MAX_VALUE
@@ -732,6 +739,7 @@ open class Nt4ClientService(
             try {
                 val topologyJson = if (valueElement is JsonPrimitive) valueElement.content else valueElement.toString()
                 val topology = Json.decodeFromString<HardwareTopology>(topologyJson)
+                _latestTopology.value = topology
                 databaseService.insertTopology(topology)
             } catch (e: Exception) {
                 e.printStackTrace()
