@@ -314,3 +314,33 @@ students to workspace settings, which could not create or safely repair the cano
   screen; no credential was entered or bypassed.
 - No physical robot was used or required. Robot measurements and season field dimensions still need
   human verification before this metadata can support later physical work.
+
+## Cycle 6 - Local dependency propagation and no-code safety actions
+
+### Objective
+
+Prove that the merged ARESLib generated-subsystem safety contracts propagate through the real FTC,
+FRC, and Analytics consumers without relying on `mavenLocal()` or stale cached artifacts.
+
+### Outcome and verification evidence
+
+- A clean branch at ARESLib `origin/master` passed `apiCheck`, all module tests, and
+  `publishReleaseValidation` into the isolated `build/release-repository`.
+- FTC resolved that repository explicitly, regenerated and verified the project, passed 96 TeamCode
+  tests and simulator tests, and assembled the debug APK. Its worktree remained clean.
+- FRC resolved the same repository explicitly, regenerated and verified the project, passed its full
+  tests and coverage gate, and completed the normal build. Its worktree remained clean.
+- Analytics resolved the same repository explicitly and exposed one real compatibility gap: new
+  controller assignments require stable device ports. The default Driver/Operator scheme now uses
+  ports 0/1 and tests preserve those assignments.
+- The Controller Bindings integration test now proves that a generated homed/calibrated subsystem's
+  **Recover with neutral** and **Confirm calibration** actions appear offline, require explicit
+  boolean confirmation, and save as typed bindings without Kotlin.
+- Final Analytics suite: 446 tests, 0 failures, 0 errors, 2 intentional skips. Dashboard smoke and
+  packaged-project loading also passed against the isolated repository.
+
+### Boundaries
+
+- These results prove source, generated code, desktop UI, simulator, tests, and packaging agree. They
+  do not prove wiring, sensor polarity, neutral output, calibration procedure, or physical safety.
+- A supervised physical test remains required before a team uses either safety action on hardware.

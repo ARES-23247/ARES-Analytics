@@ -11,6 +11,7 @@ import com.areslib.catalog.CapabilityParameterDescriptor
 import com.areslib.catalog.CapabilityParameterType
 import com.areslib.controls.ControlEvent
 import com.areslib.controls.ControlSourceKind
+import com.areslib.controls.ControlTargetKind
 import com.areslib.controls.ControllerInputPlatform
 import com.areslib.controls.ControlSchemeDocument
 import com.areslib.controls.ControllerAnchorDocument
@@ -22,6 +23,11 @@ import com.areslib.controls.ControllerProfileDocument
 import com.areslib.project.AresCoordinateConvention
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataDocument
+import com.areslib.subsystem.SubsystemPlatform
+import com.areslib.subsystem.SubsystemTemplate
+import com.areslib.subsystem.SubsystemTemplates
+import com.areslib.subsystem.subsystemCalibrationConfirmationActionKey
+import com.areslib.subsystem.subsystemNeutralRecoveryActionKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.io.File
@@ -184,6 +190,50 @@ class ControlsEditorViewModelTest {
         assertTrue(viewModel.state.value.problems.any { it.message.contains("at most 1.0") })
         viewModel.setTargetArgument("output", "0.7")
         assertTrue(viewModel.state.value.problems.none { it.message.startsWith("Output ") })
+    }
+
+    @Test
+    fun `generated safety handshakes are visible and saveable without Kotlin`() = withProject { project ->
+        val documents = seededDocuments(project)
+        val lift = SubsystemTemplates.create(
+            template = SubsystemTemplate.HOMED_MECHANISM,
+            documentId = "lift",
+            kotlinTypeName = "Lift",
+            platform = SubsystemPlatform.FTC,
+        ).let { document ->
+            document.copy(safety = document.safety.copy(requiresCalibration = true))
+        }
+        documents.subsystems.save(project.path, lift)
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+        val recoveryKey = subsystemNeutralRecoveryActionKey("lift")
+        val calibrationKey = subsystemCalibrationConfirmationActionKey("lift")
+
+        assertTrue(viewModel.state.value.actions.any { it.key == recoveryKey && "neutral" in it.displayName.lowercase() })
+        assertTrue(viewModel.state.value.actions.any { it.key == calibrationKey && "calibration" in it.displayName.lowercase() })
+
+        viewModel.selectControl("a")
+        viewModel.createBinding()
+        viewModel.setTarget(ControlTargetKind.ACTION, recoveryKey)
+        assertTrue(viewModel.state.value.problems.any { it.message.contains("Recover with neutral is required") })
+        viewModel.setTargetArgument("value", "true")
+        viewModel.applyDraft()
+        viewModel.selectControl("b")
+        viewModel.createBinding()
+        viewModel.setTarget(ControlTargetKind.ACTION, calibrationKey)
+        assertTrue(viewModel.state.value.problems.any { it.message.contains("Calibration is complete is required") })
+        viewModel.setTargetArgument("value", "true")
+        viewModel.applyDraft()
+        assertTrue(
+            viewModel.state.value.canSave,
+            viewModel.state.value.problems.joinToString(" | ") { it.message } +
+                " status=" + viewModel.state.value.status,
+        )
+        viewModel.save()
+
+        assertEquals(
+            setOf(recoveryKey, calibrationKey),
+            documents.controls.load(project.path, "competition-controls").bindings.map { it.target.key }.toSet(),
+        )
     }
 
     @Test
