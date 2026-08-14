@@ -219,4 +219,38 @@ class ReplayEngineServiceTest {
             tempDb.delete()
         }
     }
+
+    @Test
+    fun `loading empty session resets playhead and safely ignores play requests`() = runTest {
+        val tempDb = File.createTempFile("replay_empty_session", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val replayEngine = ReplayEngineService(databaseService)
+        try {
+            val session = Session("empty-replay", "23247", "2026", "bot", 1000L)
+            databaseService.insertSession(session)
+            replayEngine.loadSession(session.sessionId)
+
+            assertEquals(ReplayState.STOPPED, replayEngine.state.value)
+            assertEquals(null, replayEngine.currentFrame.value)
+            assertEquals(0.0, replayEngine.progress.value)
+            assertTrue(replayEngine.telemetryDensity.value.isEmpty())
+            assertTrue(replayEngine.sessionActions.value.isEmpty())
+
+            // Play should safely no-op when there are no timestamps
+            replayEngine.play()
+            assertEquals(ReplayState.STOPPED, replayEngine.state.value)
+
+            // Pause / Step / Stop should also safely no-op
+            replayEngine.pause()
+            assertEquals(ReplayState.STOPPED, replayEngine.state.value)
+            replayEngine.stepForward()
+            replayEngine.stepBackward()
+            replayEngine.stop()
+            assertEquals(ReplayState.STOPPED, replayEngine.state.value)
+        } finally {
+            replayEngine.dispose()
+            databaseService.close()
+            tempDb.delete()
+        }
+    }
 }
