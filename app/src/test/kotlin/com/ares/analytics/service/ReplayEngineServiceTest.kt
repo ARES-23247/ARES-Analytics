@@ -194,4 +194,29 @@ class ReplayEngineServiceTest {
             tempDb.delete()
         }
     }
+
+    @Test
+    fun `playback speed rate adjustments apply cleanly to replay state`() = runTest {
+        val tempDb = File.createTempFile("replay_speed", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val replayEngine = ReplayEngineService(databaseService)
+        try {
+            val session = Session("speed-test", "23247", "2026", "bot", 1000L)
+            databaseService.insertSession(session)
+            databaseService.insertTelemetryFrames(listOf(TelemetryFrame(1000L, session.sessionId, "Test", 1.0)))
+            replayEngine.loadSession(session.sessionId)
+
+            assertEquals(1.0, replayEngine.speed.value)
+
+            replayEngine.setSpeed(2.0)
+            assertEquals(2.0, replayEngine.speed.value)
+
+            replayEngine.setSpeed(0.5)
+            assertEquals(0.5, replayEngine.speed.value)
+        } finally {
+            replayEngine.dispose()
+            databaseService.close()
+            tempDb.delete()
+        }
+    }
 }
