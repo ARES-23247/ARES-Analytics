@@ -29,6 +29,12 @@ on:
 permissions:
   contents: read
 
+# PR validation is pinned to the protected ARESLib commit that defines the 6.0.0 contract used by
+# Analytics. Native release packaging intentionally remains Maven-Central-only.
+env:
+  ARESLIB_VALIDATION_REF: 653842d0fad7fb614232156094072287ca862c39
+  ARES_VALIDATION_REPOSITORY: file://${{ github.workspace }}/ARESLib-Kotlin/build/release-repository
+
 concurrency:
   group: dashboard-validation-${{ github.ref }}-${{ github.event.inputs.profile || 'automatic' }}
   cancel-in-progress: true
@@ -40,6 +46,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Checkout validated ARESLib contract
+        uses: actions/checkout@v4
+        with:
+          repository: ARES-23247/ARESLib-Kotlin
+          ref: ${{ env.ARESLIB_VALIDATION_REF }}
+          path: ARESLib-Kotlin
+
       - name: Checkout ARES-Analytics
         uses: actions/checkout@v4
         with:
@@ -54,9 +67,13 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Publish isolated ARESLib validation repository
+        working-directory: ARESLib-Kotlin
+        run: ./gradlew publishReleaseValidation --no-parallel --no-daemon
+
       - name: Run dashboard smoke and baseline validation
         working-directory: ARES-Analytics
-        run: ./gradlew :app:dashboardPerformanceBaseline --no-daemon
+        run: ./gradlew :app:dashboardPerformanceBaseline "-ParesRepository=${ARES_VALIDATION_REPOSITORY}" --refresh-dependencies --no-daemon
 
       - name: Publish validation summary
         if: always()
@@ -81,6 +98,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      - name: Checkout validated ARESLib contract
+        uses: actions/checkout@v4
+        with:
+          repository: ARES-23247/ARESLib-Kotlin
+          ref: ${{ env.ARESLIB_VALIDATION_REF }}
+          path: ARESLib-Kotlin
+
       - name: Checkout ARES-Analytics
         uses: actions/checkout@v4
         with:
@@ -95,9 +119,13 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Publish isolated ARESLib validation repository
+        working-directory: ARESLib-Kotlin
+        run: ./gradlew publishReleaseValidation --no-parallel --no-daemon
+
       - name: Run dashboard soak validation
         working-directory: ARES-Analytics
-        run: ./gradlew :app:dashboardSoak --no-daemon
+        run: ./gradlew :app:dashboardSoak "-ParesRepository=${ARES_VALIDATION_REPOSITORY}" --refresh-dependencies --no-daemon
 
       - name: Upload validation reports
         if: always()
