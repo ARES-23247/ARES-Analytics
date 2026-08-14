@@ -189,12 +189,14 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
         if (baselines.isEmpty()) return null
         val definitions = listOf(
             MetricDefinition("minimum battery voltage", "V", current.minBatteryVoltage, false) { it.minBatteryVoltage },
-            MetricDefinition("EKF drift", "m", current.maxEkfDrift, true) { it.maxEkfDrift },
+            MetricDefinition("average loop time", "ms", current.avgLoopTimeMs, true) { it.avgLoopTimeMs },
             MetricDefinition("p95 loop time", "ms", current.p95LoopTimeMs, true) { it.p95LoopTimeMs },
+            MetricDefinition("EKF drift", "m", current.maxEkfDrift, true) { it.maxEkfDrift },
             MetricDefinition("cross-track error", "m", current.avgCrossTrackError, true) { it.avgCrossTrackError },
             MetricDefinition("battery resistance", "ohm", current.avgBatteryResistance, true) { it.avgBatteryResistance },
             MetricDefinition("vision latency", "ms", current.avgVisionLatencyMs, true) { it.avgVisionLatencyMs },
-            MetricDefinition("vision acceptance", "fraction", current.visionAcceptanceRate, false) { it.visionAcceptanceRate }
+            MetricDefinition("vision acceptance", "fraction", current.visionAcceptanceRate, false) { it.visionAcceptanceRate },
+            MetricDefinition("run duration", "s", if (current.durationMs > 0) current.durationMs / 1000.0 else Double.NaN, true) { if (it.durationMs > 0) it.durationMs / 1000.0 else Double.NaN }
         )
         val metrics = definitions.mapNotNull { definition ->
             val values = baselines.map(definition.extract).filter { it.isFinite() && it != 0.0 }
