@@ -80,6 +80,48 @@ class DiagnosticCoachServiceTest {
         }
     }
 
+    @Test
+    fun brownoutGuardScreenDetectsPowerScaleThrottlingWithoutCount() = runTest {
+        withService { database, service ->
+            database.insertTelemetryFrames(listOf(
+                TelemetryFrame(100, "run", "Robot/BatteryVoltage", 11.0),
+                TelemetryFrame(100, "run", "Hardware/Motors/arm/CurrentAmps", 15.0),
+                TelemetryFrame(100, "run", "Robot/LoopTimeMs", 20.0),
+                TelemetryFrame(150, "run", "Robot/BrownoutPowerScale", 0.75)
+            ))
+            val result = service.analyze("run")
+            val brownoutFinding = result.findings.firstOrNull { it.id == "brownout-guard-tripped" }
+            kotlin.test.assertNotNull(brownoutFinding)
+            assertEquals(DiagnosticSeverity.URGENT, brownoutFinding.severity)
+            assertTrue(brownoutFinding.observation.contains("75%"))
+        }
+    }
+
+    @Test
+    fun urgentLoopOverrunDetectsSevereLoopLatency() = runTest {
+        withService { database, service ->
+            database.insertTelemetryFrames(listOf(
+                TelemetryFrame(100, "run", "Robot/BatteryVoltage", 12.5),
+                TelemetryFrame(100, "run", "Hardware/Motors/arm/CurrentAmps", 5.0),
+                TelemetryFrame(100, "run", "Robot/LoopTimeMs", 55.0)
+            ))
+            val result = service.analyze("run")
+            val loopFinding = result.findings.firstOrNull { it.id == "loop-time-overrun" }
+            kotlin.test.assertNotNull(loopFinding)
+            assertEquals(DiagnosticSeverity.URGENT, loopFinding.severity)
+            assertTrue(loopFinding.observation.contains("55.0 ms"))
+        }
+    }
+
+    @Test
+    fun blankSessionIdThrowsIllegalArgumentException() = runTest {
+        withService { _, service ->
+            kotlin.test.assertFailsWith<IllegalArgumentException> {
+                service.analyze("   ")
+            }
+        }
+    }
+
     private suspend fun withService(block: suspend (DatabaseService, DiagnosticCoachService) -> Unit) {
         val file = File.createTempFile("diagnostic-coach", ".db").apply { deleteOnExit() }
         val database = DatabaseService(file.absolutePath)
