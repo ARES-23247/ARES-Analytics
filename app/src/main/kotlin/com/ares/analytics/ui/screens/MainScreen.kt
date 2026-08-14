@@ -223,7 +223,7 @@ fun MainScreen(services: ServiceRegistry) {
     }
 
     // Instantiate ViewModels
-    val dashboardViewModel = remember {
+    val dashboardViewModel = remember(currentConfig.id) {
         DashboardViewModel(
             databaseService = services.databaseService,
             nt4ClientService = services.nt4ClientService,
@@ -235,17 +235,17 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope
         )
     }
-    val pathPlannerViewModel = remember {
+    val pathPlannerViewModel = remember(currentConfig.id) {
         PathPlannerViewModel(
             scope = scope,
             nt4ClientService = services.nt4ClientService,
             projectGenerator = services.processManagerService
         )
     }
-    val fieldEditorViewModel = remember {
+    val fieldEditorViewModel = remember(currentConfig.id) {
         FieldEditorViewModel(scope = scope, nt4ClientService = services.nt4ClientService)
     }
-    val sysIdViewModel = remember {
+    val sysIdViewModel = remember(currentConfig.id) {
         SysIdViewModel(
             databaseService = services.databaseService,
             sysIdService = services.sysIdService,
@@ -256,7 +256,7 @@ fun MainScreen(services: ServiceRegistry) {
             tuningProposalInbox = services.tuningProposalInbox
         )
     }
-    val tuningViewModel = remember {
+    val tuningViewModel = remember(currentConfig.id) {
         TuningViewModel(
             nt4ClientService = services.nt4ClientService,
             scope = scope,
@@ -272,7 +272,7 @@ fun MainScreen(services: ServiceRegistry) {
             sysIdViewModel.onIntent(SysIdIntent.DisarmCalibration("Left the Tuning screen"))
         }
     }
-    val profileViewModel = remember {
+    val profileViewModel = remember(currentConfig.id) {
         ProfileViewModel(
             oauthService = services.oauthService,
             googleDriveService = services.googleDriveService,
@@ -280,7 +280,7 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope
         )
     }
-    val cloudViewModel = remember {
+    val cloudViewModel = remember(currentConfig.id) {
         com.ares.analytics.viewmodel.CloudViewModel(
             databaseService = services.databaseService,
             syncEngineService = services.syncEngineService,

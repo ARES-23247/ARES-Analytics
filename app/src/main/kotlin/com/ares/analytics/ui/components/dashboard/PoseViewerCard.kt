@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.merge
 import com.ares.analytics.ui.components.core.CardHeader
 import com.ares.analytics.ui.components.core.GlassCard
 import com.ares.analytics.ui.components.core.MetricValueBadge
@@ -41,7 +42,12 @@ fun PoseViewerCard(
     val ekfYFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Pose_Y") }
     val ekfY by ekfYFlow.collectAsState(initial = null)
 
-    val ekfHeadingFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Drive_Heading") }
+    val ekfHeadingFlow = remember<Flow<Double>>(nt4ClientService) {
+        merge(
+            nt4ClientService.subscribeDouble("Drive/Pose_Heading"),
+            nt4ClientService.subscribeDouble("Drive/Drive_Heading")
+        )
+    }
     val ekfHeading by ekfHeadingFlow.collectAsState(initial = null)
 
     val trueX = trueXSim
@@ -124,6 +130,7 @@ private val POSE_STATUS_TOPICS = setOf(
     "ARES/EstimatedPose/2",
     "Drive/Pose_X",
     "Drive/Pose_Y",
+    "Drive/Pose_Heading",
     "Drive/Drive_Heading",
     "Drive/Odom_X",
     "Drive/Odom_Y",

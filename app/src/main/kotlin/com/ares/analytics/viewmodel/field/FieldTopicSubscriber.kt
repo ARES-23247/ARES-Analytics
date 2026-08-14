@@ -60,7 +60,7 @@ class FieldTopicSubscriber(
                         "ARES/TruePose/2" -> next = next.copy(simHeading = value, trueHeading = value, hasTruePoseData = true)
                         "ARES/EstimatedPose/0", "Drive/Pose_X" -> next = next.copy(ekfX = value)
                         "ARES/EstimatedPose/1", "Drive/Pose_Y" -> next = next.copy(ekfY = value)
-                        "ARES/EstimatedPose/2", "Drive/Pose_Heading" -> next = next.copy(ekfHeading = value)
+                        "ARES/EstimatedPose/2", "Drive/Pose_Heading", "Drive/Drive_Heading" -> next = next.copy(ekfHeading = value)
 
                         "Drive/Odom_X" -> next = next.copy(odomX = value)
                         "Drive/Odom_Y" -> next = next.copy(odomY = value)

@@ -299,12 +299,13 @@ fun DrawScope.drawRobotRepresentations(
     indicatorLightPosition: Double = -1.0
 ) {
     val activeRobotWp = actualPath.lastOrNull()
+    val leagueHeadingOffset = if (league == League.FTC) 90f else 0f
     if (activeRobotWp != null && showTruePose) {
         val robotOffset = getCanvasOffsetBase(activeRobotWp, w, h, fieldWidthM, fieldHeightM, league)
         val robotSizePx = ((0.45 / fieldWidthM) * w).toFloat()
 
         drawContext.canvas.save()
-        drawContext.transform.rotate(degrees = -Math.toDegrees(activeRobotWp.headingRad ?: 0.0).toFloat() - 90f, pivot = robotOffset)
+        drawContext.transform.rotate(degrees = -Math.toDegrees(activeRobotWp.headingRad ?: 0.0).toFloat() - leagueHeadingOffset, pivot = robotOffset)
         drawRect(color = AresCyan.copy(alpha = 0.2f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
         drawRect(color = AresCyan, topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx), style = Stroke(width = 2.dp.toPx()))
         drawLine(color = AresAmber, start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2), end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2), strokeWidth = 3.dp.toPx())
@@ -352,7 +353,7 @@ fun DrawScope.drawRobotRepresentations(
         val robotSizePx = ((0.45 / fieldWidthM) * w).toFloat()
 
         drawContext.canvas.save()
-        drawContext.transform.rotate(degrees = -Math.toDegrees(estimatedPose.headingRad ?: 0.0).toFloat() - 90f, pivot = robotOffset)
+        drawContext.transform.rotate(degrees = -Math.toDegrees(estimatedPose.headingRad ?: 0.0).toFloat() - leagueHeadingOffset, pivot = robotOffset)
 
         // Draw Limelight FOV Cone projecting forward (+X robot-relative points RIGHT in this rotated context)
         val cameraOffsetPx = ((0.18 / fieldWidthM) * w).toFloat()
@@ -396,7 +397,7 @@ fun DrawScope.drawRobotRepresentations(
         val robotSizePx = ((0.45 / fieldWidthM) * w).toFloat()
 
         drawContext.canvas.save()
-        drawContext.transform.rotate(degrees = -Math.toDegrees(odomPose.headingRad ?: 0.0).toFloat() - 90f, pivot = robotOffset)
+        drawContext.transform.rotate(degrees = -Math.toDegrees(odomPose.headingRad ?: 0.0).toFloat() - leagueHeadingOffset, pivot = robotOffset)
         drawRect(color = AresGreen.copy(alpha = 0.15f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
         drawRect(color = AresGreen, topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx), style = Stroke(width = 1.5.dp.toPx(), pathEffect = pathCache.dashEffect10))
         drawLine(color = AresGreen, start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2), end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2), strokeWidth = 2.dp.toPx())
@@ -416,7 +417,7 @@ fun DrawScope.drawRobotRepresentations(
         val robotSizePx = ((0.45 / fieldWidthM) * w).toFloat()
 
         drawContext.canvas.save()
-        drawContext.transform.rotate(degrees = -Math.toDegrees(playbackPose.headingRad ?: 0.0).toFloat() - 90f, pivot = robotOffset)
+        drawContext.transform.rotate(degrees = -Math.toDegrees(playbackPose.headingRad ?: 0.0).toFloat() - leagueHeadingOffset, pivot = robotOffset)
         drawRect(color = AresCyan.copy(alpha = 0.3f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
         drawRect(color = AresCyan, topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx), style = Stroke(width = 2.dp.toPx()))
         drawLine(color = AresCyan, start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2), end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2), strokeWidth = 3.dp.toPx())
@@ -437,7 +438,7 @@ fun DrawScope.drawRobotRepresentations(
             val robotSizePx = ((0.45 / fieldWidthM) * w).toFloat()
 
             drawContext.canvas.save()
-            drawContext.transform.rotate(degrees = -Math.toDegrees(pose.headingRad ?: 0.0).toFloat() - 90f, pivot = robotOffset)
+            drawContext.transform.rotate(degrees = -Math.toDegrees(pose.headingRad ?: 0.0).toFloat() - leagueHeadingOffset, pivot = robotOffset)
             drawRect(color = AresGold.copy(alpha = 0.15f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
             drawRect(color = AresGold, topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx), style = Stroke(width = 1.5.dp.toPx(), pathEffect = pathCache.dashEffect4))
             drawLine(color = AresGold, start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2), end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2), strokeWidth = 2.dp.toPx())
