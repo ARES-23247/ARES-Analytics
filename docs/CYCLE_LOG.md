@@ -196,7 +196,7 @@ valid cached evidence, freshness, bounded dwell, and a confirmed neutral write.
 ### Verification evidence
 
 - Focused model and catalog tests: 13 tests, 0 failures.
-- Full Analytics app suite: 427 tests, 0 failures, 0 errors, 2 intentional skips.
+- Full Analytics app suite: 428 tests, 0 failures, 0 errors, 2 intentional skips.
 - Dashboard smoke: passed.
 - Trimmed distributable project loading: passed for one routine and one subsystem document.
 - `git diff --check`: passed; only line-ending notices were emitted.
