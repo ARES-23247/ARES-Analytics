@@ -90,6 +90,8 @@ sealed class SysIdIntent {
 
     data class DisarmCalibration(val reason: String = "Operator disarmed") : SysIdIntent()
 
+    data class EmergencyStop(val reason: String = "Operator emergency stop") : SysIdIntent()
+
     data class StartRoutine(val routine: SysIdRoutine) : SysIdIntent()
 
     object StopRoutine : SysIdIntent()
@@ -237,6 +239,7 @@ class SysIdViewModel(
                 }
                 is SysIdIntent.ArmCalibration -> signalGenerator.arm()
                 is SysIdIntent.DisarmCalibration -> signalGenerator.disarm(intent.reason)
+                is SysIdIntent.EmergencyStop -> signalGenerator.emergencyStop(intent.reason)
                 is SysIdIntent.StartRoutine -> {
                     if (!motionCommandsAllowed()) {
                         _state.update { it.copy(errorMessage = "Calibration is not safely armed") }

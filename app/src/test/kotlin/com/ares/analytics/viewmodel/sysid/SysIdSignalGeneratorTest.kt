@@ -99,6 +99,57 @@ class SysIdSignalGeneratorTest {
         }
     }
 
+    @Test
+    fun `emergencyStop transitions armPhase to DISARMED clears robotCalibrationArmed publishes STOP and empty token and halts lease renewal immediately`() = runTest {
+        val state = MutableStateFlow(
+            SysIdState(
+                isRobotConnected = true,
+                calibrationModeEnabled = true,
+                requiresNetworkArm = true
+            )
+        )
+        val transport = RecordingCalibrationTransport()
+        val generator = SysIdSignalGenerator(nt4, state, this, transport)
+        generator.arm()
+        state.value = state.value.copy(
+            armPhase = CalibrationArmPhase.ARMED,
+            robotCalibrationArmed = true,
+            isRoutineRunning = true
+        )
+
+        // Verify periodic lease renewal is progressing
+        advanceTimeBy(400)
+        runCurrent()
+        val leaseCountBeforeStop = transport.doubles.size
+        assertTrue(leaseCountBeforeStop >= 2)
+
+        // Trigger immediate abort / emergency stop
+        generator.emergencyStop("Emergency stop triggered")
+
+        // Verify armPhase is DISARMED and robotCalibrationArmed is cleared
+        assertEquals(CalibrationArmPhase.DISARMED, state.value.armPhase)
+        assertFalse(state.value.robotCalibrationArmed)
+        assertFalse(state.value.isRoutineRunning)
+        assertEquals("Emergency stop triggered", state.value.armStatus)
+
+        // Verify STOP command and empty enable token were published
+        assertEquals(listOf(1015 to "STOP", 1016 to ""), transport.strings.takeLast(2))
+
+        // Verify lease renewal was halted immediately
+        val leaseCountAfterStop = transport.doubles.size
+        advanceTimeBy(1_000)
+        runCurrent()
+        assertEquals(leaseCountAfterStop, transport.doubles.size)
+
+        // Verify future motion commands are blocked
+        assertFailsWith<IllegalStateException> {
+            generator.startRoutine(SysIdMechanism.LINEAR, SysIdRoutine.QUASISTATIC)
+        }
+        assertFailsWith<IllegalStateException> {
+            generator.startCalibration("TRACK_WIDTH_SPIN")
+        }
+    }
+
     private class RecordingCalibrationTransport : CalibrationCommandTransport {
         val strings = mutableListOf<Pair<Int, String>>()
         val doubles = mutableListOf<Pair<Int, Double>>()

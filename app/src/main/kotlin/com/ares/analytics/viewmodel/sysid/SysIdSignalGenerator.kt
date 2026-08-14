@@ -86,6 +86,10 @@ class SysIdSignalGenerator(
         }
     }
 
+    suspend fun emergencyStop(reason: String = "Emergency stop requested") {
+        disarm(reason, sendStop = true)
+    }
+
     suspend fun disarm(reason: String, sendStop: Boolean = true) {
         leaseJob?.cancel()
         leaseJob = null
