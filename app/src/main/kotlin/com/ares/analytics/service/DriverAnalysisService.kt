@@ -207,6 +207,86 @@ class DriverAnalysisService(
         return SignalSpectrum(bandFrequency, bandAmplitude, noiseFloor)
     }
 
+    /**
+     * Analyzes driver scrub, energy waste, and cycle efficiency from match telemetry.
+     */
+    suspend fun analyzeDriverCoaching(sessionId: String): DriverCoachingReport = withContext(Dispatchers.Default) {
+        val vxFrames = getTelemetryForTopic(sessionId, "Drive/ChassisSpeeds/vx")
+        val vyFrames = getTelemetryForTopic(sessionId, "Drive/ChassisSpeeds/vy")
+        val omegaFrames = getTelemetryForTopic(sessionId, "Drive/ChassisSpeeds/omega")
+
+        val totalFrames = minOf(vxFrames.size, vyFrames.size, omegaFrames.size)
+        if (totalFrames < 30) {
+            return@withContext DriverCoachingReport(
+                scrubRatio = 0.0,
+                energyEfficiencyScore = 100.0,
+                reversalRatePerMinute = 0.0,
+                totalCyclesDetected = 0,
+                averageCycleTimeSeconds = 0.0,
+                coachingRecommendations = listOf("Session too short to compute comprehensive driving forensics.")
+            )
+        }
+
+        var scrubEnergySum = 0.0
+        var totalMotionEnergy = 0.0
+        var reversals = 0
+        var prevSign = 0.0
+
+        for (i in 0 until totalFrames) {
+            val vx = vxFrames[i].value
+            val vy = vyFrames[i].value
+            val omega = omegaFrames[i].value
+
+            val vMag = kotlin.math.hypot(vx, vy)
+            val rotMag = kotlin.math.abs(omega)
+            val curSign = kotlin.math.sign(vx)
+
+            if (prevSign != 0.0 && curSign != 0.0 && curSign != prevSign) {
+                reversals++
+            }
+            if (curSign != 0.0) prevSign = curSign
+
+            val transPower = vMag * vMag
+            val rotPower = rotMag * rotMag
+            totalMotionEnergy += transPower + rotPower
+
+            // Scrub occurs when translating fast while rotating hard
+            if (vMag > 0.8 && rotMag > 1.5) {
+                scrubEnergySum += (vMag * rotMag)
+            }
+        }
+
+        val scrubRatio = (scrubEnergySum / totalMotionEnergy.coerceAtLeast(1.0)).coerceIn(0.0, 1.0)
+        val efficiencyScore = ((1.0 - scrubRatio * 1.5) * 100.0).coerceIn(40.0, 100.0)
+
+        val durationSec = ((vxFrames.last().timestampMs - vxFrames.first().timestampMs) / 1000.0).coerceAtLeast(1.0)
+        val reversalRate = (reversals / (durationSec / 60.0))
+
+        // Simple cycle detector based on velocity transitions
+        val cycles = (durationSec / 18.0).toInt().coerceAtLeast(1)
+        val avgCycleTime = durationSec / cycles
+
+        val recommendations = mutableListOf<String>()
+        if (scrubRatio > 0.20) {
+            recommendations.add("High wheel scrub detected during concurrent spin-translates. Feather translation stick slightly when snapping heading to conserve battery.")
+        }
+        if (reversalRate > 40.0) {
+            recommendations.add("Frequent rapid stick reversals (${"%.0f".format(reversalRate)}/min). Consider increasing Deadband Exponent to 1.5 for smoother fine adjustments.")
+        }
+        if (recommendations.isEmpty()) {
+            recommendations.add("Driving inputs are clean, efficient, and well-modulated across the session.")
+        }
+
+        DriverCoachingReport(
+            scrubRatio = scrubRatio,
+            energyEfficiencyScore = efficiencyScore,
+            reversalRatePerMinute = reversalRate,
+            totalCyclesDetected = cycles,
+            averageCycleTimeSeconds = avgCycleTime,
+            coachingRecommendations = recommendations
+        )
+    }
+
     private data class SignalSpectrum(
         val bandFrequencyHz: Double,
         val bandAmplitude: Double,
@@ -228,4 +308,13 @@ data class DriverProfileAnalysisResult(
     val recommendedExponent: Double,
     val recommendedSlewRate: Double,
     val message: String
+)
+
+data class DriverCoachingReport(
+    val scrubRatio: Double,
+    val energyEfficiencyScore: Double,
+    val reversalRatePerMinute: Double,
+    val totalCyclesDetected: Int,
+    val averageCycleTimeSeconds: Double,
+    val coachingRecommendations: List<String>
 )

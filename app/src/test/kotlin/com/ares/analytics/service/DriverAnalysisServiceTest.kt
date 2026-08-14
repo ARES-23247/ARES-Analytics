@@ -79,4 +79,33 @@ class DriverAnalysisServiceTest {
         tempDb.delete()
     }
 
+    @Test
+    fun testAnalyzeDriverCoaching() = runTest {
+        val tempDb = File.createTempFile("driver_coaching_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val tempFile = File.createTempFile("driver_profiles", ".json")
+        tempFile.delete()
+        val service = DriverAnalysisService(databaseService, sysIdService, tempFile.absolutePath)
+        val sessionId = "coaching-session"
+
+        // Generate telemetry with spin-translating (scrub)
+        val frames = mutableListOf<TelemetryFrame>()
+        for (i in 0 until 100) {
+            val t = (i * 20).toLong()
+            frames.add(TelemetryFrame(t, sessionId, "Drive/ChassisSpeeds/vx", 1.5))
+            frames.add(TelemetryFrame(t, sessionId, "Drive/ChassisSpeeds/vy", 0.0))
+            frames.add(TelemetryFrame(t, sessionId, "Drive/ChassisSpeeds/omega", 2.5))
+        }
+
+        databaseService.insertTelemetryFrames(frames)
+        val report = service.analyzeDriverCoaching(sessionId)
+
+        assertTrue(report.scrubRatio > 0.10, "Scrub ratio should be detected for concurrent fast translate and spin")
+        assertTrue(report.energyEfficiencyScore < 100.0, "Efficiency score should reflect scrub energy loss")
+        assertTrue(report.coachingRecommendations.isNotEmpty(), "Recommendations should be generated")
+
+        tempFile.delete()
+        tempDb.delete()
+    }
 }

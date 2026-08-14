@@ -4,7 +4,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
@@ -18,13 +20,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
+import com.areslib.control.feedback.LinearADRC
 import com.areslib.subsystem.SubsystemControlLoopDocument
-import com.areslib.subsystem.SubsystemControlStrategy
 import com.areslib.subsystem.SubsystemFeedforwardKind
 import com.areslib.subsystem.SubsystemHomingComparison
 import com.areslib.subsystem.SubsystemHomingDocument
@@ -166,26 +170,32 @@ internal fun FeedforwardConceptLab(loop: SubsystemControlLoopDocument) {
 
 // ── Control Theory Interactive Learning Sandbox ───────────────────────────────────────────
 
-enum class MechanismPlantKind(val displayName: String) {
+internal enum class MechanismPlantKind(val displayName: String) {
     FLYWHEEL("Velocity Flywheel (Inertia plant)"),
     ARM("Pivoting Arm (Gravity plant)"),
     ELEVATOR("Linear Elevator (Constant gravity plant)")
 }
 
-data class StepResponseMetrics(
+internal data class StepResponseMetrics(
     val riseTimeSec: Double?,
     val overshootPercent: Double,
     val settlingTimeSec: Double?,
     val steadyStateError: Double,
-    val isStable: Boolean
+    val isBounded: Boolean,
+    val statusMessage: String
 )
 
-enum class SandboxControllerStrategy(val displayName: String) {
+internal enum class SandboxControllerStrategy(val displayName: String) {
     PID_FEEDFORWARD("PID + Feedforward"),
     LINEAR_ADRC("Linear ADRC (Observer)")
 }
 
-fun simulateStepResponse(
+/**
+ * Runs a small normalized teaching model. It is intentionally not a robot digital twin and never
+ * writes gains or hardware output. Invalid or unreasonably large requests are rejected up front so
+ * UI experimentation cannot create an unbounded allocation or misleading non-finite result.
+ */
+internal fun simulateStepResponse(
     plant: MechanismPlantKind,
     strategy: SandboxControllerStrategy,
     kp: Double,
@@ -193,92 +203,78 @@ fun simulateStepResponse(
     kd: Double,
     ks: Double,
     kv: Double,
-    ka: Double,
     kg: Double,
-    b0: Double = 1.0,
+    b0: Double? = null,
     omegaO: Double = 20.0,
     omegaC: Double = 10.0,
     simDurationSec: Double = 2.0,
     dt: Double = 0.01
 ): Pair<List<Pair<Double, Double>>, StepResponseMetrics> {
-    val trajectory = mutableListOf<Pair<Double, Double>>()
+    val gains = doubleArrayOf(kp, ki, kd, ks, kv, kg, omegaO, omegaC)
+    require(gains.all(Double::isFinite)) { "Sandbox gains and bandwidths must be finite" }
+    require(dt.isFinite() && dt in 0.001..0.05) { "Sandbox dt must be between 1 ms and 50 ms" }
+    require(simDurationSec.isFinite() && simDurationSec in 0.1..10.0) {
+        "Sandbox duration must be between 0.1 s and 10.0 s"
+    }
+
+    val defaultInputGain = when (plant) {
+        MechanismPlantKind.FLYWHEEL -> 1.6
+        MechanismPlantKind.ARM -> 12.0
+        MechanismPlantKind.ELEVATOR -> 1.75
+    }
+    val selectedInputGain = b0 ?: defaultInputGain
+    require(selectedInputGain.isFinite() && abs(selectedInputGain) > 1e-6) {
+        "Sandbox ADRC input gain must be finite and non-zero"
+    }
+
+    val totalSteps = (simDurationSec / dt).toInt()
+    require(totalSteps in 2..5_000) { "Sandbox sample count must be between 2 and 5,000" }
+    val trajectory = ArrayList<Pair<Double, Double>>(totalSteps + 1)
     var position = 0.0
     var velocity = 0.0
     var integralError = 0.0
     var prevError = 1.0
-
-    // ADRC State Observer (ESO)
-    var z1 = 0.0
-    var z2 = 0.0
-    var z3 = 0.0 // Estimated total disturbance
-
     val setpoint = 1.0
-    val totalSteps = (simDurationSec / dt).toInt()
-    var isStable = true
-
-    var firstRiseStep: Int? = null
-    var maxPos = 0.0
-
-    for (step in 0..totalSteps) {
-        val t = step * dt
-        val error = setpoint - (if (plant == MechanismPlantKind.FLYWHEEL) velocity else position)
-
-        if (firstRiseStep == null && (if (plant == MechanismPlantKind.FLYWHEEL) velocity else position) >= 0.90 * setpoint) {
-            firstRiseStep = step
+    var isBounded = true
+    var failureReason: String? = null
+    var firstRiseTimeSec: Double? = null
+    var maxOutput = 0.0
+    var currentOutput = 0.0
+    trajectory.add(0.0 to currentOutput)
+    val adrc = if (strategy == SandboxControllerStrategy.LINEAR_ADRC) {
+        LinearADRC(selectedInputGain, omegaC, omegaO).apply {
+            setOutputLimits(-12.0, 12.0)
+            reset(currentOutput)
         }
-        val currentOutput = if (plant == MechanismPlantKind.FLYWHEEL) velocity else position
-        if (currentOutput > maxPos) {
-            maxPos = currentOutput
-        }
+    } else null
+
+    for (step in 1..totalSteps) {
+        val error = setpoint - currentOutput
 
         integralError = (integralError + error * dt).coerceIn(-12.0, 12.0)
         val dError = (error - prevError) / dt
         prevError = error
 
-        // Controller output voltage u
         val voltage: Double = when (strategy) {
-            SandboxControllerStrategy.LINEAR_ADRC -> {
-                val l1 = 2.0 * omegaO
-                val l2 = omegaO * omegaO
-                val obsError = currentOutput - z1
-
-                z1 += (z2 + b0 * z3 + l1 * obsError) * dt
-
-                val u0 = omegaC * (setpoint - z1)
-                val uUnsat = if (abs(b0) > 1e-9) (u0 - z2) / b0 else 0.0
-                val u = uUnsat.coerceIn(-12.0, 12.0)
-
-                val isSaturated = u != uUnsat
-                val sameSign = sign(obsError) == sign(u - uUnsat)
-                if (!(isSaturated && sameSign)) {
-                    z2 += (l2 * obsError) * dt
-                }
-                z3 = u // store previous effort
-                u
-            }
+            SandboxControllerStrategy.LINEAR_ADRC -> adrc!!.calculate(setpoint, currentOutput, dt)
             else -> {
-                // PID Feedback
                 val fb = kp * error + ki * integralError + kd * dError
-
-                // Model Feedforward
                 val gravityComp = when (plant) {
                     MechanismPlantKind.FLYWHEEL -> 0.0
                     MechanismPlantKind.ELEVATOR -> kg
                     MechanismPlantKind.ARM -> kg * cos(position)
                 }
                 val ff = ks * sign(setpoint) + kv * setpoint + gravityComp
-
                 (fb + ff).coerceIn(-12.0, 12.0)
             }
         }
 
-        // Physical Plant Dynamics
         when (plant) {
             MechanismPlantKind.FLYWHEEL -> {
-                // tau * v_dot + v = K * u (Motor flywheel with back-EMF)
+                // Normalized first-order flywheel: tau*v_dot + v = K*voltage.
                 val tau = 0.25
-                val kGain = 0.10
-                val vDot = (-velocity + kGain * voltage * 12.0) / tau
+                val steadyStatePerVolt = 0.40
+                val vDot = (-velocity + steadyStatePerVolt * voltage) / tau
                 velocity += vDot * dt
                 position += velocity * dt
             }
@@ -304,48 +300,51 @@ fun simulateStepResponse(
             }
         }
 
-        if (!position.isFinite() || !velocity.isFinite() || abs(position) > 50.0) {
-            isStable = false
+        currentOutput = if (plant == MechanismPlantKind.FLYWHEEL) velocity else position
+        if (!position.isFinite() || !velocity.isFinite() || !currentOutput.isFinite() ||
+            abs(currentOutput) > 10.0 || abs(velocity) > 50.0
+        ) {
+            isBounded = false
+            failureReason = "The normalized response exceeded the preview's safe display bounds."
             break
         }
 
-        trajectory.add(t to (if (plant == MechanismPlantKind.FLYWHEEL) velocity else position))
+        val timeSec = step * dt
+        trajectory.add(timeSec to currentOutput)
+        if (firstRiseTimeSec == null && currentOutput >= 0.90 * setpoint) firstRiseTimeSec = timeSec
+        if (currentOutput > maxOutput) maxOutput = currentOutput
     }
 
-    val riseTimeSec = firstRiseStep?.let { it * dt }
-    val overshootPercent = if (isStable && maxPos > setpoint) ((maxPos - setpoint) / setpoint) * 100.0 else 0.0
-
-    // Settling time: within +/- 5% of setpoint
-    var lastOutIndex: Int? = null
-    for (i in trajectory.indices) {
-        val y = trajectory[i].second
-        if (abs(y - setpoint) > 0.05 * setpoint) {
-            lastOutIndex = i
-        }
+    val overshootPercent = ((maxOutput - setpoint).coerceAtLeast(0.0) / setpoint) * 100.0
+    val lastOutsideIndex = trajectory.indexOfLast { abs(it.second - setpoint) > 0.05 * setpoint }
+    val settlingTimeSec = when {
+        !isBounded -> null
+        lastOutsideIndex < 0 -> 0.0
+        lastOutsideIndex >= trajectory.lastIndex -> null
+        else -> trajectory[lastOutsideIndex + 1].first
     }
-    val settlingTimeSec = if (isStable && lastOutIndex != null && lastOutIndex < trajectory.size - 1) {
-        lastOutIndex * dt
-    } else if (isStable && lastOutIndex == null) {
-        0.0
-    } else {
-        null
-    }
-
     val finalY = trajectory.lastOrNull()?.second ?: 0.0
-    val steadyStateError = if (isStable) abs(finalY - setpoint) else 999.0
+    val steadyStateError = if (isBounded) abs(finalY - setpoint) else Double.POSITIVE_INFINITY
+    val statusMessage = when {
+        !isBounded -> failureReason ?: "The normalized response became non-finite."
+        settlingTimeSec == null -> "Bounded, but it did not settle within the ${"%.1f".format(simDurationSec)} s preview."
+        else -> "Bounded for the full preview; this is educational evidence, not robot validation."
+    }
 
     return trajectory to StepResponseMetrics(
-        riseTimeSec = riseTimeSec,
+        riseTimeSec = firstRiseTimeSec,
         overshootPercent = overshootPercent,
         settlingTimeSec = settlingTimeSec,
         steadyStateError = steadyStateError,
-        isStable = isStable
+        isBounded = isBounded,
+        statusMessage = statusMessage
     )
 }
 
 @Composable
 internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument) {
-    var plant by remember {
+    var expanded by remember(loop.uid) { mutableStateOf(false) }
+    var plant by remember(loop.uid) {
         mutableStateOf(
             when (loop.feedforward.kind) {
                 SubsystemFeedforwardKind.ARM -> MechanismPlantKind.ARM
@@ -355,13 +354,13 @@ internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument) {
         )
     }
 
-    var controllerStrategy by remember { mutableStateOf(SandboxControllerStrategy.PID_FEEDFORWARD) }
-    var kp by remember(loop.uid) { mutableFloatStateOf(loop.kP.toFloat().coerceAtLeast(1.0f)) }
-    var ki by remember(loop.uid) { mutableFloatStateOf(loop.kI.toFloat()) }
-    var kd by remember(loop.uid) { mutableFloatStateOf(loop.kD.toFloat()) }
-    var ks by remember(loop.uid) { mutableFloatStateOf(loop.feedforward.kS.toFloat()) }
-    var kv by remember(loop.uid) { mutableFloatStateOf(loop.feedforward.kV.toFloat().coerceAtLeast(0.5f)) }
-    var kg by remember(loop.uid) { mutableFloatStateOf(loop.feedforward.kG.toFloat()) }
+    var controllerStrategy by remember(loop.uid) { mutableStateOf(SandboxControllerStrategy.PID_FEEDFORWARD) }
+    var kp by remember(loop.uid) { mutableFloatStateOf(loop.kP.finiteFloat()) }
+    var ki by remember(loop.uid) { mutableFloatStateOf(loop.kI.finiteFloat()) }
+    var kd by remember(loop.uid) { mutableFloatStateOf(loop.kD.finiteFloat()) }
+    var ks by remember(loop.uid) { mutableFloatStateOf(loop.feedforward.kS.finiteFloat()) }
+    var kv by remember(loop.uid) { mutableFloatStateOf(loop.feedforward.kV.finiteFloat()) }
+    var kg by remember(loop.uid) { mutableFloatStateOf(loop.feedforward.kG.finiteFloat()) }
     var showTheory by remember { mutableStateOf(false) }
 
     val (trajectory, metrics) = remember(plant, controllerStrategy, kp, ki, kd, ks, kv, kg) {
@@ -373,72 +372,103 @@ internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument) {
             kd = kd.toDouble(),
             ks = ks.toDouble(),
             kv = kv.toDouble(),
-            ka = 0.0,
             kg = kg.toDouble()
         )
     }
 
     LearningLabCard(
-        title = "Interactive Control Theory Sandbox: Live Step-Response Plant",
-        explanation = "Simulates your control gains on a dynamic 1-DOF physics model to visualize rise time, overshoot, and settling stability."
+        title = "Control-response learning sandbox",
+        explanation = "Explore how feedback and feedforward change a normalized teaching model before testing a real mechanism."
     ) {
-        // Plant Selector & Strategy Selector
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text("Plant:", color = AresTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                MechanismPlantKind.entries.forEach { kind ->
-                    val isSelected = plant == kind
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isSelected) AresCyan.copy(alpha = 0.2f) else AresSurfaceElevated)
-                            .border(1.dp, if (isSelected) AresCyan else AresBorder, RoundedCornerShape(6.dp))
-                            .clickable { plant = kind }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = kind.displayName.split(" ").first(),
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) AresCyan else AresTextSecondary
-                        )
-                    }
-                }
-            }
+        Text(
+            "Learning model only — it does not command hardware, save gains, or prove that a real robot is safe.",
+            color = AresTextPrimary,
+            fontWeight = FontWeight.SemiBold,
+        )
+        OutlinedButton(onClick = { expanded = !expanded }) {
+            Icon(
+                if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = null,
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(if (expanded) "Close learning sandbox" else "Open learning sandbox")
+        }
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                SandboxControllerStrategy.entries.forEach { strat ->
-                    val isSelected = controllerStrategy == strat
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isSelected) AresGold.copy(alpha = 0.2f) else AresSurfaceElevated)
-                            .border(1.dp, if (isSelected) AresGold else AresBorder, RoundedCornerShape(6.dp))
-                            .clickable { controllerStrategy = strat }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = strat.name.split("_").first(),
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) AresGold else AresTextSecondary
-                        )
-                    }
-                }
+        if (!expanded) return@LearningLabCard
+
+        Text(
+            "The target is a normalized value of 1.0. The generic plant is useful for learning trends, not predicting your mechanism's exact motion.",
+            color = AresTextSecondary,
+            fontSize = 12.sp,
+        )
+
+        Text("Choose a generic mechanism model", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            MechanismPlantKind.entries.forEach { kind ->
+                val selected = plant == kind
+                FilterChip(
+                    selected = selected,
+                    onClick = { plant = kind },
+                    label = { Text(kind.displayName) },
+                    leadingIcon = if (selected) {
+                        { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                    } else null,
+                )
             }
         }
 
-        // Live 2D Step Response Canvas
+        Text("Choose a controller demonstration", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SandboxControllerStrategy.entries.forEach { strategy ->
+                val selected = controllerStrategy == strategy
+                FilterChip(
+                    selected = selected,
+                    onClick = { controllerStrategy = strategy },
+                    label = { Text(strategy.displayName) },
+                    leadingIcon = if (selected) {
+                        { Icon(Icons.Default.Check, contentDescription = "Selected") }
+                    } else null,
+                )
+            }
+        }
+        if (controllerStrategy == SandboxControllerStrategy.LINEAR_ADRC) {
+            Text(
+                "Advanced concept preview: this does not change the subsystem's selected control strategy.",
+                color = AresTextSecondary,
+                fontSize = 11.sp,
+            )
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = {
+                kp = loop.kP.finiteFloat()
+                ki = loop.kI.finiteFloat()
+                kd = loop.kD.finiteFloat()
+                ks = loop.feedforward.kS.finiteFloat()
+                kv = loop.feedforward.kV.finiteFloat()
+                kg = loop.feedforward.kG.finiteFloat()
+            }) { Text("Reset to form values") }
+            OutlinedButton(onClick = {
+                when (plant) {
+                    MechanismPlantKind.FLYWHEEL -> {
+                        kp = 6f; ki = 0.5f; kd = 0.1f; ks = 0.05f; kv = 2.5f; kg = 0f
+                    }
+                    MechanismPlantKind.ARM -> {
+                        kp = 3f; ki = 0f; kd = 0.2f; ks = 0f; kv = 0f; kg = 1.4f
+                    }
+                    MechanismPlantKind.ELEVATOR -> {
+                        kp = 12f; ki = 0.5f; kd = 1.5f; ks = 0.05f; kv = 0.5f; kg = 1.12f
+                    }
+                }
+            }) { Text("Load teaching example") }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -447,13 +477,18 @@ internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument) {
                 .background(AresBackground)
                 .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
                 .padding(8.dp)
+                .semantics {
+                    contentDescription = "Normalized step-response preview. ${metrics.statusMessage}"
+                }
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val w = size.width
                 val h = size.height
-
-                // Draw setpoint line at 1.0 (60% up from bottom)
-                val setpointY = h * 0.35f
+                val minimum = min(0.0, trajectory.minOfOrNull { it.second } ?: 0.0)
+                val maximum = max(1.2, trajectory.maxOfOrNull { it.second } ?: 1.2)
+                val span = (maximum - minimum).coerceAtLeast(0.1)
+                fun canvasY(value: Double): Float = (h * (1.0 - (value - minimum) / span)).toFloat()
+                val setpointY = canvasY(1.0)
                 drawLine(
                     color = AresTextTertiary.copy(alpha = 0.5f),
                     start = Offset(0f, setpointY),
@@ -462,61 +497,72 @@ internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument) {
                     pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 6f))
                 )
 
-                // Draw tolerance envelope (+/- 5%)
+                val toleranceTop = canvasY(1.05)
+                val toleranceBottom = canvasY(0.95)
                 drawRect(
                     color = AresGreen.copy(alpha = 0.08f),
-                    topLeft = Offset(0f, setpointY - h * 0.05f),
-                    size = androidx.compose.ui.geometry.Size(w, h * 0.10f)
+                    topLeft = Offset(0f, toleranceTop),
+                    size = androidx.compose.ui.geometry.Size(w, toleranceBottom - toleranceTop)
                 )
 
-                // Draw trajectory
-                if (trajectory.isNotEmpty() && metrics.isStable) {
+                if (trajectory.isNotEmpty()) {
                     val path = Path()
-                    val maxT = 2.0f
-                    val scaleY = (h * 0.65f) / 1.5f // 1.5 setpoint ceiling
+                    val maxT = trajectory.last().first.coerceAtLeast(0.01).toFloat()
 
                     trajectory.forEachIndexed { index, (t, y) ->
                         val px = (t.toFloat() / maxT) * w
-                        val py = (h * 0.90f) - (y.toFloat() * scaleY)
+                        val py = canvasY(y)
                         if (index == 0) path.moveTo(px, py) else path.lineTo(px, py)
                     }
 
                     drawPath(
                         path = path,
-                        color = if (metrics.overshootPercent > 25.0) AresAmber else AresCyan,
+                        color = if (metrics.isBounded) AresCyan else AresError,
                         style = Stroke(width = 2.5f)
                     )
                 }
             }
 
-            // Overlay Legend
             Row(
                 modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Text("Target: 1.00", color = AresTextTertiary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                 Text(
-                    text = if (metrics.isStable) "STABLE" else "UNSTABLE / DIVERGENT",
-                    color = if (metrics.isStable) AresGreen else AresError,
+                    text = if (metrics.isBounded) "BOUNDED PREVIEW" else "PREVIEW STOPPED",
+                    color = if (metrics.isBounded) AresGreen else AresError,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace
                 )
             }
         }
+        Text(metrics.statusMessage, color = AresTextPrimary, fontSize = 11.sp)
 
-        // Extracted Performance Indicators
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            MetricPill("Rise Time (tr)", metrics.riseTimeSec?.let { "%.2fs".format(it) } ?: "N/A", AresCyan)
-            MetricPill("Overshoot (%)", "%.1f%%".format(metrics.overshootPercent), if (metrics.overshootPercent > 20.0) AresAmber else AresGreen)
-            MetricPill("Settling Time (ts)", metrics.settlingTimeSec?.let { "%.2fs".format(it) } ?: ">2.0s", AresGold)
-            MetricPill("Steady Error (ess)", "%.3f".format(metrics.steadyStateError), if (metrics.steadyStateError > 0.05) AresError else AresGreen)
+            MetricPill(
+                "Rise time", metrics.riseTimeSec?.let { "%.2fs".format(it) } ?: "Not reached",
+                if (metrics.riseTimeSec == null) "Target not reached" else "Reached 90%", AresCyan, Modifier.weight(1f)
+            )
+            MetricPill(
+                "Overshoot", "%.1f%%".format(metrics.overshootPercent),
+                if (metrics.overshootPercent > 20.0) "High" else "Controlled", if (metrics.overshootPercent > 20.0) AresAmber else AresGreen,
+                Modifier.weight(1f)
+            )
+            MetricPill(
+                "Settling time", metrics.settlingTimeSec?.let { "%.2fs".format(it) } ?: "Not settled",
+                if (metrics.settlingTimeSec == null) "Outside 5% band" else "Stayed within 5%", AresGold, Modifier.weight(1f)
+            )
+            MetricPill(
+                "Final error", if (metrics.steadyStateError.isFinite()) "%.3f".format(metrics.steadyStateError) else "N/A",
+                if (!metrics.steadyStateError.isFinite()) "Preview stopped" else if (metrics.steadyStateError > 0.05) "Above 5%" else "Within 5%",
+                if (metrics.steadyStateError > 0.05) AresError else AresGreen, Modifier.weight(1f)
+            )
         }
 
-        // Interactive Gain Sliders
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             LabSlider("Proportional Gain (kP)", kp, 0f..25f) { kp = it }
             LabSlider("Integral Gain (kI)", ki, 0f..10f) { ki = it }
@@ -527,7 +573,6 @@ internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument) {
             LabSlider("Velocity Feedforward (kV)", kv, 0f..3f) { kv = it }
         }
 
-        // Educational Theory Deep-Dive Toggle
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -581,12 +626,21 @@ internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument) {
 }
 
 @Composable
-private fun MetricPill(label: String, value: String, accentColor: Color) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+private fun MetricPill(
+    label: String,
+    value: String,
+    verdict: String,
+    accentColor: Color,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, fontSize = 9.sp, color = AresTextTertiary, fontWeight = FontWeight.Bold)
         Text(value, fontSize = 12.sp, color = accentColor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        Text(verdict, fontSize = 9.sp, color = AresTextSecondary)
     }
 }
+
+private fun Double.finiteFloat(): Float = if (isFinite()) toFloat() else 0f
 
 @Composable
 private fun TheoryConceptRow(term: String, summary: String, detail: String) {
