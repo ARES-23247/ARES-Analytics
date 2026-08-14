@@ -188,4 +188,100 @@ class RoutineBuilderViewModelTest {
         val issues = viewModel.state.value.routineValidation
         assertTrue(issues.any { it.code == "invalid_duration" })
     }
+
+    @Test
+    fun `deleting a step removes it from routine and clears its validation errors`() = runTest {
+        val viewModel = PathPlannerViewModel(this)
+        viewModel.onIntent(PathPlannerIntent.CreateRoutine("Deletion test"))
+        advanceUntilIdle()
+
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.WAIT))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.DRIVE_TO))
+        advanceUntilIdle()
+
+        assertEquals(2, viewModel.state.value.routine.steps.size)
+        val driveStep = viewModel.state.value.routine.steps.first { it.kind == RoutineStepKind.DRIVE_TO }
+        val invalidDriveStep = driveStep.copy(
+            drive = com.areslib.routine.RoutineDriveStep(
+                target = com.areslib.routine.RoutinePose(0.5, 0.5, 0.0),
+                markers = listOf(
+                    com.areslib.routine.RoutineDriveMarker(progress = -0.25, actionKey = "intake"),
+                    com.areslib.routine.RoutineDriveMarker(progress = 1.25, actionKey = "outtake")
+                )
+            )
+        )
+        viewModel.onIntent(PathPlannerIntent.UpdateRoutineStep(driveStep.stepId, invalidDriveStep))
+        advanceUntilIdle()
+
+        val issuesBeforeDeletion = viewModel.state.value.routineValidation
+        val markerIssues = issuesBeforeDeletion.filter { it.code == "invalid_marker_progress" }
+        assertTrue(markerIssues.isNotEmpty())
+
+        // Delete the drive step
+        viewModel.onIntent(PathPlannerIntent.RemoveRoutineStep(driveStep.stepId))
+        advanceUntilIdle()
+
+        val stateAfter = viewModel.state.value
+        assertEquals(1, stateAfter.routine.steps.size)
+        assertEquals(RoutineStepKind.WAIT, stateAfter.routine.steps.single().kind)
+        assertTrue(stateAfter.routineValidation.none { it.code == "invalid_marker_progress" })
+    }
+
+    @Test
+    fun `moving steps at boundaries preserves order while valid moves reorder steps`() = runTest {
+        val viewModel = PathPlannerViewModel(this)
+        viewModel.onIntent(PathPlannerIntent.CreateRoutine("Move test"))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.WAIT))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.ACTION))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.DRIVE_TO))
+        advanceUntilIdle()
+
+        val steps = viewModel.state.value.routine.steps
+        val firstId = steps[0].stepId
+        val secondId = steps[1].stepId
+        val thirdId = steps[2].stepId
+
+        // Move first step up (-1) -> should be a no-op
+        viewModel.onIntent(PathPlannerIntent.MoveRoutineStep(firstId, -1))
+        advanceUntilIdle()
+        assertEquals(listOf(firstId, secondId, thirdId), viewModel.state.value.routine.steps.map { it.stepId })
+
+        // Move third step down (+1) -> should be a no-op
+        viewModel.onIntent(PathPlannerIntent.MoveRoutineStep(thirdId, 1))
+        advanceUntilIdle()
+        assertEquals(listOf(firstId, secondId, thirdId), viewModel.state.value.routine.steps.map { it.stepId })
+
+        // Move middle step up (-1) -> swaps with first
+        viewModel.onIntent(PathPlannerIntent.MoveRoutineStep(secondId, -1))
+        advanceUntilIdle()
+        assertEquals(listOf(secondId, firstId, thirdId), viewModel.state.value.routine.steps.map { it.stepId })
+    }
+
+    @Test
+    fun `selectStep updates selectedStepIndex in RoutineBuilderViewModel`() = runTest {
+        val viewModel = PathPlannerViewModel(this)
+        viewModel.onIntent(PathPlannerIntent.CreateRoutine("Selection test"))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.WAIT))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.ACTION))
+        advanceUntilIdle()
+
+        assertNull(viewModel.state.value.selectedStepIndex)
+
+        viewModel.selectStep(0)
+        advanceUntilIdle()
+        assertEquals(0, viewModel.state.value.selectedStepIndex)
+
+        viewModel.selectStep(1)
+        advanceUntilIdle()
+        assertEquals(1, viewModel.state.value.selectedStepIndex)
+
+        viewModel.selectStep(null)
+        advanceUntilIdle()
+        assertNull(viewModel.state.value.selectedStepIndex)
+
+        viewModel.onIntent(PathPlannerIntent.SelectStep(1))
+        advanceUntilIdle()
+        assertEquals(1, viewModel.state.value.selectedStepIndex)
+    }
 }
+

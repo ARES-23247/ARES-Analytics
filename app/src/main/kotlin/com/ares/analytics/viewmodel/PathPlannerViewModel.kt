@@ -110,7 +110,8 @@ data class PathPlannerState(
     val routineActions: List<ActionDescriptor> = emptyList(),
     val routineConditions: List<ConditionDescriptor> = emptyList(),
     val autonomousEntry: AutonomousCatalogEntry? = null,
-    val availableInAutonomousSelector: Boolean = false
+    val availableInAutonomousSelector: Boolean = false,
+    val selectedStepIndex: Int? = null
 )
 
 sealed class PathPlannerIntent {
@@ -142,6 +143,7 @@ sealed class PathPlannerIntent {
         val step: RoutineStep
     ) : PathPlannerIntent()
     data class RemoveRoutineChild(val childStepId: String) : PathPlannerIntent()
+    data class SelectStep(val index: Int?) : PathPlannerIntent()
     data class SetAutonomousAvailability(val enabled: Boolean, val league: League) : PathPlannerIntent()
     data class UpdateAutonomousEntry(val entry: AutonomousCatalogEntry, val league: League) : PathPlannerIntent()
     data class UpdateRoutineFieldWaypoints(val waypoints: List<Waypoint>, val league: League) : PathPlannerIntent()
@@ -184,6 +186,10 @@ class PathPlannerViewModel(
                 }
             }
         }
+    }
+
+    fun selectStep(index: Int?) {
+        onIntent(PathPlannerIntent.SelectStep(index))
     }
 
     fun onIntent(intent: PathPlannerIntent) {
@@ -380,6 +386,7 @@ class PathPlannerViewModel(
                     updateRoutine { routine -> routine.copy(steps = routine.steps.removeStepById(intent.childStepId)) }
                     recalculateRoutinePreview()
                 }
+                is PathPlannerIntent.SelectStep -> _state.update { it.copy(selectedStepIndex = intent.index) }
                 is PathPlannerIntent.SetAutonomousAvailability -> setAutonomousAvailability(intent.enabled, intent.league)
                 is PathPlannerIntent.UpdateAutonomousEntry -> {
                     val clamped = intent.entry.copy(
@@ -949,3 +956,7 @@ class PathPlannerViewModel(
         val warning: String?
     )
 }
+
+typealias RoutineBuilderViewModel = PathPlannerViewModel
+typealias RoutineBuilderIntent = PathPlannerIntent
+typealias RoutineBuilderState = PathPlannerState
