@@ -582,6 +582,7 @@ private fun LearningLabsPane(initialLab: LearningLab, onBack: () -> Unit) {
                     LearningLab.MOTION_PROFILE -> MotionProfileLabCard()
                     LearningLab.MECHANISM_SIZING -> MechanismKinematicsLabCard()
                     LearningLab.HOMING_SAFETY -> HomingSafetyLabCard()
+                    LearningLab.STATE_FLOW -> RobotSignalFlowLabCard()
                 }
             }
             item {

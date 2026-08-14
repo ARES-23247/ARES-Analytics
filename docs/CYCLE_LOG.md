@@ -213,3 +213,51 @@ valid cached evidence, freshness, bounded dwell, and a confirmed neutral write.
   Windows PIN screen; no credential was entered or bypassed.
 - No physical robot was used. Real thresholds, directions, neutral behavior, and homing mechanics
   still require supervised hardware-in-the-loop validation.
+
+## Cycle 4 — Controller-to-telemetry state-flow lab
+
+### Objective
+
+Let a novice manipulate one complete, hardware-free ARES-style signal flow instead of memorizing
+an architecture diagram.
+
+### User-visible outcome
+
+- Robot Academy now includes **Input, state & telemetry** for the Driver/operator and Robot builder
+  paths.
+- Students can trace a motor command plus cached encoder, a positional-servo command, or a
+  distance-sensor sample.
+- The lab keeps the retained previous Redux snapshot visible beside the reducer's new immutable
+  snapshot.
+- Each trace shows typed action text, the controller decision, mock IO result, telemetry topic,
+  value, unit, validity, and freshness.
+- Device inversion, controller deadband, stale/invalid cached measurements, unhealthy
+  configuration, and a failed mock output write all produce explicit textual outcomes.
+- Student and mentor guides now include the activity sequence, misconceptions, and model boundary.
+
+### Safety and ownership decisions
+
+- The flow is a pure teaching model. It does not use the production Redux store, NT4, project
+  files, simulator commands, or physical hardware.
+- Motor output becomes neutral when required cached encoder feedback is invalid or stale.
+- Sensor-only flow refreshes cached state and telemetry without inventing an actuator command.
+- Failed mock output writes latch a visible fault in the new teaching snapshot.
+- The model does not claim generated-code, simulator, or physical parity.
+
+### Verification evidence
+
+- Focused state-flow and catalog tests: 14 tests, 0 failures.
+- Full Analytics app suite: 434 tests, 0 failures, 0 errors, 2 intentional skips.
+- Dashboard smoke: passed.
+- Trimmed distributable project loading: passed for one routine and one subsystem document.
+- No ARESLib contract changed, so an isolated Maven publication was not required for this slice.
+
+### Delivery and limitations
+
+- Implementation is on `codex/academy-redux-signal-lab-v6`, stacked on the validated homing lab and
+  safe-build Analytics work. Retarget or rebase it in dependency order before opening its protected
+  PR.
+- Normal, colorblind, high-contrast, large-text, keyboard, and narrow-window visual walkthroughs
+  remain required after the Windows desktop is unlocked.
+- No physical robot was used. Production state flow and hardware behavior remain subject to source,
+  generated-verification, simulator, and later supervised hardware-in-the-loop evidence.

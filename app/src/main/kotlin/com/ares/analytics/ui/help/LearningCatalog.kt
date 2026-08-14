@@ -23,6 +23,7 @@ enum class LearningLab(val label: String) {
     MOTION_PROFILE("Motion profile"),
     MECHANISM_SIZING("Mechanism sizing"),
     HOMING_SAFETY("Homing & safe recovery"),
+    STATE_FLOW("Input, state & telemetry"),
 }
 
 data class LearningLabGuide(
@@ -148,6 +149,26 @@ object LearningCatalog {
                 "Why does clearing a fault require evidence that neutral output was actually written?",
             ),
             successLooksLike = "You can explain freshness, dwell, homing evidence, fault latching, and neutral recovery without treating the model as hardware approval.",
+        ),
+        LearningLabGuide(
+            lab = LearningLab.STATE_FLOW,
+            title = "Trace one signal through ARES",
+            outcome = "Follow controller or sensor input through typed actions, immutable Redux state, a controller, mock IO, and unit-tagged telemetry.",
+            beforeYouStart = listOf(
+                "This is a simplified teaching trace, not the production Redux store or robot runtime.",
+                "Read the unit and validity text at every stage instead of relying on color.",
+            ),
+            tryThis = listOf(
+                "Run a motor command and compare the retained previous state with the reducer's new state.",
+                "Invert a positional servo, then predict the normalized position before running the loop.",
+                "Make a motor measurement stale and a distance sample invalid; explain why the resulting behavior differs.",
+            ),
+            reflectionQuestions = listOf(
+                "Why must the reducer create a new state instead of mutating the previous snapshot?",
+                "Which stage decides what the robot wants, and which stage touches hardware?",
+                "Why do a topic name, value, unit, timestamp, and validity belong together?",
+            ),
+            successLooksLike = "You can narrate input → action → reducer → immutable state → controller → IO → telemetry and identify the unit and safety boundary at each step.",
         ),
     )
 
@@ -619,6 +640,39 @@ object LearningCatalog {
             lab = LearningLab.HOMING_SAFETY,
         ),
         LearningLesson(
+            id = "state-flow-lab",
+            level = LearningLevel.STARTER,
+            track = LearningTrack.UNDERSTAND,
+            title = "Lab: trace input, state, IO, and telemetry",
+            outcome = labGuide(LearningLab.STATE_FLOW).outcome,
+            durationMinutes = 20,
+            destination = NavigationTarget.ACADEMY,
+            action = LearningAction.OPEN_LAB,
+            beforeYouStart = labGuide(LearningLab.STATE_FLOW).beforeYouStart,
+            steps = labGuide(LearningLab.STATE_FLOW).tryThis,
+            successLooksLike = labGuide(LearningLab.STATE_FLOW).successLooksLike,
+            safetyNote = "The teaching trace never publishes NT4, writes a project, or commands a robot or simulator.",
+            keywords = setOf(
+                "controller input",
+                "redux",
+                "immutable state",
+                "motor",
+                "servo",
+                "sensor",
+                "cached measurement",
+                "telemetry units",
+            ),
+            prerequisiteLessonIds = setOf("read-connection-state"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "state-flow-lab.trace",
+                    "Narrate one complete signal path",
+                    labGuide(LearningLab.STATE_FLOW).reflectionQuestions.joinToString(" "),
+                ),
+            ),
+            lab = LearningLab.STATE_FLOW,
+        ),
+        LearningLesson(
             id = "developer-reference",
             level = LearningLevel.ADVANCED,
             track = LearningTrack.UNDERSTAND,
@@ -659,7 +713,14 @@ object LearningCatalog {
             title = "Driver & operator",
             summary = "Understand the active data source, map controls, and use run evidence to practice consistently.",
             level = LearningLevel.BUILDER,
-            lessonIds = listOf("start-simulator", "read-connection-state", "map-one-control", "bring-in-run", "compare-run-evidence"),
+            lessonIds = listOf(
+                "start-simulator",
+                "read-connection-state",
+                "state-flow-lab",
+                "map-one-control",
+                "bring-in-run",
+                "compare-run-evidence",
+            ),
         ),
         LearningPath(
             id = "robot-builder",
@@ -670,6 +731,7 @@ object LearningCatalog {
                 "robot-studio-tour",
                 "drivebase-blueprint",
                 "safe-subsystem",
+                "state-flow-lab",
                 "homing-safety-lab",
                 "mechanism-sizing-lab",
                 "control-response-lab",

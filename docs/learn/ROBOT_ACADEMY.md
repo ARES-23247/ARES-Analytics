@@ -54,9 +54,11 @@ Use the same evidence loop each time:
 6. State what the model cannot prove.
 7. Reset before the next experiment.
 
-The control-response, sensor-fusion, motion-profile, mechanism-sizing, and homing-safety labs are teaching models. They do not run the production robot algorithms, command hardware, save project constants, validate a mechanism, or prove field clearance.
+The control-response, sensor-fusion, motion-profile, mechanism-sizing, homing-safety, and state-flow labs are teaching models. They do not run the production robot algorithms, command hardware, save project constants, validate a mechanism, or prove field clearance.
 
 The **Homing & safe recovery** lab is the place to learn why a sensor edge, current spike, or stopped motor is not enough by itself. Students practice checking cached-measurement validity and freshness, requiring evidence for a bounded dwell, latching failed output writes, and clearing a fault only after a neutral write succeeds. It deliberately supports sensor, current-stall, velocity-stall, and combined-stall evidence without connecting to a robot.
+
+The **Input, state & telemetry** lab traces a motor command, positional-servo command, or distance-sensor sample through a simplified ARES loop. It keeps the retained previous Redux snapshot visible beside the new immutable state, then shows the controller decision, mock IO result, topic, unit, validity, and freshness. Use it before Controller Bindings or the Subsystem Builder so students know which layer owns intent, state, hardware access, and observation.
 
 ## Resume and recover
 

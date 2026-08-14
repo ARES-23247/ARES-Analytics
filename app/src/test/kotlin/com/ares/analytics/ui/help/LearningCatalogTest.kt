@@ -83,6 +83,17 @@ class LearningCatalogTest {
     }
 
     @Test
+    fun `state flow lab covers controller redux devices and telemetry units`() {
+        val lesson = LearningCatalog.lesson("state-flow-lab") ?: error("Missing state flow lab")
+
+        assertEquals(LearningLab.STATE_FLOW, lesson.lab)
+        assertFalse(lesson.requiresRobot)
+        assertTrue("controller input" in lesson.keywords)
+        assertTrue("immutable state" in lesson.keywords)
+        assertTrue("telemetry units" in lesson.keywords)
+    }
+
+    @Test
     fun `robot studio lesson teaches compile only build evidence`() {
         val lesson = LearningCatalog.lesson("robot-studio-tour") ?: error("Missing Robot Studio lesson")
 

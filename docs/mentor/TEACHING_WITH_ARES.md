@@ -101,6 +101,37 @@ Students should be able to:
 
 The lab is a pure teaching model. It does not select real thresholds, account for every mechanical failure, command hardware, or approve a physical homing routine. A real mechanism still needs documented limits, supervised low-authority testing, and an independent stop plan.
 
+## A 30-minute input-to-telemetry lab
+
+### Learning outcomes
+
+Students should be able to:
+
+- narrate input -> typed action -> pure reducer -> immutable state -> controller -> IO -> telemetry;
+- show that a retained Redux snapshot does not change when the next state is created;
+- distinguish an actuator command from a cached sensor measurement;
+- identify a telemetry topic, value, unit, validity, and freshness; and
+- explain why stale motor feedback produces a neutral request in the teaching model.
+
+### Activity
+
+1. Open **Help & Learn -> Driver & operator -> Lab: trace input, state, IO, and telemetry**.
+2. Run the motor path and have one student read each stage aloud. Compare the retained and next sequence numbers.
+3. Invert the motor, then adjust deadband. Predict the requested duty-cycle sign and magnitude before running again.
+4. Make the cached encoder sample stale. Ask which layer holds intent and which layer refuses non-neutral output.
+5. Switch to the positional servo. Predict how the `-1..1` axis becomes a normalized `0..1` position.
+6. Simulate a failed mock write and identify the resulting fault-latch text.
+7. Switch to the distance sensor. Confirm that its adapter refreshes cached state and telemetry without an actuator write.
+
+### Misconceptions to challenge
+
+- "The gamepad writes directly to the motor."
+- "A reducer changes the old state object."
+- "A sensor-only subsystem needs an output command."
+- "A topic value is meaningful without its unit, timestamp, validity, and producer."
+
+This is a simplified trace, not the production Redux store, controller, IO adapter, or NT4 publisher. It cannot prove generated code, simulator parity, or hardware behavior. Use the live source, generated verification, and supervised physical procedures for those claims.
+
 ## Physical robot gate
 
 Move from simulator/replay to **Live Robot** only when all applicable items are true:
