@@ -152,6 +152,31 @@ class SubsystemTuningAuthoringTest {
         }
     }
 
+    @Test
+    fun `moveByUid with invalid UID or out of bounds delta preserves parameter order`() {
+        val base = subsystem()
+        val first = SubsystemTuningAuthoring.newParameter(base)
+        val second = first.copy(
+            uid = "${base.uid}.parameter.2",
+            key = "subsystem.lift.parameter2",
+            displayName = "Second",
+        )
+        val third = first.copy(
+            uid = "${base.uid}.parameter.3",
+            key = "subsystem.lift.parameter3",
+            displayName = "Third",
+        )
+        val original = listOf(first, second, third)
+
+        assertEquals(original, SubsystemTuningAuthoring.moveByUid(original, "missing.uid", 1))
+        assertEquals(original, SubsystemTuningAuthoring.moveByUid(original, first.uid, 0))
+        assertEquals(original, SubsystemTuningAuthoring.moveByUid(original, second.uid, 0))
+        assertEquals(original, SubsystemTuningAuthoring.moveByUid(original, first.uid, -1))
+        assertEquals(original, SubsystemTuningAuthoring.moveByUid(original, first.uid, -5))
+        assertEquals(original, SubsystemTuningAuthoring.moveByUid(original, third.uid, 1))
+        assertEquals(original, SubsystemTuningAuthoring.moveByUid(original, third.uid, 5))
+    }
+
     private fun subsystem() = SubsystemTemplates.create(
         SubsystemTemplate.POSITION_CONTROLLED_MECHANISM,
         "lift",
