@@ -43,6 +43,37 @@ class ParquetLogDecoderTest {
         }
     }
 
+    @Test
+    fun `parquet import preserves sample order and microsecond timestamps`() = runBlocking {
+        val sourceDbFile = tempDatabaseFile("parquet-source-order")
+        val targetDbFile = tempDatabaseFile("parquet-target-order")
+        val parquet = File.createTempFile("ares-telemetry-order-", ".parquet")
+        val source = DatabaseService(sourceDbFile.absolutePath)
+        val target = DatabaseService(targetDbFile.absolutePath)
+        try {
+            source.insertTelemetryFrames(
+                listOf(
+                    TelemetryFrame(100L, "src", "Drive/Velocity", 2.5, timestampUs = 100_123L, sampleOrder = 1L),
+                    TelemetryFrame(120L, "src", "Drive/Velocity", 2.6, timestampUs = 120_456L, sampleOrder = 2L)
+                )
+            )
+            source.exportSessionToParquet("src", parquet)
+
+            val result = ParquetLogDecoder(target).parseParquetLog(parquet, "dest")
+            val imported = target.getTelemetryForKey("dest", "Drive/Velocity")
+
+            assertEquals(2L, result.frameCount)
+            assertEquals(listOf(100_123L, 120_456L), imported.map { it.timestampUs })
+            assertEquals(listOf(1L, 2L), imported.map { it.sampleOrder })
+        } finally {
+            source.close()
+            target.close()
+            parquet.delete()
+            sourceDbFile.delete()
+            targetDbFile.delete()
+        }
+    }
+
     private fun tempDatabaseFile(prefix: String): File =
         File.createTempFile(prefix, ".duckdb").also { it.delete() }
 }
