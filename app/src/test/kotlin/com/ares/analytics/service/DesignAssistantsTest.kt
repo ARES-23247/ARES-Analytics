@@ -55,7 +55,7 @@ class DesignAssistantsTest {
         val current = ControlSchemeDocument(
             documentId = "student-controls",
             name = "Student controls",
-            controllers = listOf(ControllerAssignment("driver", "Driver", "xbox")),
+            controllers = listOf(ControllerAssignment("driver", "Driver", "xbox", devicePort = 0)),
             bindings = emptyList(),
         )
         val proposed = current.copy(documentId = "changed", name = "Practice controls")
@@ -74,7 +74,7 @@ class DesignAssistantsTest {
         val current = ControlSchemeDocument(
             documentId = "student-controls",
             name = "Student controls",
-            controllers = listOf(ControllerAssignment("driver", "Driver", "xbox")),
+            controllers = listOf(ControllerAssignment("driver", "Driver", "xbox", devicePort = 0)),
             bindings = emptyList(),
         )
         val binding = ControlBindingDocument(
