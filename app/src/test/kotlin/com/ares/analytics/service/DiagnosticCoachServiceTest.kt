@@ -47,6 +47,20 @@ class DiagnosticCoachServiceTest {
     }
 
     @Test
+    fun `nominal signals produce no findings and report no missing signals`() = runTest {
+        withService { database, service ->
+            database.insertTelemetryFrames(listOf(
+                TelemetryFrame(100, "run", "Robot/BatteryVoltage", 12.8),
+                TelemetryFrame(100, "run", "Hardware/Motors/arm/CurrentAmps", 12.0),
+                TelemetryFrame(100, "run", "Robot/LoopTimeMs", 18.0)
+            ))
+            val result = service.analyze("run")
+            assertTrue(result.findings.isEmpty())
+            assertTrue(result.missingSignals.isEmpty())
+        }
+    }
+
+    @Test
     fun loopOverrunScreenDetectsHighLoopTimes() = runTest {
         withService { database, service ->
             database.insertTelemetryFrames(listOf(
