@@ -114,6 +114,12 @@ fun List<RoutineStep>.moveStepById(stepId: String, direction: Int): List<Routine
     ) }
 }
 
+/** Reorders a root step from [fromIndex] to [toIndex]. */
+fun List<RoutineStep>.reorderStep(fromIndex: Int, toIndex: Int): List<RoutineStep> {
+    if (fromIndex !in indices || toIndex !in indices || fromIndex == toIndex) return this
+    return toMutableList().apply { add(toIndex, removeAt(fromIndex)) }
+}
+
 fun List<RoutineStep>.withRoutineRouteWaypoints(
     waypoints: Iterator<Waypoint>,
     league: League,

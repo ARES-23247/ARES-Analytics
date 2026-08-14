@@ -18,6 +18,7 @@ import com.ares.analytics.viewmodel.routine.defaultRoutineStep
 import com.ares.analytics.viewmodel.routine.lastRoutineDriveTarget
 import com.ares.analytics.viewmodel.routine.moveStepById
 import com.ares.analytics.viewmodel.routine.removeStepById
+import com.ares.analytics.viewmodel.routine.reorderStep
 import com.ares.analytics.viewmodel.routine.routineEditorValidation
 import com.ares.analytics.viewmodel.routine.updateStepById
 import com.ares.analytics.viewmodel.routine.withRoutineRouteWaypoints
@@ -137,6 +138,7 @@ sealed class PathPlannerIntent {
     data class UpdateRoutineStep(val stepId: String, val step: RoutineStep) : PathPlannerIntent()
     data class RemoveRoutineStep(val stepId: String) : PathPlannerIntent()
     data class MoveRoutineStep(val stepId: String, val direction: Int) : PathPlannerIntent()
+    data class ReorderRoutineStep(val fromIndex: Int, val toIndex: Int) : PathPlannerIntent()
     data class AddRoutineChild(val parentStepId: String, val toElseBranch: Boolean, val kind: RoutineStepKind) : PathPlannerIntent()
     data class UpdateRoutineChild(
         val childStepId: String,
@@ -357,6 +359,12 @@ class PathPlannerViewModel(
                 is PathPlannerIntent.MoveRoutineStep -> {
                     updateRoutine { routine ->
                         routine.copy(steps = routine.steps.moveStepById(intent.stepId, intent.direction))
+                    }
+                    recalculateRoutinePreview()
+                }
+                is PathPlannerIntent.ReorderRoutineStep -> {
+                    updateRoutine { routine ->
+                        routine.copy(steps = routine.steps.reorderStep(intent.fromIndex, intent.toIndex))
                     }
                     recalculateRoutinePreview()
                 }
