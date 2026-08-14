@@ -391,7 +391,7 @@ class ProjectDocumentRepositoriesTest {
     private fun controlScheme() = ControlSchemeDocument(
         documentId = "competition",
         name = "Competition controls",
-        controllers = listOf(ControllerAssignment("driver", "Driver", "vader5-pro")),
+        controllers = listOf(ControllerAssignment("driver", "Driver", "vader5-pro", devicePort = 0)),
         bindings = listOf(
             ControlBindingDocument(
                 bindingId = "run-intake",

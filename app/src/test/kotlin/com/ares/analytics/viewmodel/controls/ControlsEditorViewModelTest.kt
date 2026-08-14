@@ -115,6 +115,8 @@ class ControlsEditorViewModelTest {
         assertEquals(0, mappings.single { it.platform == ControllerInputPlatform.FTC }.buttonIndex)
         assertEquals(0, mappings.single { it.platform == ControllerInputPlatform.DESKTOP_GLFW }.buttonIndex)
         assertEquals(0, mappings.single { it.platform == ControllerInputPlatform.FRC }.buttonIndex)
+        assertEquals(0, savedScheme.controllers.single { it.slot == "driver" }.devicePort)
+        assertEquals(1, savedScheme.controllers.single { it.slot == "operator" }.devicePort)
         assertFalse(viewModel.state.value.dirty)
     }
 
@@ -207,7 +209,7 @@ class ControlsEditorViewModelTest {
                 ControlSchemeDocument(
                     documentId = id,
                     name = id.replaceFirstChar(Char::uppercase),
-                    controllers = listOf(ControllerAssignment("driver", "Driver", profile.documentId)),
+                    controllers = listOf(ControllerAssignment("driver", "Driver", profile.documentId, devicePort = 0)),
                     bindings = emptyList()
                 )
             )

@@ -796,8 +796,8 @@ class ControlsEditorViewModel(
             documentId = "competition-controls",
             name = "Competition controls",
             controllers = listOf(
-                ControllerAssignment("driver", "Driver", profileId),
-                ControllerAssignment("operator", "Operator", profileId)
+                ControllerAssignment("driver", "Driver", profileId, devicePort = 0),
+                ControllerAssignment("operator", "Operator", profileId, devicePort = 1)
             ),
             bindings = emptyList()
         )
