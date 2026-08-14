@@ -18,6 +18,9 @@ import com.areslib.subsystem.SubsystemHomingMethod
 import com.areslib.subsystem.SubsystemMeasurementSource
 import com.areslib.subsystem.SubsystemMeasurementDocument
 import com.areslib.subsystem.SubsystemTemplate
+import com.areslib.subsystem.SubsystemFeedforwardDocument
+import com.areslib.subsystem.SubsystemFeedforwardKind
+import com.areslib.subsystem.SubsystemHomingComparison
 import com.areslib.subsystem.SubsystemSafetyDocument
 import com.areslib.subsystem.SubsystemPlatform
 import com.areslib.subsystem.SubsystemStateFieldDocument
@@ -411,6 +414,98 @@ class SubsystemGeneratorViewModelTest {
         assertTrue(viewModel.state.value.canUndo)
         viewModel.undo()
         assertEquals(before, viewModel.state.value.draft!!.document)
+        viewModel.close()
+    }
+
+    @Test
+    fun `toggling PID feedforward and limit switch options updates draft configuration and code preview`() {
+        val root = Files.createTempDirectory("ares-subsystem-toggles").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+
+        val loopId = viewModel.state.value.draft!!.document.controlLoops.first().loopId
+
+        // 1. Verify and toggle PID options
+        viewModel.updateControlLoop(loopId) { loop ->
+            loop.copy(kP = 2.5, kI = 0.05, kD = 0.15)
+        }
+
+        var draft = viewModel.state.value.draft!!.document
+        var loop = draft.controlLoops.first { it.loopId == loopId }
+        assertEquals(2.5, loop.kP)
+        assertEquals(0.05, loop.kI)
+        assertEquals(0.15, loop.kD)
+
+        var controllerPreview = viewModel.state.value.previewFiles.first { it.path.endsWith("Controller.kt") }.content
+        var definitionPreview = viewModel.state.value.previewFiles.first { it.path.endsWith("Definition.kt") }.content
+        assertTrue(controllerPreview.contains("2.5 * ${loopId}Error"))
+        assertTrue(controllerPreview.contains("0.05 * ${loopId}CandidateIntegral"))
+        assertTrue(controllerPreview.contains("0.15 * ${loopId}Derivative"))
+        assertTrue(definitionPreview.contains("kP = 2.5"))
+        assertTrue(definitionPreview.contains("kI = 0.05"))
+        assertTrue(definitionPreview.contains("kD = 0.15"))
+
+        // 2. Toggle feedforward options (enable Elevator feedforward, then disable back to NONE)
+        viewModel.updateControlLoop(loopId) { l ->
+            l.copy(
+                feedforward = SubsystemFeedforwardDocument(
+                    kind = SubsystemFeedforwardKind.ELEVATOR,
+                    kS = 0.25,
+                    kV = 1.4,
+                    kA = 0.08,
+                    kG = 0.75,
+                )
+            )
+        }
+
+        draft = viewModel.state.value.draft!!.document
+        loop = draft.controlLoops.first { it.loopId == loopId }
+        assertEquals(SubsystemFeedforwardKind.ELEVATOR, loop.feedforward.kind)
+        assertEquals(0.25, loop.feedforward.kS)
+        assertEquals(1.4, loop.feedforward.kV)
+        assertEquals(0.08, loop.feedforward.kA)
+        assertEquals(0.75, loop.feedforward.kG)
+
+        controllerPreview = viewModel.state.value.previewFiles.first { it.path.endsWith("Controller.kt") }.content
+        definitionPreview = viewModel.state.value.previewFiles.first { it.path.endsWith("Definition.kt") }.content
+        assertTrue(controllerPreview.contains("0.75"))
+        assertTrue(controllerPreview.contains("1.4 * ${loopId}DesiredVelocity"))
+        assertTrue(definitionPreview.contains("SubsystemFeedforwardKind.ELEVATOR"))
+        assertTrue(definitionPreview.contains("feedforward.kG = 0.75"))
+
+        // Toggle feedforward back to NONE
+        viewModel.updateControlLoop(loopId) { l ->
+            l.copy(feedforward = SubsystemFeedforwardDocument(kind = SubsystemFeedforwardKind.NONE))
+        }
+        draft = viewModel.state.value.draft!!.document
+        loop = draft.controlLoops.first { it.loopId == loopId }
+        assertEquals(SubsystemFeedforwardKind.NONE, loop.feedforward.kind)
+        controllerPreview = viewModel.state.value.previewFiles.first { it.path.endsWith("Controller.kt") }.content
+        assertTrue(controllerPreview.contains("val ${loopId}Feedforward = 0.0"))
+
+        // 3. Toggle limit switch and homing options
+        viewModel.addHardware(SubsystemHardwareKind.DIGITAL_INPUT)
+        val digitalSensor = viewModel.state.value.draft!!.document.hardware.first { it.kind == SubsystemHardwareKind.DIGITAL_INPUT }
+
+        viewModel.setHomingMethod(SubsystemHomingMethod.DIGITAL_SENSOR)
+
+        draft = viewModel.state.value.draft!!.document
+        assertTrue(draft.hardware.any { it.kind == SubsystemHardwareKind.DIGITAL_INPUT })
+        assertEquals(SubsystemHomingMethod.DIGITAL_SENSOR, draft.safety.homing.method)
+        assertTrue(draft.safety.homing.evidence.any { it.fieldId == digitalSensor.measurements.single().fieldId && it.comparison == SubsystemHomingComparison.TRUE })
+
+        val ioPreview = viewModel.state.value.previewFiles.first { it.path.endsWith("FtcNewSubsystemIO.kt") }.content
+        definitionPreview = viewModel.state.value.previewFiles.first { it.path.endsWith("Definition.kt") }.content
+        assertTrue(ioPreview.contains("DigitalChannel"))
+        assertTrue(definitionPreview.contains("safety.homing.digitalSensor"))
+
+        // Toggle homing back to NONE
+        viewModel.setHomingMethod(SubsystemHomingMethod.NONE)
+        draft = viewModel.state.value.draft!!.document
+        assertEquals(SubsystemHomingMethod.NONE, draft.safety.homing.method)
+        assertTrue(draft.safety.homing.evidence.isEmpty())
+        definitionPreview = viewModel.state.value.previewFiles.first { it.path.endsWith("Definition.kt") }.content
+        assertFalse(definitionPreview.contains("safety.homing.digitalSensor"))
+
         viewModel.close()
     }
 
