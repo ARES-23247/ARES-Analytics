@@ -416,6 +416,42 @@ class ProjectDocumentRepositoriesTest {
         )
     )
 
+    @Test
+    fun `autonomous catalog multi-entry round trips accurately with distinct starting poses`() {
+        withProject { project ->
+            val routines = RoutineProjectRepository()
+            routines.save(project.path, routine("score_red", "Score Red", 1.0))
+            routines.save(project.path, routine("score_blue", "Score Blue", 1.0))
+
+            val repository = AutonomousCatalogProjectRepository(routines)
+            val document = AutonomousCatalogDocument(
+                projectId = "multi-test",
+                defaultEntryId = "score-red",
+                entries = listOf(
+                    AutonomousCatalogEntry(
+                        entryId = "score-red",
+                        displayName = "Score red",
+                        routineId = "score_red",
+                        startingPose = RoutinePose(1.2, 0.8, 0.0)
+                    ),
+                    AutonomousCatalogEntry(
+                        entryId = "score-blue",
+                        displayName = "Score blue",
+                        routineId = "score_blue",
+                        startingPose = RoutinePose(-1.2, 0.8, 3.14159)
+                    )
+                )
+            )
+            val saved = repository.save(project.path, document)
+            val loaded = repository.load(project.path).getOrThrow()
+
+            assertEquals(listOf("score-blue", "score-red"), loaded.entries.map { it.entryId })
+            assertEquals(document.defaultEntryId, loaded.defaultEntryId)
+            assertEquals(document.projectId, loaded.projectId)
+            assertEquals(2, loaded.entries.size)
+        }
+    }
+
     private fun metadata(robotLengthMeters: Double) = AresProjectMetadataDocument(
         projectId = "test-project",
         league = AresLeague.FTC,
