@@ -166,4 +166,24 @@ class DriverAnalysisServiceTest {
         tempFile.delete()
         tempDb.delete()
     }
+
+    @Test
+    fun testAnalyzeDriverCoachingOnEmptySessionReturnsInsufficientData() = runTest {
+        val tempDb = File.createTempFile("driver_empty_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val tempFile = File.createTempFile("driver_profiles", ".json").apply { delete() }
+        val service = DriverAnalysisService(databaseService, sysIdService, tempFile.absolutePath)
+
+        val report = service.analyzeDriverCoaching("non-existent-session")
+        assertEquals(0, report.synchronizedSampleCount)
+        assertEquals(0, report.sourceSampleCount)
+        assertEquals(0.0, report.coverageFraction)
+        assertEquals(DriverReviewConfidence.INSUFFICIENT, report.confidence)
+        assertTrue(report.observations.isNotEmpty())
+
+        databaseService.close()
+        tempFile.delete()
+        tempDb.delete()
+    }
 }
