@@ -375,6 +375,7 @@ fun MainScreen(services: ServiceRegistry) {
     val adbConnected by services.processManagerService.adbConnected.collectAsState()
     val isSimRunning by services.processManagerService.isSimRunning.collectAsState()
     val isBuildRunning by services.processManagerService.isBuildRunning.collectAsState()
+    val buildExecutionState by services.processManagerService.buildExecutionState.collectAsState()
     var targetSelection by remember { mutableStateOf(TargetSelection.LIVE_ROBOT) }
     var liveRobotIp by remember(currentConfig.nt4Host) {
         mutableStateOf(currentConfig.nt4Host ?: "192.168.43.1")
@@ -393,10 +394,10 @@ fun MainScreen(services: ServiceRegistry) {
         robotStudioViewModel.load(currentConfig)
         guidedRunAnalysisViewModel.load(currentConfig)
     }
-    LaunchedEffect(isBuildRunning, isSimRunning, isLocalSimOnline, isNt4Connected) {
+    LaunchedEffect(buildExecutionState, isSimRunning, isLocalSimOnline, isNt4Connected) {
         robotStudioViewModel.updateRuntime(
             RobotStudioRuntimeEvidence(
-                buildRunning = isBuildRunning,
+                build = buildExecutionState,
                 simulatorRunning = isSimRunning,
                 localSimulatorOnline = isLocalSimOnline,
                 nt4Connected = isNt4Connected,

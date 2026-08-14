@@ -1,6 +1,9 @@
 package com.ares.analytics.viewmodel.robotstudio
 
+import com.ares.analytics.service.BuildExecutionPhase
+import com.ares.analytics.service.BuildExecutionState
 import com.ares.analytics.service.RobotProjectReadinessEvidence
+import java.io.File
 
 enum class RobotStudioStageId {
     WORKSPACE,
@@ -54,7 +57,7 @@ data class RobotStudioStage(
 )
 
 data class RobotStudioRuntimeEvidence(
-    val buildRunning: Boolean = false,
+    val build: BuildExecutionState = BuildExecutionState(),
     val simulatorRunning: Boolean = false,
     val localSimulatorOnline: Boolean = false,
     val nt4Connected: Boolean = false,
@@ -169,11 +172,24 @@ internal fun evaluateRobotStudioStages(
         tuningStatus,
     ).all { it == RobotStudioStageStatus.READY || it == RobotStudioStageStatus.OPTIONAL }
     val authoredStagesReady = requiredStagesReady && optionalStagesSafe
+    val selectedBuild = runtime.build.takeIf { build ->
+        build.league == evidence.league && sameProjectPath(build.projectPath, evidence.projectPath)
+    }
     val buildStatus = when {
-        runtime.buildRunning -> RobotStudioStageStatus.RUNNING
+        selectedBuild?.phase == BuildExecutionPhase.RUNNING -> RobotStudioStageStatus.RUNNING
         !authoredStagesReady -> RobotStudioStageStatus.BLOCKED
-        evidence.generatedProjectSourcePresent -> RobotStudioStageStatus.NEEDS_ACTION
+        selectedBuild?.phase == BuildExecutionPhase.SUCCEEDED -> RobotStudioStageStatus.READY
+        selectedBuild?.phase == BuildExecutionPhase.FAILED -> RobotStudioStageStatus.INVALID
         else -> RobotStudioStageStatus.NEEDS_ACTION
+    }
+    val buildExplanation = when {
+        selectedBuild?.phase == BuildExecutionPhase.RUNNING -> selectedBuild.message
+        !authoredStagesReady -> "Resolve the blocked or invalid authoring stages before running project verification."
+        selectedBuild?.phase == BuildExecutionPhase.SUCCEEDED -> selectedBuild.message
+        selectedBuild?.phase == BuildExecutionPhase.FAILED -> selectedBuild.message
+        selectedBuild?.phase == BuildExecutionPhase.CANCELED -> selectedBuild.message
+        evidence.generatedProjectSourcePresent -> "Generated project source exists, but it is not proof of a current verified build. This app session has not run the tests and packaging yet."
+        else -> "Run project verification after the canonical documents and generated source are ready."
     }
     val simulationStatus = when {
         runtime.simulatorRunning || (runtime.localSimulatorOnline && runtime.nt4Connected) -> RobotStudioStageStatus.RUNNING
@@ -301,15 +317,20 @@ internal fun evaluateRobotStudioStages(
         ),
         stage(
             RobotStudioStageId.GENERATE_VERIFY,
-            "Generate & verify",
-            "Preview generated changes, preserve user-owned code, then compile and run contract tests.",
+            "Verify & build",
+            "Check generated ownership, run project tests, and build a package without deploying to hardware.",
             buildStatus,
-            if (runtime.buildRunning) "A project build is running. Read the terminal result before continuing." else "Run Generate & build. Existing generated source is not proof that it matches today’s documents.",
-            emptyList(),
-            "Editable starters in source; mechanical plumbing under build/generated",
-            "Gradle code generation, verification, unit tests, and packaging",
+            buildExplanation,
+            if (selectedBuild?.phase == BuildExecutionPhase.FAILED) listOf(selectedBuild.message) else emptyList(),
+            "Canonical source remains unchanged; disposable plumbing and build products stay under build/generated and build outputs",
+            "Gradle ownership verification, generated contract tests, project unit tests, simulator tests, and packaging",
             RobotStudioAction.RUN_BUILD,
-            if (runtime.buildRunning) "Build running" else "Generate & build",
+            when (selectedBuild?.phase) {
+                BuildExecutionPhase.RUNNING -> "Verification running"
+                BuildExecutionPhase.SUCCEEDED -> "Verify again"
+                BuildExecutionPhase.FAILED, BuildExecutionPhase.CANCELED -> "Retry verification"
+                else -> "Verify & build"
+            },
         ),
         stage(
             RobotStudioStageId.SIMULATE,
@@ -336,4 +357,10 @@ internal fun evaluateRobotStudioStages(
             if (evidence.importedRunCount > 0) "Review run evidence" else "Import a run",
         ),
     )
+}
+
+private fun sameProjectPath(first: String, second: String): Boolean {
+    if (first.isBlank() || second.isBlank()) return false
+    fun normalized(path: String): String = File(path).absoluteFile.normalize().path.replace('\\', '/')
+    return normalized(first).equals(normalized(second), ignoreCase = File.separatorChar == '\\')
 }

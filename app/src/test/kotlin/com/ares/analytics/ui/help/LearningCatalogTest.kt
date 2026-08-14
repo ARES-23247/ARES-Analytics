@@ -70,4 +70,13 @@ class LearningCatalogTest {
             assertTrue(LearningCatalog.lessons.any { it.lab == lab && it.action == LearningAction.OPEN_LAB })
         }
     }
+
+    @Test
+    fun `robot studio lesson teaches compile only build evidence`() {
+        val lesson = LearningCatalog.lesson("robot-studio-tour") ?: error("Missing Robot Studio lesson")
+
+        assertTrue(lesson.steps.any { it.contains("Verify & build") && it.contains("no deployment") })
+        assertTrue(lesson.successLooksLike.contains("compile-only"))
+        assertTrue(lesson.safetyNote.orEmpty().contains("never installs or deploys"))
+    }
 }

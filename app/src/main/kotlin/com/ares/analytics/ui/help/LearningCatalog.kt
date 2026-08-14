@@ -314,10 +314,11 @@ object LearningCatalog {
                 "Find the first stage labeled Needs action, Blocked, Invalid, or Code required.",
                 "Open its specialized builder and identify the canonical file it owns.",
                 "Return to Robot Studio, refresh, and explain what evidence changed.",
+                "Run Verify & build, read the project-matched result, and confirm that no deployment occurred.",
                 "Name what a successful build or simulator run still cannot prove about physical hardware.",
             ),
-            successLooksLike = "You can explain the stage labels, storage destination, runtime consumer, and physical-validation boundary for one robot project.",
-            safetyNote = "Robot Studio does not enable hardware. A green build or simulator result is not permission to run a physical mechanism.",
+            successLooksLike = "You can explain the stage labels, storage destination, runtime consumer, compile-only build result, and physical-validation boundary for one robot project.",
+            safetyNote = "Verify & build never installs or deploys code. A green build or simulator result is not permission to run a physical mechanism.",
             keywords = setOf("robot studio", "workflow", "project", "readiness", "build robot", "no code"),
             prerequisiteLessonIds = setOf("read-connection-state"),
             checkpoints = listOf(

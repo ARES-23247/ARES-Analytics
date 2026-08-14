@@ -76,12 +76,17 @@ fun ExecutionToolbar(
                     color = AresTextPrimary
                 )
 
-                // Status Dot
+                // Status uses text and shape; color is supplemental.
                 val isOnline = if (targetSelection == TargetSelection.LIVE_ROBOT) isLiveRobotOnline else isLocalSimOnline
                 Box(
                     modifier = Modifier
                         .size(8.dp)
                         .background(if (isOnline) AresGreen else AresTextSecondary.copy(alpha = 0.5f), androidx.compose.foundation.shape.CircleShape)
+                )
+                Text(
+                    if (isOnline) "Online" else "Offline",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
                 )
 
                 Icon(
@@ -116,6 +121,8 @@ fun ExecutionToolbar(
                                         .size(8.dp)
                                         .background(if (isTargetOnline) AresGreen else AresTextSecondary.copy(alpha = 0.5f), androidx.compose.foundation.shape.CircleShape)
                                 )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Text(if (isTargetOnline) "Online" else "Offline", color = AresTextSecondary, fontSize = 11.sp)
                             }
                         },
                         onClick = {
@@ -131,31 +138,35 @@ fun ExecutionToolbar(
         VerticalDivider(modifier = Modifier.height(24.dp), color = AresBorder)
         Spacer(modifier = Modifier.width(4.dp))
 
-        // Build & Deploy Button
+        // Compile-only project verification. Physical deployment is always a separate workflow.
         TooltipBox(
             positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-            tooltip = { PlainTooltip { Text("Build & Deploy (Ctrl+B)") } },
+            tooltip = { PlainTooltip { Text("Verify generated ownership, run tests, and build a package. Nothing is deployed. (Ctrl+B)") } },
             state = rememberTooltipState()
         ) {
-            IconButton(
+            Button(
                 onClick = onRunBuild,
                 enabled = !isBuildRunning,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.height(32.dp),
+                shape = RoundedCornerShape(6.dp),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
             ) {
                 if (isBuildRunning) {
                     CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        color = AresCyan,
+                        modifier = Modifier.size(15.dp),
+                        color = AresOnAccent,
                         strokeWidth = 2.dp
                     )
                 } else {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
-                        contentDescription = "Build & Deploy",
-                        tint = AresGreen,
-                        modifier = Modifier.size(20.dp)
+                        contentDescription = null,
+                        modifier = Modifier.size(17.dp)
                     )
                 }
+                Spacer(Modifier.width(5.dp))
+                Text(if (isBuildRunning) "Verifying" else "Verify & build", fontWeight = FontWeight.Bold, fontSize = 11.sp)
             }
         }
 
@@ -241,7 +252,7 @@ fun ExecutionToolbar(
         val isAnyRunning = isBuildRunning || isSimRunning
         TooltipBox(
             positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-            tooltip = { PlainTooltip { Text("Kill Active Process (Ctrl+Shift+K)") } },
+            tooltip = { PlainTooltip { Text("Stop the Analytics-managed build or simulator (Ctrl+Shift+K)") } },
             state = rememberTooltipState()
         ) {
             IconButton(

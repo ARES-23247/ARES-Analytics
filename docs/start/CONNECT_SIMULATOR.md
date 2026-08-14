@@ -61,7 +61,7 @@ Work from the top of this table; do not repeatedly launch more simulator process
 ## Safety
 
 - **Local Sim** is the safe default. Keep **Live Robot** unselected during this exercise.
-- Do not use **Build & Deploy**; launching a simulator does not require deploying to a Control Hub or RoboRIO.
+- **Verify & build** compiles and tests the selected project without deploying it. You do not need to run it merely to launch a simulator.
 - Keyboard/driver controls may command the simulated model. Use them only when the instructor has explained the deadman/enable behavior.
 - A green simulator dot does not prove a nearby robot is disabled. Continue to follow the team's physical robot rules.
 

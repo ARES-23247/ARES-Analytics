@@ -93,7 +93,7 @@ The sidebar shows labeled **NT4 on/off** and, for FTC, **ADB on/off** status. Th
 ## Safety and recovery
 
 - First launch only saves a desktop workspace profile. It does not deploy code or enable a robot.
-- **Build & Deploy** is a separate toolbar action. Do not select it during setup unless a mentor has reviewed the target and code.
+- **Verify & build** is a separate, compile-only toolbar action. It runs verification, tests, and packaging for the selected project; it never installs code on a robot.
 - Do not paste secrets into screenshots or team chat. Normal Google sign-in never asks a student
   for a client secret; custom OAuth and broker configuration belong to an administrator.
 - If you made a profile for the wrong folder, create or select the correct workspace rather than moving project folders while Analytics is running.

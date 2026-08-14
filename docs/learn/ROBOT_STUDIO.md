@@ -16,7 +16,7 @@ Every stage includes a text label and icon. Color is supplemental.
 | **Code required** | The descriptor is understandable, but this season project has no matching no-code runtime adapter. |
 | **Running now** | Analytics observes its managed build or simulator process running. This is not a success result. |
 
-Robot Studio never marks a build ready merely because an old generated file exists. Run **Generate & build** and read the terminal result. A successful build or simulator run still is not physical-robot validation.
+Robot Studio never marks a build ready merely because an old generated file exists. Run **Verify & build** and read the correlated result. The action verifies generated ownership, runs project and simulator tests, and creates the normal FTC/FRC package. It never connects to ADB, installs an APK, deploys to a RoboRIO, or starts a robot. A successful build or simulator run still is not physical-robot validation.
 
 ## Follow the workflow
 
@@ -29,7 +29,7 @@ Robot Studio never marks a build ready merely because an old generated file exis
 7. **Driver & operator controls** — create controller profiles and conflict-free bindings.
 8. **Autonomous routines** — optional while learning TeleOp; start with a short simulator-first routine.
 9. **Tuning & calibration** — keep structural identity separate from reviewed canonical values and local experiments.
-10. **Generate & verify** — preview generated work, preserve USER-OWNED source, build, and read the result.
+10. **Verify & build** — preview generated work in its owning builder, preserve USER-OWNED source, then run verification, tests, and packaging without deployment.
 11. **Simulate** — run the actual robot project against desktop adapters and identify the telemetry source.
 12. **Import & analyze** — preserve a simulator or robot run before making claims about behavior.
 
@@ -56,7 +56,15 @@ Read the stage issue before editing files manually:
 - **Code required:** use a supported no-code drivebase for this season project, or ask a mentor/developer to implement and verify the missing runtime adapter.
 - **Invalid catalog or binding:** open the linked builder and fix the referenced stable ID or conflict.
 - **Missing controls:** create both a controller profile and a control scheme before building a driveable robot.
-- **Build failure:** keep the terminal output visible; the generated file already on disk is not proof of freshness.
+- **Build failure:** keep the terminal output visible, fix the first reported error, and retry. The generated file already on disk is not proof of freshness.
+- **Canceled build:** no pass/fail result exists. Retry after confirming no other managed build is running.
+- **Result from another workspace:** Robot Studio ignores it. Build evidence is matched to the selected project and league.
+
+## Build is not deploy
+
+The student-facing Build action is deliberately compile-only. For FTC it runs project generation verification, TeamCode unit tests, simulator tests, and debug APK assembly. For FRC it runs project generation verification, tests, and the normal build. Neither path performs physical deployment.
+
+Installing an FTC APK or deploying FRC code is a separate supervised team operation outside this button. Preserve that boundary when adding future deployment UI: name the target, show the physical side effect, require explicit confirmation, and never infer deployment permission from a green build.
 
 Use [Robot Academy](ROBOT_ACADEMY.md) when a concept is unfamiliar. Use [Drivebase Builder](../DRIVEBASE_BUILDER.md), [Subsystem Builder](../SUBSYSTEM_BUILDER.md), and [Routines and controls](../ROUTINES_AND_CONTROLS.md) for deeper task instructions.
 
