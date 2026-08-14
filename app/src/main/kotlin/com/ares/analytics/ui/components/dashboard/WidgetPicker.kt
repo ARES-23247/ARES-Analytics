@@ -99,6 +99,7 @@ val availableWidgetsList = listOf(
     AvailableWidget("ekf_telemetry", "EKF Diagnostics", "Estimator drift, innovation, and covariance.", Icons.Default.QueryStats, WidgetCategory.DIAGNOSTICS),
     AvailableWidget("control_profiler", "Control Loop Profiler", "Target-versus-actual mechanism error and timing.", Icons.Default.Speed, WidgetCategory.DIAGNOSTICS),
     AvailableWidget("profiling_diagnostics", "Profiling Diagnostics", "Maximum and average loop/subsystem timings.", Icons.Default.HourglassEmpty, WidgetCategory.DIAGNOSTICS),
+    AvailableWidget("hardware_topology", "Hardware Topology", "Interactive CAN and REV hardware map tree with live telemetry.", Icons.Default.Hub, WidgetCategory.DIAGNOSTICS, true),
     AvailableWidget("state_tracker", "Subsystem State Tracker", "Current subsystem state-machine states.", Icons.Default.AccountTree, WidgetCategory.DIAGNOSTICS),
 
     AvailableWidget("runs_index", "Recorded Sessions", "Practice runs, match logs, comparisons, and tags.", Icons.Default.History, WidgetCategory.REPLAY, true),

@@ -135,6 +135,9 @@ fun main() {
             get("/health") {
                 call.respondText("ok")
             }
+            get("/healthz") {
+                call.respondText("ok")
+            }
             googleOAuthBrokerRoutes(googleOAuthBroker)
             diagnosticsRoutes()
         }
