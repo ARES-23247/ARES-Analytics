@@ -245,7 +245,25 @@ class RobotStudioModelTest {
         assertEquals("Verify again", succeeded.actionLabel)
         assertEquals(RobotStudioAction.RUN_BUILD, succeeded.action)
         assertTrue(succeeded.issues.isEmpty())
-        assertTrue(succeeded.explanation.contains("Nothing was deployed"))
+    }
+
+    @Test
+    fun `1-click wireless deploy stage transitions through connecting building and installing`() {
+        val ready = evaluateRobotStudioStages(completeEvidence(), RobotStudioRuntimeEvidence())
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, ready.status(RobotStudioStageId.DEPLOY))
+        assertEquals(RobotStudioAction.DEPLOY_ROBOT, ready.first { it.id == RobotStudioStageId.DEPLOY }.action)
+
+        val connecting = evaluateRobotStudioStages(
+            completeEvidence(),
+            RobotStudioRuntimeEvidence(deploy = com.ares.analytics.service.DeployExecutionState(phase = com.ares.analytics.service.DeployExecutionPhase.CONNECTING)),
+        )
+        assertEquals(RobotStudioStageStatus.RUNNING, connecting.status(RobotStudioStageId.DEPLOY))
+
+        val succeeded = evaluateRobotStudioStages(
+            completeEvidence(),
+            RobotStudioRuntimeEvidence(deploy = com.ares.analytics.service.DeployExecutionState(phase = com.ares.analytics.service.DeployExecutionPhase.SUCCEEDED)),
+        )
+        assertEquals(RobotStudioStageStatus.READY, succeeded.status(RobotStudioStageId.DEPLOY))
     }
 
     private fun completeEvidence() = RobotProjectReadinessEvidence(

@@ -44,6 +44,25 @@ data class BuildExecutionState(
     val requestId: Long = 0L,
 )
 
+enum class DeployExecutionPhase {
+    IDLE,
+    CONNECTING,
+    BUILDING,
+    INSTALLING,
+    SUCCEEDED,
+    FAILED,
+    CANCELED,
+}
+
+data class DeployExecutionState(
+    val phase: DeployExecutionPhase = DeployExecutionPhase.IDLE,
+    val projectPath: String = "",
+    val league: League = League.FTC,
+    val message: String = "Ready to deploy to robot.",
+    val progressPercent: Float = 0f,
+    val requestId: Long = 0L,
+)
+
 /** Small testable boundary used by offline authoring screens. */
 interface AresProjectGenerator {
     val aresGenerationState: StateFlow<AresGenerationState>
@@ -124,6 +143,9 @@ class ProcessManagerService internal constructor(
 
     private val _adbConnected = MutableStateFlow(false)
     val adbConnected: StateFlow<Boolean> = _adbConnected.asStateFlow()
+
+    private val _deployState = MutableStateFlow(DeployExecutionState())
+    val deployState: StateFlow<DeployExecutionState> = _deployState.asStateFlow()
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -604,6 +626,179 @@ class ProcessManagerService internal constructor(
         synchronized(buildStateLock) {
             if (activeBuildGeneration == generation && activeBuildKind == BuildOperationKind.BUILD) {
                 _buildExecutionState.value = state
+            }
+        }
+    }
+
+    private fun updateDeployStateIfOwner(generation: Long, state: DeployExecutionState) {
+        synchronized(buildStateLock) {
+            if (activeBuildGeneration == generation) {
+                _deployState.value = state
+            }
+        }
+    }
+
+    fun deployToRobot(projectPath: String, league: League) {
+        val root = requireSafeProjectRoot(projectPath)
+        val isWindows = System.getProperty("os.name").contains("win", true)
+        enqueueBuildOperation(BuildOperationKind.BUILD) { generation ->
+            updateDeployStateIfOwner(
+                generation,
+                DeployExecutionState(
+                    phase = DeployExecutionPhase.CONNECTING,
+                    projectPath = root.path,
+                    league = league,
+                    message = if (league == League.FTC) "Connecting to Control Hub at 192.168.43.1:5555..." else "Preparing RoboRIO deploy...",
+                    progressPercent = 0.1f,
+                    requestId = generation,
+                ),
+            )
+            try {
+                if (league == League.FTC) {
+                    val adb = resolveAdbPath()
+                    _buildOutput.emit("[DEPLOY] Connecting wireless ADB (192.168.43.1:5555)...")
+                    runOwnedBuildProcess(
+                        generation,
+                        ProcessBuilder(adb, "connect", "192.168.43.1:5555").directory(root).redirectErrorStream(true),
+                    ) { line -> _buildOutput.emit("[ADB] $line") }
+
+                    updateDeployStateIfOwner(
+                        generation,
+                        DeployExecutionState(
+                            phase = DeployExecutionPhase.BUILDING,
+                            projectPath = root.path,
+                            league = league,
+                            message = "Compiling FTC Android APK (:TeamCode:assembleDebug)...",
+                            progressPercent = 0.4f,
+                            requestId = generation,
+                        ),
+                    )
+
+                    val buildCommand = withAresRepository(buildList {
+                        if (isWindows) {
+                            add("cmd.exe")
+                            add("/c")
+                            add("gradlew.bat")
+                        } else {
+                            add("./gradlew")
+                        }
+                        add(":TeamCode:assembleDebug")
+                        add("--no-parallel")
+                        add("--console=plain")
+                    })
+
+                    val buildExit = runOwnedBuildProcess(
+                        generation,
+                        withAresRepositoryEnvironment(ProcessBuilder(buildCommand).directory(root).redirectErrorStream(true)),
+                    ) { line -> _buildOutput.emit(line) }
+
+                    check(buildExit == 0) { "FTC compilation failed with exit code $buildExit" }
+
+                    updateDeployStateIfOwner(
+                        generation,
+                        DeployExecutionState(
+                            phase = DeployExecutionPhase.INSTALLING,
+                            projectPath = root.path,
+                            league = league,
+                            message = "Installing APK on robot via ADB...",
+                            progressPercent = 0.8f,
+                            requestId = generation,
+                        ),
+                    )
+
+                    val apkFile = File(root, "TeamCode/build/outputs/apk/debug/TeamCode-debug.apk")
+                    val apkTarget = if (apkFile.exists()) apkFile.absolutePath else "TeamCode/build/outputs/apk/debug/TeamCode-debug.apk"
+
+                    val installExit = runOwnedBuildProcess(
+                        generation,
+                        ProcessBuilder(adb, "install", "-r", "-d", apkTarget).directory(root).redirectErrorStream(true),
+                    ) { line -> _buildOutput.emit("[INSTALL] $line") }
+
+                    check(installExit == 0) { "APK installation failed with exit code $installExit" }
+
+                    updateDeployStateIfOwner(
+                        generation,
+                        DeployExecutionState(
+                            phase = DeployExecutionPhase.SUCCEEDED,
+                            projectPath = root.path,
+                            league = league,
+                            message = "Deployment successful! Robot code installed and ready.",
+                            progressPercent = 1.0f,
+                            requestId = generation,
+                        ),
+                    )
+                    _buildOutput.emit("[DEPLOY] SUCCESS: Robot code deployed and active.")
+                } else {
+                    updateDeployStateIfOwner(
+                        generation,
+                        DeployExecutionState(
+                            phase = DeployExecutionPhase.BUILDING,
+                            projectPath = root.path,
+                            league = league,
+                            message = "Deploying to RoboRIO (./gradlew deploy)...",
+                            progressPercent = 0.5f,
+                            requestId = generation,
+                        ),
+                    )
+
+                    val deployCommand = withAresRepository(buildList {
+                        if (isWindows) {
+                            add("cmd.exe")
+                            add("/c")
+                            add("gradlew.bat")
+                        } else {
+                            add("./gradlew")
+                        }
+                        add("deploy")
+                        add("--no-parallel")
+                        add("--console=plain")
+                    })
+
+                    val deployExit = runOwnedBuildProcess(
+                        generation,
+                        withAresRepositoryEnvironment(ProcessBuilder(deployCommand).directory(root).redirectErrorStream(true)),
+                    ) { line -> _buildOutput.emit(line) }
+
+                    check(deployExit == 0) { "FRC deploy failed with exit code $deployExit" }
+
+                    updateDeployStateIfOwner(
+                        generation,
+                        DeployExecutionState(
+                            phase = DeployExecutionPhase.SUCCEEDED,
+                            projectPath = root.path,
+                            league = league,
+                            message = "FRC deploy to RoboRIO succeeded!",
+                            progressPercent = 1.0f,
+                            requestId = generation,
+                        ),
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                updateDeployStateIfOwner(
+                    generation,
+                    DeployExecutionState(
+                        phase = DeployExecutionPhase.CANCELED,
+                        projectPath = root.path,
+                        league = league,
+                        message = "Deploy operation was canceled.",
+                        progressPercent = 0f,
+                        requestId = generation,
+                    ),
+                )
+                throw cancelled
+            } catch (error: Exception) {
+                updateDeployStateIfOwner(
+                    generation,
+                    DeployExecutionState(
+                        phase = DeployExecutionPhase.FAILED,
+                        projectPath = root.path,
+                        league = league,
+                        message = "Deployment failed: ${error.message ?: "unknown error"}",
+                        progressPercent = 0f,
+                        requestId = generation,
+                    ),
+                )
+                _buildOutput.emit("[DEPLOY] FAILED: ${error.message}")
             }
         }
     }

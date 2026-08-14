@@ -2,6 +2,8 @@ package com.ares.analytics.viewmodel.robotstudio
 
 import com.ares.analytics.service.BuildExecutionPhase
 import com.ares.analytics.service.BuildExecutionState
+import com.ares.analytics.service.DeployExecutionPhase
+import com.ares.analytics.service.DeployExecutionState
 import com.ares.analytics.service.RobotProjectReadinessEvidence
 import java.io.File
 
@@ -17,6 +19,7 @@ enum class RobotStudioStageId {
     TUNING,
     GENERATE_VERIFY,
     SIMULATE,
+    DEPLOY,
     ANALYZE,
 }
 
@@ -39,6 +42,7 @@ enum class RobotStudioAction {
     OPEN_TUNING,
     RUN_BUILD,
     RUN_SIMULATOR,
+    DEPLOY_ROBOT,
     OPEN_IMPORTS,
     OPEN_GUIDED_ANALYSIS,
 }
@@ -58,6 +62,7 @@ data class RobotStudioStage(
 
 data class RobotStudioRuntimeEvidence(
     val build: BuildExecutionState = BuildExecutionState(),
+    val deploy: DeployExecutionState = DeployExecutionState(),
     val simulatorRunning: Boolean = false,
     val localSimulatorOnline: Boolean = false,
     val nt4Connected: Boolean = false,
@@ -193,6 +198,15 @@ internal fun evaluateRobotStudioStages(
     }
     val simulationStatus = when {
         runtime.simulatorRunning || (runtime.localSimulatorOnline && runtime.nt4Connected) -> RobotStudioStageStatus.RUNNING
+        !authoredStagesReady -> RobotStudioStageStatus.BLOCKED
+        else -> RobotStudioStageStatus.NEEDS_ACTION
+    }
+    val deployStatus = when {
+        runtime.deploy.phase == DeployExecutionPhase.CONNECTING ||
+            runtime.deploy.phase == DeployExecutionPhase.BUILDING ||
+            runtime.deploy.phase == DeployExecutionPhase.INSTALLING -> RobotStudioStageStatus.RUNNING
+        runtime.deploy.phase == DeployExecutionPhase.SUCCEEDED -> RobotStudioStageStatus.READY
+        runtime.deploy.phase == DeployExecutionPhase.FAILED -> RobotStudioStageStatus.INVALID
         !authoredStagesReady -> RobotStudioStageStatus.BLOCKED
         else -> RobotStudioStageStatus.NEEDS_ACTION
     }
@@ -343,6 +357,23 @@ internal fun evaluateRobotStudioStages(
             "FTC/FRC simulator, NT4 telemetry, Dashboard, and Academy",
             RobotStudioAction.RUN_SIMULATOR,
             if (simulationStatus == RobotStudioStageStatus.RUNNING) "Simulator running" else "Start simulator",
+        ),
+        stage(
+            RobotStudioStageId.DEPLOY,
+            "1-Click Deploy to robot",
+            "Connect over Wi-Fi, compile, and flash APK/binary directly to the robot.",
+            deployStatus,
+            runtime.deploy.message,
+            emptyList(),
+            "Wireless connection (192.168.43.1:5555 / SSH)",
+            "Physical FTC Control Hub / FRC RoboRIO",
+            RobotStudioAction.DEPLOY_ROBOT,
+            when (runtime.deploy.phase) {
+                DeployExecutionPhase.CONNECTING, DeployExecutionPhase.BUILDING, DeployExecutionPhase.INSTALLING -> "Deploying now..."
+                DeployExecutionPhase.SUCCEEDED -> "Deploy again"
+                DeployExecutionPhase.FAILED, DeployExecutionPhase.CANCELED -> "Retry deploy"
+                else -> "1-Click Deploy"
+            },
         ),
         stage(
             RobotStudioStageId.ANALYZE,

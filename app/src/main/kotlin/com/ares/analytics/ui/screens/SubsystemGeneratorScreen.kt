@@ -86,6 +86,8 @@ import com.ares.analytics.viewmodel.subsystemTemplateOptions
 import com.areslib.codegen.GeneratedSubsystemSourceSet
 import com.areslib.codegen.SubsystemArtifactGroup
 import com.areslib.codegen.SubsystemArtifactOwnership
+import com.areslib.subsystem.FaultRecoveryActionKind
+import com.areslib.subsystem.InterlockComparison
 import com.areslib.subsystem.SubsystemControlLoopDocument
 import com.areslib.subsystem.SubsystemControlStrategy
 import com.areslib.subsystem.SubsystemFieldRole
@@ -369,6 +371,10 @@ private fun StageContent(state: SubsystemGeneratorState, viewModel: SubsystemGen
         SubsystemBuilderStage.TUNING -> TuningStage(state, viewModel)
         SubsystemBuilderStage.SAFETY -> {
             SafetyInspector(state, viewModel)
+            state.draft?.document?.let { doc ->
+                FaultRecoveryCard(doc, viewModel)
+                InterlockMatrixCard(doc, state, viewModel)
+            }
             ConceptCard(
                 "Why safety is a separate step",
                 "A controller decides what the mechanism wants to do. The safety contract decides whether that output is currently trustworthy and permitted.",
@@ -1185,6 +1191,117 @@ private fun SafetyInspector(state: SubsystemGeneratorState, viewModel: Subsystem
             TextInput("Autonomous resource key (optional)", document.autonomousResourceKey.orEmpty()) { value ->
                 viewModel.edit { it.copy(autonomousResourceKey = value.ifBlank { null }) }
             }
+        }
+    }
+}
+
+@Composable
+private fun FaultRecoveryCard(
+    document: com.areslib.subsystem.SubsystemDocument,
+    viewModel: SubsystemGeneratorViewModel,
+) {
+    val recovery = document.safety.faultRecovery
+    EditorCard("Auto-Recovery & Anti-Jam Policy", Icons.Default.Build) {
+        Text(
+            "Automatic stall protection detects mechanical jams from motor current and triggers a recovery pulse without writing code.",
+            color = AresTextSecondary,
+            fontSize = 12.sp,
+        )
+        ToggleRow("Enable auto-recovery / anti-jam", recovery.enabled) { value ->
+            viewModel.edit { doc ->
+                doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(enabled = value)))
+            }
+        }
+        if (recovery.enabled) {
+            DoubleInput("Stall current threshold (Amps)", recovery.currentThresholdAmps) { value ->
+                viewModel.edit { doc ->
+                    doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(currentThresholdAmps = value)))
+                }
+            }
+            LongInput("Stall duration before trigger (ms)", recovery.currentDurationMs) { value ->
+                viewModel.edit { doc ->
+                    doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(currentDurationMs = value)))
+                }
+            }
+            EnumSelector("Recovery action", recovery.recoveryAction, FaultRecoveryActionKind.entries) { action ->
+                viewModel.edit { doc ->
+                    doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(recoveryAction = action)))
+                }
+            }
+            if (recovery.recoveryAction == FaultRecoveryActionKind.REVERSE_BRIEFLY) {
+                LongInput("Reverse pulse duration (ms)", recovery.reverseDurationMs) { value ->
+                    viewModel.edit { doc ->
+                        doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(reverseDurationMs = value)))
+                    }
+                }
+                DoubleInput("Reverse duty cycle (-1.0 to 1.0)", recovery.reverseDutyCycle) { value ->
+                    viewModel.edit { doc ->
+                        doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(reverseDutyCycle = value)))
+                    }
+                }
+            }
+            LongInput("Max retry attempts", recovery.maxRetries.toLong()) { value ->
+                viewModel.edit { doc ->
+                    doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(maxRetries = value.toInt().coerceIn(1, 10))))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InterlockMatrixCard(
+    document: com.areslib.subsystem.SubsystemDocument,
+    state: SubsystemGeneratorState,
+    viewModel: SubsystemGeneratorViewModel,
+) {
+    EditorCard("Mechanism Safety Interlocks (Collision Rules)", Icons.Default.Warning) {
+        Text(
+            "Interlock rules prevent physical mechanism collisions by locking out unsafe actions based on other subsystem states.",
+            color = AresTextSecondary,
+            fontSize = 12.sp,
+        )
+        if (document.interlocks.isEmpty()) {
+            Text(
+                "No interlocks configured for this mechanism. Add constraints if this mechanism physically intersects another.",
+                color = AresTextSecondary,
+                fontSize = 12.sp,
+            )
+        }
+        document.interlocks.forEachIndexed { index, interlock ->
+            Column(
+                Modifier.fillMaxWidth().background(AresSurface, RoundedCornerShape(5.dp)).padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Interlock ${index + 1}: ${interlock.interlockId}", color = AresTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    IconButton(onClick = { viewModel.removeInterlock(interlock.interlockId) }, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete interlock", tint = AresError, modifier = Modifier.size(16.dp))
+                    }
+                }
+                TextInput("Target Subsystem UID", interlock.targetSubsystemUid) { value ->
+                    viewModel.updateInterlock(interlock.interlockId) { it.copy(targetSubsystemUid = value) }
+                }
+                TextInput("Target State Field", interlock.targetFieldId) { value ->
+                    viewModel.updateInterlock(interlock.interlockId) { it.copy(targetFieldId = value) }
+                }
+                EnumSelector("Lockout Condition", interlock.comparison, InterlockComparison.entries) { comp ->
+                    viewModel.updateInterlock(interlock.interlockId) { it.copy(comparison = comp) }
+                }
+                DoubleInput("Threshold Value", interlock.thresholdValue) { value ->
+                    viewModel.updateInterlock(interlock.interlockId) { it.copy(thresholdValue = value) }
+                }
+                TextInput("Constraint Description", interlock.forbiddenZoneDescription) { value ->
+                    viewModel.updateInterlock(interlock.interlockId) { it.copy(forbiddenZoneDescription = value) }
+                }
+            }
+        }
+        OutlinedButton(onClick = viewModel::addInterlock, modifier = Modifier.fillMaxWidth()) {
+            Text("+ Add Mechanism Interlock Rule")
         }
     }
 }

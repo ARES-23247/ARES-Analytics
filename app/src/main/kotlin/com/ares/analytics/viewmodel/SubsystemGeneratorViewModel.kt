@@ -16,9 +16,12 @@ import com.areslib.codegen.SubsystemKotlinCodegenTarget
 import com.areslib.codegen.SubsystemKotlinGenerator
 import com.areslib.codegen.SubsystemStarterReconciler
 import com.areslib.codegen.SubsystemStarterChangeKind
+import com.areslib.subsystem.FaultRecoveryActionKind
+import com.areslib.subsystem.InterlockComparison
 import com.areslib.subsystem.SubsystemControlLoopDocument
 import com.areslib.subsystem.SubsystemControlStrategy
 import com.areslib.subsystem.SubsystemDocument
+import com.areslib.subsystem.SubsystemFaultRecoveryDocument
 import com.areslib.subsystem.SubsystemFieldRole
 import com.areslib.subsystem.SubsystemFollowerDocument
 import com.areslib.subsystem.SubsystemFollowerTransform
@@ -32,6 +35,7 @@ import com.areslib.subsystem.SubsystemHomingEvidenceDocument
 import com.areslib.subsystem.SubsystemHomingMethod
 import com.areslib.subsystem.SubsystemImplementationDocument
 import com.areslib.subsystem.SubsystemImplementationKind
+import com.areslib.subsystem.SubsystemInterlockDocument
 import com.areslib.subsystem.SubsystemMeasurementSource
 import com.areslib.subsystem.SubsystemPlatform
 import com.areslib.subsystem.SubsystemSimulationDocument
@@ -192,6 +196,7 @@ data class SubsystemGeneratorState(
     val selectedHardwareUid: String? = null,
     val selectedFieldUid: String? = null,
     val selectedLoopUid: String? = null,
+    val selectedInterlockId: String? = null,
     val selectedTuningParameterUid: String? = null,
     val activeStage: SubsystemBuilderStage = SubsystemBuilderStage.PURPOSE,
     val selectedTemplate: SubsystemTemplate = SubsystemTemplate.POSITION_CONTROLLED_MECHANISM,
@@ -871,6 +876,31 @@ class SubsystemGeneratorViewModel(
 
     fun updateControlLoop(id: String, transform: (SubsystemControlLoopDocument) -> SubsystemControlLoopDocument) = edit { document ->
         document.copy(controlLoops = document.controlLoops.map { if (it.loopId == id) transform(it) else it })
+    }
+
+    fun selectInterlock(id: String?) = _state.update { it.copy(selectedInterlockId = id) }
+
+    fun addInterlock() {
+        val current = _state.value.draft?.document ?: return
+        val id = uniqueId("interlock", current.interlocks.map { it.interlockId })
+        val interlock = SubsystemInterlockDocument(
+            interlockId = id,
+            targetSubsystemUid = "",
+            targetFieldId = "",
+            comparison = InterlockComparison.LESS_THAN,
+            thresholdValue = 0.0,
+            forbiddenZoneDescription = "Prevent mechanism collision",
+        )
+        edit { it.copy(interlocks = it.interlocks + interlock) }
+        selectInterlock(id)
+    }
+
+    fun removeInterlock(id: String) = edit { document ->
+        document.copy(interlocks = document.interlocks.filterNot { it.interlockId == id })
+    }.also { selectInterlock(null) }
+
+    fun updateInterlock(id: String, transform: (SubsystemInterlockDocument) -> SubsystemInterlockDocument) = edit { document ->
+        document.copy(interlocks = document.interlocks.map { if (it.interlockId == id) transform(it) else it })
     }
 
     fun save(generateAfterSave: Boolean = false) {

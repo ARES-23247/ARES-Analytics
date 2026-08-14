@@ -914,6 +914,13 @@ fun MainScreen(services: ServiceRegistry) {
                                             )
                                             mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
                                         }
+                                        RobotStudioAction.DEPLOY_ROBOT -> {
+                                            services.processManagerService.deployToRobot(
+                                                currentConfig.projectPath,
+                                                currentConfig.league,
+                                            )
+                                            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                        }
                                     }
                                 },
                                 onOpenAcademy = {
