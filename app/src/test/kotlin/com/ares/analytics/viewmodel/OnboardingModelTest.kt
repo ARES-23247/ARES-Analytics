@@ -92,4 +92,57 @@ class OnboardingModelTest {
             directory.delete()
         }
     }
+
+    @Test
+    fun `advancing onboarding steps updates current step index and flags step completion`() {
+        val directory = Files.createTempDirectory("ares-onboarding-step-advance-test").toFile()
+        try {
+            val initial = OnboardingState()
+            assertEquals(OnboardingStep.PROJECT, initial.currentStep)
+            assertEquals(0, initial.currentStep.ordinal)
+            assertEquals(1, initial.currentStep.number)
+            assertFalse(initial.isProjectReady)
+            assertFalse(initial.isRobotReady)
+
+            val projectConfigured = initial.copy(projectPath = directory.absolutePath)
+            assertTrue(projectConfigured.isProjectReady)
+            assertFalse(projectConfigured.isRobotReady)
+            assertFalse(validateOnboardingFields(projectConfigured, OnboardingStep.PROJECT).hasRequiredFieldErrors)
+
+            val robotStep = OnboardingStep.entries[(projectConfigured.currentStep.ordinal + 1).coerceAtMost(OnboardingStep.entries.lastIndex)]
+            val stepTwo = projectConfigured.copy(currentStep = robotStep)
+            assertEquals(OnboardingStep.ROBOT, stepTwo.currentStep)
+            assertEquals(1, stepTwo.currentStep.ordinal)
+            assertEquals(2, stepTwo.currentStep.number)
+            assertTrue(stepTwo.isProjectReady)
+            assertFalse(stepTwo.isRobotReady)
+
+            val robotConfigured = stepTwo.copy(
+                teamId = "23247",
+                seasonId = "2026",
+                robotId = "AresIII",
+            )
+            assertTrue(robotConfigured.isRobotReady)
+            assertFalse(validateOnboardingFields(robotConfigured, OnboardingStep.ROBOT).hasRequiredFieldErrors)
+
+            val optionalStep = OnboardingStep.entries[(robotConfigured.currentStep.ordinal + 1).coerceAtMost(OnboardingStep.entries.lastIndex)]
+            val stepThree = robotConfigured.copy(currentStep = optionalStep)
+            assertEquals(OnboardingStep.OPTIONAL, stepThree.currentStep)
+            assertEquals(2, stepThree.currentStep.ordinal)
+            assertEquals(3, stepThree.currentStep.number)
+            assertTrue(stepThree.isProjectReady)
+            assertTrue(stepThree.isRobotReady)
+
+            val reviewStep = OnboardingStep.entries[(stepThree.currentStep.ordinal + 1).coerceAtMost(OnboardingStep.entries.lastIndex)]
+            val stepFour = stepThree.copy(currentStep = reviewStep)
+            assertEquals(OnboardingStep.REVIEW, stepFour.currentStep)
+            assertEquals(3, stepFour.currentStep.ordinal)
+            assertEquals(4, stepFour.currentStep.number)
+            assertTrue(stepFour.isProjectReady)
+            assertTrue(stepFour.isRobotReady)
+            assertFalse(validateOnboardingFields(stepFour, OnboardingStep.REVIEW).hasRequiredFieldErrors)
+        } finally {
+            directory.delete()
+        }
+    }
 }
