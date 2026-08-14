@@ -55,4 +55,10 @@ class NavigationModelTest {
         assertEquals(listOf(NavigationTarget.ROBOT_STUDIO), filterNavigationTargets("build robot", false))
         assertEquals(listOf(NavigationTarget.PROJECT_IDENTITY), filterNavigationTargets("robot dimensions", false))
     }
+
+    @Test
+    fun `command search matches subsystem builder and field editor`() {
+        assertTrue(filterNavigationTargets("subsystem", false).contains(NavigationTarget.SUBSYSTEM_GEN))
+        assertTrue(filterNavigationTargets("field", false).contains(NavigationTarget.FIELD_EDITOR))
+    }
 }
