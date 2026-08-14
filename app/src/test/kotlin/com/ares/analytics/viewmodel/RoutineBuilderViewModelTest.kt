@@ -283,5 +283,105 @@ class RoutineBuilderViewModelTest {
         advanceUntilIdle()
         assertEquals(1, viewModel.state.value.selectedStepIndex)
     }
+
+    @Test
+    fun `updating and removing nested branch and parallel group routine steps cleans up child step definitions and updates state`() = runTest {
+        val viewModel = PathPlannerViewModel(this)
+        viewModel.onIntent(PathPlannerIntent.CreateRoutine("Nested flow test"))
+        advanceUntilIdle()
+
+        // Add a BRANCH step and a TOGETHER (parallel group) step
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.BRANCH))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.TOGETHER))
+        advanceUntilIdle()
+
+        val initialSteps = viewModel.state.value.routine.steps
+        assertEquals(2, initialSteps.size)
+        val branchStep = initialSteps[0]
+        val parallelGroupStep = initialSteps[1]
+
+        assertEquals(RoutineStepKind.BRANCH, branchStep.kind)
+        assertEquals(RoutineStepKind.TOGETHER, parallelGroupStep.kind)
+        assertEquals(1, branchStep.children.size)
+        assertEquals(0, branchStep.elseChildren.size)
+        assertEquals(1, parallelGroupStep.children.size)
+
+        val parallelInitialId = parallelGroupStep.children.first().stepId
+
+        // Add child steps: to branch whenTrue (children), branch whenFalse (elseChildren), and parallel group
+        viewModel.onIntent(PathPlannerIntent.AddRoutineChild(branchStep.stepId, toElseBranch = false, kind = RoutineStepKind.WAIT))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineChild(branchStep.stepId, toElseBranch = true, kind = RoutineStepKind.ACTION))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineChild(parallelGroupStep.stepId, toElseBranch = false, kind = RoutineStepKind.WAIT))
+        advanceUntilIdle()
+
+        var currentSteps = viewModel.state.value.routine.steps
+        val updatedBranch = currentSteps.first { it.stepId == branchStep.stepId }
+        val updatedParallel = currentSteps.first { it.stepId == parallelGroupStep.stepId }
+
+        assertEquals(2, updatedBranch.children.size)
+        assertEquals(1, updatedBranch.elseChildren.size)
+        assertEquals(2, updatedParallel.children.size)
+
+        val branchTrueAddedChild = updatedBranch.children.last()
+        val branchElseChild = updatedBranch.elseChildren.first()
+        val parallelAddedChild = updatedParallel.children.last()
+
+        // Update nested child steps via UpdateRoutineChild and UpdateRoutineStep
+        val modifiedTrueChild = branchTrueAddedChild.copy(durationSeconds = 5.5)
+        viewModel.onIntent(PathPlannerIntent.UpdateRoutineChild(branchTrueAddedChild.stepId, modifiedTrueChild))
+
+        // Set invalid duration on else child to verify validation updates for nested children
+        val invalidElseChild = branchElseChild.copy(durationSeconds = 150.0)
+        viewModel.onIntent(PathPlannerIntent.UpdateRoutineStep(branchElseChild.stepId, invalidElseChild))
+
+        val modifiedParallelChild = parallelAddedChild.copy(durationSeconds = 3.0)
+        viewModel.onIntent(PathPlannerIntent.UpdateRoutineChild(parallelAddedChild.stepId, modifiedParallelChild))
+        advanceUntilIdle()
+
+        currentSteps = viewModel.state.value.routine.steps
+        val branchAfterChildUpdate = currentSteps.first { it.stepId == branchStep.stepId }
+        val parallelAfterChildUpdate = currentSteps.first { it.stepId == parallelGroupStep.stepId }
+
+        assertEquals(5.5, branchAfterChildUpdate.children.first { it.stepId == branchTrueAddedChild.stepId }.durationSeconds)
+        assertEquals(150.0, branchAfterChildUpdate.elseChildren.first { it.stepId == branchElseChild.stepId }.durationSeconds)
+        assertEquals(3.0, parallelAfterChildUpdate.children.first { it.stepId == parallelAddedChild.stepId }.durationSeconds)
+
+        // Validation issue should report the invalid duration on the nested child
+        assertTrue(viewModel.state.value.routineValidation.any { it.code == "invalid_duration" })
+
+        // Remove a nested child from the branch else branch and verify child cleanup & validation error clearing
+        viewModel.onIntent(PathPlannerIntent.RemoveRoutineChild(branchElseChild.stepId))
+        advanceUntilIdle()
+
+        currentSteps = viewModel.state.value.routine.steps
+        val branchAfterElseRemoval = currentSteps.first { it.stepId == branchStep.stepId }
+        assertTrue(branchAfterElseRemoval.elseChildren.isEmpty())
+        assertTrue(viewModel.state.value.routineValidation.none { it.code == "invalid_duration" })
+
+        // Remove a child from the parallel group using RemoveRoutineStep
+        viewModel.onIntent(PathPlannerIntent.RemoveRoutineStep(parallelInitialId))
+        advanceUntilIdle()
+
+        currentSteps = viewModel.state.value.routine.steps
+        val parallelAfterChildRemoval = currentSteps.first { it.stepId == parallelGroupStep.stepId }
+        assertEquals(1, parallelAfterChildRemoval.children.size)
+        assertEquals(parallelAddedChild.stepId, parallelAfterChildRemoval.children.single().stepId)
+
+        // Remove the entire parallel group step, verifying cleanup of parent and nested child definitions
+        viewModel.onIntent(PathPlannerIntent.RemoveRoutineStep(parallelGroupStep.stepId))
+        advanceUntilIdle()
+
+        currentSteps = viewModel.state.value.routine.steps
+        assertEquals(1, currentSteps.size)
+        assertEquals(branchStep.stepId, currentSteps.single().stepId)
+        assertFalse(currentSteps.any { it.stepId == parallelGroupStep.stepId || it.children.any { c -> c.stepId == parallelAddedChild.stepId } })
+
+        // Remove the branch step, verifying empty routine state
+        viewModel.onIntent(PathPlannerIntent.RemoveRoutineStep(branchStep.stepId))
+        advanceUntilIdle()
+
+        assertTrue(viewModel.state.value.routine.steps.isEmpty())
+        assertEquals(listOf("empty_routine"), viewModel.state.value.routineValidation.map { it.code })
+    }
 }
 
