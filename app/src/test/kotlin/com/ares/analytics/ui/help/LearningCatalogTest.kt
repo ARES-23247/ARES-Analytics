@@ -95,6 +95,20 @@ class LearningCatalogTest {
     }
 
     @Test
+    fun `autonomous lab teaches validation before the real routine builder`() {
+        val lesson = LearningCatalog.lesson("autonomous-safety-lab") ?: error("Missing autonomous safety lab")
+        val path = LearningCatalog.path("autonomous-developer") ?: error("Missing autonomous developer path")
+
+        assertEquals(LearningLab.AUTONOMOUS_SAFETY, lesson.lab)
+        assertFalse(lesson.requiresRobot)
+        assertTrue("starting pose" in lesson.keywords)
+        assertTrue("resources" in lesson.keywords)
+        assertTrue("failure behavior" in lesson.keywords)
+        assertTrue(path.lessonIds.indexOf("autonomous-safety-lab") < path.lessonIds.indexOf("first-routine"))
+        assertTrue("autonomous-safety-lab" in (LearningCatalog.lesson("first-routine")?.prerequisiteLessonIds ?: emptySet()))
+    }
+
+    @Test
     fun `robot studio lesson teaches compile only build evidence`() {
         val lesson = LearningCatalog.lesson("robot-studio-tour") ?: error("Missing Robot Studio lesson")
 

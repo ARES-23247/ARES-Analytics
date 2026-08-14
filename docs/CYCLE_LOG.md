@@ -344,3 +344,56 @@ FRC, and Analytics consumers without relying on `mavenLocal()` or stale cached a
 - These results prove source, generated code, desktop UI, simulator, tests, and packaging agree. They
   do not prove wiring, sensor polarity, neutral output, calibration procedure, or physical safety.
 - A supervised physical test remains required before a team uses either safety action on hardware.
+
+## Cycle 7 - Autonomous planning teaching lab
+
+### Objective
+
+Replace the Academy's prose-only autonomous lesson prerequisite with a hardware-free interactive
+lab that teaches the validation decisions a student must understand before using the real routine
+builder.
+
+### User-visible outcome
+
+- Robot Academy now includes **Autonomous planning** in the Autonomous developer path before the
+  safe first routine lesson.
+- Students can move a starting and target pose, compare drive speed with timeout margin, toggle a
+  named mechanism action and its condition, create a parallel resource conflict, and compare
+  failure policies.
+- Results always say **PREVIEW READY** or **PREVIEW BLOCKED** with an icon and written reasons; color
+  is supplemental.
+- The lab explains units and the complete robot-footprint check, and it links conceptually into the
+  existing canonical routine-builder workflow without duplicating or modifying that builder.
+- Mentor material now includes objectives, an activity sequence, misconceptions, and the boundary
+  between the teaching model, generated verification, simulation, and physical field testing.
+
+### Safety and ownership decisions
+
+- The evaluator is a pure immutable teaching model. It has no project repository, NT4 publisher,
+  simulator process, generated-source writer, or hardware command path.
+- Missing actions, missing conditions, invalid geometry, insufficient timeout margin, resource
+  conflicts, and unsafe continue-on-failure choices fail closed.
+- A false but available condition is shown as a deliberate skip rather than misreported as a
+  validation failure.
+- A passing result is explicitly not collision, traction, generated-code, or physical-safety
+  evidence.
+
+### Verification evidence
+
+- Focused autonomous-model and Academy-catalog tests: passed.
+- Full Analytics app suite: 455 tests, 0 failures, 0 errors, 2 intentional skips.
+- Dashboard smoke: passed.
+- Packaged distributable project loading: passed for one routine and one subsystem document.
+- Validation resolved ARESLib from
+  `file:///C:/Users/david/dev/robotics/ares/ARESLib-Kotlin/build/release-repository`; it did not use
+  `mavenLocal()` or stale Maven Central binaries.
+- Final `git diff --check`: passed with only line-ending notices.
+
+### Delivery and limitations
+
+- Work is on `codex/academy-autonomous-planning-v8`, stacked on the validated Project Identity and
+  earlier Academy slices. Retarget or rebase it in dependency order before protected review.
+- Normal, colorblind, high-contrast, large-text, keyboard, and narrow-window walkthroughs remain
+  pending until the Windows desktop can be inspected without the lock-screen obstruction.
+- No physical robot was used or required. Real paths still require simulator evidence and later
+  supervised field and hardware validation.

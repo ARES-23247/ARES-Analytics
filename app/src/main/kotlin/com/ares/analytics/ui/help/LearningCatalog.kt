@@ -24,6 +24,7 @@ enum class LearningLab(val label: String) {
     MECHANISM_SIZING("Mechanism sizing"),
     HOMING_SAFETY("Homing & safe recovery"),
     STATE_FLOW("Input, state & telemetry"),
+    AUTONOMOUS_SAFETY("Autonomous planning"),
 }
 
 data class LearningLabGuide(
@@ -170,6 +171,27 @@ object LearningCatalog {
             ),
             successLooksLike = "You can narrate input → action → reducer → immutable state → controller → IO → telemetry and identify the unit and safety boundary at each step.",
         ),
+        LearningLabGuide(
+            lab = LearningLab.AUTONOMOUS_SAFETY,
+            title = "Validate a small autonomous plan before generation",
+            outcome = "Reason about starting pose, field bounds, resources, conditions, timeouts, and failure behavior without saving or running a routine.",
+            beforeYouStart = listOf(
+                "This is a two-step teaching model, not the production routine validator or simulator.",
+                "Preview readiness does not prove collision clearance, traction, wiring, or physical safety.",
+            ),
+            tryThis = listOf(
+                "Move the starting or target pose until part of the robot footprint leaves the field, then read the blocking reason.",
+                "Shorten the timeout below the ideal drive estimate plus margin.",
+                "Create a parallel resource conflict, then repair it without deleting either intended behavior.",
+                "Compare stop-and-report with continue-on-failure for a required versus explicitly optional action.",
+            ),
+            reflectionQuestions = listOf(
+                "Why is a robot-center coordinate inside the field insufficient by itself?",
+                "What does a timeout protect, and what can it not prove?",
+                "Why must parallel routine branches declare exclusive resources and explicit failure behavior?",
+            ),
+            successLooksLike = "You can explain why a plan is preview-ready or blocked, then carry the same checks into the real routine builder.",
+        ),
     )
 
     fun labGuide(lab: LearningLab): LearningLabGuide = labGuides.first { it.lab == lab }
@@ -306,7 +328,7 @@ object LearningCatalog {
             successLooksLike = "The routine saves, validates, and previews without bounds or capability warnings.",
             safetyNote = "A valid preview is not physical clearance proof. Recheck on a real field before enabling a robot.",
             keywords = setOf("auto", "routine", "path", "drive to"),
-            prerequisiteLessonIds = setOf("drivebase-blueprint"),
+            prerequisiteLessonIds = setOf("drivebase-blueprint", "autonomous-safety-lab"),
             checkpoints = listOf(
                 reflectionCheckpoint(
                     "first-routine.preview",
@@ -674,6 +696,38 @@ object LearningCatalog {
             lab = LearningLab.STATE_FLOW,
         ),
         LearningLesson(
+            id = "autonomous-safety-lab",
+            level = LearningLevel.BUILDER,
+            track = LearningTrack.BUILD,
+            title = "Lab: validate an autonomous plan",
+            outcome = labGuide(LearningLab.AUTONOMOUS_SAFETY).outcome,
+            durationMinutes = 18,
+            destination = NavigationTarget.ACADEMY,
+            action = LearningAction.OPEN_LAB,
+            beforeYouStart = labGuide(LearningLab.AUTONOMOUS_SAFETY).beforeYouStart,
+            steps = labGuide(LearningLab.AUTONOMOUS_SAFETY).tryThis,
+            successLooksLike = labGuide(LearningLab.AUTONOMOUS_SAFETY).successLooksLike,
+            safetyNote = "The sandbox never saves a project, generates code, starts simulation, or authorizes a physical autonomous run.",
+            keywords = setOf(
+                "autonomous construction",
+                "starting pose",
+                "field bounds",
+                "resources",
+                "conditions",
+                "timeouts",
+                "failure behavior",
+            ),
+            prerequisiteLessonIds = setOf("drivebase-blueprint", "motion-profile-lab"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "autonomous-safety-lab.review",
+                    "Explain one blocked plan",
+                    labGuide(LearningLab.AUTONOMOUS_SAFETY).reflectionQuestions.joinToString(" "),
+                ),
+            ),
+            lab = LearningLab.AUTONOMOUS_SAFETY,
+        ),
+        LearningLesson(
             id = "developer-reference",
             level = LearningLevel.ADVANCED,
             track = LearningTrack.UNDERSTAND,
@@ -744,7 +798,14 @@ object LearningCatalog {
             title = "Autonomous developer",
             summary = "Understand localization and motion limits, then preview a bounded routine before generation.",
             level = LearningLevel.BUILDER,
-            lessonIds = listOf("read-connection-state", "drivebase-blueprint", "sensor-fusion-lab", "motion-profile-lab", "first-routine"),
+            lessonIds = listOf(
+                "read-connection-state",
+                "drivebase-blueprint",
+                "sensor-fusion-lab",
+                "motion-profile-lab",
+                "autonomous-safety-lab",
+                "first-routine",
+            ),
         ),
         LearningPath(
             id = "data-analyst",

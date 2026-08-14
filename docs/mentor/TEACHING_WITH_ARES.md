@@ -132,6 +132,39 @@ Students should be able to:
 
 This is a simplified trace, not the production Redux store, controller, IO adapter, or NT4 publisher. It cannot prove generated code, simulator parity, or hardware behavior. Use the live source, generated verification, and supervised physical procedures for those claims.
 
+## A 30-minute autonomous planning lab
+
+### Learning outcomes
+
+Students should be able to:
+
+- explain why the full robot footprint, not only its center point, must fit at a starting pose;
+- calculate an ideal distance-over-speed time and explain why a timeout still needs margin;
+- identify an exclusive-resource conflict between parallel branches;
+- distinguish a false condition from a missing condition source; and
+- choose stop-and-report or continue-on-failure only after deciding whether an action is required.
+
+### Activity
+
+1. Open **Help & Learn -> Autonomous developer -> Lab: validate an autonomous plan**.
+2. Read the safe example aloud, including meters, meters per second, seconds, condition, and failure policy.
+3. Move the robot center near a field edge until the footprint no longer fits. Ask why the center coordinate alone was misleading.
+4. Restore the pose, then shorten the timeout below the ideal drive estimate plus the displayed margin.
+5. Make both parallel branches claim the drivebase. Have the student propose a resource-safe ordering or ownership change.
+6. Remove the named action or its condition source and compare those two failures with a condition that is present but false.
+7. Select continue-on-failure for a required action, then explicitly mark it optional and discuss what downstream behavior remains safe.
+8. Reset the example, open the real routine builder, and repeat the same questions during its structured preview. Do not generate or run merely because the teaching card passes.
+
+### Misconceptions to challenge
+
+- "If the robot center is on the field, the robot is in bounds."
+- "Distance divided by speed is a guaranteed completion time."
+- "Parallel steps can both control the drivetrain if they are short."
+- "A missing condition is the same as a condition that evaluated false."
+- "Continue-on-failure is harmless because the next step will fix it."
+
+The lab is a pure teaching model. It does not read the selected project, save a routine, detect real obstacles, generate code, run simulation, or approve a physical autonomous path. The canonical routine builder, generated verification, simulator evidence, field measurement, and supervised physical validation remain separate gates.
+
 ## Physical robot gate
 
 Move from simulator/replay to **Live Robot** only when all applicable items are true:
