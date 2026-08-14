@@ -77,11 +77,12 @@ No `mavenLocal()` fallback was used.
 
 ### Delivery
 
-Protected pull-request links and required-check results are added here after push:
+Protected pull requests were opened in dependency order. Required checks were running when this
+cycle log was last updated:
 
-- ARESLib-Kotlin: pending
-- ARES-FTC: pending
-- ARES-Analytics: pending
+- ARESLib-Kotlin: [PR #25](https://github.com/ARES-23247/ARESLib-Kotlin/pull/25)
+- ARES-FTC: [PR #25](https://github.com/ARES-23247/ARES-FTC/pull/25)
+- ARES-Analytics: [PR #38](https://github.com/ARES-23247/ARES-Analytics/pull/38)
 
 ### Remaining limitations and next cycle
 
