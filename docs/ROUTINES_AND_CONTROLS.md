@@ -67,6 +67,16 @@ runtime capability implementation. If the editor reports **No project actions de
 3. the catalog action is allowed in the current context;
 4. after changing the catalog, generated Kotlin has been refreshed.
 
+Generated subsystem descriptors add their typed target actions to this catalog automatically. A
+subsystem that requires explicit neutral recovery or calibration also contributes clearly named
+**Recover ... with neutral** and **Confirm ... calibration** actions. They appear in the same action
+browser as hand-authored robot actions and can be assigned to ordinary buttons without writing
+Kotlin. These are one-shot requests, not safety bypasses: the generated controller still requires
+fresh, valid, configuration-healthy feedback; calibration performs a successful neutral write;
+failed neutral recovery remains latched; and successful recovery/calibration holds neutral until a
+later target command. Use deliberate operator controls and document the team's supervised physical
+procedure before enabling these actions on hardware.
+
 ## Visual controller editor
 
 The controller editor has two related documents:

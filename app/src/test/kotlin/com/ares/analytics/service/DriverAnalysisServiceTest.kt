@@ -136,4 +136,54 @@ class DriverAnalysisServiceTest {
         tempFile.delete()
         tempDb.delete()
     }
+
+    @Test
+    fun testAnalyzeDriverJitterOnCleanSignalReturnsNoJitter() = runTest {
+        val tempDb = File.createTempFile("driver_clean_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val tempFile = File.createTempFile("driver_profiles", ".json").apply { delete() }
+        val service = DriverAnalysisService(databaseService, sysIdService, tempFile.absolutePath)
+        val sessionId = "clean-session"
+        val gamepadX = "/Gamepad1/LeftX"
+
+        val frames = mutableListOf<TelemetryFrame>()
+        val sampleRate = 100.0
+        for (i in 0 until 128) {
+            val t = (i * (1000.0 / sampleRate)).toLong()
+            val seconds = i / sampleRate
+            val value = kotlin.math.sin(2.0 * kotlin.math.PI * 0.5 * seconds)
+            frames.add(TelemetryFrame(t, sessionId, gamepadX, value))
+        }
+
+        databaseService.insertTelemetryFrames(frames)
+        val result = service.analyzeDriverJitter(sessionId, gamepadX, "/Gamepad1/LeftY")
+        kotlin.test.assertFalse(result.hasJitter)
+        assertEquals(1.0, result.recommendedExponent)
+        assertEquals(Double.MAX_VALUE, result.recommendedSlewRate)
+
+        databaseService.close()
+        tempFile.delete()
+        tempDb.delete()
+    }
+
+    @Test
+    fun testAnalyzeDriverCoachingOnEmptySessionReturnsInsufficientData() = runTest {
+        val tempDb = File.createTempFile("driver_empty_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val tempFile = File.createTempFile("driver_profiles", ".json").apply { delete() }
+        val service = DriverAnalysisService(databaseService, sysIdService, tempFile.absolutePath)
+
+        val report = service.analyzeDriverCoaching("non-existent-session")
+        assertEquals(0, report.synchronizedSampleCount)
+        assertEquals(0, report.sourceSampleCount)
+        assertEquals(0.0, report.coverageFraction)
+        assertEquals(DriverReviewConfidence.INSUFFICIENT, report.confidence)
+        assertTrue(report.observations.isNotEmpty())
+
+        databaseService.close()
+        tempFile.delete()
+        tempDb.delete()
+    }
 }

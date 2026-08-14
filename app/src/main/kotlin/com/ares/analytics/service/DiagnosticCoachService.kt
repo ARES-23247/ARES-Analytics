@@ -48,6 +48,18 @@ class DiagnosticCoachService(private val databaseService: DatabaseService) {
             listOf("Hardware/Motors/%/CurrentAmps", "Hardware/Motors/%/Current")
         ).filter { it.value.isFinite() }.sortedBy { it.timestampUs }
 
+        var rawLoopFrames: List<TelemetryFrame> = emptyList()
+        for (key in TelemetryMetricCatalog.LOOP_TIME.keys) {
+            rawLoopFrames = databaseService.getTelemetryForKey(sessionId, key)
+            if (rawLoopFrames.isNotEmpty()) break
+        }
+        val loopFrames = rawLoopFrames.filter { it.value.isFinite() }.sortedBy { it.timestampUs }
+
+        val brownoutFrames = databaseService.getTelemetryForKeyPatterns(
+            sessionId,
+            listOf("Diagnostics/Power/BrownoutCount", "Robot/BrownoutCount", "Robot/BrownoutPowerScale")
+        ).filter { it.value.isFinite() }.sortedBy { it.timestampUs }
+
         val findings = buildList {
             batteryFrames.minByOrNull(TelemetryFrame::value)?.takeIf { it.value < BATTERY_REVIEW_VOLTS }?.let { frame ->
                 add(
@@ -65,10 +77,13 @@ class DiagnosticCoachService(private val databaseService: DatabaseService) {
                 )
             }
             sustainedCurrentFinding(currentFrames)?.let(::add)
+            loopOverrunFinding(loopFrames)?.let(::add)
+            brownoutFinding(brownoutFrames)?.let(::add)
         }
         val missing = buildList {
             if (batteryFrames.isEmpty()) add("Battery voltage")
             if (currentFrames.isEmpty()) add("Per-motor current")
+            if (loopFrames.isEmpty()) add("Control loop period")
         }
         PitDiagnosticSummary(findings, missing)
     }
@@ -103,11 +118,51 @@ class DiagnosticCoachService(private val databaseService: DatabaseService) {
         return null
     }
 
+    private fun loopOverrunFinding(frames: List<TelemetryFrame>): DiagnosticFinding? {
+        val peak = frames.maxByOrNull(TelemetryFrame::value) ?: return null
+        if (peak.value < LOOP_TIME_REVIEW_MS) return null
+        val isUrgent = peak.value >= LOOP_TIME_URGENT_MS
+        return DiagnosticFinding(
+            id = "loop-time-overrun",
+            title = "Control loop period exceeded review threshold",
+            severity = if (isUrgent) DiagnosticSeverity.URGENT else DiagnosticSeverity.REVIEW,
+            timestampSeconds = peak.timestampUs / 1_000_000.0,
+            observation = "Peak control loop period reached ${"%.1f".format(peak.value)} ms (${"%.0f".format(1000.0 / peak.value)} Hz).",
+            thresholdContext = "ARES screens loop times above ${LOOP_TIME_REVIEW_MS.toInt()} ms for potential cycle jitter and controller latency.",
+            possibleCauses = listOf("Synchronous I/O or blocking operations in control loop", "Garbage collection pauses from dynamic allocations in hot path", "Excessive logging bandwidth or serialization overhead", "Host CPU contention"),
+            verificationSteps = listOf("Review ControlLoopProfilerCard breakdown for pipeline stages", "Ensure zero-GC memory compliance in periodic robot loop", "Verify sensor and vision read caching"),
+            topic = peak.key
+        )
+    }
+
+    private fun brownoutFinding(frames: List<TelemetryFrame>): DiagnosticFinding? {
+        val countFrame = frames.firstOrNull { it.key.contains("count", ignoreCase = true) && it.value > 0.0 }
+        val scaleFrame = frames.firstOrNull { it.key.contains("scale", ignoreCase = true) && it.value in 0.0..0.95 }
+        val trigger = countFrame ?: scaleFrame ?: return null
+        return DiagnosticFinding(
+            id = "brownout-guard-tripped",
+            title = "Brownout protection event detected",
+            severity = DiagnosticSeverity.URGENT,
+            timestampSeconds = trigger.timestampUs / 1_000_000.0,
+            observation = if (countFrame != null) {
+                "Brownout guard recorded ${countFrame.value.toInt()} brownout event(s)."
+            } else {
+                "Brownout guard throttled drive power to ${"%.0f".format((scaleFrame?.value ?: 1.0) * 100)}% to protect system bus voltage."
+            },
+            thresholdContext = "Brownout protection triggers automatically when bus voltage drops below critical operating thresholds.",
+            possibleCauses = listOf("Depleted or high internal resistance battery", "Simultaneous peak acceleration across multiple high-draw mechanisms", "Low starting voltage before match run", "Undersized main power wiring or loose battery terminals"),
+            verificationSteps = listOf("Correlate timestamp with motor current and battery voltage curves", "Perform battery load and internal resistance test in pit", "Verify CurrentBudgetManager configuration and slew rate limits"),
+            topic = trigger.key
+        )
+    }
+
     companion object {
         const val BATTERY_REVIEW_VOLTS = 10.5
         const val BATTERY_URGENT_VOLTS = 9.5
         const val CURRENT_REVIEW_AMPS = 40.0
         const val CURRENT_REVIEW_DURATION_US = 500_000L
         const val MAX_SAMPLE_GAP_US = 200_000L
+        const val LOOP_TIME_REVIEW_MS = 35.0
+        const val LOOP_TIME_URGENT_MS = 50.0
     }
 }

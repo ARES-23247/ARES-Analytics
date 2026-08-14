@@ -57,6 +57,7 @@ import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresThemeSettings
 
 private val builtInDashboardProfiles = setOf(
+    "Student", "Driver", "Builder", "Autonomous", "Analyst", "Mentor",
     "Standard", "Driver Coach", "Programmer", "Pit Crew", "Match Review",
     "Pit Diagnostics", "Driver Practice", "Replay"
 )

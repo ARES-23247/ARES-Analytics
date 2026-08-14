@@ -17,6 +17,7 @@ import java.io.File
 import java.security.MessageDigest
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.hypot
 import kotlin.math.sin
 
 enum class DrivebaseBuilderStep { DRIVE_TYPE, HARDWARE, GEOMETRY, LOCALIZATION, SAFETY, LABS, REVIEW }
@@ -396,7 +397,13 @@ class DrivebaseBuilderViewModel(
 
 }
 
-data class GeometryLabResult(val turningRadiusMeters: Double?, val trackCircleDiameterMeters: Double?, val explanation: String)
+data class GeometryLabResult(
+    val turningRadiusMeters: Double?,
+    val trackCircleDiameterMeters: Double?,
+    val maxLinearSpeedMps: Double? = null,
+    val maxAngularSpeedRadPerSec: Double? = null,
+    val explanation: String
+)
 enum class LocalizationFailureScenario { ALL_HEALTHY, PRIMARY_STALE, HEADING_INVALID, VISION_REJECTED }
 data class LocalizationLabResult(val canDriveClosedLoop: Boolean, val usesVisionCorrection: Boolean, val message: String)
 
@@ -462,12 +469,31 @@ fun evaluateDriveLab(
     )
 }
 
-fun evaluateGeometryLab(geometry: DriveGeometry, linearCommand: Double, angularCommand: Double): GeometryLabResult {
+fun evaluateGeometryLab(
+    geometry: DriveGeometry,
+    linearCommand: Double,
+    angularCommand: Double,
+    configuredMaxLinearSpeedMps: Double,
+    useCornerModuleRadius: Boolean
+): GeometryLabResult {
     val radius = if (kotlin.math.abs(angularCommand) < 1e-9) null else kotlin.math.abs(linearCommand / angularCommand)
+    val maxLinearSpeed = configuredMaxLinearSpeedMps.takeIf { it.isFinite() && it > 0.0 }
+    val rotationalRadius = if (useCornerModuleRadius) {
+        hypot(geometry.trackWidthMeters / 2.0, geometry.wheelBaseMeters / 2.0)
+    } else {
+        geometry.trackWidthMeters / 2.0
+    }
+    val maxAngularSpeed = maxLinearSpeed?.takeIf { rotationalRadius > 0.005 }?.div(rotationalRadius)
     return GeometryLabResult(
         turningRadiusMeters = radius,
         trackCircleDiameterMeters = radius?.let { 2.0 * (it + geometry.trackWidthMeters / 2.0) },
-        explanation = if (radius == null) "Zero turn command predicts a straight path." else "The chassis center follows a ${"%.2f".format(radius)} m radius; the outside wheel/module travels a larger circle."
+        maxLinearSpeedMps = maxLinearSpeed,
+        maxAngularSpeedRadPerSec = maxAngularSpeed,
+        explanation = if (radius == null) {
+            "Zero turn command predicts a straight path. The configured safety limit is ${maxLinearSpeed?.let { "%.2f m/s".format(it) } ?: "not valid"}."
+        } else {
+            "The chassis center follows a ${"%.2f".format(radius)} m radius. The configured linear limit implies ${maxAngularSpeed?.let { "%.1f rad/s".format(it) } ?: "no valid angular estimate"}; the outside wheel/module travels a larger circle."
+        }
     )
 }
 

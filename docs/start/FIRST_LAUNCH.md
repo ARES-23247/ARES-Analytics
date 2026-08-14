@@ -65,6 +65,11 @@ After Dashboard opens, choose **Help & Learn → First mission**. This is the re
 hardware-free handoff from setup into the app. The lesson coach can keep the next checkpoint
 visible while you select Local Sim, open Dashboard, and stop the simulator.
 
+Workspace setup records which repository you selected, but it does not guess a physical robot
+footprint or silently create canonical project metadata. Before using the no-code builders, open
+**Robot Studio**, choose **Set up project identity**, enter measured dimensions, and review the
+structured `.ares/project.json` diff. See [Project Identity](../learn/PROJECT_IDENTITY.md).
+
 ## Success check
 
 Setup is complete when:
@@ -93,7 +98,7 @@ The sidebar shows labeled **NT4 on/off** and, for FTC, **ADB on/off** status. Th
 ## Safety and recovery
 
 - First launch only saves a desktop workspace profile. It does not deploy code or enable a robot.
-- **Build & Deploy** is a separate toolbar action. Do not select it during setup unless a mentor has reviewed the target and code.
+- **Verify & build** is a separate, compile-only toolbar action. It runs verification, tests, and packaging for the selected project; it never installs code on a robot.
 - Do not paste secrets into screenshots or team chat. Normal Google sign-in never asks a student
   for a client secret; custom OAuth and broker configuration belong to an administrator.
 - If you made a profile for the wrong folder, create or select the correct workspace rather than moving project folders while Analytics is running.

@@ -32,6 +32,7 @@ class LearningCatalogTest {
         assertEquals("first-routine", LearningCatalog.lessonFor(NavigationTarget.PATH_PLANNER)?.id)
         assertEquals("drivebase-blueprint", LearningCatalog.lessonFor(NavigationTarget.DRIVEBASE_BUILDER)?.id)
         assertEquals("robot-studio-tour", LearningCatalog.lessonFor(NavigationTarget.ROBOT_STUDIO)?.id)
+        assertEquals("robot-studio-tour", LearningCatalog.lessonFor(NavigationTarget.PROJECT_IDENTITY)?.id)
         assertEquals("developer-reference", LearningCatalog.lessonFor(NavigationTarget.KDOC_VIEWER)?.id)
         assertEquals(null, LearningCatalog.lessonFor(NavigationTarget.ADMIN))
     }
@@ -69,5 +70,50 @@ class LearningCatalogTest {
             assertTrue(guide.reflectionQuestions.isNotEmpty())
             assertTrue(LearningCatalog.lessons.any { it.lab == lab && it.action == LearningAction.OPEN_LAB })
         }
+    }
+
+    @Test
+    fun `homing lab teaches freshness stall evidence and neutral recovery`() {
+        val lesson = LearningCatalog.lesson("homing-safety-lab") ?: error("Missing homing safety lab")
+
+        assertEquals(LearningLab.HOMING_SAFETY, lesson.lab)
+        assertFalse(lesson.requiresRobot)
+        assertTrue("current stall" in lesson.keywords)
+        assertTrue("neutral recovery" in lesson.keywords)
+        assertTrue("safe-subsystem" in lesson.prerequisiteLessonIds)
+    }
+
+    @Test
+    fun `state flow lab covers controller redux devices and telemetry units`() {
+        val lesson = LearningCatalog.lesson("state-flow-lab") ?: error("Missing state flow lab")
+
+        assertEquals(LearningLab.STATE_FLOW, lesson.lab)
+        assertFalse(lesson.requiresRobot)
+        assertTrue("controller input" in lesson.keywords)
+        assertTrue("immutable state" in lesson.keywords)
+        assertTrue("telemetry units" in lesson.keywords)
+    }
+
+    @Test
+    fun `autonomous lab teaches validation before the real routine builder`() {
+        val lesson = LearningCatalog.lesson("autonomous-safety-lab") ?: error("Missing autonomous safety lab")
+        val path = LearningCatalog.path("autonomous-developer") ?: error("Missing autonomous developer path")
+
+        assertEquals(LearningLab.AUTONOMOUS_SAFETY, lesson.lab)
+        assertFalse(lesson.requiresRobot)
+        assertTrue("starting pose" in lesson.keywords)
+        assertTrue("resources" in lesson.keywords)
+        assertTrue("failure behavior" in lesson.keywords)
+        assertTrue(path.lessonIds.indexOf("autonomous-safety-lab") < path.lessonIds.indexOf("first-routine"))
+        assertTrue("autonomous-safety-lab" in (LearningCatalog.lesson("first-routine")?.prerequisiteLessonIds ?: emptySet()))
+    }
+
+    @Test
+    fun `robot studio lesson teaches compile only build evidence`() {
+        val lesson = LearningCatalog.lesson("robot-studio-tour") ?: error("Missing Robot Studio lesson")
+
+        assertTrue(lesson.steps.any { it.contains("Verify & build") && it.contains("no deployment") })
+        assertTrue(lesson.successLooksLike.contains("compile-only"))
+        assertTrue(lesson.safetyNote.orEmpty().contains("never installs or deploys"))
     }
 }

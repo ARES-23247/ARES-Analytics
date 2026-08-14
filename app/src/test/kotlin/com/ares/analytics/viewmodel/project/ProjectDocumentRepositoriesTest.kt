@@ -24,6 +24,7 @@ import com.areslib.routine.RoutinePose
 import com.areslib.routine.RoutineStep
 import com.areslib.project.AresCoordinateConvention
 import com.areslib.project.AresLeague
+import com.areslib.project.AresProjectMetadataCodec
 import com.areslib.project.AresProjectMetadataDocument
 import java.io.File
 import java.nio.file.Files
@@ -55,6 +56,76 @@ class ProjectDocumentRepositoriesTest {
             assertEquals(metadata, repository.load(project.path).getOrThrow())
             assertEquals(64, hash.length)
             assertTrue(File(project, ".ares/project.json").isFile)
+        }
+    }
+
+    @Test
+    fun `reviewed project identity creates only after an explicit missing-file preview`() {
+        withProject { project ->
+            val repository = ProjectMetadataRepository()
+            val metadata = metadata(robotLengthMeters = .45)
+
+            val saved = repository.saveReviewed(project.path, expectedContentHash = null, document = metadata)
+
+            assertTrue(saved.created)
+            assertEquals(null, saved.historyFile)
+            assertEquals(metadata, repository.load(project.path).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `reviewed project identity checkpoints prior valid bytes before replacement`() {
+        withProject { project ->
+            val repository = ProjectMetadataRepository()
+            val first = metadata(robotLengthMeters = .45)
+            val firstSaved = repository.saveReviewed(project.path, expectedContentHash = null, first)
+            val second = metadata(robotLengthMeters = .51)
+
+            val secondSaved = repository.saveReviewed(project.path, firstSaved.contentHash, second)
+
+            assertFalse(secondSaved.created)
+            val history = requireNotNull(secondSaved.historyFile)
+            assertEquals(first, AresProjectMetadataCodec.decode(history.readText()))
+            assertEquals(second, repository.load(project.path).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `reviewed project identity refuses stale preview without replacing current bytes`() {
+        withProject { project ->
+            val repository = ProjectMetadataRepository()
+            val first = repository.saveReviewed(project.path, null, metadata(robotLengthMeters = .45))
+            val concurrent = repository.saveReviewed(project.path, first.contentHash, metadata(robotLengthMeters = .47))
+            val currentFile = repository.file(project.path)
+            val bytesBeforeStaleSave = currentFile.readText()
+
+            val failure = assertFailsWith<IllegalArgumentException> {
+                repository.saveReviewed(project.path, first.contentHash, metadata(robotLengthMeters = .52))
+            }
+
+            assertTrue(failure.message.orEmpty().contains("changed after preview"))
+            assertEquals(concurrent.contentHash, AresProjectMetadataCodec.contentHash(repository.load(project.path).getOrThrow()))
+            assertEquals(bytesBeforeStaleSave, currentFile.readText())
+        }
+    }
+
+    @Test
+    fun `reviewed project identity preserves corrupt current file`() {
+        withProject { project ->
+            val repository = ProjectMetadataRepository()
+            val file = repository.file(project.path).apply {
+                parentFile.mkdirs()
+                writeText("student recovery evidence")
+            }
+
+            assertFailsWith<IllegalArgumentException> {
+                repository.saveReviewed(
+                    project.path,
+                    expectedContentHash = null,
+                    document = metadata(robotLengthMeters = .45),
+                )
+            }
+            assertEquals("student recovery evidence", file.readText())
         }
     }
 
@@ -320,7 +391,7 @@ class ProjectDocumentRepositoriesTest {
     private fun controlScheme() = ControlSchemeDocument(
         documentId = "competition",
         name = "Competition controls",
-        controllers = listOf(ControllerAssignment("driver", "Driver", "vader5-pro")),
+        controllers = listOf(ControllerAssignment("driver", "Driver", "vader5-pro", devicePort = 0)),
         bindings = listOf(
             ControlBindingDocument(
                 bindingId = "run-intake",
@@ -343,6 +414,52 @@ class ProjectDocumentRepositoriesTest {
                 startingPose = RoutinePose(1.0, 2.0, 0.0)
             )
         )
+    )
+
+    @Test
+    fun `autonomous catalog multi-entry round trips accurately with distinct starting poses`() {
+        withProject { project ->
+            val routines = RoutineProjectRepository()
+            routines.save(project.path, routine("score_red", "Score Red", 1.0))
+            routines.save(project.path, routine("score_blue", "Score Blue", 1.0))
+
+            val repository = AutonomousCatalogProjectRepository(routines)
+            val document = AutonomousCatalogDocument(
+                projectId = "multi-test",
+                defaultEntryId = "score-red",
+                entries = listOf(
+                    AutonomousCatalogEntry(
+                        entryId = "score-red",
+                        displayName = "Score red",
+                        routineId = "score_red",
+                        startingPose = RoutinePose(1.2, 0.8, 0.0)
+                    ),
+                    AutonomousCatalogEntry(
+                        entryId = "score-blue",
+                        displayName = "Score blue",
+                        routineId = "score_blue",
+                        startingPose = RoutinePose(-1.2, 0.8, 3.14159)
+                    )
+                )
+            )
+            val saved = repository.save(project.path, document)
+            val loaded = repository.load(project.path).getOrThrow()
+
+            assertEquals(listOf("score-blue", "score-red"), loaded.entries.map { it.entryId })
+            assertEquals(document.defaultEntryId, loaded.defaultEntryId)
+            assertEquals(document.projectId, loaded.projectId)
+            assertEquals(2, loaded.entries.size)
+        }
+    }
+
+    private fun metadata(robotLengthMeters: Double) = AresProjectMetadataDocument(
+        projectId = "test-project",
+        league = AresLeague.FTC,
+        coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
+        robotLengthMeters = robotLengthMeters,
+        robotWidthMeters = .43,
+        fieldLengthMeters = 3.6576,
+        fieldWidthMeters = 3.6576,
     )
 
     private inline fun withProject(block: (File) -> Unit) {

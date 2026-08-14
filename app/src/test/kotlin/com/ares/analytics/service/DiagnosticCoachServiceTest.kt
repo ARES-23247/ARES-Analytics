@@ -41,8 +41,84 @@ class DiagnosticCoachServiceTest {
         withService { _, service ->
             val result = service.analyze("empty")
             assertTrue(result.findings.isEmpty())
-            assertEquals(listOf("Battery voltage", "Per-motor current"), result.missingSignals)
+            assertEquals(listOf("Battery voltage", "Per-motor current", "Control loop period"), result.missingSignals)
             assertFalse(result.evidenceNotice.contains("healthy", ignoreCase = true))
+        }
+    }
+
+    @Test
+    fun loopOverrunScreenDetectsHighLoopTimes() = runTest {
+        withService { database, service ->
+            database.insertTelemetryFrames(listOf(
+                TelemetryFrame(100, "run", "Robot/BatteryVoltage", 12.5),
+                TelemetryFrame(100, "run", "Hardware/Motors/arm/CurrentAmps", 5.0),
+                TelemetryFrame(100, "run", "Robot/LoopTimeMs", 42.0)
+            ))
+            val result = service.analyze("run")
+            val loopFinding = result.findings.firstOrNull { it.id == "loop-time-overrun" }
+            kotlin.test.assertNotNull(loopFinding)
+            assertEquals(DiagnosticSeverity.REVIEW, loopFinding.severity)
+            assertTrue(loopFinding.observation.contains("42.0 ms"))
+            assertTrue(loopFinding.possibleCauses.isNotEmpty())
+        }
+    }
+
+    @Test
+    fun brownoutGuardScreenDetectsThrottlingAndEvents() = runTest {
+        withService { database, service ->
+            database.insertTelemetryFrames(listOf(
+                TelemetryFrame(100, "run", "Robot/BatteryVoltage", 11.0),
+                TelemetryFrame(100, "run", "Hardware/Motors/arm/CurrentAmps", 15.0),
+                TelemetryFrame(100, "run", "Robot/LoopTimeMs", 20.0),
+                TelemetryFrame(150, "run", "Diagnostics/Power/BrownoutCount", 2.0)
+            ))
+            val result = service.analyze("run")
+            val brownoutFinding = result.findings.firstOrNull { it.id == "brownout-guard-tripped" }
+            kotlin.test.assertNotNull(brownoutFinding)
+            assertEquals(DiagnosticSeverity.URGENT, brownoutFinding.severity)
+            assertTrue(brownoutFinding.observation.contains("2 brownout event"))
+        }
+    }
+
+    @Test
+    fun brownoutGuardScreenDetectsPowerScaleThrottlingWithoutCount() = runTest {
+        withService { database, service ->
+            database.insertTelemetryFrames(listOf(
+                TelemetryFrame(100, "run", "Robot/BatteryVoltage", 11.0),
+                TelemetryFrame(100, "run", "Hardware/Motors/arm/CurrentAmps", 15.0),
+                TelemetryFrame(100, "run", "Robot/LoopTimeMs", 20.0),
+                TelemetryFrame(150, "run", "Robot/BrownoutPowerScale", 0.75)
+            ))
+            val result = service.analyze("run")
+            val brownoutFinding = result.findings.firstOrNull { it.id == "brownout-guard-tripped" }
+            kotlin.test.assertNotNull(brownoutFinding)
+            assertEquals(DiagnosticSeverity.URGENT, brownoutFinding.severity)
+            assertTrue(brownoutFinding.observation.contains("75%"))
+        }
+    }
+
+    @Test
+    fun urgentLoopOverrunDetectsSevereLoopLatency() = runTest {
+        withService { database, service ->
+            database.insertTelemetryFrames(listOf(
+                TelemetryFrame(100, "run", "Robot/BatteryVoltage", 12.5),
+                TelemetryFrame(100, "run", "Hardware/Motors/arm/CurrentAmps", 5.0),
+                TelemetryFrame(100, "run", "Robot/LoopTimeMs", 55.0)
+            ))
+            val result = service.analyze("run")
+            val loopFinding = result.findings.firstOrNull { it.id == "loop-time-overrun" }
+            kotlin.test.assertNotNull(loopFinding)
+            assertEquals(DiagnosticSeverity.URGENT, loopFinding.severity)
+            assertTrue(loopFinding.observation.contains("55.0 ms"))
+        }
+    }
+
+    @Test
+    fun blankSessionIdThrowsIllegalArgumentException() = runTest {
+        withService { _, service ->
+            kotlin.test.assertFailsWith<IllegalArgumentException> {
+                service.analyze("   ")
+            }
         }
     }
 

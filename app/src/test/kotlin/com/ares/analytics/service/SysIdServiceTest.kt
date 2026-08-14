@@ -80,4 +80,67 @@ class SysIdServiceTest {
         assertTrue(result.rSquared > 0.8)
         tempDb.delete()
     }
+
+    @Test
+    fun testUnderdampedTransientClassification() {
+        val tempDb = File.createTempFile("sysid_underdamped_test", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+
+        val rows = mutableListOf<AlignedDataRow>()
+        // Initial rest state
+        rows.add(AlignedDataRow(0L, 0.0, 0.0, 0.0))
+        rows.add(AlignedDataRow(20L, 0.0, 0.0, 0.0))
+        // Step to 12V with overshoot (peak reaches 1.20 vs steady state 1.0)
+        for (i in 1..25) {
+            val t = 20L + i * 20L
+            val vel = if (i == 5) 1.20 else if (i < 10) 1.10 else 1.0
+            rows.add(AlignedDataRow(t, 12.0, vel, 0.0))
+        }
+
+        val summary = sysIdService.analyzeRawData(rows)
+        assertEquals(TransientClassification.UNDERDAMPED, summary.transientClassification)
+        tempDb.delete()
+    }
+
+    @Test
+    fun testCriticallyDampedTransientClassification() {
+        val tempDb = File.createTempFile("sysid_critically_damped_test", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+
+        val rows = mutableListOf<AlignedDataRow>()
+        rows.add(AlignedDataRow(0L, 0.0, 0.0, 0.0))
+        rows.add(AlignedDataRow(20L, 0.0, 0.0, 0.0))
+        // Step to 12V with smooth critically-damped rise to 1.0
+        for (i in 1..25) {
+            val t = 20L + i * 20L
+            val vel = 1.0 - kotlin.math.exp(-i / 3.0)
+            rows.add(AlignedDataRow(t, 12.0, vel, 0.0))
+        }
+
+        val summary = sysIdService.analyzeRawData(rows)
+        assertEquals(TransientClassification.CRITICALLY_DAMPED, summary.transientClassification)
+        tempDb.delete()
+    }
+
+    @Test
+    fun testAnalyzeRawDataInsufficientDataReturnsDefaultSummary() {
+        val tempDb = File.createTempFile("sysid_insufficient_data_test", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+
+        // Under 10 samples
+        val fewRows = (1..5).map { i ->
+            AlignedDataRow(i * 20L, 12.0, 1.0, 0.0)
+        }
+        val summary = sysIdService.analyzeRawData(fewRows)
+        assertEquals(0.0, summary.kS)
+        assertEquals(0.0, summary.kV)
+        assertEquals(0.0, summary.kA)
+        assertEquals(0.0, summary.rSquared)
+        assertEquals(TransientClassification.UNKNOWN, summary.transientClassification)
+
+        tempDb.delete()
+    }
 }

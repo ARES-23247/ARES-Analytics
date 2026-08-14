@@ -54,6 +54,12 @@ The combined task records child-process output in `build/run-logs/app.log` and `
 
 To prevent the Gradle task from stopping an earlier Analytics JVM during investigation, add `-PskipKill=true`.
 
+### Student-facing project verification
+
+Robot Studio and the execution toolbar **Verify & build** action are compile-only. They run generated-project verification, project tests, simulator tests where available, and normal packaging. They do not call ADB, install an FTC APK, deploy FRC code, start a simulator, or command hardware.
+
+The result is retained only as evidence for the matching project path and league. **Passed** means that invocation exited successfully; rebuild after changing project files. **Failed** and **Canceled** remain visible with recovery text. Physical deployment remains a separate supervised team procedure.
+
 ## 3. Pre-pit checklist
 
 - [ ] Launch the application once before leaving an internet connection so Gradle/native dependencies are cached.

@@ -49,6 +49,23 @@ class DatabaseViewportQueryTest {
         }
     }
 
+    @Test
+    fun `non-existent key or session in getTelemetrySeries returns empty list`() = runTest {
+        withDatabase { database ->
+            val series = database.getTelemetrySeries("missing-session", "NonExistentKey", 0, 1000, maxPoints = 50)
+            assertTrue(series.isEmpty())
+        }
+    }
+
+    @Test
+    fun `getTelemetryPageForKeys with empty keys list returns empty list`() = runTest {
+        withDatabase { database ->
+            database.insertTelemetryFrames(listOf(frame("page", "A", 100, 1.0)))
+            val page = database.getTelemetryPageForKeys("page", emptyList(), 0, 1000, limit = 10)
+            assertTrue(page.isEmpty())
+        }
+    }
+
     private suspend fun withDatabase(block: suspend (DatabaseService) -> Unit) {
         val directory = Files.createTempDirectory("ares-viewport-query").toFile()
         val database = DatabaseService(directory.resolve("telemetry.duckdb").absolutePath)

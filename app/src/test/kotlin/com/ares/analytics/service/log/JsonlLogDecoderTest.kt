@@ -197,6 +197,30 @@ class JsonlLogDecoderTest {
         }
     }
 
+    @Test
+    fun `multi-signal telemetry lines parse all keys with normalized path formatting`() = runTest {
+        val tempDb = File.createTempFile("jsonl_multisignal", ".db").apply { deleteOnExit() }
+        val log = File.createTempFile("telemetry_multisignal", ".jsonl").apply {
+            deleteOnExit()
+            writeText("""{"timestampMs":1000,"/Drive/Pose_X":1.5,"/Drive/Pose_Y":-2.0,"/Drive/Pose_Heading":0.785}""")
+        }
+        val database = DatabaseService(tempDb.absolutePath)
+        try {
+            val batcher = FrameBatcher(database)
+            val count = JsonlLogDecoder(database).parseJsonlLog(log, "session", batcher)
+            batcher.flush()
+
+            assertEquals(3, count)
+            assertEquals(1.5, database.getTelemetryForKey("session", "Drive/Pose_X").single().value)
+            assertEquals(-2.0, database.getTelemetryForKey("session", "Drive/Pose_Y").single().value)
+            assertEquals(0.785, database.getTelemetryForKey("session", "Drive/Pose_Heading").single().value)
+        } finally {
+            database.close()
+            log.delete()
+            tempDb.delete()
+        }
+    }
+
     private fun actionLine(
         timestampMs: Long,
         schemaField: String? = "\"schema_version\":1",

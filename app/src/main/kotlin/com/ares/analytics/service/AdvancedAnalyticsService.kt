@@ -189,12 +189,14 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
         if (baselines.isEmpty()) return null
         val definitions = listOf(
             MetricDefinition("minimum battery voltage", "V", current.minBatteryVoltage, false) { it.minBatteryVoltage },
-            MetricDefinition("EKF drift", "m", current.maxEkfDrift, true) { it.maxEkfDrift },
+            MetricDefinition("average loop time", "ms", current.avgLoopTimeMs, true) { it.avgLoopTimeMs },
             MetricDefinition("p95 loop time", "ms", current.p95LoopTimeMs, true) { it.p95LoopTimeMs },
+            MetricDefinition("EKF drift", "m", current.maxEkfDrift, true) { it.maxEkfDrift },
             MetricDefinition("cross-track error", "m", current.avgCrossTrackError, true) { it.avgCrossTrackError },
             MetricDefinition("battery resistance", "ohm", current.avgBatteryResistance, true) { it.avgBatteryResistance },
             MetricDefinition("vision latency", "ms", current.avgVisionLatencyMs, true) { it.avgVisionLatencyMs },
-            MetricDefinition("vision acceptance", "fraction", current.visionAcceptanceRate, false) { it.visionAcceptanceRate }
+            MetricDefinition("vision acceptance", "fraction", current.visionAcceptanceRate, false) { it.visionAcceptanceRate },
+            MetricDefinition("run duration", "s", if (current.durationMs > 0) current.durationMs / 1000.0 else Double.NaN, true) { if (it.durationMs > 0) it.durationMs / 1000.0 else Double.NaN }
         )
         val metrics = definitions.mapNotNull { definition ->
             val values = baselines.map(definition.extract).filter { it.isFinite() && it != 0.0 }
@@ -310,6 +312,12 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
         if (summary != null && summary.p95LoopTimeMs > LOOP_WARNING_MS) add(
             DiagnosticInsight(InsightSeverity.CRITICAL, "control loop", "p95 loop time exceeds the real-time budget.", "p95 ${format(summary.p95LoopTimeMs)} ms")
         )
+        if (summary != null && summary.avgBatteryResistance > BATTERY_RESISTANCE_WARNING_OHMS) add(
+            DiagnosticInsight(InsightSeverity.WARNING, "battery health", "Average internal resistance is elevated.", "resistance ${format(summary.avgBatteryResistance)} ohm")
+        )
+        if (summary != null && summary.avgVisionLatencyMs > VISION_LATENCY_WARNING_MS) add(
+            DiagnosticInsight(InsightSeverity.WARNING, "vision pipeline", "Camera processing latency is elevated.", "latency ${format(summary.avgVisionLatencyMs)} ms")
+        )
         correlations.filter { it.leftTopic.contains("Current", true) && it.rightTopic.contains("Voltage", true) && it.coefficient < -0.65 }
             .take(3).forEach {
                 add(DiagnosticInsight(InsightSeverity.WARNING, "electrical", "Current draw strongly tracks voltage sag.", "r=${format(it.coefficient)}, n=${it.samples}, ${it.leftTopic}"))
@@ -333,6 +341,9 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
         )
         if (summary != null && summary.maxEkfDrift > EKF_WARNING_METERS) add(
             suggestion("pose estimator", "Recalibrate odometry scale and vision covariance before increasing controller gains.", summary.maxEkfDrift, baselineCount, "maximum EKF drift ${format(summary.maxEkfDrift)} m")
+        )
+        if (summary != null && summary.avgBatteryResistance > BATTERY_RESISTANCE_WARNING_OHMS) add(
+            suggestion("battery maintenance", "Inspect terminal connections and cycle battery pack.", summary.avgBatteryResistance, baselineCount, "resistance ${format(summary.avgBatteryResistance)} ohm")
         )
         if (driver != null && driver.smoothness < 60.0) add(
             TuningSuggestion("driver shaping", "Increase center deadband exponent or reduce slew rate.", confidence(driver.samples, baselineCount), "input smoothness ${format(driver.smoothness)}/100", driver.samples)
@@ -438,6 +449,8 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
         const val LOOP_WARNING_MS = 20.0
         const val CROSS_TRACK_WARNING_METERS = 0.25
         const val EKF_WARNING_METERS = 0.30
+        const val BATTERY_RESISTANCE_WARNING_OHMS = 0.050
+        const val VISION_LATENCY_WARNING_MS = 100.0
     }
 }
 

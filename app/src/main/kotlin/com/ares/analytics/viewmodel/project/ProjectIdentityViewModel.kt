@@ -1,0 +1,383 @@
+package com.ares.analytics.viewmodel.project
+
+import com.ares.analytics.shared.League
+import com.ares.analytics.shared.WorkspaceConfig
+import com.areslib.project.AresCoordinateConvention
+import com.areslib.project.AresLeague
+import com.areslib.project.AresProjectMetadataCodec
+import com.areslib.project.AresProjectMetadataDocument
+import com.areslib.project.validateAresProjectMetadata
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.util.Locale
+
+enum class ProjectIdentityField {
+    PROJECT_ID,
+    ROBOT_LENGTH,
+    ROBOT_WIDTH,
+    FIELD_LENGTH,
+    FIELD_WIDTH,
+}
+
+data class ProjectIdentityDraft(
+    val projectId: String = "",
+    val robotLengthMeters: String = "",
+    val robotWidthMeters: String = "",
+    val fieldLengthMeters: String = "",
+    val fieldWidthMeters: String = "",
+)
+
+data class ProjectIdentityChange(
+    val label: String,
+    val before: String,
+    val after: String,
+)
+
+data class ProjectIdentityProposal(
+    val expectedContentHash: String?,
+    val proposedContentHash: String,
+    val document: AresProjectMetadataDocument,
+    val changes: List<ProjectIdentityChange>,
+)
+
+data class ProjectIdentityEditorState(
+    val loading: Boolean = true,
+    val saving: Boolean = false,
+    val projectPath: String = "",
+    val workspaceLeague: League = League.FTC,
+    val currentDocument: AresProjectMetadataDocument? = null,
+    val currentContentHash: String? = null,
+    val draft: ProjectIdentityDraft = ProjectIdentityDraft(),
+    val fieldErrors: Map<ProjectIdentityField, String> = emptyMap(),
+    val generalErrors: List<String> = emptyList(),
+    val proposal: ProjectIdentityProposal? = null,
+    val protectedError: String? = null,
+    val message: String? = null,
+    val messageIsError: Boolean = false,
+) {
+    val canReview: Boolean
+        get() = !loading && !saving && protectedError == null && fieldErrors.isEmpty() && generalErrors.isEmpty()
+}
+
+/** Owns the reviewed `.ares/project.json` workflow. It never mutates workspace configuration. */
+class ProjectIdentityViewModel(
+    private val scope: CoroutineScope,
+    private val repository: ProjectMetadataRepository = ProjectMetadataRepository(),
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) {
+    private val _state = MutableStateFlow(ProjectIdentityEditorState())
+    val state: StateFlow<ProjectIdentityEditorState> = _state.asStateFlow()
+
+    private var workspace: WorkspaceConfig? = null
+    private var loadJob: Job? = null
+    private var generation = 0L
+
+    fun load(config: WorkspaceConfig) {
+        workspace = config
+        val selectedGeneration = ++generation
+        loadJob?.cancel()
+        _state.value = ProjectIdentityEditorState(
+            loading = true,
+            projectPath = config.projectPath,
+            workspaceLeague = config.league,
+        )
+        loadJob = scope.launch {
+            val loaded = withContext(ioDispatcher) { runCatching { inspect(config) } }
+            if (selectedGeneration != generation || workspace != config) return@launch
+            _state.value = loaded.getOrElse { failure ->
+                ProjectIdentityEditorState(
+                    loading = false,
+                    projectPath = config.projectPath,
+                    workspaceLeague = config.league,
+                    protectedError = failure.message
+                        ?: "The selected project could not be inspected. Check the folder and reload.",
+                )
+            }
+        }
+    }
+
+    fun update(field: ProjectIdentityField, value: String) {
+        val config = workspace ?: return
+        val current = _state.value
+        if (field == ProjectIdentityField.PROJECT_ID && current.currentDocument != null) {
+            _state.value = current.copy(
+                message = "The saved project ID is stable. Create a reviewed migration instead of renaming it here.",
+                messageIsError = false,
+            )
+            return
+        }
+        val nextDraft = when (field) {
+            ProjectIdentityField.PROJECT_ID -> current.draft.copy(projectId = value)
+            ProjectIdentityField.ROBOT_LENGTH -> current.draft.copy(robotLengthMeters = value)
+            ProjectIdentityField.ROBOT_WIDTH -> current.draft.copy(robotWidthMeters = value)
+            ProjectIdentityField.FIELD_LENGTH -> current.draft.copy(fieldLengthMeters = value)
+            ProjectIdentityField.FIELD_WIDTH -> current.draft.copy(fieldWidthMeters = value)
+        }
+        val validation = validateProjectIdentityDraft(config.league, nextDraft)
+        _state.value = current.copy(
+            draft = nextDraft,
+            fieldErrors = validation.fieldErrors,
+            generalErrors = validation.generalErrors,
+            proposal = null,
+            message = null,
+            messageIsError = false,
+        )
+    }
+
+    fun resetDraft() {
+        val config = workspace ?: return
+        val current = _state.value
+        val draft = projectIdentityDraft(config, current.currentDocument)
+        val validation = validateProjectIdentityDraft(config.league, draft)
+        _state.value = current.copy(
+            draft = draft,
+            fieldErrors = validation.fieldErrors,
+            generalErrors = validation.generalErrors,
+            proposal = null,
+            message = "Draft reset to the last reviewed project identity.",
+            messageIsError = false,
+        )
+    }
+
+    fun review() {
+        val config = workspace ?: return
+        val current = _state.value
+        if (current.protectedError != null || current.loading || current.saving) return
+        val validation = validateProjectIdentityDraft(config.league, current.draft)
+        val document = validation.document
+        if (document == null) {
+            _state.value = current.copy(
+                fieldErrors = validation.fieldErrors,
+                generalErrors = validation.generalErrors,
+                proposal = null,
+                message = "Fix every project identity error before reviewing the diff.",
+                messageIsError = true,
+            )
+            return
+        }
+        val changes = projectIdentityChanges(current.currentDocument, document)
+        _state.value = if (changes.isEmpty()) {
+            current.copy(
+                proposal = null,
+                message = "The canonical project identity already matches this draft.",
+                messageIsError = false,
+            )
+        } else {
+            current.copy(
+                fieldErrors = emptyMap(),
+                generalErrors = emptyList(),
+                proposal = ProjectIdentityProposal(
+                    expectedContentHash = current.currentContentHash,
+                    proposedContentHash = AresProjectMetadataCodec.contentHash(document),
+                    document = document,
+                    changes = changes,
+                ),
+                message = "Review every change below. No file has been written yet.",
+                messageIsError = false,
+            )
+        }
+    }
+
+    fun cancelReview() {
+        _state.value = _state.value.copy(
+            proposal = null,
+            message = "Review cancelled; the draft is still editable.",
+            messageIsError = false,
+        )
+    }
+
+    fun applyReviewed() {
+        val config = workspace ?: return
+        val current = _state.value
+        val proposal = current.proposal ?: return
+        val freshDocument = validateProjectIdentityDraft(config.league, current.draft).document
+        if (freshDocument == null || AresProjectMetadataCodec.contentHash(freshDocument) != proposal.proposedContentHash) {
+            _state.value = current.copy(
+                proposal = null,
+                message = "The draft changed after preview. Review the new diff before saving.",
+                messageIsError = true,
+            )
+            return
+        }
+        _state.value = current.copy(
+            saving = true,
+            message = "Saving reviewed project identity…",
+            messageIsError = false,
+        )
+        val applyGeneration = generation
+        scope.launch {
+            runCatching {
+                withContext(ioDispatcher) {
+                    repository.saveReviewed(config.projectPath, proposal.expectedContentHash, proposal.document)
+                }
+            }.onSuccess { saved ->
+                if (applyGeneration != generation || workspace != config) return@onSuccess
+                val validation = validateProjectIdentityDraft(config.league, projectIdentityDraft(config, saved.document))
+                _state.value = ProjectIdentityEditorState(
+                    loading = false,
+                    projectPath = config.projectPath,
+                    workspaceLeague = config.league,
+                    currentDocument = saved.document,
+                    currentContentHash = saved.contentHash,
+                    draft = projectIdentityDraft(config, saved.document),
+                    fieldErrors = validation.fieldErrors,
+                    generalErrors = validation.generalErrors,
+                    message = if (saved.created) {
+                        "Created .ares/project.json after explicit review."
+                    } else {
+                        "Saved .ares/project.json and preserved the previous version in project history."
+                    },
+                    messageIsError = false,
+                )
+            }.onFailure { failure ->
+                if (applyGeneration != generation || workspace != config) return@onFailure
+                _state.value = current.copy(
+                    saving = false,
+                    proposal = null,
+                    message = failure.message ?: "Project identity could not be saved. Reload and try again.",
+                    messageIsError = true,
+                )
+            }
+        }
+    }
+
+    private fun inspect(config: WorkspaceConfig): ProjectIdentityEditorState {
+        val file = repository.file(config.projectPath)
+        val currentResult = repository.load(config.projectPath)
+        val current = currentResult.getOrNull()
+        val corruptError = currentResult.exceptionOrNull()?.takeIf { file.isFile }
+        val mismatch = current?.takeIf { it.league != config.league.toAresLeague() }
+        val draft = projectIdentityDraft(config, current)
+        val validation = validateProjectIdentityDraft(config.league, draft)
+        return ProjectIdentityEditorState(
+            loading = false,
+            projectPath = config.projectPath,
+            workspaceLeague = config.league,
+            currentDocument = current,
+            currentContentHash = current?.let(AresProjectMetadataCodec::contentHash),
+            draft = draft,
+            fieldErrors = validation.fieldErrors,
+            generalErrors = validation.generalErrors,
+            protectedError = when {
+                corruptError != null ->
+                    "The existing .ares/project.json is unreadable: ${corruptError.message}. ARES will not replace it. Preserve the file, repair or restore it, then reload."
+                mismatch != null ->
+                    "The canonical project is ${mismatch.league}, but this workspace is ${config.league}. Select the correct workspace league; ARES will not rewrite platform identity automatically."
+                else -> null
+            },
+            message = if (current == null && corruptError == null) {
+                "No canonical project identity exists yet. Enter measured geometry, then review the file before creating it."
+            } else {
+                "Loaded the canonical project identity. Stable project ID and platform are protected."
+            },
+        )
+    }
+}
+
+internal data class ProjectIdentityDraftValidation(
+    val document: AresProjectMetadataDocument?,
+    val fieldErrors: Map<ProjectIdentityField, String>,
+    val generalErrors: List<String>,
+)
+
+internal fun validateProjectIdentityDraft(
+    league: League,
+    draft: ProjectIdentityDraft,
+): ProjectIdentityDraftValidation {
+    val errors = linkedMapOf<ProjectIdentityField, String>()
+    val projectId = draft.projectId.trim()
+    if (!projectId.matches(Regex("[A-Za-z][A-Za-z0-9._-]{0,63}"))) {
+        errors[ProjectIdentityField.PROJECT_ID] =
+            "Use a stable ID that starts with a letter and contains only letters, numbers, dot, underscore, or dash."
+    }
+    fun parse(field: ProjectIdentityField, raw: String, label: String): Double? {
+        val value = raw.trim().toDoubleOrNull()
+        if (value == null || !value.isFinite() || value <= 0.0) {
+            errors[field] = "$label must be a positive number in meters."
+            return null
+        }
+        return value
+    }
+    val robotLength = parse(ProjectIdentityField.ROBOT_LENGTH, draft.robotLengthMeters, "Robot length")
+    val robotWidth = parse(ProjectIdentityField.ROBOT_WIDTH, draft.robotWidthMeters, "Robot width")
+    val fieldLength = parse(ProjectIdentityField.FIELD_LENGTH, draft.fieldLengthMeters, "Field length")
+    val fieldWidth = parse(ProjectIdentityField.FIELD_WIDTH, draft.fieldWidthMeters, "Field width")
+    if (errors.isNotEmpty()) return ProjectIdentityDraftValidation(null, errors, emptyList())
+
+    val document = AresProjectMetadataDocument(
+        projectId = projectId,
+        league = league.toAresLeague(),
+        coordinateConvention = league.coordinateConvention(),
+        robotLengthMeters = requireNotNull(robotLength),
+        robotWidthMeters = requireNotNull(robotWidth),
+        fieldLengthMeters = requireNotNull(fieldLength),
+        fieldWidthMeters = requireNotNull(fieldWidth),
+    )
+    val generalErrors = validateAresProjectMetadata(document)
+    return ProjectIdentityDraftValidation(document.takeIf { generalErrors.isEmpty() }, errors, generalErrors)
+}
+
+internal fun projectIdentityDraft(
+    config: WorkspaceConfig,
+    current: AresProjectMetadataDocument?,
+): ProjectIdentityDraft {
+    val field = defaultFieldDimensions(config.league)
+    return ProjectIdentityDraft(
+        projectId = current?.projectId ?: suggestedProjectId(config),
+        robotLengthMeters = current?.robotLengthMeters?.asInput()
+            ?: config.robotLengthMeters?.asInput().orEmpty(),
+        robotWidthMeters = current?.robotWidthMeters?.asInput()
+            ?: config.robotWidthMeters?.asInput().orEmpty(),
+        fieldLengthMeters = (current?.fieldLengthMeters ?: field.first).asInput(),
+        fieldWidthMeters = (current?.fieldWidthMeters ?: field.second).asInput(),
+    )
+}
+
+internal fun projectIdentityChanges(
+    current: AresProjectMetadataDocument?,
+    proposed: AresProjectMetadataDocument,
+): List<ProjectIdentityChange> {
+    fun changed(label: String, before: Any?, after: Any): ProjectIdentityChange? =
+        if (before?.toString() == after.toString()) null
+        else ProjectIdentityChange(label, before?.toString() ?: "missing", after.toString())
+    return listOfNotNull(
+        changed("Stable project ID", current?.projectId, proposed.projectId),
+        changed("League", current?.league, proposed.league),
+        changed("Coordinate convention", current?.coordinateConvention, proposed.coordinateConvention),
+        changed("Robot length (m)", current?.robotLengthMeters, proposed.robotLengthMeters),
+        changed("Robot width (m)", current?.robotWidthMeters, proposed.robotWidthMeters),
+        changed("Field length (m)", current?.fieldLengthMeters, proposed.fieldLengthMeters),
+        changed("Field width (m)", current?.fieldWidthMeters, proposed.fieldWidthMeters),
+    )
+}
+
+private fun suggestedProjectId(config: WorkspaceConfig): String {
+    val raw = "team${config.teamId}-${config.robotId}-${config.seasonId}"
+    val normalized = raw.replace(Regex("[^A-Za-z0-9._-]+"), "-").trim('-', '.', '_').take(64)
+    return normalized.takeIf { it.firstOrNull()?.isLetter() == true } ?: "project-${normalized.take(56)}"
+}
+
+private fun defaultFieldDimensions(league: League): Pair<Double, Double> = when (league) {
+    League.FTC -> 3.6576 to 3.6576
+    League.FRC -> 16.541 to 8.211
+}
+
+private fun League.toAresLeague(): AresLeague = when (this) {
+    League.FTC -> AresLeague.FTC
+    League.FRC -> AresLeague.FRC
+}
+
+private fun League.coordinateConvention(): AresCoordinateConvention = when (this) {
+    League.FTC -> AresCoordinateConvention.CENTER_ORIGIN_CCW
+    League.FRC -> AresCoordinateConvention.BLUE_CORNER_ORIGIN_CCW
+}
+
+private fun Double.asInput(): String = String.format(Locale.ROOT, "%.6f", this).trimEnd('0').trimEnd('.')

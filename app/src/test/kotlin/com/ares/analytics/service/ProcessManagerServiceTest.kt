@@ -76,6 +76,103 @@ class ProcessManagerServiceTest {
     }
 
     @Test
+    fun `student build command verifies tests and packages without deployment`() {
+        val service = ProcessManagerService(monitorAdbConnection = false)
+        try {
+            val ftc = service.verificationBuildCommandForTest(League.FTC, isWindows = true)
+            val frc = service.verificationBuildCommandForTest(League.FRC, isWindows = false)
+
+            assertTrue(":TeamCode:verifyAresProject" in ftc)
+            assertTrue(":TeamCode:testDebugUnitTest" in ftc)
+            assertTrue(":simulator:test" in ftc)
+            assertTrue(":TeamCode:assembleDebug" in ftc)
+            assertTrue("verifyAresProject" in frc)
+            assertTrue("test" in frc)
+            assertTrue("build" in frc)
+            (ftc + frc).forEach { argument ->
+                assertFalse(argument.contains("adb", ignoreCase = true))
+                assertFalse(argument.contains("deploy", ignoreCase = true))
+                assertFalse(argument.contains("install", ignoreCase = true))
+            }
+        } finally {
+            service.shutdown()
+        }
+    }
+
+    @Test
+    fun `verification outcome retains selected project success and failure evidence`() = runBlocking {
+        val service = ProcessManagerService(monitorAdbConnection = false)
+        val project = Files.createTempDirectory("process-manager-build-result").toFile()
+        val javaExecutable = File(
+            System.getProperty("java.home"),
+            "bin/java${if (System.getProperty("os.name").contains("win", ignoreCase = true)) ".exe" else ""}",
+        )
+        try {
+            service.runVerificationProcessForTest(
+                listOf(javaExecutable.absolutePath, "-version"),
+                project.path,
+                League.FTC,
+            )
+            withTimeout(5_000L) {
+                while (service.buildExecutionState.value.phase == BuildExecutionPhase.IDLE) delay(10L)
+            }
+            service.awaitBuildIdleForTest()
+
+            val success = service.buildExecutionState.value
+            assertEquals(BuildExecutionPhase.SUCCEEDED, success.phase)
+            assertEquals(project.absoluteFile.normalize().path, success.projectPath)
+            assertEquals(League.FTC, success.league)
+            assertEquals(0, success.exitCode)
+
+            service.runVerificationProcessForTest(
+                listOf(javaExecutable.absolutePath, "-cp", project.path, "MissingAresBuildMain"),
+                project.path,
+                League.FTC,
+            )
+            withTimeout(5_000L) {
+                while (service.buildExecutionState.value.requestId == success.requestId) delay(10L)
+            }
+            service.awaitBuildIdleForTest()
+
+            val failure = service.buildExecutionState.value
+            assertEquals(BuildExecutionPhase.FAILED, failure.phase)
+            assertTrue((failure.exitCode ?: 0) != 0)
+            assertEquals(success.requestId + 1L, failure.requestId)
+        } finally {
+            withContext(Dispatchers.IO) { service.shutdown() }
+            project.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `stopping verification records cancellation and kills its process`() = runBlocking {
+        val service = ProcessManagerService(monitorAdbConnection = false)
+        val project = Files.createTempDirectory("process-manager-build-cancel").toFile()
+        val pidFile = File(project, "verification.pid")
+        val neverReleased = File(project, "never-release")
+        try {
+            service.runVerificationProcessForTest(
+                probeCommand("wait", pidFile.absolutePath, neverReleased.absolutePath),
+                project.path,
+                League.FRC,
+            )
+            val pid = awaitPid(pidFile)
+
+            service.killActiveBuildAndJoin()
+
+            awaitProcessExit(pid)
+            val canceled = service.buildExecutionState.value
+            assertEquals(BuildExecutionPhase.CANCELED, canceled.phase)
+            assertEquals(League.FRC, canceled.league)
+            assertTrue(canceled.message.contains("canceled", ignoreCase = true))
+            assertTrue(canceled.message.contains("No deployment", ignoreCase = true))
+        } finally {
+            withContext(Dispatchers.IO) { service.shutdown() }
+            project.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `starter preview token is hash-bound and stale apply is rejected before Gradle`() {
         val service = ProcessManagerService(monitorAdbConnection = false)
         val root = Files.createTempDirectory("process-manager-starter-plan").toFile()

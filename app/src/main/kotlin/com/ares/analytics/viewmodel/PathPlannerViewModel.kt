@@ -146,7 +146,6 @@ sealed class PathPlannerIntent {
     data class UpdateAutonomousEntry(val entry: AutonomousCatalogEntry, val league: League) : PathPlannerIntent()
     data class UpdateRoutineFieldWaypoints(val waypoints: List<Waypoint>, val league: League) : PathPlannerIntent()
 }
-
 /**
  * State owner for canonical routine editing and deterministic drive previews.
  * Geometry uses meters and CCW-positive radians internally.

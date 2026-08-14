@@ -36,6 +36,22 @@ class VideoSyncServiceTest {
 
             videoSync.seekVideo(50_000)
             assertEquals(1.0, replay.progress.value, 1e-9)
+
+            // Test adjustOffset
+            videoSync.adjustOffset(250)
+            assertEquals(750L, videoSync.logOffsetMs.value)
+
+            // Test play and pause delegation
+            videoSync.play()
+            assertEquals(ReplayState.PLAYING, replay.state.value)
+            videoSync.pause()
+            assertEquals(ReplayState.PAUSED, replay.state.value)
+
+            // Test loadVideo
+            val dummyVideo = tempDir.resolve("dummy_match.mp4").apply { writeBytes(ByteArray(1024 * 1024 * 10)) }
+            videoSync.loadVideo(dummyVideo)
+            assertEquals(dummyVideo, videoSync.videoFile.value)
+            assertEquals(0L, videoSync.currentVideoTimeMs.value)
         } finally {
             videoSync.dispose()
             replay.dispose()

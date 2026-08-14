@@ -271,4 +271,34 @@ class CsvLogDecoderTest {
             tempDir.deleteRecursively()
         }
     }
+
+    @Test
+    fun `wide CSV with multiple telemetry columns populates DuckDB accurately with distinct signals`() = runTest {
+        val tempDir = Files.createTempDirectory("ares-csv-wide-multi-signal").toFile()
+        val database = DatabaseService(tempDir.resolve("telemetry.duckdb").absolutePath)
+        try {
+            val csv = tempDir.resolve("multi_signal.csv")
+            csv.writeText(
+                "TimestampMs,Drive/Pose_X,Drive/Pose_Y,Drive/HeadingRad,Arm/AngleRad\n" +
+                "1000,1.25,2.50,0.785,1.570\n" +
+                "1020,1.30,2.55,0.790,1.580"
+            )
+
+            CsvLogDecoder(database).parseCsvLogNative(csv, "session")
+
+            val posX = database.getTelemetryForKey("session", "Drive/Pose_X")
+            val posY = database.getTelemetryForKey("session", "Drive/Pose_Y")
+            val heading = database.getTelemetryForKey("session", "Drive/HeadingRad")
+            val arm = database.getTelemetryForKey("session", "Arm/AngleRad")
+
+            assertEquals(listOf(1.25, 1.30), posX.map { it.value })
+            assertEquals(listOf(2.50, 2.55), posY.map { it.value })
+            assertEquals(listOf(0.785, 0.790), heading.map { it.value })
+            assertEquals(listOf(1.570, 1.580), arm.map { it.value })
+            assertEquals(listOf(1000L, 1020L), posX.map { it.timestampMs })
+        } finally {
+            database.close()
+            tempDir.deleteRecursively()
+        }
+    }
 }
