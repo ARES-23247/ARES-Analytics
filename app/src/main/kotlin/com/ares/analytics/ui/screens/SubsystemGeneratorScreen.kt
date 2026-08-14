@@ -1631,6 +1631,7 @@ private fun ControlInspector(
                 FeedforwardConceptLab(loop)
             }
         }
+        ControlTheorySandboxLab(loop)
         if (loop.strategy.requiresMeasurement()) {
             DoubleInput("Tolerance", loop.tolerance) { value -> viewModel.updateControlLoop(loop.loopId) { it.copy(tolerance = value) } }
         }

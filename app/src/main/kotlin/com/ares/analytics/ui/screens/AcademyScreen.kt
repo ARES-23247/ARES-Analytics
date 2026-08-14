@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Launch
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
@@ -54,6 +55,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.LearningProgressService
 import com.ares.analytics.ui.components.NavigationTarget
+import com.ares.analytics.ui.components.dashboard.EkfSensorFusionLabCard
+import com.ares.analytics.ui.components.pathplanner.MotionProfileLabCard
 import com.ares.analytics.ui.help.LearningAction
 import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.help.LearningLesson
@@ -91,6 +94,7 @@ fun AcademyScreen(
     var query by remember { mutableStateOf("") }
     var selectedLevel by remember { mutableStateOf<LearningLevel?>(LearningLevel.STARTER) }
     var selectedLessonId by remember { mutableStateOf(LearningCatalog.lessons.first().id) }
+    var showInteractiveLabs by remember { mutableStateOf(false) }
     LaunchedEffect(initialLessonId) {
         val requested = LearningCatalog.lessons.firstOrNull { it.id == initialLessonId }
         if (requested != null) {
@@ -103,6 +107,11 @@ fun AcademyScreen(
     val selectedLesson = LearningCatalog.lessons.firstOrNull { it.id == selectedLessonId }
         ?: matches.firstOrNull()
 
+    if (showInteractiveLabs) {
+        LearningLabsPane(onBack = { showInteractiveLabs = false })
+        return
+    }
+
     Row(
         modifier = Modifier.fillMaxSize().background(AresBackground).padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -111,7 +120,11 @@ fun AcademyScreen(
             modifier = Modifier.width(360.dp).fillMaxHeight(),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            LearningHeader(progress.practicedLessonIds.size, LearningCatalog.lessons.size)
+            LearningHeader(
+                progress.practicedLessonIds.size,
+                LearningCatalog.lessons.size,
+                onOpenLabs = { showInteractiveLabs = true }
+            )
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -177,7 +190,7 @@ fun AcademyScreen(
 }
 
 @Composable
-private fun LearningHeader(practiced: Int, total: Int) {
+private fun LearningHeader(practiced: Int, total: Int, onOpenLabs: () -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = AresSurface),
         border = BorderStroke(1.dp, AresBorder),
@@ -198,6 +211,66 @@ private fun LearningHeader(practiced: Int, total: Int) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AresResourceButton(AresBrandDestination.TEAM_WEBSITE)
                 AresResourceButton(AresBrandDestination.TEAM_GITHUB)
+            }
+            OutlinedButton(onClick = onOpenLabs, modifier = Modifier.fillMaxWidth()) {
+                Text("Explore interactive learning labs")
+            }
+        }
+    }
+}
+
+private enum class LearningLab(val label: String) {
+    CONTROL("Control response"),
+    SENSOR_FUSION("Sensor fusion"),
+    MOTION_PROFILE("Motion profile"),
+    MECHANISM_SIZING("Mechanism sizing")
+}
+
+@Composable
+private fun LearningLabsPane(onBack: () -> Unit) {
+    var selectedLab by remember { mutableStateOf(LearningLab.CONTROL) }
+    Column(
+        modifier = Modifier.fillMaxSize().background(AresBackground).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("Back to lessons")
+            }
+            Column {
+                Text("Interactive learning labs", color = AresTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "These simplified models do not command hardware, change project files, or prove a robot design is safe.",
+                    color = AresTextSecondary,
+                    fontSize = 12.sp
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            LearningLab.entries.forEach { lab ->
+                FilterChip(
+                    selected = selectedLab == lab,
+                    onClick = { selectedLab = lab },
+                    label = { Text(lab.label) }
+                )
+            }
+        }
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                when (selectedLab) {
+                    LearningLab.CONTROL -> ControlTheorySandboxLab()
+                    LearningLab.SENSOR_FUSION -> EkfSensorFusionLabCard()
+                    LearningLab.MOTION_PROFILE -> MotionProfileLabCard()
+                    LearningLab.MECHANISM_SIZING -> MechanismKinematicsLabCard()
+                }
             }
         }
     }
