@@ -20,8 +20,8 @@ Robot Studio never marks a build ready merely because an old generated file exis
 
 ## Follow the workflow
 
-1. **Workspace & robot identity** — select the intended repository and review `.ares/project.json`.
-2. **League & platform** — make sure workspace, descriptor, generator, and season runtime all agree on FTC or FRC.
+1. **Workspace & robot identity** — open [Project Identity](PROJECT_IDENTITY.md), confirm the repository, enter measured robot geometry, and review `.ares/project.json` before creation.
+2. **League & platform** — make sure workspace, canonical identity, generator, and season runtime all agree on FTC or FRC.
 3. **Drivebase** — describe physical identity, inversion, geometry, localization, safety, and the supported runtime adapter.
 4. **Mechanisms & subsystems** — add only the mechanisms the robot has; drive-only robots may leave this optional.
 5. **Sensors & localization** — select one compatible primary pose source and optional vision fusion.
@@ -52,7 +52,8 @@ Changing a display name must not change a stable document or action ID. Generate
 
 Read the stage issue before editing files manually:
 
-- **Wrong platform:** open workspace settings or repair the canonical metadata; do not generate cross-league code.
+- **Missing identity:** use Project Identity. Workspace setup selects a repository but does not silently invent measured geometry or create `.ares/project.json`.
+- **Wrong platform:** select the correct workspace or repair the canonical metadata; Project Identity will not rewrite the league of an existing project.
 - **Code required:** use a supported no-code drivebase for this season project, or ask a mentor/developer to implement and verify the missing runtime adapter.
 - **Invalid catalog or binding:** open the linked builder and fix the referenced stable ID or conflict.
 - **Missing controls:** create both a controller profile and a control scheme before building a driveable robot.

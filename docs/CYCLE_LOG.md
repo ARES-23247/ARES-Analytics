@@ -261,3 +261,56 @@ an architecture diagram.
   remain required after the Windows desktop is unlocked.
 - No physical robot was used. Production state flow and hardware behavior remain subject to source,
   generated-verification, simulator, and later supervised hardware-in-the-loop evidence.
+
+## Cycle 5 - Reviewed Project Identity setup
+
+### Objective
+
+Remove the novice dead end where Robot Studio detected a missing `.ares/project.json` but routed
+students to workspace settings, which could not create or safely repair the canonical document.
+
+### User-visible outcome
+
+- Robot Studio's identity and platform stages now open a dedicated **Project Identity** workflow.
+- The screen shows the selected repository, canonical destination, runtime consumers, stable
+  project ID, fixed league/convention, measured robot footprint, and editable field frame.
+- Missing physical dimensions remain blank unless the workspace already contains measured values;
+  the app does not invent robot geometry.
+- Current league field dimensions are visibly labeled as a preset that must be verified for the
+  season.
+- Creation and updates require a structured before/after review and explicit confirmation.
+- Project Identity is also discoverable under the Robot navigation section, command search,
+  contextual Academy help, First Launch, and the documentation index.
+
+### Safety, ownership, and recovery decisions
+
+- The stable project ID is locked after creation in this editor so an ordinary rename cannot break
+  references across drivebase, subsystem, controls, autonomous, and tuning documents.
+- A valid prior project document is checkpointed under `.ares/history/project/<content-hash>.json`
+  before an atomic update.
+- The reviewed save uses the previewed content hash as an optimistic-concurrency boundary. A file
+  changed after preview is preserved and the save fails visibly.
+- Corrupt existing content and workspace/canonical league mismatches are protected. The editor does
+  not overwrite or silently migrate either one.
+- The screen explicitly states that document validation is not build, simulation, deployment, or
+  physical-robot safety evidence.
+
+### Verification evidence
+
+- Focused repository, view-model, Robot Studio, navigation, and Academy catalog tests: passed.
+- Full Analytics app suite: 445 tests, 0 failures, 0 errors, 2 intentional skips.
+- Dashboard smoke: passed.
+- Trimmed distributable project loading: passed for one routine and one subsystem document.
+- `git diff --check`: passed; only line-ending notices were emitted.
+- No ARESLib contract changed, so no local validation-repository publication was required.
+
+### Delivery and limitations
+
+- Implementation is on `codex/project-identity-setup-v7`, stacked on the validated Academy and
+  safe-build Analytics work. Retarget or rebase it in dependency order before opening its protected
+  PR.
+- The post-unlock normal, colorblind, high-contrast, large-text, keyboard, and narrow-window visual
+  walkthrough remains required. The available desktop capture is still blocked by the Windows PIN
+  screen; no credential was entered or bypassed.
+- No physical robot was used or required. Robot measurements and season field dimensions still need
+  human verification before this metadata can support later physical work.

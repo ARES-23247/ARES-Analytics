@@ -44,6 +44,31 @@ class RobotStudioModelTest {
     }
 
     @Test
+    fun `missing or invalid metadata routes students to reviewed project identity setup`() {
+        val missing = evaluateRobotStudioStages(
+            completeEvidence().copy(metadataPresent = false, metadataLeagueMatches = false),
+            RobotStudioRuntimeEvidence(),
+        )
+        val invalidPlatform = evaluateRobotStudioStages(
+            completeEvidence().copy(metadataLeagueMatches = false),
+            RobotStudioRuntimeEvidence(),
+        )
+
+        assertEquals(
+            RobotStudioAction.OPEN_PROJECT_IDENTITY,
+            missing.first { it.id == RobotStudioStageId.WORKSPACE }.action,
+        )
+        assertEquals(
+            "Set up project identity",
+            missing.first { it.id == RobotStudioStageId.WORKSPACE }.actionLabel,
+        )
+        assertEquals(
+            RobotStudioAction.OPEN_PROJECT_IDENTITY,
+            invalidPlatform.first { it.id == RobotStudioStageId.PLATFORM }.action,
+        )
+    }
+
+    @Test
     fun `unsupported drive runtime is visibly code required and blocks no-code workflow`() {
         val stages = evaluateRobotStudioStages(
             completeEvidence().copy(

@@ -65,6 +65,11 @@ After Dashboard opens, choose **Help & Learn → First mission**. This is the re
 hardware-free handoff from setup into the app. The lesson coach can keep the next checkpoint
 visible while you select Local Sim, open Dashboard, and stop the simulator.
 
+Workspace setup records which repository you selected, but it does not guess a physical robot
+footprint or silently create canonical project metadata. Before using the no-code builders, open
+**Robot Studio**, choose **Set up project identity**, enter measured dimensions, and review the
+structured `.ares/project.json` diff. See [Project Identity](../learn/PROJECT_IDENTITY.md).
+
 ## Success check
 
 Setup is complete when:

@@ -31,7 +31,7 @@ enum class RobotStudioStageStatus(val label: String) {
 }
 
 enum class RobotStudioAction {
-    OPEN_PROFILE,
+    OPEN_PROJECT_IDENTITY,
     OPEN_DRIVEBASE,
     OPEN_SUBSYSTEMS,
     OPEN_CONTROLS,
@@ -208,8 +208,8 @@ internal fun evaluateRobotStudioStages(
             listOfNotNull(evidence.projectError) + evidence.metadataErrors,
             ".ares/project.json",
             "Analytics, code generation, simulators, and the season robot project",
-            RobotStudioAction.OPEN_PROFILE,
-            "Open workspace settings",
+            RobotStudioAction.OPEN_PROJECT_IDENTITY,
+            if (evidence.metadataPresent) "Review project identity" else "Set up project identity",
         ),
         stage(
             RobotStudioStageId.PLATFORM,
@@ -220,8 +220,8 @@ internal fun evaluateRobotStudioStages(
             if (platformStatus == RobotStudioStageStatus.INVALID) listOf("Choose the correct workspace league or repair the project metadata before continuing.") else emptyList(),
             ".ares/project.json",
             "Every builder and platform-specific generated adapter",
-            RobotStudioAction.OPEN_PROFILE,
-            "Review platform",
+            RobotStudioAction.OPEN_PROJECT_IDENTITY,
+            "Review project identity",
         ),
         stage(
             RobotStudioStageId.DRIVEBASE,

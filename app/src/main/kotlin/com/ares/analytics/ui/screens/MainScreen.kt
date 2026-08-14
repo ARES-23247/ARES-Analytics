@@ -40,6 +40,7 @@ import com.ares.analytics.ui.help.AcademyRuntimeSnapshot
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.*
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
+import com.ares.analytics.viewmodel.project.ProjectIdentityViewModel
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioAction
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioRuntimeEvidence
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioViewModel
@@ -359,6 +360,9 @@ fun MainScreen(services: ServiceRegistry) {
             readinessService = services.robotProjectReadinessService,
             scope = scope,
         )
+    }
+    val projectIdentityViewModel = remember(currentConfig.id) {
+        ProjectIdentityViewModel(scope = scope)
     }
     val guidedRunAnalysisViewModel = remember(currentConfig.id) {
         GuidedRunAnalysisViewModel(
@@ -879,8 +883,8 @@ fun MainScreen(services: ServiceRegistry) {
                                 viewModel = robotStudioViewModel,
                                 onAction = { action ->
                                     when (action) {
-                                        RobotStudioAction.OPEN_PROFILE ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PROFILE))
+                                        RobotStudioAction.OPEN_PROJECT_IDENTITY ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PROJECT_IDENTITY))
                                         RobotStudioAction.OPEN_DRIVEBASE ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
                                         RobotStudioAction.OPEN_SUBSYSTEMS ->
@@ -924,6 +928,13 @@ fun MainScreen(services: ServiceRegistry) {
                             )
                             NavigationTarget.SUBSYSTEM_GEN -> SubsystemGeneratorScreen(subsystemGeneratorViewModel)
                             NavigationTarget.DRIVEBASE_BUILDER -> DrivebaseBuilderScreen(drivebaseBuilderViewModel)
+                            NavigationTarget.PROJECT_IDENTITY -> ProjectIdentityScreen(
+                                viewModel = projectIdentityViewModel,
+                                config = currentConfig,
+                                onBackToStudio = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ROBOT_STUDIO))
+                                },
+                            )
                             NavigationTarget.PROFILE -> ProfileScreen(
                                 viewModel = profileViewModel,
                                 config = currentConfig,

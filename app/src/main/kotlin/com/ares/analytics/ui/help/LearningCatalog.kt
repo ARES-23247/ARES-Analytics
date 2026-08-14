@@ -353,6 +353,7 @@ object LearningCatalog {
             beforeYouStart = listOf("Select the intended robot workspace.", "Practice the data-source lesson first."),
             steps = listOf(
                 "Open Robot Studio and read the workspace path and league before changing anything.",
+                "If project identity needs action, open Project Identity, enter measured robot geometry, and review the structured diff before creating .ares/project.json.",
                 "Find the first stage labeled Needs action, Blocked, Invalid, or Code required.",
                 "Open its specialized builder and identify the canonical file it owns.",
                 "Return to Robot Studio, refresh, and explain what evidence changed.",
@@ -772,6 +773,7 @@ object LearningCatalog {
         NavigationTarget.PIT_DIAGNOSTICS to "pit-readiness",
         NavigationTarget.TUNING to "tuning-evidence",
         NavigationTarget.ROBOT_STUDIO to "robot-studio-tour",
+        NavigationTarget.PROJECT_IDENTITY to "robot-studio-tour",
         NavigationTarget.KDOC_VIEWER to "developer-reference",
     )
 
