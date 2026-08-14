@@ -208,82 +208,124 @@ class DriverAnalysisService(
     }
 
     /**
-     * Analyzes driver scrub, energy waste, and cycle efficiency from match telemetry.
+     * Reviews synchronized chassis-motion observations for practice patterns.
+     *
+     * This method deliberately does not infer wheel slip, electrical energy, or scored cycles:
+     * those require current/voltage, wheel-state, game-piece, and match-event evidence that may not
+     * exist in a session. Samples from the three chassis topics are joined by source timestamp so a
+     * dropped topic update cannot silently correlate unrelated frames.
      */
     suspend fun analyzeDriverCoaching(sessionId: String): DriverCoachingReport = withContext(Dispatchers.Default) {
         val vxFrames = getTelemetryForTopic(sessionId, "Drive/ChassisSpeeds/vx")
         val vyFrames = getTelemetryForTopic(sessionId, "Drive/ChassisSpeeds/vy")
         val omegaFrames = getTelemetryForTopic(sessionId, "Drive/ChassisSpeeds/omega")
+        val vyByTimestamp = vyFrames.associateBy { it.timestampUs }
+        val omegaByTimestamp = omegaFrames.associateBy { it.timestampUs }
+        val samples = vxFrames.asSequence()
+            .mapNotNull { vx ->
+                val vy = vyByTimestamp[vx.timestampUs] ?: return@mapNotNull null
+                val omega = omegaByTimestamp[vx.timestampUs] ?: return@mapNotNull null
+                if (!vx.value.isFinite() || !vy.value.isFinite() || !omega.value.isFinite()) {
+                    return@mapNotNull null
+                }
+                DriverMotionSample(vx.timestampUs, vx.value, vy.value, omega.value)
+            }
+            .sortedBy(DriverMotionSample::timestampUs)
+            .toList()
+        val sourceSampleCount = maxOf(vxFrames.size, vyFrames.size, omegaFrames.size)
+        val coverageFraction = if (sourceSampleCount == 0) 0.0 else samples.size.toDouble() / sourceSampleCount
+        val durationSeconds = samples.lastOrNull()?.let { last ->
+            (last.timestampUs - samples.first().timestampUs).coerceAtLeast(0L) / 1_000_000.0
+        } ?: 0.0
 
-        val totalFrames = minOf(vxFrames.size, vyFrames.size, omegaFrames.size)
-        if (totalFrames < 30) {
+        if (samples.size < MIN_COACHING_SAMPLES || durationSeconds < MIN_COACHING_DURATION_SECONDS) {
             return@withContext DriverCoachingReport(
-                scrubRatio = 0.0,
-                energyEfficiencyScore = 100.0,
-                reversalRatePerMinute = 0.0,
-                totalCyclesDetected = 0,
-                averageCycleTimeSeconds = 0.0,
-                coachingRecommendations = listOf("Session too short to compute comprehensive driving forensics.")
+                synchronizedSampleCount = samples.size,
+                sourceSampleCount = sourceSampleCount,
+                durationSeconds = durationSeconds,
+                coverageFraction = coverageFraction,
+                simultaneousTranslationRotationFraction = 0.0,
+                directionReversalRatePerMinute = 0.0,
+                confidence = DriverReviewConfidence.INSUFFICIENT,
+                observations = listOf(
+                    DriverMotionObservation(
+                        title = "More synchronized drive data is needed",
+                        evidence = "${samples.size} complete chassis samples cover ${"%.2f".format(durationSeconds)} seconds.",
+                        practiceIdea = "Record a longer simulator or robot run with vx, vy, and omega published in the same telemetry frame."
+                    )
+                )
             )
         }
 
-        var scrubEnergySum = 0.0
-        var totalMotionEnergy = 0.0
+        var combinedMotionSamples = 0
         var reversals = 0
-        var prevSign = 0.0
-
-        for (i in 0 until totalFrames) {
-            val vx = vxFrames[i].value
-            val vy = vyFrames[i].value
-            val omega = omegaFrames[i].value
-
-            val vMag = kotlin.math.hypot(vx, vy)
-            val rotMag = kotlin.math.abs(omega)
-            val curSign = kotlin.math.sign(vx)
-
-            if (prevSign != 0.0 && curSign != 0.0 && curSign != prevSign) {
-                reversals++
+        var previousMovingSample: DriverMotionSample? = null
+        for (sample in samples) {
+            val speed = kotlin.math.hypot(sample.vx, sample.vy)
+            if (speed >= COMBINED_TRANSLATION_THRESHOLD_MPS &&
+                kotlin.math.abs(sample.omega) >= COMBINED_ROTATION_THRESHOLD_RAD_PER_SEC
+            ) {
+                combinedMotionSamples++
             }
-            if (curSign != 0.0) prevSign = curSign
 
-            val transPower = vMag * vMag
-            val rotPower = rotMag * rotMag
-            totalMotionEnergy += transPower + rotPower
-
-            // Scrub occurs when translating fast while rotating hard
-            if (vMag > 0.8 && rotMag > 1.5) {
-                scrubEnergySum += (vMag * rotMag)
+            if (speed >= REVERSAL_MINIMUM_SPEED_MPS) {
+                val previous = previousMovingSample
+                if (previous != null) {
+                    val previousSpeed = kotlin.math.hypot(previous.vx, previous.vy)
+                    val cosine = (previous.vx * sample.vx + previous.vy * sample.vy) / (previousSpeed * speed)
+                    if (cosine <= REVERSAL_COSINE_THRESHOLD) reversals++
+                }
+                previousMovingSample = sample
             }
         }
 
-        val scrubRatio = (scrubEnergySum / totalMotionEnergy.coerceAtLeast(1.0)).coerceIn(0.0, 1.0)
-        val efficiencyScore = ((1.0 - scrubRatio * 1.5) * 100.0).coerceIn(40.0, 100.0)
-
-        val durationSec = ((vxFrames.last().timestampMs - vxFrames.first().timestampMs) / 1000.0).coerceAtLeast(1.0)
-        val reversalRate = (reversals / (durationSec / 60.0))
-
-        // Simple cycle detector based on velocity transitions
-        val cycles = (durationSec / 18.0).toInt().coerceAtLeast(1)
-        val avgCycleTime = durationSec / cycles
-
-        val recommendations = mutableListOf<String>()
-        if (scrubRatio > 0.20) {
-            recommendations.add("High wheel scrub detected during concurrent spin-translates. Feather translation stick slightly when snapping heading to conserve battery.")
+        val combinedFraction = combinedMotionSamples.toDouble() / samples.size
+        val reversalRate = reversals / (durationSeconds / 60.0)
+        val confidence = when {
+            samples.size >= 200 && durationSeconds >= 10.0 && coverageFraction >= 0.90 -> DriverReviewConfidence.STRONG
+            coverageFraction >= 0.60 -> DriverReviewConfidence.LIMITED
+            else -> DriverReviewConfidence.INSUFFICIENT
         }
-        if (reversalRate > 40.0) {
-            recommendations.add("Frequent rapid stick reversals (${"%.0f".format(reversalRate)}/min). Consider increasing Deadband Exponent to 1.5 for smoother fine adjustments.")
-        }
-        if (recommendations.isEmpty()) {
-            recommendations.add("Driving inputs are clean, efficient, and well-modulated across the session.")
+        val observations = buildList {
+            if (combinedFraction >= 0.15) {
+                add(
+                    DriverMotionObservation(
+                        title = "Frequent combined translation and rotation",
+                        evidence = "${"%.0f".format(combinedFraction * 100.0)}% of synchronized samples exceeded " +
+                            "${COMBINED_TRANSLATION_THRESHOLD_MPS} m/s and ${COMBINED_ROTATION_THRESHOLD_RAD_PER_SEC} rad/s.",
+                        practiceIdea = "Compare this interval with driver video, wheel states, current, and voltage. The motion pattern alone does not prove wheel slip or wasted energy."
+                    )
+                )
+            }
+            if (reversalRate >= 40.0) {
+                add(
+                    DriverMotionObservation(
+                        title = "Frequent large direction changes",
+                        evidence = "${"%.0f".format(reversalRate)} changes per minute turned the translation vector by at least 120 degrees while moving.",
+                        practiceIdea = "Review those timestamps with the driver. If they were unintentional, compare a short practice run with a gentler response curve; keep the change only if the driver prefers it."
+                    )
+                )
+            }
+            if (isEmpty()) {
+                add(
+                    DriverMotionObservation(
+                        title = "No configured motion-pattern threshold was crossed",
+                        evidence = "The synchronized chassis samples stayed below this review's combined-motion and reversal thresholds.",
+                        practiceIdea = "Use the timeline and driver video for context. This result is not a score and does not prove efficient or safe driving."
+                    )
+                )
+            }
         }
 
         DriverCoachingReport(
-            scrubRatio = scrubRatio,
-            energyEfficiencyScore = efficiencyScore,
-            reversalRatePerMinute = reversalRate,
-            totalCyclesDetected = cycles,
-            averageCycleTimeSeconds = avgCycleTime,
-            coachingRecommendations = recommendations
+            synchronizedSampleCount = samples.size,
+            sourceSampleCount = sourceSampleCount,
+            durationSeconds = durationSeconds,
+            coverageFraction = coverageFraction,
+            simultaneousTranslationRotationFraction = combinedFraction,
+            directionReversalRatePerMinute = reversalRate,
+            confidence = confidence,
+            observations = observations
         )
     }
 
@@ -299,7 +341,20 @@ class DriverAnalysisService(
         const val MIN_JITTER_AMPLITUDE = 0.02
         const val MIN_SIGNAL_TO_NOISE = 3.0
         const val MAX_SAMPLE_JITTER_FRACTION = 0.5
+        const val MIN_COACHING_SAMPLES = 30
+        const val MIN_COACHING_DURATION_SECONDS = 0.5
+        const val COMBINED_TRANSLATION_THRESHOLD_MPS = 0.8
+        const val COMBINED_ROTATION_THRESHOLD_RAD_PER_SEC = 1.5
+        const val REVERSAL_MINIMUM_SPEED_MPS = 0.20
+        const val REVERSAL_COSINE_THRESHOLD = -0.5
     }
+
+    private data class DriverMotionSample(
+        val timestampUs: Long,
+        val vx: Double,
+        val vy: Double,
+        val omega: Double
+    )
 }
 
 data class DriverProfileAnalysisResult(
@@ -310,11 +365,25 @@ data class DriverProfileAnalysisResult(
     val message: String
 )
 
+enum class DriverReviewConfidence {
+    INSUFFICIENT,
+    LIMITED,
+    STRONG
+}
+
+data class DriverMotionObservation(
+    val title: String,
+    val evidence: String,
+    val practiceIdea: String
+)
+
 data class DriverCoachingReport(
-    val scrubRatio: Double,
-    val energyEfficiencyScore: Double,
-    val reversalRatePerMinute: Double,
-    val totalCyclesDetected: Int,
-    val averageCycleTimeSeconds: Double,
-    val coachingRecommendations: List<String>
+    val synchronizedSampleCount: Int,
+    val sourceSampleCount: Int,
+    val durationSeconds: Double,
+    val coverageFraction: Double,
+    val simultaneousTranslationRotationFraction: Double,
+    val directionReversalRatePerMinute: Double,
+    val confidence: DriverReviewConfidence,
+    val observations: List<DriverMotionObservation>
 )

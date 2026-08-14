@@ -87,6 +87,8 @@ val availableWidgetsList = listOf(
     AvailableWidget("trends_card", "Battery Trends", "Multi-session degradation and regression trends.", Icons.AutoMirrored.Filled.TrendingDown, WidgetCategory.ANALYSIS),
     AvailableWidget("session_summary", "Session Summary", "Headline metrics for the selected recording.", Icons.Default.Summarize, WidgetCategory.ANALYSIS),
     AvailableWidget("ai_coach", "AI Forensics Coach", "Evidence-backed pit diagnostics and repair guidance.", Icons.Default.Psychology, WidgetCategory.ANALYSIS),
+    AvailableWidget("driver_motion_review", "Driver Motion Review", "Practice prompts from timestamp-synchronized chassis motion; never a driver score.", Icons.Default.SportsEsports, WidgetCategory.ANALYSIS),
+    AvailableWidget("pit_evidence_checklist", "Pit Evidence Checklist", "Observed telemetry thresholds, possible causes, and verification steps without pretending to diagnose.", Icons.Default.FactCheck, WidgetCategory.DIAGNOSTICS),
     AvailableWidget("vision_quality", "Vision & EKF Quality", "AprilTag acceptance, latency, and estimator quality.", Icons.Default.Camera, WidgetCategory.ANALYSIS),
     AvailableWidget("motor_health", "Motor Health", "Current draw, thermal risk, and stall warnings.", Icons.Default.ElectricBolt, WidgetCategory.ANALYSIS),
 

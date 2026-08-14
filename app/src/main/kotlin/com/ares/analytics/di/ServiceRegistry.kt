@@ -68,6 +68,7 @@ class ServiceRegistry {
     // ── Tier 2: Depend on Tier 0 + Tier 1 ────────────────────────────────────
     val alertEngineService by lazy { AlertEngineService(databaseService, nt4ClientService) }
     val driverAnalysisService by lazy { DriverAnalysisService(databaseService, sysIdService) }
+    val diagnosticCoachService by lazy { DiagnosticCoachService(databaseService) }
     val summaryEngineService by lazy { SummaryEngineService(databaseService, sysIdService, driverAnalysisService) }
     val hootDecoderService by lazy { HootDecoderService(databaseService, summaryEngineService, sysIdService) }
     val autoImportService by lazy {

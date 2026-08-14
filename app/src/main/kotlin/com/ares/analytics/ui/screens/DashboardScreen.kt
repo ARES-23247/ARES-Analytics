@@ -200,6 +200,12 @@ fun DashboardScreen(
                 "ai_coach" to { _, mod ->
                     AiCoachPanel(services.databaseService, services.syncEngineService, state.primarySessionId, onForensicsCompleted, mod)
                 },
+                "driver_motion_review" to { _, mod ->
+                    DriverMotionReviewWidget(services.driverAnalysisService, state.primarySessionId, mod)
+                },
+                "pit_evidence_checklist" to { _, mod ->
+                    DiagnosticChecklistWidget(services.diagnosticCoachService, state.primarySessionId, mod)
+                },
                 "match_schedule" to { _, mod ->
                     MatchScheduleCard(matches, currentConfig.teamId, onSelectMatch, mod)
                 },

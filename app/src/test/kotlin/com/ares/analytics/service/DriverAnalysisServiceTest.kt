@@ -101,10 +101,38 @@ class DriverAnalysisServiceTest {
         databaseService.insertTelemetryFrames(frames)
         val report = service.analyzeDriverCoaching(sessionId)
 
-        assertTrue(report.scrubRatio > 0.10, "Scrub ratio should be detected for concurrent fast translate and spin")
-        assertTrue(report.energyEfficiencyScore < 100.0, "Efficiency score should reflect scrub energy loss")
-        assertTrue(report.coachingRecommendations.isNotEmpty(), "Recommendations should be generated")
+        assertEquals(100, report.synchronizedSampleCount)
+        assertTrue(report.simultaneousTranslationRotationFraction > 0.50, "Should detect simultaneous translation and rotation")
+        assertTrue(report.observations.isNotEmpty(), "Observations should be generated")
+        assertEquals(DriverReviewConfidence.LIMITED, report.confidence)
 
+        tempFile.delete()
+        tempDb.delete()
+    }
+
+    @Test
+    fun coachingJoinsTopicsByTimestampInsteadOfListPosition() = runTest {
+        val tempDb = File.createTempFile("driver_alignment_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val tempFile = File.createTempFile("driver_profiles", ".json").apply { delete() }
+        val service = DriverAnalysisService(databaseService, SysIdService(databaseService), tempFile.absolutePath)
+        val sessionId = "alignment-session"
+        val frames = buildList {
+            repeat(40) { index ->
+                val timestampMs = index * 20L
+                add(TelemetryFrame(timestampMs, sessionId, "Drive/ChassisSpeeds/vx", 1.0))
+                if (index != 7) add(TelemetryFrame(timestampMs, sessionId, "Drive/ChassisSpeeds/vy", 0.0))
+                add(TelemetryFrame(timestampMs, sessionId, "Drive/ChassisSpeeds/omega", 0.0))
+            }
+        }
+        databaseService.insertTelemetryFrames(frames)
+
+        val report = service.analyzeDriverCoaching(sessionId)
+
+        assertEquals(39, report.synchronizedSampleCount)
+        assertEquals(40, report.sourceSampleCount)
+        assertTrue(report.coverageFraction < 1.0)
+        databaseService.close()
         tempFile.delete()
         tempDb.delete()
     }

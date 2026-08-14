@@ -4,7 +4,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ExpandLess
@@ -41,6 +43,11 @@ enum class RoboticsMotor(
     REV_CORE_HEX("REV Core Hex (FTC)", 125.0, 3.20, 4.4, 0.2)
 }
 
+enum class MechanismSizingKind(val label: String) {
+    ARM("Rotating arm"),
+    ELEVATOR("Elevator")
+}
+
 data class MotorSizingAnalysis(
     val outputSpeedRpm: Double,
     val outputStallTorqueNm: Double,
@@ -48,7 +55,7 @@ data class MotorSizingAnalysis(
     val stallMargin: Double,
     val estimatedCurrentDrawAmps: Double,
     val travelTimeSec: Double,
-    val isSafe: Boolean,
+    val meetsTeachingMarginGuideline: Boolean,
     val warningMessage: String?
 )
 
@@ -59,21 +66,26 @@ object KinematicsMath {
         motorCount: Int = 1,
         gearRatio: Double = 25.0,
         efficiency: Double = 0.85,
-        mechanismKind: String = "ARM", // "ARM", "ELEVATOR", "FLYWHEEL"
+        mechanismKind: MechanismSizingKind = MechanismSizingKind.ARM,
         massKg: Double = 3.0,
         armLengthM: Double = 0.50,
         spoolRadiusM: Double = 0.025,
         travelDistance: Double = 1.0 // radians or meters
     ): MotorSizingAnalysis {
-        val totalRatio = gearRatio.coerceAtLeast(0.1)
+        require(motorCount in 1..8) { "Motor count must be between 1 and 8" }
+        require(listOf(gearRatio, efficiency, massKg, armLengthM, spoolRadiusM, travelDistance).all(Double::isFinite)) {
+            "Sizing inputs must be finite"
+        }
+        require(gearRatio > 0.0 && efficiency in 0.01..1.0 && massKg > 0.0 && armLengthM > 0.0 &&
+            spoolRadiusM > 0.0 && travelDistance > 0.0) { "Sizing inputs must be positive and efficiency no greater than 1" }
+        val totalRatio = gearRatio
         val outRpm = motor.freeRpm / totalRatio
         val outStallTorque = motor.stallTorqueNm * totalRatio * motorCount * efficiency
 
         val g = 9.81
         val loadTorque = when (mechanismKind) {
-            "ARM" -> massKg * g * (armLengthM * 0.5) // CG at midpoint
-            "ELEVATOR" -> (massKg * g * spoolRadiusM) / efficiency.coerceAtLeast(0.1)
-            else -> 0.10 // small rotational friction for flywheel
+            MechanismSizingKind.ARM -> massKg * g * (armLengthM * 0.5) // teaching assumption: CG at midpoint
+            MechanismSizingKind.ELEVATOR -> (massKg * g * spoolRadiusM) / efficiency
         }
 
         val stallMargin = if (loadTorque > 1e-4) outStallTorque / loadTorque else 99.0
@@ -82,14 +94,14 @@ object KinematicsMath {
 
         val loadedRpm = outRpm * (1.0 - torqueFraction * 0.5).coerceAtLeast(0.1)
         val loadedRadPerSec = (loadedRpm * 2.0 * PI) / 60.0
-        val linearSpeed = if (mechanismKind == "ELEVATOR") loadedRadPerSec * spoolRadiusM else loadedRadPerSec
+        val linearSpeed = if (mechanismKind == MechanismSizingKind.ELEVATOR) loadedRadPerSec * spoolRadiusM else loadedRadPerSec
         val travelTime = if (linearSpeed > 1e-4) travelDistance / linearSpeed else 99.0
 
-        val isSafe = stallMargin >= 1.8 && currentDraw <= (40.0 * motorCount)
+        val meetsGuideline = stallMargin >= 1.8 && currentDraw <= (40.0 * motorCount)
         val warning = when {
-            stallMargin < 1.0 -> "STALL DETECTED: Motor will stall and overheat under load!"
-            stallMargin < 1.8 -> "LOW TORQUE MARGIN (<1.8x): Risk of tripping breakers during fast maneuvers."
-            currentDraw > (40.0 * motorCount) -> "HIGH CONTINUOUS CURRENT (>40A/motor): Risk of battery brownout."
+            stallMargin < 1.0 -> "Review needed: this static-load estimate exceeds the modeled output stall torque."
+            stallMargin < 1.8 -> "Review needed: this teaching estimate has less than 1.8× static torque margin."
+            currentDraw > (40.0 * motorCount) -> "Review needed: the idealized current estimate exceeds 40 A per motor."
             else -> null
         }
 
@@ -100,7 +112,7 @@ object KinematicsMath {
             stallMargin = stallMargin,
             estimatedCurrentDrawAmps = currentDraw,
             travelTimeSec = travelTime,
-            isSafe = isSafe,
+            meetsTeachingMarginGuideline = meetsGuideline,
             warningMessage = warning
         )
     }
@@ -112,13 +124,14 @@ fun MechanismKinematicsLabCard(
 ) {
     var selectedMotor by remember { mutableStateOf(RoboticsMotor.NEO) }
     var motorCount by remember { mutableIntStateOf(1) }
-    var mechanismType by remember { mutableStateOf("ARM") }
+    var mechanismType by remember { mutableStateOf(MechanismSizingKind.ARM) }
     var gearRatio by remember { mutableFloatStateOf(40.0f) }
     var massKg by remember { mutableFloatStateOf(3.0f) }
     var armLengthM by remember { mutableFloatStateOf(0.45f) }
+    var spoolRadiusM by remember { mutableFloatStateOf(0.025f) }
     var showTheory by remember { mutableStateOf(false) }
 
-    val analysis = remember(selectedMotor, motorCount, mechanismType, gearRatio, massKg, armLengthM) {
+    val analysis = remember(selectedMotor, motorCount, mechanismType, gearRatio, massKg, armLengthM, spoolRadiusM) {
         KinematicsMath.calculateMotorSizing(
             motor = selectedMotor,
             motorCount = motorCount,
@@ -126,7 +139,8 @@ fun MechanismKinematicsLabCard(
             mechanismKind = mechanismType,
             massKg = massKg.toDouble(),
             armLengthM = armLengthM.toDouble(),
-            travelDistance = if (mechanismType == "ARM") Math.toRadians(90.0) else 0.80
+            spoolRadiusM = spoolRadiusM.toDouble(),
+            travelDistance = if (mechanismType == MechanismSizingKind.ARM) Math.toRadians(90.0) else 0.80
         )
     }
 
@@ -137,18 +151,29 @@ fun MechanismKinematicsLabCard(
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Mechanism Kinematics & Motor Sizing Advisor", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-                    Text("Calculate gear ratios, stall torque margins, and battery current draws before cutting metal.", color = AresTextSecondary, fontSize = 12.sp)
+                    Text("Mechanism Sizing Learning Estimate", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    Text("Compare idealized static-load estimates. This is not design approval and does not model heat, breaker timing, inertia, friction, shock loads, or controller limits.", color = AresTextSecondary, fontSize = 12.sp)
+                }
+            }
+
+            Text("Mechanism model", color = AresTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                MechanismSizingKind.entries.forEach { kind ->
+                    FilterChip(
+                        selected = mechanismType == kind,
+                        onClick = { mechanismType = kind },
+                        label = { Text(kind.label) }
+                    )
                 }
             }
 
             // Motor Selector Chips
             Text("Select Motor:", color = AresTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                RoboticsMotor.entries.take(4).forEach { motor ->
+                RoboticsMotor.entries.forEach { motor ->
                     val isSelected = selectedMotor == motor
                     Box(
                         modifier = Modifier
@@ -159,7 +184,7 @@ fun MechanismKinematicsLabCard(
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
-                            text = motor.name.split("_").first(),
+                            text = motor.displayName,
                             fontSize = 11.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                             color = if (isSelected) AresCyan else AresTextSecondary
@@ -186,7 +211,7 @@ fun MechanismKinematicsLabCard(
                     Text("${analysis.outputSpeedRpm.toInt()} RPM", fontSize = 13.sp, color = AresCyan, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Travel Time (90°)", fontSize = 9.sp, color = AresTextTertiary)
+                    Text(if (mechanismType == MechanismSizingKind.ARM) "90° estimate" else "0.8 m estimate", fontSize = 9.sp, color = AresTextTertiary)
                     Text("${"%.2f".format(analysis.travelTimeSec)}s", fontSize = 13.sp, color = AresGold, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
                 }
             }
@@ -213,9 +238,20 @@ fun MechanismKinematicsLabCard(
                 Text("Mechanism Mass: ${"%.1f".format(massKg)} kg", color = AresTextPrimary, fontSize = 11.sp)
                 Slider(value = massKg, onValueChange = { massKg = it }, valueRange = 0.5f..12f)
 
-                Text("Arm Length: ${"%.2f".format(armLengthM)} m", color = AresTextPrimary, fontSize = 11.sp)
-                Slider(value = armLengthM, onValueChange = { armLengthM = it }, valueRange = 0.2f..1.2f)
+                if (mechanismType == MechanismSizingKind.ARM) {
+                    Text("Arm Length: ${"%.2f".format(armLengthM)} m", color = AresTextPrimary, fontSize = 11.sp)
+                    Slider(value = armLengthM, onValueChange = { armLengthM = it }, valueRange = 0.2f..1.2f)
+                } else {
+                    Text("Spool Radius: ${"%.3f".format(spoolRadiusM)} m", color = AresTextPrimary, fontSize = 11.sp)
+                    Slider(value = spoolRadiusM, onValueChange = { spoolRadiusM = it }, valueRange = 0.010f..0.075f)
+                }
             }
+
+            Text(
+                "Motor values are teaching fixtures. Verify the current manufacturer data sheet and your league's electrical rules before using any result.",
+                color = AresTextTertiary,
+                fontSize = 10.sp
+            )
 
             // Educational Concept Toggle
             TextButton(onClick = { showTheory = !showTheory }) {
@@ -234,8 +270,8 @@ fun MechanismKinematicsLabCard(
                         .padding(10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Text("1. The 2x Stall Margin Golden Rule", fontWeight = FontWeight.Bold, color = AresCyan, fontSize = 11.sp)
-                    Text("Always design mechanisms so output stall torque is at least 2.0x to 3.0x larger than the peak static load torque. This keeps steady-state motor current well below 20A, preventing thermal shutdown and battery sag.", color = AresTextTertiary, fontSize = 10.sp)
+                    Text("1. Torque margin is a review signal", fontWeight = FontWeight.Bold, color = AresCyan, fontSize = 11.sp)
+                    Text("A larger static torque margin can make a concept more tolerant of modeling error, but no single ratio proves a mechanism is safe. Review peak loads, duty cycle, structure, controls, and electrical protection.", color = AresTextTertiary, fontSize = 10.sp)
 
                     Text("2. Linear Current vs. Torque Relationship", fontWeight = FontWeight.Bold, color = AresCyan, fontSize = 11.sp)
                     Text("DC motor current scales linearly with torque: I = I_free + (τ / τ_stall) * (I_stall - I_free). Higher gear ratios reduce the torque load on the motor rotor, drastically lowering current draw at the cost of free speed.", color = AresTextTertiary, fontSize = 10.sp)

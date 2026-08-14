@@ -18,6 +18,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -38,6 +40,7 @@ data class EkfSimState(
     val rejectedVisionCount: Int
 )
 
+/** A deliberately simplified diagonal 2-D Kalman teaching model, not the production ARES EKF. */
 object EkfMath {
 
     fun simulateEkfFusion(
@@ -49,7 +52,13 @@ object EkfMath {
         steps: Int = 100,
         dt: Double = 0.02
     ): List<EkfSimState> {
-        val history = mutableListOf<EkfSimState>()
+        require(processNoiseQ.isFinite() && processNoiseQ > 0.0) { "Process noise Q must be finite and positive" }
+        require(measurementNoiseR.isFinite() && measurementNoiseR > 0.0) { "Measurement noise R must be finite and positive" }
+        require(mahalanobisGate.isFinite() && mahalanobisGate > 0.0) { "Gate must be finite and positive" }
+        require(visionIntervalSteps in 1..5_000) { "Vision interval must be between 1 and 5000 steps" }
+        require(steps in 1..5_000) { "Step count must be between 1 and 5000" }
+        require(dt.isFinite() && dt in 0.001..0.050) { "Time step must be between 1 ms and 50 ms" }
+        val history = ArrayList<EkfSimState>(steps + 1)
 
         var trueX = 0.0
         var trueY = 0.0
@@ -83,7 +92,7 @@ object EkfMath {
             odomX += (vx + odomNoiseX) * dt
             odomY += (vy + odomNoiseY) * dt
 
-            // 1. EKF Predict
+            // 1. Diagonal Kalman predict (this teaching model has no nonlinear Jacobian).
             ekfX += vx * dt
             ekfY += vy * dt
             pXx += processNoiseQ * dt
@@ -171,8 +180,8 @@ fun EkfSensorFusionLabCard(
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Interactive EKF & Vision Sensor Fusion Lab", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-                    Text("Explore how the Extended Kalman Filter fuses noisy odometry with camera measurements and rejects outliers.", color = AresTextSecondary, fontSize = 12.sp)
+                    Text("2-D Kalman Sensor-Fusion Teaching Lab", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    Text("Explore a simplified diagonal filter. It does not run the production ARES EKF, save calibration, command hardware, or validate a robot.", color = AresTextSecondary, fontSize = 12.sp)
                 }
             }
 
@@ -186,7 +195,9 @@ fun EkfSensorFusionLabCard(
                     .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
                     .padding(8.dp)
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
+                Canvas(modifier = Modifier.fillMaxSize().semantics {
+                    contentDescription = "Teaching plot with simulated truth, drifting odometry, and a simplified fused estimate"
+                }) {
                     val w = size.width
                     val h = size.height
 
@@ -256,7 +267,7 @@ fun EkfSensorFusionLabCard(
                 ) {
                     Text("Green: Truth", color = AresGreen, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                     Text("Amber: Raw Odom (Drift)", color = AresAmber, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                    Text("Cyan: EKF Fusion", color = AresCyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Text("Cyan: Simplified fusion", color = AresCyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                 }
             }
 
@@ -295,7 +306,7 @@ fun EkfSensorFusionLabCard(
             TextButton(onClick = { showTheory = !showTheory }) {
                 Icon(if (showTheory) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(4.dp))
-                Text(if (showTheory) "Hide EKF Theory" else "Learn How Sensor Fusion Works", fontSize = 11.sp, color = AresCyan)
+                Text(if (showTheory) "Hide teaching-model details" else "Learn how this simplified model works", fontSize = 11.sp, color = AresCyan)
             }
 
             if (showTheory) {
@@ -309,13 +320,13 @@ fun EkfSensorFusionLabCard(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text("1. Prediction vs. Correction Steps", fontWeight = FontWeight.Bold, color = AresCyan, fontSize = 11.sp)
-                    Text("High-frequency (100 Hz) odometry predicts position forward, but accumulates drift over time (covariance P grows). Periodic (30 Hz) vision measurements correct the drift and snap the covariance back down.", color = AresTextTertiary, fontSize = 10.sp)
+                    Text("Each simulated time step predicts position from motion while uncertainty grows. Periodic synthetic vision samples may correct the estimate. Real sensor rates, latency, correlations, and robot dynamics are not modeled here.", color = AresTextTertiary, fontSize = 10.sp)
 
                     Text("2. Kalman Gain K = P / (P + R)", fontWeight = FontWeight.Bold, color = AresCyan, fontSize = 11.sp)
                     Text("Kalman Gain dynamically balances confidence. When odometry is uncertain (P is high) or vision is pristine (R is low), K approaches 1.0 (trusting vision). When odometry is sharp and vision is noisy, K approaches 0.0.", color = AresTextTertiary, fontSize = 10.sp)
 
                     Text("3. Mahalanobis Distance Outlier Rejection", fontWeight = FontWeight.Bold, color = AresCyan, fontSize = 11.sp)
-                    Text("When a camera misdetects an AprilTag or receives a reflected light artifact, the residual is huge. The Mahalanobis distance D_M² = rᵀ S⁻¹ r calculates how many standard deviations the observation is away from our expectation. Values > 9.0 (3σ) are safely discarded.", color = AresTextTertiary, fontSize = 10.sp)
+                    Text("The model compares each synthetic observation with its prediction using D_M² = rᵀ S⁻¹ r. Samples above the selected teaching threshold are rejected; this is not proof that a real camera measurement is safe or unsafe.", color = AresTextTertiary, fontSize = 10.sp)
                 }
             }
         }

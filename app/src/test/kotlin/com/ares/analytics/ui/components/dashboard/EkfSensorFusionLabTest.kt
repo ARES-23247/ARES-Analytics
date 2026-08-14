@@ -3,6 +3,7 @@ package com.ares.analytics.ui.components.dashboard
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class EkfSensorFusionLabTest {
 
@@ -32,5 +33,13 @@ class EkfSensorFusionLabTest {
 
         assertTrue(ekfError < odomError, "EKF fusion should achieve lower error than raw dead-reckoned odometry (ekf=$ekfError vs odom=$odomError)")
         assertTrue(finalState.sigmaX > 0.0 && finalState.sigmaX < 0.20, "Uncertainty sigma should remain bounded")
+    }
+
+    @Test
+    fun rejectsInvalidOrUnboundedTeachingInputs() {
+        assertFailsWith<IllegalArgumentException> { EkfMath.simulateEkfFusion(processNoiseQ = Double.NaN) }
+        assertFailsWith<IllegalArgumentException> { EkfMath.simulateEkfFusion(measurementNoiseR = 0.0) }
+        assertFailsWith<IllegalArgumentException> { EkfMath.simulateEkfFusion(steps = 5_001) }
+        assertFailsWith<IllegalArgumentException> { EkfMath.simulateEkfFusion(dt = 0.5) }
     }
 }

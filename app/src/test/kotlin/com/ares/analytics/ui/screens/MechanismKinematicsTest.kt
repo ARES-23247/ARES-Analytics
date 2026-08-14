@@ -4,6 +4,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class MechanismKinematicsTest {
 
@@ -13,7 +14,7 @@ class MechanismKinematicsTest {
             motor = RoboticsMotor.NEO,
             motorCount = 1,
             gearRatio = 60.0,
-            mechanismKind = "ARM",
+            mechanismKind = MechanismSizingKind.ARM,
             massKg = 3.0,
             armLengthM = 0.50,
             travelDistance = Math.toRadians(90.0)
@@ -25,7 +26,7 @@ class MechanismKinematicsTest {
         assertEquals(132.6, analysis.outputStallTorqueNm, 1e-1)
         // Stall margin: ~18.0x
         assertTrue(analysis.stallMargin > 15.0, "High gear ratio should provide ample torque margin")
-        assertTrue(analysis.isSafe, "Arm mechanism with 60:1 gear ratio should be safe")
+        assertTrue(analysis.meetsTeachingMarginGuideline, "Fixture should meet the teaching margin guideline")
         assertTrue(analysis.travelTimeSec < 2.0, "90-degree travel time should be fast")
     }
 
@@ -35,13 +36,26 @@ class MechanismKinematicsTest {
             motor = RoboticsMotor.NEO,
             motorCount = 1,
             gearRatio = 2.0, // severely undergeared for a 10kg arm!
-            mechanismKind = "ARM",
+            mechanismKind = MechanismSizingKind.ARM,
             massKg = 10.0,
             armLengthM = 0.80
         )
 
-        assertFalse(analysis.isSafe, "Undergeared arm should be flagged as unsafe")
+        assertFalse(analysis.meetsTeachingMarginGuideline, "Undergeared fixture should require review")
         assertTrue(analysis.stallMargin < 1.0, "Undergeared arm should have stall margin < 1.0")
         assertFalse(analysis.warningMessage.isNullOrBlank(), "Warning message should be generated")
+    }
+
+    @Test
+    fun rejectsInvalidSizingInputs() {
+        assertFailsWith<IllegalArgumentException> {
+            KinematicsMath.calculateMotorSizing(RoboticsMotor.NEO, motorCount = 0)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            KinematicsMath.calculateMotorSizing(RoboticsMotor.NEO, massKg = Double.NaN)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            KinematicsMath.calculateMotorSizing(RoboticsMotor.NEO, efficiency = 1.2)
+        }
     }
 }

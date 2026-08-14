@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.DriverCoachingReport
+import com.ares.analytics.service.DriverReviewConfidence
 import com.ares.analytics.ui.theme.*
 
 @Composable
@@ -33,7 +34,31 @@ fun DriverCoachingCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Automated Driver Coaching & Efficiency Forensics", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-                    Text("Telemetry analysis measuring driver wheel scrub, input smoothness, and cycle times.", color = AresTextSecondary, fontSize = 12.sp)
+                    Text("Telemetry analysis measuring synchronized chassis motion, heading snaps, and input smoothness.", color = AresTextSecondary, fontSize = 12.sp)
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(
+                            when (report.confidence) {
+                                DriverReviewConfidence.STRONG -> AresGreen.copy(alpha = 0.2f)
+                                DriverReviewConfidence.LIMITED -> AresAmber.copy(alpha = 0.2f)
+                                DriverReviewConfidence.INSUFFICIENT -> AresTextTertiary.copy(alpha = 0.2f)
+                            }
+                        )
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "Confidence: ${report.confidence.name}",
+                        fontSize = 10.sp,
+                        color = when (report.confidence) {
+                            DriverReviewConfidence.STRONG -> AresGreen
+                            DriverReviewConfidence.LIMITED -> AresAmber
+                            DriverReviewConfidence.INSUFFICIENT -> AresTextTertiary
+                        },
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
 
@@ -43,22 +68,22 @@ fun DriverCoachingCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Efficiency Score", fontSize = 9.sp, color = AresTextTertiary)
+                    Text("Synchronized Samples", fontSize = 9.sp, color = AresTextTertiary)
                     Text(
-                        "${"%.0f".format(report.energyEfficiencyScore)}%",
+                        "${report.synchronizedSampleCount}",
                         fontSize = 14.sp,
-                        color = if (report.energyEfficiencyScore >= 80.0) AresGreen else AresAmber,
+                        color = AresCyan,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace
                     )
                 }
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Wheel Scrub", fontSize = 9.sp, color = AresTextTertiary)
+                    Text("Spin + Translate", fontSize = 9.sp, color = AresTextTertiary)
                     Text(
-                        "${"%.1f".format(report.scrubRatio * 100)}%",
+                        "${"%.1f".format(report.simultaneousTranslationRotationFraction * 100)}%",
                         fontSize = 14.sp,
-                        color = if (report.scrubRatio <= 0.15) AresGreen else AresError,
+                        color = if (report.simultaneousTranslationRotationFraction <= 0.20) AresGreen else AresAmber,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace
                     )
@@ -67,42 +92,47 @@ fun DriverCoachingCard(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Reversals / Min", fontSize = 9.sp, color = AresTextTertiary)
                     Text(
-                        "${"%.0f".format(report.reversalRatePerMinute)}",
+                        "${"%.0f".format(report.directionReversalRatePerMinute)}",
                         fontSize = 14.sp,
-                        color = if (report.reversalRatePerMinute <= 35.0) AresGreen else AresGold,
+                        color = if (report.directionReversalRatePerMinute <= 35.0) AresGreen else AresGold,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace
                     )
                 }
 
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Avg Cycle Time", fontSize = 9.sp, color = AresTextTertiary)
+                    Text("Duration", fontSize = 9.sp, color = AresTextTertiary)
                     Text(
-                        "${"%.1f".format(report.averageCycleTimeSeconds)}s",
+                        "${"%.1f".format(report.durationSeconds)}s",
                         fontSize = 14.sp,
-                        color = AresCyan,
+                        color = AresTextPrimary,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace
                     )
                 }
             }
 
-            // Coaching Recommendations
-            Text("Automated Coach Feedback:", color = AresTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                report.coachingRecommendations.forEach { rec ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(AresSurface)
-                            .border(1.dp, AresBorder, RoundedCornerShape(6.dp))
-                            .padding(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Lightbulb, contentDescription = null, tint = AresGold, modifier = Modifier.size(16.dp))
-                        Text(rec, color = AresTextPrimary, fontSize = 11.sp, lineHeight = 15.sp)
+            // Observations & Practice Ideas
+            if (report.observations.isNotEmpty()) {
+                Text("Coach Observations & Practice Ideas:", color = AresTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    report.observations.forEach { obs ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(AresSurface)
+                                .border(1.dp, AresBorder, RoundedCornerShape(6.dp))
+                                .padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Icon(Icons.Default.Lightbulb, contentDescription = null, tint = AresGold, modifier = Modifier.size(15.dp))
+                                Text(obs.title, color = AresTextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            Text(obs.evidence, color = AresTextSecondary, fontSize = 11.sp)
+                            Text("💡 ${obs.practiceIdea}", color = AresCyan, fontSize = 11.sp)
+                        }
                     }
                 }
             }

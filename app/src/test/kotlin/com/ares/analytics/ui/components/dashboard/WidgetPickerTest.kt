@@ -20,4 +20,10 @@ class WidgetPickerTest {
         assertEquals(listOf("ekf_telemetry"), result.map { it.type })
         assertTrue(filterWidgets("covariance", WidgetCategory.LIVE).isEmpty())
     }
+
+    @Test
+    fun `evidence based review tools are discoverable by plain language`() {
+        assertTrue(filterWidgets("driver score", WidgetCategory.ANALYSIS).any { it.type == "driver_motion_review" })
+        assertTrue(filterWidgets("possible causes", WidgetCategory.DIAGNOSTICS).any { it.type == "pit_evidence_checklist" })
+    }
 }

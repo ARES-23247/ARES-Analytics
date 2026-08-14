@@ -18,6 +18,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -58,12 +60,19 @@ object SplineMath {
         maxVelocity: Double = 3.5,
         samples: Int = 100
     ): List<SplineSample> {
+        require(listOf(x0, y0, th0, x1, y1, th1, scale, maxCentripetalAccel, maxVelocity).all(Double::isFinite)) {
+            "Spline inputs must be finite"
+        }
+        require(scale > 0.0 && maxCentripetalAccel > 0.0 && maxVelocity > 0.0) {
+            "Spline scale and limits must be positive"
+        }
+        require(samples in 2..5_000) { "Spline sample count must be between 2 and 5000" }
         val vx0 = cos(th0) * scale
         val vy0 = sin(th0) * scale
         val vx1 = cos(th1) * scale
         val vy1 = sin(th1) * scale
 
-        val result = mutableListOf<SplineSample>()
+        val result = ArrayList<SplineSample>(samples + 1)
         for (i in 0..samples) {
             val u = i.toDouble() / samples
             val u2 = u * u
@@ -120,7 +129,15 @@ object SplineMath {
         maxJerk: Double,
         dt: Double = 0.01
     ): List<MotionProfilePoint> {
-        val points = mutableListOf<MotionProfilePoint>()
+        require(listOf(distance, maxVel, maxAccel, maxJerk, dt).all(Double::isFinite)) {
+            "Motion-profile inputs must be finite"
+        }
+        require(distance > 0.0 && maxVel > 0.0 && maxAccel > 0.0 && maxJerk > 0.0) {
+            "Distance and motion limits must be positive"
+        }
+        require(dt in 0.001..0.050) { "Time step must be between 1 ms and 50 ms" }
+        val maxSamples = kotlin.math.ceil(10.0 / dt).toInt() + 2
+        val points = ArrayList<MotionProfilePoint>(maxSamples)
         var t = 0.0
         var pos = 0.0
         var vel = 0.0
@@ -198,8 +215,8 @@ fun MotionProfileLabCard(
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Interactive Spline & Motion Profiling Lab", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-                    Text("Learn how Quintic Hermite splines and jerk-limited S-curves eliminate wheel scrub and motor overheating.", color = AresTextSecondary, fontSize = 12.sp)
+                    Text("Spline & Motion-Profile Teaching Lab", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    Text("Explore a normalized spline and S-curve approximation. It does not save a robot path, model traction or temperature, or validate hardware limits.", color = AresTextSecondary, fontSize = 12.sp)
                 }
             }
 
@@ -214,7 +231,9 @@ fun MotionProfileLabCard(
                     .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
                     .padding(8.dp)
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
+                Canvas(modifier = Modifier.fillMaxSize().semantics {
+                    contentDescription = "Teaching plot of a spline colored by curvature, with start and goal labels"
+                }) {
                     val w = size.width
                     val h = size.height
 
@@ -279,7 +298,9 @@ fun MotionProfileLabCard(
                     .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
                     .padding(8.dp)
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
+                Canvas(modifier = Modifier.fillMaxSize().semantics {
+                    contentDescription = "Teaching plot of approximate velocity and acceleration over time"
+                }) {
                     val w = size.width
                     val h = size.height
 
@@ -360,13 +381,13 @@ fun MotionProfileLabCard(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Text("1. Quintic Hermite Splines (C² Continuity)", fontWeight = FontWeight.Bold, color = AresCyan, fontSize = 11.sp)
-                    Text("C² continuity guarantees that position, velocity, and acceleration are continuous at all points. This ensures swerve module steering motors never experience instantaneous angular jumps.", color = AresTextTertiary, fontSize = 10.sp)
+                    Text("This quintic construction illustrates continuous position, first derivative, and second derivative along one segment. A complete robot trajectory still needs module, timing, and controller validation.", color = AresTextTertiary, fontSize = 10.sp)
 
                     Text("2. Centripetal Acceleration Limit (v = √(ac / κ))", fontWeight = FontWeight.Bold, color = AresCyan, fontSize = 11.sp)
-                    Text("When a robot navigates a tight curve (high κ), centripetal force ac = v² κ pushes tires sideways. Clamping velocity dynamically in high-curvature corners prevents wheel slip and keeps odometry accurate.", color = AresTextTertiary, fontSize = 10.sp)
+                    Text("The teaching limit v = √(ac / |κ|) lowers displayed speed in tighter curves. Actual traction depends on mass, center of gravity, tires, surface, and control behavior, which this model does not measure.", color = AresTextTertiary, fontSize = 10.sp)
 
                     Text("3. Jerk-Limited S-Curves vs. Trapezoid Profiles", fontWeight = FontWeight.Bold, color = AresCyan, fontSize = 11.sp)
-                    Text("Trapezoid profiles create step-changes in acceleration (infinite jerk), slamming gear teeth and causing high battery current spikes. S-curve profiling smooths acceleration over time tj = a_max / j_max.", color = AresTextTertiary, fontSize = 10.sp)
+                    Text("This numerical approximation ramps acceleration using a jerk limit. It illustrates smoother commands than an ideal trapezoid corner, but does not predict gearbox shock, current, or battery response.", color = AresTextTertiary, fontSize = 10.sp)
                 }
             }
         }

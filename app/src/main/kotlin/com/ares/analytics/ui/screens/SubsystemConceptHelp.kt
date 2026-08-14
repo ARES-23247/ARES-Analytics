@@ -342,11 +342,13 @@ internal fun simulateStepResponse(
 }
 
 @Composable
-internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument) {
-    var expanded by remember(loop.uid) { mutableStateOf(false) }
-    var plant by remember(loop.uid) {
+internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument? = null) {
+    val configuredLoop = loop
+    val labKey = configuredLoop?.uid ?: "standalone-control-learning"
+    var expanded by remember(labKey) { mutableStateOf(configuredLoop == null) }
+    var plant by remember(labKey) {
         mutableStateOf(
-            when (loop.feedforward.kind) {
+            when (configuredLoop?.feedforward?.kind) {
                 SubsystemFeedforwardKind.ARM -> MechanismPlantKind.ARM
                 SubsystemFeedforwardKind.ELEVATOR -> MechanismPlantKind.ELEVATOR
                 else -> MechanismPlantKind.FLYWHEEL
@@ -354,13 +356,13 @@ internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument) {
         )
     }
 
-    var controllerStrategy by remember(loop.uid) { mutableStateOf(SandboxControllerStrategy.PID_FEEDFORWARD) }
-    var kp by remember(loop.uid) { mutableFloatStateOf(loop.kP.finiteFloat()) }
-    var ki by remember(loop.uid) { mutableFloatStateOf(loop.kI.finiteFloat()) }
-    var kd by remember(loop.uid) { mutableFloatStateOf(loop.kD.finiteFloat()) }
-    var ks by remember(loop.uid) { mutableFloatStateOf(loop.feedforward.kS.finiteFloat()) }
-    var kv by remember(loop.uid) { mutableFloatStateOf(loop.feedforward.kV.finiteFloat()) }
-    var kg by remember(loop.uid) { mutableFloatStateOf(loop.feedforward.kG.finiteFloat()) }
+    var controllerStrategy by remember(labKey) { mutableStateOf(SandboxControllerStrategy.PID_FEEDFORWARD) }
+    var kp by remember(labKey) { mutableFloatStateOf(configuredLoop?.kP?.finiteFloat() ?: 6f) }
+    var ki by remember(labKey) { mutableFloatStateOf(configuredLoop?.kI?.finiteFloat() ?: 0.5f) }
+    var kd by remember(labKey) { mutableFloatStateOf(configuredLoop?.kD?.finiteFloat() ?: 0.1f) }
+    var ks by remember(labKey) { mutableFloatStateOf(configuredLoop?.feedforward?.kS?.finiteFloat() ?: 0.05f) }
+    var kv by remember(labKey) { mutableFloatStateOf(configuredLoop?.feedforward?.kV?.finiteFloat() ?: 2.5f) }
+    var kg by remember(labKey) { mutableFloatStateOf(configuredLoop?.feedforward?.kG?.finiteFloat() ?: 0f) }
     var showTheory by remember { mutableStateOf(false) }
 
     val (trajectory, metrics) = remember(plant, controllerStrategy, kp, ki, kd, ks, kv, kg) {
@@ -446,14 +448,16 @@ internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument) {
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = {
-                kp = loop.kP.finiteFloat()
-                ki = loop.kI.finiteFloat()
-                kd = loop.kD.finiteFloat()
-                ks = loop.feedforward.kS.finiteFloat()
-                kv = loop.feedforward.kV.finiteFloat()
-                kg = loop.feedforward.kG.finiteFloat()
-            }) { Text("Reset to form values") }
+            if (configuredLoop != null) {
+                OutlinedButton(onClick = {
+                    kp = configuredLoop.kP.finiteFloat()
+                    ki = configuredLoop.kI.finiteFloat()
+                    kd = configuredLoop.kD.finiteFloat()
+                    ks = configuredLoop.feedforward.kS.finiteFloat()
+                    kv = configuredLoop.feedforward.kV.finiteFloat()
+                    kg = configuredLoop.feedforward.kG.finiteFloat()
+                }) { Text("Reset to form values") }
+            }
             OutlinedButton(onClick = {
                 when (plant) {
                     MechanismPlantKind.FLYWHEEL -> {
@@ -613,7 +617,7 @@ internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument) {
                 TheoryConceptRow(
                     term = "Feedforward (kS, kV, kA, kG)",
                     summary = "Physics-Based Predictive Control",
-                    detail = "Calculates the exact voltage required by physics before feedback reacts: V = kS*sign(v) + kV*v + kA*a + kG(θ). Handles 90% of motor effort so PID only fixes small residuals."
+                    detail = "Estimates the voltage a modeled mechanism needs before feedback reacts: V = kS*sign(v) + kV*v + kA*a + kG(θ). PID then corrects model error, disturbances, and changing conditions."
                 )
                 TheoryConceptRow(
                     term = "Linear ADRC",

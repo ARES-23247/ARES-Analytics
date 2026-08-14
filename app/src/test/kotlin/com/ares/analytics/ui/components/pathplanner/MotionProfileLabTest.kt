@@ -3,6 +3,7 @@ package com.ares.analytics.ui.components.pathplanner
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class MotionProfileLabTest {
 
@@ -52,6 +53,19 @@ class MotionProfileLabTest {
         for (pt in profile) {
             assertTrue(pt.vel <= 3.01, "Velocity must respect maxVel")
             assertTrue(kotlin.math.abs(pt.accel) <= 2.01, "Acceleration must respect maxAccel")
+        }
+    }
+
+    @Test
+    fun rejectsInvalidOrUnboundedTeachingInputs() {
+        assertFailsWith<IllegalArgumentException> {
+            SplineMath.sampleQuinticSpline(0.0, 0.0, 0.0, 1.0, 1.0, 0.0, samples = 5_001)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            SplineMath.generateSCurveProfile(1.0, 1.0, 1.0, 1.0, dt = 0.5)
+        }
+        assertFailsWith<IllegalArgumentException> {
+            SplineMath.generateSCurveProfile(Double.NaN, 1.0, 1.0, 1.0)
         }
     }
 }
