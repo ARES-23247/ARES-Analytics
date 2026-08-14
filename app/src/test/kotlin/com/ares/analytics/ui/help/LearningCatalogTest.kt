@@ -72,6 +72,17 @@ class LearningCatalogTest {
     }
 
     @Test
+    fun `homing lab teaches freshness stall evidence and neutral recovery`() {
+        val lesson = LearningCatalog.lesson("homing-safety-lab") ?: error("Missing homing safety lab")
+
+        assertEquals(LearningLab.HOMING_SAFETY, lesson.lab)
+        assertFalse(lesson.requiresRobot)
+        assertTrue("current stall" in lesson.keywords)
+        assertTrue("neutral recovery" in lesson.keywords)
+        assertTrue("safe-subsystem" in lesson.prerequisiteLessonIds)
+    }
+
+    @Test
     fun `robot studio lesson teaches compile only build evidence`() {
         val lesson = LearningCatalog.lesson("robot-studio-tour") ?: error("Missing Robot Studio lesson")
 

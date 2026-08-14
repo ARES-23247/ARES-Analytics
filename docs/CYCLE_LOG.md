@@ -164,3 +164,52 @@ are the remaining delivery steps for this cycle.
   a stable canonical ID.
 - No physical validation is claimed. Any later physical recommendation still needs a supervised
   team procedure.
+
+## Cycle 3 — Homing, freshness, and safe-recovery teaching lab
+
+### Objective
+
+Give a robot-builder student a hardware-free way to understand why homing and fault recovery need
+valid cached evidence, freshness, bounded dwell, and a confirmed neutral write.
+
+### User-visible outcome
+
+- Robot Academy now includes a fifth interactive lab, **Homing & safe recovery**.
+- Students can compare digital-sensor, current-stall, velocity-stall, and combined-stall evidence.
+- The model exposes configuration health, cached-feedback age, measurement validity, evidence
+  dwell, home-reference state, a latched output fault, and successful or failed neutral recovery.
+- The decision is stated as **MOTION PERMITTED** or **MOTION BLOCKED** with explanatory text and an
+  icon; color is supplemental.
+- The Robot builder path includes the lab after safe subsystem design.
+- The mentor guide includes objectives, an activity sequence, misconceptions, and explicit model
+  and physical-safety limits.
+
+### Safety and ownership decisions
+
+- The lab is a pure immutable teaching model. It owns no NT4 publisher, service, project file,
+  simulator command, or hardware reference.
+- Stale or invalid required evidence fails closed and resets the modeled dwell.
+- A latched output fault clears only after the modeled neutral write succeeds.
+- Establishing a home reference does not bypass later configuration, freshness, validity, or fault
+  checks.
+
+### Verification evidence
+
+- Focused model and catalog tests: 13 tests, 0 failures.
+- Full Analytics app suite: 427 tests, 0 failures, 0 errors, 2 intentional skips.
+- Dashboard smoke: passed.
+- Trimmed distributable project loading: passed for one routine and one subsystem document.
+- `git diff --check`: passed; only line-ending notices were emitted.
+- No ARESLib contract changed in this slice, so no local validation-repository publication or
+  consumer dependency substitution was required.
+
+### Delivery and limitations
+
+- Implementation is on `codex/academy-homing-safety-lab-v5`, based on the still-open safe-build
+  Analytics change so its current Academy wording is preserved. It must be rebased or retargeted
+  after that dependency merges before opening its protected PR.
+- A post-unlock visual walkthrough in normal, colorblind, high-contrast, large-text, keyboard, and
+  narrow-window modes remains required. The available desktop capture is still blocked by the
+  Windows PIN screen; no credential was entered or bypassed.
+- No physical robot was used. Real thresholds, directions, neutral behavior, and homing mechanics
+  still require supervised hardware-in-the-loop validation.

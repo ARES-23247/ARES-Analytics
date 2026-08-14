@@ -54,7 +54,9 @@ Use the same evidence loop each time:
 6. State what the model cannot prove.
 7. Reset before the next experiment.
 
-The control-response, sensor-fusion, motion-profile, and mechanism-sizing labs are teaching models. They do not run the production robot algorithms, command hardware, save project constants, validate a mechanism, or prove field clearance.
+The control-response, sensor-fusion, motion-profile, mechanism-sizing, and homing-safety labs are teaching models. They do not run the production robot algorithms, command hardware, save project constants, validate a mechanism, or prove field clearance.
+
+The **Homing & safe recovery** lab is the place to learn why a sensor edge, current spike, or stopped motor is not enough by itself. Students practice checking cached-measurement validity and freshness, requiring evidence for a bounded dwell, latching failed output writes, and clearing a fault only after a neutral write succeeds. It deliberately supports sensor, current-stall, velocity-stall, and combined-stall evidence without connecting to a robot.
 
 ## Resume and recover
 

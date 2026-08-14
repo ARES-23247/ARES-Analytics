@@ -70,6 +70,37 @@ Use this loop for every lab, fault, or tuning discussion:
 
 This keeps “the graph looks strange” from becoming an untraceable sequence of changes.
 
+## A 30-minute homing and safe-recovery lab
+
+### Learning outcomes
+
+Students should be able to:
+
+- distinguish a cached measurement from a direct hardware read;
+- explain why freshness and validity are separate checks;
+- compare digital-sensor, current-stall, velocity-stall, and combined-stall homing evidence;
+- explain why evidence must persist for a bounded dwell; and
+- explain why a latched output fault clears only after a neutral write succeeds.
+
+### Activity
+
+1. Open **Help & Learn -> Robot builder -> Lab: establish home and recover safely**.
+2. Use the digital-sensor method. Activate the sensor and advance only half the required dwell. Ask why the home reference is still not established.
+3. Make the cached feedback stale, advance again, and observe that the evidence dwell resets.
+4. Compare current-stall and velocity-stall evidence. Make the applicable measurement invalid even while its numeric value appears convincing.
+5. Try combined evidence with high current but a moving mechanism, then with high current and low speed.
+6. Establish home, simulate a failed output write, and attempt recovery while the neutral write is set to fail.
+7. Allow the modeled neutral write to succeed and ask the student to explain every condition that now permits motion.
+
+### Misconceptions to challenge
+
+- "The number looks reasonable, so the measurement must be valid."
+- "One current spike proves the mechanism hit the hard stop."
+- "Homed means every later command is safe."
+- "Resetting a fault flag proves the actuator is neutral."
+
+The lab is a pure teaching model. It does not select real thresholds, account for every mechanical failure, command hardware, or approve a physical homing routine. A real mechanism still needs documented limits, supervised low-authority testing, and an independent stop plan.
+
 ## Physical robot gate
 
 Move from simulator/replay to **Live Robot** only when all applicable items are true:

@@ -22,6 +22,7 @@ enum class LearningLab(val label: String) {
     SENSOR_FUSION("Sensor fusion"),
     MOTION_PROFILE("Motion profile"),
     MECHANISM_SIZING("Mechanism sizing"),
+    HOMING_SAFETY("Homing & safe recovery"),
 }
 
 data class LearningLabGuide(
@@ -127,6 +128,26 @@ object LearningCatalog {
                 "What current, thermal, structural, or friction evidence would a real design still need?",
             ),
             successLooksLike = "You can use the estimate to ask a better design question, not to certify a mechanism.",
+        ),
+        LearningLabGuide(
+            lab = LearningLab.HOMING_SAFETY,
+            title = "Decide when a mechanism is safe to move",
+            outcome = "Use cached, fresh evidence to establish home and recover a latched output fault through a confirmed neutral write.",
+            beforeYouStart = listOf(
+                "This is a hardware-free teaching model, not a production subsystem controller.",
+                "A home sensor, current spike, or stopped motor is evidence only when its cached measurement is valid and fresh.",
+            ),
+            tryThis = listOf(
+                "Establish home with a digital sensor and the required evidence dwell.",
+                "Switch to current, velocity, and combined stall evidence; make one required measurement invalid or stale.",
+                "Latch a failed output write, attempt a failed neutral recovery, then allow the neutral write to succeed.",
+            ),
+            reflectionQuestions = listOf(
+                "Why should one high-current sample not establish home?",
+                "Which conditions must still be checked after a home reference exists?",
+                "Why does clearing a fault require evidence that neutral output was actually written?",
+            ),
+            successLooksLike = "You can explain freshness, dwell, homing evidence, fault latching, and neutral recovery without treating the model as hardware approval.",
         ),
     )
 
@@ -566,6 +587,38 @@ object LearningCatalog {
             lab = LearningLab.MECHANISM_SIZING,
         ),
         LearningLesson(
+            id = "homing-safety-lab",
+            level = LearningLevel.BUILDER,
+            track = LearningTrack.UNDERSTAND,
+            title = "Lab: establish home and recover safely",
+            outcome = labGuide(LearningLab.HOMING_SAFETY).outcome,
+            durationMinutes = 20,
+            destination = NavigationTarget.ACADEMY,
+            action = LearningAction.OPEN_LAB,
+            beforeYouStart = labGuide(LearningLab.HOMING_SAFETY).beforeYouStart,
+            steps = labGuide(LearningLab.HOMING_SAFETY).tryThis,
+            successLooksLike = labGuide(LearningLab.HOMING_SAFETY).successLooksLike,
+            safetyNote = "This teaching model never authorizes mechanism motion or proves a physical homing routine safe.",
+            keywords = setOf(
+                "cached feedback",
+                "freshness",
+                "homing",
+                "current stall",
+                "velocity stall",
+                "fault latch",
+                "neutral recovery",
+            ),
+            prerequisiteLessonIds = setOf("safe-subsystem"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "homing-safety-lab.evidence",
+                    "Explain a fail-closed homing decision",
+                    labGuide(LearningLab.HOMING_SAFETY).reflectionQuestions.joinToString(" "),
+                ),
+            ),
+            lab = LearningLab.HOMING_SAFETY,
+        ),
+        LearningLesson(
             id = "developer-reference",
             level = LearningLevel.ADVANCED,
             track = LearningTrack.UNDERSTAND,
@@ -613,7 +666,15 @@ object LearningCatalog {
             title = "Robot builder",
             summary = "Describe the drivetrain and mechanisms, expose safe actions, then verify behavior in simulation.",
             level = LearningLevel.BUILDER,
-            lessonIds = listOf("robot-studio-tour", "drivebase-blueprint", "safe-subsystem", "mechanism-sizing-lab", "control-response-lab", "tuning-evidence"),
+            lessonIds = listOf(
+                "robot-studio-tour",
+                "drivebase-blueprint",
+                "safe-subsystem",
+                "homing-safety-lab",
+                "mechanism-sizing-lab",
+                "control-response-lab",
+                "tuning-evidence",
+            ),
         ),
         LearningPath(
             id = "autonomous-developer",
