@@ -258,6 +258,45 @@ class RoutineBuilderViewModelTest {
     }
 
     @Test
+    fun `reorder routine step updates root step sequence`() = runTest {
+        val viewModel = PathPlannerViewModel(this)
+        viewModel.onIntent(PathPlannerIntent.CreateRoutine("Reorder test"))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.WAIT))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.ACTION))
+        viewModel.onIntent(PathPlannerIntent.AddRoutineStep(RoutineStepKind.DRIVE_TO))
+        advanceUntilIdle()
+
+        val steps = viewModel.state.value.routine.steps
+        val firstId = steps[0].stepId
+        val secondId = steps[1].stepId
+        val thirdId = steps[2].stepId
+
+        // Move first step to the end (0 -> 2)
+        viewModel.onIntent(PathPlannerIntent.ReorderRoutineStep(0, 2))
+        advanceUntilIdle()
+        assertEquals(listOf(secondId, thirdId, firstId), viewModel.state.value.routine.steps.map { it.stepId })
+
+        // Move last step to middle (2 -> 1)
+        viewModel.onIntent(PathPlannerIntent.ReorderRoutineStep(2, 1))
+        advanceUntilIdle()
+        assertEquals(listOf(secondId, firstId, thirdId), viewModel.state.value.routine.steps.map { it.stepId })
+
+        // Out-of-bounds indices should be no-ops
+        viewModel.onIntent(PathPlannerIntent.ReorderRoutineStep(-1, 1))
+        advanceUntilIdle()
+        assertEquals(listOf(secondId, firstId, thirdId), viewModel.state.value.routine.steps.map { it.stepId })
+
+        viewModel.onIntent(PathPlannerIntent.ReorderRoutineStep(0, 10))
+        advanceUntilIdle()
+        assertEquals(listOf(secondId, firstId, thirdId), viewModel.state.value.routine.steps.map { it.stepId })
+
+        // Reordering to same index should be a no-op
+        viewModel.onIntent(PathPlannerIntent.ReorderRoutineStep(1, 1))
+        advanceUntilIdle()
+        assertEquals(listOf(secondId, firstId, thirdId), viewModel.state.value.routine.steps.map { it.stepId })
+    }
+
+    @Test
     fun `selectStep updates selectedStepIndex in RoutineBuilderViewModel`() = runTest {
         val viewModel = PathPlannerViewModel(this)
         viewModel.onIntent(PathPlannerIntent.CreateRoutine("Selection test"))
