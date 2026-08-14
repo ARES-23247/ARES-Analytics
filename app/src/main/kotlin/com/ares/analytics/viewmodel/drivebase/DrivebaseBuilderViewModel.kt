@@ -396,7 +396,13 @@ class DrivebaseBuilderViewModel(
 
 }
 
-data class GeometryLabResult(val turningRadiusMeters: Double?, val trackCircleDiameterMeters: Double?, val explanation: String)
+data class GeometryLabResult(
+    val turningRadiusMeters: Double?,
+    val trackCircleDiameterMeters: Double?,
+    val maxLinearSpeedMps: Double? = null,
+    val maxAngularSpeedRadPerSec: Double? = null,
+    val explanation: String
+)
 enum class LocalizationFailureScenario { ALL_HEALTHY, PRIMARY_STALE, HEADING_INVALID, VISION_REJECTED }
 data class LocalizationLabResult(val canDriveClosedLoop: Boolean, val usesVisionCorrection: Boolean, val message: String)
 
@@ -462,12 +468,27 @@ fun evaluateDriveLab(
     )
 }
 
-fun evaluateGeometryLab(geometry: DriveGeometry, linearCommand: Double, angularCommand: Double): GeometryLabResult {
+fun evaluateGeometryLab(
+    geometry: DriveGeometry,
+    linearCommand: Double,
+    angularCommand: Double,
+    maxMotorRpm: Double = 6000.0,
+    gearRatio: Double = 10.0
+): GeometryLabResult {
     val radius = if (kotlin.math.abs(angularCommand) < 1e-9) null else kotlin.math.abs(linearCommand / angularCommand)
+    val wheelCircumference = 2.0 * PI * geometry.wheelRadiusMeters
+    val freeLinearSpeed = (maxMotorRpm / 60.0 / gearRatio) * wheelCircumference
+    val maxAngularSpeed = if (geometry.trackWidthMeters > 0.01) freeLinearSpeed / (geometry.trackWidthMeters / 2.0) else 0.0
     return GeometryLabResult(
         turningRadiusMeters = radius,
         trackCircleDiameterMeters = radius?.let { 2.0 * (it + geometry.trackWidthMeters / 2.0) },
-        explanation = if (radius == null) "Zero turn command predicts a straight path." else "The chassis center follows a ${"%.2f".format(radius)} m radius; the outside wheel/module travels a larger circle."
+        maxLinearSpeedMps = freeLinearSpeed,
+        maxAngularSpeedRadPerSec = maxAngularSpeed,
+        explanation = if (radius == null) {
+            "Zero turn command predicts a straight path. Theoretical max linear speed: ${"%.2f".format(freeLinearSpeed)} m/s."
+        } else {
+            "The chassis center follows a ${"%.2f".format(radius)} m radius (max rotation ${"%.1f".format(maxAngularSpeed)} rad/s); the outside wheel/module travels a larger circle."
+        }
     )
 }
 
