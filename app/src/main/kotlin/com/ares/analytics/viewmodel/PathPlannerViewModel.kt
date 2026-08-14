@@ -85,6 +85,52 @@ private fun newRoutine(name: String = "New Routine"): RoutineDocument = RoutineD
     steps = emptyList()
 )
 
+enum class AutonomousTourTarget { EDITOR, CANVAS }
+
+enum class AutonomousTourStep(
+    val title: String,
+    val description: String,
+    val target: AutonomousTourTarget,
+) {
+    START_POSE(
+        title = "1. Set the Match Starting Pose",
+        description = "For a match autonomous routine, enable Match auto and place the starting pose in the highlighted field preview. Reusable routines can stay relative and do not need a match start pose.",
+        target = AutonomousTourTarget.CANVAS,
+    ),
+    ADD_WAYPOINT(
+        title = "2. Add a Drive Target",
+        description = "Add a Drive step, then edit its target or click the highlighted field preview. Set the heading to describe which way the robot should face at that point.",
+        target = AutonomousTourTarget.CANVAS,
+    ),
+    ACTION_MARKER(
+        title = "3. Attach an Action Marker",
+        description = "Open the Drive step in the highlighted editor and add a named action marker. A marker requests a Redux action at a chosen point in the drive; it does not bypass subsystem safety.",
+        target = AutonomousTourTarget.EDITOR,
+    ),
+    PREVIEW_PLAYBACK(
+        title = "4. Review the Kinematic Preview",
+        description = "Use Play or scrub the timeline in the highlighted field preview to inspect the planned trajectory. This checks path geometry and motion limits; it is not a physics simulation or hardware validation.",
+        target = AutonomousTourTarget.CANVAS,
+    ),
+    MATCH_SELECTOR(
+        title = "5. Choose Match or Reusable Behavior",
+        description = "In the highlighted editor, enable Match auto only when this routine should appear in the generated autonomous chooser. Leave it off for a reusable routine that another routine or control can call.",
+        target = AutonomousTourTarget.EDITOR,
+    );
+
+    fun next(): AutonomousTourStep? {
+        val entries = entries
+        val idx = entries.indexOf(this)
+        return if (idx in 0 until entries.size - 1) entries[idx + 1] else null
+    }
+
+    fun previous(): AutonomousTourStep? {
+        val entries = entries
+        val idx = entries.indexOf(this)
+        return if (idx > 0) entries[idx - 1] else null
+    }
+}
+
 data class PathPlannerState(
     val saveStatus: String = "",
     val estimatedDuration: Double = 0.0,
@@ -110,7 +156,8 @@ data class PathPlannerState(
     val routineActions: List<ActionDescriptor> = emptyList(),
     val routineConditions: List<ConditionDescriptor> = emptyList(),
     val autonomousEntry: AutonomousCatalogEntry? = null,
-    val availableInAutonomousSelector: Boolean = false
+    val availableInAutonomousSelector: Boolean = false,
+    val tourStep: AutonomousTourStep? = null
 )
 
 sealed class PathPlannerIntent {
@@ -123,6 +170,12 @@ sealed class PathPlannerIntent {
         val projectPath: String?,
         val robotDimensions: RobotDimensions
     ) : PathPlannerIntent()
+
+    // Guided Tour Intents for novices
+    data object StartGuidedTour : PathPlannerIntent()
+    data object NextTourStep : PathPlannerIntent()
+    data object PreviousTourStep : PathPlannerIntent()
+    data object DismissTour : PathPlannerIntent()
 
     // Canonical Routine Builder intents. These do not imply autonomous use.
     data class LoadRoutine(val projectPath: String?, val documentId: String) : PathPlannerIntent()
@@ -397,6 +450,16 @@ class PathPlannerViewModel(
                     updateRoutineFieldWaypoints(intent.waypoints, intent.league)
                     recalculateRoutinePreview()
                 }
+                is PathPlannerIntent.StartGuidedTour -> _state.update { it.copy(tourStep = AutonomousTourStep.START_POSE) }
+                is PathPlannerIntent.NextTourStep -> _state.update {
+                    val next = it.tourStep?.next()
+                    it.copy(tourStep = next)
+                }
+                is PathPlannerIntent.PreviousTourStep -> _state.update {
+                    val prev = it.tourStep?.previous()
+                    it.copy(tourStep = prev ?: it.tourStep)
+                }
+                is PathPlannerIntent.DismissTour -> _state.update { it.copy(tourStep = null) }
                 else -> { }
             }
         }

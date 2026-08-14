@@ -19,7 +19,9 @@ enum class LearningAction { OPEN_SCREEN, START_SIMULATOR, OPEN_LAB }
 
 enum class LearningLab(val label: String) {
     CONTROL("Control response"),
+    TUNING_MISSIONS("Control challenges"),
     SENSOR_FUSION("Sensor fusion"),
+    KINEMATICS_VECTORS("Drive kinematics"),
     MOTION_PROFILE("Motion profile"),
     MECHANISM_SIZING("Mechanism sizing"),
     HOMING_SAFETY("Homing & safe recovery"),
@@ -84,6 +86,25 @@ object LearningCatalog {
             successLooksLike = "You can describe one tradeoff using the plotted evidence without claiming the values are safe for hardware.",
         ),
         LearningLabGuide(
+            lab = LearningLab.TUNING_MISSIONS,
+            title = "Meet a response goal without hiding the model",
+            outcome = "Use proportional, derivative, velocity-feedforward, and gravity-feedforward terms to meet bounded goals in three simplified mechanism models.",
+            beforeYouStart = listOf(
+                "These normalized plants are not a digital twin of your robot.",
+                "The lab never writes gains to a project or commands hardware.",
+            ),
+            tryThis = listOf(
+                "Choose one mechanism and record the baseline rise, overshoot, settling, and final-error evidence.",
+                "Change one term, predict one metric, and compare the result.",
+                "Open the Subsystem Builder control step and identify where reviewed gains would live in the generated contract.",
+            ),
+            reflectionQuestions = listOf(
+                "Which term changed the response in the direction you predicted?",
+                "What measured units, mechanism constants, current limits, and test plan are still required before tuning a robot?",
+            ),
+            successLooksLike = "You can meet a teaching-model goal and explain why the result is not a hardware-safe gain recommendation.",
+        ),
+        LearningLabGuide(
             lab = LearningLab.SENSOR_FUSION,
             title = "Combine imperfect position estimates",
             outcome = "See why odometry drift, measurement noise, and uncertainty affect a fused estimate.",
@@ -98,6 +119,25 @@ object LearningCatalog {
                 "Which timestamp, frame, and units would a real vision measurement need?",
             ),
             successLooksLike = "You can explain that fusion weighs uncertain evidence; it does not turn a sensor into ground truth.",
+        ),
+        LearningLabGuide(
+            lab = LearningLab.KINEMATICS_VECTORS,
+            title = "Turn a chassis request into wheel or module targets",
+            outcome = "Use the production ARES inverse-kinematics math to compare mecanum wheel speeds and swerve module speed/azimuth targets.",
+            beforeYouStart = listOf(
+                "Robot-frame +X is forward, +Y is left, and positive rotation is counter-clockwise.",
+                "Ideal kinematics omit traction, motor dynamics, steering delay, voltage, current, and field obstacles.",
+            ),
+            tryThis = listOf(
+                "Request pure forward, pure left strafe, and pure counter-clockwise rotation.",
+                "Combine translation and rotation until uniform wheel-speed scaling appears.",
+                "Open the Drivebase Builder and connect track width, wheelbase, inversion, and maximum speed to the preview inputs.",
+            ),
+            reflectionQuestions = listOf(
+                "Why must every wheel target be scaled by the same factor?",
+                "Which physical effects could make measured robot motion differ from the ideal target?",
+            ),
+            successLooksLike = "You can predict one wheel/module pattern and name at least two omitted physical effects.",
         ),
         LearningLabGuide(
             lab = LearningLab.MOTION_PROFILE,
@@ -559,6 +599,30 @@ object LearningCatalog {
             lab = LearningLab.CONTROL,
         ),
         LearningLesson(
+            id = "control-challenges-lab",
+            level = LearningLevel.BUILDER,
+            track = LearningTrack.UNDERSTAND,
+            title = "Lab: meet a modeled control goal",
+            outcome = labGuide(LearningLab.TUNING_MISSIONS).outcome,
+            durationMinutes = 20,
+            destination = NavigationTarget.ACADEMY,
+            action = LearningAction.OPEN_LAB,
+            beforeYouStart = labGuide(LearningLab.TUNING_MISSIONS).beforeYouStart,
+            steps = labGuide(LearningLab.TUNING_MISSIONS).tryThis,
+            successLooksLike = labGuide(LearningLab.TUNING_MISSIONS).successLooksLike,
+            safetyNote = "Teaching-model results never authorize live tuning or mechanism motion.",
+            keywords = setOf("pid", "feedforward", "challenge", "flywheel", "arm", "elevator"),
+            prerequisiteLessonIds = setOf("control-response-lab", "safe-subsystem"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "control-challenges-lab.reflection",
+                    "Separate model evidence from robot evidence",
+                    labGuide(LearningLab.TUNING_MISSIONS).reflectionQuestions.joinToString(" "),
+                ),
+            ),
+            lab = LearningLab.TUNING_MISSIONS,
+        ),
+        LearningLesson(
             id = "sensor-fusion-lab",
             level = LearningLevel.BUILDER,
             track = LearningTrack.UNDERSTAND,
@@ -581,6 +645,30 @@ object LearningCatalog {
                 ),
             ),
             lab = LearningLab.SENSOR_FUSION,
+        ),
+        LearningLesson(
+            id = "drive-kinematics-lab",
+            level = LearningLevel.BUILDER,
+            track = LearningTrack.UNDERSTAND,
+            title = "Lab: inspect drive kinematics",
+            outcome = labGuide(LearningLab.KINEMATICS_VECTORS).outcome,
+            durationMinutes = 15,
+            destination = NavigationTarget.ACADEMY,
+            action = LearningAction.OPEN_LAB,
+            beforeYouStart = labGuide(LearningLab.KINEMATICS_VECTORS).beforeYouStart,
+            steps = labGuide(LearningLab.KINEMATICS_VECTORS).tryThis,
+            successLooksLike = labGuide(LearningLab.KINEMATICS_VECTORS).successLooksLike,
+            safetyNote = "Ideal wheel targets do not prove traction, current margin, steering response, or collision clearance.",
+            keywords = setOf("kinematics", "mecanum", "swerve", "wheel speed", "desaturation"),
+            prerequisiteLessonIds = setOf("drivebase-blueprint"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "drive-kinematics-lab.reflection",
+                    "Explain ideal versus observed motion",
+                    labGuide(LearningLab.KINEMATICS_VECTORS).reflectionQuestions.joinToString(" "),
+                ),
+            ),
+            lab = LearningLab.KINEMATICS_VECTORS,
         ),
         LearningLesson(
             id = "motion-profile-lab",

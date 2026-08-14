@@ -3,6 +3,8 @@
 package com.ares.analytics.viewmodel
 
 import com.ares.analytics.shared.League
+import com.ares.analytics.viewmodel.AutonomousTourStep
+import com.ares.analytics.viewmodel.AutonomousTourTarget
 import com.ares.analytics.viewmodel.project.RoutineProjectRepository
 import com.areslib.routine.RoutineDocument
 import com.areslib.routine.RoutineStep
@@ -355,5 +357,38 @@ class RoutineBuilderViewModelTest {
 
         assertTrue(viewModel.state.value.routine.steps.isEmpty())
         assertEquals(listOf("empty_routine"), viewModel.state.value.routineValidation.map { it.code })
+    }
+
+    @Test
+    fun `guided tour advances steps rewinds and dismisses cleanly`() = runTest {
+        val viewModel = PathPlannerViewModel(this)
+        assertNull(viewModel.state.value.tourStep)
+
+        viewModel.onIntent(PathPlannerIntent.StartGuidedTour)
+        advanceUntilIdle()
+        assertEquals(AutonomousTourStep.START_POSE, viewModel.state.value.tourStep)
+
+        viewModel.onIntent(PathPlannerIntent.NextTourStep)
+        advanceUntilIdle()
+        assertEquals(AutonomousTourStep.ADD_WAYPOINT, viewModel.state.value.tourStep)
+
+        viewModel.onIntent(PathPlannerIntent.NextTourStep)
+        advanceUntilIdle()
+        assertEquals(AutonomousTourStep.ACTION_MARKER, viewModel.state.value.tourStep)
+
+        viewModel.onIntent(PathPlannerIntent.PreviousTourStep)
+        advanceUntilIdle()
+        assertEquals(AutonomousTourStep.ADD_WAYPOINT, viewModel.state.value.tourStep)
+
+        viewModel.onIntent(PathPlannerIntent.DismissTour)
+        advanceUntilIdle()
+        assertNull(viewModel.state.value.tourStep)
+    }
+
+    @Test
+    fun `guided tour distinguishes preview from physics validation`() {
+        assertEquals(AutonomousTourTarget.CANVAS, AutonomousTourStep.PREVIEW_PLAYBACK.target)
+        assertTrue(AutonomousTourStep.PREVIEW_PLAYBACK.description.contains("not a physics simulation"))
+        assertTrue(AutonomousTourStep.ACTION_MARKER.description.contains("does not bypass subsystem safety"))
     }
 }
