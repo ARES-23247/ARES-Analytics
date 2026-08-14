@@ -59,6 +59,7 @@
     }
   },
   "capabilityActionKeys": [],
+  "interlocks": [],
   "safety": {
     "feedbackTimeoutMs": null,
     "homing": {"method": "NONE"},

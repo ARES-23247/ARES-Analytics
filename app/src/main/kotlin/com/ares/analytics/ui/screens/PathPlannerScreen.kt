@@ -9,7 +9,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -104,97 +109,134 @@ fun PathPlannerScreen(
         }
     }
 
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column {
-                Text(
-                    "Routine Builder",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = AresTextPrimary
-                )
-                Text(
-                    "Build autonomous routines, controller macros, and reusable robot behaviors in one place.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = AresTextSecondary
-                )
-            }
-            Surface(
-                color = AresSurfaceElevated,
-                shape = RoundedCornerShape(999.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Column {
                     Text(
-                        if (projectPath == null) "Select a project" else "Offline project catalog · ${league.name}",
-                        modifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 6.dp),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = if (projectPath == null) AresTextSecondary else AresCyan
+                        "Routine Builder",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = AresTextPrimary
                     )
-                    androidx.compose.material3.TextButton(
-                        onClick = {
-                            chooseProjectDirectory(projectPath)?.let { onProjectPathChanged(it.path) }
-                        }
+                    Text(
+                        "Build autonomous routines, controller macros, and reusable robot behaviors in one place.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AresTextSecondary
+                    )
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = { viewModel.onIntent(PathPlannerIntent.StartGuidedTour) },
+                        border = androidx.compose.foundation.BorderStroke(1.dp, AresCyan.copy(alpha = 0.5f)),
+                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = AresCyan)
                     ) {
-                        Text("Change folder")
+                        androidx.compose.material3.Icon(
+                            androidx.compose.material.icons.Icons.Default.AutoAwesome,
+                            contentDescription = "Take Tour",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        androidx.compose.foundation.layout.Spacer(Modifier.width(6.dp))
+                        Text("New to Auto? Take Tour", style = MaterialTheme.typography.labelMedium)
                     }
+
+                    Surface(
+                        color = AresSurfaceElevated,
+                        shape = RoundedCornerShape(999.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                if (projectPath == null) "Select a project" else "Offline project catalog · ${league.name}",
+                                modifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 6.dp),
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (projectPath == null) AresTextSecondary else AresCyan
+                            )
+                            androidx.compose.material3.TextButton(
+                                onClick = {
+                                    chooseProjectDirectory(projectPath)?.let { onProjectPathChanged(it.path) }
+                                }
+                            ) {
+                                Text("Change folder")
+                            }
+                        }
+                    }
+                }
+            }
+
+            val highlightEditor = state.tourStep?.target == com.ares.analytics.viewmodel.AutonomousTourTarget.EDITOR
+            val highlightCanvas = state.tourStep?.target == com.ares.analytics.viewmodel.AutonomousTourTarget.CANVAS
+
+            Row(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .border(if (highlightEditor) 2.dp else 0.dp, if (highlightEditor) AresCyan else androidx.compose.ui.graphics.Color.Transparent, RoundedCornerShape(12.dp))
+                ) {
+                    RoutineEditorPanel(
+                        state = state,
+                        projectPath = projectPath,
+                        league = state.activeLeague,
+                        onRobotDimensionsChanged = { dimensions ->
+                            viewModel.onIntent(PathPlannerIntent.UpdateCanonicalRobotDimensions(projectPath, dimensions))
+                            onRobotDimensionsChanged(dimensions)
+                        },
+                        onIntent = viewModel::onIntent
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .border(if (highlightCanvas) 2.dp else 1.dp, if (highlightCanvas) AresCyan else AresBorder, RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(12.dp))
+                ) {
+                    FieldCanvas(
+                        league = state.activeLeague,
+                        waypoints = routineWaypoints,
+                        actualPath = previewPath,
+                        contextPath = null,
+                        contextWaypoints = null,
+                        onWaypointsChanged = {
+                            viewModel.onIntent(PathPlannerIntent.UpdateRoutineFieldWaypoints(it, state.activeLeague))
+                        },
+                        projectPath = projectPath,
+                        showPathControls = false,
+                        showObstacleControls = false,
+                        playbackPose = playbackPose,
+                        aprilTags = null,
+                        onAprilTagsChanged = null,
+                        initialViewRotation = state.viewRotation,
+                        onViewRotationChanged = {
+                            viewModel.onIntent(PathPlannerIntent.UpdateViewRotation(it))
+                        },
+                        autoGoalMode = true,
+                        robotDimensions = state.robotDimensions,
+                        showToolbar = false
+                    )
                 }
             }
         }
 
-        Row(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            RoutineEditorPanel(
-                state = state,
-                projectPath = projectPath,
-                league = state.activeLeague,
-                onRobotDimensionsChanged = { dimensions ->
-                    viewModel.onIntent(PathPlannerIntent.UpdateCanonicalRobotDimensions(projectPath, dimensions))
-                    onRobotDimensionsChanged(dimensions)
-                },
-                onIntent = viewModel::onIntent
-            )
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .border(1.dp, AresBorder, RoundedCornerShape(12.dp))
-                    .clip(RoundedCornerShape(12.dp))
-            ) {
-                FieldCanvas(
-                    league = state.activeLeague,
-                    waypoints = routineWaypoints,
-                    actualPath = previewPath,
-                    contextPath = null,
-                    contextWaypoints = null,
-                    onWaypointsChanged = {
-                        viewModel.onIntent(PathPlannerIntent.UpdateRoutineFieldWaypoints(it, state.activeLeague))
-                    },
-                    projectPath = projectPath,
-                    showPathControls = false,
-                    showObstacleControls = false,
-                    playbackPose = playbackPose,
-                    aprilTags = null,
-                    onAprilTagsChanged = null,
-                    initialViewRotation = state.viewRotation,
-                    onViewRotationChanged = {
-                        viewModel.onIntent(PathPlannerIntent.UpdateViewRotation(it))
-                    },
-                    autoGoalMode = true,
-                    robotDimensions = state.robotDimensions,
-                    showToolbar = false
-                )
-            }
-        }
+        // Floating guided tour overlay for novices
+        com.ares.analytics.ui.components.routine.FirstAutonomousTourOverlay(
+            currentStep = state.tourStep,
+            onIntent = viewModel::onIntent
+        )
     }
 }

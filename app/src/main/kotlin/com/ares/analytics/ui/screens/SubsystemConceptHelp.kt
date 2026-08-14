@@ -342,7 +342,10 @@ internal fun simulateStepResponse(
 }
 
 @Composable
-internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument? = null) {
+internal fun ControlTheorySandboxLab(
+    loop: SubsystemControlLoopDocument? = null,
+    onApplyGains: ((kp: Double, ki: Double, kd: Double, ks: Double, kv: Double, kg: Double) -> Unit)? = null
+) {
     val configuredLoop = loop
     val labKey = configuredLoop?.uid ?: "standalone-control-learning"
     var expanded by remember(labKey) { mutableStateOf(configuredLoop == null) }
@@ -447,7 +450,33 @@ internal fun ControlTheorySandboxLab(loop: SubsystemControlLoopDocument? = null)
             )
         }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (configuredLoop != null && onApplyGains != null) {
+                Button(
+                    onClick = {
+                        onApplyGains(
+                            kp.toDouble(),
+                            ki.toDouble(),
+                            kd.toDouble(),
+                            ks.toDouble(),
+                            kv.toDouble(),
+                            kg.toDouble()
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AresCyan,
+                        contentColor = AresOnAccent
+                    )
+                ) {
+                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Apply gains to controller")
+                }
+            }
             if (configuredLoop != null) {
                 OutlinedButton(onClick = {
                     kp = configuredLoop.kP.finiteFloat()

@@ -16,11 +16,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ArrowDropDown
@@ -47,8 +49,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.ui.draw.clip
+import com.areslib.subsystem.SubsystemTemplate
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -166,6 +171,64 @@ fun SubsystemGeneratorScreen(viewModel: SubsystemGeneratorViewModel) {
             onDismiss = viewModel::cancelStarterReplacement,
         )
     }
+    if (state.showTemplatePicker) {
+        MechanismTemplatePickerDialog(
+            onSelectTemplate = viewModel::newSubsystem,
+            onDismiss = { viewModel.setTemplatePickerVisible(false) },
+        )
+    }
+}
+
+@Composable
+private fun MechanismTemplatePickerDialog(
+    onSelectTemplate: (SubsystemTemplate) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Select Subsystem Archetype", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                Text("Choose a starting architecture template. You can customize all parameters and hardware later.", color = AresTextSecondary, fontSize = 12.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 480.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                subsystemTemplateOptions.forEach { option ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .clickable { onSelectTemplate(option.template) },
+                        color = AresSurface,
+                        border = BorderStroke(1.dp, AresBorder),
+                    ) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(option.label, color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, tint = AresCyan, modifier = Modifier.size(16.dp))
+                            }
+                            Text(option.description, color = AresTextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
@@ -806,7 +869,7 @@ private fun DocumentList(state: SubsystemGeneratorState, viewModel: SubsystemGen
             }
             Spacer(Modifier.height(6.dp))
         }
-        OutlinedButton(onClick = viewModel::newSubsystem, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { viewModel.setTemplatePickerVisible(true) }, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Default.Add, null, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(4.dp))
             Text("Create generated subsystem")
@@ -1631,7 +1694,12 @@ private fun ControlInspector(
                 FeedforwardConceptLab(loop)
             }
         }
-        ControlTheorySandboxLab(loop)
+        ControlTheorySandboxLab(
+            loop = loop,
+            onApplyGains = { kp, ki, kd, ks, kv, kg ->
+                viewModel.applyControlLoopGains(loop.loopId, kp, ki, kd, ks, kv, kg)
+            }
+        )
         if (loop.strategy.requiresMeasurement()) {
             DoubleInput("Tolerance", loop.tolerance) { value -> viewModel.updateControlLoop(loop.loopId) { it.copy(tolerance = value) } }
         }

@@ -209,6 +209,7 @@ data class SubsystemGeneratorState(
     val aiProposalInProgress: Boolean = false,
     val aiProposal: SubsystemAiProposalReview? = null,
     val aiProposalError: String? = null,
+    val showTemplatePicker: Boolean = false,
 ) {
     val canSave: Boolean
         get() = dirty && loadError == null && problems.none { it.severity == SubsystemProblemSeverity.ERROR }
@@ -303,33 +304,36 @@ class SubsystemGeneratorViewModel(
             }
     }
 
-    fun newSubsystem() {
+    fun newSubsystem(template: SubsystemTemplate = _state.value.selectedTemplate) {
         aiProposalGeneration++
         val used = _state.value.documents.mapTo(hashSetOf()) { it.documentId }
         var suffix = 1
         var id = "new-subsystem"
         while (id in used) id = "new-subsystem-${++suffix}"
         val name = if (suffix == 1) "NewSubsystem" else "NewSubsystem$suffix"
-        val document = SubsystemTemplates.create(_state.value.selectedTemplate, id, name, platform)
+        val document = SubsystemTemplates.create(template, id, name, platform)
         _state.update { current ->
             current.copy(
                 documents = current.documents + document,
                 selectedDocumentId = document.documentId,
                 draft = SubsystemEditorDraft(document),
-                selectedHardwareUid = document.hardware.first().uid,
+                selectedHardwareUid = document.hardware.firstOrNull()?.uid,
                 selectedFieldUid = null,
                 selectedLoopUid = null,
                 selectedTuningParameterUid = document.tuningParameters.firstOrNull()?.uid,
                 activeStage = SubsystemBuilderStage.PURPOSE,
                 selectedTemplate = document.template,
                 dirty = true,
-                status = "New subsystem draft created.",
+                status = "New ${template.name.lowercase().replace('_', ' ')} draft created.",
                 aiProposalInProgress = false,
                 aiProposal = null,
                 aiProposalError = null,
+                showTemplatePicker = false,
             ).revalidated()
         }
     }
+
+    fun setTemplatePickerVisible(visible: Boolean) = _state.update { it.copy(showTemplatePicker = visible) }
 
     fun selectTemplate(template: SubsystemTemplate) = _state.update { it.copy(selectedTemplate = template) }
 
@@ -871,6 +875,32 @@ class SubsystemGeneratorViewModel(
 
     fun updateControlLoop(id: String, transform: (SubsystemControlLoopDocument) -> SubsystemControlLoopDocument) = edit { document ->
         document.copy(controlLoops = document.controlLoops.map { if (it.loopId == id) transform(it) else it })
+    }
+
+    fun applyControlLoopGains(
+        id: String,
+        kp: Double,
+        ki: Double,
+        kd: Double,
+        ks: Double,
+        kv: Double,
+        kg: Double,
+    ) {
+        require(listOf(kp, ki, kd, ks, kv, kg).all(Double::isFinite)) {
+            "Control and feedforward gains must be finite."
+        }
+        updateControlLoop(id) { loop ->
+            loop.copy(
+                kP = kp,
+                kI = ki,
+                kD = kd,
+                feedforward = loop.feedforward.copy(
+                    kS = ks,
+                    kV = kv,
+                    kG = kg
+                )
+            )
+        }
     }
 
     fun save(generateAfterSave: Boolean = false) {

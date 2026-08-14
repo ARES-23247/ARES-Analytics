@@ -578,7 +578,9 @@ private fun LearningLabsPane(initialLab: LearningLab, onBack: () -> Unit) {
             item {
                 when (selectedLab) {
                     LearningLab.CONTROL -> ControlTheorySandboxLab()
+                    LearningLab.TUNING_MISSIONS -> AcademyTuningMissions()
                     LearningLab.SENSOR_FUSION -> EkfSensorFusionLabCard()
+                    LearningLab.KINEMATICS_VECTORS -> KinematicsVectorLabCard()
                     LearningLab.MOTION_PROFILE -> MotionProfileLabCard()
                     LearningLab.MECHANISM_SIZING -> MechanismKinematicsLabCard()
                     LearningLab.HOMING_SAFETY -> HomingSafetyLabCard()
