@@ -43,6 +43,7 @@ import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioAction
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioRuntimeEvidence
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioViewModel
+import com.ares.analytics.viewmodel.runanalysis.GuidedRunAnalysisViewModel
 import kotlinx.coroutines.*
 
 /**
@@ -359,6 +360,12 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope,
         )
     }
+    val guidedRunAnalysisViewModel = remember(currentConfig.id) {
+        GuidedRunAnalysisViewModel(
+            service = services.guidedRunAnalysisService,
+            scope = scope,
+        )
+    }
     // This ViewModel owns no independent scope or hardware/service resource. Its jobs run in the
     // screen's Compose scope and are cancelled automatically when MainScreen leaves composition.
     val dashboardState by dashboardViewModel.state.collectAsState()
@@ -384,6 +391,7 @@ fun MainScreen(services: ServiceRegistry) {
 
     LaunchedEffect(currentConfig, runsIndexReloadTrigger) {
         robotStudioViewModel.load(currentConfig)
+        guidedRunAnalysisViewModel.load(currentConfig)
     }
     LaunchedEffect(isBuildRunning, isSimRunning, isLocalSimOnline, isNt4Connected) {
         robotStudioViewModel.updateRuntime(
@@ -827,6 +835,26 @@ fun MainScreen(services: ServiceRegistry) {
                             NavigationTarget.KDOC_VIEWER -> KDocViewerScreen()
                             NavigationTarget.PIT_DIAGNOSTICS -> HardwareSelfTestWizard(nt4ClientService = services.nt4ClientService)
                             NavigationTarget.MATCH_STRATEGY -> MatchStrategyScreen()
+                            NavigationTarget.GUIDED_RUN_ANALYSIS -> GuidedRunAnalysisScreen(
+                                viewModel = guidedRunAnalysisViewModel,
+                                onOpenImports = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.IMPORT_CENTER))
+                                },
+                                onOpenDashboardReplay = { sessionId ->
+                                    dashboardViewModel.onIntent(DashboardIntent.SelectPrimarySession(sessionId))
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DASHBOARD))
+                                },
+                                onOpenTuning = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.TUNING))
+                                },
+                                onOpenAcademy = {
+                                    requestedLessonId = "compare-run-evidence"
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
+                                },
+                                onOpenRunHistory = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.RUN_HISTORY))
+                                },
+                            )
                             NavigationTarget.RUN_HISTORY -> RunHistoryScreen(
                                 databaseService = services.databaseService,
                                 syncEngineService = services.syncEngineService,
@@ -864,8 +892,8 @@ fun MainScreen(services: ServiceRegistry) {
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.TUNING))
                                         RobotStudioAction.OPEN_IMPORTS ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.IMPORT_CENTER))
-                                        RobotStudioAction.OPEN_RUN_HISTORY ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.RUN_HISTORY))
+                                        RobotStudioAction.OPEN_GUIDED_ANALYSIS ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.GUIDED_RUN_ANALYSIS))
                                         RobotStudioAction.RUN_BUILD -> {
                                             services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
                                             mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))

@@ -421,7 +421,7 @@ object LearningCatalog {
             title = "Compare two robot runs",
             outcome = "Make one bounded claim from repeatable run evidence instead of relying on memory.",
             durationMinutes = 12,
-            destination = NavigationTarget.RUN_HISTORY,
+            destination = NavigationTarget.GUIDED_RUN_ANALYSIS,
             beforeYouStart = listOf("Have two compatible imported simulator or robot runs.", "Confirm their robot identity and units match."),
             steps = listOf(
                 "Choose a baseline run and a comparison run.",

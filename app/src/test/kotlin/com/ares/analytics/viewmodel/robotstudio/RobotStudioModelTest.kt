@@ -89,7 +89,7 @@ class RobotStudioModelTest {
         assertEquals(RobotStudioStageStatus.RUNNING, stages.status(RobotStudioStageId.GENERATE_VERIFY))
         assertEquals(RobotStudioStageStatus.RUNNING, stages.status(RobotStudioStageId.SIMULATE))
         assertEquals(RobotStudioStageStatus.READY, stages.status(RobotStudioStageId.ANALYZE))
-        assertEquals(RobotStudioAction.OPEN_RUN_HISTORY, stages.first { it.id == RobotStudioStageId.ANALYZE }.action)
+        assertEquals(RobotStudioAction.OPEN_GUIDED_ANALYSIS, stages.first { it.id == RobotStudioStageId.ANALYZE }.action)
     }
 
     private fun completeEvidence() = RobotProjectReadinessEvidence(

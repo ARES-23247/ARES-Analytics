@@ -37,7 +37,7 @@ enum class RobotStudioAction {
     RUN_BUILD,
     RUN_SIMULATOR,
     OPEN_IMPORTS,
-    OPEN_RUN_HISTORY,
+    OPEN_GUIDED_ANALYSIS,
 }
 
 data class RobotStudioStage(
@@ -332,7 +332,7 @@ internal fun evaluateRobotStudioStages(
             emptyList(),
             "Local DuckDB; optional workspace-scoped Drive synchronization",
             "Run History, replay, deterministic diagnostics, and optional AI explanation",
-            if (evidence.importedRunCount > 0) RobotStudioAction.OPEN_RUN_HISTORY else RobotStudioAction.OPEN_IMPORTS,
+            if (evidence.importedRunCount > 0) RobotStudioAction.OPEN_GUIDED_ANALYSIS else RobotStudioAction.OPEN_IMPORTS,
             if (evidence.importedRunCount > 0) "Review run evidence" else "Import a run",
         ),
     )

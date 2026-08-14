@@ -82,6 +82,28 @@ class AdvancedAnalyticsServiceTest {
         }
     }
 
+    @Test
+    fun `recent comparison never crosses team season or robot identity`() = runTest {
+        val directory = Files.createTempDirectory("ares-baseline-isolation").toFile()
+        val database = DatabaseService(directory.resolve("telemetry.duckdb").absolutePath)
+        try {
+            database.insertSessionSummary(summary("current", p95 = 15.0, voltage = 11.0, crossTrack = 0.30).copy(createdAt = 500L))
+            database.insertSessionSummary(summary("same-robot", p95 = 10.0, voltage = 12.0, crossTrack = 0.10).copy(createdAt = 400L))
+            database.insertSessionSummary(summary("other-robot", p95 = 1.0, voltage = 13.0, crossTrack = 0.01).copy(robotId = "other", createdAt = 490L))
+            database.insertSessionSummary(summary("other-team", p95 = 1.0, voltage = 13.0, crossTrack = 0.01).copy(teamId = "99999", createdAt = 480L))
+            database.insertSessionSummary(summary("other-season", p95 = 1.0, voltage = 13.0, crossTrack = 0.01).copy(seasonId = "2025", createdAt = 470L))
+            database.insertTelemetryFrames(listOf(frame(0L, "current", "Robot/BatteryVoltage", 11.0)))
+
+            val result = AdvancedAnalyticsService(database).analyzeAgainstRecent("current", baselineCount = 10)
+            val report = (result as OperationResult.Success).value
+
+            assertEquals(listOf("same-robot"), assertNotNull(report.comparison).baselineSessionIds)
+        } finally {
+            database.close()
+            directory.deleteRecursively()
+        }
+    }
+
     private fun summary(id: String, p95: Double, voltage: Double, crossTrack: Double) = SessionSummary(
         sessionId = id,
         teamId = "23247",
