@@ -17,12 +17,18 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,6 +42,8 @@ import com.ares.analytics.ui.components.core.chooseProjectDirectory
 import com.ares.analytics.ui.theme.AresBackground
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
+import com.ares.analytics.ui.theme.AresError
+import com.ares.analytics.ui.theme.AresOnAccent
 import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
@@ -61,6 +69,32 @@ fun PathPlannerScreen(
     onRobotDimensionsChanged: (RobotDimensions) -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
+    var pendingProjectPath by remember { mutableStateOf<String?>(null) }
+
+    pendingProjectPath?.let { selectedPath ->
+        AlertDialog(
+            onDismissRequest = { pendingProjectPath = null },
+            title = { Text("Discard unsaved routine changes?") },
+            text = {
+                Text(
+                    "Changing the project folder replaces the visible routine draft. Save it first, " +
+                        "or explicitly discard it before switching."
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        pendingProjectPath = null
+                        onProjectPathChanged(selectedPath)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = AresError, contentColor = AresOnAccent),
+                ) { Text("Discard and change folder") }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { pendingProjectPath = null }) { Text("Keep editing") }
+            },
+        )
+    }
 
     LaunchedEffect(projectPath, league) {
         viewModel.onIntent(PathPlannerIntent.RefreshProject(projectPath, league))
@@ -164,7 +198,10 @@ fun PathPlannerScreen(
                             )
                             androidx.compose.material3.TextButton(
                                 onClick = {
-                                    chooseProjectDirectory(projectPath)?.let { onProjectPathChanged(it.path) }
+                                    chooseProjectDirectory(projectPath)?.let { selected ->
+                                            if (state.routineDirty) pendingProjectPath = selected.path
+                                            else onProjectPathChanged(selected.path)
+                                        }
                                 }
                             ) {
                                 Text("Change folder")

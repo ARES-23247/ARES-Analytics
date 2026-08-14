@@ -5,8 +5,14 @@ package com.ares.analytics.viewmodel
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.AutonomousTourStep
 import com.ares.analytics.viewmodel.AutonomousTourTarget
+import com.ares.analytics.viewmodel.pathing.RobotDimensions
 import com.ares.analytics.viewmodel.project.RoutineProjectRepository
+import com.ares.analytics.viewmodel.routine.GuidedFirstRoutinePlan
+import com.ares.analytics.viewmodel.routine.defaultGuidedFirstRoutinePlan
+import com.ares.analytics.viewmodel.routine.validateGuidedFirstRoutinePlan
+import com.areslib.routine.RoutineAlliance
 import com.areslib.routine.RoutineDocument
+import com.areslib.routine.RoutinePose
 import com.areslib.routine.RoutineStep
 import com.areslib.routine.RoutineStepKind
 import java.nio.file.Files
@@ -24,6 +30,103 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RoutineBuilderViewModelTest {
+    @Test
+    fun `guided first routine creates only an unsaved safe canonical draft`() = runTest {
+        val viewModel = PathPlannerViewModel(this)
+        val plan = defaultGuidedFirstRoutinePlan(League.FTC, RobotDimensions.defaultFor(League.FTC))
+
+        viewModel.onIntent(PathPlannerIntent.CreateGuidedFirstRoutine(plan))
+        advanceUntilIdle()
+
+        val state = viewModel.state.value
+        assertTrue(state.routineDirty)
+        assertTrue(state.availableInAutonomousSelector)
+        assertEquals(plan.name, state.routine.name)
+        assertEquals("safe", state.routine.steps.single().drive?.motionPresetKey)
+        assertEquals(plan.targetPose, state.routine.steps.single().drive?.target)
+        assertEquals(plan.startingPose, state.autonomousEntry?.startingPose)
+        assertEquals(RoutineAlliance.RED, state.autonomousEntry?.authoredAlliance)
+        assertTrue(state.autonomousEntry?.mirrorForOppositeAlliance == true)
+        assertTrue(state.saveStatus.contains("unsaved draft", ignoreCase = true))
+        assertTrue(state.routineValidation.none { it.severity.name == "ERROR" })
+    }
+
+    @Test
+    fun `guided first routine rejects invalid coordinates without replacing visible draft`() = runTest {
+        val viewModel = PathPlannerViewModel(this)
+        viewModel.onIntent(PathPlannerIntent.CreateRoutine("Keep this draft"))
+        advanceUntilIdle()
+        val original = viewModel.state.value.routine
+        val invalid = GuidedFirstRoutinePlan(
+            name = "Invalid move",
+            startingPose = RoutinePose(0.0, 0.0, 0.0),
+            targetPose = RoutinePose(0.0, 0.0, 0.0),
+        )
+
+        viewModel.onIntent(PathPlannerIntent.CreateGuidedFirstRoutine(invalid))
+        advanceUntilIdle()
+
+        assertEquals(original, viewModel.state.value.routine)
+        assertTrue(viewModel.state.value.saveStatus.contains("not created", ignoreCase = true))
+    }
+
+    @Test
+    fun `guided first routine defaults remain field valid for both leagues`() {
+        League.entries.forEach { league ->
+            val dimensions = RobotDimensions.defaultFor(league)
+            val plan = defaultGuidedFirstRoutinePlan(league, dimensions)
+            assertTrue(validateGuidedFirstRoutinePlan(plan, league, dimensions).isEmpty())
+        }
+    }
+
+    @Test
+    fun `saving a guided draft clears dirty status and persists canonical routine`() = runTest {
+        val project = Files.createTempDirectory("ares-first-routine-").toFile()
+        try {
+            val viewModel = PathPlannerViewModel(this)
+            viewModel.onIntent(PathPlannerIntent.RefreshProject(project.path, League.FTC))
+            withContext(Dispatchers.Default.limitedParallelism(1)) {
+                withTimeout(5_000) { viewModel.state.first { !it.projectLoading } }
+            }
+            val plan = defaultGuidedFirstRoutinePlan(League.FTC, RobotDimensions.defaultFor(League.FTC))
+            viewModel.onIntent(PathPlannerIntent.CreateGuidedFirstRoutine(plan))
+            advanceUntilIdle()
+            assertTrue(viewModel.state.value.routineDirty)
+
+            viewModel.onIntent(PathPlannerIntent.SaveRoutine(project.path))
+            withContext(Dispatchers.Default.limitedParallelism(1)) {
+                withTimeout(5_000) { viewModel.state.first { !it.routineDirty } }
+            }
+
+            val saved = RoutineProjectRepository().load(project.path, viewModel.state.value.routine.documentId)
+            assertEquals("safe", saved.steps.single().drive?.motionPresetKey)
+        } finally {
+            project.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `project loading cannot silently replace a guided draft created during refresh`() = runTest {
+        val project = Files.createTempDirectory("ares-first-routine-load-").toFile()
+        try {
+            val viewModel = PathPlannerViewModel(this)
+            val plan = defaultGuidedFirstRoutinePlan(League.FTC, RobotDimensions.defaultFor(League.FTC))
+
+            viewModel.onIntent(PathPlannerIntent.RefreshProject(project.path, League.FTC))
+            viewModel.onIntent(PathPlannerIntent.CreateGuidedFirstRoutine(plan))
+            withContext(Dispatchers.Default.limitedParallelism(1)) {
+                withTimeout(5_000) { viewModel.state.first { !it.projectLoading && it.routine.name == plan.name } }
+            }
+
+            val state = viewModel.state.value
+            assertEquals(plan.name, state.routine.name)
+            assertEquals(plan.startingPose, state.autonomousEntry?.startingPose)
+            assertTrue(state.routineDirty)
+        } finally {
+            project.deleteRecursively()
+        }
+    }
+
     @Test
     fun `new routine stays trigger neutral until autonomous is enabled`() = runTest {
         val viewModel = PathPlannerViewModel(this)

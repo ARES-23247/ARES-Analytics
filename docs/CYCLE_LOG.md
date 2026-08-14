@@ -152,8 +152,8 @@ All Gradle validation used:
 
 ### Delivery
 
-Implementation is on `codex/guided-run-analysis-v2`. A protected pull request and hosted checks
-are the remaining delivery steps for this cycle.
+Protected [PR #39](https://github.com/ARES-23247/ARES-Analytics/pull/39) passed Dashboard Validation,
+CodeQL Java/Kotlin, and the CodeQL result gate, then was squash-merged to `master`.
 
 ### Remaining limitations and next cycle
 
@@ -496,3 +496,67 @@ Help affordance teaches something everywhere it can appear.
   feature branch together.
 - G4 (error-to-lesson deep links), G5 (nudges and empty states), and the remainder of G6 stay
   open in docs/DOCUMENTATION_GOAL.md.
+
+## Cycle 10 — Guided first autonomous routine
+
+### Objective
+
+Help a student create one bounded simulator-first autonomous draft without starting from a blank
+expert editor, losing unsaved work, or confusing a preview with saved/generated/physical behavior.
+
+### User-visible outcome
+
+- An empty Routine Builder now offers **Start guided first routine**.
+- The four-step guide explains purpose, meters and counter-clockwise degrees, starting pose, drive
+  goal, alliance mirroring, the fixed **Safe** motion preset, and the simulator/physical boundary.
+- The guide rejects invalid numbers, out-of-field robot footprints, moves under 0.10 m, and first
+  moves over 2.00 m. Raw invalid text cannot leave an older valid value eligible for application.
+- Applying the guide creates an unsaved canonical `.aresroutine` draft and autonomous-catalog entry
+  through the existing model. It does not save, generate, deploy, launch simulation, or command a
+  robot.
+- **New**, **Open**, guided replacement, and project-folder changes require explicit discard
+  confirmation when the visible draft has unsaved changes.
+- Project loading blocks editing with a plain-language status. The project path is bound before the
+  editor becomes enabled, and a late load result cannot overwrite a draft created during loading.
+- Wide windows retain the side-by-side field/editor layout; narrow windows stack scrollable editor
+  and field regions instead of clipping the workflow.
+
+### Safety and ownership decisions
+
+- `RoutineDocument`, `AutonomousCatalogEntry`, existing validation, field-footprint bounds,
+  revision storage, preview, and project generation remain authoritative. The guide is only a
+  reviewed draft constructor.
+- Stable routine and step IDs are created once and then preserved by the normal editor.
+- A student must explicitly acknowledge that the field preview still needs obstacle review and
+  that simulation does not prove physical safety.
+- No ARESLib, FTC, FRC, generated source, or physical runtime was changed in this cycle.
+
+### Verification evidence
+
+All Gradle validation used:
+
+```text
+-ParesRepository=file:///C:/Users/david/dev/robotics/ares/ARESLib-Kotlin/build/release-repository
+```
+
+- Focused routine model/ViewModel tests: passed, including invalid-plan preservation, deterministic
+  FTC/FRC defaults, persistence, dirty-state transitions, and the delayed project-load race.
+- Full Analytics app tests: 421 tests, 0 failures/errors, 2 intentional skips.
+- Trimmed distributable project loading: passed for one canonical routine and one subsystem.
+- Dashboard smoke/performance baseline: passed with 12,000 expected/persisted frames, zero drops,
+  exact Parquet restore, 12.3434 ms query p95, and no budget violations.
+- Static accessibility review: every guide action has visible text, errors use **Needs attention**
+  wording in addition to color, raw numeric fields expose labels/units/errors, dialogs are scrollable,
+  and the builder has an explicit narrow-window layout.
+- No physical robot was used or required. Restrained hardware and field-clearance checks remain a
+  future supervised HIL step.
+
+### Delivery and remaining limitations
+
+Implementation is on `codex/guided-first-routine-v3`; protected PR delivery and hosted checks
+remain for this cycle.
+
+- A post-unlock visual walkthrough of the actual dialog is still required before merge.
+- ARES still requires an existing FTC or FRC robot repository. No authoritative team-owned starter
+  template exists today, so project scaffolding remains a product decision rather than an unsafe
+  clone of season-specific hardware code.

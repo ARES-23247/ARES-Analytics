@@ -24,11 +24,35 @@ bounded routine**. The mission observes typed catalog loading, routine validatio
 preview, chooser configuration, canonical save, and project generation. It deliberately does not
 call any of those results physics simulation, deployment, or physical field validation.
 
+## Your first simulator routine
+
+When the visible routine has no steps, choose **Start guided first routine**. The four-step guide:
+
+1. names one intended move;
+2. records a starting pose and one drive goal in meters and counter-clockwise degrees;
+3. fixes the move to the conservative **Safe** motion preset and records alliance mirroring; and
+4. shows exactly what will become an unsaved draft.
+
+The guide rejects non-numeric coordinates, robot footprints outside the selected field, moves under
+0.10 m, and first moves over 2.00 m. It requires a student to acknowledge that the field preview
+still needs inspection. Applying the guide changes only the in-memory editor. It does not save,
+generate, deploy, start a simulator, or command hardware.
+
+After applying it, inspect the canvas and the **Needs attention** card. **Save & Generate** is the
+separate action that writes the canonical `.aresroutine` and autonomous catalog. A passing preview
+still does not prove obstacle clearance, traction, actuator direction, or physical safety.
+
+Opening another routine, choosing **New**, or changing the project folder while the visible draft
+has unsaved changes requires an explicit discard confirmation. While a project is being loaded, the editor shows a
+blocking loading explanation; a draft created during that load is preserved rather than silently
+replaced by the late disk result.
+
 ## Offline workflow
 
 1. In the workspace/project selector, point Analytics at the robot repository root. You can repoint
    it later; creating a new workspace is not required.
-2. Open **Autonomous Builder** and create or open a routine.
+2. Open **Autonomous Builder**. Use **Start guided first routine** for a first simulator move, or
+   create/open a routine in the full editor.
 3. Add steps from the inspector. Field goals are clamped using the selected field and robot
    dimensions so the robot footprint stays inside the field.
 4. Choose actions and conditions from the project catalog. Parameter fields are generated from

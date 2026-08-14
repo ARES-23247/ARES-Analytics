@@ -15,11 +15,15 @@ import com.ares.analytics.viewmodel.project.RoutineProjectRepository
 import com.ares.analytics.viewmodel.routine.clampRoutinePose
 import com.ares.analytics.viewmodel.routine.clampDriveTargets
 import com.ares.analytics.viewmodel.routine.defaultRoutineStep
+import com.ares.analytics.viewmodel.routine.GuidedFirstRoutinePlan
+import com.ares.analytics.viewmodel.routine.guidedFirstRoutineDocument
+import com.ares.analytics.viewmodel.routine.guidedFirstRoutineEntry
 import com.ares.analytics.viewmodel.routine.lastRoutineDriveTarget
 import com.ares.analytics.viewmodel.routine.moveStepById
 import com.ares.analytics.viewmodel.routine.removeStepById
 import com.ares.analytics.viewmodel.routine.routineEditorValidation
 import com.ares.analytics.viewmodel.routine.updateStepById
+import com.ares.analytics.viewmodel.routine.validateGuidedFirstRoutinePlan
 import com.ares.analytics.viewmodel.routine.withRoutineRouteWaypoints
 import com.areslib.math.geometry.Pose2d
 import com.areslib.math.geometry.Rotation2d
@@ -146,6 +150,7 @@ data class PathPlannerState(
     val projectMetadata: AresProjectMetadataDocument? = null,
     val generationPhase: AresGenerationPhase = AresGenerationPhase.IDLE,
     val generationMessage: String? = null,
+    val projectLoading: Boolean = false,
 
     // Canonical, trigger-neutral Routine Builder state.
     val routine: RoutineDocument = newRoutine(),
@@ -157,7 +162,10 @@ data class PathPlannerState(
     val routineConditions: List<ConditionDescriptor> = emptyList(),
     val autonomousEntry: AutonomousCatalogEntry? = null,
     val availableInAutonomousSelector: Boolean = false,
-    val tourStep: AutonomousTourStep? = null
+    val tourStep: AutonomousTourStep? = null,
+
+    /** True only when the visible routine/autonomous draft differs from its last persisted form. */
+    val routineDirty: Boolean = false,
 )
 
 sealed class PathPlannerIntent {
@@ -183,6 +191,7 @@ sealed class PathPlannerIntent {
     data class SaveAndGenerateRoutine(val projectPath: String?, val league: League) : PathPlannerIntent()
     data class RestoreRoutine(val projectPath: String?, val contentHash: String) : PathPlannerIntent()
     data class CreateRoutine(val name: String = "New Routine") : PathPlannerIntent()
+    data class CreateGuidedFirstRoutine(val plan: GuidedFirstRoutinePlan) : PathPlannerIntent()
     data class UpdateRoutineName(val name: String) : PathPlannerIntent()
     data class UpdateRoutineDescription(val description: String) : PathPlannerIntent()
     data class AddRoutineStep(val kind: RoutineStepKind) : PathPlannerIntent()
@@ -332,7 +341,7 @@ class PathPlannerViewModel(
 
                 is PathPlannerIntent.CreateRoutine -> {
                     val draft = newRoutine(intent.name)
-                    routineProjectPath = loadedProjectPath
+                    routineProjectPath = selectedProjectPath ?: loadedProjectPath
                     _state.update { current ->
                         current.copy(
                             routine = draft,
@@ -347,7 +356,45 @@ class PathPlannerViewModel(
                             routineRevisions = emptyList(),
                             autonomousEntry = null,
                             availableInAutonomousSelector = false,
+                            routineDirty = true,
                             saveStatus = "New reusable routine initialized"
+                        )
+                    }
+                    recalculateRoutinePreview()
+                }
+                is PathPlannerIntent.CreateGuidedFirstRoutine -> {
+                    val current = _state.value
+                    val errors = validateGuidedFirstRoutinePlan(
+                        intent.plan,
+                        current.activeLeague,
+                        current.robotDimensions,
+                    )
+                    if (errors.isNotEmpty()) {
+                        _state.update {
+                            it.copy(saveStatus = "First routine draft was not created: ${errors.first()}")
+                        }
+                        return@launch
+                    }
+                    val documentId = "${safeRoutineDocumentId(intent.plan.name).take(55)}-${UUID.randomUUID().toString().take(8)}"
+                    val draft = guidedFirstRoutineDocument(documentId, intent.plan)
+                    val entry = guidedFirstRoutineEntry(documentId, intent.plan)
+                    routineProjectPath = selectedProjectPath ?: loadedProjectPath
+                    _state.update {
+                        it.copy(
+                            routine = draft,
+                            routineValidation = routineEditorValidation(
+                                draft,
+                                it.capabilityCatalog,
+                                it.availableRoutines,
+                                it.activeLeague,
+                                it.robotDimensions,
+                                entry,
+                            ),
+                            routineRevisions = emptyList(),
+                            autonomousEntry = entry,
+                            availableInAutonomousSelector = true,
+                            routineDirty = true,
+                            saveStatus = "Guided first routine is an unsaved draft. Review the field preview before saving.",
                         )
                     }
                     recalculateRoutinePreview()
@@ -466,6 +513,7 @@ class PathPlannerViewModel(
     }
 
     private fun updateRoutine(transform: (RoutineDocument) -> RoutineDocument) {
+        if (routineProjectPath == null) routineProjectPath = selectedProjectPath
         _state.update { current ->
             val updated = transform(current.routine)
             val existingEntry = current.autonomousEntry
@@ -488,6 +536,7 @@ class PathPlannerViewModel(
                     current.robotDimensions,
                     entry
                 ),
+                routineDirty = true,
                 saveStatus = if (current.saveStatus.startsWith("Saved")) {
                     "Unsaved changes"
                 } else {
@@ -540,6 +589,7 @@ class PathPlannerViewModel(
                     current.robotDimensions,
                     entry
                 ),
+                routineDirty = true,
                 saveStatus = "Unsaved autonomous selector change"
             )
         }
@@ -557,6 +607,7 @@ class PathPlannerViewModel(
             _state.update {
                 it.copy(
                     capabilityStatus = "Select a project to load offline robot actions and routines",
+                    projectLoading = false,
                     availableRoutines = emptyList(),
                     routineActions = emptyList(),
                     routineConditions = emptyList()
@@ -565,7 +616,12 @@ class PathPlannerViewModel(
             recalculateRoutinePreview()
             return
         }
-        _state.update { it.copy(capabilityStatus = "Loading project documents…") }
+        _state.update {
+            it.copy(
+                capabilityStatus = "Loading project documents…",
+                projectLoading = true,
+            )
+        }
         projectRefreshJob = scope.launch {
             refreshRoutineProject(canonicalPath, league, generation)
         }
@@ -584,23 +640,34 @@ class PathPlannerViewModel(
             if (!isCurrentProjectRequest(projectPath, generation)) return@onSuccess
             val beforeRefresh = _state.value
             val keepCurrentRoutine = routineProjectPath == projectPath &&
-                refresh.routines.any { it.documentId == beforeRefresh.routine.documentId }
+                (beforeRefresh.routineDirty || refresh.routines.any { it.documentId == beforeRefresh.routine.documentId })
             val activeRoutine = if (keepCurrentRoutine) {
                 beforeRefresh.routine
             } else {
                 refresh.routines.firstOrNull() ?: newRoutine()
             }
-            val currentEntry = refresh.autonomous?.entries?.firstOrNull {
+            val persistedEntry = refresh.autonomous?.entries?.firstOrNull {
                 it.routineId == activeRoutine.documentId
+            }
+            val currentEntry = if (keepCurrentRoutine && beforeRefresh.routineDirty) {
+                beforeRefresh.autonomousEntry
+            } else {
+                persistedEntry
             }
             val catalog = refresh.catalog
             val effectiveLeague = refresh.metadata?.league?.toAnalyticsLeague() ?: league
             val effectiveDimensions = refresh.metadata?.let {
                 RobotDimensions(it.robotLengthMeters, it.robotWidthMeters)
             } ?: _state.value.robotDimensions
+            // Publish "loading complete" only after save/load operations are bound to this exact
+            // canonical project. Otherwise a fast click can observe an enabled editor while the
+            // private ownership path still points at no project.
+            loadedProjectPath = projectPath
+            routineProjectPath = projectPath
             _state.update { current ->
                 current.copy(
                     routine = activeRoutine,
+                    routineDirty = if (keepCurrentRoutine) current.routineDirty else false,
                     routineRevisions = if (keepCurrentRoutine) current.routineRevisions else emptyList(),
                     availableRoutines = refresh.routines,
                     capabilityCatalog = catalog,
@@ -611,6 +678,7 @@ class PathPlannerViewModel(
                     autonomousEntry = currentEntry,
                     availableInAutonomousSelector = currentEntry != null,
                     projectMetadata = refresh.metadata,
+                    projectLoading = false,
                     activeLeague = effectiveLeague,
                     robotDimensions = effectiveDimensions,
                     capabilityStatus = when {
@@ -629,14 +697,15 @@ class PathPlannerViewModel(
                     )
                 )
             }
-            if (isCurrentProjectRequest(projectPath, generation)) {
-                loadedProjectPath = projectPath
-                routineProjectPath = projectPath
-            }
             recalculateRoutinePreview()
         }.onFailure { error ->
             if (isCurrentProjectRequest(projectPath, generation)) {
-                _state.update { it.copy(capabilityStatus = "Could not read project documents: ${error.message}") }
+                _state.update {
+                    it.copy(
+                        capabilityStatus = "Could not read project documents: ${error.message}",
+                        projectLoading = false,
+                    )
+                }
             }
         }
     }
@@ -681,6 +750,7 @@ class PathPlannerViewModel(
             _state.update { current ->
                 current.copy(
                     routine = routine,
+                    routineDirty = false,
                     routineRevisions = revisions,
                     autonomousEntry = entry,
                     availableInAutonomousSelector = entry != null,
@@ -742,6 +812,7 @@ class PathPlannerViewModel(
             _state.update { state ->
                 state.copy(
                     routine = saved.routine,
+                    routineDirty = false,
                     routineRevisions = revisions,
                     autonomousEntry = entry,
                     availableInAutonomousSelector = entry != null,
@@ -774,6 +845,7 @@ class PathPlannerViewModel(
             _state.update { current ->
                 current.copy(
                     routine = restored.document,
+                    routineDirty = false,
                     routineRevisions = revisions,
                     routineValidation = routineEditorValidation(
                         restored.document,
