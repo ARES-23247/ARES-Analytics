@@ -8,7 +8,9 @@ import com.ares.analytics.service.AlignedDataRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import kotlin.math.pow
 import kotlin.math.sign
+import kotlin.math.sqrt
 
 /**
  * High-performance analytics service computing statistical KPI summaries from logged match telemetry sessions.
@@ -178,10 +180,25 @@ class SummaryEngineService(
                     addAll(TelemetryMetricCatalog.DRIVE_VELOCITY.keys)
                     addAll(TelemetryMetricCatalog.DRIVE_ACCELERATION.keys)
                     add("Drive/Velocity_Omega")
+                    add("Vision/EKF_NIS")
+                    add("/Vision/EKF_NIS")
+                    add("EKF/NIS")
+                    add("Vision/Pose_X")
+                    add("/Vision/Pose_X")
+                    add("Vision/Pose_Y")
+                    add("/Vision/Pose_Y")
+                    add("Drive/Pose_X")
+                    add("/Drive/Pose_X")
+                    add("Drive/Pose_Y")
+                    add("/Drive/Pose_Y")
+                    add("Path/CrossTrackError")
+                    add("/Path/CrossTrackError")
+                    add("Drive/CrossTrackError")
+                    add("/Drive/CrossTrackError")
                     addAll(TelemetryMetricCatalog.BATTERY_VOLTAGE.keys)
                     addAll(TelemetryMetricCatalog.LOOP_TIME.keys)
                 },
-                prefixes = listOf("Diagnostics/%", "Hardware/Motors/%")
+                prefixes = listOf("Diagnostics/%", "Hardware/Motors/%", "Vision/%", "Path/%")
             )
             if (allFrames.isEmpty()) return resolvedTags
             val framesToInsert = mutableListOf<TelemetryFrame>()
@@ -482,6 +499,64 @@ class SummaryEngineService(
                 framesToInsert.add(TelemetryFrame(session.createdAt, session.sessionId, "Diagnostics/Driver/RecommendedSlewRate", if (j.recommendedSlewRate == Double.MAX_VALUE) 999.0 else j.recommendedSlewRate))
                 framesToInsert.add(TelemetryFrame(session.createdAt, session.sessionId, "Diagnostics/Driver/PeakJitterFrequency", j.peakFrequencyHz))
                 framesToInsert.add(TelemetryFrame(session.createdAt, session.sessionId, "Diagnostics/Driver/JitterPresent", if (j.hasJitter) 1.0 else 0.0))
+            }
+
+            // 6. EKF Innovation Residual & NIS Whiteness Diagnostics
+            val nisFrames = allFrames.filter { (it.key.removePrefix("/") == "Vision/EKF_NIS" || it.key.removePrefix("/") == "EKF/NIS") && it.value > 0.0 }
+            val visionXFrames = allFrames.filter { it.key.removePrefix("/") == "Vision/Pose_X" }.associateBy { it.timestampMs }
+            val visionYFrames = allFrames.filter { it.key.removePrefix("/") == "Vision/Pose_Y" }.associateBy { it.timestampMs }
+            val driveXFrames = allFrames.filter { it.key.removePrefix("/") == "Drive/Pose_X" }.associateBy { it.timestampMs }
+            val driveYFrames = allFrames.filter { it.key.removePrefix("/") == "Drive/Pose_Y" }.associateBy { it.timestampMs }
+
+            if (nisFrames.isNotEmpty()) {
+                val avgNis = nisFrames.map { it.value }.average()
+                val outlierCount = nisFrames.count { it.value > 9.0 } // 3-sigma chi-squared gate
+                val outlierRatio = outlierCount.toDouble() / nisFrames.size
+
+                val commonTimestamps = visionXFrames.keys.intersect(driveXFrames.keys)
+                val residualOffsets = commonTimestamps.mapNotNull { t ->
+                    val vx = visionXFrames[t]?.value ?: return@mapNotNull null
+                    val vy = visionYFrames[t]?.value ?: return@mapNotNull null
+                    val dx = driveXFrames[t]?.value ?: return@mapNotNull null
+                    val dy = driveYFrames[t]?.value ?: return@mapNotNull null
+                    sqrt((vx - dx).pow(2) + (vy - dy).pow(2))
+                }
+                val residualBiasM = if (residualOffsets.isNotEmpty()) residualOffsets.average() else 0.0
+
+                framesToInsert.add(TelemetryFrame(session.createdAt, session.sessionId, "Diagnostics/EKF/AvgNIS", avgNis))
+                framesToInsert.add(TelemetryFrame(session.createdAt, session.sessionId, "Diagnostics/EKF/ResidualBiasM", residualBiasM))
+                framesToInsert.add(TelemetryFrame(session.createdAt, session.sessionId, "Diagnostics/EKF/NISOutlierRatio", outlierRatio))
+
+                when {
+                    avgNis in 1.2..2.8 && residualBiasM < 0.03 -> newTags.add("EKFOptimal")
+                    avgNis < 0.6 -> newTags.add("VisionUnderweighted")
+                    avgNis > 4.5 || outlierRatio > 0.10 -> newTags.add("VisionJitter")
+                    residualBiasM >= 0.04 -> newTags.add("CameraExtrinsicSkew")
+                }
+            }
+
+            // 7. Autonomous Path Tracking RMS & Deviation Diagnostics
+            val cteFrames = allFrames.filter {
+                val clean = it.key.removePrefix("/")
+                clean == "Path/CrossTrackError" || clean == "Drive/CrossTrackError" || clean == "Drive/Cross_Track"
+            }
+            if (cteFrames.isNotEmpty()) {
+                val ctes = cteFrames.map { abs(it.value) }
+                val crossTrackRmse = sqrt(ctes.map { it * it }.average())
+                val maxCte = ctes.maxOrNull() ?: 0.0
+
+                framesToInsert.add(TelemetryFrame(session.createdAt, session.sessionId, "Diagnostics/Auto/CrossTrackRMSE", crossTrackRmse))
+                framesToInsert.add(TelemetryFrame(session.createdAt, session.sessionId, "Diagnostics/Auto/MaxCrossTrackM", maxCte))
+
+                if (crossTrackRmse > 0.06 || maxCte > 0.15) {
+                    newTags.add("AutoPathDeviation")
+                }
+            }
+
+            val finalUniqueTags = newTags.distinct()
+            resolvedTags = finalUniqueTags
+            if (finalUniqueTags != session.tags) {
+                databaseService.updateSessionTags(session.sessionId, finalUniqueTags)
             }
 
             if (framesToInsert.isNotEmpty()) {

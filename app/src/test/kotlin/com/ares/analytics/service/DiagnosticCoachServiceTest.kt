@@ -122,6 +122,37 @@ class DiagnosticCoachServiceTest {
         }
     }
 
+    @Test
+    fun ekfDiagnosticFindingDetectsCameraSkew() = runTest {
+        withService { database, service ->
+            database.insertTelemetryFrames(listOf(
+                TelemetryFrame(100, "run", "Diagnostics/EKF/AvgNIS", 2.2),
+                TelemetryFrame(100, "run", "Diagnostics/EKF/ResidualBiasM", 0.055),
+                TelemetryFrame(100, "run", "Diagnostics/EKF/NISOutlierRatio", 0.02)
+            ))
+            val result = service.analyze("run")
+            val finding = result.findings.firstOrNull { it.id == "ekf-extrinsic-skew" }
+            kotlin.test.assertNotNull(finding)
+            assertEquals(DiagnosticSeverity.REVIEW, finding.severity)
+            assertTrue(finding.observation.contains("5.5 cm"))
+        }
+    }
+
+    @Test
+    fun autoTrackingFindingDetectsDeviation() = runTest {
+        withService { database, service ->
+            database.insertTelemetryFrames(listOf(
+                TelemetryFrame(100, "run", "Diagnostics/Auto/CrossTrackRMSE", 0.08),
+                TelemetryFrame(100, "run", "Diagnostics/Auto/MaxCrossTrackM", 0.18)
+            ))
+            val result = service.analyze("run")
+            val finding = result.findings.firstOrNull { it.id == "auto-path-deviation" }
+            kotlin.test.assertNotNull(finding)
+            assertEquals(DiagnosticSeverity.REVIEW, finding.severity)
+            assertTrue(finding.observation.contains("8.0 cm"))
+        }
+    }
+
     private suspend fun withService(block: suspend (DatabaseService, DiagnosticCoachService) -> Unit) {
         val file = File.createTempFile("diagnostic-coach", ".db").apply { deleteOnExit() }
         val database = DatabaseService(file.absolutePath)
