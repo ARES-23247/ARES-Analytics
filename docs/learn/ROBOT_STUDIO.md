@@ -32,6 +32,7 @@ Robot Studio never marks a build ready merely because an old generated file exis
 10. **Verify & build** — preview generated work in its owning builder, preserve USER-OWNED source, then run verification, tests, and packaging without deployment.
 11. **Simulate** — run the actual robot project against desktop adapters and identify the telemetry source.
 12. **Import & analyze** — preserve a simulator or robot run before making claims about behavior.
+13. **Supervised deploy (optional)** — only after review, open the separate deploy dialog, verify its exact project and target, then confirm the physical side effect.
 
 ## Know what is stored where
 
@@ -65,7 +66,9 @@ Read the stage issue before editing files manually:
 
 The student-facing Build action is deliberately compile-only. For FTC it runs project generation verification, TeamCode unit tests, simulator tests, and debug APK assembly. For FRC it runs project generation verification, tests, and the normal build. Neither path performs physical deployment.
 
-Installing an FTC APK or deploying FRC code is a separate supervised team operation outside this button. Preserve that boundary when adding future deployment UI: name the target, show the physical side effect, require explicit confirmation, and never infer deployment permission from a green build.
+Installing an FTC APK or deploying FRC code uses the separate **Deploy to robot** workflow. It shows the exact project and physical target, reruns generation, verification, project tests, simulator tests where available, and packaging, then requires a second explicit confirmation before the install/deploy command. FTC deployment pins every ADB command to `192.168.43.1:5555`, checks the connected Android device identity, and verifies the Robot Controller package after installation. FRC deployment runs the standard project deploy task only after the same verification boundary.
+
+A green build never grants deployment permission. A mentor remains responsible for wiring checks, restrained mechanisms, emergency-stop readiness, and supervision. Closing or canceling the dialog must not deploy anything.
 
 Use [Robot Academy](ROBOT_ACADEMY.md) when a concept is unfamiliar. Use [Drivebase Builder](../DRIVEBASE_BUILDER.md), [Subsystem Builder](../SUBSYSTEM_BUILDER.md), and [Routines and controls](../ROUTINES_AND_CONTROLS.md) for deeper task instructions.
 

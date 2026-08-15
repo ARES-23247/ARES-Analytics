@@ -126,9 +126,40 @@ voltage for velocity, acceleration, and angle; PID correction is added afterward
 arm angle is radians. Start with SysId data when possible and validate all gains in simulation before
 careful hardware testing.
 
+For a serial two-joint arm, choose **2-DOF arm** on each joint controller and select the joint it
+owns. The linkage contract records both independent actuators, both cached joint-angle measurements,
+link lengths, masses, centers of mass, limits, output torque per volt, and damping. The generated
+controller computes coupled gravity torque; `kG` is expressed in volts per newton-metre. The mock
+adapter runs the same deterministic rigid-body plant used by the interactive linkage lab, including
+gravity, Coriolis coupling, damping, accepted output voltage, and joint limits. Four-bar generation
+is intentionally blocked until a constrained four-bar plant and hardware contract exist.
+
+## Cross-mechanism interlocks and jam recovery
+
+An interlock references a stable state field on another generated subsystem. The builder offers
+only real subsystem/field choices and type-compatible comparisons. Project generation validates all
+references together, and the generated controller permits non-neutral output only when every
+interlock passes. Missing, renamed, or incompatible references fail generation rather than becoming
+an always-true condition.
+
+Automatic jam recovery is a bounded state machine, not a timer attached to target intent. Choose an
+independent actuator and its cached current measurement, then configure detection dwell, reverse or
+neutral action, recovery duration, retry count, and latch behavior. The generated IO reports
+accepted output and current validity. Failed recovery writes or exhausted retries latch the normal
+output fault; only the explicit neutral-recovery capability can clear it.
+
+## Field interaction simulation
+
+Intake and launcher interactions select the actuator whose **accepted simulated output** activates
+the interaction. The field simulator never trusts requested Redux intent as proof that a mechanism
+moved. Collection uses the configured capture geometry and capacity. Launching assigns a velocity
+in metres per second, including robot motion, rather than mixing velocity with a physics impulse.
+The field editor's persisted game-piece catalog supplies stable type IDs, collision shape, size,
+mass, friction, restitution, and accessible display color for every placed piece.
+
 ## Typed tuning parameters
 
-Schema-7 subsystem documents may declare `tuningParameters`. A declaration is not a loose mutable
+Schema-8 subsystem documents may declare `tuningParameters`. A declaration is not a loose mutable
 constant: it gives the value a stable UID, a project-wide key, a component owner, a novice-facing
 name and explanation, a type, optional units/bounds/options, a default, and an apply policy. Named
 robot profiles own authoritative values; the subsystem only owns their meaning and constraints.
