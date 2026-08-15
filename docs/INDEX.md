@@ -29,6 +29,7 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 | Lead a student activity | [Teaching with ARES](mentor/TEACHING_WITH_ARES.md) | A safe simulator-first lesson sequence |
 | Build autonomous routines or controller bindings | [Routines and controls](ROUTINES_AND_CONTROLS.md) | Offline project authoring |
 | Add a robot mechanism | [Subsystem Builder](SUBSYSTEM_BUILDER.md) | Generated IO, state, actions, reducers, and controllers |
+| Coordinate several mechanisms | [Superstructure Studio](SUPERSTRUCTURE_STUDIO.md) | Complete postures, project actions, cached sensor guards, interlocks, and lookup tables |
 | Configure how the robot moves | [Drivebase Builder](DRIVEBASE_BUILDER.md) | Drive type, hardware, geometry, localization, safety, and simulation labs |
 | Ask Gemini to help fill an authoring form | [AI design assistants](learn/AI_DESIGN_ASSISTANTS.md) | Review-only subsystem, drivebase, and binding proposals |
 | Tune from evidence without overwriting source | [Robot-owned tuning profiles](TUNING_PROFILES.md) | Source/live/proposed values, policies, provenance, diff review, and atomic promotion |

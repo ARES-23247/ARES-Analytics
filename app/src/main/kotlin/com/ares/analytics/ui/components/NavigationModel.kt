@@ -41,6 +41,7 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     HARDWARE_SETUP("Hardware Setup", Icons.Default.Build),
     DRIVEBASE_BUILDER("Drivebase Builder", Icons.Default.Settings),
     SUBSYSTEM_GEN("Subsystem Builder", Icons.Default.Construction),
+    SUPERSTRUCTURE_STUDIO("Superstructure Studio", Icons.Default.Layers),
     PROFILE("Profile", Icons.Default.Person),
     ADMIN("Admin Panel", Icons.Default.SupervisorAccount)
 }
@@ -65,7 +66,7 @@ val developerToolTargets = setOf(
 fun NavigationTarget.section(): NavigationSection? = when (this) {
     NavigationTarget.DASHBOARD -> NavigationSection.DASHBOARD
     NavigationTarget.ROBOT_STUDIO, NavigationTarget.PROJECT_IDENTITY, NavigationTarget.HARDWARE_SETUP, NavigationTarget.PIT_DIAGNOSTICS, NavigationTarget.CONTROLS,
-    NavigationTarget.TUNING, NavigationTarget.DRIVEBASE_BUILDER, NavigationTarget.SUBSYSTEM_GEN -> NavigationSection.ROBOT
+    NavigationTarget.TUNING, NavigationTarget.DRIVEBASE_BUILDER, NavigationTarget.SUBSYSTEM_GEN, NavigationTarget.SUPERSTRUCTURE_STUDIO -> NavigationSection.ROBOT
     NavigationTarget.PATH_PLANNER, NavigationTarget.FIELD_EDITOR -> NavigationSection.AUTONOMOUS
     NavigationTarget.GUIDED_RUN_ANALYSIS, NavigationTarget.RUN_HISTORY -> NavigationSection.ANALYSIS
     NavigationTarget.IMPORT_CENTER, NavigationTarget.CLOUD -> NavigationSection.DATA
@@ -90,6 +91,7 @@ fun NavigationSection.targets(): List<NavigationTarget> = when (this) {
         NavigationTarget.PROJECT_IDENTITY,
         NavigationTarget.HARDWARE_SETUP,
         NavigationTarget.SUBSYSTEM_GEN,
+        NavigationTarget.SUPERSTRUCTURE_STUDIO,
         NavigationTarget.DRIVEBASE_BUILDER,
         NavigationTarget.CONTROLS,
         NavigationTarget.PIT_DIAGNOSTICS,
@@ -132,6 +134,7 @@ fun NavigationTarget.searchTerms(): Set<String> = when (this) {
     NavigationTarget.HARDWARE_SETUP -> setOf("hardware map", "can id", "wiring", "addresses", "direction", "physical robot", "deployment review")
     NavigationTarget.DRIVEBASE_BUILDER -> setOf("drivetrain", "mecanum", "swerve", "differential", "ctre", "tuner constants", "wheelbase", "track width", "localization")
     NavigationTarget.SUBSYSTEM_GEN -> setOf("mechanism", "motor", "sensor", "redux", "io", "generator")
+    NavigationTarget.SUPERSTRUCTURE_STUDIO -> setOf("coordinator", "superstructure", "state machine", "posture", "interlock", "lookup table", "lut", "multiple mechanisms")
     NavigationTarget.PROFILE -> setOf("workspace", "robot", "team", "accessibility", "project folder")
     NavigationTarget.ADMIN -> setOf("roster", "shared robots", "administrator")
 }

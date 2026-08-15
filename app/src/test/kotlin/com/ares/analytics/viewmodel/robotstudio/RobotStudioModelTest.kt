@@ -112,6 +112,23 @@ class RobotStudioModelTest {
     }
 
     @Test
+    fun `coordinated mechanisms are optional until authored and invalid definitions block generation`() {
+        val optional = evaluateRobotStudioStages(completeEvidence(), RobotStudioRuntimeEvidence())
+        val invalid = evaluateRobotStudioStages(
+            completeEvidence().copy(
+                superstructureCount = 1,
+                superstructureErrors = listOf("main.aressuperstructure: unknown action 'arm.raise'"),
+            ),
+            RobotStudioRuntimeEvidence(),
+        )
+
+        assertEquals(RobotStudioStageStatus.OPTIONAL, optional.status(RobotStudioStageId.COORDINATION))
+        assertEquals(RobotStudioAction.OPEN_SUPERSTRUCTURES, optional.first { it.id == RobotStudioStageId.COORDINATION }.action)
+        assertEquals(RobotStudioStageStatus.INVALID, invalid.status(RobotStudioStageId.COORDINATION))
+        assertEquals(RobotStudioStageStatus.BLOCKED, invalid.status(RobotStudioStageId.GENERATE_VERIFY))
+    }
+
+    @Test
     fun `runtime and imported run evidence report only what was observed`() {
         val stages = evaluateRobotStudioStages(
             completeEvidence().copy(importedRunCount = 2),

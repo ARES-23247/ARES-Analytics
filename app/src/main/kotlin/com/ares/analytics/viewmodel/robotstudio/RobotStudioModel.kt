@@ -13,6 +13,7 @@ enum class RobotStudioStageId {
     PLATFORM,
     DRIVEBASE,
     MECHANISMS,
+    COORDINATION,
     HARDWARE_SETUP,
     LOCALIZATION,
     CAPABILITIES,
@@ -39,6 +40,7 @@ enum class RobotStudioAction {
     OPEN_PROJECT_IDENTITY,
     OPEN_DRIVEBASE,
     OPEN_SUBSYSTEMS,
+    OPEN_SUPERSTRUCTURES,
     OPEN_HARDWARE_SETUP,
     OPEN_CONTROLS,
     OPEN_AUTONOMOUS,
@@ -137,6 +139,12 @@ internal fun evaluateRobotStudioStages(
         evidence.subsystemCount == 0 -> RobotStudioStageStatus.OPTIONAL
         else -> RobotStudioStageStatus.READY
     }
+    val coordinationStatus = when {
+        projectBlocked -> RobotStudioStageStatus.BLOCKED
+        evidence.superstructureErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        evidence.superstructureCount == 0 -> RobotStudioStageStatus.OPTIONAL
+        else -> RobotStudioStageStatus.READY
+    }
     val hardwareStatus = when {
         projectBlocked || platformStatus != RobotStudioStageStatus.READY -> RobotStudioStageStatus.BLOCKED
         evidence.hardwareErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
@@ -184,6 +192,7 @@ internal fun evaluateRobotStudioStages(
     ).all { it == RobotStudioStageStatus.READY }
     val optionalStagesSafe = listOf(
         mechanismsStatus,
+        coordinationStatus,
         capabilitiesStatus,
         controlsStatus,
         autonomousStatus,
@@ -282,6 +291,22 @@ internal fun evaluateRobotStudioStages(
             "Generated registry, controller, IO, mock/simulator, and verification",
             RobotStudioAction.OPEN_SUBSYSTEMS,
             "Open Subsystem Builder",
+        ),
+        stage(
+            RobotStudioStageId.COORDINATION,
+            "Coordinated mechanism postures",
+            "Coordinate multiple generated mechanisms through complete presets, guarded transitions, interlocks, and lookup tables.",
+            coordinationStatus,
+            if (evidence.superstructureCount == 0) {
+                "Optional. Add a coordinator only when mechanisms must move together; a single mechanism stays in Subsystem Builder."
+            } else {
+                "${evidence.superstructureCount} generated coordinator definition(s) passed project validation."
+            },
+            evidence.superstructureErrors,
+            ".ares/superstructures/*.aressuperstructure",
+            "Generated Redux coordinator runtime, subsystem target tasks, autonomous/controller actions, and contract tests",
+            RobotStudioAction.OPEN_SUPERSTRUCTURES,
+            "Open Superstructure Studio",
         ),
         stage(
             RobotStudioStageId.HARDWARE_SETUP,
