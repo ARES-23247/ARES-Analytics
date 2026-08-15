@@ -56,9 +56,14 @@ To prevent the Gradle task from stopping an earlier Analytics JVM during investi
 
 ### Student-facing project verification
 
-Robot Studio and the execution toolbar **Verify & build** action are compile-only. They run generated-project verification, project tests, simulator tests where available, and normal packaging. They do not call ADB, install an FTC APK, deploy FRC code, start a simulator, or command hardware.
+Robot Studio and the execution toolbar **Verify & build** action are compile-only. They run
+deterministic project generation first, then generated-project verification, project tests,
+simulator tests where available, and normal packaging. They do not call ADB, install an FTC APK,
+deploy FRC code, start a simulator, or command hardware.
 
-The result is retained only as evidence for the matching project path and league. **Passed** means that invocation exited successfully; rebuild after changing project files. **Failed** and **Canceled** remain visible with recovery text. Physical deployment remains a separate supervised team procedure.
+The result is retained only as evidence for the matching project path and league. **Passed** means that invocation exited successfully; rebuild after changing project files. **Failed** and **Canceled** remain visible with recovery text.
+
+**Deploy to robot** is a separate supervised workflow. It displays the selected repository and physical target, repeats generation/verification/tests/package creation, and requires an explicit second confirmation. For FTC, all ADB operations are target-scoped to `192.168.43.1:5555`, the device identity is checked before install, and the Robot Controller package path is checked afterward. For FRC, the normal Gradle deploy task is invoked only after verification. A successful command is not a claim that wiring, mechanisms, radio conditions, or emergency-stop readiness were physically tested.
 
 ## 3. Pre-pit checklist
 

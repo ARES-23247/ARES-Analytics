@@ -43,6 +43,7 @@ import com.ares.analytics.ui.screens.fieldeditor.FieldValidationPanel
 import com.ares.analytics.ui.screens.fieldeditor.GamePieceRow
 import com.ares.analytics.ui.screens.fieldeditor.ObstacleRow
 import com.ares.analytics.ui.screens.fieldeditor.FieldWaypointRow
+import com.ares.analytics.ui.components.pathplanner.GamePieceCatalogDialog
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.FieldEditorIntent
 import com.ares.analytics.viewmodel.FieldEditorViewModel
@@ -77,8 +78,17 @@ fun FieldEditorScreen(
     var showCropBoundaries by remember { mutableStateOf(false) }
     var obstaclesCollapsed by remember { mutableStateOf(false) }
     var gamePiecesCollapsed by remember { mutableStateOf(false) }
+    var showGamePieceCatalog by remember { mutableStateOf(false) }
     var aprilTagsCollapsed by remember { mutableStateOf(false) }
     var waypointsCollapsed by remember { mutableStateOf(false) }
+
+    if (showGamePieceCatalog) {
+        GamePieceCatalogDialog(
+            gamePieceTypes = state.gamePieceTypes,
+            onTypesChanged = { viewModel.onIntent(FieldEditorIntent.SetGamePieceTypes(it)) },
+            onDismiss = { showGamePieceCatalog = false },
+        )
+    }
     val fieldWidthM = if (state.fieldImageConfig.widthMeters > 0.0) state.fieldImageConfig.widthMeters else (if (league == League.FTC) 3.65 else 16.5)
     val fieldHeightM = if (state.fieldImageConfig.heightMeters > 0.0) state.fieldImageConfig.heightMeters else (if (league == League.FTC) 3.65 else 8.2)
 
@@ -460,6 +470,28 @@ fun FieldEditorScreen(
                     }
                 }
 
+                // Canonical game-piece physics catalog
+                HorizontalDivider(color = AresBorder)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Game-piece catalog", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = AresTextPrimary)
+                        Text(
+                            "${state.gamePieceTypes.size} persisted type${if (state.gamePieceTypes.size == 1) "" else "s"} · dimensions, mass, friction, bounce, and color",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = AresTextSecondary,
+                        )
+                    }
+                    OutlinedButton(onClick = { showGamePieceCatalog = true }) {
+                        Icon(Icons.Default.Inventory2, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text("Edit catalog")
+                    }
+                }
+
                 // Placed Game Pieces Section
                 if (state.gamePieces.isNotEmpty()) {
                     HorizontalDivider(color = AresBorder)
@@ -490,7 +522,7 @@ fun FieldEditorScreen(
                                 GamePieceRow(
                                     index = index,
                                     gp = gp,
-                                    league = league,
+                                    gamePieceTypes = state.gamePieceTypes,
                                     measurementUnit = state.measurementUnit,
                                     onUpdate = { i, updated ->
                                         viewModel.onIntent(FieldEditorIntent.UpdateGamePiece(i, updated))
@@ -662,6 +694,7 @@ fun FieldEditorScreen(
                         aprilTags = state.aprilTags,
                         fieldWaypoints = state.fieldWaypoints
                     ),
+                    gamePieceTypes = state.gamePieceTypes,
                     selectedIds = state.selectedElementIds,
                     snapEnabled = state.snapEnabled,
                     gridSpacingMeters = state.gridSpacingMeters,

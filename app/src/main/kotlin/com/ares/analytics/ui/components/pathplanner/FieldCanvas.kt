@@ -58,6 +58,8 @@ fun FieldCanvas(
     onObstaclesChanged: ((List<Obstacle>) -> Unit)? = null,
     gamePieces: List<GamePiece>? = null,
     onGamePiecesChanged: ((List<GamePiece>) -> Unit)? = null,
+    gamePieceTypes: List<com.ares.analytics.shared.GamePieceType>? = null,
+    onGamePieceTypesChanged: ((List<com.ares.analytics.shared.GamePieceType>) -> Unit)? = null,
     aprilTags: List<AprilTagPlacement>? = null,
     onAprilTagsChanged: ((List<AprilTagPlacement>) -> Unit)? = null,
     fieldWaypoints: List<FieldWaypoint>? = null,
@@ -142,7 +144,10 @@ fun FieldCanvas(
     var selectedAprilTagId by remember { mutableStateOf<String?>(null) }
     var selectedGamePieceId by remember { mutableStateOf<String?>(null) }
     var selectedFieldWaypointId by remember { mutableStateOf<String?>(null) }
-    var activeGamePieceType by remember { mutableStateOf(if (league == League.FTC) "Sample (Yellow)" else "Note") }
+    val availableGamePieceTypes = gamePieceTypes ?: FieldDocumentMapper.defaultGamePieceTypes(league)
+    var activeGamePieceType by remember(league, availableGamePieceTypes) {
+        mutableStateOf(availableGamePieceTypes.firstOrNull()?.id.orEmpty())
+    }
     var zoomScale by remember { mutableStateOf(1f) }
     var panOffset by remember { mutableStateOf(Offset.Zero) }
     var showHeatmap by remember { mutableStateOf(false) }
@@ -239,7 +244,9 @@ fun FieldCanvas(
                 onViewRotationChanged = {
                     viewRotation = it
                     onViewRotationChanged?.invoke(it)
-                }
+                },
+                gamePieceTypes = availableGamePieceTypes,
+                onGamePieceTypesChanged = onGamePieceTypesChanged,
             )
         }
 
@@ -535,8 +542,20 @@ fun FieldCanvas(
                                     }
                                     EditorMode.PLACE_GAME_PIECE -> {
                                         val newWp = getRobotCoordFromScreen(pressOffset, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)
-                                        val typeLabel = if (league == League.FTC) when (activeGamePieceType) { "Sample (Yellow)" -> "Yellow Sample"; "Sample (Red)" -> "Red Sample"; "Sample (Blue)" -> "Blue Sample"; "Decode (Ball)" -> "Decode Ball"; else -> "Specimen" } else "Note"
-                                        updateGamePieces(currentActiveGamePieces + GamePiece("piece_${System.currentTimeMillis()}", "$typeLabel ${currentActiveGamePieces.size + 1}", newWp.x, newWp.y, activeGamePieceType))
+                                        val type = availableGamePieceTypes.firstOrNull { it.id == activeGamePieceType }
+                                            ?: availableGamePieceTypes.firstOrNull()
+                                        if (type != null) {
+                                            updateGamePieces(
+                                                currentActiveGamePieces + GamePiece(
+                                                    id = "piece_${System.currentTimeMillis()}",
+                                                    name = "${type.name} ${currentActiveGamePieces.size + 1}",
+                                                    x = newWp.x,
+                                                    y = newWp.y,
+                                                    type = type.name,
+                                                    typeId = type.id,
+                                                ),
+                                            )
+                                        }
                                     }
                                     EditorMode.PLACE_APRILTAG -> {
                                         val newWp = getRobotCoordFromScreen(pressOffset, w, h, fieldWidthM, fieldHeightM, league, zoomScale, panOffset)

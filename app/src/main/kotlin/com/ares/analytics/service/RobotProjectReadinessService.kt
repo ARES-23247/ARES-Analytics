@@ -5,6 +5,9 @@ import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
 import com.ares.analytics.service.drivebase.DrivebaseIssueSeverity
 import com.ares.analytics.service.drivebase.LocalizationKind
 import com.ares.analytics.service.drivebase.validateDrivebase
+import com.ares.analytics.service.hardware.HardwareReviewStatus
+import com.ares.analytics.service.hardware.HardwareSetupService
+import com.ares.analytics.service.project.templateDeploymentBlockReason
 import com.ares.analytics.service.tuning.TuningProfileRepository
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.models.WorkspaceConfig
@@ -25,6 +28,11 @@ data class RobotProjectReadinessEvidence(
     val metadataLeagueMatches: Boolean = false,
     val metadataErrors: List<String> = emptyList(),
     val documentErrors: List<String> = emptyList(),
+    val hardwareItemCount: Int = 0,
+    val hardwareErrors: List<String> = emptyList(),
+    val hardwareReviewStatus: HardwareReviewStatus = HardwareReviewStatus.NOT_REVIEWED,
+    val hardwareReviewedBy: String? = null,
+    val physicalDeploymentBlockReason: String? = null,
     val drivebaseKind: DrivebaseKind? = null,
     val drivebaseErrors: List<String> = emptyList(),
     val drivebaseNoCodeSupported: Boolean = false,
@@ -55,6 +63,7 @@ class RobotProjectReadinessService(
     private val projectDocuments: AresProjectDocuments = AresProjectDocuments(),
     private val drivebaseRepository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
     private val tuningRepository: TuningProfileRepository = TuningProfileRepository(),
+    private val hardwareSetupService: HardwareSetupService = HardwareSetupService(),
 ) {
     suspend fun inspect(config: WorkspaceConfig): RobotProjectReadinessEvidence = withContext(Dispatchers.IO) {
         val projectError = ProjectLayout.validationError(config.projectPath, config.league)
@@ -81,6 +90,12 @@ class RobotProjectReadinessService(
 
         val tuningResult = tuningRepository.load(config.projectPath)
         val tuning = tuningResult.getOrNull()
+        val hardwareResult = runCatching { hardwareSetupService.inspect(config.projectPath, config.league) }
+        val hardware = hardwareResult.getOrNull()
+        val hardwareErrors = buildList {
+            hardwareResult.exceptionOrNull()?.message?.let(::add)
+            addAll(hardware?.errorIssues.orEmpty().map { it.message })
+        }.distinct()
         val matchingRuns = databaseService.getSessions().count { session ->
             session.teamId == config.teamId &&
                 session.seasonId == config.seasonId &&
@@ -113,6 +128,11 @@ class RobotProjectReadinessService(
             metadataLeagueMatches = snapshot?.projectMetadata?.league == expectedLeague,
             metadataErrors = metadataErrors,
             documentErrors = diagnostics.map { "${it.file.name}: ${it.message}" },
+            hardwareItemCount = hardware?.items?.size ?: 0,
+            hardwareErrors = hardwareErrors,
+            hardwareReviewStatus = hardware?.reviewStatus ?: HardwareReviewStatus.NOT_REVIEWED,
+            hardwareReviewedBy = hardware?.reviewedBy,
+            physicalDeploymentBlockReason = templateDeploymentBlockReason(File(config.projectPath)),
             drivebaseKind = drivebase?.kind,
             drivebaseErrors = drivebaseErrors,
             drivebaseNoCodeSupported = when (config.league) {

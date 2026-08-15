@@ -116,7 +116,24 @@ data class GamePiece(
     val x: Double,
     val y: Double,
     val type: String = "Custom",
+    /** Stable catalog ID. Null is accepted only while migrating older name-only editor data. */
+    val typeId: String? = null,
     val locked: Boolean = false
+)
+
+/** Catalog definition of a game-piece archetype with visual and physics properties. */
+@Serializable
+data class GamePieceType(
+    val id: String,
+    val name: String,
+    val shape: String = "circle", // "circle", "box", "sphere", "cylinder"
+    val diameter: Double = 0.15,
+    val width: Double = 0.15,
+    val height: Double = 0.15,
+    val colorHex: String = "#FFEB3B",
+    val massKg: Double = 0.20,
+    val friction: Double = 0.6,
+    val restitution: Double = 0.3
 )
 
 /** AprilTag placement in meters with a CCW-positive yaw in degrees. */

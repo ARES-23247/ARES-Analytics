@@ -53,15 +53,26 @@ import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.viewmodel.OnboardingFieldErrors
 import com.ares.analytics.viewmodel.OnboardingStep
+import com.ares.analytics.viewmodel.ProjectSetupMode
 
 /** Project, robot, advanced, and review content shared by the staged onboarding wizard. */
 @Composable
 fun SyncStep(
     step: OnboardingStep,
+    projectSetupMode: ProjectSetupMode,
     projectPath: String,
+    projectParentPath: String,
+    projectFolderName: String,
     projectDetectionMessage: String?,
+    projectTemplateName: String,
+    projectTemplateVersion: String,
+    projectCreationMessage: String?,
+    onProjectSetupModeChange: (ProjectSetupMode) -> Unit,
     onProjectPathChange: (String) -> Unit,
     onBrowseProject: () -> Unit,
+    onProjectParentPathChange: (String) -> Unit,
+    onProjectFolderNameChange: (String) -> Unit,
+    onBrowseProjectParent: () -> Unit,
     teamId: String,
     onTeamIdChange: (String) -> Unit,
     cloudRobots: List<RobotProfile>,
@@ -86,11 +97,23 @@ fun SyncStep(
 ) {
     when (step) {
         OnboardingStep.PROJECT -> ProjectSelection(
+            mode = projectSetupMode,
             projectPath = projectPath,
+            projectParentPath = projectParentPath,
+            projectFolderName = projectFolderName,
             detectionMessage = projectDetectionMessage,
+            templateName = projectTemplateName,
+            templateVersion = projectTemplateVersion,
+            creationMessage = projectCreationMessage,
             error = fieldErrors.projectPath,
+            league = league,
+            onLeagueChange = onLeagueChange,
+            onModeChange = onProjectSetupModeChange,
             onProjectPathChange = onProjectPathChange,
             onBrowseProject = onBrowseProject,
+            onProjectParentPathChange = onProjectParentPathChange,
+            onProjectFolderNameChange = onProjectFolderNameChange,
+            onBrowseProjectParent = onBrowseProjectParent,
         )
         OnboardingStep.ROBOT -> RobotDetails(
             teamId = teamId,
@@ -132,41 +155,100 @@ fun SyncStep(
 
 @Composable
 private fun ProjectSelection(
+    mode: ProjectSetupMode,
     projectPath: String,
+    projectParentPath: String,
+    projectFolderName: String,
     detectionMessage: String?,
+    templateName: String,
+    templateVersion: String,
+    creationMessage: String?,
     error: String?,
+    league: League,
+    onLeagueChange: (League) -> Unit,
+    onModeChange: (ProjectSetupMode) -> Unit,
     onProjectPathChange: (String) -> Unit,
     onBrowseProject: () -> Unit,
+    onProjectParentPathChange: (String) -> Unit,
+    onProjectFolderNameChange: (String) -> Unit,
+    onBrowseProjectParent: () -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(
-            "This is usually the folder that contains settings.gradle or settings.gradle.kts.",
-            color = AresTextSecondary,
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                AresTextField(
-                    value = projectPath,
-                    onValueChange = onProjectPathChange,
-                    label = "Robot project folder",
-                    placeholder = "C:\\Users\\...\\my-robot-project",
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                FieldMessage(error)
-            }
-            Button(
-                onClick = onBrowseProject,
-                colors = ButtonDefaults.buttonColors(containerColor = AresBorder),
-                shape = RoundedCornerShape(8.dp),
-                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("How would you like to begin?", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            ProjectModeCard(
+                title = "Create a new robot",
+                description = "Start from a reviewed project, customize it in Robot Studio, build it, and run its desktop simulator.",
+                selected = mode == ProjectSetupMode.CREATE_NEW,
+                onClick = { onModeChange(ProjectSetupMode.CREATE_NEW) },
+                modifier = Modifier.weight(1f),
+            )
+            ProjectModeCard(
+                title = "Open an existing project",
+                description = "Use an ARES FTC or FRC repository already on this computer.",
+                selected = mode == ProjectSetupMode.OPEN_EXISTING,
+                onClick = { onModeChange(ProjectSetupMode.OPEN_EXISTING) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+
+        if (mode == ProjectSetupMode.CREATE_NEW) {
+            LeagueSelector(league, onLeagueChange)
+            Card(
+                colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+                border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
             ) {
-                Icon(Icons.Default.FolderOpen, contentDescription = null, tint = AresTextPrimary)
-                Text("Choose folder", color = AresTextPrimary)
+                Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("Verified starter: $templateName $templateVersion", color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "ARES checks an exact revision and SHA-256 before creating anything. The verified download is cached for offline reuse.",
+                        color = AresTextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Text(
+                        "SIMULATION READY — Local generation, tests, packaging, and simulation are supported. Physical deployment stays blocked because this reviewed starter still contains Team 23247 season-specific composition that is not fully GUI-owned.",
+                        color = AresError,
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+
+            PathChooser(
+                value = projectParentPath,
+                onValueChange = onProjectParentPathChange,
+                label = "Create inside this folder",
+                placeholder = "C:\\Users\\...\\Robots",
+                buttonLabel = "Choose parent folder",
+                onBrowse = onBrowseProjectParent,
+            )
+            AresTextField(
+                value = projectFolderName,
+                onValueChange = onProjectFolderNameChange,
+                label = "New project folder name",
+                placeholder = "team-23247-robot",
+                modifier = Modifier.fillMaxWidth(),
+            )
+            FieldMessage(error)
+            if (projectPath.isNotBlank() && error == null) {
+                Text("New project: $projectPath", color = AresGreen, style = MaterialTheme.typography.bodySmall)
+            }
+            creationMessage?.let { Text(it, color = AresGreen, style = MaterialTheme.typography.bodySmall) }
+        } else {
+            Text(
+                "Choose the repository root—the folder containing settings.gradle or settings.gradle.kts.",
+                color = AresTextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            PathChooser(
+                value = projectPath,
+                onValueChange = onProjectPathChange,
+                label = "Robot project folder",
+                placeholder = "C:\\Users\\...\\my-robot-project",
+                buttonLabel = "Choose project",
+                onBrowse = onBrowseProject,
+            ) {
+                FieldMessage(error)
             }
         }
         if (detectionMessage != null) {
@@ -174,6 +256,64 @@ private fun ProjectSelection(
                 Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AresGreen)
                 Text(detectionMessage, color = AresGreen, style = MaterialTheme.typography.bodySmall)
             }
+        }
+    }
+}
+
+@Composable
+private fun ProjectModeCard(
+    title: String,
+    description: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = if (selected) AresCyanGlow else AresSurfaceElevated),
+        border = androidx.compose.foundation.BorderStroke(1.dp, if (selected) AresCyan else AresBorder),
+    ) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(title, color = if (selected) AresCyan else AresTextPrimary, fontWeight = FontWeight.Bold)
+            Text(description, color = AresTextSecondary, style = MaterialTheme.typography.bodySmall)
+            Text(if (selected) "Selected" else "Select", color = if (selected) AresGreen else AresTextSecondary, fontSize = 10.sp)
+        }
+    }
+}
+
+@Composable
+private fun PathChooser(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String,
+    buttonLabel: String,
+    onBrowse: () -> Unit,
+    supportingContent: @Composable () -> Unit = {},
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            AresTextField(
+                value = value,
+                onValueChange = onValueChange,
+                label = label,
+                placeholder = placeholder,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            supportingContent()
+        }
+        Button(
+            onClick = onBrowse,
+            colors = ButtonDefaults.buttonColors(containerColor = AresBorder),
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Icon(Icons.Default.FolderOpen, contentDescription = null, tint = AresTextPrimary)
+            Text(buttonLabel, color = AresTextPrimary)
         }
     }
 }

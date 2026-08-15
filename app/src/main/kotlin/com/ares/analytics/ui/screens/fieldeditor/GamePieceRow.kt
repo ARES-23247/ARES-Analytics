@@ -18,7 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.shared.GamePiece
-import com.ares.analytics.shared.League
+import com.ares.analytics.shared.GamePieceType
 import com.ares.analytics.ui.components.forms.AresTextField
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.field.FieldMeasurementUnit
@@ -30,7 +30,7 @@ import com.ares.analytics.viewmodel.field.FieldMeasurementUnit
  *
  * @param index Zero-based list index of this game piece.
  * @param gp Current [GamePiece] data record.
- * @param league Active robotics league ([League.FTC] / [League.FRC]).
+ * @param gamePieceTypes Canonical workspace catalog used by simulator physics and rendering.
  * @param onUpdate Callback for updating game piece properties.
  * @param onDelete Callback for removing this game piece.
  *
@@ -40,7 +40,7 @@ import com.ares.analytics.viewmodel.field.FieldMeasurementUnit
 fun GamePieceRow(
     index: Int,
     gp: GamePiece,
-    league: League,
+    gamePieceTypes: List<GamePieceType>,
     measurementUnit: FieldMeasurementUnit = FieldMeasurementUnit.METERS,
     onUpdate: (Int, GamePiece) -> Unit,
     onDelete: (Int) -> Unit
@@ -64,11 +64,6 @@ fun GamePieceRow(
                 textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
             )
             Spacer(modifier = Modifier.height(4.dp))
-            val types = if (league == League.FTC) {
-                listOf("Sample (Yellow)", "Sample (Red)", "Sample (Blue)", "Specimen")
-            } else {
-                listOf("Note", "High Note")
-            }
             var expanded by remember { mutableStateOf(false) }
             Box {
                 Text(
@@ -82,12 +77,12 @@ fun GamePieceRow(
                     expanded = expanded,
                     onDismissRequest = { expanded = false }
                 ) {
-                    types.forEach { t ->
+                    gamePieceTypes.forEach { type ->
                         DropdownMenuItem(
-                            text = { Text(t, fontSize = 12.sp) },
+                            text = { Text(type.name, fontSize = 12.sp) },
                             onClick = {
                                 expanded = false
-                                onUpdate(index, gp.copy(type = t))
+                                onUpdate(index, gp.copy(type = type.name, typeId = type.id))
                             }
                         )
                     }

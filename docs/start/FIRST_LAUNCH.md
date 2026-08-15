@@ -7,7 +7,7 @@ This guide gets one local robot workspace into ARES Analytics. It does not conne
 Have these ready:
 
 - JDK 17 installed.
-- The local folder for one robot project, usually `ARES-FTC` or `ARES-FRC`.
+- Either a local robot project or a parent folder where ARES can create one.
 - Your team number, season, and robot name or ID.
 
 Choose the robot project itself, not the four-project `ares` workspace and not the `ARES-Analytics` folder. A project with `.ares-robot.json` is easiest because Analytics can fill in its identity.
@@ -24,13 +24,27 @@ If a mentor installed the desktop application, open **ARES Analytics** normally 
 
 The first-run **ARES setup** has four short stages.
 
-### 1. Choose your robot project
+### 1. Choose or create your robot project
 
-1. At **Robot project folder**, select **Choose folder**.
-2. Choose the robot project. The chooser title is **Choose your robot project folder**.
-3. Read the green detection message, then select **Continue**.
+For a new student:
 
-The selected folder usually contains `settings.gradle` or `settings.gradle.kts`.
+1. Choose **Create a new robot**.
+2. Select **FTC** or **FRC** and read the exact verified starter version.
+3. Choose a parent folder, enter a new project folder name, then select **Continue**.
+
+For an existing project:
+
+1. Choose **Open an existing project**.
+2. At **Robot project folder**, select **Choose project**.
+3. Choose the repository root and read the green detection message, then select **Continue**.
+
+An existing selected folder usually contains `settings.gradle` or `settings.gradle.kts`. New-project
+download, SHA-256 verification, personalization, and publication occur only after the final review.
+See [Create a robot project](CREATE_ROBOT_PROJECT.md) for the safety and recovery contract.
+
+The downloaded starters retain Team 23247 season hardware examples. They are usable for Robot
+Studio, tests, and local simulation. Physical deployment remains blocked because the season
+composition is not yet fully GUI-owned; a Hardware Setup review cannot remove that block.
 
 ### 2. Check the robot details
 

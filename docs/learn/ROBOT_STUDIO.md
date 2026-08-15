@@ -16,7 +16,7 @@ Every stage includes a text label and icon. Color is supplemental.
 | **Code required** | The descriptor is understandable, but this season project has no matching no-code runtime adapter. |
 | **Running now** | Analytics observes its managed build or simulator process running. This is not a success result. |
 
-Robot Studio never marks a build ready merely because an old generated file exists. Run **Verify & build** and read the correlated result. The action verifies generated ownership, runs project and simulator tests, and creates the normal FTC/FRC package. It never connects to ADB, installs an APK, deploys to a RoboRIO, or starts a robot. A successful build or simulator run still is not physical-robot validation.
+Robot Studio never marks a build ready merely because an old generated file exists. Run **Verify & build** and read the correlated result. The action first regenerates the deterministic project bridge, then verifies generated ownership, runs project and simulator tests, and creates the normal FTC/FRC package. It never connects to ADB, installs an APK, deploys to a RoboRIO, or starts a robot. Robot Studio enables **Start simulator** only after that selected workspace has a successful current-session build. A successful build or simulator run still is not physical-robot validation.
 
 ## Follow the workflow
 
@@ -26,12 +26,15 @@ Robot Studio never marks a build ready merely because an old generated file exis
 4. **Mechanisms & subsystems** — add only the mechanisms the robot has; drive-only robots may leave this optional.
 5. **Sensors & localization** — select one compatible primary pose source and optional vision fusion.
 6. **Capabilities & actions** — review the named Redux actions available to controls and autonomous routines.
-7. **Driver & operator controls** — create controller profiles and conflict-free bindings.
+7. **Driver & operator controls** — a zero-profile/zero-scheme reviewed season project can use its
+   built-in baseline driving controls. Create a controller profile and control scheme together when
+   adding GUI bindings for named mechanism actions; a half-configured pair is blocked.
 8. **Autonomous routines** — optional while learning TeleOp; start with a short simulator-first routine.
 9. **Tuning & calibration** — keep structural identity separate from reviewed canonical values and local experiments.
 10. **Verify & build** — preview generated work in its owning builder, preserve USER-OWNED source, then run verification, tests, and packaging without deployment.
 11. **Simulate** — run the actual robot project against desktop adapters and identify the telemetry source.
 12. **Import & analyze** — preserve a simulator or robot run before making claims about behavior.
+13. **Supervised deploy (optional)** — only after review, open the separate deploy dialog, verify its exact project and target, then confirm the physical side effect.
 
 ## Know what is stored where
 
@@ -56,16 +59,22 @@ Read the stage issue before editing files manually:
 - **Wrong platform:** select the correct workspace or repair the canonical metadata; Project Identity will not rewrite the league of an existing project.
 - **Code required:** use a supported no-code drivebase for this season project, or ask a mentor/developer to implement and verify the missing runtime adapter.
 - **Invalid catalog or binding:** open the linked builder and fix the referenced stable ID or conflict.
-- **Missing controls:** create both a controller profile and a control scheme before building a driveable robot.
+- **Incomplete controls:** create both a controller profile and a control scheme, or remove both to
+  return to the reviewed season baseline. One without the other is blocked.
 - **Build failure:** keep the terminal output visible, fix the first reported error, and retry. The generated file already on disk is not proof of freshness.
 - **Canceled build:** no pass/fail result exists. Retry after confirming no other managed build is running.
 - **Result from another workspace:** Robot Studio ignores it. Build evidence is matched to the selected project and league.
 
 ## Build is not deploy
 
-The student-facing Build action is deliberately compile-only. For FTC it runs project generation verification, TeamCode unit tests, simulator tests, and debug APK assembly. For FRC it runs project generation verification, tests, and the normal build. Neither path performs physical deployment.
+The student-facing Build action is deliberately compile-only. For FTC it runs deterministic project
+generation, generation verification, TeamCode unit tests, simulator tests, and debug APK assembly.
+For FRC it runs deterministic project generation, generation verification, tests, and the normal
+build. Neither path performs physical deployment.
 
-Installing an FTC APK or deploying FRC code is a separate supervised team operation outside this button. Preserve that boundary when adding future deployment UI: name the target, show the physical side effect, require explicit confirmation, and never infer deployment permission from a green build.
+Installing an FTC APK or deploying FRC code uses the separate **Deploy to robot** workflow. It shows the exact project and physical target, reruns generation, verification, project tests, simulator tests where available, and packaging, then requires a second explicit confirmation before the install/deploy command. FTC deployment pins every ADB command to `192.168.43.1:5555`, checks the connected Android device identity, and verifies the Robot Controller package after installation. FRC deployment runs the standard project deploy task only after the same verification boundary.
+
+A green build never grants deployment permission. A mentor remains responsible for wiring checks, restrained mechanisms, emergency-stop readiness, and supervision. Closing or canceling the dialog must not deploy anything.
 
 Use [Robot Academy](ROBOT_ACADEMY.md) when a concept is unfamiliar. Use [Drivebase Builder](../DRIVEBASE_BUILDER.md), [Subsystem Builder](../SUBSYSTEM_BUILDER.md), and [Routines and controls](../ROUTINES_AND_CONTROLS.md) for deeper task instructions.
 

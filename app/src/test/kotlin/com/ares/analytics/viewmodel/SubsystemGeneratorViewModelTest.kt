@@ -452,6 +452,53 @@ class SubsystemGeneratorViewModelTest {
         viewModel.close()
     }
 
+    @Test
+    fun `interlock authoring and fault recovery editing updates draft and permits undo`() {
+        val root = Files.createTempDirectory("ares-interlock-test").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.registerHandAuthoredSubsystem()
+
+        viewModel.addInterlock()
+        val draftWithInterlock = viewModel.state.value.draft!!.document
+        assertEquals(1, draftWithInterlock.interlocks.size)
+        val interlockId = draftWithInterlock.interlocks.single().interlockId
+
+        viewModel.updateInterlock(interlockId) {
+            it.copy(
+                targetSubsystemUid = "elevator",
+                targetFieldId = "height",
+                comparison = com.areslib.subsystem.InterlockComparison.GREATER_THAN,
+                thresholdValue = 0.5,
+                forbiddenZoneDescription = "Lockout arm when elevator is high",
+            )
+        }
+        val updated = viewModel.state.value.draft!!.document.interlocks.single()
+        assertEquals("elevator", updated.targetSubsystemUid)
+        assertEquals(0.5, updated.thresholdValue)
+
+        viewModel.edit {
+            it.copy(
+                safety = it.safety.copy(
+                    faultRecovery = com.areslib.subsystem.SubsystemFaultRecoveryDocument(
+                        enabled = true,
+                        currentThresholdAmps = 22.0,
+                        currentDurationMs = 300L,
+                        recoveryAction = com.areslib.subsystem.FaultRecoveryActionKind.REVERSE_BRIEFLY,
+                    )
+                )
+            )
+        }
+        assertTrue(viewModel.state.value.draft!!.document.safety.faultRecovery.enabled)
+        assertEquals(22.0, viewModel.state.value.draft!!.document.safety.faultRecovery.currentThresholdAmps)
+
+        viewModel.removeInterlock(interlockId)
+        assertEquals(0, viewModel.state.value.draft!!.document.interlocks.size)
+
+        viewModel.undo()
+        assertEquals(1, viewModel.state.value.draft!!.document.interlocks.size)
+        viewModel.close()
+    }
+
     private fun minimalSubsystem(kotlinTypeName: String) = com.areslib.subsystem.SubsystemDocument(
         documentId = "indexer",
         displayName = kotlinTypeName.replace(Regex("(?<=[a-z])(?=[A-Z])"), " "),

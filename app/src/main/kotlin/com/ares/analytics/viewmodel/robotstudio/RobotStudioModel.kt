@@ -2,7 +2,10 @@ package com.ares.analytics.viewmodel.robotstudio
 
 import com.ares.analytics.service.BuildExecutionPhase
 import com.ares.analytics.service.BuildExecutionState
+import com.ares.analytics.service.DeployExecutionPhase
+import com.ares.analytics.service.DeployExecutionState
 import com.ares.analytics.service.RobotProjectReadinessEvidence
+import com.ares.analytics.service.hardware.HardwareReviewStatus
 import java.io.File
 
 enum class RobotStudioStageId {
@@ -10,6 +13,7 @@ enum class RobotStudioStageId {
     PLATFORM,
     DRIVEBASE,
     MECHANISMS,
+    HARDWARE_SETUP,
     LOCALIZATION,
     CAPABILITIES,
     CONTROLS,
@@ -17,6 +21,7 @@ enum class RobotStudioStageId {
     TUNING,
     GENERATE_VERIFY,
     SIMULATE,
+    DEPLOY,
     ANALYZE,
 }
 
@@ -34,11 +39,13 @@ enum class RobotStudioAction {
     OPEN_PROJECT_IDENTITY,
     OPEN_DRIVEBASE,
     OPEN_SUBSYSTEMS,
+    OPEN_HARDWARE_SETUP,
     OPEN_CONTROLS,
     OPEN_AUTONOMOUS,
     OPEN_TUNING,
     RUN_BUILD,
     RUN_SIMULATOR,
+    DEPLOY_ROBOT,
     OPEN_IMPORTS,
     OPEN_GUIDED_ANALYSIS,
 }
@@ -58,7 +65,10 @@ data class RobotStudioStage(
 
 data class RobotStudioRuntimeEvidence(
     val build: BuildExecutionState = BuildExecutionState(),
+    val deploy: DeployExecutionState = DeployExecutionState(),
     val simulatorRunning: Boolean = false,
+    val simulatorProjectPath: String? = null,
+    val simulatorLeague: com.ares.analytics.shared.League? = null,
     val localSimulatorOnline: Boolean = false,
     val nt4Connected: Boolean = false,
 )
@@ -127,6 +137,13 @@ internal fun evaluateRobotStudioStages(
         evidence.subsystemCount == 0 -> RobotStudioStageStatus.OPTIONAL
         else -> RobotStudioStageStatus.READY
     }
+    val hardwareStatus = when {
+        projectBlocked || platformStatus != RobotStudioStageStatus.READY -> RobotStudioStageStatus.BLOCKED
+        evidence.hardwareErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        evidence.hardwareItemCount == 0 -> RobotStudioStageStatus.NEEDS_ACTION
+        evidence.hardwareReviewStatus == HardwareReviewStatus.CURRENT -> RobotStudioStageStatus.READY
+        else -> RobotStudioStageStatus.NEEDS_ACTION
+    }
     val localizationStatus = when {
         drivebaseStatus == RobotStudioStageStatus.BLOCKED -> RobotStudioStageStatus.BLOCKED
         drivebaseStatus == RobotStudioStageStatus.INVALID -> RobotStudioStageStatus.BLOCKED
@@ -142,6 +159,7 @@ internal fun evaluateRobotStudioStages(
     val controlsStatus = when {
         projectBlocked -> RobotStudioStageStatus.BLOCKED
         evidence.controlErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        evidence.controlSchemeCount == 0 && evidence.controllerProfileCount == 0 -> RobotStudioStageStatus.OPTIONAL
         evidence.controlSchemeCount == 0 || evidence.controllerProfileCount == 0 -> RobotStudioStageStatus.NEEDS_ACTION
         else -> RobotStudioStageStatus.READY
     }
@@ -163,11 +181,11 @@ internal fun evaluateRobotStudioStages(
         platformStatus,
         drivebaseStatus,
         localizationStatus,
-        controlsStatus,
     ).all { it == RobotStudioStageStatus.READY }
     val optionalStagesSafe = listOf(
         mechanismsStatus,
         capabilitiesStatus,
+        controlsStatus,
         autonomousStatus,
         tuningStatus,
     ).all { it == RobotStudioStageStatus.READY || it == RobotStudioStageStatus.OPTIONAL }
@@ -175,6 +193,9 @@ internal fun evaluateRobotStudioStages(
     val selectedBuild = runtime.build.takeIf { build ->
         build.league == evidence.league && sameProjectPath(build.projectPath, evidence.projectPath)
     }
+    val selectedSimulatorRunning = runtime.simulatorRunning &&
+        runtime.simulatorLeague == evidence.league &&
+        runtime.simulatorProjectPath?.let { sameProjectPath(it, evidence.projectPath) } == true
     val buildStatus = when {
         selectedBuild?.phase == BuildExecutionPhase.RUNNING -> RobotStudioStageStatus.RUNNING
         !authoredStagesReady -> RobotStudioStageStatus.BLOCKED
@@ -192,7 +213,18 @@ internal fun evaluateRobotStudioStages(
         else -> "Run project verification after the canonical documents and generated source are ready."
     }
     val simulationStatus = when {
-        runtime.simulatorRunning || (runtime.localSimulatorOnline && runtime.nt4Connected) -> RobotStudioStageStatus.RUNNING
+        !authoredStagesReady -> RobotStudioStageStatus.BLOCKED
+        selectedSimulatorRunning -> RobotStudioStageStatus.RUNNING
+        selectedBuild?.phase != BuildExecutionPhase.SUCCEEDED -> RobotStudioStageStatus.BLOCKED
+        else -> RobotStudioStageStatus.NEEDS_ACTION
+    }
+    val deployStatus = when {
+        runtime.deploy.phase == DeployExecutionPhase.CONNECTING ||
+            runtime.deploy.phase == DeployExecutionPhase.BUILDING ||
+            runtime.deploy.phase == DeployExecutionPhase.INSTALLING -> RobotStudioStageStatus.RUNNING
+        runtime.deploy.phase == DeployExecutionPhase.SUCCEEDED -> RobotStudioStageStatus.READY
+        runtime.deploy.phase == DeployExecutionPhase.FAILED -> RobotStudioStageStatus.INVALID
+        evidence.physicalDeploymentBlockReason != null -> RobotStudioStageStatus.BLOCKED
         !authoredStagesReady -> RobotStudioStageStatus.BLOCKED
         else -> RobotStudioStageStatus.NEEDS_ACTION
     }
@@ -252,6 +284,27 @@ internal fun evaluateRobotStudioStages(
             "Open Subsystem Builder",
         ),
         stage(
+            RobotStudioStageId.HARDWARE_SETUP,
+            "Physical hardware setup",
+            "Compare every canonical device address, direction, safe output, and limit with the actual robot.",
+            hardwareStatus,
+            when (evidence.hardwareReviewStatus) {
+                HardwareReviewStatus.CURRENT ->
+                    "${evidence.hardwareReviewedBy.orEmpty()} reviewed the current ${evidence.hardwareItemCount}-device inventory. Any descriptor edit makes this review stale."
+                HardwareReviewStatus.STALE ->
+                    "The drivetrain or subsystem descriptors changed after the previous review. Compare the current mapping again."
+                HardwareReviewStatus.INVALID ->
+                    "The review record is invalid. Repair the reported issue and record a new review."
+                HardwareReviewStatus.NOT_REVIEWED ->
+                    "${evidence.hardwareItemCount} physical device(s) are declared but have not been compared with a robot. Simulation remains available."
+            },
+            evidence.hardwareErrors,
+            ".ares/drivetrains, .ares/subsystems, and hash-bound .ares/hardware-review.json",
+            "Drivebase/subsystem generated adapters and the physical deployment gate",
+            RobotStudioAction.OPEN_HARDWARE_SETUP,
+            "Open Hardware Setup",
+        ),
+        stage(
             RobotStudioStageId.LOCALIZATION,
             "Sensors & localization",
             "Choose one primary pose source and optional vision fusion with explicit units and direction conventions.",
@@ -280,7 +333,11 @@ internal fun evaluateRobotStudioStages(
             "Driver & operator controls",
             "Map real controller inputs to named actions, routines, and safe timing behavior.",
             controlsStatus,
-            if (controlsStatus == RobotStudioStageStatus.READY) "${evidence.controlSchemeCount} control scheme(s) and ${evidence.controllerProfileCount} controller profile(s) loaded." else "Create a controller profile and conflict-free control scheme.",
+            when (controlsStatus) {
+                RobotStudioStageStatus.READY -> "${evidence.controlSchemeCount} control scheme(s) and ${evidence.controllerProfileCount} controller profile(s) loaded."
+                RobotStudioStageStatus.OPTIONAL -> "The reviewed season project supplies safe baseline driving controls. Add GUI bindings when you want controller buttons to run named mechanism actions."
+                else -> "A controller profile and control scheme must be created together; finish or remove the incomplete pair."
+            },
             evidence.controlErrors,
             ".ares/controllers/*.arescontroller and .ares/controls/*.arescontrols",
             "Generated project bindings and the platform TeleOp runtime",
@@ -337,12 +394,38 @@ internal fun evaluateRobotStudioStages(
             "Simulate",
             "Run the actual robot project against desktop adapters before touching hardware.",
             simulationStatus,
-            if (simulationStatus == RobotStudioStageStatus.RUNNING) "The local simulator is running${if (runtime.nt4Connected) " and telemetry is connected" else ""}." else "Start the local simulator, identify the data source, and stop it cleanly when finished.",
+            when {
+                simulationStatus == RobotStudioStageStatus.RUNNING -> "The local simulator is running${if (runtime.nt4Connected) " and telemetry is connected" else ""}."
+                !authoredStagesReady -> "Resolve the blocked authoring stages before simulation."
+                selectedBuild?.phase != BuildExecutionPhase.SUCCEEDED -> "Run Verify & build successfully first so simulation uses current generated code and tested project artifacts."
+                else -> "Start the verified local simulator, identify the data source, and stop it cleanly when finished."
+            },
             emptyList(),
             "No canonical source is changed by simulation",
             "FTC/FRC simulator, NT4 telemetry, Dashboard, and Academy",
             RobotStudioAction.RUN_SIMULATOR,
-            if (simulationStatus == RobotStudioStageStatus.RUNNING) "Simulator running" else "Start simulator",
+            when {
+                simulationStatus == RobotStudioStageStatus.RUNNING -> "Simulator running"
+                simulationStatus == RobotStudioStageStatus.BLOCKED -> "Verify & build first"
+                else -> "Start simulator"
+            },
+        ),
+        stage(
+            RobotStudioStageId.DEPLOY,
+            "1-Click Deploy to robot",
+            "Connect over Wi-Fi, compile, and flash APK/binary directly to the robot.",
+            deployStatus,
+            evidence.physicalDeploymentBlockReason ?: runtime.deploy.message,
+            listOfNotNull(evidence.physicalDeploymentBlockReason),
+            "Wireless connection (192.168.43.1:5555 / SSH)",
+            "Physical FTC Control Hub / FRC RoboRIO",
+            RobotStudioAction.DEPLOY_ROBOT,
+            when (runtime.deploy.phase) {
+                DeployExecutionPhase.CONNECTING, DeployExecutionPhase.BUILDING, DeployExecutionPhase.INSTALLING -> "Deploying now..."
+                DeployExecutionPhase.SUCCEEDED -> "Deploy again"
+                DeployExecutionPhase.FAILED, DeployExecutionPhase.CANCELED -> "Retry deploy"
+                else -> "1-Click Deploy"
+            },
         ),
         stage(
             RobotStudioStageId.ANALYZE,

@@ -34,12 +34,14 @@ import com.ares.analytics.ui.components.SectionNavigationBar
 import com.ares.analytics.ui.components.Sidebar
 import com.ares.analytics.ui.components.core.TargetSelection
 import com.ares.analytics.ui.components.core.ExecutionToolbar
+import com.ares.analytics.ui.components.core.OneClickDeployDialog
 import com.ares.analytics.ui.components.terminal.TerminalDrawer
 import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.help.AcademyRuntimeSnapshot
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.*
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
+import com.ares.analytics.viewmodel.hardware.HardwareSetupViewModel
 import com.ares.analytics.viewmodel.project.ProjectIdentityViewModel
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioAction
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioRuntimeEvidence
@@ -215,9 +217,11 @@ fun MainScreen(services: ServiceRegistry) {
                 services.environmentService,
                 services.syncEngineService,
                 services.googleDriveService,
+                services.robotProjectTemplateService,
                 scope,
             ) { loaded ->
                 mainViewModel.onIntent(MainIntent.SaveConfig(loaded))
+                mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ROBOT_STUDIO))
             }
         }
         val showCancel = mainState.workspaces.isNotEmpty()
@@ -355,6 +359,14 @@ fun MainScreen(services: ServiceRegistry) {
             },
         )
     }
+    val hardwareSetupViewModel = remember(currentConfig.projectPath, currentConfig.league) {
+        HardwareSetupViewModel(
+            projectPath = currentConfig.projectPath ?: "",
+            league = currentConfig.league,
+            service = services.hardwareSetupService,
+            scope = scope,
+        )
+    }
     val robotStudioViewModel = remember(currentConfig.id) {
         RobotStudioViewModel(
             readinessService = services.robotProjectReadinessService,
@@ -378,8 +390,13 @@ fun MainScreen(services: ServiceRegistry) {
     val isConnected by services.nt4ClientService.isConnected.collectAsState()
     val adbConnected by services.processManagerService.adbConnected.collectAsState()
     val isSimRunning by services.processManagerService.isSimRunning.collectAsState()
+    val activeSimulationProjectPath by services.processManagerService.activeSimulationProjectPath.collectAsState()
+    val activeSimulationLeague by services.processManagerService.activeSimulationLeague.collectAsState()
     val isBuildRunning by services.processManagerService.isBuildRunning.collectAsState()
     val buildExecutionState by services.processManagerService.buildExecutionState.collectAsState()
+    val deployExecutionState by services.processManagerService.deployState.collectAsState()
+    var deployDialogOpen by remember { mutableStateOf(false) }
+    var deployAwaitingConfirmation by remember { mutableStateOf(false) }
     var targetSelection by remember { mutableStateOf(TargetSelection.LIVE_ROBOT) }
     var liveRobotIp by remember(currentConfig.nt4Host) {
         mutableStateOf(currentConfig.nt4Host ?: "192.168.43.1")
@@ -398,11 +415,22 @@ fun MainScreen(services: ServiceRegistry) {
         robotStudioViewModel.load(currentConfig)
         guidedRunAnalysisViewModel.load(currentConfig)
     }
-    LaunchedEffect(buildExecutionState, isSimRunning, isLocalSimOnline, isNt4Connected) {
+    LaunchedEffect(
+        buildExecutionState,
+        deployExecutionState,
+        isSimRunning,
+        activeSimulationProjectPath,
+        activeSimulationLeague,
+        isLocalSimOnline,
+        isNt4Connected,
+    ) {
         robotStudioViewModel.updateRuntime(
             RobotStudioRuntimeEvidence(
                 build = buildExecutionState,
+                deploy = deployExecutionState,
                 simulatorRunning = isSimRunning,
+                simulatorProjectPath = activeSimulationProjectPath,
+                simulatorLeague = activeSimulationLeague,
                 localSimulatorOnline = isLocalSimOnline,
                 nt4Connected = isNt4Connected,
             )
@@ -891,6 +919,8 @@ fun MainScreen(services: ServiceRegistry) {
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
                                         RobotStudioAction.OPEN_SUBSYSTEMS ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
+                                        RobotStudioAction.OPEN_HARDWARE_SETUP ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.HARDWARE_SETUP))
                                         RobotStudioAction.OPEN_CONTROLS ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS))
                                         RobotStudioAction.OPEN_AUTONOMOUS ->
@@ -914,6 +944,10 @@ fun MainScreen(services: ServiceRegistry) {
                                             )
                                             mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
                                         }
+                                        RobotStudioAction.DEPLOY_ROBOT -> {
+                                            deployAwaitingConfirmation = true
+                                            deployDialogOpen = true
+                                        }
                                     }
                                 },
                                 onOpenAcademy = {
@@ -930,6 +964,19 @@ fun MainScreen(services: ServiceRegistry) {
                             )
                             NavigationTarget.SUBSYSTEM_GEN -> SubsystemGeneratorScreen(subsystemGeneratorViewModel)
                             NavigationTarget.DRIVEBASE_BUILDER -> DrivebaseBuilderScreen(drivebaseBuilderViewModel)
+                            NavigationTarget.HARDWARE_SETUP -> HardwareSetupScreen(
+                                viewModel = hardwareSetupViewModel,
+                                onOpenDrivebase = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
+                                },
+                                onOpenSubsystems = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
+                                },
+                                onBackToStudio = {
+                                    robotStudioViewModel.refresh()
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ROBOT_STUDIO))
+                                },
+                            )
                             NavigationTarget.PROJECT_IDENTITY -> ProjectIdentityScreen(
                                 viewModel = projectIdentityViewModel,
                                 config = currentConfig,
@@ -1016,6 +1063,34 @@ fun MainScreen(services: ServiceRegistry) {
                         Text("Keep workspace")
                     }
                 }
+            )
+        }
+
+        if (deployDialogOpen) {
+            OneClickDeployDialog(
+                state = if (deployAwaitingConfirmation) {
+                    com.ares.analytics.service.DeployExecutionState(
+                        projectPath = currentConfig.projectPath,
+                        league = currentConfig.league,
+                    )
+                } else {
+                    deployExecutionState
+                },
+                projectPath = currentConfig.projectPath,
+                league = currentConfig.league,
+                onConfirm = {
+                    deployAwaitingConfirmation = false
+                    services.processManagerService.deployToRobot(
+                        currentConfig.projectPath,
+                        currentConfig.league,
+                    )
+                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                },
+                onDismiss = {
+                    deployDialogOpen = false
+                    deployAwaitingConfirmation = false
+                },
+                onCancel = { services.processManagerService.killActiveBuild() },
             )
         }
 

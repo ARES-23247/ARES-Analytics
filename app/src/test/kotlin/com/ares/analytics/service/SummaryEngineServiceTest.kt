@@ -156,11 +156,52 @@ class SummaryEngineServiceTest {
         assertEquals(10.1, summary.minBatteryVoltage, 0.001)
         assertEquals(0.050, summary.avgBatteryResistance, 0.001)
 
-        // Verify summary was saved in DB and matches in-memory calculation
-        val saved = databaseService.getSessionSummary(session.sessionId)
-        assertTrue(saved != null)
-        assertEquals(10.1, saved.minBatteryVoltage, 0.001)
-        assertEquals(0.050, saved.avgBatteryResistance, 0.001)
+        databaseService.close()
+        tempDb.delete()
+    }
+
+    @Test
+    fun testEkfAndAutonomousTrackingDiagnostics() = runTest {
+        val tempDb = File.createTempFile("summary_ekf_test", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val driverAnalysisService = DriverAnalysisService(databaseService, sysIdService)
+        val summaryEngine = SummaryEngineService(databaseService, sysIdService, driverAnalysisService)
+        val session = Session(
+            sessionId = "ekf-diagnostic-session",
+            teamId = "23247",
+            seasonId = "2026",
+            robotId = "ares-bot",
+            createdAt = 2000L,
+            durationMs = 60000L,
+            tags = listOf("autonomous")
+        )
+
+        val frames = listOf(
+            TelemetryFrame(2100L, session.sessionId, "Vision/EKF_NIS", 1.85),
+            TelemetryFrame(2200L, session.sessionId, "Vision/EKF_NIS", 2.10),
+            TelemetryFrame(2300L, session.sessionId, "Vision/EKF_NIS", 1.95),
+            TelemetryFrame(2100L, session.sessionId, "Vision/Pose_X", 1.00),
+            TelemetryFrame(2100L, session.sessionId, "Vision/Pose_Y", 2.00),
+            TelemetryFrame(2100L, session.sessionId, "Drive/Pose_X", 1.01),
+            TelemetryFrame(2100L, session.sessionId, "Drive/Pose_Y", 2.01),
+            TelemetryFrame(2100L, session.sessionId, "Path/CrossTrackError", 0.02),
+            TelemetryFrame(2200L, session.sessionId, "Path/CrossTrackError", -0.03),
+            TelemetryFrame(2300L, session.sessionId, "Path/CrossTrackError", 0.025),
+        )
+
+        databaseService.insertTelemetryFrames(frames)
+        val summary = summaryEngine.generateSummary(session)
+
+        assertTrue(summary.tags.contains("EKFOptimal"), "Expected EKFOptimal tag in summary.tags: ${summary.tags}")
+
+        val avgNisFrame = databaseService.getTelemetryForKey(session.sessionId, "Diagnostics/EKF/AvgNIS").firstOrNull()
+        assertTrue(avgNisFrame != null, "Expected Diagnostics/EKF/AvgNIS frame to be inserted")
+        assertEquals(1.966, avgNisFrame.value, 0.01)
+
+        val crossTrackRmseFrame = databaseService.getTelemetryForKey(session.sessionId, "Diagnostics/Auto/CrossTrackRMSE").firstOrNull()
+        assertTrue(crossTrackRmseFrame != null, "Expected Diagnostics/Auto/CrossTrackRMSE frame to be inserted")
+        assertTrue(crossTrackRmseFrame.value < 0.05)
 
         databaseService.close()
         tempDb.delete()

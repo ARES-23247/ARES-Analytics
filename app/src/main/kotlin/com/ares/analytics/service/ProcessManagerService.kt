@@ -1,6 +1,7 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.League
+import com.ares.analytics.service.project.templateDeploymentBlockReason
 import com.areslib.codegen.GeneratedSubsystemFile
 import com.areslib.codegen.SubsystemKotlinCodegenTarget
 import com.areslib.codegen.SubsystemKotlinGenerator
@@ -41,6 +42,25 @@ data class BuildExecutionState(
     val league: League? = null,
     val message: String = "No project verification build has run in this app session.",
     val exitCode: Int? = null,
+    val requestId: Long = 0L,
+)
+
+enum class DeployExecutionPhase {
+    IDLE,
+    CONNECTING,
+    BUILDING,
+    INSTALLING,
+    SUCCEEDED,
+    FAILED,
+    CANCELED,
+}
+
+data class DeployExecutionState(
+    val phase: DeployExecutionPhase = DeployExecutionPhase.IDLE,
+    val projectPath: String = "",
+    val league: League = League.FTC,
+    val message: String = "Ready to deploy to robot.",
+    val progressPercent: Float = 0f,
     val requestId: Long = 0L,
 )
 
@@ -112,6 +132,10 @@ class ProcessManagerService internal constructor(
 
     private val _isSimRunning = MutableStateFlow(false)
     val isSimRunning: StateFlow<Boolean> = _isSimRunning.asStateFlow()
+    private val _activeSimulationProjectPath = MutableStateFlow<String?>(null)
+    val activeSimulationProjectPath: StateFlow<String?> = _activeSimulationProjectPath.asStateFlow()
+    private val _activeSimulationLeague = MutableStateFlow<League?>(null)
+    val activeSimulationLeague: StateFlow<League?> = _activeSimulationLeague.asStateFlow()
 
     private val _isBuildRunning = MutableStateFlow(false)
     val isBuildRunning: StateFlow<Boolean> = _isBuildRunning.asStateFlow()
@@ -124,6 +148,9 @@ class ProcessManagerService internal constructor(
 
     private val _adbConnected = MutableStateFlow(false)
     val adbConnected: StateFlow<Boolean> = _adbConnected.asStateFlow()
+
+    private val _deployState = MutableStateFlow(DeployExecutionState())
+    val deployState: StateFlow<DeployExecutionState> = _deployState.asStateFlow()
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -263,13 +290,14 @@ class ProcessManagerService internal constructor(
             when (league) {
                 League.FTC -> addAll(
                     listOf(
+                        "generateAresProject",
                         ":TeamCode:verifyAresProject",
                         ":TeamCode:testDebugUnitTest",
                         ":simulator:test",
                         ":TeamCode:assembleDebug",
                     )
                 )
-                League.FRC -> addAll(listOf("verifyAresProject", "test", "build"))
+                League.FRC -> addAll(listOf("generateAresProject", "verifyAresProject", "test", "build"))
             }
             add("--no-parallel")
             add("--console=plain")
@@ -608,17 +636,257 @@ class ProcessManagerService internal constructor(
         }
     }
 
+    private fun updateDeployStateIfOwner(generation: Long, state: DeployExecutionState) {
+        synchronized(buildStateLock) {
+            if (activeBuildGeneration == generation) {
+                _deployState.value = state
+            }
+        }
+    }
+
+    fun deployToRobot(projectPath: String, league: League) {
+        val isWindows = System.getProperty("os.name").contains("win", true)
+        enqueueBuildOperation(BuildOperationKind.BUILD) { generation ->
+            var canonicalProjectPath = projectPath
+            updateDeployStateIfOwner(
+                generation,
+                DeployExecutionState(
+                    phase = DeployExecutionPhase.CONNECTING,
+                    projectPath = projectPath,
+                    league = league,
+                    message = "Validating the selected ${league.name} project before deployment...",
+                    progressPercent = 0.1f,
+                    requestId = generation,
+                ),
+            )
+            try {
+                val root = requireSafeProjectRoot(projectPath)
+                canonicalProjectPath = root.path
+                templateDeploymentBlockReason(root)?.let { reason -> error(reason) }
+                if (league == League.FTC) {
+                    val adb = resolveAdbPath()
+                    _buildOutput.emit("[DEPLOY] Connecting wireless ADB ($FTC_ADB_TARGET)...")
+                    val connectExit = runOwnedBuildProcess(
+                        generation,
+                        ProcessBuilder(adbConnectCommandForDeploy(adb)).directory(root).redirectErrorStream(true),
+                    ) { line -> _buildOutput.emit("[ADB] $line") }
+                    check(connectExit == 0) { "ADB could not connect to $FTC_ADB_TARGET (exit $connectExit)" }
+
+                    val identityOutput = StringBuilder()
+                    val identityExit = runOwnedBuildProcess(
+                        generation,
+                        ProcessBuilder(adbIdentityCommandForDeploy(adb)).directory(root).redirectErrorStream(true),
+                    ) { line ->
+                        identityOutput.appendLine(line)
+                        _buildOutput.emit("[ADB] $line")
+                    }
+                    check(identityExit == 0 && identityOutput.isNotBlank()) {
+                        "The selected Control Hub did not answer the identity check"
+                    }
+
+                    updateDeployStateIfOwner(
+                        generation,
+                        DeployExecutionState(
+                            phase = DeployExecutionPhase.BUILDING,
+                            projectPath = root.path,
+                            league = league,
+                            message = "Generating, verifying, testing, and packaging the FTC robot app...",
+                            progressPercent = 0.4f,
+                            requestId = generation,
+                        ),
+                    )
+
+                    val buildCommand = withAresRepository(ftcDeployBuildCommand(isWindows))
+
+                    val buildExit = runOwnedBuildProcess(
+                        generation,
+                        withAresRepositoryEnvironment(ProcessBuilder(buildCommand).directory(root).redirectErrorStream(true)),
+                    ) { line -> _buildOutput.emit(line) }
+
+                    check(buildExit == 0) { "FTC compilation failed with exit code $buildExit" }
+
+                    updateDeployStateIfOwner(
+                        generation,
+                        DeployExecutionState(
+                            phase = DeployExecutionPhase.INSTALLING,
+                            projectPath = root.path,
+                            league = league,
+                            message = "Installing APK on robot via ADB...",
+                            progressPercent = 0.8f,
+                            requestId = generation,
+                        ),
+                    )
+
+                    val apkFile = File(root, "TeamCode/build/outputs/apk/debug/TeamCode-debug.apk")
+                    val apkTarget = if (apkFile.exists()) apkFile.absolutePath else "TeamCode/build/outputs/apk/debug/TeamCode-debug.apk"
+
+                    val installExit = runOwnedBuildProcess(
+                        generation,
+                        ProcessBuilder(adbInstallCommandForDeploy(adb, apkTarget)).directory(root).redirectErrorStream(true),
+                    ) { line -> _buildOutput.emit("[INSTALL] $line") }
+
+                    check(installExit == 0) { "APK installation failed with exit code $installExit" }
+
+                    val packageOutput = StringBuilder()
+                    val packageCheckExit = runOwnedBuildProcess(
+                        generation,
+                        ProcessBuilder(adbPackageCheckCommandForDeploy(adb)).directory(root).redirectErrorStream(true),
+                    ) { line ->
+                        packageOutput.appendLine(line)
+                        _buildOutput.emit("[VERIFY] $line")
+                    }
+                    check(packageCheckExit == 0 && packageOutput.contains("package:")) {
+                        "ADB did not confirm the installed FTC Robot Controller package"
+                    }
+
+                    updateDeployStateIfOwner(
+                        generation,
+                        DeployExecutionState(
+                            phase = DeployExecutionPhase.SUCCEEDED,
+                            projectPath = root.path,
+                            league = league,
+                            message = "FTC Robot Controller package installed and verified on $FTC_ADB_TARGET. Select the intended OpMode in Driver Station before enabling.",
+                            progressPercent = 1.0f,
+                            requestId = generation,
+                        ),
+                    )
+                    _buildOutput.emit("[DEPLOY] SUCCESS: Package installed and verified. No OpMode was started or robot motion commanded.")
+                } else {
+                    updateDeployStateIfOwner(
+                        generation,
+                        DeployExecutionState(
+                            phase = DeployExecutionPhase.BUILDING,
+                            projectPath = root.path,
+                            league = league,
+                            message = "Generating, verifying, testing, building, then deploying to the configured RoboRIO...",
+                            progressPercent = 0.5f,
+                            requestId = generation,
+                        ),
+                    )
+
+                    val deployCommand = withAresRepository(frcDeployBuildCommand(isWindows))
+
+                    val deployExit = runOwnedBuildProcess(
+                        generation,
+                        withAresRepositoryEnvironment(ProcessBuilder(deployCommand).directory(root).redirectErrorStream(true)),
+                    ) { line -> _buildOutput.emit(line) }
+
+                    check(deployExit == 0) { "FRC deploy failed with exit code $deployExit" }
+
+                    updateDeployStateIfOwner(
+                        generation,
+                        DeployExecutionState(
+                            phase = DeployExecutionPhase.SUCCEEDED,
+                            projectPath = root.path,
+                            league = league,
+                            message = "FRC deploy completed for the RoboRIO configured by this project. No robot motion was commanded.",
+                            progressPercent = 1.0f,
+                            requestId = generation,
+                        ),
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                updateDeployStateIfOwner(
+                    generation,
+                    DeployExecutionState(
+                        phase = DeployExecutionPhase.CANCELED,
+                        projectPath = canonicalProjectPath,
+                        league = league,
+                        message = "Deploy operation was canceled.",
+                        progressPercent = 0f,
+                        requestId = generation,
+                    ),
+                )
+                throw cancelled
+            } catch (error: Exception) {
+                updateDeployStateIfOwner(
+                    generation,
+                    DeployExecutionState(
+                        phase = DeployExecutionPhase.FAILED,
+                        projectPath = canonicalProjectPath,
+                        league = league,
+                        message = "Deployment failed: ${error.message ?: "unknown error"}",
+                        progressPercent = 0f,
+                        requestId = generation,
+                    ),
+                )
+                _buildOutput.emit("[DEPLOY] FAILED: ${error.message}")
+            }
+        }
+    }
+
+    internal fun ftcDeployBuildCommandForTest(isWindows: Boolean): List<String> =
+        ftcDeployBuildCommand(isWindows)
+
+    internal fun frcDeployBuildCommandForTest(isWindows: Boolean): List<String> =
+        frcDeployBuildCommand(isWindows)
+
+    internal fun adbInstallCommandForTest(adb: String, apkPath: String): List<String> =
+        adbInstallCommandForDeploy(adb, apkPath)
+
+    private fun ftcDeployBuildCommand(isWindows: Boolean): List<String> = buildList {
+        addGradleWrapper(isWindows)
+        add("generateAresProject")
+        add("verifyAresProject")
+        add(":TeamCode:testDebugUnitTest")
+        add(":simulator:test")
+        add(":TeamCode:assembleDebug")
+        add("--no-parallel")
+        add("--console=plain")
+    }
+
+    private fun frcDeployBuildCommand(isWindows: Boolean): List<String> = buildList {
+        addGradleWrapper(isWindows)
+        add("generateAresProject")
+        add("verifyAresProject")
+        add("test")
+        add("build")
+        add("deploy")
+        add("--no-parallel")
+        add("--console=plain")
+    }
+
+    private fun MutableList<String>.addGradleWrapper(isWindows: Boolean) {
+        if (isWindows) {
+            add("cmd.exe")
+            add("/c")
+            add("gradlew.bat")
+        } else {
+            add("./gradlew")
+        }
+    }
+
+    private fun adbConnectCommandForDeploy(adb: String): List<String> =
+        listOf(adb, "connect", FTC_ADB_TARGET)
+
+    private fun adbIdentityCommandForDeploy(adb: String): List<String> =
+        listOf(adb, "-s", FTC_ADB_TARGET, "shell", "getprop", "ro.product.model")
+
+    private fun adbInstallCommandForDeploy(adb: String, apkPath: String): List<String> =
+        listOf(adb, "-s", FTC_ADB_TARGET, "install", "-r", "-d", apkPath)
+
+    private fun adbPackageCheckCommandForDeploy(adb: String): List<String> =
+        listOf(adb, "-s", FTC_ADB_TARGET, "shell", "pm", "path", FTC_ROBOT_CONTROLLER_PACKAGE)
+
     fun runSimulation(projectPath: String, league: League, simulatorCommand: String? = null) {
         if (shuttingDown.get()) return
+        val projectRoot = runCatching { requireSafeProjectRoot(projectPath) }.getOrElse { error ->
+            serviceScope.launch {
+                _buildOutput.emit("[SYSTEM] Simulation could not start: ${error.message ?: "choose a valid robot project"}")
+            }
+            return
+        }
         killActiveSim()
 
         val replacement = serviceScope.launch(start = CoroutineStart.LAZY) {
             var ownedProcess: Process? = null
             try {
                 _isSimRunning.value = true
+                _activeSimulationProjectPath.value = projectRoot.path
+                _activeSimulationLeague.value = league
                 val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
                 val userCmd = simulatorCommand?.takeIf { it.isNotBlank() }
-                val fatJarFile = File(projectPath, "simulator/build/libs/simulator-all.jar")
+                val fatJarFile = File(projectRoot, "simulator/build/libs/simulator-all.jar")
                 val javaExe = File(System.getProperty("java.home"), "bin/${if (isWindows) "java.exe" else "java"}").path
                 val cmd = when {
                     userCmd != null && isWindows -> listOf("cmd.exe", "/d", "/s", "/c", userCmd)
@@ -632,7 +900,7 @@ class ProcessManagerService internal constructor(
 
                 _buildOutput.emit("[SYSTEM] Starting Simulation: ${cmd.joinToString(" ")}")
                 val pb = withAresRepositoryEnvironment(ProcessBuilder(cmd)
-                    .directory(File(projectPath))
+                    .directory(projectRoot)
                     .redirectErrorStream(true))
                 val proc = pb.start()
                 ownedProcess = proc
@@ -658,6 +926,8 @@ class ProcessManagerService internal constructor(
                 ownedProcess?.let { if (it.isAlive) terminateProcessTree(it) }
                 if (simProcess === ownedProcess) simProcess = null
                 _isSimRunning.value = false
+                _activeSimulationProjectPath.value = null
+                _activeSimulationLeague.value = null
             }
         }
         activeSimJob = replacement
@@ -799,6 +1069,8 @@ class ProcessManagerService internal constructor(
         if (simProcess === process) simProcess = null
         if (activeSimJob === job) activeSimJob = null
         _isSimRunning.value = false
+        _activeSimulationProjectPath.value = null
+        _activeSimulationLeague.value = null
     }
 
     /** Drains output concurrently so a verbose child cannot fill its pipe before the timeout. */
@@ -970,6 +1242,8 @@ class ProcessManagerService internal constructor(
     }
 
     private companion object {
+        const val FTC_ADB_TARGET = "192.168.43.1:5555"
+        const val FTC_ROBOT_CONTROLLER_PACKAGE = "com.qualcomm.ftcrobotcontroller"
         const val ARES_REPOSITORY_URI_PROPERTY = "ares.repository.uri"
         const val ARES_REPOSITORY_GRADLE_ENVIRONMENT = "ORG_GRADLE_PROJECT_aresRepository"
         const val GENERATION_DIAGNOSTIC_LINE_LIMIT = 24

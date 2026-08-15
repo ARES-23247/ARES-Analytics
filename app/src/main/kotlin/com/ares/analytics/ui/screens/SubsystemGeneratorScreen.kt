@@ -91,6 +91,8 @@ import com.ares.analytics.viewmodel.subsystemTemplateOptions
 import com.areslib.codegen.GeneratedSubsystemSourceSet
 import com.areslib.codegen.SubsystemArtifactGroup
 import com.areslib.codegen.SubsystemArtifactOwnership
+import com.areslib.subsystem.FaultRecoveryActionKind
+import com.areslib.subsystem.InterlockComparison
 import com.areslib.subsystem.SubsystemControlLoopDocument
 import com.areslib.subsystem.SubsystemControlStrategy
 import com.areslib.subsystem.SubsystemFieldRole
@@ -432,6 +434,10 @@ private fun StageContent(state: SubsystemGeneratorState, viewModel: SubsystemGen
         SubsystemBuilderStage.TUNING -> TuningStage(state, viewModel)
         SubsystemBuilderStage.SAFETY -> {
             SafetyInspector(state, viewModel)
+            state.draft?.document?.let { doc ->
+                FaultRecoveryCard(doc, viewModel)
+                InterlockMatrixCard(doc, state, viewModel)
+            }
             ConceptCard(
                 "Why safety is a separate step",
                 "A controller decides what the mechanism wants to do. The safety contract decides whether that output is currently trustworthy and permitted.",
@@ -739,6 +745,17 @@ private fun BehaviorStage(state: SubsystemGeneratorState, viewModel: SubsystemGe
         if (!canAddControl) Text("Add an actuator and numeric target value first.", color = AresTextSecondary, fontSize = 12.sp)
     }
     document.controlLoops.firstOrNull { it.uid == state.selectedLoopUid }?.let { ControlInspector(state, it, viewModel) }
+
+    com.ares.analytics.ui.components.linkage.LinkageEditorCanvas(
+        linkage = document.linkage,
+        actuatorIds = document.hardware
+            .filter { it.kind == SubsystemHardwareKind.MOTOR && it.following == null }
+            .map { it.hardwareId },
+        angleMeasurementFieldIds = document.stateFields
+            .filter { it.role == SubsystemFieldRole.MEASUREMENT && it.type == SubsystemValueType.DOUBLE }
+            .map { it.fieldId },
+        onLinkageChanged = { newLinkage -> viewModel.edit { it.copy(linkage = newLinkage) } },
+    )
 }
 
 @Composable
@@ -839,7 +856,173 @@ private fun VerificationInspector(state: SubsystemGeneratorState, viewModel: Sub
             fontSize = 11.sp,
         )
     }
+    FieldInteractionCard(document, viewModel)
     ArtifactPlan(state, viewModel)
+}
+
+@Composable
+private fun FieldInteractionCard(document: com.areslib.subsystem.SubsystemDocument, viewModel: SubsystemGeneratorViewModel) {
+    val sim = document.implementation.simulation
+    val interaction = sim.interaction
+    val triggerActuators = document.hardware.filter { it.following == null && it.kind.isActuator() }
+
+    EditorCard("Field element interaction (Dyn4j physics)", Icons.Default.Build) {
+        Text(
+            "Configure how this subsystem physically interacts with field elements (e.g. game piece intake or projectile launch) in the Dyn4j simulator.",
+            color = AresTextSecondary,
+            fontSize = 12.sp,
+        )
+
+        EnumSelector(
+            "Interaction role",
+            interaction.role,
+            com.areslib.subsystem.SimInteractionRole.entries,
+        ) { role ->
+            viewModel.edit { doc ->
+                val currentSim = doc.implementation.simulation
+                doc.copy(
+                    implementation = doc.implementation.copy(
+                        simulation = currentSim.copy(
+                            interaction = currentSim.interaction.copy(
+                                role = role,
+                                triggerActuatorId = if (role == com.areslib.subsystem.SimInteractionRole.NONE) {
+                                    null
+                                } else {
+                                    currentSim.interaction.triggerActuatorId ?: triggerActuators.firstOrNull()?.hardwareId
+                                },
+                            ),
+                        ),
+                    ),
+                )
+            }
+        }
+
+        if (interaction.role != com.areslib.subsystem.SimInteractionRole.NONE) {
+            if (triggerActuators.isEmpty()) {
+                Text(
+                    "Add an independently controlled actuator before enabling a field interaction.",
+                    color = AresGold,
+                    fontSize = 12.sp,
+                )
+            } else {
+                EnumNullableSelector(
+                    "Applied-output trigger actuator",
+                    interaction.triggerActuatorId,
+                    triggerActuators.map { it.hardwareId },
+                ) { actuatorId ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(triggerActuatorId = actuatorId),
+                                ),
+                            ),
+                        )
+                    }
+                }
+                DoubleInput("Trigger when accepted output exceeds", interaction.triggerThreshold) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(triggerThreshold = value.coerceAtLeast(0.0)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+                Text(
+                    "Simulation reads the adapter's accepted output after safety checks—not the requested target—so interlocks, stale feedback, and fault latches also stop simulated collection or launch.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+
+        when (interaction.role) {
+            com.areslib.subsystem.SimInteractionRole.INTAKE_COLLECTOR -> {
+                DoubleInput("Capture range (m)", interaction.intakeDistanceMeters) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(intakeDistanceMeters = value.coerceAtLeast(0.05)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+                DoubleInput("Capture radius (m)", interaction.captureRadiusMeters) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(captureRadiusMeters = value.coerceAtLeast(0.05)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+                IntInput("Storage capacity", interaction.storageCapacity) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(storageCapacity = value.coerceAtLeast(1)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+            }
+            com.areslib.subsystem.SimInteractionRole.PROJECTILE_LAUNCHER -> {
+                DoubleInput("Launch velocity (m/s)", interaction.launchSpeedMps) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(launchSpeedMps = value.coerceAtLeast(0.5)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+                DoubleInput("Launch elevation (deg)", interaction.launchElevationDeg) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(launchElevationDeg = value.coerceIn(0.0, 90.0)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+            }
+            com.areslib.subsystem.SimInteractionRole.CONVEYOR_INDEXER -> {
+                IntInput("Storage capacity", interaction.storageCapacity) { value ->
+                    viewModel.edit { doc ->
+                        val currentSim = doc.implementation.simulation
+                        doc.copy(
+                            implementation = doc.implementation.copy(
+                                simulation = currentSim.copy(
+                                    interaction = currentSim.interaction.copy(storageCapacity = value.coerceAtLeast(1)),
+                                ),
+                            ),
+                        )
+                    }
+                }
+            }
+            com.areslib.subsystem.SimInteractionRole.NONE -> Unit
+        }
+    }
 }
 
 @Composable
@@ -1253,6 +1436,260 @@ private fun SafetyInspector(state: SubsystemGeneratorState, viewModel: Subsystem
 }
 
 @Composable
+private fun FaultRecoveryCard(
+    document: com.areslib.subsystem.SubsystemDocument,
+    viewModel: SubsystemGeneratorViewModel,
+) {
+    val recovery = document.safety.faultRecovery
+    val eligibleActuators = document.hardware.filter {
+        it.following == null && it.kind in setOf(SubsystemHardwareKind.MOTOR, SubsystemHardwareKind.CONTINUOUS_SERVO)
+    }
+    val selectedActuator = eligibleActuators.firstOrNull { it.hardwareId == recovery.actuatorId }
+    val currentFields = selectedActuator?.measurements
+        ?.filter { it.source == SubsystemMeasurementSource.MOTOR_CURRENT_AMPS }
+        ?.map { it.fieldId }
+        .orEmpty()
+    val canEnable = eligibleActuators.isNotEmpty() && eligibleActuators.any { hardware ->
+        hardware.measurements.any { it.source == SubsystemMeasurementSource.MOTOR_CURRENT_AMPS }
+    }
+    EditorCard("Auto-Recovery & Anti-Jam Policy", Icons.Default.Build) {
+        Text(
+            "Automatic stall protection detects mechanical jams from motor current and triggers a recovery pulse without writing code.",
+            color = AresTextSecondary,
+            fontSize = 12.sp,
+        )
+        if (!canEnable) {
+            Text(
+                "Add an independently controlled motor and a cached Motor Current Amps measurement before enabling automatic recovery.",
+                color = AresGold,
+                fontSize = 12.sp,
+            )
+        } else {
+            EnumNullableSelector(
+                "Motor to recover",
+                recovery.actuatorId,
+                eligibleActuators.map { it.hardwareId },
+            ) { actuatorId ->
+                val defaultCurrent = eligibleActuators.firstOrNull { it.hardwareId == actuatorId }
+                    ?.measurements
+                    ?.firstOrNull { it.source == SubsystemMeasurementSource.MOTOR_CURRENT_AMPS }
+                    ?.fieldId
+                viewModel.edit { doc ->
+                    doc.copy(
+                        safety = doc.safety.copy(
+                            faultRecovery = doc.safety.faultRecovery.copy(
+                                actuatorId = actuatorId,
+                                currentFieldId = defaultCurrent,
+                            ),
+                        ),
+                    )
+                }
+            }
+            EnumNullableSelector(
+                "Cached current measurement",
+                recovery.currentFieldId,
+                currentFields,
+            ) { fieldId ->
+                viewModel.edit { doc ->
+                    doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(currentFieldId = fieldId)))
+                }
+            }
+            ToggleRow("Enable auto-recovery / anti-jam", recovery.enabled) { value ->
+                val defaultActuator = recovery.actuatorId ?: eligibleActuators.first { hardware ->
+                    hardware.measurements.any { it.source == SubsystemMeasurementSource.MOTOR_CURRENT_AMPS }
+                }.hardwareId
+                val defaultCurrent = recovery.currentFieldId ?: eligibleActuators
+                    .first { it.hardwareId == defaultActuator }
+                    .measurements
+                    .first { it.source == SubsystemMeasurementSource.MOTOR_CURRENT_AMPS }
+                    .fieldId
+                viewModel.edit { doc ->
+                    doc.copy(
+                        safety = doc.safety.copy(
+                            faultRecovery = doc.safety.faultRecovery.copy(
+                                enabled = value,
+                                actuatorId = defaultActuator,
+                                currentFieldId = defaultCurrent,
+                            ),
+                        ),
+                    )
+                }
+            }
+        }
+        if (recovery.enabled) {
+            DoubleInput("Stall current threshold (Amps)", recovery.currentThresholdAmps) { value ->
+                viewModel.edit { doc ->
+                    doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(currentThresholdAmps = value)))
+                }
+            }
+            LongInput("Stall duration before trigger (ms)", recovery.currentDurationMs) { value ->
+                viewModel.edit { doc ->
+                    doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(currentDurationMs = value)))
+                }
+            }
+            EnumSelector(
+                "Recovery action",
+                recovery.recoveryAction,
+                listOf(FaultRecoveryActionKind.REVERSE_BRIEFLY, FaultRecoveryActionKind.NEUTRAL_STOP),
+            ) { action ->
+                viewModel.edit { doc ->
+                    doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(recoveryAction = action)))
+                }
+            }
+            if (recovery.recoveryAction == FaultRecoveryActionKind.REVERSE_BRIEFLY) {
+                LongInput("Reverse pulse duration (ms)", recovery.reverseDurationMs) { value ->
+                    viewModel.edit { doc ->
+                        doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(reverseDurationMs = value)))
+                    }
+                }
+                DoubleInput("Reverse duty cycle (-1.0 to 1.0)", recovery.reverseDutyCycle) { value ->
+                    viewModel.edit { doc ->
+                        doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(reverseDutyCycle = value)))
+                    }
+                }
+            }
+            LongInput("Max retry attempts", recovery.maxRetries.toLong()) { value ->
+                viewModel.edit { doc ->
+                    doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(maxRetries = value.toInt().coerceIn(1, 10))))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InterlockMatrixCard(
+    document: com.areslib.subsystem.SubsystemDocument,
+    state: SubsystemGeneratorState,
+    viewModel: SubsystemGeneratorViewModel,
+) {
+    val targetDocuments = state.documents
+        .filter { it.uid != document.uid }
+        .filter { it.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER }
+        .filter { it.stateFields.isNotEmpty() }
+        .sortedBy { it.displayName.lowercase() }
+    EditorCard("Mechanism Safety Interlocks (Collision Rules)", Icons.Default.Warning) {
+        Text(
+            "Interlock rules prevent physical mechanism collisions by locking out unsafe actions based on other subsystem states.",
+            color = AresTextSecondary,
+            fontSize = 12.sp,
+        )
+        if (document.interlocks.isEmpty()) {
+            Text(
+                "No interlocks configured for this mechanism. Add constraints if this mechanism physically intersects another.",
+                color = AresTextSecondary,
+                fontSize = 12.sp,
+            )
+        }
+        document.interlocks.forEachIndexed { index, interlock ->
+            val targetDocument = targetDocuments.firstOrNull { it.uid == interlock.targetSubsystemUid }
+            val targetField = targetDocument?.stateFields?.firstOrNull { it.fieldId == interlock.targetFieldId }
+            val comparisons = when (targetField?.type) {
+                SubsystemValueType.DOUBLE, SubsystemValueType.INT -> InterlockComparison.entries
+                SubsystemValueType.BOOLEAN, SubsystemValueType.STRING -> listOf(
+                    InterlockComparison.EQUALS_STATE,
+                    InterlockComparison.NOT_EQUALS_STATE,
+                )
+                null -> emptyList()
+            }
+            Column(
+                Modifier.fillMaxWidth().background(AresSurface, RoundedCornerShape(5.dp)).padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("Interlock ${index + 1}: ${interlock.interlockId}", color = AresTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    IconButton(onClick = { viewModel.removeInterlock(interlock.interlockId) }, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Delete, contentDescription = "Delete interlock", tint = AresError, modifier = Modifier.size(16.dp))
+                    }
+                }
+                EnumStringSelector(
+                    "Referenced subsystem",
+                    targetDocument?.let { "${it.displayName} (${it.uid})" } ?: "Select a subsystem",
+                    targetDocuments.map { "${it.displayName} (${it.uid})" },
+                ) { selected ->
+                    val target = targetDocuments.single { "${it.displayName} (${it.uid})" == selected }
+                    val field = target.stateFields.first()
+                    viewModel.updateInterlock(interlock.interlockId) {
+                        it.copy(
+                            targetSubsystemUid = target.uid,
+                            targetFieldId = field.fieldId,
+                            comparison = if (field.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT)) {
+                                InterlockComparison.LESS_THAN
+                            } else {
+                                InterlockComparison.EQUALS_STATE
+                            },
+                            targetStateName = when (field.type) {
+                                SubsystemValueType.BOOLEAN -> "false"
+                                SubsystemValueType.STRING -> ""
+                                else -> null
+                            },
+                        )
+                    }
+                }
+                if (targetDocument != null) EnumStringSelector(
+                    "Referenced state value",
+                    targetField?.let { "${it.displayName} (${it.fieldId})" } ?: "Select a value",
+                    targetDocument.stateFields.map { "${it.displayName} (${it.fieldId})" },
+                ) { selected ->
+                    val field = targetDocument.stateFields.single { "${it.displayName} (${it.fieldId})" == selected }
+                    viewModel.updateInterlock(interlock.interlockId) {
+                        it.copy(
+                            targetFieldId = field.fieldId,
+                            comparison = if (field.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT)) {
+                                InterlockComparison.LESS_THAN
+                            } else {
+                                InterlockComparison.EQUALS_STATE
+                            },
+                            targetStateName = when (field.type) {
+                                SubsystemValueType.BOOLEAN -> "false"
+                                SubsystemValueType.STRING -> ""
+                                else -> null
+                            },
+                        )
+                    }
+                }
+                if (comparisons.isNotEmpty()) EnumSelector("Lockout condition", interlock.comparison, comparisons) { comp ->
+                    viewModel.updateInterlock(interlock.interlockId) { it.copy(comparison = comp) }
+                }
+                when (targetField?.type) {
+                    SubsystemValueType.DOUBLE, SubsystemValueType.INT -> DoubleInput("Unsafe comparison value", interlock.thresholdValue) { value ->
+                        viewModel.updateInterlock(interlock.interlockId) { it.copy(thresholdValue = value) }
+                    }
+                    SubsystemValueType.BOOLEAN -> EnumStringSelector(
+                        "Unsafe state",
+                        interlock.targetStateName ?: "false",
+                        listOf("false", "true"),
+                    ) { value ->
+                        viewModel.updateInterlock(interlock.interlockId) { it.copy(targetStateName = value) }
+                    }
+                    SubsystemValueType.STRING -> TextInput("Unsafe state value", interlock.targetStateName.orEmpty()) { value ->
+                        viewModel.updateInterlock(interlock.interlockId) { it.copy(targetStateName = value) }
+                    }
+                    null -> Text("Choose a referenced subsystem and state value.", color = AresGold, fontSize = 12.sp)
+                }
+                TextInput("Constraint Description", interlock.forbiddenZoneDescription) { value ->
+                    viewModel.updateInterlock(interlock.interlockId) { it.copy(forbiddenZoneDescription = value) }
+                }
+            }
+        }
+        OutlinedButton(
+            onClick = viewModel::addInterlock,
+            enabled = targetDocuments.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("+ Add Mechanism Interlock Rule")
+        }
+        if (targetDocuments.isEmpty()) {
+            Text("Create another generated subsystem with state values before adding a cross-mechanism interlock.", color = AresGold, fontSize = 12.sp)
+        }
+    }
+}
+
+@Composable
 private fun HandAuthoredInspector(
     document: com.areslib.subsystem.SubsystemDocument,
     viewModel: SubsystemGeneratorViewModel,
@@ -1642,11 +2079,18 @@ private fun ControlInspector(
                 fontSize = 11.sp,
             )
             Text("FEEDFORWARD", color = AresTextTertiary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            EnumSelector("Feedforward model", loop.feedforward.kind, SubsystemFeedforwardKind.entries) { kind ->
+            EnumSelector(
+                "Feedforward model",
+                loop.feedforward.kind,
+                SubsystemFeedforwardKind.entries.filter { it != SubsystemFeedforwardKind.FOUR_BAR_LINKAGE },
+            ) { kind ->
                 viewModel.updateControlLoop(loop.loopId) {
                     it.copy(feedforward = if (kind == SubsystemFeedforwardKind.NONE) {
                         com.areslib.subsystem.SubsystemFeedforwardDocument()
                     } else it.feedforward.copy(kind = kind))
+                }
+                if (kind == SubsystemFeedforwardKind.TWO_DOF_ARM && !document.linkage.enabled) {
+                    viewModel.edit { it.copy(linkage = it.linkage.copy(enabled = true)) }
                 }
             }
             Text(
@@ -1655,6 +2099,8 @@ private fun ControlInspector(
                     SubsystemFeedforwardKind.SIMPLE_MOTOR -> "kS overcomes static friction; kV and kA predict velocity and acceleration effort."
                     SubsystemFeedforwardKind.ELEVATOR -> "Motor feedforward plus constant kG to oppose gravity."
                     SubsystemFeedforwardKind.ARM -> "Motor feedforward plus kG × cos(angle) for an arm measured in radians."
+                    SubsystemFeedforwardKind.FOUR_BAR_LINKAGE -> "Closed-chain four-bars require an advanced hand-authored controller and are not generated."
+                    SubsystemFeedforwardKind.TWO_DOF_ARM -> "2-joint serial arm gravity compensation uses both joint angles, masses, centers of mass, and link lengths."
                 },
                 color = AresTextSecondary,
                 fontSize = 12.sp,
@@ -1669,8 +2115,20 @@ private fun ControlInspector(
                 DoubleInput("kA · acceleration gain", loop.feedforward.kA) { value ->
                     viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(kA = value)) }
                 }
-                if (loop.feedforward.kind == SubsystemFeedforwardKind.ELEVATOR || loop.feedforward.kind == SubsystemFeedforwardKind.ARM) {
-                    DoubleInput("kG · gravity compensation (V)", loop.feedforward.kG) { value ->
+                if (loop.feedforward.kind in setOf(
+                        SubsystemFeedforwardKind.ELEVATOR,
+                        SubsystemFeedforwardKind.ARM,
+                        SubsystemFeedforwardKind.TWO_DOF_ARM,
+                    )
+                ) {
+                    DoubleInput(
+                        if (loop.feedforward.kind == SubsystemFeedforwardKind.TWO_DOF_ARM) {
+                            "kG · torque-to-output scale (V/N·m)"
+                        } else {
+                            "kG · gravity compensation (V)"
+                        },
+                        loop.feedforward.kG,
+                    ) { value ->
                         viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(kG = value)) }
                     }
                 }
@@ -1690,6 +2148,22 @@ private fun ControlInspector(
                         loop.feedforward.gravityAngleFieldId,
                         numericFields.filter { it.role == SubsystemFieldRole.MEASUREMENT }.map { it.fieldId },
                     ) { value -> viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(gravityAngleFieldId = value)) } }
+                }
+                if (loop.feedforward.kind == SubsystemFeedforwardKind.TWO_DOF_ARM) {
+                    EnumStringSelector(
+                        "Controlled linkage joint",
+                        loop.feedforward.linkageJoint?.toString() ?: "Select joint",
+                        listOf("1", "2"),
+                    ) { value ->
+                        viewModel.updateControlLoop(loop.loopId) {
+                            it.copy(feedforward = it.feedforward.copy(linkageJoint = value.toInt()))
+                        }
+                    }
+                    Text(
+                        "The selected controller must command the same motor assigned to that joint in the 2-joint linkage card above.",
+                        color = AresTextSecondary,
+                        fontSize = 11.sp,
+                    )
                 }
                 FeedforwardConceptLab(loop)
             }
