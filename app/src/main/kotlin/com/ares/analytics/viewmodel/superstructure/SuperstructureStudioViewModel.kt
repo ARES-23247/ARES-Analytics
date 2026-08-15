@@ -254,6 +254,12 @@ class SuperstructureStudioViewModel(
     }
 
     fun setInitialState(id: String) = edit { it.copy(initialStateId = id) }
+    fun updateSelectedStateDetails(displayName: String, description: String) = edit { document ->
+        val id = _state.value.selectedStateId ?: return@edit document
+        document.copy(states = document.states.map { state ->
+            if (state.stateId == id) state.copy(displayName = displayName.take(80), description = description.take(500)) else state
+        })
+    }
     fun setFaultState(id: String) = edit { document ->
         val safeState = document.states.single { it.stateId == id }.copy(
             subsystemTargets = document.states.single { it.stateId == id }.subsystemTargets.map { target ->
@@ -285,6 +291,9 @@ class SuperstructureStudioViewModel(
 
     fun updateSelectedTarget(target: SuperstructureSubsystemTarget) = edit { document ->
         val stateId = _state.value.selectedStateId ?: return@edit document
+        if (target.targetMode != SuperstructureTargetMode.CONSTANT) {
+            _state.update { state -> state.copy(editorErrors = state.editorErrors - "target:$stateId:${target.subsystemId}.${target.fieldId}") }
+        }
         require(stateId != document.faultStateId || target == neutralTarget(target.subsystemId, target.fieldId)) {
             "The fault state must retain each subsystem's declared safe neutral value."
         }
@@ -333,6 +342,23 @@ class SuperstructureStudioViewModel(
 
     fun updateTransition(edge: StateTransitionEdge) = edit { document ->
         document.copy(transitions = document.transitions.map { if (it.transitionId == edge.transitionId) edge else it })
+    }
+    fun addGuard(transitionId: String, field: SuperstructureFieldOption) = edit { document ->
+        document.copy(transitions = document.transitions.map { edge ->
+            if (edge.transitionId != transitionId) edge else {
+                require(edge.guards.none { it.source == field.reference }) { "That evidence field already guards this transition." }
+                edge.copy(
+                    guards = edge.guards + typedGuard(field),
+                    timeoutSeconds = if (edge.triggerKind == TransitionTriggerKind.ACTION_REQUEST) edge.timeoutSeconds ?: 1.0 else edge.timeoutSeconds,
+                    timeoutTargetStateId = if (edge.triggerKind == TransitionTriggerKind.ACTION_REQUEST) edge.timeoutTargetStateId ?: document.faultStateId else edge.timeoutTargetStateId,
+                )
+            }
+        })
+    }
+    fun removeGuard(transitionId: String, guardId: String) = edit { document ->
+        document.copy(transitions = document.transitions.map { edge ->
+            if (edge.transitionId != transitionId) edge else edge.copy(guards = edge.guards.filterNot { it.guardId == guardId })
+        })
     }
     fun removeTransition(id: String) {
         _state.update { state -> state.copy(editorErrors = state.editorErrors.filterKeys { !it.startsWith("transition:$id:") }) }
@@ -412,12 +438,13 @@ class SuperstructureStudioViewModel(
             _state.update { it.copy(loading = true, error = null) }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
+                    val currentProject = projectDocuments.load(state.projectPath)
                     repository.save(
                         state.projectPath,
                         draft,
                         review.expectedContentHash,
-                        state.subsystems,
-                        state.actions.mapTo(linkedSetOf()) { it.key },
+                        currentProject.subsystems,
+                        currentProject.capabilityCatalog?.actions.orEmpty().mapTo(linkedSetOf()) { it.key },
                     )
                 }
             }

@@ -242,6 +242,20 @@ private fun StatePresetsStep(state: SuperstructureStudioState, draft: Superstruc
             OutlinedButton({ viewModel.setInitialState(selected.stateId) }, enabled = selected.stateId != draft.initialStateId) { Text("Use as startup posture") }
             OutlinedButton({ viewModel.setFaultState(selected.stateId) }, enabled = selected.stateId != draft.faultStateId) { Text("Use as fault neutral") }
         }
+        OutlinedTextField(
+            selected.displayName,
+            { viewModel.updateSelectedStateDetails(it, selected.description) },
+            label = { Text("Posture name") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            selected.description,
+            { viewModel.updateSelectedStateDetails(selected.displayName, it) },
+            label = { Text("What is this complete posture for?") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 2,
+        )
+        Text("Stable state ID · ${selected.stateId}", color = AresTextTertiary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
         HorizontalDivider(color = AresBorder)
         Text("TARGET VALUES IN ${selected.displayName.uppercase(Locale.ROOT)}", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         if (selected.subsystemTargets.isEmpty()) Text("Add at least one generated subsystem target below.", color = AresGold)
@@ -437,6 +451,11 @@ private fun TransitionCard(state: SuperstructureStudioState, draft: Superstructu
                 Text("Fresh evidence · ${source?.label ?: "${guard.source.subsystemId}.${guard.source.fieldId}"}", color = AresTextSecondary, fontSize = 11.sp)
                 when {
                     expectedDouble != null -> {
+                        StudioDropdown(
+                            "Comparison: ${guard.comparison.name.replace('_', ' ')}",
+                            listOf(InterlockComparison.LESS_THAN, InterlockComparison.GREATER_THAN).map { it.name to it.name.replace('_', ' ') },
+                            onSelect = { selected -> viewModel.updateTransition(edge.copy(guards = edge.guards.map { if (it.guardId == guard.guardId) it.copy(comparison = InterlockComparison.valueOf(selected)) else it })) },
+                        )
                         var raw by remember(guard.guardId, expectedDouble) { mutableStateOf(expectedDouble.toString()) }
                         OutlinedTextField(raw, { value ->
                             raw = value
@@ -446,16 +465,38 @@ private fun TransitionCard(state: SuperstructureStudioState, draft: Superstructu
                         }, label = { Text("Expected numeric threshold") })
                     }
                     expectedBoolean != null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                        StudioDropdown(
+                            "Comparison: ${guard.comparison.name.replace('_', ' ')}",
+                            listOf(InterlockComparison.EQUALS_STATE, InterlockComparison.NOT_EQUALS_STATE).map { it.name to it.name.replace('_', ' ') },
+                            onSelect = { selected -> viewModel.updateTransition(edge.copy(guards = edge.guards.map { if (it.guardId == guard.guardId) it.copy(comparison = InterlockComparison.valueOf(selected)) else it })) },
+                            modifier = Modifier.weight(1f),
+                        )
                         Switch(expectedBoolean, { checked -> viewModel.updateTransition(edge.copy(guards = edge.guards.map { if (it.guardId == guard.guardId) it.copy(expectedBooleanValue = checked) else it })) })
                         Text("Expected $expectedBoolean", color = AresTextPrimary)
                     }
-                    expectedString != null -> OutlinedTextField(
-                        expectedString,
-                        { text -> viewModel.updateTransition(edge.copy(guards = edge.guards.map { if (it.guardId == guard.guardId) it.copy(expectedStringValue = text) else it })) },
-                        label = { Text("Expected text") },
-                    )
+                    expectedString != null -> {
+                        StudioDropdown(
+                            "Comparison: ${guard.comparison.name.replace('_', ' ')}",
+                            listOf(InterlockComparison.EQUALS_STATE, InterlockComparison.NOT_EQUALS_STATE).map { it.name to it.name.replace('_', ' ') },
+                            onSelect = { selected -> viewModel.updateTransition(edge.copy(guards = edge.guards.map { if (it.guardId == guard.guardId) it.copy(comparison = InterlockComparison.valueOf(selected)) else it })) },
+                        )
+                        OutlinedTextField(
+                            expectedString,
+                            { text -> viewModel.updateTransition(edge.copy(guards = edge.guards.map { if (it.guardId == guard.guardId) it.copy(expectedStringValue = text) else it })) },
+                            label = { Text("Expected text") },
+                        )
+                    }
                 }
+                TextButton({ viewModel.removeGuard(edge.transitionId, guard.guardId) }) { Text("Remove this guard") }
             }
+        }
+        val unusedSources = state.sourceFields.filter { candidate -> edge.guards.none { it.source == candidate.reference } }
+        if (unusedSources.isNotEmpty() && edge.triggerKind != TransitionTriggerKind.TIME_ELAPSED) {
+            StudioDropdown(
+                "+ Require fresh evidence",
+                unusedSources.map { key(it) to it.label },
+                onSelect = { selected -> unusedSources.single { key(it) == selected }.let { viewModel.addGuard(edge.transitionId, it) } },
+            )
         }
         if (edge.triggerKind == TransitionTriggerKind.SENSOR_CONDITION_AUTO) {
             NumberEditor("Debounce (ms)", edge.debounceMs.toDouble(), onValue = { viewModel.updateTransition(edge.copy(debounceMs = it.toLong().coerceIn(0, 60_000))) }, onValidity = { valid -> viewModel.setEditorError("transition:${edge.transitionId}:debounce", if (valid) null else "${edge.transitionId} debounce must be numeric.") })
