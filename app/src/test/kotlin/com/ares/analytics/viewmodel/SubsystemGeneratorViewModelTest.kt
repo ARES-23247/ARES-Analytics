@@ -31,6 +31,7 @@ import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class SubsystemGeneratorViewModelTest {
@@ -165,6 +166,43 @@ class SubsystemGeneratorViewModelTest {
             SubsystemArtifactGroup.entries.toSet(),
             state.previewFiles.mapTo(linkedSetOf()) { it.group },
         )
+        viewModel.close()
+    }
+
+    @Test
+    fun `template picker creates the requested archetype and closes`() {
+        val root = Files.createTempDirectory("ares-subsystem-picker").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+
+        viewModel.setTemplatePickerVisible(true)
+        viewModel.newSubsystem(SubsystemTemplate.SENSOR_ONLY_SUBSYSTEM)
+
+        val state = viewModel.state.value
+        assertFalse(state.showTemplatePicker)
+        assertEquals(SubsystemTemplate.SENSOR_ONLY_SUBSYSTEM, state.draft?.document?.template)
+        assertEquals(state.draft?.document?.hardware?.firstOrNull()?.uid, state.selectedHardwareUid)
+        viewModel.close()
+    }
+
+    @Test
+    fun `sandbox gains update the selected controller and reject nonfinite input`() {
+        val root = Files.createTempDirectory("ares-subsystem-gains").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        val loopId = viewModel.state.value.draft!!.document.controlLoops.single().loopId
+
+        viewModel.applyControlLoopGains(loopId, 1.2, 0.3, 0.04, 0.5, 2.1, 0.7)
+
+        val loop = viewModel.state.value.draft!!.document.controlLoops.single()
+        assertEquals(1.2, loop.kP)
+        assertEquals(0.3, loop.kI)
+        assertEquals(0.04, loop.kD)
+        assertEquals(0.5, loop.feedforward.kS)
+        assertEquals(2.1, loop.feedforward.kV)
+        assertEquals(0.7, loop.feedforward.kG)
+        assertTrue(viewModel.state.value.dirty)
+        assertFailsWith<IllegalArgumentException> {
+            viewModel.applyControlLoopGains(loopId, Double.NaN, 0.0, 0.0, 0.0, 0.0, 0.0)
+        }
         viewModel.close()
     }
 

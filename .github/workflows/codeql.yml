@@ -14,7 +14,8 @@ permissions:
   security-events: write
 
 env:
-  ARESLIB_VALIDATION_REF: 653842d0b6c9b610df502f5d3b178b2a603a9a7b
+  ARES_VERSION: 6.1.0
+  ARESLIB_VALIDATION_REF: 763ed9f52d855e493dcc416629cbd65250f1ac05
   ARES_VALIDATION_REPOSITORY: file://${{ github.workspace }}/ARESLib-Kotlin/build/release-repository
 
 concurrency:
@@ -58,11 +59,15 @@ jobs:
 
       - name: Publish isolated ARESLib validation repository
         working-directory: ARESLib-Kotlin
-        run: ./gradlew publishReleaseValidation --no-parallel --no-daemon
+        run: ./gradlew publishReleaseValidation "-ParesVersion=${ARES_VERSION}" --no-parallel --no-daemon
+
+      - name: Verify the requested ARES contract was published
+        working-directory: ARESLib-Kotlin
+        run: test -f "build/release-repository/org/aresfirst/ares/ares-bom/${ARES_VERSION}/ares-bom-${ARES_VERSION}.pom"
 
       - name: Compile Analytics sources
         working-directory: ARES-Analytics
-        run: ./gradlew :shared:classes :app:classes :gateway:classes "-ParesRepository=${ARES_VALIDATION_REPOSITORY}" --refresh-dependencies --no-daemon
+        run: ./gradlew :shared:classes :app:classes :gateway:classes "-ParesVersion=${ARES_VERSION}" "-ParesRepository=${ARES_VALIDATION_REPOSITORY}" --refresh-dependencies --no-daemon
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4
