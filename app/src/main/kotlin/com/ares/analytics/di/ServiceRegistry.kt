@@ -51,6 +51,7 @@ class ServiceRegistry {
     val learningProgressService by lazy { LearningProgressService() }
     val importArchiveService by lazy { ImportArchiveService() }
     val robotProjectTemplateService by lazy { com.ares.analytics.service.project.RobotProjectTemplateService() }
+    val hardwareSetupService by lazy { com.ares.analytics.service.hardware.HardwareSetupService() }
     val tuningProposalInbox by lazy { com.ares.analytics.service.tuning.TuningProposalInbox() }
     val drivebaseProjectRepository by lazy { com.ares.analytics.service.drivebase.DrivebaseProjectRepository() }
     val tuningProfileRepository by lazy { com.ares.analytics.service.tuning.TuningProfileRepository() }
@@ -85,6 +86,7 @@ class ServiceRegistry {
             databaseService = databaseService,
             drivebaseRepository = drivebaseProjectRepository,
             tuningRepository = tuningProfileRepository,
+            hardwareSetupService = hardwareSetupService,
         )
     }
     val summaryEngineService by lazy { SummaryEngineService(databaseService, sysIdService, driverAnalysisService) }

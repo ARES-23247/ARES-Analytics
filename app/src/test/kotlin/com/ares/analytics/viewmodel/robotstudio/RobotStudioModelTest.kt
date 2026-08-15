@@ -4,6 +4,7 @@ import com.ares.analytics.service.BuildExecutionPhase
 import com.ares.analytics.service.BuildExecutionState
 import com.ares.analytics.service.RobotProjectReadinessEvidence
 import com.ares.analytics.service.drivebase.DrivebaseKind
+import com.ares.analytics.service.hardware.HardwareReviewStatus
 import com.ares.analytics.shared.League
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -264,6 +265,32 @@ class RobotStudioModelTest {
             RobotStudioRuntimeEvidence(deploy = com.ares.analytics.service.DeployExecutionState(phase = com.ares.analytics.service.DeployExecutionPhase.SUCCEEDED)),
         )
         assertEquals(RobotStudioStageStatus.READY, succeeded.status(RobotStudioStageId.DEPLOY))
+    }
+
+    @Test
+    fun `hardware review is visible and a template deployment block remains fail closed`() {
+        val unreviewed = evaluateRobotStudioStages(
+            completeEvidence().copy(hardwareItemCount = 7),
+            RobotStudioRuntimeEvidence(),
+        )
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, unreviewed.status(RobotStudioStageId.HARDWARE_SETUP))
+        assertEquals(
+            RobotStudioAction.OPEN_HARDWARE_SETUP,
+            unreviewed.first { it.id == RobotStudioStageId.HARDWARE_SETUP }.action,
+        )
+
+        val currentButReferenceOnly = evaluateRobotStudioStages(
+            completeEvidence().copy(
+                hardwareItemCount = 7,
+                hardwareReviewStatus = HardwareReviewStatus.CURRENT,
+                hardwareReviewedBy = "Mentor",
+                physicalDeploymentBlockReason = "This starter remains simulation-only.",
+            ),
+            RobotStudioRuntimeEvidence(),
+        )
+        assertEquals(RobotStudioStageStatus.READY, currentButReferenceOnly.status(RobotStudioStageId.HARDWARE_SETUP))
+        assertEquals(RobotStudioStageStatus.BLOCKED, currentButReferenceOnly.status(RobotStudioStageId.DEPLOY))
+        assertTrue(currentButReferenceOnly.first { it.id == RobotStudioStageId.DEPLOY }.issues.single().contains("simulation-only"))
     }
 
     private fun completeEvidence() = RobotProjectReadinessEvidence(

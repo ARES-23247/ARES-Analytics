@@ -41,6 +41,7 @@ import com.ares.analytics.ui.help.AcademyRuntimeSnapshot
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.*
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
+import com.ares.analytics.viewmodel.hardware.HardwareSetupViewModel
 import com.ares.analytics.viewmodel.project.ProjectIdentityViewModel
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioAction
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioRuntimeEvidence
@@ -356,6 +357,14 @@ fun MainScreen(services: ServiceRegistry) {
             designAssistant = com.ares.analytics.service.DrivebaseDesignAssistant { current, request ->
                 services.syncEngineService.requestDrivebaseDesignProposal(current, request)
             },
+        )
+    }
+    val hardwareSetupViewModel = remember(currentConfig.projectPath, currentConfig.league) {
+        HardwareSetupViewModel(
+            projectPath = currentConfig.projectPath ?: "",
+            league = currentConfig.league,
+            service = services.hardwareSetupService,
+            scope = scope,
         )
     }
     val robotStudioViewModel = remember(currentConfig.id) {
@@ -898,6 +907,8 @@ fun MainScreen(services: ServiceRegistry) {
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
                                         RobotStudioAction.OPEN_SUBSYSTEMS ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
+                                        RobotStudioAction.OPEN_HARDWARE_SETUP ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.HARDWARE_SETUP))
                                         RobotStudioAction.OPEN_CONTROLS ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS))
                                         RobotStudioAction.OPEN_AUTONOMOUS ->
@@ -941,6 +952,19 @@ fun MainScreen(services: ServiceRegistry) {
                             )
                             NavigationTarget.SUBSYSTEM_GEN -> SubsystemGeneratorScreen(subsystemGeneratorViewModel)
                             NavigationTarget.DRIVEBASE_BUILDER -> DrivebaseBuilderScreen(drivebaseBuilderViewModel)
+                            NavigationTarget.HARDWARE_SETUP -> HardwareSetupScreen(
+                                viewModel = hardwareSetupViewModel,
+                                onOpenDrivebase = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
+                                },
+                                onOpenSubsystems = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
+                                },
+                                onBackToStudio = {
+                                    robotStudioViewModel.refresh()
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ROBOT_STUDIO))
+                                },
+                            )
                             NavigationTarget.PROJECT_IDENTITY -> ProjectIdentityScreen(
                                 viewModel = projectIdentityViewModel,
                                 config = currentConfig,

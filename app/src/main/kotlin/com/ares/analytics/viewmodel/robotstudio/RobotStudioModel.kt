@@ -5,6 +5,7 @@ import com.ares.analytics.service.BuildExecutionState
 import com.ares.analytics.service.DeployExecutionPhase
 import com.ares.analytics.service.DeployExecutionState
 import com.ares.analytics.service.RobotProjectReadinessEvidence
+import com.ares.analytics.service.hardware.HardwareReviewStatus
 import java.io.File
 
 enum class RobotStudioStageId {
@@ -12,6 +13,7 @@ enum class RobotStudioStageId {
     PLATFORM,
     DRIVEBASE,
     MECHANISMS,
+    HARDWARE_SETUP,
     LOCALIZATION,
     CAPABILITIES,
     CONTROLS,
@@ -37,6 +39,7 @@ enum class RobotStudioAction {
     OPEN_PROJECT_IDENTITY,
     OPEN_DRIVEBASE,
     OPEN_SUBSYSTEMS,
+    OPEN_HARDWARE_SETUP,
     OPEN_CONTROLS,
     OPEN_AUTONOMOUS,
     OPEN_TUNING,
@@ -132,6 +135,13 @@ internal fun evaluateRobotStudioStages(
         evidence.subsystemCount == 0 -> RobotStudioStageStatus.OPTIONAL
         else -> RobotStudioStageStatus.READY
     }
+    val hardwareStatus = when {
+        projectBlocked || platformStatus != RobotStudioStageStatus.READY -> RobotStudioStageStatus.BLOCKED
+        evidence.hardwareErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        evidence.hardwareItemCount == 0 -> RobotStudioStageStatus.NEEDS_ACTION
+        evidence.hardwareReviewStatus == HardwareReviewStatus.CURRENT -> RobotStudioStageStatus.READY
+        else -> RobotStudioStageStatus.NEEDS_ACTION
+    }
     val localizationStatus = when {
         drivebaseStatus == RobotStudioStageStatus.BLOCKED -> RobotStudioStageStatus.BLOCKED
         drivebaseStatus == RobotStudioStageStatus.INVALID -> RobotStudioStageStatus.BLOCKED
@@ -207,6 +217,7 @@ internal fun evaluateRobotStudioStages(
             runtime.deploy.phase == DeployExecutionPhase.INSTALLING -> RobotStudioStageStatus.RUNNING
         runtime.deploy.phase == DeployExecutionPhase.SUCCEEDED -> RobotStudioStageStatus.READY
         runtime.deploy.phase == DeployExecutionPhase.FAILED -> RobotStudioStageStatus.INVALID
+        evidence.physicalDeploymentBlockReason != null -> RobotStudioStageStatus.BLOCKED
         !authoredStagesReady -> RobotStudioStageStatus.BLOCKED
         else -> RobotStudioStageStatus.NEEDS_ACTION
     }
@@ -264,6 +275,27 @@ internal fun evaluateRobotStudioStages(
             "Generated registry, controller, IO, mock/simulator, and verification",
             RobotStudioAction.OPEN_SUBSYSTEMS,
             "Open Subsystem Builder",
+        ),
+        stage(
+            RobotStudioStageId.HARDWARE_SETUP,
+            "Physical hardware setup",
+            "Compare every canonical device address, direction, safe output, and limit with the actual robot.",
+            hardwareStatus,
+            when (evidence.hardwareReviewStatus) {
+                HardwareReviewStatus.CURRENT ->
+                    "${evidence.hardwareReviewedBy.orEmpty()} reviewed the current ${evidence.hardwareItemCount}-device inventory. Any descriptor edit makes this review stale."
+                HardwareReviewStatus.STALE ->
+                    "The drivetrain or subsystem descriptors changed after the previous review. Compare the current mapping again."
+                HardwareReviewStatus.INVALID ->
+                    "The review record is invalid. Repair the reported issue and record a new review."
+                HardwareReviewStatus.NOT_REVIEWED ->
+                    "${evidence.hardwareItemCount} physical device(s) are declared but have not been compared with a robot. Simulation remains available."
+            },
+            evidence.hardwareErrors,
+            ".ares/drivetrains, .ares/subsystems, and hash-bound .ares/hardware-review.json",
+            "Drivebase/subsystem generated adapters and the physical deployment gate",
+            RobotStudioAction.OPEN_HARDWARE_SETUP,
+            "Open Hardware Setup",
         ),
         stage(
             RobotStudioStageId.LOCALIZATION,
@@ -363,8 +395,8 @@ internal fun evaluateRobotStudioStages(
             "1-Click Deploy to robot",
             "Connect over Wi-Fi, compile, and flash APK/binary directly to the robot.",
             deployStatus,
-            runtime.deploy.message,
-            emptyList(),
+            evidence.physicalDeploymentBlockReason ?: runtime.deploy.message,
+            listOfNotNull(evidence.physicalDeploymentBlockReason),
             "Wireless connection (192.168.43.1:5555 / SSH)",
             "Physical FTC Control Hub / FRC RoboRIO",
             RobotStudioAction.DEPLOY_ROBOT,

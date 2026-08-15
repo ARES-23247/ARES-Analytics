@@ -1,6 +1,7 @@
 package com.ares.analytics.service.project
 
 import com.ares.analytics.service.writeFileAtomically
+import com.ares.analytics.service.hardware.HardwareSetupService
 import com.ares.analytics.shared.League
 import com.ares.analytics.util.ProjectLayout
 import com.areslib.catalog.CapabilityCatalogCodec
@@ -67,7 +68,11 @@ data class RobotProjectCreationResult(
 )
 
 @Serializable
-internal enum class TemplateDeploymentPolicy { SIMULATION_ONLY_REFERENCE, DEPLOYMENT_READY }
+internal enum class TemplateDeploymentPolicy {
+    SIMULATION_ONLY_REFERENCE,
+    HARDWARE_REVIEW_REQUIRED,
+    DEPLOYMENT_READY,
+}
 
 @Serializable
 internal data class RobotProjectTemplateProvenance(
@@ -407,6 +412,17 @@ internal fun templateDeploymentBlockReason(projectRoot: File): String? {
     }
     return when (provenance.deploymentPolicy) {
         TemplateDeploymentPolicy.DEPLOYMENT_READY -> null
+        TemplateDeploymentPolicy.HARDWARE_REVIEW_REQUIRED -> {
+            val metadataFile = File(projectRoot, ".ares/project.json")
+            val league = runCatching { AresProjectMetadataCodec.decode(metadataFile.readText()).league }
+                .getOrElse {
+                    return "Canonical project metadata is missing or invalid. Deployment is blocked until project identity and hardware are reviewed."
+                }
+            HardwareSetupService().deploymentBlockReason(
+                projectRoot.path,
+                if (league == AresLeague.FTC) League.FTC else League.FRC,
+            )
+        }
         TemplateDeploymentPolicy.SIMULATION_ONLY_REFERENCE ->
             "This downloaded ${provenance.templateId} project is a simulator/reference starting point, not a hardware-neutral robot image. " +
                 "Physical deployment is blocked until ARES provides a reviewed generic runtime template for this league."

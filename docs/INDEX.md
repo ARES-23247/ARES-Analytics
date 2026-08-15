@@ -10,6 +10,7 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 | --- | --- | --- |
 | Open ARES Analytics for the first time | [First launch](start/FIRST_LAUNCH.md) | A local robot workspace and JDK 17 |
 | Create a buildable simulation project without code | [Create a robot project](start/CREATE_ROBOT_PROJECT.md) | A parent folder and one initial internet connection |
+| Compare canonical addresses with a physical robot | [Hardware Setup](start/HARDWARE_SETUP.md) | The robot wiring/configuration and a supervised review |
 | Understand ARES colors, logo, and product styling | [ARES product design system](DESIGN_SYSTEM.md) | None |
 | Enable optional Google Drive sync | [Google Drive setup](start/GOOGLE_DRIVE_SETUP.md) | One-click sign-in and a personal/team destination |
 | Understand multi-team Drive isolation | [OAuth and Drive architecture](GOOGLE_DRIVE_ARCHITECTURE.md) | Application identity, ownership, permissions, migration |

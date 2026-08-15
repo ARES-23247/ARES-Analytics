@@ -1,6 +1,11 @@
 package com.ares.analytics.service.project
 
 import com.ares.analytics.shared.League
+import com.ares.analytics.service.drivebase.DrivebaseKind
+import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
+import com.ares.analytics.service.drivebase.defaultDrivebase
+import com.ares.analytics.service.hardware.HardwareReviewRequest
+import com.ares.analytics.service.hardware.HardwareSetupService
 import com.areslib.catalog.CapabilityCatalogCodec
 import com.areslib.catalog.CapabilityCatalogDocument
 import com.areslib.project.AresCoordinateConvention
@@ -135,6 +140,45 @@ class RobotProjectTemplateServiceTest {
             provenance.parentFile.mkdirs()
             provenance.writeText("not-json")
             assertTrue(templateDeploymentBlockReason(root)!!.contains("provenance is invalid"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `hardware-review template policy blocks until the current canonical mapping is reviewed`() {
+        val root = Files.createTempDirectory("ares-hardware-policy-test").toFile()
+        try {
+            val ares = File(root, ".ares").apply { mkdirs() }
+            File(ares, "project.json").writeText(
+                AresProjectMetadataCodec.encode(
+                    AresProjectMetadataDocument(
+                        projectId = "team1-robot",
+                        league = AresLeague.FTC,
+                        coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
+                        robotLengthMeters = 0.45,
+                        robotWidthMeters = 0.45,
+                        fieldLengthMeters = 3.6576,
+                        fieldWidthMeters = 3.6576,
+                    ),
+                ),
+            )
+            DrivebaseProjectRepository().saveReviewed(
+                root.path,
+                expectedContentHash = null,
+                document = defaultDrivebase("team1-robot", DrivebaseKind.FTC_MECANUM),
+            )
+            File(ares, "template-provenance.json").writeText(
+                """{"schemaVersion":1,"templateId":"generic-ftc","templateRevision":"abc","templateArchiveSha256":"deadbeef","aresVersion":"6.1.0","deploymentPolicy":"HARDWARE_REVIEW_REQUIRED"}""",
+            )
+
+            assertTrue(templateDeploymentBlockReason(root)!!.contains("has not been compared"))
+            HardwareSetupService().saveReview(
+                root.path,
+                League.FTC,
+                HardwareReviewRequest("Mentor", true, true, true, true, true),
+            )
+            assertNull(templateDeploymentBlockReason(root))
         } finally {
             root.deleteRecursively()
         }

@@ -52,3 +52,8 @@ normal preview, ownership headers, confirmation tokens, tests, and generated-sou
 Creation does not deploy or enable a physical robot. Downloaded reference projects are rejected by
 the deploy service even after confirmation; removing that boundary requires a reviewed generic
 runtime template, not a student clicking through a warning.
+
+Robot Studio's [Hardware Setup](HARDWARE_SETUP.md) screen can still aggregate the canonical
+drivebase and subsystem addresses, detect cross-document conflicts, and record a hash-bound review.
+That prepares a project for a future hardware-neutral runtime, but it does not remove the current
+season reference template's simulation-only deployment block.
