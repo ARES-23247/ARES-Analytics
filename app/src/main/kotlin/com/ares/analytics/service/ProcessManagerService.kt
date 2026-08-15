@@ -1,6 +1,7 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.League
+import com.ares.analytics.service.project.templateDeploymentBlockReason
 import com.areslib.codegen.GeneratedSubsystemFile
 import com.areslib.codegen.SubsystemKotlinCodegenTarget
 import com.areslib.codegen.SubsystemKotlinGenerator
@@ -656,6 +657,7 @@ class ProcessManagerService internal constructor(
             try {
                 val root = requireSafeProjectRoot(projectPath)
                 canonicalProjectPath = root.path
+                templateDeploymentBlockReason(root)?.let { reason -> error(reason) }
                 if (league == League.FTC) {
                     val adb = resolveAdbPath()
                     _buildOutput.emit("[DEPLOY] Connecting wireless ADB ($FTC_ADB_TARGET)...")

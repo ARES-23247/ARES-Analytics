@@ -1,5 +1,6 @@
 package com.ares.analytics.viewmodel
 
+import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -115,6 +116,42 @@ class OnboardingModelTest {
             assertFalse(validateOnboardingFields(state, OnboardingStep.REVIEW).hasRequiredFieldErrors)
         } finally {
             directory.delete()
+        }
+    }
+
+    @Test
+    fun `new project mode accepts an unused direct child without requiring it to exist yet`() {
+        val parent = Files.createTempDirectory("ares-onboarding-create-test").toFile()
+        try {
+            val state = OnboardingState(
+                projectSetupMode = ProjectSetupMode.CREATE_NEW,
+                projectParentPath = parent.path,
+                projectFolderName = "student-robot",
+                projectPath = File(parent, "student-robot").path,
+            )
+
+            assertNull(validateOnboardingFields(state, OnboardingStep.PROJECT).projectPath)
+        } finally {
+            parent.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `new project mode blocks traversal and existing destinations`() {
+        val parent = Files.createTempDirectory("ares-onboarding-create-block-test").toFile()
+        try {
+            val traversal = OnboardingState(
+                projectSetupMode = ProjectSetupMode.CREATE_NEW,
+                projectParentPath = parent.path,
+                projectFolderName = "../escape",
+            )
+            assertTrue(validateOnboardingFields(traversal, OnboardingStep.PROJECT).projectPath!!.contains("Folder names"))
+
+            File(parent, "existing").mkdirs()
+            val existing = traversal.copy(projectFolderName = "existing")
+            assertTrue(validateOnboardingFields(existing, OnboardingStep.PROJECT).projectPath!!.contains("already exists"))
+        } finally {
+            parent.deleteRecursively()
         }
     }
 }

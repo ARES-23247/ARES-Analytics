@@ -216,9 +216,11 @@ fun MainScreen(services: ServiceRegistry) {
                 services.environmentService,
                 services.syncEngineService,
                 services.googleDriveService,
+                services.robotProjectTemplateService,
                 scope,
             ) { loaded ->
                 mainViewModel.onIntent(MainIntent.SaveConfig(loaded))
+                mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ROBOT_STUDIO))
             }
         }
         val showCancel = mainState.workspaces.isNotEmpty()

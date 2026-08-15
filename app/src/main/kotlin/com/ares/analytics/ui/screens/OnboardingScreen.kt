@@ -138,8 +138,17 @@ fun OnboardingScreen(
 
                 SyncStep(
                     step = state.currentStep,
+                    projectSetupMode = state.projectSetupMode,
                     projectPath = state.projectPath,
+                    projectParentPath = state.projectParentPath,
+                    projectFolderName = state.projectFolderName,
                     projectDetectionMessage = state.projectDetectionMessage,
+                    projectTemplateName = state.projectTemplateName,
+                    projectTemplateVersion = state.projectTemplateVersion,
+                    projectCreationMessage = state.projectCreationMessage,
+                    onProjectSetupModeChange = {
+                        viewModel.handleIntent(OnboardingIntent.SetProjectSetupMode(it))
+                    },
                     onProjectPathChange = {
                         viewModel.handleIntent(OnboardingIntent.UpdateProjectPath(it))
                     },
@@ -151,6 +160,23 @@ fun OnboardingScreen(
                         if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
                             // Updating a real directory automatically runs project detection.
                             viewModel.handleIntent(OnboardingIntent.UpdateProjectPath(chooser.selectedFile.absolutePath))
+                        }
+                    },
+                    onProjectParentPathChange = {
+                        viewModel.handleIntent(OnboardingIntent.UpdateProjectParentPath(it))
+                    },
+                    onProjectFolderNameChange = {
+                        viewModel.handleIntent(OnboardingIntent.UpdateProjectFolderName(it))
+                    },
+                    onBrowseProjectParent = {
+                        val chooser = JFileChooser().apply {
+                            fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+                            dialogTitle = "Choose where to create the robot project"
+                        }
+                        if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
+                            viewModel.handleIntent(
+                                OnboardingIntent.UpdateProjectParentPath(chooser.selectedFile.absolutePath),
+                            )
                         }
                     },
                     teamId = state.teamId,
@@ -193,6 +219,9 @@ fun OnboardingScreen(
 
                 state.errorMessage?.let { error ->
                     Text(error, color = AresError, style = MaterialTheme.typography.bodySmall)
+                }
+                if (state.isSaving && !state.projectCreationMessage.isNullOrBlank()) {
+                    Text(state.projectCreationMessage!!, color = AresCyan, style = MaterialTheme.typography.bodySmall)
                 }
 
                 NavigationButtons(
@@ -243,7 +272,7 @@ private fun NavigationButtons(
                     contentColor = AresOnAccent, disabledContainerColor = AresBorder),
         ) {
             if (isSaving) {
-                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = AresBackground, strokeWidth = 2.dp)
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), color = AresOnAccent, strokeWidth = 2.dp)
             } else {
                 val label = when (step) {
                     OnboardingStep.PROJECT -> "Continue"
@@ -251,7 +280,7 @@ private fun NavigationButtons(
                     OnboardingStep.OPTIONAL -> "Review setup"
                     OnboardingStep.REVIEW -> if (canFinish) "Create workspace" else "JDK 17 required"
                 }
-                Text(label, color = AresBackground, fontWeight = FontWeight.Bold)
+                Text(label, color = AresOnAccent, fontWeight = FontWeight.Bold)
             }
         }
     }

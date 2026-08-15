@@ -1,0 +1,414 @@
+package com.ares.analytics.service.project
+
+import com.ares.analytics.service.writeFileAtomically
+import com.ares.analytics.shared.League
+import com.ares.analytics.util.ProjectLayout
+import com.areslib.catalog.CapabilityCatalogCodec
+import com.areslib.project.AresLeague
+import com.areslib.project.AresProjectMetadataCodec
+import com.areslib.routine.AutonomousCatalogCodec
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
+import java.io.File
+import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
+import java.security.MessageDigest
+import java.util.zip.ZipInputStream
+
+private val PROJECT_TEMPLATE_JSON = Json {
+    prettyPrint = true
+    encodeDefaults = true
+}
+
+/** Immutable identity for one reviewed robot-project starter archive. */
+data class RobotProjectTemplate(
+    val id: String,
+    val displayName: String,
+    val league: League,
+    val aresVersion: String,
+    val revision: String,
+    val archiveUrl: String,
+    val archiveSha256: String,
+)
+
+data class RobotProjectCreationRequest(
+    val parentDirectory: File,
+    val folderName: String,
+    val league: League,
+    val teamId: String,
+    val seasonId: String,
+    val robotId: String,
+    val robotName: String,
+)
+
+data class RobotProjectCreationPlan(
+    val template: RobotProjectTemplate,
+    val destination: File,
+    val issues: List<String>,
+) {
+    val canCreate: Boolean get() = issues.isEmpty()
+}
+
+enum class RobotProjectTemplateSource { VERIFIED_CACHE, VERIFIED_DOWNLOAD }
+
+data class RobotProjectCreationResult(
+    val destination: File,
+    val template: RobotProjectTemplate,
+    val source: RobotProjectTemplateSource,
+)
+
+@Serializable
+internal enum class TemplateDeploymentPolicy { SIMULATION_ONLY_REFERENCE, DEPLOYMENT_READY }
+
+@Serializable
+internal data class RobotProjectTemplateProvenance(
+    val schemaVersion: Int = 1,
+    val templateId: String,
+    val templateRevision: String,
+    val templateArchiveSha256: String,
+    val aresVersion: String,
+    val deploymentPolicy: TemplateDeploymentPolicy = TemplateDeploymentPolicy.SIMULATION_ONLY_REFERENCE,
+)
+
+@Serializable
+private data class RobotIdentity(
+    val teamId: String,
+    val seasonId: String,
+    val robotId: String,
+    val name: String,
+    val league: String,
+)
+
+/**
+ * Creates a robot repository from a hash-pinned official source archive.
+ *
+ * Creation is deliberately all-or-nothing: files are extracted into a sibling staging directory,
+ * validated and personalized there, then moved into the requested destination without replacement.
+ * A verified archive is cached so a previously downloaded starter can be reused offline. No
+ * existing directory or user-owned source is ever merged, deleted, or overwritten.
+ */
+class RobotProjectTemplateService(
+    private val cacheDirectory: File = File(
+        System.getProperty("user.home"),
+        ".ares-analytics/project-templates",
+    ),
+    templates: List<RobotProjectTemplate> = OFFICIAL_PROJECT_TEMPLATES,
+    private val archiveDownloader: (RobotProjectTemplate, File) -> Unit = ::downloadArchive,
+) {
+    private val templatesByLeague = templates.associateBy(RobotProjectTemplate::league)
+
+    fun templateFor(league: League): RobotProjectTemplate =
+        requireNotNull(templatesByLeague[league]) { "No reviewed ${league.name} starter is bundled with this app." }
+
+    fun plan(request: RobotProjectCreationRequest): RobotProjectCreationPlan {
+        val template = templateFor(request.league)
+        val folderName = request.folderName.trim()
+        val parent = runCatching { request.parentDirectory.canonicalFile }.getOrElse { request.parentDirectory.absoluteFile }
+        val destination = File(parent, folderName)
+        val issues = buildList {
+            if (!parent.isDirectory) add("Choose an existing parent folder for the new robot project.")
+            if (!parent.canWrite()) add("ARES cannot write to the selected parent folder.")
+            projectFolderNameError(folderName)?.let(::add)
+            if (folderName.isNotEmpty()) {
+                val canonicalDestination = runCatching { destination.canonicalFile }.getOrNull()
+                if (canonicalDestination == null || canonicalDestination.parentFile != parent) {
+                    add("The project folder must be a direct child of the selected parent folder.")
+                }
+                if (destination.exists()) add("A file or folder already exists at ${destination.path}.")
+            }
+        }
+        return RobotProjectCreationPlan(template, destination, issues.distinct())
+    }
+
+    suspend fun create(
+        request: RobotProjectCreationRequest,
+        onProgress: (String) -> Unit = {},
+    ): RobotProjectCreationResult = withContext(Dispatchers.IO) {
+        val initialPlan = plan(request)
+        require(initialPlan.canCreate) { initialPlan.issues.joinToString(" ") }
+        validateIdentity(request)
+
+        val parent = request.parentDirectory.canonicalFile
+        val destination = initialPlan.destination.canonicalFile
+        val staging = Files.createTempDirectory(parent.toPath(), ".${request.folderName}.ares-partial-").toFile()
+        check(staging.parentFile.canonicalFile == parent) { "Project staging directory escaped the selected parent." }
+
+        var published = false
+        try {
+            onProgress("Checking the verified ${initialPlan.template.displayName} starter…")
+            val (archive, source) = obtainVerifiedArchive(initialPlan.template, onProgress)
+            onProgress("Unpacking the starter into a protected staging folder…")
+            extractArchive(archive, staging)
+            personalizeProject(staging, request, initialPlan.template)
+
+            ProjectLayout.validationError(staging.path, request.league)?.let { validationError -> error(validationError) }
+            check(!destination.exists()) { "The destination appeared while the project was being created; nothing was replaced." }
+            onProgress("Publishing the completed project…")
+            Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            published = true
+            onProgress("Project created. ARES can now open Robot Studio and the simulator.")
+            RobotProjectCreationResult(destination, initialPlan.template, source)
+        } finally {
+            if (!published && staging.exists()) staging.deleteRecursively()
+        }
+    }
+
+    private fun obtainVerifiedArchive(
+        template: RobotProjectTemplate,
+        onProgress: (String) -> Unit,
+    ): Pair<File, RobotProjectTemplateSource> {
+        cacheDirectory.mkdirs()
+        check(cacheDirectory.isDirectory) { "ARES could not create its project-template cache." }
+        val cacheFile = File(cacheDirectory, "${template.id}-${template.revision}.zip")
+        if (cacheFile.isFile && sha256(cacheFile) == template.archiveSha256) {
+            return cacheFile to RobotProjectTemplateSource.VERIFIED_CACHE
+        }
+        if (cacheFile.exists() && !cacheFile.delete()) {
+            error("A damaged cached starter could not be removed. Delete ${cacheFile.path}, then try again.")
+        }
+
+        onProgress("Downloading the pinned ${template.displayName} starter once for offline reuse…")
+        writeFileAtomically(cacheFile) { temporary ->
+            archiveDownloader(template, temporary)
+            val actualHash = sha256(temporary)
+            check(actualHash == template.archiveSha256) {
+                "The downloaded starter did not match its reviewed SHA-256. Expected ${template.archiveSha256}; got $actualHash."
+            }
+        }
+        return cacheFile to RobotProjectTemplateSource.VERIFIED_DOWNLOAD
+    }
+
+    private fun personalizeProject(
+        root: File,
+        request: RobotProjectCreationRequest,
+        template: RobotProjectTemplate,
+    ) {
+        val identity = RobotIdentity(
+            teamId = request.teamId.trim(),
+            seasonId = request.seasonId.trim(),
+            robotId = request.robotId.trim(),
+            name = request.robotName.trim(),
+            league = request.league.name,
+        )
+        writeTextAtomically(File(root, ".ares-robot.json"), PROJECT_TEMPLATE_JSON.encodeToString(identity))
+
+        val metadataFile = File(root, ".ares/project.json")
+        check(metadataFile.isFile) { "The reviewed starter is missing .ares/project.json." }
+        val oldMetadata = AresProjectMetadataCodec.decode(metadataFile.readText())
+        val expectedLeague = if (request.league == League.FTC) AresLeague.FTC else AresLeague.FRC
+        check(oldMetadata.league == expectedLeague) { "The starter's project metadata has the wrong league." }
+        val personalizedProjectId = projectId(request.teamId, request.robotId)
+        val personalizedMetadata = oldMetadata.copy(projectId = personalizedProjectId)
+        writeTextAtomically(metadataFile, AresProjectMetadataCodec.encode(personalizedMetadata))
+
+        val actionCatalogFile = File(root, ".ares/action-catalog.json")
+        check(actionCatalogFile.isFile) { "The reviewed starter is missing .ares/action-catalog.json." }
+        val actionCatalog = CapabilityCatalogCodec.decode(actionCatalogFile.readText())
+        writeTextAtomically(
+            actionCatalogFile,
+            CapabilityCatalogCodec.encode(actionCatalog.copy(projectId = personalizedProjectId)),
+        )
+
+        val autonomousCatalogFile = File(root, ".ares/autonomous-catalog.json")
+        check(autonomousCatalogFile.isFile) { "The reviewed starter is missing .ares/autonomous-catalog.json." }
+        val autonomousCatalog = AutonomousCatalogCodec.decode(autonomousCatalogFile.readText())
+        writeTextAtomically(
+            autonomousCatalogFile,
+            AutonomousCatalogCodec.encode(autonomousCatalog.copy(projectId = personalizedProjectId)),
+        )
+
+        val provenance = RobotProjectTemplateProvenance(
+            templateId = template.id,
+            templateRevision = template.revision,
+            templateArchiveSha256 = template.archiveSha256,
+            aresVersion = template.aresVersion,
+        )
+        writeTextAtomically(File(root, ".ares/template-provenance.json"), PROJECT_TEMPLATE_JSON.encodeToString(provenance))
+    }
+
+    private fun writeTextAtomically(file: File, content: String) {
+        writeFileAtomically(file) { temporary ->
+            Files.writeString(
+                temporary.toPath(),
+                content.trimEnd() + System.lineSeparator(),
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE,
+            )
+        }
+    }
+
+    private fun validateIdentity(request: RobotProjectCreationRequest) {
+        require(request.teamId.isNotBlank() && request.teamId.all(Char::isDigit)) {
+            "Enter a numeric FIRST team number before creating the project."
+        }
+        require(request.seasonId.isNotBlank()) { "Enter the competition season before creating the project." }
+        require(request.robotId.matches(Regex("[A-Za-z][A-Za-z0-9._-]{0,63}"))) {
+            "Robot ID must start with a letter and use only letters, numbers, dots, underscores, or dashes."
+        }
+    }
+
+    companion object {
+        const val MAX_ARCHIVE_BYTES: Long = 250L * 1024L * 1024L
+        const val MAX_EXTRACTED_BYTES: Long = 750L * 1024L * 1024L
+        const val MAX_ARCHIVE_ENTRIES: Int = 20_000
+
+        val OFFICIAL_PROJECT_TEMPLATES: List<RobotProjectTemplate> = listOf(
+            RobotProjectTemplate(
+                id = "ares-ftc-6.1.0",
+                displayName = "ARES FTC",
+                league = League.FTC,
+                aresVersion = "6.1.0",
+                revision = "77a324e15ea4b4534dc468bd7f93a186528c9600",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FTC/archive/77a324e15ea4b4534dc468bd7f93a186528c9600.zip",
+                archiveSha256 = "c55533e80fbdb3b0d1ad64ef6df907944b4bd135eb3d64749c1e22a85dbdaa8a",
+            ),
+            RobotProjectTemplate(
+                id = "ares-frc-6.1.0",
+                displayName = "ARES FRC",
+                league = League.FRC,
+                aresVersion = "6.1.0",
+                revision = "6d80ce1234ca84a5422f4e2fd66239cca1f9deac",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FRC/archive/6d80ce1234ca84a5422f4e2fd66239cca1f9deac.zip",
+                archiveSha256 = "7dafbd3c88c84fd0faaa915980ef4bca55a887b2c3d802e0f813e2c651308a32",
+            ),
+        )
+
+        internal fun projectFolderNameError(folderName: String): String? = when {
+            folderName.isBlank() -> "Enter a folder name for the new robot project."
+            !folderName.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,63}")) ->
+                "Folder names may use letters, numbers, dots, underscores, and dashes."
+            folderName.endsWith('.') || folderName.endsWith(' ') ->
+                "Folder names cannot end with a dot or space."
+            folderName.uppercase() in WINDOWS_RESERVED_NAMES ->
+                "That folder name is reserved by Windows. Choose another name."
+            else -> null
+        }
+
+        internal fun projectId(teamId: String, robotId: String): String {
+            val robot = robotId.trim().lowercase().replace(Regex("[^a-z0-9._-]+"), "-").trim('-', '.', '_')
+            return "team${teamId.filter(Char::isDigit)}-${robot.ifBlank { "robot" }}".take(64)
+        }
+
+        private fun downloadArchive(template: RobotProjectTemplate, destination: File) {
+            val connection = URL(template.archiveUrl).openConnection() as HttpURLConnection
+            connection.instanceFollowRedirects = true
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 60_000
+            connection.setRequestProperty("Accept", "application/zip")
+            connection.setRequestProperty("User-Agent", "ARES-Analytics/${template.aresVersion}")
+            try {
+                check(connection.responseCode in 200..299) {
+                    "The official starter download failed with HTTP ${connection.responseCode}. Check the internet connection and try again."
+                }
+                val announcedLength = connection.contentLengthLong
+                check(announcedLength < 0 || announcedLength <= MAX_ARCHIVE_BYTES) { "The starter archive is unexpectedly large." }
+                connection.inputStream.use { input ->
+                    BufferedOutputStream(FileOutputStream(destination)).use { output ->
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var total = 0L
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            total += read
+                            check(total <= MAX_ARCHIVE_BYTES) { "The starter archive exceeded the safe download limit." }
+                            output.write(buffer, 0, read)
+                        }
+                    }
+                }
+            } finally {
+                connection.disconnect()
+            }
+        }
+
+        private fun sha256(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().buffered().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        }
+
+        private fun extractArchive(archive: File, destination: File) {
+            var entryCount = 0
+            var extractedBytes = 0L
+            var archiveRoot: String? = null
+            ZipInputStream(BufferedInputStream(archive.inputStream())).use { zip ->
+                while (true) {
+                    val entry = zip.nextEntry ?: break
+                    entryCount++
+                    check(entryCount <= MAX_ARCHIVE_ENTRIES) { "The starter archive contains too many files." }
+                    val rawName = entry.name
+                    check(rawName.isNotBlank() && !rawName.contains('\\')) { "The starter archive contains an invalid path." }
+                    val parts = rawName.split('/').filter(String::isNotEmpty)
+                    if (parts.isEmpty()) continue
+                    val root = parts.first()
+                    if (archiveRoot == null) archiveRoot = root
+                    check(root == archiveRoot) { "The starter archive contains multiple roots." }
+                    if (parts.size == 1) continue
+                    val relative = parts.drop(1).joinToString(File.separator)
+                    val target = File(destination, relative).canonicalFile
+                    check(target.toPath().startsWith(destination.canonicalFile.toPath())) {
+                        "The starter archive attempted to write outside the new project."
+                    }
+                    if (entry.isDirectory) {
+                        check(target.mkdirs() || target.isDirectory) { "Could not create ${target.path}." }
+                    } else {
+                        check(target.parentFile.mkdirs() || target.parentFile.isDirectory) { "Could not create ${target.parent}." }
+                        BufferedOutputStream(FileOutputStream(target)).use { output ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            while (true) {
+                                val read = zip.read(buffer)
+                                if (read < 0) break
+                                extractedBytes += read
+                                check(extractedBytes <= MAX_EXTRACTED_BYTES) { "The starter expanded beyond its safe size limit." }
+                                output.write(buffer, 0, read)
+                            }
+                        }
+                    }
+                    zip.closeEntry()
+                }
+            }
+            check(entryCount > 0 && archiveRoot != null) { "The starter archive was empty." }
+            File(destination, "gradlew").takeIf(File::isFile)?.setExecutable(true, false)
+        }
+
+        private val WINDOWS_RESERVED_NAMES = buildSet {
+            addAll(listOf("CON", "PRN", "AUX", "NUL"))
+            (1..9).forEach { index ->
+                add("COM$index")
+                add("LPT$index")
+            }
+        }
+    }
+}
+
+/** Returns a fail-closed deploy reason for downloaded reference projects, or null for normal projects. */
+internal fun templateDeploymentBlockReason(projectRoot: File): String? {
+    val provenanceFile = File(projectRoot, ".ares/template-provenance.json")
+    if (!provenanceFile.exists()) return null
+    val provenance = runCatching {
+        PROJECT_TEMPLATE_JSON.decodeFromString<RobotProjectTemplateProvenance>(provenanceFile.readText())
+    }.getOrElse {
+        return "Template provenance is invalid. Deployment is blocked; create a fresh project or ask a mentor to inspect the repository."
+    }
+    return when (provenance.deploymentPolicy) {
+        TemplateDeploymentPolicy.DEPLOYMENT_READY -> null
+        TemplateDeploymentPolicy.SIMULATION_ONLY_REFERENCE ->
+            "This downloaded ${provenance.templateId} project is a simulator/reference starting point, not a hardware-neutral robot image. " +
+                "Physical deployment is blocked until ARES provides a reviewed generic runtime template for this league."
+    }
+}

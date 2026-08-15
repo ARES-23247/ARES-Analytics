@@ -50,6 +50,7 @@ class ServiceRegistry {
     val updateCheckerService by lazy { UpdateCheckerService() }
     val learningProgressService by lazy { LearningProgressService() }
     val importArchiveService by lazy { ImportArchiveService() }
+    val robotProjectTemplateService by lazy { com.ares.analytics.service.project.RobotProjectTemplateService() }
     val tuningProposalInbox by lazy { com.ares.analytics.service.tuning.TuningProposalInbox() }
     val drivebaseProjectRepository by lazy { com.ares.analytics.service.drivebase.DrivebaseProjectRepository() }
     val tuningProfileRepository by lazy { com.ares.analytics.service.tuning.TuningProfileRepository() }

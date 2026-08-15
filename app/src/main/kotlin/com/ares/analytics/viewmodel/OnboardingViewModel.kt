@@ -3,6 +3,8 @@ package com.ares.analytics.viewmodel
 import com.ares.analytics.service.EnvironmentService
 import com.ares.analytics.service.GoogleDriveService
 import com.ares.analytics.service.SyncEngineService
+import com.ares.analytics.service.project.RobotProjectCreationRequest
+import com.ares.analytics.service.project.RobotProjectTemplateService
 import com.ares.analytics.shared.DriveDestinationConfig
 import com.ares.analytics.shared.DriveDestinationType
 import com.ares.analytics.shared.League
@@ -22,6 +24,9 @@ enum class OnboardingStep(val number: Int) {
     OPTIONAL(3),
     REVIEW(4),
 }
+
+enum class ProjectSetupMode { OPEN_EXISTING, CREATE_NEW }
+
 data class OnboardingFieldErrors(
     val projectPath: String? = null,
     val teamId: String? = null,
@@ -35,8 +40,14 @@ data class OnboardingFieldErrors(
 
 data class OnboardingState(
     val currentStep: OnboardingStep = OnboardingStep.PROJECT,
+    val projectSetupMode: ProjectSetupMode = ProjectSetupMode.OPEN_EXISTING,
     val projectPath: String = "",
+    val projectParentPath: String = "",
+    val projectFolderName: String = "",
     val projectDetectionMessage: String? = null,
+    val projectTemplateName: String = "ARES FTC",
+    val projectTemplateVersion: String = "6.1.0",
+    val projectCreationMessage: String? = null,
     val teamId: String = "",
     val seasonId: String = "",
     val robotId: String = "",
@@ -70,7 +81,10 @@ data class OnboardingState(
 }
 
 sealed class OnboardingIntent {
+    data class SetProjectSetupMode(val mode: ProjectSetupMode) : OnboardingIntent()
     data class UpdateProjectPath(val projectPath: String) : OnboardingIntent()
+    data class UpdateProjectParentPath(val path: String) : OnboardingIntent()
+    data class UpdateProjectFolderName(val name: String) : OnboardingIntent()
     data class UpdateTeamId(val teamId: String) : OnboardingIntent()
     data class UpdateSeasonId(val seasonId: String) : OnboardingIntent()
     data class UpdateRobotId(val robotId: String) : OnboardingIntent()
@@ -100,10 +114,17 @@ class OnboardingViewModel(
     private val environmentService: EnvironmentService,
     private val syncEngineService: SyncEngineService,
     private val googleDriveService: GoogleDriveService,
+    private val projectTemplateService: RobotProjectTemplateService,
     private val scope: CoroutineScope,
     private val onConfigured: (WorkspaceConfig) -> Unit,
 ) {
-    private val _state = MutableStateFlow(OnboardingState())
+    private val initialTemplate = projectTemplateService.templateFor(League.FTC)
+    private val _state = MutableStateFlow(
+        OnboardingState(
+            projectTemplateName = initialTemplate.displayName,
+            projectTemplateVersion = initialTemplate.aresVersion,
+        ),
+    )
     val state: StateFlow<OnboardingState> = _state.asStateFlow()
 
     init {
@@ -113,6 +134,22 @@ class OnboardingViewModel(
     fun handleIntent(intent: OnboardingIntent) {
         scope.launch {
             when (intent) {
+                is OnboardingIntent.SetProjectSetupMode -> {
+                    _state.update { current ->
+                        val next = current.copy(
+                            projectSetupMode = intent.mode,
+                            projectDetectionMessage = null,
+                            projectCreationMessage = null,
+                            errorMessage = null,
+                            fieldErrors = current.fieldErrors.copy(projectPath = null),
+                        )
+                        if (intent.mode == ProjectSetupMode.CREATE_NEW) {
+                            next.copy(projectPath = plannedProjectPath(next))
+                        } else {
+                            next.copy(projectPath = "")
+                        }
+                    }
+                }
                 is OnboardingIntent.UpdateProjectPath -> {
                     _state.update {
                         it.copy(
@@ -124,17 +161,41 @@ class OnboardingViewModel(
                     }
                     if (File(intent.projectPath).isDirectory) detectProject()
                 }
+                is OnboardingIntent.UpdateProjectParentPath -> _state.update { current ->
+                    val next = current.copy(
+                        projectParentPath = intent.path,
+                        projectCreationMessage = null,
+                        errorMessage = null,
+                        fieldErrors = current.fieldErrors.copy(projectPath = null),
+                    )
+                    next.copy(projectPath = plannedProjectPath(next))
+                }
+                is OnboardingIntent.UpdateProjectFolderName -> _state.update { current ->
+                    val next = current.copy(
+                        projectFolderName = intent.name,
+                        projectCreationMessage = null,
+                        errorMessage = null,
+                        fieldErrors = current.fieldErrors.copy(projectPath = null),
+                    )
+                    next.copy(projectPath = plannedProjectPath(next))
+                }
                 is OnboardingIntent.UpdateTeamId -> updateRequiredField {
                     it.copy(teamId = intent.teamId, selectedOptionText = "Select a saved robot...")
                 }
                 is OnboardingIntent.UpdateSeasonId -> updateRequiredField { it.copy(seasonId = intent.seasonId) }
                 is OnboardingIntent.UpdateRobotId -> updateRequiredField { it.copy(robotId = intent.robotId) }
                 is OnboardingIntent.UpdateRobotName -> _state.update { it.copy(robotName = intent.robotName) }
-                is OnboardingIntent.UpdateLeague -> _state.update {
-                    it.copy(
+                is OnboardingIntent.UpdateLeague -> _state.update { current ->
+                    val template = projectTemplateService.templateFor(intent.league)
+                    val next = current.copy(
                         league = intent.league,
-                        nt4Host = environmentService.getDefaultNt4Host(intent.league, it.teamId),
+                        nt4Host = environmentService.getDefaultNt4Host(intent.league, current.teamId),
+                        projectTemplateName = template.displayName,
+                        projectTemplateVersion = template.aresVersion,
                     )
+                    if (next.projectSetupMode == ProjectSetupMode.CREATE_NEW) {
+                        next.copy(projectPath = plannedProjectPath(next))
+                    } else next
                 }
                 is OnboardingIntent.UpdateNt4Host -> _state.update { it.copy(nt4Host = intent.nt4Host) }
                 is OnboardingIntent.UpdateSimulatorCommand -> _state.update { it.copy(simulatorCommand = intent.simulatorCommand) }
@@ -240,7 +301,7 @@ class OnboardingViewModel(
     }
 
     private suspend fun submitConfig() {
-        val current = _state.value
+        var current = _state.value
         val errors = validateOnboardingFields(current, OnboardingStep.REVIEW).copy(
             java = current.javaEnvMsg.takeUnless { current.javaEnvValid == true },
         )
@@ -261,6 +322,30 @@ class OnboardingViewModel(
 
         _state.update { it.copy(isSaving = true, errorMessage = null) }
         try {
+            if (current.projectSetupMode == ProjectSetupMode.CREATE_NEW) {
+                val result = projectTemplateService.create(
+                    request = RobotProjectCreationRequest(
+                        parentDirectory = File(current.projectParentPath.trim()),
+                        folderName = current.projectFolderName.trim(),
+                        league = current.league,
+                        teamId = current.teamId,
+                        seasonId = current.seasonId,
+                        robotId = current.robotId,
+                        robotName = current.robotName,
+                    ),
+                    onProgress = { message -> _state.update { it.copy(projectCreationMessage = message) } },
+                )
+                _state.update {
+                    it.copy(
+                        projectSetupMode = ProjectSetupMode.OPEN_EXISTING,
+                        projectPath = result.destination.path,
+                        projectDetectionMessage =
+                            "Created ${result.template.displayName} ${result.template.aresVersion} from a verified ${result.source.name.lowercase().replace('_', ' ')}.",
+                        projectCreationMessage = "Project files are ready.",
+                    )
+                }
+                current = _state.value
+            }
             val config = WorkspaceConfig(
                 teamId = current.teamId.trim(),
                 seasonId = current.seasonId.trim(),
@@ -329,6 +414,12 @@ class OnboardingViewModel(
 
 }
 
+private fun plannedProjectPath(state: OnboardingState): String {
+    val parent = state.projectParentPath.trim()
+    val name = state.projectFolderName.trim()
+    return if (parent.isBlank() || name.isBlank()) "" else File(parent, name).path
+}
+
 internal data class Java17Readiness(
     val isValid: Boolean,
     val majorVersion: Int?,
@@ -383,6 +474,16 @@ internal fun validateOnboardingFields(
     return OnboardingFieldErrors(
         projectPath = when {
             !validateProject -> null
+            state.projectSetupMode == ProjectSetupMode.CREATE_NEW && state.projectParentPath.isBlank() ->
+                "Choose where ARES should create the robot project."
+            state.projectSetupMode == ProjectSetupMode.CREATE_NEW && !File(state.projectParentPath.trim()).isDirectory ->
+                "The parent folder does not exist or cannot be opened."
+            state.projectSetupMode == ProjectSetupMode.CREATE_NEW -> {
+                RobotProjectTemplateService.projectFolderNameError(state.projectFolderName.trim())
+                    ?: File(state.projectParentPath.trim(), state.projectFolderName.trim())
+                        .takeIf(File::exists)
+                        ?.let { "A file or folder already exists at ${it.path}." }
+            }
             state.projectPath.isBlank() -> "Choose your robot project folder."
             !File(state.projectPath.trim()).isDirectory -> "This folder does not exist or cannot be opened."
             else -> null
