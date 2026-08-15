@@ -132,6 +132,10 @@ class ProcessManagerService internal constructor(
 
     private val _isSimRunning = MutableStateFlow(false)
     val isSimRunning: StateFlow<Boolean> = _isSimRunning.asStateFlow()
+    private val _activeSimulationProjectPath = MutableStateFlow<String?>(null)
+    val activeSimulationProjectPath: StateFlow<String?> = _activeSimulationProjectPath.asStateFlow()
+    private val _activeSimulationLeague = MutableStateFlow<League?>(null)
+    val activeSimulationLeague: StateFlow<League?> = _activeSimulationLeague.asStateFlow()
 
     private val _isBuildRunning = MutableStateFlow(false)
     val isBuildRunning: StateFlow<Boolean> = _isBuildRunning.asStateFlow()
@@ -286,13 +290,14 @@ class ProcessManagerService internal constructor(
             when (league) {
                 League.FTC -> addAll(
                     listOf(
+                        "generateAresProject",
                         ":TeamCode:verifyAresProject",
                         ":TeamCode:testDebugUnitTest",
                         ":simulator:test",
                         ":TeamCode:assembleDebug",
                     )
                 )
-                League.FRC -> addAll(listOf("verifyAresProject", "test", "build"))
+                League.FRC -> addAll(listOf("generateAresProject", "verifyAresProject", "test", "build"))
             }
             add("--no-parallel")
             add("--console=plain")
@@ -865,15 +870,23 @@ class ProcessManagerService internal constructor(
 
     fun runSimulation(projectPath: String, league: League, simulatorCommand: String? = null) {
         if (shuttingDown.get()) return
+        val projectRoot = runCatching { requireSafeProjectRoot(projectPath) }.getOrElse { error ->
+            serviceScope.launch {
+                _buildOutput.emit("[SYSTEM] Simulation could not start: ${error.message ?: "choose a valid robot project"}")
+            }
+            return
+        }
         killActiveSim()
 
         val replacement = serviceScope.launch(start = CoroutineStart.LAZY) {
             var ownedProcess: Process? = null
             try {
                 _isSimRunning.value = true
+                _activeSimulationProjectPath.value = projectRoot.path
+                _activeSimulationLeague.value = league
                 val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
                 val userCmd = simulatorCommand?.takeIf { it.isNotBlank() }
-                val fatJarFile = File(projectPath, "simulator/build/libs/simulator-all.jar")
+                val fatJarFile = File(projectRoot, "simulator/build/libs/simulator-all.jar")
                 val javaExe = File(System.getProperty("java.home"), "bin/${if (isWindows) "java.exe" else "java"}").path
                 val cmd = when {
                     userCmd != null && isWindows -> listOf("cmd.exe", "/d", "/s", "/c", userCmd)
@@ -887,7 +900,7 @@ class ProcessManagerService internal constructor(
 
                 _buildOutput.emit("[SYSTEM] Starting Simulation: ${cmd.joinToString(" ")}")
                 val pb = withAresRepositoryEnvironment(ProcessBuilder(cmd)
-                    .directory(File(projectPath))
+                    .directory(projectRoot)
                     .redirectErrorStream(true))
                 val proc = pb.start()
                 ownedProcess = proc
@@ -913,6 +926,8 @@ class ProcessManagerService internal constructor(
                 ownedProcess?.let { if (it.isAlive) terminateProcessTree(it) }
                 if (simProcess === ownedProcess) simProcess = null
                 _isSimRunning.value = false
+                _activeSimulationProjectPath.value = null
+                _activeSimulationLeague.value = null
             }
         }
         activeSimJob = replacement
@@ -1054,6 +1069,8 @@ class ProcessManagerService internal constructor(
         if (simProcess === process) simProcess = null
         if (activeSimJob === job) activeSimJob = null
         _isSimRunning.value = false
+        _activeSimulationProjectPath.value = null
+        _activeSimulationLeague.value = null
     }
 
     /** Drains output concurrently so a verbose child cannot fill its pipe before the timeout. */

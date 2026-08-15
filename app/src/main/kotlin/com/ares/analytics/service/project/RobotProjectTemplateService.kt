@@ -1,13 +1,18 @@
 package com.ares.analytics.service.project
 
 import com.ares.analytics.service.writeFileAtomically
+import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
 import com.ares.analytics.service.hardware.HardwareSetupService
+import com.ares.analytics.service.tuning.TuningProfileRepository
 import com.ares.analytics.shared.League
 import com.ares.analytics.util.ProjectLayout
 import com.areslib.catalog.CapabilityCatalogCodec
+import com.areslib.drivetrain.DrivetrainDocumentCodec
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataCodec
 import com.areslib.routine.AutonomousCatalogCodec
+import com.areslib.tuning.TuningComponentDocumentCodec
+import com.areslib.tuning.TuningProfileDocumentCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
@@ -39,6 +44,8 @@ data class RobotProjectTemplate(
     val revision: String,
     val archiveUrl: String,
     val archiveSha256: String,
+    /** Physical deployment policy carried into the newly created workspace. */
+    val deploymentPolicy: RobotProjectDeploymentPolicy = RobotProjectDeploymentPolicy.SIMULATION_ONLY_REFERENCE,
 )
 
 data class RobotProjectCreationRequest(
@@ -68,7 +75,7 @@ data class RobotProjectCreationResult(
 )
 
 @Serializable
-internal enum class TemplateDeploymentPolicy {
+enum class RobotProjectDeploymentPolicy {
     SIMULATION_ONLY_REFERENCE,
     HARDWARE_REVIEW_REQUIRED,
     DEPLOYMENT_READY,
@@ -81,7 +88,7 @@ internal data class RobotProjectTemplateProvenance(
     val templateRevision: String,
     val templateArchiveSha256: String,
     val aresVersion: String,
-    val deploymentPolicy: TemplateDeploymentPolicy = TemplateDeploymentPolicy.SIMULATION_ONLY_REFERENCE,
+    val deploymentPolicy: RobotProjectDeploymentPolicy = RobotProjectDeploymentPolicy.SIMULATION_ONLY_REFERENCE,
 )
 
 @Serializable
@@ -108,6 +115,7 @@ class RobotProjectTemplateService(
     ),
     templates: List<RobotProjectTemplate> = OFFICIAL_PROJECT_TEMPLATES,
     private val archiveDownloader: (RobotProjectTemplate, File) -> Unit = ::downloadArchive,
+    private val androidSdkLocator: () -> File? = ::locateAndroidSdk,
 ) {
     private val templatesByLeague = templates.associateBy(RobotProjectTemplate::league)
 
@@ -205,6 +213,7 @@ class RobotProjectTemplateService(
             league = request.league.name,
         )
         writeTextAtomically(File(root, ".ares-robot.json"), PROJECT_TEMPLATE_JSON.encodeToString(identity))
+        configureLocalBuildEnvironment(root, request.league)
 
         val metadataFile = File(root, ".ares/project.json")
         check(metadataFile.isFile) { "The reviewed starter is missing .ares/project.json." }
@@ -231,13 +240,106 @@ class RobotProjectTemplateService(
             AutonomousCatalogCodec.encode(autonomousCatalog.copy(projectId = personalizedProjectId)),
         )
 
+        personalizeRuntimeIdentity(root, request)
+
         val provenance = RobotProjectTemplateProvenance(
             templateId = template.id,
             templateRevision = template.revision,
             templateArchiveSha256 = template.archiveSha256,
             aresVersion = template.aresVersion,
+            deploymentPolicy = template.deploymentPolicy,
         )
         writeTextAtomically(File(root, ".ares/template-provenance.json"), PROJECT_TEMPLATE_JSON.encodeToString(provenance))
+    }
+
+    /**
+     * Rebinds canonical drivetrain and tuning documents to the new robot rather than leaving
+     * Team 23247's application/runtime identity inside a different team's project.
+     *
+     * Parameter and component UIDs remain stable because they identify schema fields consumed by
+     * the reviewed season runtime. Only robot-, drivebase-, and profile-level ownership changes.
+     */
+    private fun personalizeRuntimeIdentity(root: File, request: RobotProjectCreationRequest) {
+        val ares = File(root, ".ares")
+        val tuningRepository = TuningProfileRepository()
+        val originalTuning = tuningRepository.load(root.path).getOrThrow()
+        val drivetrainFiles = File(ares, "drivetrains")
+            .listFiles { file -> file.extension == "aresdrivetrain" }
+            ?.sortedBy(File::getName)
+            .orEmpty()
+        require(drivetrainFiles.size <= 1) {
+            "The reviewed starter contains multiple drivebases. Choose one explicitly before using it as a novice template."
+        }
+        val drivetrains = drivetrainFiles.associateWith { file -> DrivetrainDocumentCodec.decode(file.readText()) }
+        val projectUid = runtimeProjectUid(request)
+        val drivebaseUidMap = drivetrains.values.associate { drivetrain ->
+            drivetrain.uid to "$projectUid.drivebase.${uidSegment(drivetrain.drivebaseId, "primary")}"
+        }
+        val profileUidMap = originalTuning.profiles.associate { profile ->
+            profile.uid to "$projectUid.profile.${uidSegment(profile.profileId, "competition")}"
+        }
+
+        drivetrains.forEach { (file, drivetrain) ->
+            val profileUid = requireNotNull(profileUidMap[drivetrain.canonicalProfileUid]) {
+                "The reviewed starter drivebase '${drivetrain.displayName}' references missing tuning profile '${drivetrain.canonicalProfileUid}'."
+            }
+            writeTextAtomically(
+                file,
+                DrivetrainDocumentCodec.encode(
+                    drivetrain.copy(
+                        uid = drivebaseUidMap.getValue(drivetrain.uid),
+                        canonicalProfileUid = profileUid,
+                    ),
+                ),
+            )
+        }
+
+        File(ares, "tuning-components").listFiles { file -> file.extension == "arestuningcomponent" }
+            ?.sortedBy(File::getName)
+            .orEmpty()
+            .forEach { file ->
+                val document = TuningComponentDocumentCodec.decode(file.readText())
+                writeTextAtomically(file, TuningComponentDocumentCodec.encode(document.copy(projectUid = projectUid)))
+            }
+
+        val profileFiles = File(ares, "tuning").listFiles { file -> file.extension == "arestuning" }
+            ?.sortedBy(File::getName)
+            .orEmpty()
+        val profilesByUid = originalTuning.profiles.associateBy { it.uid }
+        profileFiles.forEach { file ->
+            val profile = TuningProfileDocumentCodec.decode(file.readText(), originalTuning.catalog)
+            require(profilesByUid.containsKey(profile.uid)) { "Unexpected tuning profile '${profile.uid}' in reviewed starter." }
+            val personalized = profile.copy(
+                uid = profileUidMap.getValue(profile.uid),
+                projectUid = projectUid,
+                drivebaseUid = profile.drivebaseUid?.let { oldUid ->
+                    requireNotNull(drivebaseUidMap[oldUid]) { "Tuning profile '${profile.uid}' references missing drivebase '$oldUid'." }
+                },
+                baseProfileUid = profile.baseProfileUid?.let { oldUid ->
+                    requireNotNull(profileUidMap[oldUid]) { "Tuning profile '${profile.uid}' references missing base profile '$oldUid'." }
+                },
+            )
+            writeTextAtomically(file, TuningProfileDocumentCodec.encode(personalized, originalTuning.catalog))
+        }
+
+        tuningRepository.load(root.path).getOrThrow()
+        DrivebaseProjectRepository().load(root.path).getOrThrow()
+    }
+
+    private fun runtimeProjectUid(request: RobotProjectCreationRequest): String = listOf(
+        "team${request.teamId.filter(Char::isDigit)}",
+        request.league.name.lowercase(),
+        uidSegment("season${request.seasonId}", "seasonunknown"),
+        uidSegment(request.robotId, "robot"),
+    ).joinToString(".")
+
+    private fun uidSegment(value: String, fallback: String): String {
+        val normalized = value.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
+        return when {
+            normalized.isBlank() -> fallback
+            normalized.first().isLetter() -> normalized
+            else -> "id$normalized"
+        }
     }
 
     private fun writeTextAtomically(file: File, content: String) {
@@ -249,6 +351,14 @@ class RobotProjectTemplateService(
                 StandardOpenOption.WRITE,
             )
         }
+    }
+
+    private fun configureLocalBuildEnvironment(root: File, league: League) {
+        if (league != League.FTC) return
+        val localProperties = File(root, "local.properties")
+        if (localProperties.exists()) return
+        val sdk = androidSdkLocator()?.takeIf(File::isDirectory)?.canonicalFile ?: return
+        writeTextAtomically(localProperties, "sdk.dir=${sdk.path.replace('\\', '/')}")
     }
 
     private fun validateIdentity(request: RobotProjectCreationRequest) {
@@ -272,18 +382,18 @@ class RobotProjectTemplateService(
                 displayName = "ARES FTC",
                 league = League.FTC,
                 aresVersion = "6.1.0",
-                revision = "77a324e15ea4b4534dc468bd7f93a186528c9600",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FTC/archive/77a324e15ea4b4534dc468bd7f93a186528c9600.zip",
-                archiveSha256 = "c55533e80fbdb3b0d1ad64ef6df907944b4bd135eb3d64749c1e22a85dbdaa8a",
+                revision = "3c980ef075fec75b41e33a557863ad893e645449",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FTC/archive/3c980ef075fec75b41e33a557863ad893e645449.zip",
+                archiveSha256 = "c563aed085190a471de77a9eea39b2ffbca93688cfd113d7285b78e71be4fc05",
             ),
             RobotProjectTemplate(
                 id = "ares-frc-6.1.0",
                 displayName = "ARES FRC",
                 league = League.FRC,
                 aresVersion = "6.1.0",
-                revision = "6d80ce1234ca84a5422f4e2fd66239cca1f9deac",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FRC/archive/6d80ce1234ca84a5422f4e2fd66239cca1f9deac.zip",
-                archiveSha256 = "7dafbd3c88c84fd0faaa915980ef4bca55a887b2c3d802e0f813e2c651308a32",
+                revision = "b7f7e7b8909b71dd7d7a13cdfe7a44625dd376d6",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FRC/archive/b7f7e7b8909b71dd7d7a13cdfe7a44625dd376d6.zip",
+                archiveSha256 = "57b3dea3d19a24a0c1130d9660193bf0f05fa7ef4ea047dd02a1b049b662ef6f",
             ),
         )
 
@@ -332,6 +442,18 @@ class RobotProjectTemplateService(
             } finally {
                 connection.disconnect()
             }
+        }
+
+        private fun locateAndroidSdk(): File? {
+            val candidates = buildList {
+                System.getenv("ANDROID_HOME")?.let { add(File(it)) }
+                System.getenv("ANDROID_SDK_ROOT")?.let { add(File(it)) }
+                System.getenv("LOCALAPPDATA")?.let { add(File(it, "Android/Sdk")) }
+                val home = System.getProperty("user.home")
+                add(File(home, "Android/Sdk"))
+                add(File(home, "Library/Android/sdk"))
+            }
+            return candidates.firstOrNull(File::isDirectory)
         }
 
         private fun sha256(file: File): String {
@@ -411,8 +533,8 @@ internal fun templateDeploymentBlockReason(projectRoot: File): String? {
         return "Template provenance is invalid. Deployment is blocked; create a fresh project or ask a mentor to inspect the repository."
     }
     return when (provenance.deploymentPolicy) {
-        TemplateDeploymentPolicy.DEPLOYMENT_READY -> null
-        TemplateDeploymentPolicy.HARDWARE_REVIEW_REQUIRED -> {
+        RobotProjectDeploymentPolicy.DEPLOYMENT_READY -> null
+        RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED -> {
             val metadataFile = File(projectRoot, ".ares/project.json")
             val league = runCatching { AresProjectMetadataCodec.decode(metadataFile.readText()).league }
                 .getOrElse {
@@ -423,7 +545,7 @@ internal fun templateDeploymentBlockReason(projectRoot: File): String? {
                 if (league == AresLeague.FTC) League.FTC else League.FRC,
             )
         }
-        TemplateDeploymentPolicy.SIMULATION_ONLY_REFERENCE ->
+        RobotProjectDeploymentPolicy.SIMULATION_ONLY_REFERENCE ->
             "This downloaded ${provenance.templateId} project is a simulator/reference starting point, not a hardware-neutral robot image. " +
                 "Physical deployment is blocked until ARES provides a reviewed generic runtime template for this league."
     }

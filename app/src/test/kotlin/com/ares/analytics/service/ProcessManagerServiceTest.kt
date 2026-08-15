@@ -83,12 +83,16 @@ class ProcessManagerServiceTest {
             val frc = service.verificationBuildCommandForTest(League.FRC, isWindows = false)
 
             assertTrue(":TeamCode:verifyAresProject" in ftc)
+            assertTrue("generateAresProject" in ftc)
             assertTrue(":TeamCode:testDebugUnitTest" in ftc)
             assertTrue(":simulator:test" in ftc)
             assertTrue(":TeamCode:assembleDebug" in ftc)
+            assertTrue(ftc.indexOf("generateAresProject") < ftc.indexOf(":TeamCode:verifyAresProject"))
+            assertTrue("generateAresProject" in frc)
             assertTrue("verifyAresProject" in frc)
             assertTrue("test" in frc)
             assertTrue("build" in frc)
+            assertTrue(frc.indexOf("generateAresProject") < frc.indexOf("verifyAresProject"))
             (ftc + frc).forEach { argument ->
                 assertFalse(argument.contains("adb", ignoreCase = true))
                 assertFalse(argument.contains("deploy", ignoreCase = true))
@@ -114,7 +118,6 @@ class ProcessManagerServiceTest {
             assertTrue(":TeamCode:assembleDebug" in ftc)
             assertTrue(ftc.indexOf(":TeamCode:testDebugUnitTest") < ftc.indexOf(":TeamCode:assembleDebug"))
 
-            assertTrue("generateAresProject" in frc)
             assertTrue("verifyAresProject" in frc)
             assertTrue("test" in frc)
             assertTrue("build" in frc)

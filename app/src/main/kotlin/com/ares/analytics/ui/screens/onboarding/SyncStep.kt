@@ -177,8 +177,8 @@ private fun ProjectSelection(
         Text("How would you like to begin?", color = AresTextPrimary, fontWeight = FontWeight.Bold)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ProjectModeCard(
-                title = "Create a simulation-first robot",
-                description = "Download a reviewed project for Robot Studio, tests, and local simulation.",
+                title = "Create a new robot",
+                description = "Start from a reviewed project, customize it in Robot Studio, build it, and run its desktop simulator.",
                 selected = mode == ProjectSetupMode.CREATE_NEW,
                 onClick = { onModeChange(ProjectSetupMode.CREATE_NEW) },
                 modifier = Modifier.weight(1f),
@@ -206,7 +206,7 @@ private fun ProjectSelection(
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
-                        "SIMULATION-ONLY REFERENCE — Physical deployment is blocked because these current starters still include Team 23247 season hardware.",
+                        "SIMULATION READY — Local generation, tests, packaging, and simulation are supported. Physical deployment stays blocked because this reviewed starter still contains Team 23247 season-specific composition that is not fully GUI-owned.",
                         color = AresError,
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.SemiBold,

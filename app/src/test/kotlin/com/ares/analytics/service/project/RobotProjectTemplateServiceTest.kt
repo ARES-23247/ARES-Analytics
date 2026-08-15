@@ -4,16 +4,21 @@ import com.ares.analytics.shared.League
 import com.ares.analytics.service.drivebase.DrivebaseKind
 import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
 import com.ares.analytics.service.drivebase.defaultDrivebase
+import com.ares.analytics.service.drivebase.toCanonicalDrivebase
 import com.ares.analytics.service.hardware.HardwareReviewRequest
 import com.ares.analytics.service.hardware.HardwareSetupService
 import com.areslib.catalog.CapabilityCatalogCodec
 import com.areslib.catalog.CapabilityCatalogDocument
+import com.areslib.drivetrain.DrivetrainDocumentCodec
 import com.areslib.project.AresCoordinateConvention
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataCodec
 import com.areslib.project.AresProjectMetadataDocument
 import com.areslib.routine.AutonomousCatalogCodec
 import com.areslib.routine.AutonomousCatalogDocument
+import com.areslib.tuning.TuningProfileAuthority
+import com.areslib.tuning.TuningProfileDocument
+import com.areslib.tuning.TuningProfileDocumentCodec
 import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -30,6 +35,18 @@ import kotlin.test.assertTrue
 import kotlin.test.assertFailsWith
 
 class RobotProjectTemplateServiceTest {
+    @Test
+    fun `official starters remain simulation only until composition is fully GUI owned`() {
+        val service = RobotProjectTemplateService()
+
+        League.entries.forEach { league ->
+            assertEquals(
+                RobotProjectDeploymentPolicy.SIMULATION_ONLY_REFERENCE,
+                service.templateFor(league).deploymentPolicy,
+            )
+        }
+    }
+
     @Test
     fun `verified starter is staged personalized and published without merging`() = runBlocking {
         val root = Files.createTempDirectory("ares-project-template-test").toFile()
@@ -59,6 +76,20 @@ class RobotProjectTemplateServiceTest {
             val provenance = File(result.destination, ".ares/template-provenance.json").readText()
             assertTrue(provenance.contains("fixture-revision"))
             assertTrue(provenance.contains("SIMULATION_ONLY_REFERENCE"))
+
+            val drivebase = DrivetrainDocumentCodec.decode(
+                File(result.destination, ".ares/drivetrains/template.aresdrivetrain").readText(),
+            )
+            val tuning = com.ares.analytics.service.tuning.TuningProfileRepository()
+                .load(result.destination.path).getOrThrow().profiles.single()
+            assertEquals("team23247.ftc.season2026.studentbot.drivebase.primary", drivebase.uid)
+            assertEquals("team23247.ftc.season2026.studentbot.profile.competition", drivebase.canonicalProfileUid)
+            assertEquals(drivebase.canonicalProfileUid, tuning.uid)
+            assertEquals("team23247.ftc.season2026.studentbot", tuning.projectUid)
+            assertEquals(drivebase.uid, tuning.drivebaseUid)
+            val localProperties = File(result.destination, "local.properties").readText()
+            assertTrue(localProperties.startsWith("sdk.dir="))
+            assertTrue(localProperties.contains("fixture-android-sdk"))
             assertNotNull(templateDeploymentBlockReason(result.destination))
             assertFalse(parent.listFiles().orEmpty().any { it.name.contains("ares-partial") })
         } finally {
@@ -192,6 +223,7 @@ class RobotProjectTemplateServiceTest {
         cacheDirectory = File(root, "cache"),
         templates = listOf(template(archive)),
         archiveDownloader = downloader,
+        androidSdkLocator = { File(root, "fixture-android-sdk").apply { mkdirs() } },
     )
 
     private fun request(parent: File, folder: String) = RobotProjectCreationRequest(
@@ -226,6 +258,17 @@ class RobotProjectTemplateServiceTest {
                 fieldWidthMeters = 3.65,
             ),
         )
+        val drivebase = defaultDrivebase("template-project", DrivebaseKind.FTC_MECANUM).toCanonicalDrivebase()
+        val profile = TuningProfileDocument(
+            uid = drivebase.canonicalProfileUid,
+            profileId = "competition",
+            displayName = "Competition",
+            description = "Reviewed fixture tuning",
+            projectUid = drivebase.canonicalProfileUid.substringBefore(".profile."),
+            drivebaseUid = drivebase.uid,
+            authority = TuningProfileAuthority.CANONICAL_CHECKED_IN,
+            values = emptyList(),
+        )
         return zipOf(
             "fixture-root/settings.gradle" to "include ':TeamCode'\n",
             "fixture-root/TeamCode/src/main/java/example/Robot.kt" to "package example\nclass Robot\n",
@@ -236,6 +279,9 @@ class RobotProjectTemplateServiceTest {
             "fixture-root/.ares/autonomous-catalog.json" to AutonomousCatalogCodec.encode(
                 AutonomousCatalogDocument(projectId = "template-project", entries = emptyList()),
             ),
+            "fixture-root/.ares/drivetrains/template.aresdrivetrain" to DrivetrainDocumentCodec.encode(drivebase),
+            "fixture-root/.ares/tuning/competition.arestuning" to
+                TuningProfileDocumentCodec.encode(profile, drivebase.parameters),
             "fixture-root/.ares-robot.json" to "{}\n",
         )
     }

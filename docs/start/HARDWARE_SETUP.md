@@ -33,8 +33,8 @@ A current review is not a powered hardware test, calibration result, inspection 
 that a mechanism is safe to move. Follow your team's supervised bring-up procedure, test one device
 at a time at low output, and preserve logs.
 
-The current downloaded Team 23247 starter projects remain **simulation/reference only** even after a
-review because their season composition roots contain team-specific mechanisms. A future dedicated
-hardware-neutral template may opt into the review-required deployment policy. ARES will still block
-deployment whenever the review is missing, stale, invalid, or has address conflicts.
-
+Downloaded Team 23247 season starters remain **simulation/reference only** even after a review.
+Their hand-authored composition is not yet fully represented by GUI-owned descriptors, so the
+inventory cannot prove that every physical device was reviewed. A future generic composition may
+use the review-required policy only after that completeness is verified. ARES will still block it
+whenever the review is missing, stale, invalid, or has address conflicts.

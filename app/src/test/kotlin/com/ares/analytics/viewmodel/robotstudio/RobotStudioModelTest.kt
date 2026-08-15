@@ -18,7 +18,8 @@ class RobotStudioModelTest {
         assertEquals(RobotStudioStageStatus.READY, stages.status(RobotStudioStageId.DRIVEBASE))
         assertEquals(RobotStudioStageStatus.READY, stages.status(RobotStudioStageId.CONTROLS))
         assertEquals(RobotStudioStageStatus.NEEDS_ACTION, stages.status(RobotStudioStageId.GENERATE_VERIFY))
-        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, stages.status(RobotStudioStageId.SIMULATE))
+        assertEquals(RobotStudioStageStatus.BLOCKED, stages.status(RobotStudioStageId.SIMULATE))
+        assertTrue(stages.first { it.id == RobotStudioStageId.SIMULATE }.explanation.contains("Verify & build"))
         assertTrue(stages.first { it.id == RobotStudioStageId.GENERATE_VERIFY }.explanation.contains("not proof"))
     }
 
@@ -36,12 +37,20 @@ class RobotStudioModelTest {
         assertEquals(RobotStudioStageStatus.BLOCKED, noDrivebase.status(RobotStudioStageId.GENERATE_VERIFY))
         assertEquals(RobotStudioStageStatus.BLOCKED, noDrivebase.status(RobotStudioStageId.SIMULATE))
 
-        val noControls = evaluateRobotStudioStages(
-            completeEvidence().copy(controlSchemeCount = 0),
+        val baselineControls = evaluateRobotStudioStages(
+            completeEvidence().copy(controlSchemeCount = 0, controllerProfileCount = 0),
             RobotStudioRuntimeEvidence(),
         )
-        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, noControls.status(RobotStudioStageId.CONTROLS))
-        assertEquals(RobotStudioStageStatus.BLOCKED, noControls.status(RobotStudioStageId.GENERATE_VERIFY))
+        assertEquals(RobotStudioStageStatus.OPTIONAL, baselineControls.status(RobotStudioStageId.CONTROLS))
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, baselineControls.status(RobotStudioStageId.GENERATE_VERIFY))
+        assertTrue(baselineControls.first { it.id == RobotStudioStageId.CONTROLS }.explanation.contains("baseline driving controls"))
+
+        val incompleteControls = evaluateRobotStudioStages(
+            completeEvidence().copy(controlSchemeCount = 0, controllerProfileCount = 1),
+            RobotStudioRuntimeEvidence(),
+        )
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, incompleteControls.status(RobotStudioStageId.CONTROLS))
+        assertEquals(RobotStudioStageStatus.BLOCKED, incompleteControls.status(RobotStudioStageId.GENERATE_VERIFY))
     }
 
     @Test
@@ -109,6 +118,8 @@ class RobotStudioModelTest {
             RobotStudioRuntimeEvidence(
                 build = buildState(BuildExecutionPhase.RUNNING),
                 simulatorRunning = true,
+                simulatorProjectPath = "C:/fixture/robot",
+                simulatorLeague = League.FTC,
                 localSimulatorOnline = true,
                 nt4Connected = true,
             ),
@@ -138,6 +149,8 @@ class RobotStudioModelTest {
         assertTrue(matchingStage.explanation.contains("Nothing was deployed"))
         assertTrue(matchingStage.outcome.contains("without deploying"))
         assertEquals(RobotStudioStageStatus.NEEDS_ACTION, otherProject.status(RobotStudioStageId.GENERATE_VERIFY))
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, matching.status(RobotStudioStageId.SIMULATE))
+        assertEquals(RobotStudioStageStatus.BLOCKED, otherProject.status(RobotStudioStageId.SIMULATE))
     }
 
     @Test
@@ -265,6 +278,24 @@ class RobotStudioModelTest {
             RobotStudioRuntimeEvidence(deploy = com.ares.analytics.service.DeployExecutionState(phase = com.ares.analytics.service.DeployExecutionPhase.SUCCEEDED)),
         )
         assertEquals(RobotStudioStageStatus.READY, succeeded.status(RobotStudioStageId.DEPLOY))
+    }
+
+    @Test
+    fun `simulator evidence from another workspace is ignored`() {
+        val stages = evaluateRobotStudioStages(
+            completeEvidence(),
+            RobotStudioRuntimeEvidence(
+                build = buildState(BuildExecutionPhase.SUCCEEDED),
+                simulatorRunning = true,
+                simulatorProjectPath = "C:/fixture/other-robot",
+                simulatorLeague = League.FTC,
+                localSimulatorOnline = true,
+                nt4Connected = true,
+            ),
+        )
+
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, stages.status(RobotStudioStageId.SIMULATE))
+        assertTrue(stages.first { it.id == RobotStudioStageId.SIMULATE }.explanation.contains("Start the verified local simulator"))
     }
 
     @Test

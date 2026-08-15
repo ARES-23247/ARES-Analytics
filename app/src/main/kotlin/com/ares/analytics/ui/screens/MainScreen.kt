@@ -390,6 +390,8 @@ fun MainScreen(services: ServiceRegistry) {
     val isConnected by services.nt4ClientService.isConnected.collectAsState()
     val adbConnected by services.processManagerService.adbConnected.collectAsState()
     val isSimRunning by services.processManagerService.isSimRunning.collectAsState()
+    val activeSimulationProjectPath by services.processManagerService.activeSimulationProjectPath.collectAsState()
+    val activeSimulationLeague by services.processManagerService.activeSimulationLeague.collectAsState()
     val isBuildRunning by services.processManagerService.isBuildRunning.collectAsState()
     val buildExecutionState by services.processManagerService.buildExecutionState.collectAsState()
     val deployExecutionState by services.processManagerService.deployState.collectAsState()
@@ -413,12 +415,22 @@ fun MainScreen(services: ServiceRegistry) {
         robotStudioViewModel.load(currentConfig)
         guidedRunAnalysisViewModel.load(currentConfig)
     }
-    LaunchedEffect(buildExecutionState, deployExecutionState, isSimRunning, isLocalSimOnline, isNt4Connected) {
+    LaunchedEffect(
+        buildExecutionState,
+        deployExecutionState,
+        isSimRunning,
+        activeSimulationProjectPath,
+        activeSimulationLeague,
+        isLocalSimOnline,
+        isNt4Connected,
+    ) {
         robotStudioViewModel.updateRuntime(
             RobotStudioRuntimeEvidence(
                 build = buildExecutionState,
                 deploy = deployExecutionState,
                 simulatorRunning = isSimRunning,
+                simulatorProjectPath = activeSimulationProjectPath,
+                simulatorLeague = activeSimulationLeague,
                 localSimulatorOnline = isLocalSimOnline,
                 nt4Connected = isNt4Connected,
             )

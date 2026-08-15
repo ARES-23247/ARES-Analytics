@@ -3,9 +3,10 @@
 ARES can create a complete, buildable FTC or FRC simulation project during first-run setup. This is
 the recommended starting point for a student who does not already have an ARES repository.
 
-> **Simulation-only safety boundary:** the current reviewed starters retain Team 23247's season
-> hardware examples. ARES blocks physical deployment from a downloaded starter. A future generic,
-> hardware-neutral runtime template must pass the same release checks before that gate can open.
+> **Simulation-only safety boundary:** the reviewed starters retain Team 23247's season hardware
+> examples, including hand-authored composition that is not fully represented by GUI-owned
+> descriptors. Builds and simulation are available immediately, but ARES blocks physical
+> deployment. A student cannot bypass that boundary by acknowledging a warning.
 
 ## What ARES downloads
 
@@ -18,7 +19,7 @@ download, the same starter can be used again without internet access.
 
 ## Create the project
 
-1. Open workspace setup and choose **Create a simulation-first robot**.
+1. Open workspace setup and choose **Create a new robot**.
 2. Choose **FTC** or **FRC**.
 3. Read the displayed starter name and version.
 4. Choose an existing parent folder such as `Documents\Robots`.
@@ -36,24 +37,35 @@ left absent.
 - `.ares-robot.json`: team, season, robot ID, friendly name, and league.
 - `.ares/project.json`: stable project ID while retaining the reviewed league coordinate convention
   and starter geometry until the student measures and reviews the real robot dimensions.
+- `.ares/drivetrains/*.aresdrivetrain` and `.ares/tuning/*.arestuning`: robot-, drivebase-, and
+  profile-level UIDs are rebound to this team, league, season, and robot. Parameter/component IDs
+  stay stable because the reviewed runtime consumes them.
 - `.ares/template-provenance.json`: starter ID, exact revision, SHA-256, and ARES version.
+- FTC `local.properties`: when an installed Android SDK is found, ARES records its machine-local
+  path so the new project can build without copying settings from another repository.
 
-No source file is rewritten during personalization. Generated mechanisms still use Robot Studio's
-normal preview, ownership headers, confirmation tokens, tests, and generated-source boundaries.
+No Kotlin source file is rewritten during personalization. Canonical documents are decoded,
+rewritten through their typed codecs, and validated as one identity graph. Generated mechanisms
+still use Robot Studio's normal preview, ownership headers, confirmation tokens, tests, and
+generated-source boundaries.
 
 ## Next steps
 
 1. Open **Robot Studio → Project identity** and replace the starter footprint with measured values.
 2. Choose the supported drivebase for the league.
 3. Add mechanisms with Subsystem Builder.
-4. Configure controller bindings and routines.
-5. Choose **Local Sim**, then run **Verify & build** before starting the simulator.
+4. Use the reviewed season driving controls as a baseline, or add a controller profile and control
+   scheme together when you want GUI bindings for named mechanism actions.
+5. Run **Verify & build**. It regenerates the project bridge, verifies ownership, runs tests, and
+   packages the project without deploying.
+6. Choose **Local Sim**, then start the now-verified simulator.
 
-Creation does not deploy or enable a physical robot. Downloaded reference projects are rejected by
-the deploy service even after confirmation; removing that boundary requires a reviewed generic
-runtime template, not a student clicking through a warning.
+Creation does not deploy or enable a physical robot. Downloaded starters remain blocked from the
+deploy service even after a Hardware Setup review. A future generic composition must prove that
+every physical actuator and sensor is GUI-owned before that policy can change.
 
 Robot Studio's [Hardware Setup](HARDWARE_SETUP.md) screen can still aggregate the canonical
 drivebase and subsystem addresses, detect cross-document conflicts, and record a hash-bound review.
-That prepares a project for a future hardware-neutral runtime, but it does not remove the current
-season reference template's simulation-only deployment block.
+That review is still useful for finding descriptor conflicts and teaching hardware mapping, but it
+does not remove the season template's simulation-only block. It is not powered hardware validation,
+calibration, inspection approval, or permission to test without adult supervision.

@@ -67,6 +67,8 @@ data class RobotStudioRuntimeEvidence(
     val build: BuildExecutionState = BuildExecutionState(),
     val deploy: DeployExecutionState = DeployExecutionState(),
     val simulatorRunning: Boolean = false,
+    val simulatorProjectPath: String? = null,
+    val simulatorLeague: com.ares.analytics.shared.League? = null,
     val localSimulatorOnline: Boolean = false,
     val nt4Connected: Boolean = false,
 )
@@ -157,6 +159,7 @@ internal fun evaluateRobotStudioStages(
     val controlsStatus = when {
         projectBlocked -> RobotStudioStageStatus.BLOCKED
         evidence.controlErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        evidence.controlSchemeCount == 0 && evidence.controllerProfileCount == 0 -> RobotStudioStageStatus.OPTIONAL
         evidence.controlSchemeCount == 0 || evidence.controllerProfileCount == 0 -> RobotStudioStageStatus.NEEDS_ACTION
         else -> RobotStudioStageStatus.READY
     }
@@ -178,11 +181,11 @@ internal fun evaluateRobotStudioStages(
         platformStatus,
         drivebaseStatus,
         localizationStatus,
-        controlsStatus,
     ).all { it == RobotStudioStageStatus.READY }
     val optionalStagesSafe = listOf(
         mechanismsStatus,
         capabilitiesStatus,
+        controlsStatus,
         autonomousStatus,
         tuningStatus,
     ).all { it == RobotStudioStageStatus.READY || it == RobotStudioStageStatus.OPTIONAL }
@@ -190,6 +193,9 @@ internal fun evaluateRobotStudioStages(
     val selectedBuild = runtime.build.takeIf { build ->
         build.league == evidence.league && sameProjectPath(build.projectPath, evidence.projectPath)
     }
+    val selectedSimulatorRunning = runtime.simulatorRunning &&
+        runtime.simulatorLeague == evidence.league &&
+        runtime.simulatorProjectPath?.let { sameProjectPath(it, evidence.projectPath) } == true
     val buildStatus = when {
         selectedBuild?.phase == BuildExecutionPhase.RUNNING -> RobotStudioStageStatus.RUNNING
         !authoredStagesReady -> RobotStudioStageStatus.BLOCKED
@@ -207,8 +213,9 @@ internal fun evaluateRobotStudioStages(
         else -> "Run project verification after the canonical documents and generated source are ready."
     }
     val simulationStatus = when {
-        runtime.simulatorRunning || (runtime.localSimulatorOnline && runtime.nt4Connected) -> RobotStudioStageStatus.RUNNING
         !authoredStagesReady -> RobotStudioStageStatus.BLOCKED
+        selectedSimulatorRunning -> RobotStudioStageStatus.RUNNING
+        selectedBuild?.phase != BuildExecutionPhase.SUCCEEDED -> RobotStudioStageStatus.BLOCKED
         else -> RobotStudioStageStatus.NEEDS_ACTION
     }
     val deployStatus = when {
@@ -326,7 +333,11 @@ internal fun evaluateRobotStudioStages(
             "Driver & operator controls",
             "Map real controller inputs to named actions, routines, and safe timing behavior.",
             controlsStatus,
-            if (controlsStatus == RobotStudioStageStatus.READY) "${evidence.controlSchemeCount} control scheme(s) and ${evidence.controllerProfileCount} controller profile(s) loaded." else "Create a controller profile and conflict-free control scheme.",
+            when (controlsStatus) {
+                RobotStudioStageStatus.READY -> "${evidence.controlSchemeCount} control scheme(s) and ${evidence.controllerProfileCount} controller profile(s) loaded."
+                RobotStudioStageStatus.OPTIONAL -> "The reviewed season project supplies safe baseline driving controls. Add GUI bindings when you want controller buttons to run named mechanism actions."
+                else -> "A controller profile and control scheme must be created together; finish or remove the incomplete pair."
+            },
             evidence.controlErrors,
             ".ares/controllers/*.arescontroller and .ares/controls/*.arescontrols",
             "Generated project bindings and the platform TeleOp runtime",
@@ -383,12 +394,21 @@ internal fun evaluateRobotStudioStages(
             "Simulate",
             "Run the actual robot project against desktop adapters before touching hardware.",
             simulationStatus,
-            if (simulationStatus == RobotStudioStageStatus.RUNNING) "The local simulator is running${if (runtime.nt4Connected) " and telemetry is connected" else ""}." else "Start the local simulator, identify the data source, and stop it cleanly when finished.",
+            when {
+                simulationStatus == RobotStudioStageStatus.RUNNING -> "The local simulator is running${if (runtime.nt4Connected) " and telemetry is connected" else ""}."
+                !authoredStagesReady -> "Resolve the blocked authoring stages before simulation."
+                selectedBuild?.phase != BuildExecutionPhase.SUCCEEDED -> "Run Verify & build successfully first so simulation uses current generated code and tested project artifacts."
+                else -> "Start the verified local simulator, identify the data source, and stop it cleanly when finished."
+            },
             emptyList(),
             "No canonical source is changed by simulation",
             "FTC/FRC simulator, NT4 telemetry, Dashboard, and Academy",
             RobotStudioAction.RUN_SIMULATOR,
-            if (simulationStatus == RobotStudioStageStatus.RUNNING) "Simulator running" else "Start simulator",
+            when {
+                simulationStatus == RobotStudioStageStatus.RUNNING -> "Simulator running"
+                simulationStatus == RobotStudioStageStatus.BLOCKED -> "Verify & build first"
+                else -> "Start simulator"
+            },
         ),
         stage(
             RobotStudioStageId.DEPLOY,

@@ -28,7 +28,7 @@ The first-run **ARES setup** has four short stages.
 
 For a new student:
 
-1. Choose **Create a simulation-first robot**.
+1. Choose **Create a new robot**.
 2. Select **FTC** or **FRC** and read the exact verified starter version.
 3. Choose a parent folder, enter a new project folder name, then select **Continue**.
 
@@ -42,8 +42,9 @@ An existing selected folder usually contains `settings.gradle` or `settings.grad
 download, SHA-256 verification, personalization, and publication occur only after the final review.
 See [Create a robot project](CREATE_ROBOT_PROJECT.md) for the safety and recovery contract.
 
-The current downloaded starters retain Team 23247 season hardware examples. They are fully usable
-for Robot Studio, tests, and local simulation, but ARES blocks physical deployment from them.
+The downloaded starters retain Team 23247 season hardware examples. They are usable for Robot
+Studio, tests, and local simulation. Physical deployment remains blocked because the season
+composition is not yet fully GUI-owned; a Hardware Setup review cannot remove that block.
 
 ### 2. Check the robot details
 
