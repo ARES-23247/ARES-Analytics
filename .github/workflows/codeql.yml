@@ -14,8 +14,8 @@ permissions:
   security-events: write
 
 env:
-  ARES_VERSION: ${{ (github.head_ref == 'codex/superstructure-studio-runtime' || github.ref_name == 'codex/superstructure-studio-runtime') && '6.2.0' || '6.1.0' }}
-  ARESLIB_VALIDATION_REF: ${{ (github.head_ref == 'codex/superstructure-studio-runtime' || github.ref_name == 'codex/superstructure-studio-runtime') && 'codex/superstructure-runtime-foundation' || '0b7dc0673fd27c165fd4e47ee1db14bb956999ba' }}
+  ARES_VERSION: 6.2.0
+  ARESLIB_VALIDATION_REF: 74eefd08dca747b1feda60d9d67ac564bd48aa7b
   ARES_VALIDATION_REPOSITORY: file://${{ github.workspace }}/ARESLib-Kotlin/build/release-repository
 
 concurrency:
