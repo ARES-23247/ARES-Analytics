@@ -87,6 +87,10 @@ class OAuthServiceTest {
     }
 
     private fun writeConfig(clientId: String?) {
+        File(tempDir, "TeamCode/src/main/java/TestRobot.kt").apply {
+            parentFile.mkdirs()
+            writeText("class TestRobot")
+        }
         val workspaces = AppWorkspaces(
             activeWorkspaceId = "ws",
             workspaces = listOf(
