@@ -39,6 +39,8 @@ data class RobotProjectReadinessEvidence(
     val localizationConfigured: Boolean = false,
     val subsystemCount: Int = 0,
     val subsystemErrors: List<String> = emptyList(),
+    val superstructureCount: Int = 0,
+    val superstructureErrors: List<String> = emptyList(),
     val capabilityActionCount: Int = 0,
     val capabilityErrors: List<String> = emptyList(),
     val controlSchemeCount: Int = 0,
@@ -107,6 +109,8 @@ class RobotProjectReadinessService(
         }
         val subsystemErrors = diagnostics.filter { it.kind == ProjectDocumentKind.SUBSYSTEM }
             .map { "${it.file.name}: ${it.message}" }
+        val superstructureErrors = diagnostics.filter { it.kind == ProjectDocumentKind.SUPERSTRUCTURE }
+            .map { "${it.file.name}: ${it.message}" }
         val metadataFilePresent = projectDocuments.metadata.file(config.projectPath).isFile
         val metadataErrors = diagnostics.filter {
             it.kind == ProjectDocumentKind.PROJECT_METADATA && metadataFilePresent
@@ -143,6 +147,8 @@ class RobotProjectReadinessService(
                 drivebase.localization.count { it != LocalizationKind.VISION_FUSION } == 1,
             subsystemCount = snapshot?.subsystems?.size ?: 0,
             subsystemErrors = subsystemErrors,
+            superstructureCount = snapshot?.superstructures?.size ?: 0,
+            superstructureErrors = superstructureErrors,
             capabilityActionCount = snapshot?.capabilityCatalog?.actions?.size ?: 0,
             capabilityErrors = capabilityErrors,
             controlSchemeCount = snapshot?.controlSchemes?.size ?: 0,

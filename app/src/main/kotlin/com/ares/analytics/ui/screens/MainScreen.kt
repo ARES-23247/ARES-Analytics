@@ -47,6 +47,7 @@ import com.ares.analytics.viewmodel.robotstudio.RobotStudioAction
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioRuntimeEvidence
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioViewModel
 import com.ares.analytics.viewmodel.runanalysis.GuidedRunAnalysisViewModel
+import com.ares.analytics.viewmodel.superstructure.SuperstructureStudioViewModel
 import kotlinx.coroutines.*
 
 /**
@@ -357,6 +358,12 @@ fun MainScreen(services: ServiceRegistry) {
             designAssistant = com.ares.analytics.service.DrivebaseDesignAssistant { current, request ->
                 services.syncEngineService.requestDrivebaseDesignProposal(current, request)
             },
+        )
+    }
+    val superstructureStudioViewModel = remember(currentConfig.projectPath) {
+        SuperstructureStudioViewModel(
+            projectPath = currentConfig.projectPath ?: "",
+            scope = scope,
         )
     }
     val hardwareSetupViewModel = remember(currentConfig.projectPath, currentConfig.league) {
@@ -919,6 +926,8 @@ fun MainScreen(services: ServiceRegistry) {
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
                                         RobotStudioAction.OPEN_SUBSYSTEMS ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
+                                        RobotStudioAction.OPEN_SUPERSTRUCTURES ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUPERSTRUCTURE_STUDIO))
                                         RobotStudioAction.OPEN_HARDWARE_SETUP ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.HARDWARE_SETUP))
                                         RobotStudioAction.OPEN_CONTROLS ->
@@ -963,6 +972,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 modifier = Modifier.fillMaxSize()
                             )
                             NavigationTarget.SUBSYSTEM_GEN -> SubsystemGeneratorScreen(subsystemGeneratorViewModel)
+                            NavigationTarget.SUPERSTRUCTURE_STUDIO -> SuperstructureStudioScreen(superstructureStudioViewModel)
                             NavigationTarget.DRIVEBASE_BUILDER -> DrivebaseBuilderScreen(drivebaseBuilderViewModel)
                             NavigationTarget.HARDWARE_SETUP -> HardwareSetupScreen(
                                 viewModel = hardwareSetupViewModel,

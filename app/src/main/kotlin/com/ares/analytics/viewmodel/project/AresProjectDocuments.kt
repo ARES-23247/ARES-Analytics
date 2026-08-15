@@ -14,6 +14,10 @@ import com.areslib.routine.RoutineDocument
 import com.areslib.project.AresProjectMetadataDocument
 import com.areslib.subsystem.SubsystemDocument
 import com.areslib.subsystem.mergeSubsystemCapabilities
+import com.areslib.superstructure.SuperstructureDocument
+import com.areslib.superstructure.SuperstructureIssueSeverity
+import com.areslib.superstructure.TransitionTriggerKind
+import com.areslib.superstructure.validateSuperstructureProject
 
 /** One consistent, entirely offline view of the selected robot project's authoring files. */
 data class AresProjectDocumentSnapshot(
@@ -22,6 +26,7 @@ data class AresProjectDocumentSnapshot(
     val controlSchemes: List<ControlSchemeDocument>,
     val controllerProfiles: List<ControllerProfileDocument>,
     val subsystems: List<SubsystemDocument>,
+    val superstructures: List<SuperstructureDocument>,
     val capabilityCatalog: CapabilityCatalogDocument?,
     val autonomousCatalog: AutonomousCatalogDocument?,
     val projectMetadata: AresProjectMetadataDocument?,
@@ -37,6 +42,7 @@ class AresProjectDocuments(
     val controls: ControlSchemeProjectRepository = ControlSchemeProjectRepository(),
     val controllers: ControllerProfileProjectRepository = ControllerProfileProjectRepository(),
     val subsystems: SubsystemProjectRepository = SubsystemProjectRepository(),
+    val superstructures: SuperstructureProjectRepository = SuperstructureProjectRepository(),
     val capabilities: CapabilityCatalogProjectRepository = CapabilityCatalogProjectRepository(),
     val metadata: ProjectMetadataRepository = ProjectMetadataRepository(),
     val autonomous: AutonomousCatalogProjectRepository = AutonomousCatalogProjectRepository(routines)
@@ -50,11 +56,13 @@ class AresProjectDocuments(
         val controlsListing = controls.list(root.path)
         val profileListing = controllers.list(root.path)
         val subsystemListing = subsystems.list(root.path)
+        val superstructureListing = superstructures.list(root.path)
         val diagnostics = buildList {
             addAll(routineListing.diagnostics)
             addAll(controlsListing.diagnostics)
             addAll(profileListing.diagnostics)
             addAll(subsystemListing.diagnostics)
+            addAll(superstructureListing.diagnostics)
         }.toMutableList()
 
         val baseCatalog = capabilities.load(root.path).fold(
@@ -106,6 +114,35 @@ class AresProjectDocuments(
                 }
                 .getOrNull()
         }
+
+        val superstructureActionKeys = catalog?.actions.orEmpty().mapTo(linkedSetOf()) { it.key }
+        superstructureListing.documents.forEach { document ->
+            val errors = validateSuperstructureProject(document, subsystemListing.documents, superstructureActionKeys)
+                .filter { it.severity == SuperstructureIssueSeverity.ERROR }
+            if (errors.isNotEmpty()) {
+                diagnostics += ProjectDocumentDiagnostic(
+                    ProjectDocumentKind.SUPERSTRUCTURE,
+                    superstructures.file(root.path, document.superstructureId),
+                    errors.joinToString("; ") { "${it.path}: ${it.message}" },
+                )
+            }
+        }
+        superstructureListing.documents
+            .flatMap { document ->
+                document.transitions.filter { it.triggerKind == TransitionTriggerKind.ACTION_REQUEST }
+                    .mapNotNull { edge -> edge.actionKey?.let { it to document } }
+            }
+            .groupBy({ it.first }, { it.second })
+            .filterValues { owners -> owners.map { it.superstructureId }.distinct().size > 1 }
+            .forEach { (actionKey, owners) ->
+                owners.distinctBy { it.superstructureId }.forEach { owner ->
+                    diagnostics += ProjectDocumentDiagnostic(
+                        ProjectDocumentKind.SUPERSTRUCTURE,
+                        superstructures.file(root.path, owner.superstructureId),
+                        "Action '$actionKey' is owned by more than one superstructure: ${owners.map { it.superstructureId }.distinct().sorted().joinToString()}",
+                    )
+                }
+            }
 
         if (catalog != null) {
             val profileById = profileListing.documents.associateBy { it.documentId }
@@ -164,10 +201,11 @@ class AresProjectDocuments(
             controlSchemes = controlsListing.documents,
             controllerProfiles = profileListing.documents,
             subsystems = subsystemListing.documents,
+            superstructures = superstructureListing.documents,
             capabilityCatalog = catalog,
             autonomousCatalog = autonomousCatalog,
             projectMetadata = projectMetadata,
-            diagnostics = diagnostics.distinctBy { it.kind to it.file.canonicalPath }
+            diagnostics = diagnostics.distinctBy { Triple(it.kind, it.file.canonicalPath, it.message) }
                 .sortedWith(compareBy<ProjectDocumentDiagnostic> { it.kind.ordinal }.thenBy { it.file.name.lowercase() })
         )
     }
