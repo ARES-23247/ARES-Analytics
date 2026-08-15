@@ -26,7 +26,7 @@ plugins {
 
 
 dependencies {
-    val aresVersion = providers.gradleProperty("aresVersion").orElse("6.1.2").get()
+    val aresVersion = providers.gradleProperty("aresVersion").orElse("6.2.0").get()
 
     // Compose Desktop
     implementation(compose.desktop.currentOs)
