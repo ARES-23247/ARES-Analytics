@@ -100,6 +100,38 @@ class ProcessManagerServiceTest {
     }
 
     @Test
+    fun `confirmed deploy plan verifies before a target-scoped install`() {
+        val service = ProcessManagerService(monitorAdbConnection = false)
+        try {
+            val ftc = service.ftcDeployBuildCommandForTest(isWindows = true)
+            val frc = service.frcDeployBuildCommandForTest(isWindows = false)
+            val install = service.adbInstallCommandForTest("adb", "robot.apk")
+
+            assertTrue("generateAresProject" in ftc)
+            assertTrue("verifyAresProject" in ftc)
+            assertTrue(":TeamCode:testDebugUnitTest" in ftc)
+            assertTrue(":simulator:test" in ftc)
+            assertTrue(":TeamCode:assembleDebug" in ftc)
+            assertTrue(ftc.indexOf(":TeamCode:testDebugUnitTest") < ftc.indexOf(":TeamCode:assembleDebug"))
+
+            assertTrue("generateAresProject" in frc)
+            assertTrue("verifyAresProject" in frc)
+            assertTrue("test" in frc)
+            assertTrue("build" in frc)
+            assertTrue("deploy" in frc)
+            assertTrue(frc.indexOf("test") < frc.indexOf("deploy"))
+
+            assertEquals(
+                listOf("adb", "-s", "192.168.43.1:5555", "install", "-r", "-d", "robot.apk"),
+                install,
+                "FTC install must never target an arbitrary connected Android device",
+            )
+        } finally {
+            service.shutdown()
+        }
+    }
+
+    @Test
     fun `verification outcome retains selected project success and failure evidence`() = runBlocking {
         val service = ProcessManagerService(monitorAdbConnection = false)
         val project = Files.createTempDirectory("process-manager-build-result").toFile()

@@ -63,6 +63,7 @@ import com.ares.analytics.shared.AprilTagPlacement
 import com.ares.analytics.shared.FieldImageConfig
 import com.ares.analytics.shared.FieldWaypoint
 import com.ares.analytics.shared.GamePiece
+import com.ares.analytics.shared.GamePieceType
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.Obstacle
 import com.ares.analytics.shared.PathPoint
@@ -110,6 +111,7 @@ fun FieldLayoutCanvas(
     fieldImage: ImageBitmap?,
     fieldImageConfig: FieldImageConfig,
     layout: FieldEditorLayout,
+    gamePieceTypes: List<GamePieceType>,
     selectedIds: Set<String>,
     snapEnabled: Boolean,
     gridSpacingMeters: Double,
@@ -276,8 +278,15 @@ fun FieldLayoutCanvas(
                                         tool = FieldLayoutTool.SELECT
                                     }
                                     FieldLayoutTool.GAME_PIECE -> {
-                                        val type = if (league == League.FTC) "Decode (Ball)" else "Note"
-                                        val piece = GamePiece(nextCanvasId("piece"), if (league == League.FTC) "DECODE ball" else "Note", startField.x, startField.y, type)
+                                        val type = gamePieceTypes.firstOrNull()
+                                        val piece = GamePiece(
+                                            id = nextCanvasId("piece"),
+                                            name = type?.name ?: "Game piece",
+                                            x = startField.x,
+                                            y = startField.y,
+                                            type = type?.name ?: "Custom",
+                                            typeId = type?.id,
+                                        )
                                         onLayoutChanged(initialLayout.copy(gamePieces = initialLayout.gamePieces + piece))
                                         onSelectionChanged(setOf(piece.id), false)
                                         tool = FieldLayoutTool.SELECT

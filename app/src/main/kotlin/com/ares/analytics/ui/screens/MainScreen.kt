@@ -34,6 +34,7 @@ import com.ares.analytics.ui.components.SectionNavigationBar
 import com.ares.analytics.ui.components.Sidebar
 import com.ares.analytics.ui.components.core.TargetSelection
 import com.ares.analytics.ui.components.core.ExecutionToolbar
+import com.ares.analytics.ui.components.core.OneClickDeployDialog
 import com.ares.analytics.ui.components.terminal.TerminalDrawer
 import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.help.AcademyRuntimeSnapshot
@@ -380,6 +381,9 @@ fun MainScreen(services: ServiceRegistry) {
     val isSimRunning by services.processManagerService.isSimRunning.collectAsState()
     val isBuildRunning by services.processManagerService.isBuildRunning.collectAsState()
     val buildExecutionState by services.processManagerService.buildExecutionState.collectAsState()
+    val deployExecutionState by services.processManagerService.deployState.collectAsState()
+    var deployDialogOpen by remember { mutableStateOf(false) }
+    var deployAwaitingConfirmation by remember { mutableStateOf(false) }
     var targetSelection by remember { mutableStateOf(TargetSelection.LIVE_ROBOT) }
     var liveRobotIp by remember(currentConfig.nt4Host) {
         mutableStateOf(currentConfig.nt4Host ?: "192.168.43.1")
@@ -398,10 +402,11 @@ fun MainScreen(services: ServiceRegistry) {
         robotStudioViewModel.load(currentConfig)
         guidedRunAnalysisViewModel.load(currentConfig)
     }
-    LaunchedEffect(buildExecutionState, isSimRunning, isLocalSimOnline, isNt4Connected) {
+    LaunchedEffect(buildExecutionState, deployExecutionState, isSimRunning, isLocalSimOnline, isNt4Connected) {
         robotStudioViewModel.updateRuntime(
             RobotStudioRuntimeEvidence(
                 build = buildExecutionState,
+                deploy = deployExecutionState,
                 simulatorRunning = isSimRunning,
                 localSimulatorOnline = isLocalSimOnline,
                 nt4Connected = isNt4Connected,
@@ -915,11 +920,8 @@ fun MainScreen(services: ServiceRegistry) {
                                             mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
                                         }
                                         RobotStudioAction.DEPLOY_ROBOT -> {
-                                            services.processManagerService.deployToRobot(
-                                                currentConfig.projectPath,
-                                                currentConfig.league,
-                                            )
-                                            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                            deployAwaitingConfirmation = true
+                                            deployDialogOpen = true
                                         }
                                     }
                                 },
@@ -1023,6 +1025,34 @@ fun MainScreen(services: ServiceRegistry) {
                         Text("Keep workspace")
                     }
                 }
+            )
+        }
+
+        if (deployDialogOpen) {
+            OneClickDeployDialog(
+                state = if (deployAwaitingConfirmation) {
+                    com.ares.analytics.service.DeployExecutionState(
+                        projectPath = currentConfig.projectPath,
+                        league = currentConfig.league,
+                    )
+                } else {
+                    deployExecutionState
+                },
+                projectPath = currentConfig.projectPath,
+                league = currentConfig.league,
+                onConfirm = {
+                    deployAwaitingConfirmation = false
+                    services.processManagerService.deployToRobot(
+                        currentConfig.projectPath,
+                        currentConfig.league,
+                    )
+                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                },
+                onDismiss = {
+                    deployDialogOpen = false
+                    deployAwaitingConfirmation = false
+                },
+                onCancel = { services.processManagerService.killActiveBuild() },
             )
         }
 

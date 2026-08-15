@@ -4,6 +4,7 @@ import com.ares.analytics.shared.AprilTagPlacement
 import com.ares.analytics.shared.FieldImageConfig
 import com.ares.analytics.shared.FieldWaypoint
 import com.ares.analytics.shared.GamePiece
+import com.ares.analytics.shared.GamePieceType
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.Obstacle
 import com.ares.analytics.util.ProjectLayout
@@ -20,6 +21,7 @@ internal data class LoadedFieldDocument(
     val imageConfig: FieldImageConfig,
     val obstacles: List<Obstacle>,
     val gamePieces: List<GamePiece>,
+    val gamePieceTypes: List<GamePieceType>,
     val aprilTags: List<AprilTagPlacement>,
     val fieldWaypoints: List<FieldWaypoint>
 )
@@ -47,6 +49,7 @@ internal object FieldDocumentStore {
         imageConfig = FieldDocumentMapper.image(this),
         obstacles = FieldDocumentMapper.obstacles(this),
         gamePieces = FieldDocumentMapper.gamePieces(this),
+        gamePieceTypes = FieldDocumentMapper.gamePieceTypes(this),
         aprilTags = FieldDocumentMapper.aprilTags(this),
         fieldWaypoints = FieldDocumentMapper.fieldWaypoints(this)
     )

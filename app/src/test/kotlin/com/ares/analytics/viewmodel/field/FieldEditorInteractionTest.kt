@@ -3,6 +3,7 @@ package com.ares.analytics.viewmodel.field
 import com.ares.analytics.shared.AprilTagPlacement
 import com.ares.analytics.shared.FieldWaypoint
 import com.ares.analytics.shared.GamePiece
+import com.ares.analytics.shared.GamePieceType
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.Obstacle
 import com.ares.analytics.viewmodel.FieldEditorIntent
@@ -103,5 +104,58 @@ class FieldEditorInteractionTest {
         assertTrue(FieldPrefabCatalog.forLeague(League.FTC).any { it.id == "decode-ball" })
         assertFalse(FieldPrefabCatalog.forLeague(League.FRC).any { it.id == "decode-ball" })
         assertTrue(FieldPrefabCatalog.forLeague(League.FRC).any { it.id == "note" })
+    }
+
+    @Test
+    fun gamePieceCatalogUsesStableIdsAndParticipatesInUndo() {
+        val viewModel = FieldEditorViewModel(CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
+        viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FTC))
+        val original = viewModel.state.value.gamePieceTypes
+        val custom = GamePieceType(
+            id = "practice-puck",
+            name = "Practice Puck",
+            shape = "cylinder",
+            diameter = 0.18,
+            width = 0.18,
+            height = 0.04,
+            colorHex = "#7E57C2",
+            massKg = 0.25,
+            friction = 0.55,
+            restitution = 0.15,
+        )
+
+        viewModel.onIntent(FieldEditorIntent.SetGamePieceTypes(original + custom))
+
+        assertEquals(custom, viewModel.state.value.gamePieceTypes.last())
+        assertTrue(viewModel.state.value.canUndo)
+        viewModel.onIntent(FieldEditorIntent.Undo)
+        assertEquals(original, viewModel.state.value.gamePieceTypes)
+        viewModel.onIntent(FieldEditorIntent.Redo)
+        assertEquals(custom, viewModel.state.value.gamePieceTypes.last())
+    }
+
+    @Test
+    fun catalogCannotDeleteATypeUsedByAPlacedPiece() {
+        val viewModel = FieldEditorViewModel(CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
+        viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FTC))
+        val catalog = viewModel.state.value.gamePieceTypes
+        val usedType = catalog.first()
+        viewModel.onIntent(
+            FieldEditorIntent.AddGamePiece(
+                GamePiece(
+                    id = "placed-piece",
+                    name = "Placed ${usedType.name}",
+                    type = usedType.name,
+                    x = 1.0,
+                    y = 1.0,
+                    typeId = usedType.id,
+                )
+            )
+        )
+
+        viewModel.onIntent(FieldEditorIntent.SetGamePieceTypes(catalog.drop(1)))
+
+        assertEquals(catalog, viewModel.state.value.gamePieceTypes)
+        assertTrue(viewModel.state.value.errorMessage.orEmpty().contains("still uses"))
     }
 }

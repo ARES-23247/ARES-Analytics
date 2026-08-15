@@ -43,6 +43,7 @@ data class FieldEditorState(
     val fieldImageConfig: FieldImageConfig = FieldImageConfig(),
     val obstacles: List<Obstacle> = emptyList(),
     val gamePieces: List<GamePiece> = emptyList(),
+    val gamePieceTypes: List<GamePieceType> = emptyList(),
     val aprilTags: List<AprilTagPlacement> = emptyList(),
     val fieldWaypoints: List<FieldWaypoint> = emptyList(),
     val saveStatus: String = "",
@@ -100,6 +101,7 @@ sealed class FieldEditorIntent {
     object ClearSaveStatus : FieldEditorIntent()
     data class SetObstacles(val obstacles: List<Obstacle>) : FieldEditorIntent()
     data class SetGamePieces(val gamePieces: List<GamePiece>) : FieldEditorIntent()
+    data class SetGamePieceTypes(val gamePieceTypes: List<GamePieceType>) : FieldEditorIntent()
     data class SetAprilTags(val tags: List<AprilTagPlacement>) : FieldEditorIntent()
     data class SetFieldWaypoints(val waypoints: List<FieldWaypoint>) : FieldEditorIntent()
     data class SetLayout(val layout: FieldEditorLayout) : FieldEditorIntent()
@@ -169,6 +171,7 @@ class FieldEditorViewModel(
             }
             is FieldEditorIntent.SetObstacles -> applyEdit("canvas-obstacles") { it.copy(obstacles = intent.obstacles) }
             is FieldEditorIntent.SetGamePieces -> applyEdit("canvas-game-pieces") { it.copy(gamePieces = intent.gamePieces) }
+            is FieldEditorIntent.SetGamePieceTypes -> updateGamePieceTypes(intent.gamePieceTypes)
             is FieldEditorIntent.SetAprilTags -> applyEdit("canvas-apriltags") { it.copy(aprilTags = intent.tags) }
             is FieldEditorIntent.SetFieldWaypoints -> applyEdit("canvas-field-waypoints") { it.copy(fieldWaypoints = intent.waypoints) }
             is FieldEditorIntent.SetLayout -> applyEdit("canvas-layout") {
@@ -214,7 +217,13 @@ class FieldEditorViewModel(
                     val imageConfig = FieldDocumentMapper.defaultImageConfig(league)
                     val document = FieldDocumentMapper.newDocument(league, imageConfig)
                     if (generation == loadGeneration) {
-                        installLoadedState(FieldEditorState(document = document, fieldImageConfig = imageConfig))
+                        installLoadedState(
+                            FieldEditorState(
+                                document = document,
+                                fieldImageConfig = imageConfig,
+                                gamePieceTypes = FieldDocumentMapper.defaultGamePieceTypes(league),
+                            ),
+                        )
                     }
                     return@launch
                 }
@@ -233,6 +242,7 @@ class FieldEditorViewModel(
                         fieldImageConfig = loaded.imageConfig,
                         obstacles = loaded.obstacles,
                         gamePieces = loaded.gamePieces,
+                        gamePieceTypes = loaded.gamePieceTypes,
                         aprilTags = loaded.aprilTags,
                         fieldWaypoints = loaded.fieldWaypoints,
                         isLoading = false,
@@ -266,6 +276,7 @@ class FieldEditorViewModel(
             image = transformed.fieldImageConfig,
             obstacles = transformed.obstacles,
             gamePieces = transformed.gamePieces,
+            gamePieceTypes = transformed.gamePieceTypes.ifEmpty { FieldDocumentMapper.defaultGamePieceTypes(activeLeague) },
             aprilTags = transformed.aprilTags,
             fieldWaypoints = transformed.fieldWaypoints
         )
@@ -279,6 +290,51 @@ class FieldEditorViewModel(
             )
         )
         scheduleSave(document)
+    }
+
+    private fun updateGamePieceTypes(types: List<GamePieceType>) {
+        val normalized = types.map { it.copy(id = it.id.trim(), name = it.name.trim(), colorHex = it.colorHex.trim()) }
+        val error = when {
+            normalized.isEmpty() -> "Keep at least one game-piece type in the catalog."
+            normalized.any { !it.id.matches(Regex("[a-z0-9]+(?:-[a-z0-9]+)*")) } ->
+                "Game-piece type IDs use lowercase letters, numbers, and single hyphens."
+            normalized.map { it.id }.distinct().size != normalized.size -> "Game-piece type IDs must be unique."
+            normalized.map { it.name.lowercase() }.distinct().size != normalized.size -> "Game-piece type names must be unique."
+            normalized.any { it.shape !in setOf("circle", "box", "sphere", "cylinder") } -> "Choose a supported game-piece shape."
+            normalized.any {
+                !it.diameter.isFinite() || !it.width.isFinite() || !it.height.isFinite() ||
+                    it.diameter <= 0.0 || it.width <= 0.0 || it.height <= 0.0
+            } -> "Game-piece dimensions must be finite and positive."
+            normalized.any { !it.massKg.isFinite() || it.massKg <= 0.0 } -> "Game-piece mass must be finite and positive."
+            normalized.any { !it.friction.isFinite() || it.friction !in 0.0..1.0 } -> "Friction must be between 0 and 1."
+            normalized.any { !it.restitution.isFinite() || it.restitution !in 0.0..1.0 } -> "Restitution must be between 0 and 1."
+            normalized.any { !it.colorHex.matches(Regex("#[0-9A-Fa-f]{6}")) } -> "Colors must use #RRGGBB hexadecimal form."
+            else -> null
+        }
+        if (error != null) {
+            _state.update { it.copy(errorMessage = error, saveStatus = "Catalog not changed") }
+            return
+        }
+        val byId = normalized.associateBy { it.id }
+        val usedMissing = _state.value.gamePieces.firstOrNull { piece -> piece.typeId != null && piece.typeId !in byId }
+        if (usedMissing != null) {
+            _state.update {
+                it.copy(
+                    errorMessage = "${usedMissing.name} still uses '${usedMissing.typeId}'. Change or remove that placement before deleting its catalog type.",
+                    saveStatus = "Catalog not changed",
+                )
+            }
+            return
+        }
+        applyEdit("game-piece-catalog") { state ->
+            val updatedPieces = state.gamePieces.map { piece ->
+                val type = piece.typeId?.let(byId::get)
+                    ?: normalized.singleOrNull { it.name.equals(piece.type, ignoreCase = true) }
+                    ?: normalized.first()
+                piece.copy(type = type.name, typeId = type.id)
+            }
+            state.copy(gamePieceTypes = normalized, gamePieces = updatedPieces, errorMessage = null)
+        }
     }
 
     private fun installLoadedState(state: FieldEditorState) {
@@ -335,6 +391,7 @@ class FieldEditorViewModel(
             image = current.fieldImageConfig,
             obstacles = current.obstacles,
             gamePieces = current.gamePieces,
+            gamePieceTypes = current.gamePieceTypes.ifEmpty { FieldDocumentMapper.defaultGamePieceTypes(activeLeague) },
             aprilTags = current.aprilTags,
             fieldWaypoints = current.fieldWaypoints
         )
@@ -455,7 +512,17 @@ class FieldEditorViewModel(
                 applyEdit { it.copy(obstacles = it.obstacles + obstacle, selectedElementIds = setOf(obstacle.id)) }
             }
             FieldPrefabKind.GAME_PIECE -> {
-                val piece = GamePiece(nextId("piece"), prefab.name, centerX, centerY, prefab.gamePieceType ?: "Custom")
+                val type = state.gamePieceTypes.singleOrNull {
+                    it.name.equals(prefab.gamePieceType, ignoreCase = true) || it.id == prefab.gamePieceType
+                } ?: state.gamePieceTypes.firstOrNull()
+                val piece = GamePiece(
+                    id = nextId("piece"),
+                    name = prefab.name,
+                    x = centerX,
+                    y = centerY,
+                    type = type?.name ?: prefab.gamePieceType ?: "Custom",
+                    typeId = type?.id,
+                )
                 applyEdit { it.copy(gamePieces = it.gamePieces + piece, selectedElementIds = setOf(piece.id)) }
             }
             FieldPrefabKind.APRIL_TAG -> {
@@ -666,6 +733,7 @@ private data class FieldEditorSnapshot(
     val fieldImageConfig: FieldImageConfig,
     val obstacles: List<Obstacle>,
     val gamePieces: List<GamePiece>,
+    val gamePieceTypes: List<GamePieceType>,
     val aprilTags: List<AprilTagPlacement>,
     val fieldWaypoints: List<FieldWaypoint>
 ) {
@@ -673,6 +741,7 @@ private data class FieldEditorSnapshot(
         fieldImageConfig = fieldImageConfig,
         obstacles = obstacles,
         gamePieces = gamePieces,
+        gamePieceTypes = gamePieceTypes,
         aprilTags = aprilTags,
         fieldWaypoints = fieldWaypoints
     )
@@ -682,6 +751,7 @@ private fun FieldEditorState.editorSnapshot() = FieldEditorSnapshot(
     fieldImageConfig = fieldImageConfig,
     obstacles = obstacles,
     gamePieces = gamePieces,
+    gamePieceTypes = gamePieceTypes,
     aprilTags = aprilTags,
     fieldWaypoints = fieldWaypoints
 )

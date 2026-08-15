@@ -116,6 +116,8 @@ data class GamePiece(
     val x: Double,
     val y: Double,
     val type: String = "Custom",
+    /** Stable catalog ID. Null is accepted only while migrating older name-only editor data. */
+    val typeId: String? = null,
     val locked: Boolean = false
 )
 

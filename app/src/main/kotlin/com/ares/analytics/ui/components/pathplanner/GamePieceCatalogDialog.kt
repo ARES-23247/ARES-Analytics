@@ -106,7 +106,7 @@ fun GamePieceCatalogDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    text = "Configure game piece archetypes for field stamping and Dyn4j physics simulation.",
+                    text = "Define the pieces students can place on this field. Dimensions and physics are saved with the workspace and used by the simulator.",
                     color = AresTextSecondary,
                     fontSize = 12.sp,
                 )
@@ -145,9 +145,14 @@ fun GamePieceCatalogDialog(
                                     Column {
                                         Text(type.name, color = AresTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                                         Text(
-                                            "${type.shape} · ${type.diameter}m · ${type.massKg}kg",
+                                            type.catalogSummary(),
                                             color = AresTextSecondary,
                                             fontSize = 11.sp,
+                                        )
+                                        Text(
+                                            "Stable ID: ${type.id}",
+                                            color = AresTextSecondary,
+                                            fontSize = 10.sp,
                                         )
                                     }
                                 }
@@ -174,8 +179,9 @@ fun GamePieceCatalogDialog(
 
                     OutlinedButton(
                         onClick = {
+                            val nextId = nextGamePieceTypeId(gamePieceTypes)
                             editingType = GamePieceType(
-                                id = "custom-piece-${System.currentTimeMillis() % 10000}",
+                                id = nextId,
                                 name = "New Game Piece",
                                 shape = "circle",
                                 diameter = 0.15,
@@ -204,11 +210,66 @@ fun GamePieceCatalogDialog(
                     var massKg by remember(current.id) { mutableStateOf(current.massKg.toString()) }
                     var friction by remember(current.id) { mutableStateOf(current.friction.toString()) }
                     var restitution by remember(current.id) { mutableStateOf(current.restitution.toString()) }
+                    val normalizedColor = colorHex.trim().let { if (it.startsWith("#")) it else "#$it" }
+                    val diameterValue = diameter.toDoubleOrNull()
+                    val massValue = massKg.toDoubleOrNull()
+                    val frictionValue = friction.toDoubleOrNull()
+                    val restitutionValue = restitution.toDoubleOrNull()
+                    val nameError = when {
+                        name.isBlank() -> "Enter a name students will recognize."
+                        gamePieceTypes.any { it.id != current.id && it.name.equals(name.trim(), ignoreCase = true) } ->
+                            "Another game-piece type already uses this name."
+                        else -> null
+                    }
+                    val diameterError = if (diameterValue == null || !diameterValue.isFinite() || diameterValue <= 0.0) {
+                        "Enter a positive size in metres."
+                    } else {
+                        null
+                    }
+                    val massError = if (massValue == null || !massValue.isFinite() || massValue <= 0.0) {
+                        "Enter a positive mass in kilograms."
+                    } else {
+                        null
+                    }
+                    val frictionError = unitIntervalError(frictionValue, "Friction")
+                    val restitutionError = unitIntervalError(restitutionValue, "Restitution")
+                    val colorError = if (!normalizedColor.matches(Regex("#[0-9A-Fa-f]{6}"))) {
+                        "Use a six-digit color such as #00E5FF."
+                    } else {
+                        null
+                    }
+                    val canSave = listOf(
+                        nameError,
+                        diameterError,
+                        massError,
+                        frictionError,
+                        restitutionError,
+                        colorError,
+                    ).all { it == null }
+
+                    Surface(
+                        color = AresSurface,
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, AresBorder),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("Stable workspace ID", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text(current.id, color = AresTextSecondary, fontSize = 11.sp)
+                            Text(
+                                "ARES keeps this ID unchanged so placed pieces and saved simulations remain connected when you rename the display name.",
+                                color = AresTextSecondary,
+                                fontSize = 10.sp,
+                            )
+                        }
+                    }
 
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        label = { Text("Game Piece Name") },
+                        label = { Text("Display name") },
+                        supportingText = { nameError?.let { Text(it) } },
+                        isError = nameError != null,
                         modifier = Modifier.fillMaxWidth(),
                     )
 
@@ -244,13 +305,17 @@ fun GamePieceCatalogDialog(
                         OutlinedTextField(
                             value = diameter,
                             onValueChange = { diameter = it },
-                            label = { Text("Diameter (m)") },
+                            label = { Text(if (shape == "box") "Size (m)" else "Diameter (m)") },
+                            supportingText = { diameterError?.let { Text(it) } },
+                            isError = diameterError != null,
                             modifier = Modifier.weight(1f),
                         )
                         OutlinedTextField(
                             value = colorHex,
                             onValueChange = { colorHex = it },
-                            label = { Text("Color Hex") },
+                            label = { Text("Color (#RRGGBB)") },
+                            supportingText = { colorError?.let { Text(it) } },
+                            isError = colorError != null,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -263,18 +328,24 @@ fun GamePieceCatalogDialog(
                             value = massKg,
                             onValueChange = { massKg = it },
                             label = { Text("Mass (kg)") },
+                            supportingText = { massError?.let { Text(it) } },
+                            isError = massError != null,
                             modifier = Modifier.weight(1f),
                         )
                         OutlinedTextField(
                             value = friction,
                             onValueChange = { friction = it },
-                            label = { Text("Friction") },
+                            label = { Text("Friction (0–1)") },
+                            supportingText = { frictionError?.let { Text(it) } },
+                            isError = frictionError != null,
                             modifier = Modifier.weight(1f),
                         )
                         OutlinedTextField(
                             value = restitution,
                             onValueChange = { restitution = it },
-                            label = { Text("Restitution") },
+                            label = { Text("Bounce (0–1)") },
+                            supportingText = { restitutionError?.let { Text(it) } },
+                            isError = restitutionError != null,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -296,15 +367,15 @@ fun GamePieceCatalogDialog(
                         Button(
                             onClick = {
                                 val updated = current.copy(
-                                    name = name.ifBlank { "Custom Piece" },
+                                    name = name.trim(),
                                     shape = shape,
-                                    diameter = diameter.toDoubleOrNull() ?: 0.15,
-                                    width = diameter.toDoubleOrNull() ?: 0.15,
-                                    height = diameter.toDoubleOrNull() ?: 0.15,
-                                    colorHex = if (colorHex.startsWith("#")) colorHex else "#$colorHex",
-                                    massKg = massKg.toDoubleOrNull() ?: 0.20,
-                                    friction = friction.toDoubleOrNull() ?: 0.6,
-                                    restitution = restitution.toDoubleOrNull() ?: 0.3,
+                                    diameter = requireNotNull(diameterValue),
+                                    width = requireNotNull(diameterValue),
+                                    height = requireNotNull(diameterValue),
+                                    colorHex = normalizedColor.uppercase(),
+                                    massKg = requireNotNull(massValue),
+                                    friction = requireNotNull(frictionValue),
+                                    restitution = requireNotNull(restitutionValue),
                                 )
                                 if (isCreatingNew) {
                                     onTypesChanged(gamePieceTypes + updated)
@@ -318,6 +389,7 @@ fun GamePieceCatalogDialog(
                                 containerColor = AresCyan,
                                 contentColor = AresOnAccent,
                             ),
+                            enabled = canSave,
                             modifier = Modifier.weight(1f),
                         ) {
                             Text("Save Type", fontWeight = FontWeight.Bold)
@@ -342,4 +414,24 @@ fun GamePieceCatalogDialog(
         containerColor = AresBackground,
         shape = RoundedCornerShape(12.dp),
     )
+}
+
+private fun nextGamePieceTypeId(existing: List<GamePieceType>): String {
+    val used = existing.mapTo(mutableSetOf()) { it.id }
+    var index = 1
+    while ("custom-piece-$index" in used) index += 1
+    return "custom-piece-$index"
+}
+
+private fun unitIntervalError(value: Double?, label: String): String? = when {
+    value == null || !value.isFinite() -> "$label must be a number from 0 to 1."
+    value !in 0.0..1.0 -> "$label must stay between 0 and 1."
+    else -> null
+}
+
+private fun GamePieceType.catalogSummary(): String = when (shape) {
+    "box" -> "Box · ${width} × ${height} m · ${massKg} kg"
+    "sphere" -> "Sphere · Ø ${diameter} m · ${massKg} kg"
+    "cylinder" -> "Cylinder · Ø ${diameter} × ${height} m · ${massKg} kg"
+    else -> "Circle · Ø ${diameter} m · ${massKg} kg"
 }

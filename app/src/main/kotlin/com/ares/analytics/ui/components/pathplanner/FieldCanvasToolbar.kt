@@ -161,7 +161,7 @@ fun FieldCanvasToolbar(
                 Box(modifier = Modifier.height(24.dp).width(1.dp).background(AresBorder))
                 val availableTypes = if (gamePieceTypes.isNotEmpty()) gamePieceTypes else FieldDocumentMapper.defaultGamePieceTypes(league)
                 availableTypes.forEach { type ->
-                    val isSel = activeGamePieceType == type.name
+                    val isSel = activeGamePieceType == type.id
                     val parsedColor = remember(type.colorHex) {
                         val clean = type.colorHex.removePrefix("#").trim()
                         val fullHex = if (clean.length == 6) "FF$clean" else clean
@@ -169,7 +169,7 @@ fun FieldCanvasToolbar(
                         Color(intVal)
                     }
                     TextButton(
-                        onClick = { onActiveGamePieceTypeChanged(type.name) },
+                        onClick = { onActiveGamePieceTypeChanged(type.id) },
                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {

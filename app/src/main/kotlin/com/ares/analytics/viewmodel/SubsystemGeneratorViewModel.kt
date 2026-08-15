@@ -881,14 +881,38 @@ class SubsystemGeneratorViewModel(
     fun selectInterlock(id: String?) = _state.update { it.copy(selectedInterlockId = id) }
 
     fun addInterlock() {
-        val current = _state.value.draft?.document ?: return
+        val snapshot = _state.value
+        val current = snapshot.draft?.document ?: return
+        val target = snapshot.documents
+            .asSequence()
+            .filter { it.uid != current.uid }
+            .filter { it.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER }
+            .filter { it.stateFields.isNotEmpty() }
+            .sortedBy { it.displayName.lowercase() }
+            .firstOrNull()
+        if (target == null) {
+            _state.update {
+                it.copy(status = "Add another generated subsystem with state values before creating a cross-mechanism interlock.")
+            }
+            return
+        }
+        val field = target.stateFields.first()
         val id = uniqueId("interlock", current.interlocks.map { it.interlockId })
         val interlock = SubsystemInterlockDocument(
             interlockId = id,
-            targetSubsystemUid = "",
-            targetFieldId = "",
-            comparison = InterlockComparison.LESS_THAN,
+            targetSubsystemUid = target.uid,
+            targetFieldId = field.fieldId,
+            comparison = if (field.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT)) {
+                InterlockComparison.LESS_THAN
+            } else {
+                InterlockComparison.EQUALS_STATE
+            },
             thresholdValue = 0.0,
+            targetStateName = when (field.type) {
+                SubsystemValueType.BOOLEAN -> "false"
+                SubsystemValueType.STRING -> ""
+                else -> null
+            },
             forbiddenZoneDescription = "Prevent mechanism collision",
         )
         edit { it.copy(interlocks = it.interlocks + interlock) }

@@ -23,6 +23,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.DeployExecutionPhase
 import com.ares.analytics.service.DeployExecutionState
+import com.ares.analytics.shared.League
 import com.ares.analytics.ui.theme.AresBackground
 import com.ares.analytics.ui.theme.AresCyan
 import com.ares.analytics.ui.theme.AresError
@@ -49,6 +51,9 @@ import com.ares.analytics.ui.theme.AresTextSecondary
 @Composable
 fun OneClickDeployDialog(
     state: DeployExecutionState,
+    projectPath: String,
+    league: League,
+    onConfirm: () -> Unit,
     onDismiss: () -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -85,12 +90,12 @@ fun OneClickDeployDialog(
                 Text(
                     text = when (state.phase) {
                         DeployExecutionPhase.CONNECTING -> "Connecting to Robot..."
-                        DeployExecutionPhase.BUILDING -> "Compiling Robot Binary..."
-                        DeployExecutionPhase.INSTALLING -> "Flashing Code Over Wi-Fi..."
+                        DeployExecutionPhase.BUILDING -> "Verifying and Building Robot Code..."
+                        DeployExecutionPhase.INSTALLING -> "Installing Robot Code..."
                         DeployExecutionPhase.SUCCEEDED -> "Deployment Complete!"
                         DeployExecutionPhase.FAILED -> "Deployment Failed"
                         DeployExecutionPhase.CANCELED -> "Deployment Canceled"
-                        DeployExecutionPhase.IDLE -> "Deploy to Robot"
+                        DeployExecutionPhase.IDLE -> "Confirm physical robot deployment"
                     },
                     color = AresTextPrimary,
                     fontSize = 16.sp,
@@ -103,8 +108,34 @@ fun OneClickDeployDialog(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                if (state.phase == DeployExecutionPhase.IDLE) {
+                    Text(
+                        text = if (league == League.FTC) {
+                            "ARES will connect only to Control Hub 192.168.43.1:5555, regenerate project plumbing, run FTC and simulator tests, build the APK, install it, and verify the package."
+                        } else {
+                            "ARES will regenerate project plumbing, run the FRC tests and build checks, then deploy through this project's configured RoboRIO target."
+                        },
+                        color = AresTextPrimary,
+                        fontSize = 13.sp,
+                    )
+                    Text(
+                        text = "Project: $projectPath",
+                        color = AresTextSecondary,
+                        fontSize = 12.sp,
+                    )
+                    Text(
+                        text = "This installs code on physical hardware. It does not enable the robot or start an OpMode. Keep the robot safely supported and disabled, then verify the selected program before enabling.",
+                        color = AresError,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
                 Text(
-                    text = state.message,
+                    text = if (state.phase == DeployExecutionPhase.IDLE) {
+                        "Choose Deploy now only when the physical target and project above are correct."
+                    } else {
+                        state.message
+                    },
                     color = AresTextSecondary,
                     fontSize = 13.sp,
                 )
@@ -121,7 +152,7 @@ fun OneClickDeployDialog(
                     )
                 }
 
-                Surface(
+                if (state.phase != DeployExecutionPhase.IDLE) Surface(
                     shape = RoundedCornerShape(6.dp),
                     color = AresBackground,
                     modifier = Modifier.fillMaxWidth(),
@@ -131,17 +162,20 @@ fun OneClickDeployDialog(
                         verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         DeployStepItem(
-                            stepName = "1. Connect over Wi-Fi (ADB 5555 / SSH)",
-                            isDone = state.phase.ordinal > DeployExecutionPhase.CONNECTING.ordinal,
+                            stepName = if (league == League.FTC) "1. Verify the selected Control Hub" else "1. Verify the selected robot project",
+                            isDone = state.phase == DeployExecutionPhase.BUILDING ||
+                                state.phase == DeployExecutionPhase.INSTALLING ||
+                                state.phase == DeployExecutionPhase.SUCCEEDED,
                             isRunning = state.phase == DeployExecutionPhase.CONNECTING,
                         )
                         DeployStepItem(
-                            stepName = "2. Compile robot binary (Gradle wrapper)",
-                            isDone = state.phase.ordinal > DeployExecutionPhase.BUILDING.ordinal,
+                            stepName = "2. Generate, verify, test, and build",
+                            isDone = state.phase == DeployExecutionPhase.INSTALLING ||
+                                state.phase == DeployExecutionPhase.SUCCEEDED,
                             isRunning = state.phase == DeployExecutionPhase.BUILDING,
                         )
                         DeployStepItem(
-                            stepName = "3. Install & launch APK / binary on robot",
+                            stepName = "3. Install and verify robot code",
                             isDone = state.phase == DeployExecutionPhase.SUCCEEDED,
                             isRunning = state.phase == DeployExecutionPhase.INSTALLING,
                         )
@@ -150,7 +184,14 @@ fun OneClickDeployDialog(
             }
         },
         confirmButton = {
-            if (state.phase == DeployExecutionPhase.SUCCEEDED ||
+            if (state.phase == DeployExecutionPhase.IDLE) {
+                Button(
+                    onClick = onConfirm,
+                    colors = ButtonDefaults.buttonColors(containerColor = AresError, contentColor = AresOnAccent),
+                ) {
+                    Text("Deploy now")
+                }
+            } else if (state.phase == DeployExecutionPhase.SUCCEEDED ||
                 state.phase == DeployExecutionPhase.FAILED ||
                 state.phase == DeployExecutionPhase.CANCELED
             ) {
@@ -164,6 +205,11 @@ fun OneClickDeployDialog(
                 OutlinedButton(onClick = onCancel) {
                     Text("Cancel Deploy")
                 }
+            }
+        },
+        dismissButton = {
+            if (state.phase == DeployExecutionPhase.IDLE) {
+                TextButton(onClick = onDismiss) { Text("Not now") }
             }
         },
         containerColor = AresSurface,

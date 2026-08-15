@@ -37,17 +37,22 @@ internal object FieldDocumentMapper {
         image: FieldImageConfig,
         obstacles: List<Obstacle>,
         gamePieces: List<GamePiece>,
+        gamePieceTypes: List<com.ares.analytics.shared.GamePieceType>,
         aprilTags: List<AprilTagPlacement>,
         fieldWaypoints: List<FieldWaypoint>
     ): RobotFieldConfig {
-        val existingTypes = base.elementTypes.associateBy { it.id }.toMutableMap()
-        val typesByName = base.elementTypes.associateBy { it.name.lowercase() }.toMutableMap()
+        require(gamePieceTypes.map { it.id }.distinct().size == gamePieceTypes.size) { "Game-piece catalog IDs must be unique" }
+        require(gamePieceTypes.all { it.id.isNotBlank() && it.name.isNotBlank() }) { "Game-piece catalog IDs and names are required" }
+        val existingTypes = gamePieceTypes.associate { it.id to with(this) { it.toCanonical() } }.toMutableMap()
+        val typesByName = existingTypes.values.associateBy { it.name.lowercase() }.toMutableMap()
         val existingElements = base.elements.associateBy { it.id }
 
         val elements = gamePieces.map { piece ->
             val prior = existingElements[piece.id]
             val priorType = prior?.let { existingTypes[it.elementTypeId] }
-            val type = if (priorType?.name == piece.type) {
+            val type = piece.typeId?.let { typeId ->
+                requireNotNull(existingTypes[typeId]) { "Game piece '${piece.name}' references missing catalog type '$typeId'" }
+            } ?: if (priorType?.name == piece.type) {
                 priorType
             } else {
                 typesByName[piece.type.lowercase()] ?: defaultElementType(piece.type).also {
@@ -139,6 +144,7 @@ internal object FieldDocumentMapper {
                 x = element.x,
                 y = element.y,
                 type = types[element.elementTypeId]?.name ?: element.elementTypeId,
+                typeId = element.elementTypeId,
                 locked = element.locked
             )
         }
