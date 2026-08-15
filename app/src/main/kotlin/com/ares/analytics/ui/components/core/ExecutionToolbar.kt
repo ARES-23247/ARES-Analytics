@@ -40,8 +40,27 @@ fun ExecutionToolbar(
     onRunBuild: () -> Unit,
     onRunSim: () -> Unit,
     onStopAll: () -> Unit,
+    compact: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    var overflowExpanded by remember { mutableStateOf(false) }
+    var targetAddressDialogOpen by remember { mutableStateOf(false) }
+    var editedTargetIp by remember(targetIp) { mutableStateOf(targetIp) }
+    val launchCli: () -> Unit = {
+        val ip = targetIp.trim()
+        val argsStr = if (ip == "127.0.0.1") "" else " --args=\"$ip\""
+        val aresLibDir = listOf(
+            java.io.File("../ARESLib-Kotlin"),
+            java.io.File(System.getProperty("user.home"), "dev/robotics/ares/ARESLib-Kotlin")
+        ).firstOrNull { it.exists() }?.canonicalPath ?: "../ARESLib-Kotlin"
+        val command = """cd /d "$aresLibDir" && .\gradlew.bat :simulator:runFakeController --console=plain""" + argsStr
+        try {
+            ProcessBuilder("cmd.exe", "/c", "start", "cmd.exe", "/k", command).start()
+        } catch (e: Exception) {
+            System.err.println("Failed to launch CLI: ${e.message}")
+        }
+        Unit
+    }
     Row(
         modifier = modifier
             .background(AresSurfaceElevated, RoundedCornerShape(8.dp))
@@ -70,7 +89,7 @@ fun ExecutionToolbar(
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = targetSelection.label,
+                    text = if (compact && targetSelection == TargetSelection.LIVE_ROBOT) "Robot" else targetSelection.label,
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                     color = AresTextPrimary
@@ -83,11 +102,13 @@ fun ExecutionToolbar(
                         .size(8.dp)
                         .background(if (isOnline) AresGreen else AresTextSecondary.copy(alpha = 0.5f), androidx.compose.foundation.shape.CircleShape)
                 )
-                Text(
-                    if (isOnline) "Online" else "Offline",
-                    color = AresTextSecondary,
-                    fontSize = 11.sp,
-                )
+                if (!compact) {
+                    Text(
+                        if (isOnline) "Online" else "Offline",
+                        color = AresTextSecondary,
+                        fontSize = 11.sp,
+                    )
+                }
 
                 Icon(
                     imageVector = Icons.Default.ArrowDropDown,
@@ -166,7 +187,11 @@ fun ExecutionToolbar(
                     )
                 }
                 Spacer(Modifier.width(5.dp))
-                Text(if (isBuildRunning) "Verifying" else "Verify & build", fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                Text(
+                    if (isBuildRunning) "Verifying" else if (compact) "Build" else "Verify & build",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                )
             }
         }
 
@@ -195,56 +220,71 @@ fun ExecutionToolbar(
         VerticalDivider(modifier = Modifier.height(20.dp), color = AresBorder.copy(alpha = 0.5f))
         Spacer(modifier = Modifier.width(4.dp))
 
-        // Target IP input and CLI Driver Launch
-        BasicTextField(
-            value = targetIp,
-            onValueChange = onTargetIpChanged,
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary, fontSize = 12.sp),
-            cursorBrush = SolidColor(AresCyan),
-            modifier = Modifier
-                .width(90.dp)
-                .height(26.dp)
-                .background(AresSurface, RoundedCornerShape(4.dp))
-                .border(1.dp, AresBorder.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
-            decorationBox = { innerTextField ->
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+        if (compact) {
+            Box {
+                IconButton(onClick = { overflowExpanded = true }, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.MoreVert, "Execution options", tint = AresTextPrimary, modifier = Modifier.size(19.dp))
+                }
+                DropdownMenu(
+                    expanded = overflowExpanded,
+                    onDismissRequest = { overflowExpanded = false },
+                    modifier = Modifier.background(AresSurfaceElevated),
                 ) {
-                    innerTextField()
+                    DropdownMenuItem(
+                        text = { Text("Target address: $targetIp", color = AresTextPrimary) },
+                        leadingIcon = { Icon(Icons.Default.SettingsEthernet, null, tint = AresCyan) },
+                        onClick = {
+                            overflowExpanded = false
+                            editedTargetIp = targetIp
+                            targetAddressDialogOpen = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Open CLI driver", color = AresTextPrimary) },
+                        leadingIcon = { Icon(Icons.Default.Keyboard, null, tint = AresCyan) },
+                        onClick = {
+                            overflowExpanded = false
+                            launchCli()
+                        },
+                    )
                 }
             }
-        )
-
-        TooltipBox(
-            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-            tooltip = { PlainTooltip { Text("Launch Interactive CLI Driver Shell") } },
-            state = rememberTooltipState()
-        ) {
-            IconButton(
-                onClick = {
-                    val ip = targetIp.trim()
-                    val argsStr = if (ip == "127.0.0.1") "" else " --args=\"$ip\""
-                    val aresLibDir = listOf(
-                        java.io.File("../ARESLib-Kotlin"),
-                        java.io.File(System.getProperty("user.home"), "dev/robotics/ares/ARESLib-Kotlin")
-                    ).firstOrNull { it.exists() }?.canonicalPath ?: "../ARESLib-Kotlin"
-                    val command = """cd /d "$aresLibDir" && .\gradlew.bat :simulator:runFakeController --console=plain""" + argsStr
-                    try {
-                        ProcessBuilder("cmd.exe", "/c", "start", "cmd.exe", "/k", command).start()
-                    } catch (e: Exception) {
-                        System.err.println("Failed to launch CLI: ${e.message}")
+        } else {
+            // Target IP input and CLI Driver Launch
+            BasicTextField(
+                value = targetIp,
+                onValueChange = onTargetIpChanged,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = AresTextPrimary, fontSize = 12.sp),
+                cursorBrush = SolidColor(AresCyan),
+                modifier = Modifier
+                    .width(90.dp)
+                    .height(26.dp)
+                    .background(AresSurface, RoundedCornerShape(4.dp))
+                    .border(1.dp, AresBorder.copy(alpha = 0.5f), RoundedCornerShape(4.dp)),
+                decorationBox = { innerTextField ->
+                    Row(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        innerTextField()
                     }
-                },
-                modifier = Modifier.size(32.dp)
+                }
+            )
+
+            TooltipBox(
+                positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                tooltip = { PlainTooltip { Text("Launch Interactive CLI Driver Shell") } },
+                state = rememberTooltipState()
             ) {
-                Icon(
-                    imageVector = Icons.Default.Keyboard,
-                    contentDescription = "Launch CLI Driver",
-                    tint = AresCyan,
-                    modifier = Modifier.size(18.dp)
-                )
+                IconButton(onClick = launchCli, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Keyboard,
+                        contentDescription = "Launch CLI Driver",
+                        tint = AresCyan,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
 
@@ -268,5 +308,29 @@ fun ExecutionToolbar(
                 )
             }
         }
+    }
+
+    if (targetAddressDialogOpen) {
+        AlertDialog(
+            onDismissRequest = { targetAddressDialogOpen = false },
+            title = { Text("Live robot address") },
+            text = {
+                OutlinedTextField(
+                    value = editedTargetIp,
+                    onValueChange = { editedTargetIp = it },
+                    label = { Text("IP address or host") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onTargetIpChanged(editedTargetIp.trim())
+                    targetAddressDialogOpen = false
+                }) { Text("Apply") }
+            },
+            dismissButton = {
+                TextButton(onClick = { targetAddressDialogOpen = false }) { Text("Cancel") }
+            },
+        )
     }
 }

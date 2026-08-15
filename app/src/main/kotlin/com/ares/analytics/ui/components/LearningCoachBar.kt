@@ -10,22 +10,27 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -38,7 +43,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.LearningProgressService
-import com.ares.analytics.ui.help.AcademyRuntimeSnapshot
 import com.ares.analytics.ui.help.LearningCheckpointAction
 import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.help.LearningJourneyEvaluator
@@ -52,18 +56,19 @@ import com.ares.analytics.ui.theme.AresTextSecondary
 import kotlinx.coroutines.launch
 
 /**
- * Compact, persistent lesson context for MainScreen. The host owns navigation and process actions;
- * this component never enables, deploys to, or sends motion to a physical robot.
+ * Slide-out lesson context for MainScreen. It overlays the current workspace instead of reserving
+ * vertical space on every screen. The host owns navigation and process actions; this component
+ * never enables, deploys to, or sends motion to a physical robot.
  */
 @Composable
-fun LearningCoachBar(
+fun LearningCoachDrawer(
     progressService: LearningProgressService,
-    runtime: AcademyRuntimeSnapshot,
     onOpenAcademy: (lessonId: String) -> Unit,
     onSelectLocalSimulator: () -> Unit,
     onStartSimulator: () -> Unit,
     onOpenDashboard: () -> Unit,
     onStopSimulator: () -> Unit,
+    onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val progress by progressService.progress.collectAsState()
@@ -72,48 +77,35 @@ fun LearningCoachBar(
     val journey = LearningJourneyEvaluator.lessonState(lesson, progress)
     val checkpoint = journey.currentCheckpoint
 
-    LaunchedEffect(runtime) {
-        progressService.observeRuntime(runtime)
-    }
-
     Surface(
-        modifier = modifier.fillMaxWidth().semantics {
+        modifier = modifier.fillMaxHeight().widthIn(min = 340.dp, max = 440.dp).semantics {
             contentDescription = "Robot Academy coach for ${lesson.title}"
             stateDescription = "${journey.status.label}. ${journey.completedCheckpointCount} of ${lesson.checkpoints.size} checkpoints recorded."
         },
         color = AresSurface,
         border = BorderStroke(1.dp, AresBorder),
-        shape = RoundedCornerShape(10.dp),
+        shape = RoundedCornerShape(topStart = 14.dp, bottomStart = 14.dp),
     ) {
-        BoxWithConstraints {
-            val compact = maxWidth < 760.dp
-            if (compact) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    CoachSummary(lesson.title, journey.status.label, journey.completedCheckpointCount, lesson.checkpoints.size, checkpoint?.title)
-                    CoachActions(checkpoint?.action, lesson.id, onOpenAcademy, onSelectLocalSimulator, onStartSimulator, onOpenDashboard, onStopSimulator) {
-                        scope.launch { progressService.clearActiveLesson() }
-                    }
+        Column(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Robot Academy coach", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, "Close coach", tint = AresTextSecondary)
                 }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    CoachSummary(
-                        lesson.title,
-                        journey.status.label,
-                        journey.completedCheckpointCount,
-                        lesson.checkpoints.size,
-                        checkpoint?.title,
-                        Modifier.weight(1f),
-                    )
-                    CoachActions(checkpoint?.action, lesson.id, onOpenAcademy, onSelectLocalSimulator, onStartSimulator, onOpenDashboard, onStopSimulator) {
-                        scope.launch { progressService.clearActiveLesson() }
-                    }
+            }
+            HorizontalDivider(color = AresBorder)
+            CoachSummary(lesson.title, journey.status.label, journey.completedCheckpointCount, lesson.checkpoints.size, checkpoint?.title)
+            CoachActions(checkpoint?.action, lesson.id, onOpenAcademy, onSelectLocalSimulator, onStartSimulator, onOpenDashboard, onStopSimulator) {
+                scope.launch {
+                    progressService.clearActiveLesson()
+                    onDismiss()
                 }
             }
         }
@@ -189,7 +181,7 @@ private fun CoachActions(
         OutlinedButton(onClick = { onOpenAcademy(lessonId) }) {
             Text(if (action == LearningCheckpointAction.OPEN_LESSON) "View instructions" else "Lesson")
         }
-        OutlinedButton(onClick = onHide) { Text("Hide coach") }
+        OutlinedButton(onClick = onHide) { Text("End lesson") }
     }
 }
 

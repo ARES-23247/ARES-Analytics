@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.AlertDialog
@@ -77,10 +78,11 @@ fun DashboardCommandBar(
     onResetLayout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val controlHeight = if (AresThemeSettings.touchOptimizedMode) 48.dp else 38.dp
+    val controlHeight = if (AresThemeSettings.touchOptimizedMode) 48.dp else 32.dp
     var profileExpanded by remember { mutableStateOf(false) }
     var showSaveDialog by remember { mutableStateOf(false) }
     var layoutName by remember { mutableStateOf("") }
+    var editingMenuExpanded by remember { mutableStateOf(false) }
     val layoutNameValidationError = if (layoutName.isEmpty()) null else layoutProfileNameError(layoutName)
 
     Surface(
@@ -122,7 +124,6 @@ fun DashboardCommandBar(
                         }
                     }
                 }
-                Text(if (isEditing) "Layout editing" else "Operational view", color = if (isEditing) AresCyan else AresTextSecondary)
             }
             val controls: @Composable () -> Unit = {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -154,18 +155,51 @@ fun DashboardCommandBar(
                     }
                 }
             }
-            if (compact) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) { title() }
-                    controls()
-                }
-            } else {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) { title() }
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 3.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) { title() }
+                if (compact && isEditing) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Box {
+                            IconButton(onClick = { editingMenuExpanded = true }, modifier = Modifier.size(controlHeight)) {
+                                Icon(Icons.Default.MoreVert, "Layout actions", tint = AresTextPrimary)
+                            }
+                            DropdownMenu(
+                                expanded = editingMenuExpanded,
+                                onDismissRequest = { editingMenuExpanded = false },
+                                modifier = Modifier.background(AresSurfaceElevated),
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Add widget", color = AresTextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Add, null, tint = AresCyan) },
+                                    onClick = { editingMenuExpanded = false; onAddWidget() },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Save layout as…", color = AresTextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.Save, null, tint = AresTextSecondary) },
+                                    onClick = { editingMenuExpanded = false; showSaveDialog = true },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Reset layout", color = AresTextPrimary) },
+                                    leadingIcon = { Icon(Icons.Default.RestartAlt, null, tint = AresTextSecondary) },
+                                    onClick = { editingMenuExpanded = false; onResetLayout() },
+                                )
+                            }
+                        }
+                        OutlinedButton(onClick = onToggleEditing, modifier = Modifier.height(controlHeight)) {
+                            Icon(Icons.Default.Check, null)
+                            Spacer(Modifier.width(5.dp))
+                            Text("Done")
+                        }
+                    }
+                } else if (compact) {
+                    IconButton(onClick = onToggleEditing, modifier = Modifier.size(controlHeight)) {
+                        Icon(Icons.Default.Edit, "Edit dashboard layout", tint = AresCyan)
+                    }
+                } else {
                     controls()
                 }
             }

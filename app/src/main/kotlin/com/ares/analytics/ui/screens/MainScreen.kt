@@ -28,13 +28,17 @@ import com.ares.analytics.service.MatchInfo
 import com.ares.analytics.service.UpdateCheckerService
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.CommandPalette
-import com.ares.analytics.ui.components.LearningCoachBar
+import com.ares.analytics.ui.components.LearningCoachDrawer
 import com.ares.analytics.ui.components.NavigationTarget
+import com.ares.analytics.ui.components.QuickNavigationMenu
 import com.ares.analytics.ui.components.SectionNavigationBar
 import com.ares.analytics.ui.components.Sidebar
 import com.ares.analytics.ui.components.core.TargetSelection
 import com.ares.analytics.ui.components.core.ExecutionToolbar
 import com.ares.analytics.ui.components.core.OneClickDeployDialog
+import com.ares.analytics.ui.components.dashboard.DashboardCommandBar
+import com.ares.analytics.ui.components.dashboard.DashboardMissionHeader
+import com.ares.analytics.ui.components.dashboard.DashboardMissionSnapshot
 import com.ares.analytics.ui.components.terminal.TerminalDrawer
 import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.help.AcademyRuntimeSnapshot
@@ -89,6 +93,13 @@ fun MainScreen(services: ServiceRegistry) {
     var commandPaletteOpen by remember { mutableStateOf(false) }
     var workspacePendingDeletion by remember { mutableStateOf<Pair<String, String>?>(null) }
     var requestedLessonId by remember { mutableStateOf<String?>(null) }
+    var coachDrawerOpen by remember { mutableStateOf(false) }
+    val learningProgress by services.learningProgressService.progress.collectAsState()
+    val activeCoachLessonId = learningProgress.activeLessonId
+
+    LaunchedEffect(activeCoachLessonId) {
+        if (activeCoachLessonId == null) coachDrawerOpen = false
+    }
 
     // Trigger update check on startup
     LaunchedEffect(Unit) {
@@ -392,6 +403,9 @@ fun MainScreen(services: ServiceRegistry) {
     // This ViewModel owns no independent scope or hardware/service resource. Its jobs run in the
     // screen's Compose scope and are cancelled automatically when MainScreen leaves composition.
     val dashboardState by dashboardViewModel.state.collectAsState()
+    var dashboardMissionSnapshot by remember(currentConfig.id) {
+        mutableStateOf<DashboardMissionSnapshot?>(null)
+    }
     val primarySessionId = dashboardState.primarySessionId
     val compareSessionId = dashboardState.compareSessionId
     val isConnected by services.nt4ClientService.isConnected.collectAsState()
@@ -450,6 +464,13 @@ fun MainScreen(services: ServiceRegistry) {
         isLocalSimulatorOnline = isLocalSimOnline,
         isNt4Connected = isNt4Connected,
     )
+
+    // Lesson evidence keeps updating while the slide-out coach is closed.
+    LaunchedEffect(activeCoachLessonId, academyRuntime) {
+        if (activeCoachLessonId != null) {
+            services.learningProgressService.observeRuntime(academyRuntime)
+        }
+    }
 
     LaunchedEffect(liveRobotIp) {
         services.targetScannerService.startScanning(liveRobotIp)
@@ -577,18 +598,20 @@ fun MainScreen(services: ServiceRegistry) {
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .padding(16.dp)
+                    .padding(10.dp)
             ) {
                 Column(
                     modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
                     // Top header bar with run config info
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val compactShell = maxWidth < 1450.dp
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(if (compactShell) 6.dp else 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                         // Dropdown Selector for active Workspace/Robot configuration
                         var dropdownExpanded by remember { mutableStateOf(false) }
                         Box {
@@ -598,7 +621,7 @@ fun MainScreen(services: ServiceRegistry) {
                                     .clickable { dropdownExpanded = true }
                                     .background(AresSurface)
                                     .border(1.dp, AresBorder, RoundedCornerShape(6.dp))
-                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    .padding(horizontal = if (compactShell) 8.dp else 12.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -614,7 +637,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 )
 
                                 Text(
-                                    text = "${currentConfig.robotId} (Team ${currentConfig.teamId})",
+                                    text = if (compactShell) currentConfig.robotId else "${currentConfig.robotId} (Team ${currentConfig.teamId})",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Bold,
                                     color = AresTextPrimary
@@ -704,11 +727,40 @@ fun MainScreen(services: ServiceRegistry) {
                             }
                         }
 
-                        SectionNavigationBar(
-                            activeTarget = activeNav,
-                            onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) },
-                            modifier = Modifier.weight(1f)
-                        )
+                        val missionSnapshot = dashboardMissionSnapshot
+                        if (activeNav == NavigationTarget.DASHBOARD && missionSnapshot != null) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                DashboardMissionHeader(
+                                    snapshot = missionSnapshot,
+                                    onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) },
+                                    modifier = Modifier.weight(1f),
+                                )
+                                if (dashboardState.currentLayout != null) {
+                                    DashboardCommandBar(
+                                        profileName = dashboardState.currentRoleProfile,
+                                        availableProfiles = dashboardState.availableProfiles,
+                                        isEditing = dashboardState.isLayoutEditing,
+                                        onSelectProfile = { dashboardViewModel.onIntent(DashboardIntent.ChangeProfile(it)) },
+                                        onSaveLayoutAs = { dashboardViewModel.onIntent(DashboardIntent.SaveLayoutAs(it)) },
+                                        onDeleteProfile = { dashboardViewModel.onIntent(DashboardIntent.DeleteLayout(it)) },
+                                        onToggleEditing = { dashboardViewModel.onIntent(DashboardIntent.SetLayoutEditing(!dashboardState.isLayoutEditing)) },
+                                        onAddWidget = { dashboardViewModel.onIntent(DashboardIntent.SetPickerOpen(true)) },
+                                        onResetLayout = { dashboardViewModel.onIntent(DashboardIntent.ResetProfile) },
+                                        modifier = Modifier.widthIn(min = 145.dp, max = 250.dp),
+                                    )
+                                }
+                            }
+                        } else {
+                            SectionNavigationBar(
+                                activeTarget = activeNav,
+                                onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
 
                         ExecutionToolbar(
                             targetSelection = targetSelection,
@@ -734,50 +786,45 @@ fun MainScreen(services: ServiceRegistry) {
                             onStopAll = {
                                 services.processManagerService.killActiveBuild()
                                 services.processManagerService.killActiveSim()
-                            }
+                            },
+                            compact = compactShell,
                         )
 
-                        if (activeNav != NavigationTarget.ACADEMY) LearningCatalog.lessonFor(activeNav)?.let { lesson ->
-                            OutlinedButton(
-                                onClick = {
-                                    requestedLessonId = lesson.id
-                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
+                            QuickNavigationMenu(
+                                onNavigate = { destination ->
+                                    if (destination == NavigationTarget.ACADEMY) requestedLessonId = null
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(destination))
                                 },
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp)
-                            ) {
-                                Icon(Icons.AutoMirrored.Filled.HelpOutline, contentDescription = null, modifier = Modifier.size(17.dp))
-                                Spacer(Modifier.width(5.dp))
-                                Text("Help", fontSize = 12.sp)
+                                compact = compactShell,
+                            )
+
+                            if (activeNav != NavigationTarget.ACADEMY && activeCoachLessonId != null) {
+                                if (compactShell) {
+                                    IconButton(onClick = { coachDrawerOpen = true }, modifier = Modifier.size(36.dp)) {
+                                        Icon(Icons.Default.School, "Open Robot Academy coach", tint = AresCyan, modifier = Modifier.size(18.dp))
+                                    }
+                                } else {
+                                    OutlinedButton(
+                                        onClick = { coachDrawerOpen = true },
+                                        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 7.dp),
+                                    ) {
+                                        Icon(Icons.Default.School, contentDescription = null, modifier = Modifier.size(17.dp))
+                                        Spacer(Modifier.width(5.dp))
+                                        Text("Coach", fontSize = 12.sp)
+                                    }
+                                }
+                            } else if (activeNav != NavigationTarget.ACADEMY) LearningCatalog.lessonFor(activeNav)?.let { lesson ->
+                                IconButton(
+                                    onClick = {
+                                        requestedLessonId = lesson.id
+                                        mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
+                                    },
+                                    modifier = Modifier.size(36.dp),
+                                ) {
+                                    Icon(Icons.AutoMirrored.Filled.HelpOutline, contentDescription = "Help for ${activeNav.label}", modifier = Modifier.size(18.dp))
+                                }
                             }
                         }
-
-                    }
-
-                    if (activeNav != NavigationTarget.ACADEMY) {
-                        LearningCoachBar(
-                            progressService = services.learningProgressService,
-                            runtime = academyRuntime,
-                            onOpenAcademy = { lessonId ->
-                                requestedLessonId = lessonId
-                                mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
-                            },
-                            onSelectLocalSimulator = { targetSelection = TargetSelection.LOCAL_SIM },
-                            onStartSimulator = {
-                                targetSelection = TargetSelection.LOCAL_SIM
-                                services.processManagerService.runSimulation(
-                                    currentConfig.projectPath,
-                                    currentConfig.league,
-                                    currentConfig.simulatorCommand,
-                                )
-                                mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
-                            },
-                            onOpenDashboard = {
-                                mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DASHBOARD))
-                            },
-                            onStopSimulator = {
-                                services.processManagerService.killActiveSim()
-                            },
-                        )
                     }
 
                     // ── Screen Router ────────────────────────────────────────
@@ -809,7 +856,8 @@ fun MainScreen(services: ServiceRegistry) {
                                 onNavigate = { mainViewModel.onIntent(MainIntent.SetActiveNav(it)) },
                                 onOpenKeybindings = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS)) },
                                 onOpenRunHistory = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.RUN_HISTORY)) },
-                                onOpenHelp = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY)) }
+                                onOpenHelp = { mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY)) },
+                                onMissionSnapshotChanged = { dashboardMissionSnapshot = it },
                             )
                             NavigationTarget.PATH_PLANNER -> PathPlannerScreen(
                                 viewModel = pathPlannerViewModel,
@@ -1027,6 +1075,37 @@ fun MainScreen(services: ServiceRegistry) {
                     )
                 }
             }
+        }
+
+        AnimatedVisibility(
+            visible = coachDrawerOpen && activeNav != NavigationTarget.ACADEMY && activeCoachLessonId != null,
+            modifier = Modifier.align(Alignment.CenterEnd).fillMaxHeight().padding(vertical = 8.dp),
+            enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+            exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(),
+        ) {
+            LearningCoachDrawer(
+                progressService = services.learningProgressService,
+                onOpenAcademy = { lessonId ->
+                    coachDrawerOpen = false
+                    requestedLessonId = lessonId
+                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
+                },
+                onSelectLocalSimulator = { targetSelection = TargetSelection.LOCAL_SIM },
+                onStartSimulator = {
+                    targetSelection = TargetSelection.LOCAL_SIM
+                    services.processManagerService.runSimulation(
+                        currentConfig.projectPath,
+                        currentConfig.league,
+                        currentConfig.simulatorCommand,
+                    )
+                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                },
+                onOpenDashboard = {
+                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DASHBOARD))
+                },
+                onStopSimulator = { services.processManagerService.killActiveSim() },
+                onDismiss = { coachDrawerOpen = false },
+            )
         }
 
         if (commandPaletteOpen) {

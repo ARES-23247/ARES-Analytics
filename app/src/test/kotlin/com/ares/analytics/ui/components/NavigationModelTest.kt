@@ -61,4 +61,28 @@ class NavigationModelTest {
         assertTrue(filterNavigationTargets("subsystem", false).contains(NavigationTarget.SUBSYSTEM_GEN))
         assertTrue(filterNavigationTargets("field", false).contains(NavigationTarget.FIELD_EDITOR))
     }
+
+    @Test
+    fun `dense section navigation becomes an explicit menu before tabs are clipped`() {
+        assertEquals(SectionNavigationPresentation.MENU, sectionNavigationPresentation(900f, 9))
+        assertEquals(SectionNavigationPresentation.TABS, sectionNavigationPresentation(1_300f, 9))
+        assertEquals(SectionNavigationPresentation.TABS, sectionNavigationPresentation(420f, 2))
+        assertEquals(SectionNavigationPresentation.TABS, sectionNavigationPresentation(120f, 1))
+    }
+
+    @Test
+    fun `global quick menu keeps the former dashboard shortcuts available everywhere`() {
+        assertEquals(
+            listOf(
+                NavigationTarget.ROBOT_STUDIO,
+                NavigationTarget.ACADEMY,
+                NavigationTarget.PATH_PLANNER,
+                NavigationTarget.RUN_HISTORY,
+                NavigationTarget.IMPORT_CENTER,
+                NavigationTarget.TUNING,
+            ),
+            shellQuickDestinations,
+        )
+        assertEquals(shellQuickDestinations.size, shellQuickDestinations.distinct().size)
+    }
 }
