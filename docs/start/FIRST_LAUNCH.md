@@ -6,7 +6,9 @@ This guide gets one local robot workspace into ARES Analytics. It does not conne
 
 Have these ready:
 
-- JDK 17 installed.
+- JDK 17 or 21 if you plan to build robot code or run the local simulator. The installed desktop app
+  has its own runtime, so you can create a workspace, author projects, import logs, and analyze data
+  before installing robot build tools.
 - Either a local robot project or a parent folder where ARES can create one.
 - Your team number, season, and robot name or ID.
 
@@ -72,7 +74,8 @@ composition is not yet fully GUI-owned; a Hardware Setup review cannot remove th
 ### 4. Ready to finish
 
 1. Read the **Workspace summary**. Use **Back** if the project, robot, team/season, competition, or connection is wrong.
-2. Check the **JDK 17** result. Select **Check** again after fixing Java if necessary.
+2. Review **Robot build tools (optional)**. JDK 17 and 21 are supported. If it is unavailable, you can
+   finish setup now and install a supported JDK before using **Build** or **Local Simulator**.
 3. Select **Create workspace**.
 
 After Dashboard opens, choose **Help & Learn → First mission**. This is the recommended
@@ -91,7 +94,7 @@ Setup is complete when:
 - the main **Dashboard** opens;
 - the workspace selector shows the robot you chose;
 - the execution toolbar offers **Live Robot** and **Local Sim** targets; and
-- no required-field or JDK error remains.
+- no required project or robot-identity error remains.
 
 Setup does not mark a Robot Academy lesson complete. Academy records only observable simulator
 facts automatically; students still identify the data source and explain their evidence themselves.
@@ -102,7 +105,7 @@ The sidebar shows labeled **NT4 on/off** and, for FTC, **ADB on/off** status. Th
 
 | What you see | What to do |
 | --- | --- |
-| **Create workspace** shows **JDK 17 required** | Confirm `java -version` reports JDK 17, then select **Check** again. |
+| **Robot build tools** needs attention | You may create the workspace and use local analysis now. Before building or simulating, install JDK 17 or 21, set `JAVA_HOME`, then select **Recheck**. |
 | “Choose a folder that contains your robot project” | Browse to `ARES-FTC` or `ARES-FRC`, not their parent folder. |
 | The wrong competition was detected | Select the correct **Competition** (**FTC** or **FRC**) before creating the workspace, and tell a mentor if the project lacks or misstates `.ares-robot.json`. |
 | A team, season, or robot field is rejected | Use short, non-empty identifiers. Do not substitute a robot's IP address for its ID. |

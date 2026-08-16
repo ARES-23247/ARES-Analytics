@@ -4,7 +4,8 @@ This guide runs a small, offline-first Robot Academy pilot before a team adopts 
 
 ## Prepare once
 
-1. Install JDK 17 and launch ARES Analytics.
+1. Launch ARES Analytics. Install JDK 17 or 21 on computers that will build a robot project or run
+   Local Simulator; imported-run and analysis lessons can begin without external Java build tools.
 2. Open **Help & Learn → Classroom & mentor toolkit**.
 3. Select the intended workspace, or choose **Create practice workspace**. ARES opens first-run setup directly in **Create new** mode, downloads a hash-pinned official FTC or FRC starter, and caches the verified archive for later offline reuse.
 4. Select **Install & import practice runs**. ARES asks for confirmation, then adds:

@@ -32,7 +32,6 @@ data class OnboardingFieldErrors(
     val teamId: String? = null,
     val seasonId: String? = null,
     val robotId: String? = null,
-    val java: String? = null,
 ) {
     val hasRequiredFieldErrors: Boolean
         get() = projectPath != null || teamId != null || seasonId != null || robotId != null
@@ -56,7 +55,7 @@ data class OnboardingState(
     val nt4Host: String = "192.168.43.1",
     val isVerifyingJava: Boolean = false,
     val javaEnvValid: Boolean? = null,
-    val javaEnvMsg: String = "JDK 17 has not been checked yet.",
+    val javaEnvMsg: String = "Robot build tools have not been checked yet.",
     val javaMajorVersion: Int? = null,
     val isSaving: Boolean = false,
     val saveSuccess: Boolean = false,
@@ -209,7 +208,7 @@ class OnboardingViewModel(
                 OnboardingIntent.PreviousStep -> _state.update {
                     it.copy(currentStep = OnboardingStep.entries[(it.currentStep.ordinal - 1).coerceAtLeast(0)], errorMessage = null)
                 }
-                OnboardingIntent.VerifyJava -> verifyJava17()
+                OnboardingIntent.VerifyJava -> verifyJavaBuildTools()
                 OnboardingIntent.SubmitConfig -> submitConfig()
             }
         }
@@ -285,27 +284,24 @@ class OnboardingViewModel(
         _state.update { it.copy(currentStep = next, fieldErrors = errors, errorMessage = null) }
     }
 
-    private suspend fun verifyJava17() {
-        _state.update { it.copy(isVerifyingJava = true, fieldErrors = it.fieldErrors.copy(java = null)) }
+    private suspend fun verifyJavaBuildTools() {
+        _state.update { it.copy(isVerifyingJava = true) }
         val result = environmentService.verifyJavaEnvironment()
-        val javaReadiness = evaluateJava17(result.isValid, result.message)
+        val javaReadiness = evaluateJavaBuildTools(result.isValid, result.message)
         _state.update {
             it.copy(
                 isVerifyingJava = false,
                 javaEnvValid = javaReadiness.isValid,
                 javaEnvMsg = javaReadiness.message,
                 javaMajorVersion = javaReadiness.majorVersion,
-                fieldErrors = it.fieldErrors.copy(java = javaReadiness.message.takeUnless { javaReadiness.isValid }),
             )
         }
     }
 
     private suspend fun submitConfig() {
         var current = _state.value
-        val errors = validateOnboardingFields(current, OnboardingStep.REVIEW).copy(
-            java = current.javaEnvMsg.takeUnless { current.javaEnvValid == true },
-        )
-        if (errors.hasRequiredFieldErrors || errors.java != null) {
+        val errors = validateOnboardingCompletion(current)
+        if (errors.hasRequiredFieldErrors) {
             _state.update {
                 it.copy(
                     currentStep = if (errors.hasRequiredFieldErrors) {
@@ -420,32 +416,36 @@ private fun plannedProjectPath(state: OnboardingState): String {
     return if (parent.isBlank() || name.isBlank()) "" else File(parent, name).path
 }
 
-internal data class Java17Readiness(
+internal data class JavaBuildToolsReadiness(
     val isValid: Boolean,
     val majorVersion: Int?,
     val message: String,
 )
 
-internal fun evaluateJava17(commandSucceeded: Boolean, rawMessage: String): Java17Readiness {
+internal fun evaluateJavaBuildTools(commandSucceeded: Boolean, rawMessage: String): JavaBuildToolsReadiness {
     if (!commandSucceeded) {
-        return Java17Readiness(
+        return JavaBuildToolsReadiness(
             isValid = false,
             majorVersion = null,
-            message = "JDK 17 is required. Java could not be started. Set JAVA_HOME to a JDK 17 installation, then check again.",
+            message = "ARES Analytics is ready. Robot builds and simulation need JDK 17 or 21, but Java could not be started. Set JAVA_HOME when you are ready to build.",
         )
     }
     val major = parseJavaMajorVersion(rawMessage)
     return when (major) {
-        17 -> Java17Readiness(true, 17, "JDK 17 is ready.")
-        null -> Java17Readiness(
+        17, 21 -> JavaBuildToolsReadiness(
+            true,
+            major,
+            "JDK $major is ready for robot builds and simulation.",
+        )
+        null -> JavaBuildToolsReadiness(
             false,
             null,
-            "JDK 17 is required, but the installed Java version could not be identified. Set JAVA_HOME to a JDK 17 installation, then check again.",
+            "ARES Analytics is ready, but the Java version could not be identified. Install JDK 17 or 21 and set JAVA_HOME before building or simulating a robot.",
         )
-        else -> Java17Readiness(
+        else -> JavaBuildToolsReadiness(
             false,
             major,
-            "JDK 17 is required. We found Java $major. Set JAVA_HOME to a JDK 17 installation, then check again.",
+            "ARES Analytics is ready, but robot builds and simulation need JDK 17 or 21. We found Java $major. Set JAVA_HOME to a supported JDK.",
         )
     }
 }
@@ -506,3 +506,7 @@ internal fun validateOnboardingFields(
         },
     )
 }
+
+/** Build-tool readiness is advisory; local analysis and workspace authoring remain available without a supported JDK. */
+internal fun validateOnboardingCompletion(state: OnboardingState): OnboardingFieldErrors =
+    validateOnboardingFields(state, OnboardingStep.REVIEW)

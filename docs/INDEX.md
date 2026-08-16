@@ -8,7 +8,7 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 
 | I want to... | Start with | What you will use |
 | --- | --- | --- |
-| Open ARES Analytics for the first time | [First launch](start/FIRST_LAUNCH.md) | A local robot workspace and JDK 17 |
+| Open ARES Analytics for the first time | [First launch](start/FIRST_LAUNCH.md) | A local robot workspace; JDK 17 or 21 is optional until build/simulation |
 | Create a buildable simulation project without code | [Create a robot project](start/CREATE_ROBOT_PROJECT.md) | A parent folder and one initial internet connection |
 | Compare canonical addresses with a physical robot | [Hardware Setup](start/HARDWARE_SETUP.md) | The robot wiring/configuration and a supervised review |
 | Understand ARES colors, logo, and product styling | [ARES product design system](DESIGN_SYSTEM.md) | None |

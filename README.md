@@ -167,7 +167,7 @@ the secret to a desktop build.
 ## Documentation
 
 - [Documentation index](docs/INDEX.md) - novice-first map of live robot, simulator, replay, cloud, and task guides
-- [First launch](docs/start/FIRST_LAUNCH.md) - create a local robot workspace and verify JDK 17
+- [First launch](docs/start/FIRST_LAUNCH.md) - create a local robot workspace and optionally verify JDK 17 or 21 for build/simulation
 - [App tour](docs/start/APP_TOUR.md) - find screens, targets, status language, and contextual help
 - [Connect the simulator](docs/start/CONNECT_SIMULATOR.md) - launch Local Sim, confirm live telemetry, and recover safely
 - [Bring in a run](docs/operate/BRING_IN_A_RUN.md) - collect, verify, quarantine, and replay completed logs
