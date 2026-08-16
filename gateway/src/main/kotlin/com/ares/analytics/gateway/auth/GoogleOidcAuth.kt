@@ -105,9 +105,3 @@ fun AuthenticationConfig.googleOidc(
 ) {
     register(GoogleOidcAuthenticationProvider(GoogleOidcAuthenticationProvider.Config(name).apply(configure)))
 }
-
-fun Application.installGoogleOidcAuthentication() {
-    install(Authentication) {
-        googleOidc("google")
-    }
-}

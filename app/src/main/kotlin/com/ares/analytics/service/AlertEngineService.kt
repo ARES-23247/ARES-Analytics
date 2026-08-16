@@ -51,7 +51,7 @@ import javax.sound.sampled.AudioSystem
  * - **Loop Latency ($t_{\text{loop}}$):** Milliseconds ($ms$)
  * - **Control Flow:** Zero nested `if` statements enforced via clean, argument-less `when` expressions.
  *
- * @param databaseService SQLite persistent logging service for historical run analytics.
+ * @param databaseService DuckDB persistent logging service for historical run analytics.
  * @param nt4ClientService Active NetworkTables NT4 websocket streaming client.
  * @param thresholdsPath File path to persistent JSON threshold configuration file.
  * @see Nt4ClientService

@@ -32,7 +32,7 @@ import io.ktor.client.engine.okhttp.OkHttp
  * - **Backpressure:** bounded lossless buffers suspend the WebSocket reader when consumers or persistence fall behind.
  * - **Thread Safety:** Fully thread-safe state management via `ConcurrentHashMap` and atomic volatile references.
  *
- * @param databaseService SQLite log persistence engine for historical telemetry recording.
+ * @param databaseService DuckDB log persistence engine for historical telemetry recording.
  * @see TelemetryFrame
  * @see DatabaseService
  */
@@ -89,6 +89,7 @@ open class Nt4ClientService(
     val isReplayActive = MutableStateFlow(false)
     private val connectionAttempts = java.util.concurrent.atomic.AtomicLong()
     private val successfulConnections = java.util.concurrent.atomic.AtomicLong()
+    internal val malformedTextFrameCount = java.util.concurrent.atomic.AtomicLong()
 
     fun connectionMetrics(): Nt4ConnectionMetrics = Nt4ConnectionMetrics(
         attempts = connectionAttempts.get(),
@@ -251,7 +252,7 @@ open class Nt4ClientService(
                 this@Nt4ClientService.serverIp = activeHost
                 try {
                     connectionAttempts.incrementAndGet()
-                    val activeEngine = if (activeHost == "127.0.0.1" || activeHost == "localhost") "CIO" else "OkHttp"
+                    val activeEngine = "OkHttp"
                     println("[Nt4ClientService] Attempting to connect to $url (engine=$activeEngine)")
                     clientFor(activeHost).webSocket(
                         method = HttpMethod.Get,
@@ -663,7 +664,13 @@ open class Nt4ClientService(
                 }
             }
         } catch (e: Exception) {
-            // Ignore malformed frames
+            val rejectedCount = malformedTextFrameCount.incrementAndGet()
+            if (rejectedCount == 1L || rejectedCount % MALFORMED_TEXT_LOG_INTERVAL == 0L) {
+                println(
+                    "[Nt4ClientService] Rejected malformed text frame " +
+                        "(count=$rejectedCount, error=${e::class.java.simpleName})"
+                )
+            }
         }
     }
 
@@ -983,6 +990,7 @@ open class Nt4ClientService(
         private const val MAX_STRING_BYTES = 65_536
         private const val MAX_TEXT_FRAME_CHARS = 1_048_576
         private const val MAX_TEXT_FRAME_MESSAGES = 1_024
+        private const val MALFORMED_TEXT_LOG_INTERVAL = 100L
         private const val INITIAL_RETRY_DELAY_MS = 1_000L
         private const val MAX_RETRY_DELAY_MS = 10_000L
         private const val HEALTHY_CONNECTION_MS = 10_000L

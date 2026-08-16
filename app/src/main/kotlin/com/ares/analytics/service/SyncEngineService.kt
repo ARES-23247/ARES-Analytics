@@ -1153,21 +1153,13 @@ class SyncEngineService(
             return@withContext "I was unable to formulate a SQL query to extract the data. Details: $sanitizedJson"
         }
 
-        // C3 Fix: Strictly validate that generated SQL is a read-only SELECT or WITH statement
-        val normalizedSql = sqlQuery.trim().trimEnd(';').uppercase()
-        val isReadOnly = (normalizedSql.startsWith("SELECT") || normalizedSql.startsWith("WITH"))
-        val dangerousKeywords = listOf("DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "CREATE", "ATTACH", "INSTALL", "PRAGMA", "COPY", "TRUNCATE", "EXECUTE", "CALL", "VACUUM")
-        val hasDangerousKeyword = dangerousKeywords.any { keyword ->
-            Regex("\\b$keyword\\b").containsMatchIn(normalizedSql)
-        }
-        if (!isReadOnly || hasDangerousKeyword) {
-            return@withContext "Security Error: The generated query contains disallowed modification statements or non-SELECT clauses and was blocked."
-        }
-
         val queryResult = try {
-            // AI output is untrusted even when it starts with SELECT: DuckDB read-only queries can
-            // otherwise invoke table functions that read local files or remote URLs.
+            // AiSqlQueryGuard tokenizes the complete statement, restricts tables/functions, and
+            // rejects file/URL table functions. Keep one authoritative policy instead of a
+            // keyword regex that can disagree on comments, literals, or WITH clauses.
             databaseService.executeAiQuery(sqlQuery)
+        } catch (e: IllegalArgumentException) {
+            return@withContext "Security Error: ${e.message ?: "The generated query was blocked."}"
         } catch (e: Exception) {
             return@withContext "Failed to execute generated SQL query:\n```sql\n$sqlQuery\n```\nError: ${e.message}"
         }

@@ -172,7 +172,7 @@ class Nt4ClientServiceTest {
         // Verify that malformed JSON payloads do not propagate errors or crash the service
         nt4ClientService.handleIncomingText("{invalid_json", "team-1", "season-1", "robot-1")
         nt4ClientService.handleIncomingText("[{method: 'non-existing'}]", "team-1", "season-1", "robot-1")
-        assertTrue(true) // Reached here without exception
+        assertEquals(2L, nt4ClientService.malformedTextFrameCount.get())
     }
 
     @Test

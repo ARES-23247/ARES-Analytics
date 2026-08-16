@@ -7,16 +7,44 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.sql.Statement
 import java.sql.Connection
 import java.sql.DriverManager
+
+internal data class DuckDbResourceSettings(
+    val memoryLimit: String,
+    val workerThreads: Int,
+)
+
+/** Resolves validated DuckDB caps without opening a database, allowing deterministic tests. */
+internal fun resolveDuckDbResourceSettings(
+    requestedMemoryLimit: String?,
+    requestedWorkerThreads: Int?,
+    maxJvmMemoryBytes: Long,
+    availableProcessors: Int,
+): DuckDbResourceSettings {
+    val memoryLimit = requestedMemoryLimit?.trim()?.uppercase()?.also { configured ->
+        require(configured.matches(Regex("[1-9][0-9]*(KB|MB|GB)"))) {
+            "DuckDB memory limit must use a positive KB, MB, or GB value"
+        }
+    } ?: run {
+        val adaptiveMegabytes = (maxJvmMemoryBytes / (4L * 1024L * 1024L)).coerceIn(256L, 768L)
+        "${adaptiveMegabytes}MB"
+    }
+    val workerThreads = requestedWorkerThreads
+        ?: (availableProcessors.coerceAtLeast(1) / 2).coerceIn(1, 4)
+    require(workerThreads in 1..64) { "DuckDB worker thread count must be in 1..64" }
+    return DuckDbResourceSettings(memoryLimit, workerThreads)
+}
 
 /**
  * High-level embedded relational database service wrapping the DuckDB C++ engine over JDBC.
@@ -40,7 +68,20 @@ import java.sql.DriverManager
  * @see MatchLogRepository
  * @see DatabaseBackupExporter
  */
-class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb") : TelemetryAnalyticsRepository {
+class DatabaseService(
+    val dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb",
+    duckDbMemoryLimit: String? = null,
+    duckDbWorkerThreads: Int? = null,
+) : TelemetryAnalyticsRepository {
+
+    internal val duckDbResourceSettings = resolveDuckDbResourceSettings(
+        requestedMemoryLimit = duckDbMemoryLimit
+            ?: System.getProperty(DUCKDB_MEMORY_LIMIT_PROPERTY)
+            ?: System.getenv(DUCKDB_MEMORY_LIMIT_ENV),
+        requestedWorkerThreads = duckDbWorkerThreads ?: configuredDuckDbWorkerThreads(),
+        maxJvmMemoryBytes = Runtime.getRuntime().maxMemory(),
+        availableProcessors = Runtime.getRuntime().availableProcessors(),
+    )
 
     private val conn: Connection
     private val readConn: Connection
@@ -83,8 +124,8 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
         val tmpDirFile = File(appDataDir, "duckdb_tmp")
         tmpDirFile.mkdirs()
         conn.createStatement().use { st ->
-            st.execute("SET memory_limit='1GB'")
-            st.execute("SET threads=4")
+            st.execute("SET memory_limit='${duckDbResourceSettings.memoryLimit}'")
+            st.execute("SET threads=${duckDbResourceSettings.workerThreads}")
             val safeTmpDir = tmpDirFile.absolutePath.replace("\\", "/").replace("'", "''")
             st.execute("SET temp_directory='$safeTmpDir'")
             st.execute("INSTALL parquet;")
@@ -93,8 +134,8 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
 
         ephemeralConn = DriverManager.getConnection("jdbc:duckdb:")
         ephemeralConn.createStatement().use { st ->
-            st.execute("SET memory_limit='1GB'")
-            st.execute("SET threads=4")
+            st.execute("SET memory_limit='${duckDbResourceSettings.memoryLimit}'")
+            st.execute("SET threads=${duckDbResourceSettings.workerThreads}")
         }
         ephemeralReadConn = ephemeralConn.unwrap(org.duckdb.DuckDBConnection::class.java).duplicate()
 
@@ -209,20 +250,39 @@ class DatabaseService(val dbPath: String = System.getProperty("user.home") + "/.
     suspend fun exportSessionsToZip(sessionIds: List<String>, file: File) =
         backupExporter.exportSessionsToZip(sessionIds, file)
 
-    fun close() = runBlocking {
+    /** Coroutine-aware teardown used by production shutdown paths. */
+    suspend fun closeAndJoin() {
         // Stop the periodic checkpoint timer first so it can't fire mid-teardown.
         checkpointScope.cancel()
-        dbMutex.withLock {
-            matchLogRepo.dispose()
-            if (!conn.isClosed) { conn.close() }
-            if (!readConn.isClosed) { readConn.close() }
-            if (!ephemeralReadConn.isClosed) { ephemeralReadConn.close() }
-            if (!ephemeralConn.isClosed) { ephemeralConn.close() }
+        checkpointJob.cancelAndJoin()
+        withContext(Dispatchers.IO) {
+            dbMutex.withLock {
+                matchLogRepo.dispose()
+                if (!conn.isClosed) { conn.close() }
+                if (!readConn.isClosed) { readConn.close() }
+                if (!ephemeralReadConn.isClosed) { ephemeralReadConn.close() }
+                if (!ephemeralConn.isClosed) { ephemeralConn.close() }
+            }
         }
     }
+
+    /** Blocking compatibility bridge for non-coroutine owners and existing test fixtures. */
+    fun close() = runBlocking { closeAndJoin() }
 
     companion object {
         /** Periodic CHECKPOINT cadence (ms). */
         private const val CHECKPOINT_INTERVAL_MS = 60_000L
+        private const val DUCKDB_MEMORY_LIMIT_PROPERTY = "ares.analytics.duckdb.memoryLimit"
+        private const val DUCKDB_WORKER_THREADS_PROPERTY = "ares.analytics.duckdb.threads"
+        private const val DUCKDB_MEMORY_LIMIT_ENV = "ARES_DUCKDB_MEMORY_LIMIT"
+        private const val DUCKDB_WORKER_THREADS_ENV = "ARES_DUCKDB_THREADS"
+
+        private fun configuredDuckDbWorkerThreads(): Int? {
+            val configured = System.getProperty(DUCKDB_WORKER_THREADS_PROPERTY)
+                ?: System.getenv(DUCKDB_WORKER_THREADS_ENV)
+                ?: return null
+            return configured.toIntOrNull()
+                ?: throw IllegalArgumentException("DuckDB worker thread override must be an integer")
+        }
     }
 }

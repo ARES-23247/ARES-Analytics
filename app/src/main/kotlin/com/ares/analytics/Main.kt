@@ -1,7 +1,11 @@
 package com.ares.analytics
 
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -10,6 +14,9 @@ import com.ares.analytics.di.ServiceRegistry
 import com.ares.analytics.ui.theme.AresTheme
 import com.ares.analytics.ui.screens.MainScreen
 import com.ares.analytics.ui.theme.rememberAresLogoPainter
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.system.exitProcess
 
 /** Starts the single-instance Compose desktop application and owns process-level cleanup. */
@@ -78,15 +85,22 @@ private fun launchDesktopApplication() {
             height = 900.dp
         )
         val services = remember { ServiceRegistry() }
+        val shutdownScope = rememberCoroutineScope()
+        var shutdownStarted by remember { mutableStateOf(false) }
 
         Window(
             onCloseRequest = {
-                try {
-                    services.dispose()
-                } catch (e: Throwable) {
-                    e.printStackTrace()
+                if (!shutdownStarted) {
+                    shutdownStarted = true
+                    shutdownScope.launch {
+                        try {
+                            withContext(Dispatchers.IO) { services.disposeAndJoin() }
+                        } catch (e: Throwable) {
+                            e.printStackTrace()
+                        }
+                        exitApplication()
+                    }
                 }
-                exitApplication()
             },
             title = "ARES Analytics — Mission Control",
             state = windowState,
