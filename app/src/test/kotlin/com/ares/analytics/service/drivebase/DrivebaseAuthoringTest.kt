@@ -3,6 +3,7 @@ package com.ares.analytics.service.drivebase
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.drivebase.DriveLabState
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderIntent
+import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderStep
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
 import com.ares.analytics.viewmodel.drivebase.DrivebaseDiscardAction
 import com.ares.analytics.viewmodel.drivebase.evaluateDriveLab
@@ -271,6 +272,35 @@ class DrivebaseAuthoringTest {
     }
 
     @Test
+    fun `FTC short motor IDs retain all four physical corner roles`() {
+        val template = canonicalTemplate("team", DrivebaseKind.FTC_MECANUM)
+        val canonical = template.copy(
+            components = template.components.map { component ->
+                if (component.role == com.areslib.drivetrain.DrivetrainComponentRole.DRIVE_MOTOR) {
+                    component.copy(uid = "ftc.motor.${component.hardwareId}")
+                } else {
+                    component
+                }
+            },
+        )
+
+        val draft = canonical.toUiDrivebase()
+
+        assertEquals(
+            listOf(
+                DriveHardwareRole.FRONT_LEFT_DRIVE,
+                DriveHardwareRole.FRONT_RIGHT_DRIVE,
+                DriveHardwareRole.REAR_LEFT_DRIVE,
+                DriveHardwareRole.REAR_RIGHT_DRIVE,
+            ),
+            listOf("fl", "fr", "rl", "rr").map { hardwareId ->
+                draft.hardware.single { it.hardwareName == hardwareId }.role
+            },
+        )
+        assertEquals(listOf("fl", "fr", "rl", "rr"), draft.cornerDriveHardware().map { it?.hardwareName })
+    }
+
+    @Test
     fun `CTRE import fails closed for every critical field group`() {
         val fixture = liveTunerConstants().readText()
         val mutations = mapOf(
@@ -353,6 +383,36 @@ class DrivebaseAuthoringTest {
             assertEquals(0.36, viewModel.state.value.draft.geometry.trackWidthMeters, 1e-9)
         } finally {
             viewModelScope.cancel()
+        }
+    }
+
+    @Test
+    fun `unchanged and reverted drafts do not enter an empty save review`() = runBlocking {
+        val root = Files.createTempDirectory("ares-drivebase-noop-review").toFile()
+        DrivebaseProjectRepository().saveReviewed(root.path, null, defaultDrivebase("team", DrivebaseKind.FTC_MECANUM))
+        val viewModelScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val viewModel = DrivebaseBuilderViewModel(root.path, "team", League.FTC, viewModelScope)
+        try {
+            withTimeout(5_000) { viewModel.state.first { !it.loading } }
+            val savedGeometry = viewModel.state.value.draft.geometry
+
+            viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(savedGeometry))
+            assertFalse(viewModel.state.value.dirty)
+
+            viewModel.onIntent(
+                DrivebaseBuilderIntent.UpdateGeometry(savedGeometry.copy(trackWidthMeters = 0.42)),
+            )
+            assertTrue(viewModel.state.value.dirty)
+            viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(savedGeometry))
+            assertFalse(viewModel.state.value.dirty)
+
+            viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave)
+            assertEquals(DrivebaseBuilderStep.REVIEW, viewModel.state.value.step)
+            assertEquals(null, viewModel.state.value.saveReview)
+            assertTrue(viewModel.state.value.status.contains("already matches"))
+        } finally {
+            viewModelScope.cancel()
+            root.deleteRecursively()
         }
     }
 

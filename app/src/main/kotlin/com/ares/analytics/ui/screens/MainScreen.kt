@@ -1083,7 +1083,13 @@ fun MainScreen(services: ServiceRegistry) {
                             )
                             NavigationTarget.SUBSYSTEM_GEN -> SubsystemGeneratorScreen(subsystemGeneratorViewModel)
                             NavigationTarget.SUPERSTRUCTURE_STUDIO -> SuperstructureStudioScreen(superstructureStudioViewModel)
-                            NavigationTarget.DRIVEBASE_BUILDER -> DrivebaseBuilderScreen(drivebaseBuilderViewModel)
+                            NavigationTarget.DRIVEBASE_BUILDER -> DrivebaseBuilderScreen(
+                                viewModel = drivebaseBuilderViewModel,
+                                onBackToStudio = {
+                                    robotStudioViewModel.refresh()
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ROBOT_STUDIO))
+                                },
+                            )
                             NavigationTarget.HARDWARE_SETUP -> HardwareSetupScreen(
                                 viewModel = hardwareSetupViewModel,
                                 onOpenDrivebase = {

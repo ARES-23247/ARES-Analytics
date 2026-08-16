@@ -215,6 +215,17 @@ fun diffDrivebase(before: DrivebaseDocument?, after: DrivebaseDocument): List<Dr
     change("calibrations", before.calibrations, after.calibrations)
 }
 
+/** Wheel or module drive devices in physical front-left, front-right, rear-left, rear-right order. */
+fun DrivebaseDocument.cornerDriveHardware(): List<DriveHardwareDeclaration?> {
+    val rolesByCorner = listOf(
+        setOf(DriveHardwareRole.FRONT_LEFT, DriveHardwareRole.FRONT_LEFT_DRIVE),
+        setOf(DriveHardwareRole.FRONT_RIGHT, DriveHardwareRole.FRONT_RIGHT_DRIVE),
+        setOf(DriveHardwareRole.REAR_LEFT, DriveHardwareRole.REAR_LEFT_DRIVE),
+        setOf(DriveHardwareRole.REAR_RIGHT, DriveHardwareRole.REAR_RIGHT_DRIVE),
+    )
+    return rolesByCorner.map { roles -> hardware.firstOrNull { it.role in roles } }
+}
+
 /** Lossless UI projection: all canonical fields survive in [DrivebaseDocument.canonical]. */
 fun DrivetrainDocument.toUiDrivebase(): DrivebaseDocument = DrivebaseDocument(
     schemaVersion = schemaVersion,
@@ -362,16 +373,20 @@ fun DrivebaseDocument.toCanonicalDrivebase(): DrivetrainDocument {
 
 private fun DrivetrainComponentDocument.toUiRole(kind: DrivetrainKind): DriveHardwareRole {
     val directLeaderUid = leaderUid
+    val normalizedUid = uid.lowercase()
+    val normalizedHardwareId = hardwareId.lowercase()
+    fun isCorner(longName: String, shortName: String): Boolean =
+        longName in normalizedUid || normalizedUid.endsWith(".$shortName") || normalizedHardwareId == shortName
     return when (role) {
     DrivetrainComponentRole.DRIVE_MOTOR -> when {
         directLeaderUid != null && directLeaderUid.contains("left") -> DriveHardwareRole.LEFT_FOLLOWER
         directLeaderUid != null && directLeaderUid.contains("right") -> DriveHardwareRole.RIGHT_FOLLOWER
         kind == DrivetrainKind.DIFFERENTIAL && uid.contains("left") -> DriveHardwareRole.LEFT_LEADER
         kind == DrivetrainKind.DIFFERENTIAL && uid.contains("right") -> DriveHardwareRole.RIGHT_LEADER
-        uid.contains("front-left") -> DriveHardwareRole.FRONT_LEFT_DRIVE
-        uid.contains("front-right") -> DriveHardwareRole.FRONT_RIGHT_DRIVE
-        uid.contains("rear-left") -> DriveHardwareRole.REAR_LEFT_DRIVE
-        uid.contains("rear-right") -> DriveHardwareRole.REAR_RIGHT_DRIVE
+        isCorner("front-left", "fl") -> DriveHardwareRole.FRONT_LEFT_DRIVE
+        isCorner("front-right", "fr") -> DriveHardwareRole.FRONT_RIGHT_DRIVE
+        isCorner("rear-left", "rl") -> DriveHardwareRole.REAR_LEFT_DRIVE
+        isCorner("rear-right", "rr") -> DriveHardwareRole.REAR_RIGHT_DRIVE
         else -> DriveHardwareRole.DRIVE_MOTOR
     }
     DrivetrainComponentRole.STEER_MOTOR -> when {
