@@ -15,7 +15,7 @@ permissions:
 
 env:
   ARES_VERSION: 6.2.0
-  ARESLIB_VALIDATION_REF: 74eefd08dca747b1feda60d9d67ac564bd48aa7b
+  ARESLIB_VALIDATION_REF: 02d5c2de23007ec7b3d3be6b2d20906e2b23d5c5
   ARES_VALIDATION_REPOSITORY: file://${{ github.workspace }}/ARESLib-Kotlin/build/release-repository
 
 concurrency:
