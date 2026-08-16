@@ -22,9 +22,14 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
+import java.nio.file.CopyOption
+import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
@@ -116,6 +121,9 @@ class RobotProjectTemplateService(
     templates: List<RobotProjectTemplate> = OFFICIAL_PROJECT_TEMPLATES,
     private val archiveDownloader: (RobotProjectTemplate, File) -> Unit = ::downloadArchive,
     private val androidSdkLocator: () -> File? = ::locateAndroidSdk,
+    private val projectPublisher: (Path, Path) -> Unit = { staging, destination ->
+        publishProjectDirectory(staging, destination)
+    },
 ) {
     private val templatesByLeague = templates.associateBy(RobotProjectTemplate::league)
 
@@ -136,7 +144,9 @@ class RobotProjectTemplateService(
                 if (canonicalDestination == null || canonicalDestination.parentFile != parent) {
                     add("The project folder must be a direct child of the selected parent folder.")
                 }
-                if (destination.exists()) add("A file or folder already exists at ${destination.path}.")
+                if (Files.exists(destination.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                    add("A file or folder already exists at ${destination.path}.")
+                }
             }
         }
         return RobotProjectCreationPlan(template, destination, issues.distinct())
@@ -164,9 +174,11 @@ class RobotProjectTemplateService(
             personalizeProject(staging, request, initialPlan.template)
 
             ProjectLayout.validationError(staging.path, request.league)?.let { validationError -> error(validationError) }
-            check(!destination.exists()) { "The destination appeared while the project was being created; nothing was replaced." }
+            check(!Files.exists(destination.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                "The destination appeared while the project was being created; nothing was replaced."
+            }
             onProgress("Publishing the completed project…")
-            Files.move(staging.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE)
+            projectPublisher(staging.toPath(), destination.toPath())
             published = true
             onProgress("Project created. ARES can now open Robot Studio and the simulator.")
             RobotProjectCreationResult(destination, initialPlan.template, source)
@@ -519,6 +531,85 @@ class RobotProjectTemplateService(
                 add("COM$index")
                 add("LPT$index")
             }
+        }
+    }
+}
+
+/**
+ * Publishes a fully validated sibling directory without replacing an existing path.
+ *
+ * Local filesystems normally support the atomic rename. Cloud-backed providers such as
+ * OneDrive can reject `ATOMIC_MOVE` even for siblings, sometimes with a generic filesystem
+ * exception. In that case a plain, non-replacing move is the narrow fallback. No recursive
+ * copy is used, so ARES never merges into a destination.
+ */
+internal fun publishProjectDirectory(staging: Path, destination: Path) {
+    publishProjectDirectory(staging, destination) { source, target, options ->
+        Files.move(source, target, *options)
+    }
+}
+
+internal fun publishProjectDirectory(
+    staging: Path,
+    destination: Path,
+    mover: (Path, Path, Array<out CopyOption>) -> Path,
+) {
+    val normalizedStaging = staging.toAbsolutePath().normalize()
+    val normalizedDestination = destination.toAbsolutePath().normalize()
+    require(normalizedStaging.parent == normalizedDestination.parent) {
+        "Project staging and destination directories must be siblings."
+    }
+    if (Files.exists(normalizedDestination, LinkOption.NOFOLLOW_LINKS)) {
+        throw FileAlreadyExistsException(
+            normalizedDestination.toString(),
+            null,
+            "The destination appeared while the project was being created; nothing was replaced.",
+        )
+    }
+
+    try {
+        mover(
+            normalizedStaging,
+            normalizedDestination,
+            arrayOf(StandardCopyOption.ATOMIC_MOVE),
+        )
+        return
+    } catch (atomicFailure: IOException) {
+        if (Files.exists(normalizedDestination, LinkOption.NOFOLLOW_LINKS)) {
+            throw FileAlreadyExistsException(
+                normalizedDestination.toString(),
+                null,
+                "The destination appeared while the project was being created; nothing was replaced.",
+            ).also { it.addSuppressed(atomicFailure) }
+        }
+
+        try {
+            mover(normalizedStaging, normalizedDestination, emptyArray())
+            return
+        } catch (fallbackFailure: IOException) {
+            val stagingStillExists = Files.exists(normalizedStaging, LinkOption.NOFOLLOW_LINKS)
+            val destinationNowExists = Files.exists(normalizedDestination, LinkOption.NOFOLLOW_LINKS)
+            // Some cloud providers can report an error after completing the rename. Reconcile
+            // that ambiguous result only when our unique staging entry disappeared and the
+            // previously absent destination now exists.
+            if (!stagingStillExists && Files.isDirectory(normalizedDestination, LinkOption.NOFOLLOW_LINKS)) {
+                return
+            }
+            if (stagingStillExists && destinationNowExists) {
+                throw FileAlreadyExistsException(
+                    normalizedDestination.toString(),
+                    null,
+                    "The destination appeared while the project was being created; nothing was replaced.",
+                ).also {
+                    it.addSuppressed(atomicFailure)
+                    it.addSuppressed(fallbackFailure)
+                }
+            }
+            throw IOException(
+                "ARES could not publish the completed project folder. If this location is managed by OneDrive " +
+                    "or another cloud provider, wait for it to finish syncing or choose a local folder, then try again.",
+                fallbackFailure,
+            ).also { it.addSuppressed(atomicFailure) }
         }
     }
 }

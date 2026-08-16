@@ -22,7 +22,11 @@ import com.areslib.tuning.TuningProfileDocumentCodec
 import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.FileAlreadyExistsException
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -92,6 +96,84 @@ class RobotProjectTemplateServiceTest {
             assertTrue(localProperties.contains("fixture-android-sdk"))
             assertNotNull(templateDeploymentBlockReason(result.destination))
             assertFalse(parent.listFiles().orEmpty().any { it.name.contains("ares-partial") })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `cloud backed folder falls back to a non-replacing move`() {
+        val root = Files.createTempDirectory("ares-project-cloud-move-test").toFile()
+        try {
+            val staging = File(root, ".student-robot.ares-partial-fixture").apply { mkdirs() }
+            File(staging, "robot.txt").writeText("ready")
+            val destination = File(root, "student-robot")
+            val optionsByAttempt = mutableListOf<List<java.nio.file.CopyOption>>()
+
+            publishProjectDirectory(staging.toPath(), destination.toPath()) { source, target, options ->
+                optionsByAttempt += options.toList()
+                if (optionsByAttempt.size == 1) {
+                    throw IOException("Cloud provider rejected the atomic rename")
+                }
+                Files.move(source, target, *options)
+            }
+
+            assertEquals(listOf(StandardCopyOption.ATOMIC_MOVE), optionsByAttempt.single { it.isNotEmpty() })
+            assertTrue(optionsByAttempt.last().isEmpty())
+            assertFalse(staging.exists())
+            assertEquals("ready", File(destination, "robot.txt").readText())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `cloud fallback never replaces a destination that appears concurrently`() {
+        val root = Files.createTempDirectory("ares-project-cloud-race-test").toFile()
+        try {
+            val staging = File(root, ".student-robot.ares-partial-fixture").apply { mkdirs() }
+            File(staging, "staged.txt").writeText("staged")
+            val destination = File(root, "student-robot")
+            var attempts = 0
+
+            assertFailsWith<FileAlreadyExistsException> {
+                publishProjectDirectory(staging.toPath(), destination.toPath()) { _, target, _ ->
+                    attempts++
+                    if (attempts == 2) {
+                        target.toFile().mkdirs()
+                        File(target.toFile(), "existing.txt").writeText("owned elsewhere")
+                    }
+                    throw IOException("Provider rejected rename attempt $attempts")
+                }
+            }
+
+            assertEquals(2, attempts)
+            assertEquals("staged", File(staging, "staged.txt").readText())
+            assertEquals("owned elsewhere", File(destination, "existing.txt").readText())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `failed project publication removes only its unique staging directory`() = runBlocking {
+        val root = Files.createTempDirectory("ares-project-publish-cleanup-test").toFile()
+        try {
+            val archive = validFtcArchive()
+            val parent = File(root, "robots").apply { mkdirs() }
+            val unrelated = File(parent, "existing-project").apply { mkdirs() }
+            File(unrelated, "keep.txt").writeText("keep")
+            val service = service(
+                root,
+                archive,
+                projectPublisher = { _, _ -> throw IOException("Provider unavailable") },
+            )
+
+            assertFailsWith<IOException> { service.create(request(parent, "student-robot")) }
+
+            assertFalse(File(parent, "student-robot").exists())
+            assertFalse(parent.listFiles().orEmpty().any { it.name.contains("ares-partial") })
+            assertEquals("keep", File(unrelated, "keep.txt").readText())
         } finally {
             root.deleteRecursively()
         }
@@ -218,12 +300,16 @@ class RobotProjectTemplateServiceTest {
     private fun service(
         root: File,
         archive: ByteArray,
+        projectPublisher: (Path, Path) -> Unit = { staging, destination ->
+            publishProjectDirectory(staging, destination)
+        },
         downloader: (RobotProjectTemplate, File) -> Unit = { _, destination -> destination.writeBytes(archive) },
     ): RobotProjectTemplateService = RobotProjectTemplateService(
         cacheDirectory = File(root, "cache"),
         templates = listOf(template(archive)),
         archiveDownloader = downloader,
         androidSdkLocator = { File(root, "fixture-android-sdk").apply { mkdirs() } },
+        projectPublisher = projectPublisher,
     )
 
     private fun request(parent: File, folder: String) = RobotProjectCreationRequest(
