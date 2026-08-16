@@ -182,12 +182,13 @@ class DrivebaseBuilderViewModel(
     }
 
     private fun edit(candidate: DrivebaseDocument) = _state.update {
+        val hasChanges = diffDrivebase(it.saved, candidate).isNotEmpty()
         it.copy(
             draft = candidate,
             issues = validateDrivebaseForLeague(candidate, it.league),
             saveReview = null,
             status = "",
-            dirty = true,
+            dirty = hasChanges,
             aiProposal = null,
             aiProposalError = null,
         )
@@ -374,6 +375,18 @@ class DrivebaseBuilderViewModel(
             return
         }
         val changes = diffDrivebase(state.saved, state.draft)
+        if (changes.isEmpty()) {
+            _state.update {
+                it.copy(
+                    step = DrivebaseBuilderStep.REVIEW,
+                    saveReview = null,
+                    dirty = false,
+                    status = "This drivebase already matches the saved canonical document.",
+                    error = null,
+                )
+            }
+            return
+        }
         val baseHash = state.saved?.canonical?.let(com.areslib.drivetrain.DrivetrainDocumentCodec::contentHash)
         val token = reviewToken(baseHash, changes)
         _state.update { it.copy(step = DrivebaseBuilderStep.REVIEW, saveReview = DrivebaseSaveReview(changes, token, baseHash), error = null) }

@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.drivebase.*
+import com.ares.analytics.shared.League
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.drivebase.*
 import kotlin.math.PI
@@ -35,7 +36,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
-fun DrivebaseBuilderScreen(viewModel: DrivebaseBuilderViewModel) {
+fun DrivebaseBuilderScreen(viewModel: DrivebaseBuilderViewModel, onBackToStudio: () -> Unit) {
     val state by viewModel.state.collectAsState()
     state.aiProposal?.let { review ->
         AlertDialog(
@@ -111,7 +112,7 @@ fun DrivebaseBuilderScreen(viewModel: DrivebaseBuilderViewModel) {
                     DrivebaseBuilderStep.LOCALIZATION -> LocalizationStep(state, viewModel)
                     DrivebaseBuilderStep.SAFETY -> SafetyStep(state, viewModel)
                     DrivebaseBuilderStep.LABS -> LabsStep(state, viewModel)
-                    DrivebaseBuilderStep.REVIEW -> ReviewStep(state, viewModel)
+                    DrivebaseBuilderStep.REVIEW -> ReviewStep(state, viewModel, onBackToStudio)
                 }
             }
             IssueRail(state, Modifier.width(260.dp).fillMaxHeight())
@@ -224,6 +225,9 @@ private fun CtreImportCard(state: DrivebaseBuilderState, viewModel: DrivebaseBui
 @Composable
 private fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
     SectionHeading("2 · Identify hardware", "Select a device on the top-down chassis, then enter the name or CAN information used by robot code.")
+    if (state.league == League.FTC && state.draft.kind == DrivebaseKind.FTC_MECANUM) {
+        FtcHubNameGuide(state.draft)
+    }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         ChassisDiagram(state, viewModel, Modifier.weight(1f).height(380.dp))
         val selected = state.draft.hardware.firstOrNull { it.id == state.selectedHardwareId } ?: state.draft.hardware.firstOrNull()
@@ -254,10 +258,34 @@ private fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuild
 }
 
 @Composable
+private fun FtcHubNameGuide(draft: DrivebaseDocument) {
+    val cornerHardware = draft.cornerDriveHardware()
+    Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FieldHeading(
+            "FTC Robot Controller names",
+            "Use these exact names in Configure Robot on the Driver Station. ARES matches names exactly, including lowercase letters.",
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            cornerHardware.forEachIndexed { index, device ->
+                val corner = listOf("Front left", "Front right", "Rear left", "Rear right")[index]
+                Column(Modifier.weight(1f)) {
+                    Text(corner, color = AresTextSecondary, fontSize = 9.sp)
+                    Text(device?.hardwareName ?: "Not configured", color = if (device == null) AresGold else AresCyan, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        Text("Recommended defaults: fl, fr, rl, rr. Rear motors use rl and rr—not bl and br.", color = AresTextPrimary, fontSize = 10.sp)
+    }
+}
+
+@Composable
 private fun ChassisDiagram(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel, modifier: Modifier) {
     Column(modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         FieldHeading("Top-down chassis", "The arrow points toward the robot front. Selectable hardware is listed below for keyboard users.")
-        Canvas(Modifier.fillMaxWidth().weight(1f)) {
+        val cornerHardware = state.draft.cornerDriveHardware()
+        val cornerIds = cornerHardware.mapNotNull { it?.id }.toSet()
+        val displayHardware = cornerHardware.filterNotNull() + state.draft.hardware.filterNot { it.id in cornerIds }
+        Canvas(Modifier.fillMaxWidth().height(145.dp)) {
             val left = size.width * .2f; val right = size.width * .8f; val top = size.height * .17f; val bottom = size.height * .83f
             drawRoundRect(AresBorder, Offset(left, top), androidx.compose.ui.geometry.Size(right - left, bottom - top), style = Stroke(3f))
             drawLine(AresCyan, Offset(size.width / 2f, top + 10), Offset(size.width / 2f, top - 30), 5f)
@@ -265,16 +293,19 @@ private fun ChassisDiagram(state: DrivebaseBuilderState, viewModel: DrivebaseBui
             drawLine(AresCyan, Offset(size.width / 2f, top - 30), Offset(size.width / 2f + 12, top - 12), 5f)
             val positions = listOf(Offset(left, top), Offset(right, top), Offset(left, bottom), Offset(right, bottom))
             positions.forEachIndexed { index, position ->
-                val device = state.draft.hardware.getOrNull(index)
+                val device = cornerHardware[index]
                 drawCircle(if (device?.id == state.selectedHardwareId) AresCyan else AresTextSecondary, 16f, position)
             }
         }
-        state.draft.hardware.forEach { device ->
-            OutlinedButton(
-                onClick = { viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(device.id)) },
-                modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Select ${device.displayName}, ${if (device.inverted) "inverted" else "normal direction"}" }
-            ) {
-                Text("${device.displayName} · ${if (device.inverted) "INVERTED" else "NORMAL"}", Modifier.weight(1f), maxLines = 1)
+        Text("${state.draft.hardware.size} configured devices · scroll to inspect every motor and sensor", color = AresTextSecondary, fontSize = 9.sp)
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            displayHardware.forEach { device ->
+                OutlinedButton(
+                    onClick = { viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(device.id)) },
+                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Select ${device.displayName}, ${if (device.inverted) "inverted" else "normal direction"}" }
+                ) {
+                    Text("${device.displayName} · ${if (device.inverted) "INVERTED" else "NORMAL"}", Modifier.weight(1f), maxLines = 1)
+                }
             }
         }
     }
@@ -472,13 +503,20 @@ private fun DirectionDiagram(headingDegrees: Double, result: DriveLabResult, mod
 }
 
 @Composable
-private fun ReviewStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+private fun ReviewStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel, onBackToStudio: () -> Unit) {
     SectionHeading("7 · Review & save", "Only the canonical .ares/drivetrains document changes. Generated plumbing/source generation is a later explicit project action.")
     val review = state.saveReview
     val noCodeRunnable = state.draft.kind.runtimeSupport(state.league) == DrivebaseRuntimeSupport.NO_CODE_RUNNABLE
     if (review == null) {
-        Text("Select Review changes to validate the draft and create a content-hash-bound structured diff.", color = AresTextSecondary)
-        Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) }, enabled = noCodeRunnable) { Text(if (noCodeRunnable) "Create reviewed diff" else "Code required before save") }
+        if (state.dirty) {
+            Text("Select Review changes to validate the draft and create a content-hash-bound structured diff.", color = AresTextSecondary)
+            Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) }, enabled = noCodeRunnable) { Text(if (noCodeRunnable) "Create reviewed diff" else "Code required before save") }
+        } else {
+            StatusBanner("Saved · The canonical drivebase already matches this form.", AresGreen)
+            Button(onClick = onBackToStudio, colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) {
+                Text("Continue to Robot Studio")
+            }
+        }
         if (!noCodeRunnable) Text("This builder will not claim an architecture is runnable when the selected ${state.league.name} season shell has no matching adapter.", color = AresGold, fontSize = 10.sp)
     } else {
         Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -491,7 +529,7 @@ private fun ReviewStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilder
                 }
             }
             Text("Confirmation ${review.confirmationToken}", color = AresTextSecondary, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
-            Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ConfirmSave(review.confirmationToken)) }, enabled = review.changes.isNotEmpty(), colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent)) { Text("Confirm and save canonical drivebase") }
+            Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ConfirmSave(review.confirmationToken)) }, colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent)) { Text("Confirm and save canonical drivebase") }
             Text("ARES creates a history backup first. This does not push a robot value or edit CTRE vendor source.", color = AresTextSecondary, fontSize = 10.sp)
         }
     }
