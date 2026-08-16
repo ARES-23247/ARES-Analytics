@@ -43,7 +43,7 @@ fun WelcomeStep(currentStep: OnboardingStep) {
         OnboardingStep.PROJECT -> "Pick the folder you use to build your robot. ARES will detect FTC or FRC and fill in anything it recognizes."
         OnboardingStep.ROBOT -> "Confirm the team, season, and robot. Detected values are already filled in and can be changed."
         OnboardingStep.OPTIONAL -> "Cloud sync and custom connection settings can be added now or later. The dashboard works fully offline."
-        OnboardingStep.REVIEW -> "Review the workspace and make sure JDK 17 is ready. Nothing is uploaded unless you choose cloud sync."
+        OnboardingStep.REVIEW -> "Review the workspace. Robot build tools are optional now and can be added later. Nothing is uploaded unless you choose cloud sync."
     }
 
     Column(

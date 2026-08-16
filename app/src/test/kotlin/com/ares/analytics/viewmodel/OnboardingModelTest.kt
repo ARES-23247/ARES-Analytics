@@ -11,29 +11,39 @@ import kotlin.test.assertTrue
 class OnboardingModelTest {
     @Test
     fun `JDK 17 output is accepted with concise readiness message`() {
-        val result = evaluateJava17(
+        val result = evaluateJavaBuildTools(
             commandSucceeded = true,
             rawMessage = "Java executable valid. Output:\nopenjdk version \"17.0.12\" 2024-07-16",
         )
 
         assertTrue(result.isValid)
         assertEquals(17, result.majorVersion)
-        assertEquals("JDK 17 is ready.", result.message)
+        assertEquals("JDK 17 is ready for robot builds and simulation.", result.message)
     }
 
     @Test
-    fun `a runnable non-17 Java is rejected`() {
-        val result = evaluateJava17(
+    fun `JDK 21 is accepted for robot builds and simulation`() {
+        val result = evaluateJavaBuildTools(
             commandSucceeded = true,
             rawMessage = "java version \"21.0.2\" 2024-01-16 LTS",
         )
 
-        assertFalse(result.isValid)
+        assertTrue(result.isValid)
         assertEquals(21, result.majorVersion)
-        assertEquals(
-            "JDK 17 is required. We found Java 21. Set JAVA_HOME to a JDK 17 installation, then check again.",
-            result.message,
+        assertEquals("JDK 21 is ready for robot builds and simulation.", result.message)
+    }
+
+    @Test
+    fun `unsupported Java is an actionable non-app-blocking build tools warning`() {
+        val result = evaluateJavaBuildTools(
+            commandSucceeded = true,
+            rawMessage = "java version \"11.0.24\" 2024-07-16 LTS",
         )
+
+        assertFalse(result.isValid)
+        assertEquals(11, result.majorVersion)
+        assertTrue(result.message.startsWith("ARES Analytics is ready"))
+        assertTrue(result.message.contains("JDK 17 or 21"))
     }
 
     @Test
@@ -44,17 +54,15 @@ class OnboardingModelTest {
 
     @Test
     fun `command execution failure returns invalid status and indicates Java could not be started`() {
-        val result = evaluateJava17(
+        val result = evaluateJavaBuildTools(
             commandSucceeded = false,
             rawMessage = "java: command not found",
         )
 
         assertFalse(result.isValid)
         assertNull(result.majorVersion)
-        assertEquals(
-            "JDK 17 is required. Java could not be started. Set JAVA_HOME to a JDK 17 installation, then check again.",
-            result.message,
-        )
+        assertTrue(result.message.startsWith("ARES Analytics is ready"))
+        assertTrue(result.message.contains("Set JAVA_HOME"))
     }
 
     @Test
@@ -116,6 +124,25 @@ class OnboardingModelTest {
             assertFalse(validateOnboardingFields(state, OnboardingStep.REVIEW).hasRequiredFieldErrors)
         } finally {
             directory.delete()
+        }
+    }
+
+    @Test
+    fun `missing robot build tools do not block local workspace completion`() {
+        val directory = Files.createTempDirectory("ares-onboarding-no-jdk-test").toFile()
+        try {
+            val state = OnboardingState(
+                projectPath = directory.absolutePath,
+                teamId = "23247",
+                seasonId = "2026",
+                robotId = "AresIII",
+                javaEnvValid = false,
+                javaEnvMsg = "Robot build tools are unavailable.",
+            )
+
+            assertFalse(validateOnboardingCompletion(state).hasRequiredFieldErrors)
+        } finally {
+            directory.deleteRecursively()
         }
     }
 

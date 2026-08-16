@@ -227,7 +227,6 @@ fun OnboardingScreen(
                 NavigationButtons(
                     step = state.currentStep,
                     isSaving = state.isSaving,
-                    canFinish = state.javaEnvValid == true,
                     onCancel = onCancel,
                     onBack = { viewModel.handleIntent(OnboardingIntent.PreviousStep) },
                     onNext = { viewModel.handleIntent(OnboardingIntent.NextStep) },
@@ -242,7 +241,6 @@ fun OnboardingScreen(
 private fun NavigationButtons(
     step: OnboardingStep,
     isSaving: Boolean,
-    canFinish: Boolean,
     onCancel: (() -> Unit)?,
     onBack: () -> Unit,
     onNext: () -> Unit,
@@ -265,7 +263,7 @@ private fun NavigationButtons(
 
         Button(
             onClick = if (step == OnboardingStep.REVIEW) onFinish else onNext,
-            enabled = !isSaving && (step != OnboardingStep.REVIEW || canFinish),
+            enabled = !isSaving,
             modifier = Modifier.weight(2f),
             colors = ButtonDefaults.buttonColors(
                     containerColor = AresCyan,
@@ -278,7 +276,7 @@ private fun NavigationButtons(
                     OnboardingStep.PROJECT -> "Continue"
                     OnboardingStep.ROBOT -> "Continue"
                     OnboardingStep.OPTIONAL -> "Review setup"
-                    OnboardingStep.REVIEW -> if (canFinish) "Create workspace" else "JDK 17 required"
+                    OnboardingStep.REVIEW -> "Create workspace"
                 }
                 Text(label, color = AresOnAccent, fontWeight = FontWeight.Bold)
             }
