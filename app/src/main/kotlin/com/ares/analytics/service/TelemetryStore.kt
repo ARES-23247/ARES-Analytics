@@ -69,6 +69,12 @@ class TelemetryStore(
                     topicFlows[evictedTopic]?.value = null
                 }
                 trackedTopicOrder.addLast(canonicalFrame.key)
+            } else {
+                // Refresh recency so eviction is LRU, not FIFO: without this, core topics
+                // discovered at connect were the first candidates for eviction once a long
+                // session churned past maxTrackedTopics distinct names.
+                trackedTopicOrder.remove(canonicalFrame.key)
+                trackedTopicOrder.addLast(canonicalFrame.key)
             }
             latestFrames[canonicalFrame.key] = canonicalFrame
 
