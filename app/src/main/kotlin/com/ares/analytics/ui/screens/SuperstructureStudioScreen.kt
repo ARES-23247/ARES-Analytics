@@ -107,6 +107,7 @@ fun SuperstructureStudioScreen(viewModel: SuperstructureStudioViewModel) {
                         SuperstructureStudioStep.TRANSITIONS -> TransitionsStep(state, draft, viewModel)
                         SuperstructureStudioStep.INTERLOCKS -> InterlocksStep(state, draft, viewModel)
                         SuperstructureStudioStep.LOOKUP_TABLES -> LookupTablesStep(draft, viewModel)
+                        SuperstructureStudioStep.SIMULATION -> SimulationStep(state, draft, viewModel)
                         SuperstructureStudioStep.REVIEW -> ReviewStep(state, draft, viewModel)
                     }
                 }
@@ -175,6 +176,7 @@ private fun StudioStepRail(step: SuperstructureStudioStep, viewModel: Superstruc
         SuperstructureStudioStep.TRANSITIONS to "Transitions",
         SuperstructureStudioStep.INTERLOCKS to "Interlocks",
         SuperstructureStudioStep.LOOKUP_TABLES to "Lookup tables",
+        SuperstructureStudioStep.SIMULATION to "Trace & fault lab",
         SuperstructureStudioStep.REVIEW to "Review & generate",
     )
     Column(modifier.studioCard(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -221,6 +223,30 @@ private fun OverviewStep(state: SuperstructureStudioState, draft: Superstructure
     StudioSection("Why complete postures?", "A transition never updates only one mechanism and leaves another at an old target. Every state explicitly commands the same target fields. The fault posture is forced back to each subsystem's declared neutral.") {
         Text("Example: STOWED → SCORE_HIGH can command arm angle, elevator height, wrist angle, and roller state together. If any generated task is unavailable, the runtime enters FAULT and attempts the complete neutral posture.", color = AresTextSecondary, fontSize = 12.sp)
     }
+    StudioSection("Disabled behavior", "Choose what the logical coordinator does when Driver Station disables the robot. Subsystem IO still independently enforces neutral output.") {
+        StudioDropdown(
+            "Policy: ${draft.disabledPolicy.name.replace('_', ' ')}",
+            SuperstructureDisabledPolicy.entries.map { policy -> policy.name to when (policy) {
+                SuperstructureDisabledPolicy.FORCE_SAFE_AND_REJECT_REQUESTS -> "Move to the reviewed neutral disabled posture"
+                SuperstructureDisabledPolicy.RETAIN_LOGICAL_STATE_WITH_NEUTRAL_OUTPUT -> "Remember the logical posture; hardware remains neutral"
+            } },
+            onSelect = { viewModel.setDisabledPolicy(SuperstructureDisabledPolicy.valueOf(it)) },
+        )
+        StudioDropdown(
+            "Disabled posture: ${draft.disabledStateId}",
+            draft.states.map { it.stateId to it.displayName.ifBlank { it.stateId } },
+            onSelect = viewModel::setDisabledState,
+        )
+        Text(
+            if (draft.disabledPolicy == SuperstructureDisabledPolicy.FORCE_SAFE_AND_REJECT_REQUESTS) {
+                "Recommended for novice projects: disable rejects queued requests and enters a complete neutral posture."
+            } else {
+                "Advanced: re-enable resumes the remembered logical posture. Use only when every subsystem's re-enable contract has been reviewed."
+            },
+            color = if (draft.disabledPolicy == SuperstructureDisabledPolicy.FORCE_SAFE_AND_REJECT_REQUESTS) AresTextSecondary else AresGold,
+            fontSize = 11.sp,
+        )
+    }
 }
 
 @Composable
@@ -233,14 +259,16 @@ private fun StatePresetsStep(state: SuperstructureStudioState, draft: Superstruc
             StudioDropdown(selected.displayName.ifBlank { selected.stateId }, draft.states.map { it.stateId to it.displayName.ifBlank { it.stateId } }, viewModel::selectState)
             if (selected.stateId == draft.initialStateId) StatusChip("INITIAL", AresGreen)
             if (selected.stateId == draft.faultStateId) StatusChip("FAULT / NEUTRAL", AresError)
+            if (selected.stateId == draft.disabledStateId) StatusChip("DISABLED / NEUTRAL", AresGold)
             Spacer(Modifier.weight(1f))
-            OutlinedButton(onClick = viewModel::removeSelectedState, enabled = draft.states.size > 2 && selected.stateId !in setOf(draft.initialStateId, draft.faultStateId)) {
+            OutlinedButton(onClick = viewModel::removeSelectedState, enabled = draft.states.size > 2 && selected.stateId !in setOf(draft.initialStateId, draft.faultStateId, draft.disabledStateId)) {
                 Icon(Icons.Default.Delete, contentDescription = null, Modifier.size(16.dp)); Text(" Remove")
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton({ viewModel.setInitialState(selected.stateId) }, enabled = selected.stateId != draft.initialStateId) { Text("Use as startup posture") }
             OutlinedButton({ viewModel.setFaultState(selected.stateId) }, enabled = selected.stateId != draft.faultStateId) { Text("Use as fault neutral") }
+            OutlinedButton({ viewModel.setDisabledState(selected.stateId) }, enabled = selected.stateId != draft.disabledStateId) { Text("Use when disabled") }
         }
         OutlinedTextField(
             selected.displayName,
@@ -260,13 +288,38 @@ private fun StatePresetsStep(state: SuperstructureStudioState, draft: Superstruc
         Text("TARGET VALUES IN ${selected.displayName.uppercase(Locale.ROOT)}", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         if (selected.subsystemTargets.isEmpty()) Text("Add at least one generated subsystem target below.", color = AresGold)
         selected.subsystemTargets.forEach { target -> TargetEditor(state, draft, selected, target, viewModel) }
-        val used = selected.subsystemTargets.map { it.subsystemId to it.fieldId }.toSet()
-        val remaining = state.targetFields.filter { it.subsystem.documentId to it.field.fieldId !in used }
+        val used = selected.subsystemTargets.map { it.target }.toSet()
+        val remaining = state.targetFields.filter { it.reference !in used }
         if (remaining.isNotEmpty()) {
-            StudioDropdown("+ Add a target to every posture", remaining.map { "${it.subsystem.documentId}.${it.field.fieldId}" to it.label }, onSelect = { key ->
-                remaining.single { "${it.subsystem.documentId}.${it.field.fieldId}" == key }.let { viewModel.addTarget(it.reference) }
+            StudioDropdown("+ Add a target to every posture", remaining.map { key(it) to it.label }, onSelect = { selectedKey ->
+                remaining.single { key(it) == selectedKey }.let { viewModel.addTarget(it.reference) }
             })
         }
+    }
+    StudioSection("Timing and lifecycle", "Timeouts are supervisory fallbacks. Entry/exit actions run once through the project task scheduler, exit before entry. Use an intermediate guarded posture—not hooks—for safety-critical motion ordering.") {
+        var timeoutEnabled by remember(selected.stateId, selected.timeoutSeconds) { mutableStateOf(selected.timeoutSeconds != null) }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Switch(timeoutEnabled, { enabled ->
+                timeoutEnabled = enabled
+                viewModel.updateSelectedStateTimeout(if (enabled) 1.0 else null, if (enabled) draft.faultStateId else null)
+            })
+            Text(if (timeoutEnabled) "Maximum time in this posture is enabled" else "No posture timeout", color = AresTextPrimary)
+        }
+        if (timeoutEnabled) {
+            NumberEditor(
+                "Maximum time (seconds)",
+                selected.timeoutSeconds ?: 1.0,
+                onValue = { viewModel.updateSelectedStateTimeout(it, selected.timeoutTargetStateId ?: draft.faultStateId) },
+                onValidity = { valid -> viewModel.setEditorError("state:${selected.stateId}:timeout", if (valid) null else "${selected.displayName} timeout must be numeric.") },
+            )
+            StudioDropdown(
+                "Timeout posture: ${selected.timeoutTargetStateId ?: draft.faultStateId}",
+                draft.states.filter { it.stateId != selected.stateId }.map { it.stateId to it.displayName.ifBlank { it.stateId } },
+                onSelect = { viewModel.updateSelectedStateTimeout(selected.timeoutSeconds ?: 1.0, it) },
+            )
+        }
+        LifecycleActionEditor("On exit", selected.onExitActionKeys, state, onAdd = { viewModel.addSelectedStateLifecycleAction(false, it) }, onRemove = { viewModel.removeSelectedStateLifecycleAction(false, it) })
+        LifecycleActionEditor("On entry", selected.onEntryActionKeys, state, onAdd = { viewModel.addSelectedStateLifecycleAction(true, it) }, onRemove = { viewModel.removeSelectedStateLifecycleAction(true, it) })
     }
     StudioSection("Add another posture", "ARES copies the same target set and starts every value at its declared neutral so you cannot accidentally inherit a stale command.") {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -289,9 +342,10 @@ private fun TargetEditor(
     target: SuperstructureSubsystemTarget,
     viewModel: SuperstructureStudioViewModel,
 ) {
-    val option = state.targetFields.singleOrNull { it.subsystem.documentId == target.subsystemId && it.field.fieldId == target.fieldId }
+    val option = state.targetFields.singleOrNull { it.reference == target.target }
     if (option == null) return
-    val fault = selected.stateId == draft.faultStateId
+    val fault = selected.stateId == draft.faultStateId ||
+        (draft.disabledPolicy == SuperstructureDisabledPolicy.FORCE_SAFE_AND_REJECT_REQUESTS && selected.stateId == draft.disabledStateId)
     Card(colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated), border = BorderStroke(1.dp, AresBorder)) {
         Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -324,17 +378,17 @@ private fun TargetEditor(
                         val choices = state.sourceFields.filter { it.field.type == option.field.type }
                         StudioDropdown(
                             label = "Source: ${choices.singleOrNull { it.reference == target.source }?.label ?: "choose a matching field"}",
-                            options = choices.map { "${it.subsystem.documentId}.${it.field.fieldId}" to it.label },
-                            onSelect = { key ->
-                            val source = choices.single { "${it.subsystem.documentId}.${it.field.fieldId}" == key }
-                            viewModel.updateSelectedTarget(target.copy(source = source.reference))
+                            options = choices.map { key(it) to it.label },
+                            onSelect = { selectedKey ->
+                                val source = choices.single { key(it) == selectedKey }
+                                viewModel.updateSelectedTarget(target.copy(source = source.reference))
                             },
                         )
                     }
                     SuperstructureTargetMode.DYNAMIC_LUT -> {
                         val numeric = state.sourceFields.filter { it.field.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT) }
-                        StudioDropdown("Input: ${numeric.singleOrNull { it.reference == target.source }?.label ?: "choose numeric evidence"}", numeric.map { "${it.subsystem.documentId}.${it.field.fieldId}" to it.label }, onSelect = { key ->
-                            viewModel.updateSelectedTarget(target.copy(source = numeric.single { "${it.subsystem.documentId}.${it.field.fieldId}" == key }.reference))
+                        StudioDropdown("Input: ${numeric.singleOrNull { it.reference == target.source }?.label ?: "choose numeric evidence"}", numeric.map { key(it) to it.label }, onSelect = { selectedKey ->
+                            viewModel.updateSelectedTarget(target.copy(source = numeric.single { key(it) == selectedKey }.reference))
                         })
                         StudioDropdown("Table: ${target.lutId ?: "create a lookup table first"}", draft.luts.map { it.lutId to it.displayName.ifBlank { it.lutId } }, onSelect = { id ->
                             viewModel.updateSelectedTarget(target.copy(lutId = id))
@@ -360,7 +414,7 @@ private fun ConstantTargetEditor(option: SuperstructureFieldOption, stateId: Str
             modifier = Modifier.fillMaxWidth(),
         )
         SubsystemValueType.DOUBLE, SubsystemValueType.INT -> {
-            var raw by remember(target.subsystemId, target.fieldId, target.constantDoubleValue) { mutableStateOf(target.constantDoubleValue?.toString().orEmpty()) }
+            var raw by remember(target.target.subsystemUid, target.target.fieldUid, target.constantDoubleValue) { mutableStateOf(target.constantDoubleValue?.toString().orEmpty()) }
             val parsed = raw.toDoubleOrNull()
             val invalid = parsed == null || option.field.minimum?.let { parsed < it } == true || option.field.maximum?.let { parsed > it } == true
             OutlinedTextField(
@@ -391,7 +445,7 @@ private fun TransitionsStep(state: SuperstructureStudioState, draft: Superstruct
     var target by remember(draft.superstructureId) { mutableStateOf(draft.states.firstOrNull { it.stateId != draft.initialStateId }?.stateId ?: draft.initialStateId) }
     var kind by remember(draft.superstructureId) { mutableStateOf(TransitionTriggerKind.ACTION_REQUEST) }
     var action by remember(draft.superstructureId) { mutableStateOf(state.parameterlessActions.firstOrNull()?.key.orEmpty()) }
-    var sensorKey by remember(draft.superstructureId) { mutableStateOf(state.sourceFields.firstOrNull()?.let { "${it.subsystem.documentId}.${it.field.fieldId}" }.orEmpty()) }
+    var sensorKey by remember(draft.superstructureId) { mutableStateOf(state.sourceFields.firstOrNull()?.let(::key).orEmpty()) }
     var seconds by remember(draft.superstructureId) { mutableStateOf("1.0") }
 
     StudioSection("Add a transition", "A transition changes from one complete posture to another. Driver/autonomous actions come from the real project catalog; sensors come from cached generated state.") {
@@ -407,8 +461,8 @@ private fun TransitionsStep(state: SuperstructureStudioState, draft: Superstruct
                 { action = it },
             )
             TransitionTriggerKind.SENSOR_CONDITION_AUTO -> StudioDropdown(
-                "Evidence: ${state.sourceFields.singleOrNull { "${it.subsystem.documentId}.${it.field.fieldId}" == sensorKey }?.label ?: "choose cached evidence"}",
-                state.sourceFields.map { "${it.subsystem.documentId}.${it.field.fieldId}" to it.label },
+                "Evidence: ${state.sourceFields.singleOrNull { key(it) == sensorKey }?.label ?: "choose cached evidence"}",
+                state.sourceFields.map { key(it) to it.label },
                 { sensorKey = it },
             )
             TransitionTriggerKind.TIME_ELAPSED -> OutlinedTextField(seconds, { seconds = it }, label = { Text("Seconds in source posture") })
@@ -417,7 +471,7 @@ private fun TransitionsStep(state: SuperstructureStudioState, draft: Superstruct
             onClick = {
                 when (kind) {
                     TransitionTriggerKind.ACTION_REQUEST -> viewModel.addActionTransition(source, target, action)
-                    TransitionTriggerKind.SENSOR_CONDITION_AUTO -> state.sourceFields.singleOrNull { "${it.subsystem.documentId}.${it.field.fieldId}" == sensorKey }?.let { viewModel.addSensorTransition(source, target, it) }
+                    TransitionTriggerKind.SENSOR_CONDITION_AUTO -> state.sourceFields.singleOrNull { key(it) == sensorKey }?.let { viewModel.addSensorTransition(source, target, it) }
                     TransitionTriggerKind.TIME_ELAPSED -> seconds.toDoubleOrNull()?.let { viewModel.addTimedTransition(source, target, it) }
                 }
             },
@@ -448,7 +502,20 @@ private fun TransitionCard(state: SuperstructureStudioState, draft: Superstructu
                 val expectedDouble = guard.expectedDoubleValue
                 val expectedBoolean = guard.expectedBooleanValue
                 val expectedString = guard.expectedStringValue
-                Text("Fresh evidence · ${source?.label ?: "${guard.source.subsystemId}.${guard.source.fieldId}"}", color = AresTextSecondary, fontSize = 11.sp)
+                Text("${guard.source.healthRequirement.name.replace('_', ' ').lowercase().replaceFirstChar(Char::uppercaseChar)} · ${source?.label ?: "${guard.source.subsystemUid}.${guard.source.fieldUid}"}", color = AresTextSecondary, fontSize = 11.sp)
+                StudioDropdown(
+                    "Evidence health: ${guard.source.healthRequirement.name.replace('_', ' ')}",
+                    SuperstructurePortHealthRequirement.entries.map { it.name to when (it) {
+                        SuperstructurePortHealthRequirement.VALUE_ONLY -> "Value only (advanced)"
+                        SuperstructurePortHealthRequirement.FRESH_VALID -> "Fresh and valid"
+                        SuperstructurePortHealthRequirement.CONTROL_READY -> "Control ready (recommended)"
+                    } },
+                    onSelect = { selected ->
+                        viewModel.updateTransition(edge.copy(guards = edge.guards.map {
+                            if (it.guardId == guard.guardId) it.copy(source = it.source.copy(healthRequirement = SuperstructurePortHealthRequirement.valueOf(selected))) else it
+                        }))
+                    },
+                )
                 when {
                     expectedDouble != null -> {
                         StudioDropdown(
@@ -499,9 +566,11 @@ private fun TransitionCard(state: SuperstructureStudioState, draft: Superstructu
             )
         }
         if (edge.triggerKind == TransitionTriggerKind.SENSOR_CONDITION_AUTO) {
+            NumberEditor("Priority (lower runs first)", edge.priority.toDouble(), onValue = { viewModel.updateTransition(edge.copy(priority = it.toInt().coerceIn(0, 10_000))) }, onValidity = { valid -> viewModel.setEditorError("transition:${edge.transitionId}:priority", if (valid) null else "${edge.transitionId} priority must be numeric.") })
             NumberEditor("Debounce (ms)", edge.debounceMs.toDouble(), onValue = { viewModel.updateTransition(edge.copy(debounceMs = it.toLong().coerceIn(0, 60_000))) }, onValidity = { valid -> viewModel.setEditorError("transition:${edge.transitionId}:debounce", if (valid) null else "${edge.transitionId} debounce must be numeric.") })
         }
         if (edge.triggerKind == TransitionTriggerKind.TIME_ELAPSED) {
+            NumberEditor("Priority (lower runs first)", edge.priority.toDouble(), onValue = { viewModel.updateTransition(edge.copy(priority = it.toInt().coerceIn(0, 10_000))) }, onValidity = { valid -> viewModel.setEditorError("transition:${edge.transitionId}:priority", if (valid) null else "${edge.transitionId} priority must be numeric.") })
             NumberEditor("Seconds", edge.timeoutSeconds ?: 1.0, onValue = { viewModel.updateTransition(edge.copy(timeoutSeconds = it)) }, onValidity = { valid -> viewModel.setEditorError("transition:${edge.transitionId}:seconds", if (valid) null else "${edge.transitionId} time must be numeric.") })
         }
         if (edge.triggerKind == TransitionTriggerKind.ACTION_REQUEST && edge.guards.isNotEmpty()) {
@@ -520,8 +589,8 @@ private fun TransitionCard(state: SuperstructureStudioState, draft: Superstructu
 private fun InterlocksStep(state: SuperstructureStudioState, draft: SuperstructureDocument, viewModel: SuperstructureStudioViewModel) {
     val numericSources = state.sourceFields.filter { it.field.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT) }
     val numericTargets = state.targetFields.filter { it.field.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT) }
-    var sourceKey by remember(draft.superstructureId) { mutableStateOf(numericSources.firstOrNull()?.let { "${it.subsystem.documentId}.${it.field.fieldId}" }.orEmpty()) }
-    var targetKey by remember(draft.superstructureId) { mutableStateOf(numericTargets.firstOrNull()?.let { "${it.subsystem.documentId}.${it.field.fieldId}" }.orEmpty()) }
+    var sourceKey by remember(draft.superstructureId) { mutableStateOf(numericSources.firstOrNull()?.let(::key).orEmpty()) }
+    var targetKey by remember(draft.superstructureId) { mutableStateOf(numericTargets.firstOrNull()?.let(::key).orEmpty()) }
     StudioSection("Add a cross-mechanism interlock", "Example: while the arm is below 30°, clamp elevator extension. The runtime evaluates cached Redux values and adjusts the complete target preset before dispatch.") {
         StudioDropdown("Evidence: ${numericSources.singleOrNull { key(it) == sourceKey }?.label ?: "choose numeric evidence"}", numericSources.map { key(it) to it.label }, { sourceKey = it })
         StudioDropdown("Clamp: ${numericTargets.singleOrNull { key(it) == targetKey }?.label ?: "choose numeric target"}", numericTargets.map { key(it) to it.label }, { targetKey = it })
@@ -548,6 +617,40 @@ private fun InterlocksStep(state: SuperstructureStudioState, draft: Superstructu
             }
         }
     }
+    StudioSection("Sensor-health fallbacks", "A health policy supervises one cached typed port before transitions or targets run. CONTROL READY includes freshness, validity, configuration, homing/calibration, current validity, and output health.") {
+        val available = state.sourceFields.filter { candidate -> draft.healthFallbacks.none { it.source.subsystemUid == candidate.reference.subsystemUid && it.source.fieldUid == candidate.reference.fieldUid } }
+        if (available.isNotEmpty()) {
+            StudioDropdown("+ Add a cached-port health policy", available.map { key(it) to it.label }, onSelect = { selectedKey ->
+                available.single { key(it) == selectedKey }.let(viewModel::addHealthFallback)
+            })
+        } else if (state.sourceFields.isEmpty()) {
+            Text("Create a generated subsystem with cached state fields first.", color = AresGold, fontSize = 11.sp)
+        }
+    }
+    draft.healthFallbacks.forEach { policy ->
+        val option = state.sourceFields.singleOrNull {
+            it.reference.subsystemUid == policy.source.subsystemUid && it.reference.fieldUid == policy.source.fieldUid
+        }
+        StudioSection(policy.policyId, policy.description.ifBlank { option?.label ?: "Cached port health policy" }) {
+            Text(option?.label ?: "${policy.source.subsystemUid}.${policy.source.fieldUid}", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+            StudioDropdown(
+                "Required health: ${policy.source.healthRequirement.name.replace('_', ' ')}",
+                SuperstructurePortHealthRequirement.entries.map { it.name to when (it) {
+                    SuperstructurePortHealthRequirement.VALUE_ONLY -> "Value only (advanced; no freshness guarantee)"
+                    SuperstructurePortHealthRequirement.FRESH_VALID -> "Fresh and valid cached sample"
+                    SuperstructurePortHealthRequirement.CONTROL_READY -> "Control ready (recommended)"
+                } },
+                onSelect = { requirement -> viewModel.updateHealthFallback(policy.copy(source = policy.source.copy(healthRequirement = SuperstructurePortHealthRequirement.valueOf(requirement)))) },
+            )
+            StudioDropdown("Fallback posture: ${policy.fallbackStateId}", draft.states.map { it.stateId to it.displayName.ifBlank { it.stateId } }, onSelect = { viewModel.updateHealthFallback(policy.copy(fallbackStateId = it)) })
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Switch(policy.latchFault, { viewModel.updateHealthFallback(policy.copy(latchFault = it)) })
+                Text(if (policy.latchFault) "Latch fault until an explicit legal recovery request" else "Allow automatic recovery when healthy", color = AresTextPrimary)
+                Spacer(Modifier.weight(1f))
+                IconButton({ viewModel.removeHealthFallback(policy.policyId) }) { Icon(Icons.Default.Delete, "Remove health policy ${policy.policyId}") }
+            }
+        }
+    }
 }
 
 @Composable
@@ -558,6 +661,10 @@ private fun LookupTablesStep(draft: SuperstructureDocument, viewModel: Superstru
     draft.luts.forEach { lut ->
         StudioSection(lut.displayName.ifBlank { lut.lutId }, "Inputs must be strictly increasing. Runtime interpolation is deterministic and allocation-free.") {
             OutlinedTextField(lut.displayName, { viewModel.updateLut(lut.copy(displayName = it.take(80))) }, label = { Text("Display name") }, modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(lut.inputUnit, { viewModel.updateLut(lut.copy(inputUnit = it.trim().take(24))) }, label = { Text("Canonical input unit") }, supportingText = { Text("Must match the selected source port") }, modifier = Modifier.weight(1f))
+                OutlinedTextField(lut.outputUnit, { viewModel.updateLut(lut.copy(outputUnit = it.trim().take(24))) }, label = { Text("Canonical output unit") }, supportingText = { Text("Must match the target port") }, modifier = Modifier.weight(1f))
+            }
             StudioDropdown("Interpolation: ${lut.interpolation.name.replace('_', ' ')}", LutInterpolationMethod.entries.map { it.name to it.name.replace('_', ' ') }, onSelect = {
                 viewModel.updateLut(lut.copy(interpolation = LutInterpolationMethod.valueOf(it)))
             })
@@ -580,14 +687,92 @@ private fun LookupTablesStep(draft: SuperstructureDocument, viewModel: Superstru
 }
 
 @Composable
+private fun SimulationStep(state: SuperstructureStudioState, draft: SuperstructureDocument, viewModel: SuperstructureStudioViewModel) {
+    val preview = state.preview
+    StudioSection("Deterministic transition lab", "This runs the production state-machine evaluator against editable cached values. It does not model mechanism physics, wiring, current draw, or prove physical safety.") {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(viewModel::startPreview, colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) {
+                Text(if (preview == null) "Start preview" else "Reset preview")
+            }
+            if (preview != null) {
+                OutlinedButton({ viewModel.advancePreview(20L) }) { Text("+20 ms") }
+                OutlinedButton({ viewModel.advancePreview(100L) }) { Text("+100 ms") }
+                OutlinedButton({ viewModel.advancePreview(1_000L) }) { Text("+1 s") }
+                Spacer(Modifier.weight(1f))
+                Text("Robot enabled", color = AresTextPrimary, fontSize = 11.sp)
+                Switch(preview.isEnabled, { viewModel.setPreviewEnabled(it) })
+            }
+        }
+    }
+    if (preview == null) {
+        StudioBanner("Preview not running", "Resolve validation errors, then start the lab. All injected faults remain inside this editor session.", AresGold)
+        return
+    }
+    StudioSection("Runtime trace", "Every row below comes from the same immutable runtime state emitted on a robot or simulator.") {
+        ReviewLine("Time / state age", "${preview.nowMs} ms / ${preview.stateAgeMs} ms")
+        ReviewLine("State", "${preview.previousStateId} → ${preview.currentStateId}")
+        ReviewLine("Transition sequence", preview.transitionSequence.toString())
+        ReviewLine("Debounce candidate", preview.candidateTransitionId ?: "none")
+        ReviewLine("Faulted", if (preview.isFaulted) "YES · ${preview.faultReason.orEmpty()}" else "NO")
+        preview.lastRejectionReason?.let { Text("REJECTED · $it", color = AresGold, fontSize = 11.sp) }
+        preview.lastLifecycleError?.let { Text("LIFECYCLE FAILURE · $it", color = AresError, fontSize = 11.sp) }
+        if (preview.lifecycleActions.isNotEmpty()) Text("Lifecycle order · ${preview.lifecycleActions.joinToString(" → ")}", color = AresTextSecondary, fontSize = 11.sp)
+        val availableRequests = draft.transitions.filter {
+            it.sourceStateId == preview.currentStateId && it.triggerKind == TransitionTriggerKind.ACTION_REQUEST
+        }.mapNotNull { it.actionKey }.distinct()
+        if (availableRequests.isNotEmpty()) {
+            StudioDropdown(
+                "Request a legal action from ${preview.currentStateId}",
+                availableRequests.map { key -> key to (state.actions.singleOrNull { it.key == key }?.displayName ?: key) },
+                onSelect = viewModel::requestPreviewAction,
+            )
+        } else Text("No action-request transition leaves this posture.", color = AresTextSecondary, fontSize = 11.sp)
+    }
+    StudioSection("Cached ports and fault injection", "A healthy false/zero value is different from stale or invalid communication. Changing a value refreshes its sample timestamp.") {
+        preview.ports.forEach { port ->
+            Card(colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated), border = BorderStroke(1.dp, AresBorder)) {
+                Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text(port.label, color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    Text("${port.condition.name.replace('_', ' ')} · age ${port.ageMs} ms · health bits 0x${port.healthBits.toString(16)}", color = if (port.condition == PreviewPortCondition.HEALTHY) AresGreen else AresGold, fontSize = 10.sp)
+                    when (port.type) {
+                        SubsystemValueType.DOUBLE, SubsystemValueType.INT -> NumberEditor(
+                            "Cached value${port.unit?.let { " ($it)" }.orEmpty()}",
+                            port.numericValue ?: 0.0,
+                            onValue = { viewModel.setPreviewNumeric(port.reference, it) },
+                        )
+                        SubsystemValueType.BOOLEAN -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Switch(port.booleanValue == true, { viewModel.setPreviewBoolean(port.reference, it) })
+                            Text(if (port.booleanValue == true) "TRUE" else "FALSE", color = AresTextPrimary)
+                        }
+                        SubsystemValueType.STRING -> OutlinedTextField(
+                            port.stringValue.orEmpty(),
+                            { viewModel.setPreviewString(port.reference, it) },
+                            label = { Text("Cached text") },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    StudioDropdown(
+                        "Inject condition: ${port.condition.name.replace('_', ' ')}",
+                        PreviewPortCondition.entries.map { it.name to it.name.replace('_', ' ').lowercase().replaceFirstChar(Char::uppercaseChar) },
+                        onSelect = { viewModel.injectPreview(port.reference, PreviewPortCondition.valueOf(it)) },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun ReviewStep(state: SuperstructureStudioState, draft: SuperstructureDocument, viewModel: SuperstructureStudioViewModel) {
     StudioSection("Build integration", "Saving updates the canonical input only. The normal robot build regenerates mechanical Kotlin, validates every field/action reference, compiles the runtime, and runs generated contract tests.") {
         ReviewLine("Coordinator ID", draft.superstructureId)
         ReviewLine("Startup posture", draft.initialStateId)
         ReviewLine("Fault posture", draft.faultStateId)
+        ReviewLine("Disabled posture", "${draft.disabledStateId} · ${draft.disabledPolicy.name.replace('_', ' ').lowercase()}")
         ReviewLine("Complete target fields", draft.states.firstOrNull()?.subsystemTargets?.size?.toString() ?: "0")
         ReviewLine("Postures / transitions", "${draft.states.size} / ${draft.transitions.size}")
         ReviewLine("Interlocks / lookup tables", "${draft.interlocks.size} / ${draft.luts.size}")
+        ReviewLine("Health fallbacks / lifecycle actions", "${draft.healthFallbacks.size} / ${draft.states.sumOf { it.onEntryActionKeys.size + it.onExitActionKeys.size }}")
         ReviewLine("Current saved hash", state.savedContentHash?.take(12) ?: "new document")
         HorizontalDivider(color = AresBorder)
         Text("Runtime guarantees", color = AresTextPrimary, fontWeight = FontWeight.Bold)
@@ -596,7 +781,8 @@ private fun ReviewStep(state: SuperstructureStudioState, draft: SuperstructureDo
             "All target tasks are preflighted before any target is dispatched.",
             "Missing tasks or failed application enter the explicit fault posture.",
             "Only cached generated state is read; hardware is never read from the coordinator.",
-            "Steady-state runtime paths are covered by a zero-allocation regression.",
+            "Typed ports validate stable IDs, canonical units, freshness, and configured health before generation.",
+            "Steady unchanged evaluation is covered by a warmed-up zero-byte allocation regression; transitions may allocate tasks and immutable Redux events.",
         ).forEach { Text("✓ $it", color = AresTextSecondary, fontSize = 11.sp) }
         Button(
             viewModel::reviewSave,
@@ -623,6 +809,35 @@ private fun ValidationRail(state: SuperstructureStudioState, modifier: Modifier)
             Text("OTHER PROJECT FILES", color = AresTextSecondary, fontWeight = FontWeight.Bold, fontSize = 10.sp)
             related.take(12).forEach { Text("${it.file.name}: ${it.message}", color = AresGold, fontSize = 10.sp) }
         }
+    }
+}
+
+@Composable
+private fun LifecycleActionEditor(
+    label: String,
+    selected: List<String>,
+    state: SuperstructureStudioState,
+    onAdd: (String) -> Unit,
+    onRemove: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label.uppercase(Locale.ROOT), color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        selected.forEach { key ->
+            val descriptor = state.parameterlessActions.singleOrNull { it.key == key }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(descriptor?.displayName ?: key, color = AresTextPrimary, fontSize = 11.sp)
+                    Text(key, color = AresTextTertiary, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                }
+                IconButton({ onRemove(key) }) { Icon(Icons.Default.Delete, "Remove $label action $key") }
+            }
+        }
+        val available = state.parameterlessActions.filter { it.key !in selected }
+        StudioDropdown(
+            "+ Add ${label.lowercase()} action",
+            available.map { it.key to "${it.category} · ${it.displayName}" },
+            onSelect = onAdd,
+        )
     }
 }
 
@@ -725,7 +940,7 @@ private fun NumberEditor(
 
 private fun Modifier.studioCard(): Modifier = background(AresSurface, RoundedCornerShape(10.dp)).padding(10.dp)
 
-private fun key(option: SuperstructureFieldOption): String = "${option.subsystem.documentId}.${option.field.fieldId}"
+private fun key(option: SuperstructureFieldOption): String = "${option.subsystem.uid}.${option.field.uid}"
 
 private fun triggerLabel(kind: TransitionTriggerKind): String = when (kind) {
     TransitionTriggerKind.ACTION_REQUEST -> "Driver/autonomous action request"
@@ -734,8 +949,8 @@ private fun triggerLabel(kind: TransitionTriggerKind): String = when (kind) {
 }
 
 private fun neutralFor(option: SuperstructureFieldOption): SuperstructureSubsystemTarget = when (option.field.type) {
-    SubsystemValueType.DOUBLE -> SuperstructureSubsystemTarget(option.subsystem.documentId, option.field.fieldId, constantDoubleValue = option.field.defaultNumber ?: 0.0)
-    SubsystemValueType.INT -> SuperstructureSubsystemTarget(option.subsystem.documentId, option.field.fieldId, constantDoubleValue = (option.field.defaultInt ?: 0).toDouble())
-    SubsystemValueType.BOOLEAN -> SuperstructureSubsystemTarget(option.subsystem.documentId, option.field.fieldId, constantBooleanValue = option.field.defaultBoolean ?: false)
-    SubsystemValueType.STRING -> SuperstructureSubsystemTarget(option.subsystem.documentId, option.field.fieldId, constantStringValue = option.field.defaultText.orEmpty())
+    SubsystemValueType.DOUBLE -> SuperstructureSubsystemTarget(option.reference, constantDoubleValue = option.field.defaultNumber ?: 0.0)
+    SubsystemValueType.INT -> SuperstructureSubsystemTarget(option.reference, constantDoubleValue = (option.field.defaultInt ?: 0).toDouble())
+    SubsystemValueType.BOOLEAN -> SuperstructureSubsystemTarget(option.reference, constantBooleanValue = option.field.defaultBoolean ?: false)
+    SubsystemValueType.STRING -> SuperstructureSubsystemTarget(option.reference, constantStringValue = option.field.defaultText.orEmpty())
 }

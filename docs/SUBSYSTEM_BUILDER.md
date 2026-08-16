@@ -93,6 +93,19 @@ Every major editor card has a keyboard-focusable help button and hover explanati
 link to this guide. The homing and feedforward sections include small interactive labs; those labs
 only explain the configured math and never connect to or command robot hardware.
 
+## Learn the workflow in Robot Academy
+
+For a guided first build, open **Help & Learn → Robot builder → Build a homed position mechanism**.
+The slide-out coach follows the real Subsystem Builder rather than using a second teaching-only
+form. It can observe only narrow project facts: the selected mechanism pattern, explicit natural
+motor state, the locally validated safety declaration, mock/test selection, artifact-review screen,
+and saved descriptor revision.
+
+The mission then links the hardware-free homing and state-flow labs to the same concepts. Those
+interactive cards are simplified teaching models; they do not execute the newly saved subsystem.
+After the lesson, generation, project compilation, generated tests, consumer simulation, and a
+supervised physical procedure remain independent evidence gates.
+
 ## Homing
 
 Homing establishes where a mechanism is physically located before normal motion is allowed. ARES

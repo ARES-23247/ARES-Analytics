@@ -39,6 +39,7 @@ enum class SuperstructureStudioStep {
     TRANSITIONS,
     INTERLOCKS,
     LOOKUP_TABLES,
+    SIMULATION,
     REVIEW,
 }
 
@@ -46,7 +47,7 @@ data class SuperstructureFieldOption(
     val subsystem: SubsystemDocument,
     val field: SubsystemStateFieldDocument,
 ) {
-    val reference: SuperstructureFieldReference = SuperstructureFieldReference(subsystem.documentId, field.fieldId)
+    val reference: SuperstructureFieldReference = SuperstructureFieldReference(subsystem.uid, field.uid)
     val label: String = "${subsystem.displayName} · ${field.displayName}${field.unit?.let { " ($it)" }.orEmpty()}"
 }
 
@@ -78,6 +79,7 @@ data class SuperstructureStudioState(
     val status: String = "",
     val error: String? = null,
     val pendingSelectionId: String? = null,
+    val preview: SuperstructurePreviewSnapshot? = null,
 ) {
     val generatedSubsystems: List<SubsystemDocument>
         get() = subsystems.filter { it.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER }
@@ -104,6 +106,7 @@ class SuperstructureStudioViewModel(
 ) {
     private val _state = MutableStateFlow(SuperstructureStudioState(projectPath = projectPath))
     val state: StateFlow<SuperstructureStudioState> = _state.asStateFlow()
+    private var previewSession: SuperstructurePreviewSession? = null
 
     init {
         reload()
@@ -115,6 +118,7 @@ class SuperstructureStudioViewModel(
             return
         }
         scope.launch {
+            previewSession = null
             _state.update { it.copy(loading = true, error = null, status = "") }
             val result = withContext(Dispatchers.IO) { runCatching { projectDocuments.load(_state.value.projectPath) } }
             result.onSuccess { snapshot ->
@@ -136,6 +140,7 @@ class SuperstructureStudioViewModel(
                         review = null,
                         pendingSelectionId = null,
                         editorErrors = emptyMap(),
+                        preview = null,
                     )
                 )
             }.onFailure { error ->
@@ -168,6 +173,7 @@ class SuperstructureStudioViewModel(
             states = listOf(initial, fault),
             faultStateId = fault.stateId,
         )
+        previewSession = null
         _state.value = validate(
             _state.value.copy(
                 selectedId = id,
@@ -181,6 +187,7 @@ class SuperstructureStudioViewModel(
                 error = null,
                 review = null,
                 editorErrors = emptyMap(),
+                preview = null,
             )
         )
     }
@@ -191,6 +198,7 @@ class SuperstructureStudioViewModel(
             return
         }
         val selected = _state.value.documents.singleOrNull { it.superstructureId == id } ?: return
+        previewSession = null
         _state.value = validate(
             _state.value.copy(
                 selectedId = id,
@@ -204,6 +212,7 @@ class SuperstructureStudioViewModel(
                 status = "Loaded ${selected.displayName}.",
                 error = null,
                 editorErrors = emptyMap(),
+                preview = null,
             )
         )
     }
@@ -231,7 +240,7 @@ class SuperstructureStudioViewModel(
         require(id.matches(Regex("[A-Za-z][A-Za-z0-9_]{0,63}"))) { "State ID must start with a letter and contain only letters, digits, or underscores." }
         require(document.states.none { it.stateId == id }) { "State '$id' already exists." }
         val targets = document.states.firstOrNull()?.subsystemTargets.orEmpty().map { target ->
-            neutralTarget(target.subsystemId, target.fieldId)
+            neutralTarget(target.target)
         }
         document.copy(states = document.states + SuperstructureStatePreset(id, displayName.ifBlank { id }, subsystemTargets = targets))
             .also { _state.update { state -> state.copy(selectedStateId = id) } }
@@ -241,6 +250,7 @@ class SuperstructureStudioViewModel(
         val id = _state.value.selectedStateId ?: return@edit document
         require(id != document.initialStateId) { "Choose a different initial state before removing this state." }
         require(id != document.faultStateId) { "Choose a different fault state before removing this state." }
+        require(id != document.disabledStateId) { "Choose a different disabled state before removing this state." }
         val remaining = document.states.filterNot { it.stateId == id }
         _state.update { it.copy(selectedStateId = remaining.firstOrNull()?.stateId) }
         document.copy(
@@ -263,28 +273,98 @@ class SuperstructureStudioViewModel(
     fun setFaultState(id: String) = edit { document ->
         val safeState = document.states.single { it.stateId == id }.copy(
             subsystemTargets = document.states.single { it.stateId == id }.subsystemTargets.map { target ->
-                neutralTarget(target.subsystemId, target.fieldId)
+                neutralTarget(target.target)
             }
         )
         document.copy(faultStateId = id, states = document.states.map { if (it.stateId == id) safeState else it })
     }
 
+    fun startPreview() {
+        val state = validate(_state.value)
+        val draft = state.draft ?: return
+        if (state.validationErrors.isNotEmpty() || state.editorErrors.isNotEmpty()) {
+            _state.value = state.copy(error = "Resolve project errors before running the deterministic preview.")
+            return
+        }
+        runCatching { SuperstructurePreviewSession(draft, state.generatedSubsystems) }
+            .onSuccess { session -> previewSession = session; _state.value = state.copy(preview = session.snapshot(), error = null) }
+            .onFailure { error -> _state.value = state.copy(preview = null, error = error.message ?: "Preview could not start") }
+    }
+
+    fun advancePreview(deltaMs: Long) = updatePreview { it.tick(deltaMs) }
+    fun requestPreviewAction(actionKey: String) = updatePreview { it.request(actionKey) }
+    fun setPreviewEnabled(enabled: Boolean) = updatePreview { session -> session.enabled = enabled; session.tick(0L) }
+    fun injectPreview(reference: SuperstructureFieldReference, condition: PreviewPortCondition) = updatePreview { it.inject(reference, condition) }
+    fun setPreviewNumeric(reference: SuperstructureFieldReference, value: Double) = updatePreview { it.setNumeric(reference, value) }
+    fun setPreviewBoolean(reference: SuperstructureFieldReference, value: Boolean) = updatePreview { it.setBoolean(reference, value) }
+    fun setPreviewString(reference: SuperstructureFieldReference, value: String) = updatePreview { it.setString(reference, value) }
+
+    private fun updatePreview(update: (SuperstructurePreviewSession) -> SuperstructurePreviewSnapshot) {
+        val session = previewSession ?: return startPreview()
+        runCatching { update(session) }
+            .onSuccess { snapshot -> _state.update { it.copy(preview = snapshot, error = null) } }
+            .onFailure { error -> _state.update { it.copy(error = error.message ?: "Preview action was rejected") } }
+    }
+
+    fun setDisabledState(id: String) = edit { document ->
+        val safeState = document.states.single { it.stateId == id }.copy(
+            subsystemTargets = document.states.single { it.stateId == id }.subsystemTargets.map { neutralTarget(it.target) },
+        )
+        document.copy(disabledStateId = id, states = document.states.map { if (it.stateId == id) safeState else it })
+    }
+
+    fun setDisabledPolicy(policy: com.areslib.superstructure.SuperstructureDisabledPolicy) = edit {
+        it.copy(disabledPolicy = policy)
+    }
+
+    fun updateSelectedStateTimeout(seconds: Double?, targetStateId: String?) = edit { document ->
+        val id = _state.value.selectedStateId ?: return@edit document
+        document.copy(states = document.states.map { state ->
+            if (state.stateId == id) state.copy(timeoutSeconds = seconds, timeoutTargetStateId = targetStateId) else state
+        })
+    }
+
+    fun addSelectedStateLifecycleAction(onEntry: Boolean, actionKey: String) = edit { document ->
+        require(actionKey in _state.value.parameterlessActions.mapTo(hashSetOf()) { it.key }) {
+            "Lifecycle actions must be parameterless actions from the current project catalog."
+        }
+        val id = _state.value.selectedStateId ?: return@edit document
+        document.copy(states = document.states.map { state ->
+            if (state.stateId != id) state else if (onEntry) {
+                require(actionKey !in state.onEntryActionKeys) { "That entry action is already selected." }
+                state.copy(onEntryActionKeys = state.onEntryActionKeys + actionKey)
+            } else {
+                require(actionKey !in state.onExitActionKeys) { "That exit action is already selected." }
+                state.copy(onExitActionKeys = state.onExitActionKeys + actionKey)
+            }
+        })
+    }
+
+    fun removeSelectedStateLifecycleAction(onEntry: Boolean, actionKey: String) = edit { document ->
+        val id = _state.value.selectedStateId ?: return@edit document
+        document.copy(states = document.states.map { state ->
+            if (state.stateId != id) state else if (onEntry) {
+                state.copy(onEntryActionKeys = state.onEntryActionKeys - actionKey)
+            } else {
+                state.copy(onExitActionKeys = state.onExitActionKeys - actionKey)
+            }
+        })
+    }
+
     fun addTarget(reference: SuperstructureFieldReference) = edit { document ->
-        require(document.states.none { state -> state.subsystemTargets.any { it.subsystemId == reference.subsystemId && it.fieldId == reference.fieldId } }) {
+        require(document.states.none { state -> state.subsystemTargets.any { it.target == reference } }) {
             "That target is already part of every state."
         }
         document.copy(states = document.states.map { state ->
-            state.copy(subsystemTargets = state.subsystemTargets + neutralTarget(reference.subsystemId, reference.fieldId))
+            state.copy(subsystemTargets = state.subsystemTargets + neutralTarget(reference))
         })
     }
 
     fun removeTarget(reference: SuperstructureFieldReference) {
-        _state.update { state -> state.copy(editorErrors = state.editorErrors.filterKeys { !it.contains(":${reference.subsystemId}.${reference.fieldId}") }) }
+        _state.update { state -> state.copy(editorErrors = state.editorErrors.filterKeys { !it.contains(":${reference.subsystemUid}.${reference.fieldUid}") }) }
         edit { document ->
         document.copy(states = document.states.map { state ->
-            state.copy(subsystemTargets = state.subsystemTargets.filterNot {
-                it.subsystemId == reference.subsystemId && it.fieldId == reference.fieldId
-            })
+            state.copy(subsystemTargets = state.subsystemTargets.filterNot { it.target == reference })
         })
         }
     }
@@ -292,15 +372,15 @@ class SuperstructureStudioViewModel(
     fun updateSelectedTarget(target: SuperstructureSubsystemTarget) = edit { document ->
         val stateId = _state.value.selectedStateId ?: return@edit document
         if (target.targetMode != SuperstructureTargetMode.CONSTANT) {
-            _state.update { state -> state.copy(editorErrors = state.editorErrors - "target:$stateId:${target.subsystemId}.${target.fieldId}") }
+            _state.update { state -> state.copy(editorErrors = state.editorErrors - "target:$stateId:${target.target.subsystemUid}.${target.target.fieldUid}") }
         }
-        require(stateId != document.faultStateId || target == neutralTarget(target.subsystemId, target.fieldId)) {
+        require(stateId !in setOf(document.faultStateId, document.disabledStateId) || target == neutralTarget(target.target)) {
             "The fault state must retain each subsystem's declared safe neutral value."
         }
         document.copy(states = document.states.map { state ->
             if (state.stateId != stateId) state else state.copy(
                 subsystemTargets = state.subsystemTargets.map { existing ->
-                    if (existing.subsystemId == target.subsystemId && existing.fieldId == target.fieldId) target else existing
+                    if (existing.target == target.target) target else existing
                 }
             )
         })
@@ -374,8 +454,7 @@ class SuperstructureStudioViewModel(
             ruleId = uniqueId("limit-${constrained.subsystem.documentId}-${constrained.field.fieldId}"),
             description = "Clamp ${constrained.label} while ${source.label} is below the reviewed threshold.",
             primary = source.reference,
-            constrainedSubsystemId = constrained.subsystem.documentId,
-            constrainedFieldId = constrained.field.fieldId,
+            constrained = constrained.reference,
             conditionThreshold = 0.0,
             clampMinimum = constrained.field.minimum,
             clampMaximum = constrained.field.defaultNumber ?: constrained.field.defaultInt?.toDouble() ?: 0.0,
@@ -387,6 +466,26 @@ class SuperstructureStudioViewModel(
     fun removeInterlock(id: String) {
         _state.update { state -> state.copy(editorErrors = state.editorErrors.filterKeys { !it.startsWith("interlock:$id:") }) }
         edit { it.copy(interlocks = it.interlocks.filterNot { rule -> rule.ruleId == id }) }
+    }
+
+    fun addHealthFallback(source: SuperstructureFieldOption) = edit { document ->
+        require(document.healthFallbacks.none { it.source == source.reference }) {
+            "That cached port already has a health fallback."
+        }
+        document.copy(healthFallbacks = document.healthFallbacks + com.areslib.superstructure.SuperstructureHealthFallbackPolicy(
+            policyId = uniqueId("health-${source.subsystem.documentId}-${source.field.fieldId}"),
+            source = source.reference,
+            fallbackStateId = document.faultStateId,
+            description = "Enter the reviewed neutral fault posture when ${source.label} is unhealthy.",
+        ))
+    }
+
+    fun updateHealthFallback(policy: com.areslib.superstructure.SuperstructureHealthFallbackPolicy) = edit { document ->
+        document.copy(healthFallbacks = document.healthFallbacks.map { if (it.policyId == policy.policyId) policy else it })
+    }
+
+    fun removeHealthFallback(id: String) = edit { document ->
+        document.copy(healthFallbacks = document.healthFallbacks.filterNot { it.policyId == id })
     }
 
     fun addLut() = edit { document ->
@@ -419,7 +518,10 @@ class SuperstructureStudioViewModel(
             "${draft.transitions.size} transitions (${draft.transitions.count { it.triggerKind == TransitionTriggerKind.ACTION_REQUEST }} driver/autonomous actions)",
             "${draft.interlocks.size} cross-mechanism clamps",
             "${draft.luts.size} lookup tables",
+            "${draft.healthFallbacks.size} cached-port health fallbacks",
+            "${draft.states.sumOf { it.onEntryActionKeys.size + it.onExitActionKeys.size }} lifecycle actions",
             "Fault destination: ${draft.faultStateId}",
+            "Disabled destination: ${draft.disabledStateId} (${draft.disabledPolicy.name.lowercase().replace('_', ' ')})",
         )
         _state.value = state.copy(review = SuperstructureSaveReview(state.savedContentHash, candidateHash, token, summary), error = null)
     }
@@ -445,6 +547,9 @@ class SuperstructureStudioViewModel(
                         review.expectedContentHash,
                         currentProject.subsystems,
                         currentProject.capabilityCatalog?.actions.orEmpty().mapTo(linkedSetOf()) { it.key },
+                        currentProject.capabilityCatalog?.actions.orEmpty().asSequence()
+                            .filter { it.parameters.isEmpty() }
+                            .mapTo(linkedSetOf()) { it.key },
                     )
                 }
             }
@@ -471,33 +576,49 @@ class SuperstructureStudioViewModel(
         }
     }
 
-    private fun addTransition(edge: StateTransitionEdge) = edit { it.copy(transitions = it.transitions + edge) }
+    private fun addTransition(edge: StateTransitionEdge) = edit { document ->
+        val prioritized = if (edge.triggerKind == TransitionTriggerKind.ACTION_REQUEST) edge else {
+            val next = document.transitions.asSequence()
+                .filter { it.sourceStateId == edge.sourceStateId && it.triggerKind != TransitionTriggerKind.ACTION_REQUEST }
+                .map { it.priority }
+                .maxOrNull()?.plus(10) ?: 0
+            edge.copy(priority = next)
+        }
+        document.copy(transitions = document.transitions + prioritized)
+    }
 
     private fun edit(transform: (SuperstructureDocument) -> SuperstructureDocument) {
         val current = _state.value.draft ?: return
         runCatching { transform(current) }
             .onSuccess { draft ->
-                _state.value = validate(_state.value.copy(draft = draft, dirty = draft != _state.value.saved, review = null, status = "", error = null))
+                previewSession = null
+                _state.value = validate(_state.value.copy(draft = draft, dirty = draft != _state.value.saved, review = null, preview = null, status = "", error = null))
             }
             .onFailure { error -> _state.update { it.copy(error = error.message ?: "That edit is not valid") } }
     }
 
     private fun validate(state: SuperstructureStudioState): SuperstructureStudioState {
         val document = state.draft ?: return state.copy(validationErrors = emptyList(), validationWarnings = emptyList())
-        val issues = validateSuperstructureProject(document, state.subsystems, state.actions.mapTo(linkedSetOf()) { it.key })
+        val issues = validateSuperstructureProject(
+            document,
+            state.subsystems,
+            state.actions.mapTo(linkedSetOf()) { it.key },
+            state.parameterlessActions.mapTo(linkedSetOf()) { it.key },
+        )
         return state.copy(
             validationErrors = issues.filter { it.severity == SuperstructureIssueSeverity.ERROR }.map { "${it.path}: ${it.message}" }.distinct(),
             validationWarnings = issues.filter { it.severity == SuperstructureIssueSeverity.WARNING }.map { "${it.path}: ${it.message}" }.distinct(),
         )
     }
 
-    private fun neutralTarget(subsystemId: String, fieldId: String): SuperstructureSubsystemTarget {
-        val field = _state.value.subsystems.single { it.documentId == subsystemId }.stateFields.single { it.fieldId == fieldId }
+    private fun neutralTarget(reference: SuperstructureFieldReference): SuperstructureSubsystemTarget {
+        val subsystem = _state.value.subsystems.single { it.uid == reference.subsystemUid }
+        val field = subsystem.stateFields.single { it.uid == reference.fieldUid }
         return when (field.type) {
-            SubsystemValueType.DOUBLE -> SuperstructureSubsystemTarget(subsystemId, fieldId, constantDoubleValue = field.defaultNumber ?: 0.0)
-            SubsystemValueType.INT -> SuperstructureSubsystemTarget(subsystemId, fieldId, constantDoubleValue = (field.defaultInt ?: 0).toDouble())
-            SubsystemValueType.BOOLEAN -> SuperstructureSubsystemTarget(subsystemId, fieldId, constantBooleanValue = field.defaultBoolean ?: false)
-            SubsystemValueType.STRING -> SuperstructureSubsystemTarget(subsystemId, fieldId, constantStringValue = field.defaultText.orEmpty())
+            SubsystemValueType.DOUBLE -> SuperstructureSubsystemTarget(reference, constantDoubleValue = field.defaultNumber ?: 0.0)
+            SubsystemValueType.INT -> SuperstructureSubsystemTarget(reference, constantDoubleValue = (field.defaultInt ?: 0).toDouble())
+            SubsystemValueType.BOOLEAN -> SuperstructureSubsystemTarget(reference, constantBooleanValue = field.defaultBoolean ?: false)
+            SubsystemValueType.STRING -> SuperstructureSubsystemTarget(reference, constantStringValue = field.defaultText.orEmpty())
         }
     }
 
@@ -519,6 +640,7 @@ class SuperstructureStudioViewModel(
         val used = buildSet {
             document?.transitions?.forEach { add(it.transitionId) }
             document?.interlocks?.forEach { add(it.ruleId) }
+            document?.healthFallbacks?.forEach { add(it.policyId) }
             document?.luts?.forEach { add(it.lutId) }
             document?.transitions?.flatMap { it.guards }?.forEach { add(it.guardId) }
         }

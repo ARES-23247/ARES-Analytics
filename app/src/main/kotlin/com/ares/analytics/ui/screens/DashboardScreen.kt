@@ -64,7 +64,8 @@ fun DashboardScreen(
     onNavigate: (NavigationTarget) -> Unit = {},
     onOpenKeybindings: () -> Unit = {},
     onOpenRunHistory: () -> Unit = {},
-    onOpenHelp: () -> Unit = {}
+    onOpenHelp: () -> Unit = {},
+    onMissionSnapshotChanged: (DashboardMissionSnapshot) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsState()
     val scope = rememberCoroutineScope()
@@ -187,34 +188,19 @@ fun DashboardScreen(
         hostIp = if (isLocalSimulator) "127.0.0.1" else currentConfig.nt4Host?.ifBlank { "127.0.0.1" } ?: "127.0.0.1"
     )
 
+    LaunchedEffect(missionSnapshot) {
+        onMissionSnapshotChanged(missionSnapshot)
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-
-        // Mission Control Header & Quick Actions
-        DashboardMissionHeader(
-            snapshot = missionSnapshot,
-            onNavigate = onNavigate,
-            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-        )
 
         // Configurable widgets area
         val layout = state.currentLayout
         if (layout != null) {
-            DashboardCommandBar(
-                profileName = state.currentRoleProfile,
-                availableProfiles = state.availableProfiles,
-                isEditing = state.isLayoutEditing,
-                onSelectProfile = { viewModel.onIntent(DashboardIntent.ChangeProfile(it)) },
-                onSaveLayoutAs = { viewModel.onIntent(DashboardIntent.SaveLayoutAs(it)) },
-                onDeleteProfile = { viewModel.onIntent(DashboardIntent.DeleteLayout(it)) },
-                onToggleEditing = { viewModel.onIntent(DashboardIntent.SetLayoutEditing(!state.isLayoutEditing)) },
-                onAddWidget = { viewModel.onIntent(DashboardIntent.SetPickerOpen(true)) },
-                onResetLayout = { viewModel.onIntent(DashboardIntent.ResetProfile) },
-                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-            )
             val builders = mapOf<String, @Composable (WidgetConfig, Modifier) -> Unit>(
                 "driver_station" to { _, mod ->
                     FtcDriverStationWidget(nt4Client = services.nt4ClientService, modifier = mod)

@@ -108,7 +108,7 @@ class SuperstructureProjectRepositoryTest {
             withTimeout(5_000) { viewModel.state.first { !it.loading } }
             viewModel.create("main-machine", "Main machine")
             val target = subsystem.stateFields.single { it.role == SubsystemFieldRole.TARGET }
-            viewModel.addTarget(SuperstructureFieldReference(subsystem.documentId, target.fieldId))
+            viewModel.addTarget(SuperstructureFieldReference(subsystem.uid, target.uid))
             viewModel.addState("ACTIVE", "Active")
             viewModel.addActionTransition("idle", "ACTIVE", "coord.enter")
             viewModel.addActionTransition("ACTIVE", "idle", "coord.exit")

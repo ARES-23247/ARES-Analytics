@@ -27,6 +27,7 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 | Make the interface easier to read | [Accessibility and contrast](learn/ACCESSIBILITY_AND_CONTRAST.md) | Colorblind, contrast, larger-text, and touch settings |
 | Find the right screen or owning source file | [Find help and current source](learn/FIND_HELP_AND_SOURCE.md) | Contextual lessons, connection labels, and developer reference |
 | Lead a student activity | [Teaching with ARES](mentor/TEACHING_WITH_ARES.md) | A safe simulator-first lesson sequence |
+| Pilot Robot Academy with a class | [Classroom pilot](mentor/CLASSROOM_PILOT.md) | Offline practice runs, written evidence, mentor rubric, reset, and export |
 | Build autonomous routines or controller bindings | [Routines and controls](ROUTINES_AND_CONTROLS.md) | Offline project authoring |
 | Add a robot mechanism | [Subsystem Builder](SUBSYSTEM_BUILDER.md) | Generated IO, state, actions, reducers, and controllers |
 | Coordinate several mechanisms | [Superstructure Studio](SUPERSTRUCTURE_STUDIO.md) | Complete postures, project actions, cached sensor guards, interlocks, and lookup tables |

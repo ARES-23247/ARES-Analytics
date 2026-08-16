@@ -49,6 +49,7 @@ class ServiceRegistry {
     val layoutPreferenceService by lazy { LayoutPreferenceService() }
     val updateCheckerService by lazy { UpdateCheckerService() }
     val learningProgressService by lazy { LearningProgressService() }
+    val academyPracticePackService by lazy { com.ares.analytics.service.AcademyPracticePackService() }
     val importArchiveService by lazy { ImportArchiveService() }
     val robotProjectTemplateService by lazy { com.ares.analytics.service.project.RobotProjectTemplateService() }
     val hardwareSetupService by lazy { com.ares.analytics.service.hardware.HardwareSetupService() }
@@ -69,6 +70,13 @@ class ServiceRegistry {
     val advancedAnalyticsService by lazy { AdvancedAnalyticsService(databaseService) }
 
     // ── Tier 2: Depend on Tier 0 + Tier 1 ────────────────────────────────────
+    val academyPracticeWorkflowService by lazy {
+        com.ares.analytics.service.AcademyPracticeWorkflowService(
+            academyPracticePackService,
+            databaseService,
+            logParserService,
+        )
+    }
     val alertEngineService by lazy { AlertEngineService(databaseService, nt4ClientService) }
     val driverAnalysisService by lazy { DriverAnalysisService(databaseService, sysIdService) }
     val diagnosticCoachService by lazy { DiagnosticCoachService(databaseService) }

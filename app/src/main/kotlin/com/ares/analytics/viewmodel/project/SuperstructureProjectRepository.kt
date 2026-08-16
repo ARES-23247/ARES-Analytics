@@ -18,7 +18,7 @@ data class SavedSuperstructureDocument(
 /**
  * Crash-safe store for generated superstructure coordinators.
  *
- * Superstructure schema v2 intentionally has no mutable revision counter. Concurrency is therefore
+ * Superstructure schema v3 intentionally has no mutable revision counter. Concurrency is therefore
  * bound to the exact canonical content hash. The editor must reload after another writer changes a
  * document; it never silently replaces newer student work.
  */
@@ -94,9 +94,10 @@ class SuperstructureProjectRepository {
         expectedContentHash: String?,
         subsystems: List<SubsystemDocument>,
         actionKeys: Set<String>,
+        parameterlessActionKeys: Set<String> = actionKeys,
     ): SavedSuperstructureDocument {
         val validated = SuperstructureDocumentCodec.decode(SuperstructureDocumentCodec.encode(draft))
-        val projectErrors = validateSuperstructureProject(validated, subsystems, actionKeys)
+        val projectErrors = validateSuperstructureProject(validated, subsystems, actionKeys, parameterlessActionKeys)
             .filter { it.severity == SuperstructureIssueSeverity.ERROR }
         require(projectErrors.isEmpty()) {
             projectErrors.joinToString("; ") { "${it.path}: ${it.message}" }

@@ -116,8 +116,16 @@ class AresProjectDocuments(
         }
 
         val superstructureActionKeys = catalog?.actions.orEmpty().mapTo(linkedSetOf()) { it.key }
+        val parameterlessSuperstructureActionKeys = catalog?.actions.orEmpty().asSequence()
+            .filter { it.parameters.isEmpty() }
+            .mapTo(linkedSetOf()) { it.key }
         superstructureListing.documents.forEach { document ->
-            val errors = validateSuperstructureProject(document, subsystemListing.documents, superstructureActionKeys)
+            val errors = validateSuperstructureProject(
+                document,
+                subsystemListing.documents,
+                superstructureActionKeys,
+                parameterlessSuperstructureActionKeys,
+            )
                 .filter { it.severity == SuperstructureIssueSeverity.ERROR }
             if (errors.isNotEmpty()) {
                 diagnostics += ProjectDocumentDiagnostic(

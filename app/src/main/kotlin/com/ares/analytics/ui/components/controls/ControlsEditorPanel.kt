@@ -162,10 +162,95 @@ fun ControlsEditorPanel(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 BindingList(state, viewModel)
+                BindingLearningTraceCard(state)
                 state.draftBinding?.let { BindingInspector(state, viewModel, it) }
                 ProblemsCard(state)
             }
         }
+    }
+}
+
+internal data class BindingLearningTrace(
+    val input: String,
+    val event: String,
+    val target: String,
+    val runtimePath: String,
+    val hasBlockingProblem: Boolean,
+)
+
+/** A structural explanation of the selected canonical binding; this never evaluates an input. */
+internal fun bindingLearningTrace(state: ControlsEditorState): BindingLearningTrace? {
+    val binding = state.draftBinding ?: state.selectedBindingId?.let { selectedId ->
+        state.selectedScheme?.bindings?.firstOrNull { it.bindingId == selectedId }
+    } ?: return null
+    val sourceController = state.selectedScheme?.controllers
+        ?.firstOrNull { it.slot == binding.source.controllerSlot }
+    val sourceProfileId = sourceController?.profileId
+    val sourceProfile = state.profiles.firstOrNull { it.documentId == sourceProfileId }
+    val controls = binding.source.controlIds.map { controlId ->
+        val control = sourceProfile?.controls?.firstOrNull { it.controlId == controlId }
+        val mapping = control?.mappings?.firstOrNull { it.platform == state.targetPlatform }
+        val physicalIndex = mapping?.buttonIndex?.let { "button $it" }
+            ?: mapping?.axisIndex?.let { "axis $it" }
+            ?: "not mapped"
+        "${sourceController?.displayName ?: binding.source.controllerSlot}.${control?.displayName ?: controlId} " +
+            "($physicalIndex on ${state.targetPlatform.name})"
+    }
+    val target = when (binding.target.kind) {
+        ControlTargetKind.ACTION -> buildString {
+            append(binding.target.key)
+            if (binding.target.arguments.isNotEmpty()) {
+                append(binding.target.arguments.entries.sortedBy { it.key }.joinToString(", ", "(", ")") { "${it.key}=${it.value}" })
+            }
+        }
+        ControlTargetKind.ROUTINE -> "routine ${binding.target.key} · ${binding.target.routinePolicy.friendlyName()}"
+        ControlTargetKind.CANCEL_ROUTINE -> "cancel routine ${binding.target.key}"
+    }
+    val runtimePath = when (binding.target.kind) {
+        ControlTargetKind.ACTION -> "Generated binding runtime → typed action task → Redux → subsystem controller → cached IO"
+        ControlTargetKind.ROUTINE -> "Generated binding runtime → routine scheduler → typed tasks/resources → Redux"
+        ControlTargetKind.CANCEL_ROUTINE -> "Generated binding runtime → routine scheduler cancellation → owned-resource cleanup"
+    }
+    return BindingLearningTrace(
+        input = controls.joinToString(" + "),
+        event = "${binding.source.kind.friendlyName()} · ${binding.event.friendlyName()}",
+        target = target,
+        runtimePath = runtimePath,
+        hasBlockingProblem = state.problems.any {
+            it.severity == ControlsProblemSeverity.ERROR && (it.bindingId == null || it.bindingId == binding.bindingId)
+        },
+    )
+}
+
+@Composable
+private fun BindingLearningTraceCard(state: ControlsEditorState) {
+    val trace = bindingLearningTrace(state) ?: return
+    Column(cardModifier(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Binding runtime trace", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+        Text(
+            "Structural preview only—it does not read a controller, dispatch an action, run simulation, or command hardware.",
+            color = AresGold,
+            fontSize = 11.sp,
+        )
+        TraceLine("1 · Input", trace.input)
+        TraceLine("2 · Event", trace.event)
+        TraceLine("3 · Target", trace.target)
+        TraceLine("4 · Runtime", trace.runtimePath)
+        Text(
+            if (trace.hasBlockingProblem) "BLOCKED · Resolve the binding problem before Apply or Generate."
+            else "READY FOR REVIEW · Validation is not execution or physical verification.",
+            color = if (trace.hasBlockingProblem) AresError else AresGreen,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun TraceLine(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+        Text(label, color = AresCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = AresTextSecondary, fontSize = 11.sp, lineHeight = 16.sp)
     }
 }
 

@@ -48,6 +48,7 @@ fun GainTuningPanel(
             )
         }
         Text("Connecting a robot, Gemini proposal, or AutoTuner result cannot change this profile. Promotion requires validation, a structured diff, and explicit confirmation.", color = AresGold, fontSize = 10.sp)
+        TuningEvidenceBoundary()
         state.errorMessage?.let { Banner(it, AresError) }
         if (state.saveStatus.isNotBlank()) Banner(state.saveStatus, AresGreen)
         Row(Modifier.fillMaxWidth().padding(end = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -89,6 +90,33 @@ fun GainTuningPanel(
             Button(onClick = { viewModel.onIntent(TuningIntent.ReviewPromotion) }, enabled = state.proposals.isNotEmpty(), colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) { Text("Review promotion") }
         }
         state.review?.let { PromotionReview(it, viewModel) }
+    }
+}
+
+@Composable
+private fun TuningEvidenceBoundary() {
+    Row(
+        Modifier.fillMaxWidth()
+            .background(AresBackground.copy(alpha = .45f), RoundedCornerShape(7.dp))
+            .border(1.dp, AresBorder, RoundedCornerShape(7.dp))
+            .padding(8.dp)
+            .semantics {
+                contentDescription = "Tuning evidence flow: canonical source, local proposal, acknowledged live experiment, explicit profile promotion"
+            },
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        EvidenceStage("1 · SOURCE", "Checked-in profile\nunchanged", Modifier.weight(1f))
+        EvidenceStage("2 · PROPOSE", "Session-only value\nreversible", Modifier.weight(1f))
+        EvidenceStage("3 · LIVE TEST", "NT4 request + exact\nrobot acknowledgement", Modifier.weight(1f))
+        EvidenceStage("4 · PROMOTE", "Reviewed diff + history\nno robot push", Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun EvidenceStage(title: String, body: String, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 8.sp)
+        Text(body, color = AresTextSecondary, fontSize = 8.sp, lineHeight = 11.sp)
     }
 }
 

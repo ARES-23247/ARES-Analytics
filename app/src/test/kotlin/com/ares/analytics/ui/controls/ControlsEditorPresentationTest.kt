@@ -4,15 +4,26 @@ import com.ares.analytics.ui.components.controls.advancedBindingSummary
 import com.ares.analytics.ui.components.controls.actionAccessibleLabel
 import com.ares.analytics.ui.components.controls.actionBrowserGroups
 import com.ares.analytics.ui.components.controls.actionCatalogSummary
+import com.ares.analytics.ui.components.controls.bindingLearningTrace
 import com.ares.analytics.ui.components.controls.hasAdvancedBindingSettings
+import com.ares.analytics.shared.League
+import com.ares.analytics.viewmodel.controls.ControlsEditorState
 import com.areslib.catalog.ActionDescriptor
 import com.areslib.controls.ControlBindingDocument
 import com.areslib.controls.ControlEvent
+import com.areslib.controls.ControlSchemeDocument
 import com.areslib.controls.ControlSourceDocument
 import com.areslib.controls.ControlSourceKind
 import com.areslib.controls.ControlTargetDocument
 import com.areslib.controls.ControlTargetKind
 import com.areslib.controls.ControlTimingDocument
+import com.areslib.controls.ControllerAnchorDocument
+import com.areslib.controls.ControllerAssignment
+import com.areslib.controls.ControllerControlDocument
+import com.areslib.controls.ControllerControlTypeDocument
+import com.areslib.controls.ControllerInputMappingDocument
+import com.areslib.controls.ControllerInputPlatform
+import com.areslib.controls.ControllerProfileDocument
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertEquals
@@ -98,5 +109,61 @@ class ControlsEditorPresentationTest {
         assertEquals("SetIndicatorColor_GREEN", actionBrowserGroups(actions, "light").flatMap { it.actions }[0].key)
         assertTrue(actionAccessibleLabel(indicator).contains("Primary light: Green"))
         assertTrue(actionAccessibleLabel(indicator).contains("Sets the primary indicator light to green"))
+    }
+
+    @Test
+    fun `binding trace explains canonical input to IO without claiming execution`() {
+        val profile = ControllerProfileDocument(
+            documentId = "student-pad",
+            displayName = "Student pad",
+            controls = listOf(
+                ControllerControlDocument(
+                    controlId = "a",
+                    displayName = "A",
+                    type = ControllerControlTypeDocument.BUTTON,
+                    anchor = ControllerAnchorDocument(.5, .5),
+                    mappings = listOf(
+                        ControllerInputMappingDocument(ControllerInputPlatform.FTC, buttonIndex = 0),
+                    ),
+                ),
+            ),
+        )
+        val selectedBinding = ControlBindingDocument(
+            bindingId = "lift-target",
+            displayName = "Raise lift",
+            source = ControlSourceDocument(ControlSourceKind.BUTTON, "driver", listOf("a")),
+            event = ControlEvent.PRESS,
+            target = ControlTargetDocument(
+                kind = ControlTargetKind.ACTION,
+                key = "subsystem.practice-lift.set.target",
+                arguments = mapOf("value" to "0.4"),
+            ),
+        )
+        val scheme = ControlSchemeDocument(
+            documentId = "competition",
+            name = "Competition",
+            controllers = listOf(ControllerAssignment("driver", "Driver", profile.documentId, devicePort = 0)),
+            bindings = listOf(selectedBinding),
+        )
+        val trace = bindingLearningTrace(
+            ControlsEditorState(
+                projectPath = "C:/robot",
+                league = League.FTC,
+                targetPlatform = ControllerInputPlatform.FTC,
+                profiles = listOf(profile),
+                schemes = listOf(scheme),
+                selectedSchemeId = scheme.documentId,
+                selectedControllerSlot = "driver",
+                selectedBindingId = selectedBinding.bindingId,
+            ),
+        ) ?: error("Expected trace")
+
+        assertTrue(trace.input.contains("Driver.A"))
+        assertTrue(trace.input.contains("button 0 on FTC"))
+        assertTrue(trace.target.contains("subsystem.practice-lift.set.target"))
+        assertTrue(trace.target.contains("value=0.4"))
+        assertTrue(trace.runtimePath.contains("Redux"))
+        assertTrue(trace.runtimePath.contains("cached IO"))
+        assertFalse(trace.hasBlockingProblem)
     }
 }

@@ -45,13 +45,16 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,10 +62,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.shared.AlertRecord
@@ -198,8 +203,8 @@ data class DashboardMissionSnapshot(
 }
 
 /**
- * Accessible, responsive Mission Control Header for ARES Analytics.
- * Answers the 9 novice student questions in clear, prioritized hierarchy.
+ * Compact evidence/status header for Mission Control. Workspace identity and navigation live in
+ * the global shell, so this component does not repeat them or reserve space for quick links.
  */
 @Composable
 fun DashboardMissionHeader(
@@ -207,147 +212,62 @@ fun DashboardMissionHeader(
     onNavigate: (NavigationTarget) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var expandedDetails by remember { mutableStateOf(false) }
+    var detailsOpen by remember { mutableStateOf(false) }
+    val topAlert = snapshot.highestPriorityAlert
 
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = AresSurface,
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, AresBorder)
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, if (topAlert != null) AresAmber.copy(alpha = 0.6f) else AresBorder)
     ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 7.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            BoxWithConstraints {
-                val compact = maxWidth < 880.dp
-
-                if (compact) {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        IdentityAndSourceRow(snapshot)
-                        HealthAndFreshnessRow(snapshot)
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IdentityAndSourceRow(snapshot, modifier = Modifier.weight(1f))
-                        Spacer(Modifier.width(16.dp))
-                        HealthAndFreshnessRow(snapshot)
-                    }
-                }
-            }
-
-            // Plain Language Health Summary & Action Banner
-            HealthSummaryBanner(
-                snapshot = snapshot,
-                onNavigate = onNavigate
+            HealthAndFreshnessRow(snapshot, compact = true)
+            Text(
+                text = snapshot.healthSummary,
+                color = if (topAlert != null) AresAmber else AresTextSecondary,
+                fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).clickable { detailsOpen = true }
+                    .padding(horizontal = 5.dp, vertical = 5.dp),
             )
+            IconButton(onClick = { detailsOpen = true }, modifier = Modifier.size(30.dp)) {
+                Icon(Icons.Default.Info, "Open dashboard status and diagnostics", tint = AresCyan, modifier = Modifier.size(17.dp))
+            }
+        }
+    }
 
-            // Quick Navigation Action Strip for Novices
-            QuickNavigationStrip(onNavigate = onNavigate)
-
-            // Expandable Technical Diagnostics Toggle
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { expandedDetails = !expandedDetails }
-                    .padding(vertical = 2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+    if (detailsOpen) {
+        AlertDialog(
+            onDismissRequest = { detailsOpen = false },
+            title = {
+                Text("Dashboard status & diagnostics", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(
+                    modifier = Modifier.width(760.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    Icon(
-                        imageVector = if (expandedDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = if (expandedDetails) "Collapse technical details" else "Expand technical details",
-                        tint = AresTextTertiary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = if (expandedDetails) "Hide technical diagnostics" else "Show technical diagnostics & connection metrics",
-                        color = AresTextSecondary,
-                        fontSize = 11.sp
-                    )
+                    HealthAndFreshnessRow(snapshot)
+                    HealthSummaryBanner(snapshot, onNavigate)
+                    TechnicalDiagnosticsPanel(snapshot)
                 }
-
-                Text(
-                    text = "${snapshot.sourceType.badge} • ${snapshot.hostIp}",
-                    color = AresTextTertiary,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-
-            AnimatedVisibility(
-                visible = expandedDetails,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically()
-            ) {
-                TechnicalDiagnosticsPanel(snapshot)
-            }
-        }
+            },
+            confirmButton = {
+                TextButton(onClick = { detailsOpen = false }) { Text("Close") }
+            },
+            containerColor = AresSurface,
+        )
     }
 }
 
 @Composable
-private fun IdentityAndSourceRow(
-    snapshot: DashboardMissionSnapshot,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        // League Badge
-        val leagueColor = if (snapshot.workspace.league == League.FTC) AresGold else AresCyan
-        Surface(
-            color = leagueColor.copy(alpha = 0.15f),
-            border = BorderStroke(1.dp, leagueColor),
-            shape = RoundedCornerShape(6.dp)
-        ) {
-            Text(
-                text = snapshot.workspace.league.name,
-                color = leagueColor,
-                fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-            )
-        }
-
-        // Robot & Workspace Name
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(
-                    text = snapshot.workspace.robotName.ifBlank { snapshot.workspace.robotId },
-                    color = AresTextPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 15.sp
-                )
-                Text(
-                    text = "Team ${snapshot.workspace.teamId}",
-                    color = AresTextSecondary,
-                    fontSize = 12.sp
-                )
-            }
-
-            Text(
-                text = snapshot.sourceType.explanation,
-                color = AresTextTertiary,
-                fontSize = 11.sp,
-                lineHeight = 14.sp
-            )
-        }
-    }
-}
-
-@Composable
-private fun HealthAndFreshnessRow(snapshot: DashboardMissionSnapshot) {
+private fun HealthAndFreshnessRow(snapshot: DashboardMissionSnapshot, compact: Boolean = false) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -372,7 +292,7 @@ private fun HealthAndFreshnessRow(snapshot: DashboardMissionSnapshot) {
             shape = RoundedCornerShape(8.dp)
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = if (compact) 7.dp else 10.dp, vertical = if (compact) 4.dp else 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
@@ -388,7 +308,7 @@ private fun HealthAndFreshnessRow(snapshot: DashboardMissionSnapshot) {
                     modifier = Modifier.size(16.dp)
                 )
                 Text(
-                    text = snapshot.sourceType.label,
+                    text = if (compact) snapshot.sourceType.badge else snapshot.sourceType.label,
                     color = AresTextPrimary,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium
@@ -403,7 +323,7 @@ private fun HealthAndFreshnessRow(snapshot: DashboardMissionSnapshot) {
             shape = RoundedCornerShape(8.dp)
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                modifier = Modifier.padding(horizontal = if (compact) 6.dp else 8.dp, vertical = if (compact) 4.dp else 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
@@ -515,71 +435,6 @@ private fun HealthSummaryBanner(
                     Text("Investigate", fontSize = 11.sp)
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun QuickNavigationStrip(onNavigate: (NavigationTarget) -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text("Quick jump:", color = AresTextTertiary, fontSize = 11.sp)
-
-        QuickNavChip(
-            label = "Robot Studio",
-            icon = Icons.Default.PrecisionManufacturing,
-            onClick = { onNavigate(NavigationTarget.ROBOT_STUDIO) }
-        )
-        QuickNavChip(
-            label = "Academy Labs",
-            icon = Icons.Default.School,
-            onClick = { onNavigate(NavigationTarget.ACADEMY) }
-        )
-        QuickNavChip(
-            label = "Autonomous",
-            icon = Icons.AutoMirrored.Filled.AltRoute,
-            onClick = { onNavigate(NavigationTarget.PATH_PLANNER) }
-        )
-        QuickNavChip(
-            label = "Run History",
-            icon = Icons.Default.History,
-            onClick = { onNavigate(NavigationTarget.RUN_HISTORY) }
-        )
-        QuickNavChip(
-            label = "Imports",
-            icon = Icons.Default.CloudUpload,
-            onClick = { onNavigate(NavigationTarget.IMPORT_CENTER) }
-        )
-        QuickNavChip(
-            label = "Tuning",
-            icon = Icons.Default.Tune,
-            onClick = { onNavigate(NavigationTarget.TUNING) }
-        )
-    }
-}
-
-@Composable
-private fun QuickNavChip(
-    label: String,
-    icon: ImageVector,
-    onClick: () -> Unit
-) {
-    Surface(
-        color = AresSurfaceElevated,
-        border = BorderStroke(1.dp, AresBorder),
-        shape = RoundedCornerShape(6.dp),
-        modifier = Modifier.clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Icon(imageVector = icon, contentDescription = null, tint = AresCyan, modifier = Modifier.size(13.dp))
-            Text(text = label, color = AresTextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
         }
     }
 }

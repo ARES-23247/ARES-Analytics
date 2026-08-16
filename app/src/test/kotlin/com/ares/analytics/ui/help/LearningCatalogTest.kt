@@ -84,6 +84,118 @@ class LearningCatalogTest {
     }
 
     @Test
+    fun `subsystem mission uses real builder evidence and truthful graduation gates`() {
+        val lesson = LearningCatalog.lesson("safe-subsystem") ?: error("Missing subsystem mission")
+
+        assertEquals("Build a homed position mechanism", lesson.title)
+        assertTrue(lesson.checkpoints.count { it.evidence != LearningCheckpointEvidence.SELF_REPORTED } >= 6)
+        assertTrue(lesson.checkpoints.any { it.action == LearningCheckpointAction.OPEN_HOMING_LAB })
+        assertTrue(lesson.checkpoints.any { it.action == LearningCheckpointAction.OPEN_STATE_FLOW_LAB })
+        assertTrue(lesson.safetyNote.orEmpty().contains("does not prove"))
+        assertTrue(lesson.steps.any { it.startsWith("Predict:") })
+        assertTrue(lesson.steps.any { it.startsWith("Graduate:") })
+    }
+
+    @Test
+    fun `controller mission binds the generated mechanism with project evidence`() {
+        val lesson = LearningCatalog.lesson("map-one-control") ?: error("Missing controls mission")
+
+        assertEquals("Control the mechanism you created", lesson.title)
+        assertEquals(NavigationTarget.CONTROLS, lesson.destination)
+        assertFalse(lesson.requiresRobot)
+        assertTrue("safe-subsystem" in lesson.prerequisiteLessonIds)
+        assertTrue(lesson.checkpoints.count { it.evidence != LearningCheckpointEvidence.SELF_REPORTED } >= 6)
+        assertTrue(lesson.checkpoints.any { it.action == LearningCheckpointAction.OPEN_CONTROLS })
+        assertTrue(lesson.steps.any { it.startsWith("Predict:") })
+        assertTrue(lesson.steps.any { it.startsWith("Trace:") })
+        assertTrue(lesson.safetyNote.orEmpty().contains("does not prove a controller is connected"))
+        assertTrue(lesson.successLooksLike.contains("generated successfully"))
+    }
+
+    @Test
+    fun `tuning mission is offline project backed and separates review from hardware validation`() {
+        val lesson = LearningCatalog.lesson("tuning-evidence") ?: error("Missing tuning mission")
+
+        assertEquals("Propose one reversible tuning change", lesson.title)
+        assertEquals(NavigationTarget.TUNING, lesson.destination)
+        assertFalse(lesson.requiresRobot)
+        assertTrue("control-response-lab" in lesson.prerequisiteLessonIds)
+        assertTrue("safe-subsystem" in lesson.prerequisiteLessonIds)
+        assertTrue(lesson.checkpoints.count { it.evidence != LearningCheckpointEvidence.SELF_REPORTED } >= 6)
+        assertTrue(lesson.checkpoints.any { it.action == LearningCheckpointAction.OPEN_TUNING })
+        assertTrue(lesson.steps.any { it.startsWith("Predict:") })
+        assertTrue(lesson.steps.any { it.contains("feedforward") })
+        assertTrue(lesson.steps.any { it.contains("never pushes NT4") })
+        assertTrue(lesson.safetyNote.orEmpty().contains("does not prove"))
+    }
+
+    @Test
+    fun `superstructure mission uses production semantics while preserving the physics boundary`() {
+        val lesson = LearningCatalog.lesson("coordinate-mechanisms") ?: error("Missing superstructure mission")
+
+        assertEquals("Coordinate several mechanisms safely", lesson.title)
+        assertEquals(NavigationTarget.SUPERSTRUCTURE_STUDIO, lesson.destination)
+        assertFalse(lesson.requiresRobot)
+        assertEquals(40, lesson.durationMinutes)
+        assertTrue(lesson.checkpoints.count { it.evidence != LearningCheckpointEvidence.SELF_REPORTED } >= 8)
+        assertTrue(lesson.checkpoints.any { it.action == LearningCheckpointAction.OPEN_SUPERSTRUCTURE_STUDIO })
+        assertTrue(lesson.steps.any { it.startsWith("Predict:") })
+        assertTrue(lesson.steps.any { it.contains("Inject stale") })
+        assertTrue(lesson.safetyNote.orEmpty().contains("not mechanism physics"))
+    }
+
+    @Test
+    fun `autonomous mission uses canonical project evidence and names every evidence boundary`() {
+        val lesson = LearningCatalog.lesson("first-routine") ?: error("Missing autonomous mission")
+
+        assertEquals(NavigationTarget.PATH_PLANNER, lesson.destination)
+        assertFalse(lesson.requiresRobot)
+        assertTrue(lesson.checkpoints.count { it.evidence != LearningCheckpointEvidence.SELF_REPORTED } >= 7)
+        assertTrue(lesson.checkpoints.any { it.action == LearningCheckpointAction.OPEN_AUTONOMOUS })
+        assertTrue(lesson.steps.any { it.startsWith("Predict:") })
+        assertTrue(lesson.steps.any { it.contains("kinematic preview") })
+        assertTrue(lesson.steps.any { it.startsWith("Graduate:") })
+        assertTrue(lesson.safetyNote.orEmpty().contains("do not model wheel slip"))
+    }
+
+    @Test
+    fun `run missions use workspace evidence and keep conclusions student owned`() {
+        val importLesson = LearningCatalog.lesson("bring-in-run") ?: error("Missing import mission")
+        val analysisLesson = LearningCatalog.lesson("compare-run-evidence") ?: error("Missing analysis mission")
+
+        assertEquals(NavigationTarget.IMPORT_CENTER, importLesson.destination)
+        assertTrue(importLesson.checkpoints.count { it.evidence != LearningCheckpointEvidence.SELF_REPORTED } >= 3)
+        assertTrue(importLesson.checkpoints.any { it.action == LearningCheckpointAction.OPEN_GUIDED_ANALYSIS })
+        assertTrue(importLesson.steps.any { it.startsWith("Predict:") })
+        assertTrue(importLesson.steps.any { it.contains("quarantined") })
+
+        assertEquals(NavigationTarget.GUIDED_RUN_ANALYSIS, analysisLesson.destination)
+        assertTrue(analysisLesson.checkpoints.count { it.evidence != LearningCheckpointEvidence.SELF_REPORTED } >= 5)
+        assertTrue(analysisLesson.checkpoints.any { it.id == RunAnalysisMissionCheckpointIds.CLAIM && it.evidence == LearningCheckpointEvidence.SELF_REPORTED })
+        assertTrue(analysisLesson.steps.any { it.contains("possible causes separate") })
+        assertTrue(analysisLesson.steps.any { it.contains("Export the Markdown") })
+        assertTrue(analysisLesson.safetyNote.orEmpty().contains("cannot prove"))
+    }
+
+    @Test
+    fun `generated Kotlin graduation uses consumer build simulation and student owned boundaries`() {
+        val lesson = LearningCatalog.lesson("generated-kotlin-graduation") ?: error("Missing graduation mission")
+        val builderPath = LearningCatalog.path("robot-builder") ?: error("Missing robot builder path")
+
+        assertEquals(NavigationTarget.ROBOT_STUDIO, lesson.destination)
+        assertFalse(lesson.requiresRobot)
+        assertTrue(setOf("robot-studio-tour", "safe-subsystem", "map-one-control").all { it in lesson.prerequisiteLessonIds })
+        assertTrue(lesson.checkpoints.count { it.evidence != LearningCheckpointEvidence.SELF_REPORTED } >= 5)
+        assertTrue(lesson.checkpoints.any { it.action == LearningCheckpointAction.OPEN_DEVELOPER_REFERENCE })
+        assertTrue(lesson.checkpoints.any { it.action == LearningCheckpointAction.OPEN_GUIDED_ANALYSIS })
+        assertTrue(lesson.steps.any { it.contains("GENERATED—DO NOT EDIT") })
+        assertTrue(lesson.steps.any { it.contains("Verify & build") })
+        assertTrue(lesson.steps.any { it.contains("project simulator") })
+        assertTrue(lesson.safetyNote.orEmpty().contains("do not validate wiring"))
+        assertTrue("generated-kotlin-graduation" in builderPath.lessonIds)
+    }
+
+    @Test
     fun `state flow lab covers controller redux devices and telemetry units`() {
         val lesson = LearningCatalog.lesson("state-flow-lab") ?: error("Missing state flow lab")
 
