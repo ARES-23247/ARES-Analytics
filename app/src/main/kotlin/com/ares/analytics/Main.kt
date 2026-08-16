@@ -16,8 +16,29 @@ import com.ares.analytics.ui.screens.MainScreen
 import com.ares.analytics.ui.theme.rememberAresLogoPainter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.concurrent.thread
 import kotlin.system.exitProcess
+
+/** Bounded window for graceful service disposal before the shutdown watchdog forces exit. */
+private const val SHUTDOWN_TIMEOUT_MS = 15_000L
+
+/**
+ * Last-resort exit guarantee: [androidx.compose.ui.window.ApplicationScope.exitApplication]
+ * ends the Compose loop but the JVM only terminates once all non-daemon threads finish — a
+ * thread stuck inside a hung service leaves a zombie process holding the single-instance
+ * lock. This daemon thread escalates to [Runtime.halt] after a grace period; halt skips
+ * shutdown hooks, which is acceptable here because the disposal path (the thing that ran
+ * the hooks' work: lock release is OS-automatic, telemetry persistence is dispose's job)
+ * already had its chance.
+ */
+private fun watchHardExit(graceMs: Long = 3_000L) {
+    thread(isDaemon = true, name = "shutdown-halt-watchdog") {
+        Thread.sleep(graceMs)
+        System.err.println("Shutdown watchdog: JVM still alive after exitApplication; halting.")
+        Runtime.getRuntime().halt(1)
+    }
+}
 
 /** Starts the single-instance Compose desktop application and owns process-level cleanup. */
 fun main(args: Array<String>) {
@@ -93,10 +114,25 @@ private fun launchDesktopApplication() {
                 if (!shutdownStarted) {
                     shutdownStarted = true
                     shutdownScope.launch {
-                        try {
-                            withContext(Dispatchers.IO) { services.disposeAndJoin() }
-                        } catch (e: Throwable) {
-                            e.printStackTrace()
+                        // Watchdog: a hung service teardown (NT4 flush retries, DuckDB
+                        // checkpoint, drive I/O) must not leave an unclosable window that
+                        // also holds the single-instance lock. Disposal runs as its own job
+                        // because a blocking, non-cooperative teardown cannot be cancelled —
+                        // we stop waiting for it instead, then guarantee process exit.
+                        val disposeJob = launch(Dispatchers.IO) {
+                            try {
+                                services.disposeAndJoin()
+                            } catch (e: Throwable) {
+                                e.printStackTrace()
+                            }
+                        }
+                        val finished = withTimeoutOrNull(SHUTDOWN_TIMEOUT_MS) { disposeJob.join() }
+                        if (finished == null) {
+                            System.err.println(
+                                "Shutdown watchdog: disposal did not finish in " +
+                                    "$SHUTDOWN_TIMEOUT_MS ms; forcing application exit."
+                            )
+                            watchHardExit()
                         }
                         exitApplication()
                     }
