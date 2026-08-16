@@ -10,6 +10,15 @@ ARES tuning is built around component declarations and robot-owned profiles—no
 
 Profiles can inherit another profile. The UI shows whether a value comes directly from the selected profile or from its parent, plus its evidence/provenance.
 
+## Learn this workflow in Robot Academy
+
+Open **Help & Learn -> Robot builder -> Propose one reversible tuning change**. The lesson uses the
+current project's real declarations and `.arestuning` profile. It asks for one feedforward-aware
+prediction, one typed proposal, provenance, an apply-policy explanation, and a structured review.
+Its observed checkpoints prove only what the editor can see: loaded declarations, a valid proposal,
+recorded provenance, and review readiness. Interpretation, simulator evidence, acknowledged live
+testing, and physical validation remain separate.
+
 ## Three columns
 
 - **Source** is the resolved canonical robot profile.

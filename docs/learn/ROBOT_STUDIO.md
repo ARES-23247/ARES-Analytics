@@ -1,5 +1,10 @@
 # Build one robot with Robot Studio
 
+Robot Academy's **Graduate a GUI robot into a verified runtime** mission uses Robot Studio as its
+project-matched evidence spine. It observes identity, authoring readiness, successful Verify &
+build, an active project simulator, and persisted run evidence. Ownership explanations, runtime
+flow, and validation boundaries remain student reflection checkpoints.
+
 Robot Studio is the guided front door to ARES robot authoring. It does not replace the Drivebase Builder, Subsystem Builder, TeleOp Controls, Auto Builder, Tuning, simulator, or Run History. It reads their canonical project documents, explains the current evidence, and sends you to the correct specialized tool.
 
 ## Read the stage labels literally

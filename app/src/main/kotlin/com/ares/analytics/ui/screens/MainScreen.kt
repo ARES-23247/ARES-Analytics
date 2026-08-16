@@ -29,6 +29,13 @@ import com.ares.analytics.service.UpdateCheckerService
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.CommandPalette
 import com.ares.analytics.ui.components.LearningCoachDrawer
+import com.ares.analytics.ui.help.toAcademySubsystemSnapshot
+import com.ares.analytics.ui.help.toAcademyControlsSnapshot
+import com.ares.analytics.ui.help.toAcademyTuningSnapshot
+import com.ares.analytics.ui.help.toAcademySuperstructureSnapshot
+import com.ares.analytics.ui.help.toAcademyAutonomousSnapshot
+import com.ares.analytics.ui.help.toAcademyRunAnalysisSnapshot
+import com.ares.analytics.ui.help.toAcademyGraduationSnapshot
 import com.ares.analytics.ui.components.NavigationTarget
 import com.ares.analytics.ui.components.QuickNavigationMenu
 import com.ares.analytics.ui.components.SectionNavigationBar
@@ -359,6 +366,8 @@ fun MainScreen(services: ServiceRegistry) {
     DisposableEffect(subsystemGeneratorViewModel) {
         onDispose { subsystemGeneratorViewModel.close() }
     }
+    val tuningState by tuningViewModel.state.collectAsState()
+    val subsystemGeneratorState by subsystemGeneratorViewModel.state.collectAsState()
     val drivebaseBuilderViewModel = remember(currentConfig.projectPath, currentConfig.robotId, currentConfig.league) {
         DrivebaseBuilderViewModel(
             projectPath = currentConfig.projectPath ?: "",
@@ -406,6 +415,10 @@ fun MainScreen(services: ServiceRegistry) {
     var dashboardMissionSnapshot by remember(currentConfig.id) {
         mutableStateOf<DashboardMissionSnapshot?>(null)
     }
+    val superstructureStudioState by superstructureStudioViewModel.state.collectAsState()
+    val pathPlannerState by pathPlannerViewModel.state.collectAsState()
+    val guidedRunAnalysisState by guidedRunAnalysisViewModel.state.collectAsState()
+    val robotStudioState by robotStudioViewModel.state.collectAsState()
     val primarySessionId = dashboardState.primarySessionId
     val compareSessionId = dashboardState.compareSessionId
     val isConnected by services.nt4ClientService.isConnected.collectAsState()
@@ -463,6 +476,13 @@ fun MainScreen(services: ServiceRegistry) {
         isSimulatorRunning = isSimRunning,
         isLocalSimulatorOnline = isLocalSimOnline,
         isNt4Connected = isNt4Connected,
+        subsystem = subsystemGeneratorState.toAcademySubsystemSnapshot(),
+        controls = controlsEditorState.toAcademyControlsSnapshot(),
+        tuning = tuningState.toAcademyTuningSnapshot(),
+        superstructure = superstructureStudioState.toAcademySuperstructureSnapshot(),
+        autonomous = pathPlannerState.toAcademyAutonomousSnapshot(),
+        runAnalysis = guidedRunAnalysisState.toAcademyRunAnalysisSnapshot(),
+        graduation = robotStudioState.toAcademyGraduationSnapshot(),
     )
 
     // Lesson evidence keeps updating while the slide-out coach is closed.
@@ -908,10 +928,13 @@ fun MainScreen(services: ServiceRegistry) {
                             )
                             NavigationTarget.ACADEMY -> AcademyScreen(
                                 progressService = services.learningProgressService,
+                                practicePackService = services.academyPracticePackService,
                                 onOpenScreen = { destination ->
+                                    coachDrawerOpen = true
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(destination))
                                 },
                                 onStartSimulator = {
+                                    coachDrawerOpen = true
                                     services.processManagerService.runSimulation(
                                         currentConfig.projectPath,
                                         currentConfig.league,
@@ -919,6 +942,16 @@ fun MainScreen(services: ServiceRegistry) {
                                     )
                                     mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
                                 },
+                                onCreatePracticeProject = {
+                                    mainViewModel.onIntent(MainIntent.AddNewWorkspace)
+                                },
+                                onOpenImports = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.IMPORT_CENTER))
+                                },
+                                projectPath = currentConfig.projectPath.orEmpty(),
+                                projectLabel = listOf(currentConfig.robotName, currentConfig.teamId)
+                                    .filter(String::isNotBlank)
+                                    .joinToString(" · "),
                                 initialLessonId = requestedLessonId,
                                 runtime = academyRuntime,
                             )
@@ -1089,6 +1122,9 @@ fun MainScreen(services: ServiceRegistry) {
                     coachDrawerOpen = false
                     requestedLessonId = lessonId
                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
+                },
+                onOpenScreen = { destination ->
+                    mainViewModel.onIntent(MainIntent.SetActiveNav(destination))
                 },
                 onSelectLocalSimulator = { targetSelection = TargetSelection.LOCAL_SIM },
                 onStartSimulator = {

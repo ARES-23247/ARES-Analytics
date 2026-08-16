@@ -5,6 +5,7 @@ import com.ares.analytics.service.AresProjectGenerator
 import com.ares.analytics.service.SubsystemDesignAssistant
 import com.ares.analytics.service.SubsystemDesignProposal
 import com.ares.analytics.shared.League
+import com.ares.analytics.ui.help.toAcademySubsystemSnapshot
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository
 import com.ares.analytics.viewmodel.project.SubsystemProjectRepository
@@ -35,6 +36,39 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class SubsystemGeneratorViewModelTest {
+    @Test
+    fun `academy evidence follows the real homed mechanism draft review and save`() {
+        val root = Files.createTempDirectory("ares-subsystem-academy").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+
+        viewModel.newSubsystem(SubsystemTemplate.HOMED_MECHANISM)
+        viewModel.edit { it.copy(displayName = "Practice Lift", kotlinTypeName = "PracticeLift") }
+        var evidence = viewModel.state.value.toAcademySubsystemSnapshot()
+        assertTrue(evidence.hasPositionMechanismDraft)
+        assertFalse(evidence.hasNaturalStateContract)
+        assertFalse(evidence.hasCompleteSafetyContract)
+        assertFalse(evidence.hasSimulationAndVerification)
+
+        viewModel.selectStage(SubsystemBuilderStage.STATE_AND_BEHAVIOR)
+        viewModel.selectStage(SubsystemBuilderStage.SAFETY)
+        viewModel.selectStage(SubsystemBuilderStage.SIMULATION_AND_TESTING)
+        evidence = viewModel.state.value.toAcademySubsystemSnapshot()
+        assertTrue(evidence.hasNaturalStateContract)
+        assertTrue(evidence.hasCompleteSafetyContract)
+        assertTrue(evidence.hasSimulationAndVerification)
+        assertFalse(evidence.isReviewingGeneratedArtifacts)
+        assertFalse(evidence.hasSavedCanonicalDescriptor)
+
+        viewModel.selectStage(SubsystemBuilderStage.REVIEW)
+        evidence = viewModel.state.value.toAcademySubsystemSnapshot()
+        assertTrue(evidence.isReviewingGeneratedArtifacts)
+
+        viewModel.save()
+        evidence = viewModel.state.value.toAcademySubsystemSnapshot()
+        assertTrue(evidence.hasSavedCanonicalDescriptor)
+        viewModel.close()
+    }
+
     @Test
     fun `register existing Kotlin creates protected hand-authored metadata without starter previews`() {
         val root = Files.createTempDirectory("ares-hand-authored-registration").toFile()

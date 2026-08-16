@@ -120,7 +120,10 @@ fun NavigationTarget.searchTerms(): Set<String> = when (this) {
     NavigationTarget.CLOUD -> setOf("sync", "google drive", "upload", "download", "share")
     NavigationTarget.PATH_PLANNER -> setOf("autonomous", "routine", "path", "drive to")
     NavigationTarget.FIELD_EDITOR -> setOf("field", "obstacle", "april tag", "game piece")
-    NavigationTarget.ACADEMY -> setOf("help", "learn", "tutorial", "start here", "student", "novice", "glossary")
+    NavigationTarget.ACADEMY -> setOf(
+        "help", "learn", "tutorial", "start here", "student", "novice", "glossary",
+        "academy", "robot academy", "training", "classroom", "mentor", "lesson",
+    )
     NavigationTarget.KDOC_VIEWER -> setOf("api", "code reference", "kdoc", "source", "architecture", "units")
     NavigationTarget.PIT_DIAGNOSTICS -> setOf("hardware", "readiness", "pit", "self test", "freshness")
     NavigationTarget.MATCH_STRATEGY -> setOf("match", "strategy", "preview")

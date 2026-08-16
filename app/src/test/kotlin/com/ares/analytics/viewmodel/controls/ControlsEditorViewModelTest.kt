@@ -1,9 +1,11 @@
 package com.ares.analytics.viewmodel.controls
 
 import com.ares.analytics.service.GamepadState
+import com.ares.analytics.service.AresGenerationPhase
 import com.ares.analytics.service.AresGenerationState
 import com.ares.analytics.service.AresProjectGenerator
 import com.ares.analytics.shared.League
+import com.ares.analytics.ui.help.toAcademyControlsSnapshot
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.areslib.catalog.ActionDescriptor
 import com.areslib.catalog.CapabilityCatalogDocument
@@ -233,6 +235,53 @@ class ControlsEditorViewModelTest {
         assertEquals(
             setOf(recoveryKey, calibrationKey),
             documents.controls.load(project.path, "competition-controls").bindings.map { it.target.key }.toSet(),
+        )
+    }
+
+    @Test
+    fun `academy evidence follows a real generated target binding through canonical save and generation`() = withProject { project ->
+        val documents = seededDocuments(project)
+        documents.subsystems.save(
+            project.path,
+            SubsystemTemplates.create(
+                template = SubsystemTemplate.HOMED_MECHANISM,
+                documentId = "practice-lift",
+                kotlinTypeName = "PracticeLift",
+                platform = SubsystemPlatform.FTC,
+            ),
+        )
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+        val targetAction = viewModel.state.value.actions.firstOrNull {
+            it.key == "subsystem.practice-lift.set.target" && it.parameters.any { parameter -> parameter.key == "value" }
+        } ?: error("Expected generated subsystem target action; found ${viewModel.state.value.actions.map { it.key }}")
+
+        assertTrue(viewModel.state.value.toAcademyControlsSnapshot().hasGeneratedSubsystemCapability)
+        viewModel.selectControl("a")
+        assertTrue(viewModel.state.value.toAcademyControlsSnapshot().hasMappedControlSelection)
+        viewModel.createBinding()
+        viewModel.setTarget(ControlTargetKind.ACTION, targetAction.key)
+        viewModel.setTargetArgument("value", "0.25")
+        viewModel.applyDraft()
+        assertTrue(
+            viewModel.state.value.toAcademyControlsSnapshot().hasValidAppliedBinding,
+            "bindings=${viewModel.state.value.selectedScheme?.bindings}; problems=${viewModel.state.value.problems}; " +
+                "draft=${viewModel.state.value.draftBinding}",
+        )
+        assertFalse(viewModel.state.value.toAcademyControlsSnapshot().hasSavedControlScheme)
+
+        viewModel.save()
+        val saved = viewModel.state.value.toAcademyControlsSnapshot()
+        assertTrue(saved.hasSavedControlScheme)
+        assertFalse(saved.hasGeneratedBindings)
+
+        val generated = viewModel.state.value.copy(
+            generationPhase = AresGenerationPhase.SUCCEEDED,
+            generatedContentHash = "generated-hash",
+        ).toAcademyControlsSnapshot()
+        assertTrue(generated.hasGeneratedBindings)
+        assertEquals(
+            targetAction.key,
+            documents.controls.load(project.path, "competition-controls").bindings.single().target.key,
         )
     }
 

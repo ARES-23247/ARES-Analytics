@@ -49,6 +49,7 @@ class ServiceRegistry {
     val layoutPreferenceService by lazy { LayoutPreferenceService() }
     val updateCheckerService by lazy { UpdateCheckerService() }
     val learningProgressService by lazy { LearningProgressService() }
+    val academyPracticePackService by lazy { com.ares.analytics.service.AcademyPracticePackService() }
     val importArchiveService by lazy { ImportArchiveService() }
     val robotProjectTemplateService by lazy { com.ares.analytics.service.project.RobotProjectTemplateService() }
     val hardwareSetupService by lazy { com.ares.analytics.service.hardware.HardwareSetupService() }

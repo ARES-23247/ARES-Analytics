@@ -199,6 +199,8 @@ data class SubsystemGeneratorState(
     val selectedInterlockId: String? = null,
     val selectedTuningParameterUid: String? = null,
     val activeStage: SubsystemBuilderStage = SubsystemBuilderStage.PURPOSE,
+    /** Session-local navigation evidence used by guided learning; never persisted as safety proof. */
+    val visitedStages: Set<SubsystemBuilderStage> = setOf(SubsystemBuilderStage.PURPOSE),
     val selectedTemplate: SubsystemTemplate = SubsystemTemplate.POSITION_CONTROLLED_MECHANISM,
     val previewFiles: List<SubsystemPreviewFile> = emptyList(),
     val generatedPlumbingExpanded: Boolean = false,
@@ -327,6 +329,7 @@ class SubsystemGeneratorViewModel(
                 selectedLoopUid = null,
                 selectedTuningParameterUid = document.tuningParameters.firstOrNull()?.uid,
                 activeStage = SubsystemBuilderStage.PURPOSE,
+                visitedStages = setOf(SubsystemBuilderStage.PURPOSE),
                 selectedTemplate = document.template,
                 dirty = true,
                 status = "New ${template.name.lowercase().replace('_', ' ')} draft created.",
@@ -342,7 +345,9 @@ class SubsystemGeneratorViewModel(
 
     fun selectTemplate(template: SubsystemTemplate) = _state.update { it.copy(selectedTemplate = template) }
 
-    fun selectStage(stage: SubsystemBuilderStage) = _state.update { it.copy(activeStage = stage) }
+    fun selectStage(stage: SubsystemBuilderStage) = _state.update {
+        it.copy(activeStage = stage, visitedStages = it.visitedStages + stage)
+    }
 
     fun navigateToProblem(path: String) = _state.update { current ->
         val document = current.draft?.document ?: return@update current
@@ -350,39 +355,53 @@ class SubsystemGeneratorViewModel(
         when {
             path.startsWith("hardware") -> current.copy(
                 activeStage = SubsystemBuilderStage.HARDWARE,
+                visitedStages = current.visitedStages + SubsystemBuilderStage.HARDWARE,
                 selectedHardwareUid = index?.let { document.hardware.getOrNull(it)?.uid },
                 selectedFieldUid = null,
                 selectedLoopUid = null,
             )
             path.startsWith("stateFields") -> current.copy(
                 activeStage = SubsystemBuilderStage.STATE_AND_BEHAVIOR,
+                visitedStages = current.visitedStages + SubsystemBuilderStage.STATE_AND_BEHAVIOR,
                 selectedFieldUid = index?.let { document.stateFields.getOrNull(it)?.uid },
                 selectedHardwareUid = null,
                 selectedLoopUid = null,
             )
             path.startsWith("controlLoops") -> current.copy(
                 activeStage = SubsystemBuilderStage.STATE_AND_BEHAVIOR,
+                visitedStages = current.visitedStages + SubsystemBuilderStage.STATE_AND_BEHAVIOR,
                 selectedLoopUid = index?.let { document.controlLoops.getOrNull(it)?.uid },
                 selectedHardwareUid = null,
                 selectedFieldUid = null,
             )
             path.startsWith("tuningParameters") -> current.copy(
                 activeStage = SubsystemBuilderStage.TUNING,
+                visitedStages = current.visitedStages + SubsystemBuilderStage.TUNING,
                 selectedTuningParameterUid = index?.let { document.tuningParameters.getOrNull(it)?.uid },
                 selectedHardwareUid = null,
                 selectedFieldUid = null,
                 selectedLoopUid = null,
             )
-            path.startsWith("safety") -> current.copy(activeStage = SubsystemBuilderStage.SAFETY)
+            path.startsWith("safety") -> current.copy(
+                activeStage = SubsystemBuilderStage.SAFETY,
+                visitedStages = current.visitedStages + SubsystemBuilderStage.SAFETY,
+            )
             path.startsWith("implementation") || path == "displayName" || path == "kotlinTypeName" || path == "documentId" ->
-                current.copy(activeStage = SubsystemBuilderStage.PURPOSE)
-            else -> current.copy(activeStage = SubsystemBuilderStage.REVIEW)
+                current.copy(
+                    activeStage = SubsystemBuilderStage.PURPOSE,
+                    visitedStages = current.visitedStages + SubsystemBuilderStage.PURPOSE,
+                )
+            else -> current.copy(
+                activeStage = SubsystemBuilderStage.REVIEW,
+                visitedStages = current.visitedStages + SubsystemBuilderStage.REVIEW,
+            )
         }
     }
 
     fun previousStage() = _state.update { state ->
         val stages = SubsystemBuilderStage.entries
-        state.copy(activeStage = stages[(state.activeStage.ordinal - 1).coerceAtLeast(0)])
+        val stage = stages[(state.activeStage.ordinal - 1).coerceAtLeast(0)]
+        state.copy(activeStage = stage, visitedStages = state.visitedStages + stage)
     }
 
     fun registerHandAuthoredSubsystem() {
@@ -425,6 +444,7 @@ class SubsystemGeneratorViewModel(
                 selectedLoopUid = null,
                 selectedTuningParameterUid = document.tuningParameters.firstOrNull()?.uid,
                 activeStage = SubsystemBuilderStage.PURPOSE,
+                visitedStages = setOf(SubsystemBuilderStage.PURPOSE),
                 selectedTemplate = SubsystemTemplate.ADVANCED_CUSTOM,
                 dirty = true,
                 status = "Hand-authored subsystem registration created. Review its source and runtime contract.",
@@ -437,7 +457,8 @@ class SubsystemGeneratorViewModel(
 
     fun nextStage() = _state.update { state ->
         val stages = SubsystemBuilderStage.entries
-        state.copy(activeStage = stages[(state.activeStage.ordinal + 1).coerceAtMost(stages.lastIndex)])
+        val stage = stages[(state.activeStage.ordinal + 1).coerceAtMost(stages.lastIndex)]
+        state.copy(activeStage = stage, visitedStages = state.visitedStages + stage)
     }
 
     fun setGeneratedPlumbingExpanded(expanded: Boolean) = _state.update {
@@ -457,6 +478,7 @@ class SubsystemGeneratorViewModel(
                 selectedLoopUid = null,
                 selectedTuningParameterUid = document.tuningParameters.firstOrNull()?.uid,
                 activeStage = SubsystemBuilderStage.PURPOSE,
+                visitedStages = setOf(SubsystemBuilderStage.PURPOSE),
                 selectedTemplate = document.template,
                 status = null,
                 aiProposalInProgress = false,

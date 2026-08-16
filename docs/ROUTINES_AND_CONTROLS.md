@@ -19,6 +19,11 @@ There is no separate path document to keep synchronized with an autonomous routi
 just one routine step. Autonomous-only information, especially the starting pose and selectable
 display name, belongs to the autonomous entry toggle in the routine editor.
 
+For a guided project-backed workflow, use **Help & Learn → Autonomous developer → Build your first
+bounded routine**. The mission observes typed catalog loading, routine validation, kinematic
+preview, chooser configuration, canonical save, and project generation. It deliberately does not
+call any of those results physics simulation, deployment, or physical field validation.
+
 ## Offline workflow
 
 1. In the workspace/project selector, point Analytics at the robot repository root. You can repoint
@@ -103,6 +108,22 @@ Bindings can use press, release, held, delayed hold, or repeat; debounce, cooldo
 limits; analog values, thresholds, or zones with hysteresis; and button chords. A chord can suppress
 the single-button bindings it contains. A macro is simply a reusable routine assigned to a binding,
 so there is no second macro file format to learn.
+
+### Learn the flow in Robot Academy
+
+After creating a generated subsystem, open **Help & Learn -> Driver & operator -> Control the
+mechanism you created**. The lesson uses the current project's action catalog and control scheme.
+For the selected draft or binding, the editor shows a structural trace:
+
+```text
+logical control + platform mapping -> event policy -> typed target -> generated binding runtime
+-> Redux -> subsystem controller -> cached IO
+```
+
+This trace is explanatory metadata. It does not poll a controller, dispatch an action, run a
+simulator, or operate hardware. Saving proves that a canonical `.arescontrols` revision was written;
+generation proves deterministic source was emitted; compilation, simulator behavior, and physical
+controller/hardware checks are later and separate evidence gates.
 
 ## Generated code and robot selection
 

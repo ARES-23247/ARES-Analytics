@@ -43,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.LearningProgressService
+import com.ares.analytics.ui.help.LearningCheckpoint
 import com.ares.analytics.ui.help.LearningCheckpointAction
 import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.help.LearningJourneyEvaluator
@@ -64,6 +65,7 @@ import kotlinx.coroutines.launch
 fun LearningCoachDrawer(
     progressService: LearningProgressService,
     onOpenAcademy: (lessonId: String) -> Unit,
+    onOpenScreen: (NavigationTarget) -> Unit,
     onSelectLocalSimulator: () -> Unit,
     onStartSimulator: () -> Unit,
     onOpenDashboard: () -> Unit,
@@ -101,8 +103,8 @@ fun LearningCoachDrawer(
                 }
             }
             HorizontalDivider(color = AresBorder)
-            CoachSummary(lesson.title, journey.status.label, journey.completedCheckpointCount, lesson.checkpoints.size, checkpoint?.title)
-            CoachActions(checkpoint?.action, lesson.id, onOpenAcademy, onSelectLocalSimulator, onStartSimulator, onOpenDashboard, onStopSimulator) {
+            CoachSummary(lesson.title, journey.status.label, journey.completedCheckpointCount, lesson.checkpoints.size, checkpoint)
+            CoachActions(checkpoint?.action, lesson.id, onOpenAcademy, onOpenScreen, onSelectLocalSimulator, onStartSimulator, onOpenDashboard, onStopSimulator) {
                 scope.launch {
                     progressService.clearActiveLesson()
                     onDismiss()
@@ -118,7 +120,7 @@ private fun CoachSummary(
     status: String,
     completed: Int,
     total: Int,
-    checkpointTitle: String?,
+    checkpoint: LearningCheckpoint?,
     modifier: Modifier = Modifier,
 ) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
@@ -127,16 +129,25 @@ private fun CoachSummary(
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text("Robot Academy · $title", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
             Text(
-                "$status · $completed of $total checkpoints${checkpointTitle?.let { " · Next: $it" }.orEmpty()}",
+                "$status · $completed of $total checkpoints${checkpoint?.title?.let { " · Next: $it" }.orEmpty()}",
                 color = AresTextSecondary,
                 fontSize = 12.sp,
             )
             Text(
-                if (checkpointTitle == null) "All checkpoints are recorded; reflection is not a safety certification."
-                else "ARES records only observable simulator facts automatically.",
+                if (checkpoint == null) "All checkpoints are recorded; reflection is not a safety certification."
+                else checkpoint.instruction,
                 color = AresTextSecondary,
                 fontSize = 11.sp,
+                lineHeight = 16.sp,
             )
+            if (checkpoint != null) {
+                Text(
+                    "Done when: ${checkpoint.successText}",
+                    color = AresGreen,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                )
+            }
         }
     }
 }
@@ -146,6 +157,7 @@ private fun CoachActions(
     action: LearningCheckpointAction?,
     lessonId: String,
     onOpenAcademy: (String) -> Unit,
+    onOpenScreen: (NavigationTarget) -> Unit,
     onSelectLocalSimulator: () -> Unit,
     onStartSimulator: () -> Unit,
     onOpenDashboard: () -> Unit,
@@ -171,6 +183,39 @@ private fun CoachActions(
                     LearningCheckpointAction.START_SIMULATOR -> onStartSimulator
                     LearningCheckpointAction.OPEN_DASHBOARD -> onOpenDashboard
                     LearningCheckpointAction.STOP_SIMULATOR -> onStopSimulator
+                    LearningCheckpointAction.OPEN_SUBSYSTEM_BUILDER -> {
+                        { onOpenScreen(NavigationTarget.SUBSYSTEM_GEN) }
+                    }
+                    LearningCheckpointAction.OPEN_HOMING_LAB -> {
+                        { onOpenAcademy("homing-safety-lab") }
+                    }
+                    LearningCheckpointAction.OPEN_STATE_FLOW_LAB -> {
+                        { onOpenAcademy("state-flow-lab") }
+                    }
+                    LearningCheckpointAction.OPEN_CONTROLS -> {
+                        { onOpenScreen(NavigationTarget.CONTROLS) }
+                    }
+                    LearningCheckpointAction.OPEN_TUNING -> {
+                        { onOpenScreen(NavigationTarget.TUNING) }
+                    }
+                    LearningCheckpointAction.OPEN_SUPERSTRUCTURE_STUDIO -> {
+                        { onOpenScreen(NavigationTarget.SUPERSTRUCTURE_STUDIO) }
+                    }
+                    LearningCheckpointAction.OPEN_AUTONOMOUS -> {
+                        { onOpenScreen(NavigationTarget.PATH_PLANNER) }
+                    }
+                    LearningCheckpointAction.OPEN_IMPORTS -> {
+                        { onOpenScreen(NavigationTarget.IMPORT_CENTER) }
+                    }
+                    LearningCheckpointAction.OPEN_GUIDED_ANALYSIS -> {
+                        { onOpenScreen(NavigationTarget.GUIDED_RUN_ANALYSIS) }
+                    }
+                    LearningCheckpointAction.OPEN_ROBOT_STUDIO -> {
+                        { onOpenScreen(NavigationTarget.ROBOT_STUDIO) }
+                    }
+                    LearningCheckpointAction.OPEN_DEVELOPER_REFERENCE -> {
+                        { onOpenScreen(NavigationTarget.KDOC_VIEWER) }
+                    }
                     LearningCheckpointAction.OPEN_LESSON -> error("Handled by the lesson button")
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
@@ -190,5 +235,16 @@ private fun LearningCheckpointAction.buttonLabel(): String = when (this) {
     LearningCheckpointAction.START_SIMULATOR -> "Start simulator"
     LearningCheckpointAction.OPEN_DASHBOARD -> "Open Dashboard"
     LearningCheckpointAction.STOP_SIMULATOR -> "Stop simulator"
+    LearningCheckpointAction.OPEN_SUBSYSTEM_BUILDER -> "Open Subsystem Builder"
+    LearningCheckpointAction.OPEN_HOMING_LAB -> "Open homing lab"
+    LearningCheckpointAction.OPEN_STATE_FLOW_LAB -> "Open state-flow lab"
+    LearningCheckpointAction.OPEN_CONTROLS -> "Open Controller Bindings"
+    LearningCheckpointAction.OPEN_TUNING -> "Open Tuning"
+    LearningCheckpointAction.OPEN_SUPERSTRUCTURE_STUDIO -> "Open Superstructure Studio"
+    LearningCheckpointAction.OPEN_AUTONOMOUS -> "Open Autonomous"
+    LearningCheckpointAction.OPEN_IMPORTS -> "Open Log Imports"
+    LearningCheckpointAction.OPEN_GUIDED_ANALYSIS -> "Open Guided Run Review"
+    LearningCheckpointAction.OPEN_ROBOT_STUDIO -> "Open Robot Studio"
+    LearningCheckpointAction.OPEN_DEVELOPER_REFERENCE -> "Open Developer Reference"
     LearningCheckpointAction.OPEN_LESSON -> "View instructions"
 }

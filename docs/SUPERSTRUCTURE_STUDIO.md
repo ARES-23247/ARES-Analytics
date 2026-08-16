@@ -7,6 +7,10 @@ complete scoring posture that sets elevator height, wrist angle, and roller stat
 Do not use a superstructure for one mechanism. Its feedback control, homing, limits, neutral
 recovery, and hardware IO belong in [Subsystem Builder](SUBSYSTEM_BUILDER.md).
 
+For a guided student workflow, open **Help & Learn → Robot builder → Coordinate several mechanisms
+safely**. Academy records only narrow observable facts from the current project and preview. Its
+reflection checkpoints still require the student to explain complete-posture and failure behavior.
+
 ## Runtime flow
 
 ```text

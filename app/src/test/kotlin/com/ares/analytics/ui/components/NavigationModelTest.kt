@@ -49,6 +49,8 @@ class NavigationModelTest {
         assertTrue(filterNavigationTargets("database", false).isEmpty())
         assertEquals(listOf(NavigationTarget.DATABASE_VIEWER), filterNavigationTargets("database", true))
         assertEquals(listOf(NavigationTarget.ACADEMY), filterNavigationTargets("start here", false))
+        assertEquals(listOf(NavigationTarget.ACADEMY), filterNavigationTargets("Robot Academy", false))
+        assertEquals(listOf(NavigationTarget.ACADEMY), filterNavigationTargets("classroom", false))
         assertTrue(filterNavigationTargets("disconnected", false).contains(NavigationTarget.DASHBOARD))
         assertTrue(filterNavigationTargets("gamepad", false).contains(NavigationTarget.CONTROLS))
         assertEquals(listOf(NavigationTarget.DRIVEBASE_BUILDER), filterNavigationTargets("mecanum", false))

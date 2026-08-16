@@ -1,5 +1,10 @@
 # Guided run review
 
+Robot Academy uses this exact screen for **Bring in and identify one run** and **Explain one run
+with bounded evidence**. Observable checkpoints come from the workspace run list, the selected
+report's source/metrics/baseline/limitations, and successful Markdown export. Conclusions remain
+student reflections; ARES never converts a generated finding into a proven cause.
+
 Use **Analysis → Guided Run Review** when you have a completed simulator, practice, or match run and want to understand it without starting from a table or SQL query. The review is read-only: it does not change the run, publish tuning, edit robot source, or command hardware.
 
 ## Follow the evidence path
