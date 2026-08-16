@@ -29,12 +29,8 @@ on:
 permissions:
   contents: read
 
-# Validation is pinned to the protected ARESLib commit that defines the 7.0.0 contract used by
-# Analytics. Native release packaging intentionally remains Maven-Central-only.
 env:
-  ARES_VERSION: 7.0.0
-  ARESLIB_VALIDATION_REF: e096b7717bfc7c22fd23fddd5dd6122db165c0f4
-  ARES_VALIDATION_REPOSITORY: file://${{ github.workspace }}/ARESLib-Kotlin/build/release-repository
+  ARES_VERSION: 8.0.0
 
 concurrency:
   group: dashboard-validation-${{ github.ref }}-${{ github.event.inputs.profile || 'automatic' }}
@@ -47,13 +43,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout validated ARESLib contract
-        uses: actions/checkout@v4
-        with:
-          repository: ARES-23247/ARESLib-Kotlin
-          ref: ${{ env.ARESLIB_VALIDATION_REF }}
-          path: ARESLib-Kotlin
-
       - name: Checkout ARES-Analytics
         uses: actions/checkout@v4
         with:
@@ -68,17 +57,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Publish isolated ARESLib validation repository
-        working-directory: ARESLib-Kotlin
-        run: ./gradlew publishReleaseValidation "-ParesVersion=${ARES_VERSION}" --no-parallel --no-daemon
-
-      - name: Verify the requested ARES contract was published
-        working-directory: ARESLib-Kotlin
-        run: test -f "build/release-repository/org/aresfirst/ares/ares-bom/${ARES_VERSION}/ares-bom-${ARES_VERSION}.pom"
+      - name: Verify immutable ARES release is available
+        run: >-
+          curl --fail --silent --show-error --head
+          "https://repo1.maven.org/maven2/org/aresfirst/ares/ares-bom/${ARES_VERSION}/ares-bom-${ARES_VERSION}.pom"
 
       - name: Run dashboard smoke and baseline validation
         working-directory: ARES-Analytics
-        run: ./gradlew :app:dashboardPerformanceBaseline "-ParesVersion=${ARES_VERSION}" "-ParesRepository=${ARES_VALIDATION_REPOSITORY}" --refresh-dependencies --no-daemon
+        run: ./gradlew :app:dashboardPerformanceBaseline --refresh-dependencies --no-daemon
 
       - name: Publish validation summary
         if: always()
@@ -103,13 +89,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Checkout validated ARESLib contract
-        uses: actions/checkout@v4
-        with:
-          repository: ARES-23247/ARESLib-Kotlin
-          ref: ${{ env.ARESLIB_VALIDATION_REF }}
-          path: ARESLib-Kotlin
-
       - name: Checkout ARES-Analytics
         uses: actions/checkout@v4
         with:
@@ -124,17 +103,14 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Publish isolated ARESLib validation repository
-        working-directory: ARESLib-Kotlin
-        run: ./gradlew publishReleaseValidation "-ParesVersion=${ARES_VERSION}" --no-parallel --no-daemon
-
-      - name: Verify the requested ARES contract was published
-        working-directory: ARESLib-Kotlin
-        run: test -f "build/release-repository/org/aresfirst/ares/ares-bom/${ARES_VERSION}/ares-bom-${ARES_VERSION}.pom"
+      - name: Verify immutable ARES release is available
+        run: >-
+          curl --fail --silent --show-error --head
+          "https://repo1.maven.org/maven2/org/aresfirst/ares/ares-bom/${ARES_VERSION}/ares-bom-${ARES_VERSION}.pom"
 
       - name: Run dashboard soak validation
         working-directory: ARES-Analytics
-        run: ./gradlew :app:dashboardSoak "-ParesVersion=${ARES_VERSION}" "-ParesRepository=${ARES_VALIDATION_REPOSITORY}" --refresh-dependencies --no-daemon
+        run: ./gradlew :app:dashboardSoak --refresh-dependencies --no-daemon
 
       - name: Upload validation reports
         if: always()

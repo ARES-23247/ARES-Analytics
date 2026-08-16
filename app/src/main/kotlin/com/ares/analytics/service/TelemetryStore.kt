@@ -23,11 +23,13 @@ import java.util.concurrent.atomic.AtomicLong
  */
 class TelemetryStore(
     private val historyWindowMs: Long = 120_000,
-    private val maxFramesPerTopic: Int = 2_000
+    private val maxFramesPerTopic: Int = 2_000,
+    private val maxTrackedTopics: Int = 4_096,
 ) {
     init {
         require(historyWindowMs > 0) { "historyWindowMs must be positive" }
         require(maxFramesPerTopic > 0) { "maxFramesPerTopic must be positive" }
+        require(maxTrackedTopics > 0) { "maxTrackedTopics must be positive" }
     }
 
     private val mutableUpdates = MutableSharedFlow<TelemetryFrame>(
@@ -40,6 +42,14 @@ class TelemetryStore(
     private val topicFlows = ConcurrentHashMap<String, MutableStateFlow<TelemetryFrame?>>()
     internal val latestFrames = ConcurrentHashMap<String, TelemetryFrame>()
     internal val frameHistory = ConcurrentHashMap<String, ArrayDeque<TelemetryFrame>>()
+    /** Last frame intentionally published to consumers; silent persistence must not advance it. */
+    private val lastNotifiedFrames = ConcurrentHashMap<String, TelemetryFrame>()
+    private val trackedTopicOrder = ArrayDeque<String>()
+    private val topicIndexLock = Any()
+
+    /** Number of explicitly observed single-topic flows; ingestion alone must not grow this map. */
+    internal val topicObserverCount: Int
+        get() = topicFlows.size
 
     private val acceptedFrameCount = AtomicLong()
     private val lastAcceptedAtMs = AtomicLong()
@@ -47,24 +57,44 @@ class TelemetryStore(
     suspend fun accept(frame: TelemetryFrame, notifyConsumers: Boolean = true): TelemetryFrame {
         val canonicalKey = canonical(frame.key)
         val canonicalFrame = if (canonicalKey == frame.key) frame else frame.copy(key = canonicalKey)
-        latestFrames[canonicalFrame.key] = canonicalFrame
-
-        val history = frameHistory.computeIfAbsent(canonicalFrame.key) { ArrayDeque() }
-        synchronized(history) {
-            history.addLast(canonicalFrame)
-            val cutoff = canonicalFrame.timestampMs - historyWindowMs
-            while (history.isNotEmpty() && history.first.timestampMs < cutoff) {
-                history.removeFirst()
+        val observedTopicFlow = synchronized(topicIndexLock) {
+            if (!latestFrames.containsKey(canonicalFrame.key)) {
+                while (trackedTopicOrder.size >= maxTrackedTopics) {
+                    val evictedTopic = trackedTopicOrder.removeFirst()
+                    latestFrames.remove(evictedTopic)
+                    frameHistory.remove(evictedTopic)
+                    lastNotifiedFrames.remove(evictedTopic)
+                    // Preserve the observer object so existing collectors remain connected, but
+                    // do not leave an evicted value looking current.
+                    topicFlows[evictedTopic]?.value = null
+                }
+                trackedTopicOrder.addLast(canonicalFrame.key)
             }
-            while (history.size > maxFramesPerTopic) {
-                history.removeFirst()
+            latestFrames[canonicalFrame.key] = canonicalFrame
+
+            val history = frameHistory.computeIfAbsent(canonicalFrame.key) { ArrayDeque() }
+            synchronized(history) {
+                history.addLast(canonicalFrame)
+                val cutoff = canonicalFrame.timestampMs - historyWindowMs
+                while (history.isNotEmpty() && history.first.timestampMs < cutoff) {
+                    history.removeFirst()
+                }
+                while (history.size > maxFramesPerTopic) {
+                    history.removeFirst()
+                }
+            }
+            if (notifyConsumers) {
+                lastNotifiedFrames[canonicalFrame.key] = canonicalFrame
+                topicFlows[canonicalFrame.key]
+            } else {
+                null
             }
         }
 
         acceptedFrameCount.incrementAndGet()
         lastAcceptedAtMs.set(canonicalFrame.timestampMs)
         if (notifyConsumers) {
-            topicFlows.computeIfAbsent(canonicalFrame.key) { MutableStateFlow(null) }.value = canonicalFrame
+            observedTopicFlow?.value = canonicalFrame
             mutableUpdates.emit(canonicalFrame)
         }
         return canonicalFrame
@@ -78,7 +108,7 @@ class TelemetryStore(
     }
 
     fun observe(topic: String): StateFlow<TelemetryFrame?> =
-        topicFlows.computeIfAbsent(canonical(topic)) { MutableStateFlow(latest(topic)) }.asStateFlow()
+        topicFlows.computeIfAbsent(canonical(topic)) { key -> MutableStateFlow(lastNotifiedFrames[key]) }.asStateFlow()
 
     fun observe(topics: Set<String>): Flow<TelemetryFrame> {
         val canonicalTopics = topics.mapTo(HashSet(topics.size)) { canonical(it) }
@@ -93,9 +123,14 @@ class TelemetryStore(
     )
 
     fun clear() {
-        latestFrames.clear()
-        frameHistory.clear()
-        topicFlows.values.forEach { it.value = null }
+        synchronized(topicIndexLock) {
+            latestFrames.clear()
+            frameHistory.clear()
+            lastNotifiedFrames.clear()
+            trackedTopicOrder.clear()
+            // Explicit observers survive a session reset so existing UI collectors remain wired.
+            topicFlows.values.forEach { it.value = null }
+        }
         acceptedFrameCount.set(0)
         lastAcceptedAtMs.set(0)
     }

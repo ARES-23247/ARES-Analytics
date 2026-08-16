@@ -40,10 +40,12 @@ The application consumes the versioned `org.aresfirst.ares:ares-bom` plus `core`
 Normal builds resolve the pinned ARESLib version from Maven Central. To test an unpublished library change through its exact binaries:
 
 ```powershell
+$candidate = "8.0.0-rc.<areslib-commit>"
 cd ARESLib-Kotlin
-.\gradlew.bat apiCheck publishReleaseValidation
+.\gradlew.bat apiCheck publishReleaseValidation "-ParesVersion=$candidate"
 cd ..\ARES-Analytics
-.\gradlew.bat :shared:test :app:test -ParesRepository="..\ARESLib-Kotlin\build\release-repository"
+$repository = ([Uri](Resolve-Path ..\ARESLib-Kotlin\build\release-repository)).AbsoluteUri
+.\gradlew.bat :shared:test :app:test "-ParesVersion=$candidate" "-ParesRepository=$repository"
 ```
 
 Then build and run the desktop application:

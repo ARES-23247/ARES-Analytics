@@ -6,7 +6,6 @@ import com.ares.analytics.shared.WorkspaceConfig
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -27,11 +26,7 @@ internal suspend fun awaitAutoImportBeforeClosingDependencies(
  * in correct dependency order. Replaces the 20 separate `remember {}` blocks
  * that previously lived in Main.kt.
  *
- * Usage:
- * ```
- * val services = remember { ServiceRegistry() }
- * DisposableEffect(Unit) { onDispose { services.dispose() } }
- * ```
+ * The application owner must call [disposeAndJoin] from a background coroutine before exit.
  */
 class ServiceRegistry {
     private val autoImportConfig = AtomicReference<WorkspaceConfig?>(null)
@@ -127,12 +122,7 @@ class ServiceRegistry {
         }
     }
 
-    /**
-     * Tears down services that hold coroutine scopes or background jobs.
-     * Call from `DisposableEffect { onDispose { ... } }`.
-     */
-    fun dispose() = runBlocking { disposeAndJoin() }
-
+    /** Tears down services that hold coroutine scopes or background jobs, in dependency order. */
     internal suspend fun disposeAndJoin() {
         var telemetryPersisted = true
         if (lazyFieldInitialized(::updateCheckerService)) {
@@ -184,7 +174,7 @@ class ServiceRegistry {
                     eventApiService.close()
                 }
                 if (telemetryPersisted && lazyFieldInitialized(::databaseService)) {
-                    databaseService.close()
+                    databaseService.closeAndJoin()
                 }
                 if (lazyFieldInitialized(::gamepadService)) {
                     gamepadService.dispose()

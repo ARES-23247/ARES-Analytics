@@ -46,6 +46,36 @@ class TelemetryStoreTest {
         assertNull(store.observe("Drive/Pose_X").value)
     }
 
+    @Test
+    fun `dynamic topic churn is bounded and evicts the oldest tracked topics`() = runTest {
+        val store = TelemetryStore(maxTrackedTopics = 3)
+
+        repeat(5) { index ->
+            store.accept(frame("Dynamic/$index", index.toLong(), index.toDouble()))
+        }
+
+        assertNull(store.latest("Dynamic/0"))
+        assertNull(store.latest("Dynamic/1"))
+        assertEquals(2.0, store.latest("Dynamic/2")?.value)
+        assertEquals(3, store.snapshotMetrics().activeTopics)
+        assertEquals(3L, store.snapshotMetrics().bufferedFrames)
+    }
+
+    @Test
+    fun `ingestion allocates single-topic flows only for explicit observers`() = runTest {
+        val store = TelemetryStore()
+
+        repeat(100) { index ->
+            store.accept(frame("Unobserved/$index", index.toLong(), index.toDouble()))
+        }
+        assertEquals(0, store.topicObserverCount)
+
+        val observed = store.observe("Unobserved/99")
+        assertEquals(1, store.topicObserverCount)
+        store.accept(frame("Unobserved/99", 101L, 101.0))
+        assertEquals(101.0, observed.value?.value)
+    }
+
     private fun frame(key: String, timestampMs: Long, value: Double) = TelemetryFrame(
         timestampMs = timestampMs,
         sessionId = "test",

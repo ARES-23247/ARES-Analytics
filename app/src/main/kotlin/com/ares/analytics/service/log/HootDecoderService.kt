@@ -130,7 +130,7 @@ class HootDecoderService(
 
     /**
      * Converts the selected `.hoot` binary file into a temporary CSV file,
-     * reads and parses it line-by-line to write into the SQLite database, and runs diagnostics.
+     * reads and parses it line-by-line to write into DuckDB, and runs diagnostics.
      */
     suspend fun importHootLog(
         hootFile: File,

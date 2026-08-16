@@ -14,9 +14,7 @@ permissions:
   security-events: write
 
 env:
-  ARES_VERSION: 7.0.0
-  ARESLIB_VALIDATION_REF: e096b7717bfc7c22fd23fddd5dd6122db165c0f4
-  ARES_VALIDATION_REPOSITORY: file://${{ github.workspace }}/ARESLib-Kotlin/build/release-repository
+  ARES_VERSION: 8.0.0
 
 concurrency:
   group: analytics-codeql-${{ github.ref }}
@@ -28,13 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Check out validated ARESLib contract
-        uses: actions/checkout@v4
-        with:
-          repository: ARES-23247/ARESLib-Kotlin
-          ref: ${{ env.ARESLIB_VALIDATION_REF }}
-          path: ARESLib-Kotlin
-
       - name: Check out Analytics
         uses: actions/checkout@v4
         with:
@@ -57,17 +48,14 @@ jobs:
               - ARES-Analytics/gateway/src
               - ARES-Analytics/shared/src
 
-      - name: Publish isolated ARESLib validation repository
-        working-directory: ARESLib-Kotlin
-        run: ./gradlew publishReleaseValidation "-ParesVersion=${ARES_VERSION}" --no-parallel --no-daemon
-
-      - name: Verify the requested ARES contract was published
-        working-directory: ARESLib-Kotlin
-        run: test -f "build/release-repository/org/aresfirst/ares/ares-bom/${ARES_VERSION}/ares-bom-${ARES_VERSION}.pom"
+      - name: Verify immutable ARES release is available
+        run: >-
+          curl --fail --silent --show-error --head
+          "https://repo1.maven.org/maven2/org/aresfirst/ares/ares-bom/${ARES_VERSION}/ares-bom-${ARES_VERSION}.pom"
 
       - name: Compile Analytics sources
         working-directory: ARES-Analytics
-        run: ./gradlew :shared:classes :app:classes :gateway:classes "-ParesVersion=${ARES_VERSION}" "-ParesRepository=${ARES_VALIDATION_REPOSITORY}" --refresh-dependencies --no-daemon
+        run: ./gradlew :shared:classes :app:classes :gateway:classes --refresh-dependencies --no-daemon
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4
