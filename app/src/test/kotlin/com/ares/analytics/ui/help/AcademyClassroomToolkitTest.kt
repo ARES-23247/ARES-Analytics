@@ -1,6 +1,7 @@
 package com.ares.analytics.ui.help
 
 import com.ares.analytics.service.LearningProgress
+import com.ares.analytics.service.AcademyLearningAssignment
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -39,5 +40,27 @@ class AcademyClassroomToolkitTest {
         assertTrue(report.contains("[app-observed fact]"))
         assertTrue(report.contains("[student reflection]"))
         assertTrue(report.contains("not a grade, certification, code review, or proof of physical robot safety"))
+    }
+
+    @Test
+    fun `assignment worksheet teaches evidence boundaries without claiming completion`() {
+        val worksheet = AcademyClassroomToolkit.assignmentWorksheet(
+            assignment = AcademyLearningAssignment(
+                assignmentId = "assignment-1",
+                title = "Mechanism evidence",
+                pathId = "robot-builder",
+                lessonIds = listOf("safe-subsystem"),
+                instructions = "Change one thing at a time.",
+                dueLabel = "Friday",
+                createdAtEpochMs = 1L,
+            ),
+            studentName = "Student A",
+        )
+
+        assertTrue(worksheet.contains("Student A"))
+        assertTrue(worksheet.contains("Build a homed position mechanism"))
+        assertTrue(worksheet.contains("Evidence source and units"))
+        assertTrue(worksheet.contains("What this does **not** prove"))
+        assertTrue(worksheet.contains("not a grade, certification, code review, or proof of physical robot safety"))
     }
 }

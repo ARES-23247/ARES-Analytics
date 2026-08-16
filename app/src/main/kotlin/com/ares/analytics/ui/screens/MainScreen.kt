@@ -60,6 +60,7 @@ import com.ares.analytics.viewmodel.robotstudio.RobotStudioViewModel
 import com.ares.analytics.viewmodel.runanalysis.GuidedRunAnalysisViewModel
 import com.ares.analytics.viewmodel.superstructure.SuperstructureStudioViewModel
 import kotlinx.coroutines.*
+import java.io.File
 
 /**
  * Root UI frame container and screen routing shell for the ARES Analytics desktop application.
@@ -101,6 +102,7 @@ fun MainScreen(services: ServiceRegistry) {
     var workspacePendingDeletion by remember { mutableStateOf<Pair<String, String>?>(null) }
     var requestedLessonId by remember { mutableStateOf<String?>(null) }
     var coachDrawerOpen by remember { mutableStateOf(false) }
+    var academyCreateWorkspaceRequested by remember { mutableStateOf(false) }
     val learningProgress by services.learningProgressService.progress.collectAsState()
     val activeCoachLessonId = learningProgress.activeLessonId
 
@@ -243,11 +245,22 @@ fun MainScreen(services: ServiceRegistry) {
                 mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ROBOT_STUDIO))
             }
         }
+        LaunchedEffect(onboardingViewModel, academyCreateWorkspaceRequested) {
+            if (academyCreateWorkspaceRequested) {
+                onboardingViewModel.handleIntent(OnboardingIntent.SetProjectSetupMode(ProjectSetupMode.CREATE_NEW))
+                academyCreateWorkspaceRequested = false
+            }
+        }
         val showCancel = mainState.workspaces.isNotEmpty()
         OnboardingScreen(
             viewModel = onboardingViewModel,
             oauthService = services.oauthService,
-            onCancel = if (showCancel) { { mainViewModel.onIntent(MainIntent.CancelAddNewWorkspace) } } else null
+            onCancel = if (showCancel) {
+                {
+                    academyCreateWorkspaceRequested = false
+                    mainViewModel.onIntent(MainIntent.CancelAddNewWorkspace)
+                }
+            } else null
         )
         return
     }
@@ -928,7 +941,6 @@ fun MainScreen(services: ServiceRegistry) {
                             )
                             NavigationTarget.ACADEMY -> AcademyScreen(
                                 progressService = services.learningProgressService,
-                                practicePackService = services.academyPracticePackService,
                                 onOpenScreen = { destination ->
                                     coachDrawerOpen = true
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(destination))
@@ -943,10 +955,27 @@ fun MainScreen(services: ServiceRegistry) {
                                     mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
                                 },
                                 onCreatePracticeProject = {
+                                    academyCreateWorkspaceRequested = true
                                     mainViewModel.onIntent(MainIntent.AddNewWorkspace)
+                                },
+                                onInstallAndImportPracticeRuns = {
+                                    val result = services.academyPracticeWorkflowService.installAndImport(
+                                        projectRoot = File(currentConfig.projectPath),
+                                        identity = com.ares.analytics.service.AcademyPracticeIdentity(
+                                            teamId = currentConfig.teamId,
+                                            seasonId = currentConfig.seasonId,
+                                            robotId = currentConfig.robotId,
+                                        ),
+                                    )
+                                    mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload)
+                                    result
                                 },
                                 onOpenImports = {
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.IMPORT_CENTER))
+                                },
+                                onOpenRunReview = {
+                                    mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload)
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.GUIDED_RUN_ANALYSIS))
                                 },
                                 projectPath = currentConfig.projectPath.orEmpty(),
                                 projectLabel = listOf(currentConfig.robotName, currentConfig.teamId)

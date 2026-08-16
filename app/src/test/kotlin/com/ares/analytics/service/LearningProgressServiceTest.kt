@@ -402,4 +402,69 @@ class LearningProgressServiceTest {
         assertTrue(next.rubricRatings.isEmpty())
         assertEquals("first-mission", next.selectedPathId)
     }
+
+    @Test
+    fun `separate learner records can be switched without mixing evidence`() = runTest {
+        val directory = Files.createTempDirectory("learning-roster-test").toFile()
+        val file = File(directory, "learning-progress.json")
+        var nextId = 0
+        val service = LearningProgressService(file, learnerIdFactory = { "learner-${++nextId}" })
+        service.updateStudentDisplayName("Student A")
+        service.setPracticed("safe-subsystem", true)
+        val studentAId = service.classroom.value.activeLearnerId
+
+        service.startNewStudent("Student B")
+        val studentBId = service.classroom.value.activeLearnerId
+        service.setPracticed("start-simulator", true)
+
+        assertTrue(studentAId != studentBId)
+        assertEquals(2, service.classroom.value.learners.size)
+        assertTrue("safe-subsystem" !in service.progress.value.practicedLessonIds)
+        assertTrue("start-simulator" in service.progress.value.practicedLessonIds)
+
+        service.switchStudent(studentAId)
+        assertEquals("Student A", service.progress.value.studentDisplayName)
+        assertTrue("safe-subsystem" in service.progress.value.practicedLessonIds)
+        assertTrue("start-simulator" !in service.progress.value.practicedLessonIds)
+
+        val reloaded = LearningProgressService(file)
+        assertEquals(studentAId, reloaded.classroom.value.activeLearnerId)
+        assertEquals(2, reloaded.classroom.value.learners.size)
+    }
+
+    @Test
+    fun `assignments and immutable snapshots persist for only the active learner`() = runTest {
+        val directory = Files.createTempDirectory("learning-assignment-test").toFile()
+        val file = File(directory, "learning-progress.json")
+        val service = LearningProgressService(
+            progressFile = file,
+            nowMillis = { 1234L },
+            learnerIdFactory = { "learner-b" },
+        )
+        service.updateStudentDisplayName("Student A")
+        val studentAId = service.classroom.value.activeLearnerId
+        service.createAssignment(
+            title = "Trace a safe mechanism",
+            pathId = "robot-builder",
+            lessonIds = listOf("safe-subsystem"),
+            instructions = "Predict, observe, and explain the safety boundary.",
+            dueLabel = "Session 2",
+        )
+        val assignment = service.classroom.value.learners.single().assignments.single()
+        service.setAssignmentCompleted(assignment.assignmentId, true)
+        val firstSnapshot = service.saveLocalSnapshot("robot-builder", "Mentor")
+        val secondSnapshot = service.saveLocalSnapshot("robot-builder", "Mentor")
+
+        assertTrue(firstSnapshot.file.isFile)
+        assertTrue(secondSnapshot.file.isFile)
+        assertTrue(firstSnapshot.file != secondSnapshot.file)
+        assertEquals(2, service.snapshotsFor(studentAId).size)
+
+        service.startNewStudent("Student B")
+        assertTrue(service.classroom.value.learners.first { it.learnerId == service.classroom.value.activeLearnerId }.assignments.isEmpty())
+        service.switchStudent(studentAId)
+        val restored = service.classroom.value.learners.first { it.learnerId == studentAId }.assignments.single()
+        assertTrue(restored.completed)
+        assertEquals("Trace a safe mechanism", restored.title)
+    }
 }

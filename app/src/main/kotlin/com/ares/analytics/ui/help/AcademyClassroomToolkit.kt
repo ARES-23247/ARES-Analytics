@@ -1,6 +1,7 @@
 package com.ares.analytics.ui.help
 
 import com.ares.analytics.service.LearningProgress
+import com.ares.analytics.service.AcademyLearningAssignment
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -124,6 +125,50 @@ object AcademyClassroomToolkit {
             appendLine()
             appendLine("## Suggested next lesson")
             appendLine(summary.recommendedLesson?.title ?: "Every lesson in this path is marked practiced; choose a new path or revisit a lesson with new evidence.")
+        }
+    }
+
+    fun assignmentWorksheet(
+        assignment: AcademyLearningAssignment,
+        studentName: String,
+    ): String {
+        val path = requireNotNull(LearningCatalog.path(assignment.pathId)) {
+            "Unknown learning path '${assignment.pathId}'"
+        }
+        val lessons = assignment.lessonIds.map { lessonId ->
+            requireNotNull(LearningCatalog.lesson(lessonId)) { "Unknown lesson '$lessonId'" }
+        }
+        return buildString {
+            appendLine("# ARES Robot Academy assignment")
+            appendLine()
+            appendLine("- Student: ${markdownText(studentName.ifBlank { "Student not named" })}")
+            appendLine("- Assignment: ${markdownText(assignment.title)}")
+            appendLine("- Learning path: ${markdownText(path.title)}")
+            appendLine("- Due: ${markdownText(assignment.dueLabel.ifBlank { "No due date set" })}")
+            appendLine()
+            appendLine("> This worksheet guides practice. It is not a grade, certification, code review, or proof of physical robot safety.")
+            appendLine()
+            if (assignment.instructions.isNotBlank()) {
+                appendLine("## Mentor instructions")
+                appendLine(markdownText(assignment.instructions))
+                appendLine()
+            }
+            appendLine("## Lessons")
+            lessons.forEachIndexed { index, lesson ->
+                appendLine()
+                appendLine("### ${index + 1}. ${markdownText(lesson.title)}")
+                appendLine(lesson.outcome)
+                appendLine()
+                appendLine("Prediction: ______________________________________________")
+                appendLine()
+                appendLine("Evidence source and units: ________________________________")
+                appendLine()
+                appendLine("Observation: _____________________________________________")
+                appendLine()
+                appendLine("What this does **not** prove: _____________________________")
+                appendLine()
+                appendLine("Safe next step or review needed: __________________________")
+            }
         }
     }
 

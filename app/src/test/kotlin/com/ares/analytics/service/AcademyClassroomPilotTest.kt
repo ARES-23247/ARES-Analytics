@@ -18,7 +18,20 @@ class AcademyClassroomPilotTest {
     fun `offline first mission through run review produces bounded export`() = runTest {
         val root = Files.createTempDirectory("academy-classroom-pilot").toFile()
         File(root, ".ares").mkdirs()
-        val practicePack = AcademyPracticePackService().install(root)
+        val databaseFile = File(root, "academy.db")
+        val database = DatabaseService(databaseFile.path)
+        val sysId = SysIdService(database)
+        val driverAnalysis = DriverAnalysisService(database, sysId)
+        val parser = LogParserService(database, SummaryEngineService(database, sysId, driverAnalysis))
+        val practiceWorkflow = AcademyPracticeWorkflowService(AcademyPracticePackService(), database, parser)
+        val practiceImport = practiceWorkflow.installAndImport(
+            root,
+            AcademyPracticeIdentity("23247", "2026", "academy-bot"),
+        )
+        val practiceRetry = practiceWorkflow.installAndImport(
+            root,
+            AcademyPracticeIdentity("23247", "2026", "academy-bot"),
+        )
         val progressFile = File(root, "learning-progress.json")
         val progress = LearningProgressService(progressFile)
         progress.updateStudentDisplayName("Pilot Student")
@@ -63,11 +76,15 @@ class AcademyClassroomPilotTest {
         progress.exportMentorReport(reportFile, "first-mission", "Pilot Mentor")
         val summary = AcademyClassroomToolkit.pathSummary("first-mission", progress.progress.value)
 
-        assertTrue(practicePack.files.any { it.name == "baseline-arm-run.csv" })
+        assertTrue(practiceImport.pack.files.any { it.name == "baseline-arm-run.csv" })
+        assertEquals(2, practiceImport.importedCount)
+        assertEquals(2, practiceRetry.reusedCount)
+        assertEquals(2, database.getSessions().count { AcademyPracticeWorkflowService.ACADEMY_SYNTHETIC_TAG in it.tags })
         assertTrue(FirstMissionCheckpointIds.LOCAL_SIM_CONNECTED in progress.progress.value.completedCheckpointIds)
         assertEquals("read-connection-state", summary.recommendedLesson?.id)
         assertTrue(reportFile.readText().contains("synthetic").not())
         assertTrue(reportFile.readText().contains("not a grade, certification, code review, or proof of physical robot safety"))
+        database.close()
     }
 
     private suspend fun recordEveryReflection(service: LearningProgressService, lessonId: String) {

@@ -70,6 +70,13 @@ class ServiceRegistry {
     val advancedAnalyticsService by lazy { AdvancedAnalyticsService(databaseService) }
 
     // ── Tier 2: Depend on Tier 0 + Tier 1 ────────────────────────────────────
+    val academyPracticeWorkflowService by lazy {
+        com.ares.analytics.service.AcademyPracticeWorkflowService(
+            academyPracticePackService,
+            databaseService,
+            logParserService,
+        )
+    }
     val alertEngineService by lazy { AlertEngineService(databaseService, nt4ClientService) }
     val driverAnalysisService by lazy { DriverAnalysisService(databaseService, sysIdService) }
     val diagnosticCoachService by lazy { DiagnosticCoachService(databaseService) }

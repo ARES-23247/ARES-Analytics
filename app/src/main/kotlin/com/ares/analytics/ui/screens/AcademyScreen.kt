@@ -68,7 +68,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.LearningProgress
 import com.ares.analytics.service.LearningProgressService
-import com.ares.analytics.service.AcademyPracticePackService
+import com.ares.analytics.service.AcademyClassroomStore
+import com.ares.analytics.service.AcademyLearningAssignment
+import com.ares.analytics.service.AcademyPracticeImportResult
 import com.ares.analytics.ui.components.NavigationTarget
 import com.ares.analytics.ui.components.dashboard.EkfSensorFusionLabCard
 import com.ares.analytics.ui.components.pathplanner.MotionProfileLabCard
@@ -100,6 +102,7 @@ import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresTextTertiary
+import com.ares.analytics.ui.theme.AresThemeSettings
 import com.ares.analytics.ui.theme.openAresBrandDestination
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
@@ -115,17 +118,19 @@ import javax.swing.filechooser.FileNameExtensionFilter
 @Composable
 fun AcademyScreen(
     progressService: LearningProgressService,
-    practicePackService: AcademyPracticePackService,
     onOpenScreen: (NavigationTarget) -> Unit,
     onStartSimulator: () -> Unit,
     onCreatePracticeProject: () -> Unit,
+    onInstallAndImportPracticeRuns: suspend () -> AcademyPracticeImportResult,
     onOpenImports: () -> Unit,
+    onOpenRunReview: () -> Unit,
     projectPath: String,
     projectLabel: String,
     initialLessonId: String? = null,
     runtime: AcademyRuntimeSnapshot = AcademyRuntimeSnapshot.Unavailable,
 ) {
     val progress by progressService.progress.collectAsState()
+    val classroom by progressService.classroom.collectAsState()
     val scope = rememberCoroutineScope()
     val initialLesson = remember {
         progress.activeLessonId?.let(LearningCatalog::lesson)
@@ -143,6 +148,7 @@ fun AcademyScreen(
     var selectedLessonId by remember { mutableStateOf(initialLesson.id) }
     var selectedLab by remember { mutableStateOf<LearningLab?>(null) }
     var classroomToolkitOpen by remember { mutableStateOf(false) }
+    var compactDetailOpen by remember { mutableStateOf(initialLessonId != null) }
 
     LaunchedEffect(runtime) {
         progressService.observeRuntime(runtime)
@@ -155,6 +161,7 @@ fun AcademyScreen(
             selectedPathId = LearningCatalog.paths.firstOrNull { requested.id in it.lessonIds }?.id
                 ?: LearningCatalog.paths.first().id
             query = ""
+            compactDetailOpen = true
         }
     }
 
@@ -171,12 +178,14 @@ fun AcademyScreen(
     if (classroomToolkitOpen) {
         ClassroomToolkitPane(
             progress = progress,
+            classroom = classroom,
             progressService = progressService,
-            practicePackService = practicePackService,
             projectPath = projectPath,
             projectLabel = projectLabel,
             onCreatePracticeProject = onCreatePracticeProject,
+            onInstallAndImportPracticeRuns = onInstallAndImportPracticeRuns,
             onOpenImports = onOpenImports,
+            onOpenRunReview = onOpenRunReview,
             onBack = { classroomToolkitOpen = false },
         )
         return
@@ -185,7 +194,7 @@ fun AcademyScreen(
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(AresBackground).padding(16.dp),
     ) {
-        val compact = maxWidth < 1040.dp
+        val compact = academyUsesSinglePane(maxWidth.value, maxHeight.value, AresThemeSettings.largeTextMode)
         val catalog: @Composable (Modifier) -> Unit = { modifier ->
             AcademyCatalogPanel(
                 modifier = modifier,
@@ -207,6 +216,7 @@ fun AcademyScreen(
                             ?: selectedPathId
                     }
                     selectedLessonId = lesson.id
+                    compactDetailOpen = true
                     scope.launch { progressService.startLesson(lesson.id) }
                 },
                 onOpenLabs = { selectedLab = LearningLab.CONTROL },
@@ -257,9 +267,17 @@ fun AcademyScreen(
         }
 
         if (compact) {
-            Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                catalog(Modifier.fillMaxWidth().weight(0.48f))
-                detail(Modifier.fillMaxWidth().weight(0.52f))
+            if (compactDetailOpen) {
+                Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { compactDetailOpen = false }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Back to lesson list")
+                    }
+                    detail(Modifier.fillMaxWidth().weight(1f))
+                }
+            } else {
+                catalog(Modifier.fillMaxSize())
             }
         } else {
             Row(modifier = Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -562,6 +580,9 @@ private fun LessonDetail(
     }
 }
 
+internal fun academyUsesSinglePane(widthDp: Float, heightDp: Float, largeTextMode: Boolean): Boolean =
+    widthDp < 1180f || heightDp < 720f || largeTextMode
+
 @Composable
 private fun CheckpointSection(
     checkpoints: List<LearningCheckpoint>,
@@ -647,12 +668,14 @@ private fun CheckpointSection(
 @Composable
 private fun ClassroomToolkitPane(
     progress: LearningProgress,
+    classroom: AcademyClassroomStore,
     progressService: LearningProgressService,
-    practicePackService: AcademyPracticePackService,
     projectPath: String,
     projectLabel: String,
     onCreatePracticeProject: () -> Unit,
+    onInstallAndImportPracticeRuns: suspend () -> AcademyPracticeImportResult,
     onOpenImports: () -> Unit,
+    onOpenRunReview: () -> Unit,
     onBack: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -665,7 +688,12 @@ private fun ClassroomToolkitPane(
     var confirmResetPath by remember { mutableStateOf(false) }
     var confirmPracticePack by remember { mutableStateOf(false) }
     var confirmNewStudent by remember { mutableStateOf(false) }
+    var assignmentTitle by remember { mutableStateOf("") }
+    var assignmentInstructions by remember { mutableStateOf("") }
+    var assignmentDue by remember { mutableStateOf("") }
+    var assignmentLessonIds by remember(selectedPathId) { mutableStateOf(emptySet<String>()) }
     val summary = AcademyClassroomToolkit.pathSummary(selectedPathId, progress)
+    val activeRecord = classroom.learners.first { it.learnerId == classroom.activeLearnerId }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(AresBackground).padding(16.dp),
@@ -700,10 +728,33 @@ private fun ClassroomToolkitPane(
                 onCreatePracticeProject = onCreatePracticeProject,
                 onInstallPracticePack = { confirmPracticePack = true },
                 onOpenImports = onOpenImports,
+                onOpenRunReview = onOpenRunReview,
             )
         }
         item {
             ClassroomSection("Student and learning path") {
+                Text(
+                    "Learner records stay separate on this computer. Switching students never merges checkpoints, reflections, notes, or assignments.",
+                    color = AresTextSecondary,
+                    fontSize = 12.sp,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    classroom.learners.forEach { record ->
+                        val label = record.progress.studentDisplayName.ifBlank { "Unnamed learner" }
+                        FilterChip(
+                            selected = record.learnerId == classroom.activeLearnerId,
+                            onClick = { scope.launch { progressService.switchStudent(record.learnerId) } },
+                            label = { Text(label) },
+                            modifier = Modifier.semantics {
+                                stateDescription = if (record.learnerId == classroom.activeLearnerId) {
+                                    "Active learner record"
+                                } else {
+                                    "Saved learner record"
+                                }
+                            },
+                        )
+                    }
+                }
                 OutlinedTextField(
                     value = studentDraft,
                     onValueChange = { studentDraft = it.take(80) },
@@ -718,14 +769,10 @@ private fun ClassroomToolkitPane(
                 ) { Text("Save student name") }
                 OutlinedButton(
                     onClick = { confirmNewStudent = true },
-                    enabled = studentDraft.isNotBlank() && (
-                        progress.startedLessonIds.isNotEmpty() ||
-                            progress.completedCheckpointIds.isNotEmpty() ||
-                            progress.studentDisplayName.isNotBlank()
-                        ),
-                ) { Text("Start new student record") }
+                    enabled = studentDraft.isNotBlank(),
+                ) { Text("Add separate student") }
                 Text(
-                    "This pilot keeps one active learner record per operating-system account. Export before starting another student so evidence is never silently mixed.",
+                    "${classroom.learners.size} local learner record${if (classroom.learners.size == 1) "" else "s"}. Select a name above to resume that student's work.",
                     color = AresTextSecondary,
                     fontSize = 11.sp,
                 )
@@ -755,6 +802,103 @@ private fun ClassroomToolkitPane(
                     "Suggested next: ${summary.recommendedLesson?.title ?: "Choose another path or revisit a lesson with new evidence."}",
                     color = AresTextPrimary,
                 )
+            }
+        }
+        item {
+            ClassroomSection("Assignments and worksheets") {
+                Text(
+                    "Create a bounded lesson assignment for the active learner. Assignment completion is a mentor/student checklist; lesson evidence remains separate.",
+                    color = AresTextSecondary,
+                    fontSize = 12.sp,
+                )
+                OutlinedTextField(
+                    value = assignmentTitle,
+                    onValueChange = { assignmentTitle = it.take(120) },
+                    label = { Text("Assignment title") },
+                    placeholder = { Text("Example: Trace one safe mechanism") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = assignmentDue,
+                    onValueChange = { assignmentDue = it.take(120) },
+                    label = { Text("Due date or class period (optional)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = assignmentInstructions,
+                    onValueChange = { assignmentInstructions = it.take(4_000) },
+                    label = { Text("Mentor instructions (optional)") },
+                    minLines = 2,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text("Choose lessons", color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    summary.path.lessonIds.mapNotNull(LearningCatalog::lesson).forEach { lesson ->
+                        FilterChip(
+                            selected = lesson.id in assignmentLessonIds,
+                            onClick = {
+                                assignmentLessonIds = if (lesson.id in assignmentLessonIds) {
+                                    assignmentLessonIds - lesson.id
+                                } else {
+                                    assignmentLessonIds + lesson.id
+                                }
+                            },
+                            label = { Text(lesson.title, fontSize = 11.sp) },
+                        )
+                    }
+                }
+                Button(
+                    onClick = {
+                        scope.launch {
+                            runCatching {
+                                progressService.createAssignment(
+                                    title = assignmentTitle,
+                                    pathId = summary.path.id,
+                                    lessonIds = assignmentLessonIds.toList(),
+                                    instructions = assignmentInstructions,
+                                    dueLabel = assignmentDue,
+                                )
+                            }.onSuccess {
+                                assignmentTitle = ""
+                                assignmentInstructions = ""
+                                assignmentDue = ""
+                                assignmentLessonIds = emptySet()
+                                statusMessage = "Assignment added for ${progress.studentDisplayName.ifBlank { "the active learner" }}."
+                            }.onFailure { statusMessage = "Assignment was not added: ${it.message ?: "unknown error"}" }
+                        }
+                    },
+                    enabled = assignmentTitle.isNotBlank() && assignmentLessonIds.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                ) { Text("Add assignment") }
+                if (activeRecord.assignments.isEmpty()) {
+                    Text("No assignments for this learner yet.", color = AresTextTertiary, fontSize = 11.sp)
+                } else {
+                    activeRecord.assignments.forEach { assignment ->
+                        AssignmentCard(
+                            assignment = assignment,
+                            studentName = progress.studentDisplayName,
+                            onCompletedChange = { completed ->
+                                scope.launch { progressService.setAssignmentCompleted(assignment.assignmentId, completed) }
+                            },
+                            onExportWorksheet = {
+                                chooseAssignmentWorksheetFile(progress.studentDisplayName, assignment.title)?.let { target ->
+                                    scope.launch {
+                                        runCatching {
+                                            withContext(Dispatchers.IO) {
+                                                val markdown = AcademyClassroomToolkit.assignmentWorksheet(assignment, progress.studentDisplayName)
+                                                com.ares.analytics.service.writeFileAtomically(target) { temporary -> temporary.writeText(markdown) }
+                                            }
+                                        }.onSuccess { statusMessage = "Worksheet exported to ${target.path}." }
+                                            .onFailure { statusMessage = "Worksheet export failed: ${it.message ?: "unknown error"}" }
+                                    }
+                                }
+                            },
+                            onRemove = { scope.launch { progressService.removeAssignment(assignment.assignmentId) } },
+                        )
+                    }
+                }
             }
         }
         item {
@@ -864,6 +1008,17 @@ private fun ClassroomToolkitPane(
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                     ) { Text("Export learning record") }
+                    OutlinedButton(
+                        onClick = {
+                            scope.launch {
+                                runCatching { progressService.saveLocalSnapshot(summary.path.id, mentorName) }
+                                    .onSuccess { snapshot ->
+                                        statusMessage = "Immutable local snapshot saved to ${snapshot.file.path}."
+                                    }
+                                    .onFailure { statusMessage = "Snapshot failed: ${it.message ?: "unknown error"}" }
+                            }
+                        },
+                    ) { Text("Save local snapshot") }
                     OutlinedButton(onClick = { confirmResetPath = true }) {
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(6.dp))
@@ -897,8 +1052,8 @@ private fun ClassroomToolkitPane(
     if (confirmNewStudent) {
         AlertDialog(
             onDismissRequest = { confirmNewStudent = false },
-            title = { Text("Start a new student record?") },
-            text = { Text("This clears all Academy progress, reflections, mentor notes, and rubric ratings for the current learner on this computer. Export first if you need the existing record.") },
+            title = { Text("Add a separate student record?") },
+            text = { Text("ARES will preserve the current learner and switch to a new, empty record for ${studentDraft.trim()}. You can switch back from the learner list at any time.") },
             confirmButton = {
                 Button(onClick = {
                     confirmNewStudent = false
@@ -906,7 +1061,7 @@ private fun ClassroomToolkitPane(
                         progressService.startNewStudent(studentDraft)
                         selectedPathId = LearningCatalog.paths.first().id
                     }
-                }) { Text("Start new record") }
+                }) { Text("Add and switch") }
             },
             dismissButton = { TextButton(onClick = { confirmNewStudent = false }) { Text("Cancel") } },
         )
@@ -915,25 +1070,21 @@ private fun ClassroomToolkitPane(
     if (confirmPracticePack) {
         AlertDialog(
             onDismissRequest = { confirmPracticePack = false },
-            title = { Text("Install synthetic practice runs?") },
+            title = { Text("Install and import synthetic practice runs?") },
             text = {
-                Text("ARES will add two small CSV teaching datasets and a README under .ares/academy/practice-runs. Existing files are never replaced. The data is synthetic—not robot or simulator evidence.")
+                Text("ARES will add two small CSV teaching datasets under .ares/academy/practice-runs and import them into Run History. Existing files are never replaced, and repeated clicks reuse prior imports. The data is synthetic—not robot or simulator evidence.")
             },
             confirmButton = {
                 Button(onClick = {
                     confirmPracticePack = false
                     scope.launch {
-                        runCatching {
-                            withContext(Dispatchers.IO) { practicePackService.install(File(projectPath)) }
-                        }.onSuccess { result ->
-                            statusMessage = if (result.reusedExistingFiles) {
-                                "Practice runs are already installed at ${result.directory.path}."
-                            } else {
-                                "Installed ${result.files.size} practice files at ${result.directory.path}. Open Imports to bring in the two CSV runs."
+                        runCatching { onInstallAndImportPracticeRuns() }
+                            .onSuccess { result ->
+                                statusMessage = "Practice runs ready: ${result.importedCount} imported, ${result.reusedCount} already present. Open Guided Run Review to compare them."
                             }
-                        }.onFailure { statusMessage = "Practice pack was not installed: ${it.message ?: "unknown error"}" }
+                            .onFailure { statusMessage = "Practice runs were not ready: ${it.message ?: "unknown error"}" }
                     }
-                }) { Text("Install practice runs") }
+                }) { Text("Install and import") }
             },
             dismissButton = { TextButton(onClick = { confirmPracticePack = false }) { Text("Cancel") } },
         )
@@ -948,6 +1099,7 @@ private fun ClassroomPracticeSetupCard(
     onCreatePracticeProject: () -> Unit,
     onInstallPracticePack: () -> Unit,
     onOpenImports: () -> Unit,
+    onOpenRunReview: () -> Unit,
 ) {
     ClassroomSection("Offline practice setup") {
         Text(
@@ -966,11 +1118,62 @@ private fun ClassroomPracticeSetupCard(
                 onClick = onInstallPracticePack,
                 enabled = projectPath.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-            ) { Text("Install offline practice runs") }
-            OutlinedButton(onClick = onOpenImports) { Text("Open Imports") }
+            ) { Text("Install & import practice runs") }
+            OutlinedButton(onClick = onOpenRunReview) { Text("Open Guided Run Review") }
+            OutlinedButton(onClick = onOpenImports) { Text("Import my own log") }
         }
         statusMessage?.let {
             Text(it, color = if (it.contains("failed", ignoreCase = true) || it.contains("not installed", ignoreCase = true)) AresAmber else AresGreen)
+        }
+    }
+}
+
+@Composable
+private fun AssignmentCard(
+    assignment: AcademyLearningAssignment,
+    studentName: String,
+    onCompletedChange: (Boolean) -> Unit,
+    onExportWorksheet: () -> Unit,
+    onRemove: () -> Unit,
+) {
+    val lessonNames = assignment.lessonIds.mapNotNull(LearningCatalog::lesson).joinToString { it.title }
+    Surface(
+        color = AresSurfaceElevated,
+        border = BorderStroke(1.dp, if (assignment.completed) AresGreen else AresBorder),
+        shape = RoundedCornerShape(9.dp),
+        modifier = Modifier.fillMaxWidth().semantics {
+            stateDescription = if (assignment.completed) "Assignment marked complete" else "Assignment still open"
+        },
+    ) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(assignment.title, color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${studentName.ifBlank { "Active learner" }} · ${assignment.dueLabel.ifBlank { "No due date" }}",
+                        color = AresTextSecondary,
+                        fontSize = 11.sp,
+                    )
+                }
+                FilterChip(
+                    selected = assignment.completed,
+                    onClick = { onCompletedChange(!assignment.completed) },
+                    label = { Text(if (assignment.completed) "Checklist complete" else "Mark checklist complete") },
+                )
+            }
+            Text("Lessons: $lessonNames", color = AresTextSecondary, fontSize = 12.sp)
+            if (assignment.instructions.isNotBlank()) {
+                Text(assignment.instructions, color = AresTextSecondary, fontSize = 12.sp)
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = onExportWorksheet) { Text("Export worksheet") }
+                TextButton(onClick = onRemove) { Text("Remove assignment") }
+            }
+            Text(
+                "The assignment checklist does not complete lesson evidence or approve hardware use.",
+                color = AresAmber,
+                fontSize = 11.sp,
+            )
         }
     }
 }
@@ -983,6 +1186,19 @@ private fun ClassroomSection(title: String, content: @Composable ColumnScope.() 
             content()
         }
     }
+}
+
+private fun chooseAssignmentWorksheetFile(studentName: String, assignmentTitle: String): File? {
+    fun slug(value: String, fallback: String): String = value.trim().lowercase()
+        .replace(Regex("[^a-z0-9]+"), "-").trim('-').ifBlank { fallback }
+    val chooser = JFileChooser().apply {
+        dialogTitle = "Export ARES Academy assignment worksheet"
+        selectedFile = File("ares-academy-${slug(studentName, "student")}-${slug(assignmentTitle, "assignment")}.md")
+        fileFilter = FileNameExtensionFilter("Markdown document (*.md)", "md")
+    }
+    if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return null
+    val selected = chooser.selectedFile
+    return if (selected.extension.equals("md", ignoreCase = true)) selected else File(selected.parentFile, "${selected.name}.md")
 }
 
 private fun chooseAcademyReportFile(studentName: String, pathId: String): File? {

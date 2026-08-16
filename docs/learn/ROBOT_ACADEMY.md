@@ -48,9 +48,12 @@ Open **Classroom & mentor toolkit** from Robot Academy to:
 - record a student display name without requiring a cloud account;
 - review written student reflections separately from app-observed facts;
 - add local mentor notes and evidence-based rubric ratings;
+- keep separate switchable learner records on one classroom computer;
+- create path-scoped assignments and printable prediction/evidence worksheets;
+- save collision-safe local progress snapshots;
 - restart one lesson or an entire path deliberately;
 - create another verified starter workspace through first-run setup;
-- install two clearly labeled synthetic CSV practice runs without overwriting files; and
+- install and directly import two clearly labeled synthetic CSV practice runs without overwriting files or duplicating prior imports; and
 - export a Markdown learning record that contains no telemetry rows or credentials.
 
 The synthetic baseline and stalled-arm files are exercises, not robot logs or simulator output. Follow the [classroom pilot guide](../mentor/CLASSROOM_PILOT.md) for setup, privacy, reset behavior, and a 60-minute pilot.
@@ -205,7 +208,7 @@ Academy stores local progress in `.ares-analytics/learning-progress.json` under 
 
 If the progress file is unreadable, Academy starts with empty progress instead of blocking the app. This does not affect robot projects, imported runs, or cloud data.
 
-The selected path, student display name, written reflections, mentor notes, and rubric ratings use the same local progress file. This pilot supports one active learner record per operating-system account. Use **Start new student record**—not a simple name edit—between students, and export first if the team needs the prior record. Restarting a lesson or path is explicit and confirmed; shared lessons restart anywhere they appear.
+The selected path, student display name, written reflections, mentor notes, rubric ratings, and assignments use one local classroom store. Each learner record remains separate and can be resumed from the roster. Use **Add separate student**—not a simple name edit—between students. **Save local snapshot** preserves a collision-safe Markdown record before a review or reset. Restarting a lesson or path is explicit and confirmed; shared lessons restart anywhere they appear.
 
 If a simulator lesson gets stuck:
 
