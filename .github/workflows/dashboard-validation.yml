@@ -29,11 +29,11 @@ on:
 permissions:
   contents: read
 
-# Validation is pinned to the protected ARESLib commit that defines the 7.0.0 contract used by
-# Analytics. Native release packaging intentionally remains Maven-Central-only.
+# Pull-request validation is pinned to the unique ARESLib 8.0 release candidate used by Analytics.
+# Native release packaging intentionally remains Maven-Central-only and must wait for 8.0.0.
 env:
-  ARES_VERSION: 7.0.0
-  ARESLIB_VALIDATION_REF: e096b7717bfc7c22fd23fddd5dd6122db165c0f4
+  ARES_VERSION: 8.0.0-rc.6ecf2b9fb12b
+  ARESLIB_VALIDATION_REF: 6ecf2b9fb12bc515d5c464bd4c8a9c7f87a6a5a4
   ARES_VALIDATION_REPOSITORY: file://${{ github.workspace }}/ARESLib-Kotlin/build/release-repository
 
 concurrency:
@@ -70,7 +70,7 @@ jobs:
 
       - name: Publish isolated ARESLib validation repository
         working-directory: ARESLib-Kotlin
-        run: ./gradlew publishReleaseValidation "-ParesVersion=${ARES_VERSION}" --no-parallel --no-daemon
+        run: ./gradlew apiCheck publishReleaseValidation "-ParesVersion=${ARES_VERSION}" --no-parallel --no-daemon
 
       - name: Verify the requested ARES contract was published
         working-directory: ARESLib-Kotlin
@@ -126,7 +126,7 @@ jobs:
 
       - name: Publish isolated ARESLib validation repository
         working-directory: ARESLib-Kotlin
-        run: ./gradlew publishReleaseValidation "-ParesVersion=${ARES_VERSION}" --no-parallel --no-daemon
+        run: ./gradlew apiCheck publishReleaseValidation "-ParesVersion=${ARES_VERSION}" --no-parallel --no-daemon
 
       - name: Verify the requested ARES contract was published
         working-directory: ARESLib-Kotlin

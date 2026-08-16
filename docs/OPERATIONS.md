@@ -22,10 +22,12 @@ java -version
 Normal builds consume the pinned ARESLib release from Maven Central. To validate an unpublished library change:
 
 ```powershell
+$candidate = "8.0.0-rc.<areslib-commit>"
 cd ..\ARESLib-Kotlin
-.\gradlew.bat apiCheck publishReleaseValidation
+.\gradlew.bat apiCheck publishReleaseValidation "-ParesVersion=$candidate"
 cd ..\ARES-Analytics
-.\gradlew.bat :shared:test :app:test -ParesRepository="..\ARESLib-Kotlin\build\release-repository"
+$repository = ([Uri](Resolve-Path ..\ARESLib-Kotlin\build\release-repository)).AbsoluteUri
+.\gradlew.bat :shared:test :app:test "-ParesVersion=$candidate" "-ParesRepository=$repository"
 ```
 
 The sibling directory is not substituted automatically. Use `-ParesUseSiblingLib=true` only for focused library development; binary validation should use the isolated repository above.
