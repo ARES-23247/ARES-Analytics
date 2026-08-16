@@ -136,7 +136,10 @@ open class Nt4ClientService(
     /** Direct latest-value view used by snapshot-oriented dashboard components. */
     val latestValues: ConcurrentHashMap<String, TelemetryFrame> = telemetryStore.latestFrames
 
-    private var cachedActiveTopics: List<String>? = null
+    // Written by the WS reader coroutine on announce/unannounce invalidation, read from UI
+    // threads by getActiveTopics(); volatile so readers observe invalidation promptly instead
+    // of serving a stale list indefinitely.
+    @Volatile private var cachedActiveTopics: List<String>? = null
 
     fun getActiveTopics(): List<String> {
         return cachedActiveTopics ?: run {

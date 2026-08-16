@@ -421,7 +421,32 @@ class LearningProgressService(
                     learners = listOf(AcademyLearnerRecord(LEGACY_LEARNER_ID, legacy)),
                 )
             }
-        }.getOrElse { emptyClassroomStore() }
+        }.getOrElse { failure ->
+            // A partially-written or unreadable store must not silently reset every learner's
+            // records: the next persist would overwrite the file. Preserve the unreadable
+            // bytes in a quarantine copy first so a roster can still be recovered by hand.
+            quarantineUnreadableStore(failure)
+            emptyClassroomStore()
+        }
+    }
+
+    private fun quarantineUnreadableStore(failure: Throwable) {
+        runCatching {
+            val stamp = java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+            val quarantine = File(progressFile.parentFile ?: File("."), "learning-progress.corrupt-$stamp.json")
+            progressFile.copyTo(quarantine, overwrite = true)
+            System.err.println(
+                "LearningProgressService: classroom store '${progressFile.name}' could not be read " +
+                    "(${failure.message}); quarantined a copy as '${quarantine.name}' before starting empty"
+            )
+        }.onFailure { copyFailure ->
+            System.err.println(
+                "LearningProgressService: classroom store '${progressFile.name}' is unreadable " +
+                    "(${failure.message}) and the quarantine copy also failed ($copyFailure); " +
+                    "the next persist will overwrite the unreadable file"
+            )
+        }
     }
 
     private fun normalizeStore(store: AcademyClassroomStore): AcademyClassroomStore {
