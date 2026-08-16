@@ -166,6 +166,62 @@ class Nt4ClientServiceTest {
 
     @Test
     /**
+     * Console topics are routed to the console flow only — they must not fall through and
+     * double-persist as telemetry frames under the same key.
+     */
+    fun `console topics emit console messages without telemetry frames`() = runBlocking {
+        nt4ClientService.handleIncomingText(
+            """[{"method": "announce", "params": {"name": "/Robot/Console", "id": 30, "type": "string"}}]""",
+            "team-1", "season-1", "robot-1"
+        )
+
+        val consoleMessage = async(start = CoroutineStart.UNDISPATCHED) {
+            nt4ClientService.consoleFlow.first()
+        }
+        val telemetryFrames = mutableListOf<TelemetryFrame>()
+        val collector = launch {
+            nt4ClientService.telemetryFlow.collect { telemetryFrames.add(it) }
+        }
+
+        nt4ClientService.handleIncomingText(
+            """[{"topic": 30, "time": 3000000, "value": "[WARN] intake overcurrent"}]""",
+            "team-1", "season-1", "robot-1"
+        )
+
+        val console = withTimeout(2000) { consoleMessage.await() }
+        assertEquals("[WARN] intake overcurrent", console.text)
+        assertEquals("WARN", console.severity)
+
+        // Give any (incorrect) telemetry emission a window to arrive, then assert none did.
+        delay(200)
+        collector.cancel()
+        assertTrue(telemetryFrames.none { it.key.startsWith("Robot/Console") })
+    }
+
+    @Test
+    /**
+     * Console matching is exact (case-insensitive): a topic that merely contains "console"
+     * must still flow through the ordinary telemetry path.
+     */
+    fun `console-like topic names still flow as telemetry`() = runBlocking {
+        nt4ClientService.handleIncomingText(
+            """[{"method": "announce", "params": {"name": "/Robot/ConsoleStatus", "id": 31, "type": "double"}}]""",
+            "team-1", "season-1", "robot-1"
+        )
+
+        nt4ClientService.handleIncomingText(
+            """[{"topic": 31, "time": 4000000, "value": 7.0}]""",
+            "team-1", "season-1", "robot-1"
+        )
+
+        val frame = withTimeout(2000) {
+            nt4ClientService.telemetryFlow.first { it.key == "Robot/ConsoleStatus" }
+        }
+        assertEquals(7.0, frame.value)
+    }
+
+    @Test
+    /**
      * testMalformedPayloadResilience fun.
      */
     fun testMalformedPayloadResilience() = runBlocking {

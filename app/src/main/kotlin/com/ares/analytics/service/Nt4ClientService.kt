@@ -781,6 +781,9 @@ open class Nt4ClientService(
             } catch (e: Exception) {
                 e.printStackTrace()
             }
+            // Console lines are persisted exclusively as console messages; falling through
+            // here would double-persist each line as a telemetry frame under the same key.
+            return
         }
 
         if (valueElement is JsonArray || valueElement is List<*> || valueElement is DoubleArray || valueElement is FloatArray || valueElement is Array<*>) {
