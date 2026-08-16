@@ -48,6 +48,25 @@ class LearningProgressServiceTest {
     }
 
     @Test
+    fun `unreadable classroom store is quarantined before any overwrite`() = runTest {
+        val tempDir = Files.createTempDirectory("learning-progress-quarantine-test").toFile()
+        val corruptBytes = """{"learners":[{"learnerId":"a","progress":{"""
+        val file = File(tempDir, "learning-progress.json").apply { writeText(corruptBytes) }
+
+        val service = LearningProgressService(file)
+        assertTrue(service.progress.value.practicedLessonIds.isEmpty())
+
+        // The unreadable bytes must survive as a quarantine copy alongside the store...
+        val quarantined = tempDir.listFiles { f -> f.name.startsWith("learning-progress.corrupt-") }.orEmpty()
+        assertEquals(1, quarantined.size)
+        assertEquals(corruptBytes, quarantined[0].readText())
+
+        // ...even after the empty store persists over the original file.
+        service.setPracticed("start-simulator", true)
+        assertEquals(corruptBytes, quarantined[0].readText())
+    }
+
+    @Test
     fun `version one practice migrates without inventing checkpoint evidence`() {
         val tempDir = Files.createTempDirectory("learning-progress-v1-test").toFile()
         val file = File(tempDir, "learning-progress.json").apply {
