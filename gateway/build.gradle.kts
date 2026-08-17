@@ -48,7 +48,7 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation("io.ktor:ktor-client-mock-jvm:3.0.3")
     testImplementation("io.ktor:ktor-server-test-host:3.0.3")
-    testImplementation("org.mockito:mockito-core:5.12.0")
+    testImplementation("org.mockito:mockito-core:5.23.0")
 }
 
 ktor {

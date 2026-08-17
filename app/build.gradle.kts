@@ -75,7 +75,7 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation("io.ktor:ktor-client-mock-jvm:3.0.3")
-    testImplementation("org.mockito:mockito-core:5.12.0")
+    testImplementation("org.mockito:mockito-core:5.23.0")
     
     // Compression
     implementation("org.tukaani:xz:1.10")
