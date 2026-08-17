@@ -181,4 +181,19 @@ class OnboardingModelTest {
             parent.deleteRecursively()
         }
     }
+
+    @Test
+    fun `recognized project detection advances from the project page to robot details`() {
+        assertEquals(OnboardingStep.ROBOT, advanceAfterDetection(OnboardingStep.PROJECT, recognizedProject = true))
+    }
+
+    @Test
+    fun `unrecognized directories never advance the wizard`() {
+        assertEquals(OnboardingStep.PROJECT, advanceAfterDetection(OnboardingStep.PROJECT, recognizedProject = false))
+    }
+
+    @Test
+    fun `detection never moves a student who already advanced`() {
+        assertEquals(OnboardingStep.OPTIONAL, advanceAfterDetection(OnboardingStep.OPTIONAL, recognizedProject = true))
+    }
 }
