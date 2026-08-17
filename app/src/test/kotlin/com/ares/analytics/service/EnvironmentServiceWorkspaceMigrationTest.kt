@@ -13,7 +13,7 @@ import kotlin.test.assertEquals
 class EnvironmentServiceWorkspaceMigrationTest {
     @Test
     fun `asset-only workspace migrates to the one matching robot repository`() = runBlocking {
-        val root = createTempDir(prefix = "ares-workspace-migration-")
+        val root = java.nio.file.Files.createTempDirectory("ares-workspace-migration-").toFile()
         try {
             val staleRoot = File(root, "ftc/ARES-FTC").apply { mkdirs() }
             File(staleRoot, "src/main/assets").mkdirs()
@@ -53,7 +53,7 @@ class EnvironmentServiceWorkspaceMigrationTest {
 
     @Test
     fun `ambiguous matching repositories do not rewrite workspace`() = runBlocking {
-        val root = createTempDir(prefix = "ares-workspace-ambiguous-")
+        val root = java.nio.file.Files.createTempDirectory("ares-workspace-ambiguous-").toFile()
         try {
             val staleRoot = File(root, "ftc/ARES-FTC").apply { mkdirs() }
             File(staleRoot, "src/main/assets").mkdirs()
