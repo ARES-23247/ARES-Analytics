@@ -65,7 +65,7 @@ dependencies {
     implementation("net.java.dev.jna:jna-platform:5.15.0")
 
     // Math & Signal Processing
-    implementation("org.ejml:ejml-simple:0.43.1")
+    implementation("org.ejml:ejml-simple:0.46.1")
     implementation("org.apache.commons:commons-math3:3.6.1")
 
     // Logging
