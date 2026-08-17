@@ -10,6 +10,8 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonPrimitive
+import com.areslib.networktables.NT4Instance
+import com.areslib.networktables.NT4Server
 import java.io.File
 import java.nio.ByteBuffer
 import kotlin.test.AfterTest
@@ -424,6 +426,23 @@ class Nt4ClientServiceTest {
 
         assertEquals(attemptsAtStop, nt4ClientService.connectionMetrics().attempts)
         assertFalse(nt4ClientService.isConnected.value)
+    }
+
+    @Test
+    fun `stop completes while a healthy server keeps the websocket open`() = runBlocking {
+        val port = 5_827
+        val server = NT4Instance.defaultInstance.startServer("127.0.0.1", port)
+        try {
+            NT4Server.publishTopic("Drive/Pose_X", 1.25)
+            nt4ClientService.start("127.0.0.1", "team", "season", "robot", port)
+            withTimeout(5_000) { nt4ClientService.isConnected.first { it } }
+
+            withTimeout(3_000) { assertTrue(nt4ClientService.stop()) }
+
+            assertFalse(nt4ClientService.isConnected.value)
+        } finally {
+            server.stop()
+        }
     }
 
     @Test

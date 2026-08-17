@@ -197,7 +197,7 @@ open class Nt4ClientService(
 
         latestLiveTimestamp?.let { newestTimestamp ->
             try {
-                databaseService.pruneTelemetryFrames(LIVE_SESSION_ID, newestTimestamp - 300_000)
+                databaseService.pruneTelemetryFrames(LIVE_SESSION_ID, newestTimestamp - LIVE_RETENTION_MS)
             } catch (e: Exception) {
                 // Pruning is maintenance, not persistence. Frames were committed successfully.
                 e.printStackTrace()
@@ -353,13 +353,15 @@ open class Nt4ClientService(
                             }
                         } finally {
                             clockSyncJob.cancel()
-                            try {
-                                val reason = withContext(NonCancellable) {
-                                    closeReason.await()
-                                }
+                            val reason = withContext(NonCancellable) {
+                                withTimeoutOrNull(CLOSE_HANDSHAKE_TIMEOUT_MS) { closeReason.await() }
+                            }
+                            if (reason != null) {
                                 println("[Nt4ClientService] Connection to $url closed. Reason: ${reason?.message} (Code: ${reason?.code})")
-                            } catch (_: Exception) {
-                                // The reconnect loop owns cleanup even when the close handshake is unavailable.
+                            } else {
+                                // A server may remain healthy while the user disconnects. Do not keep stop()
+                                // waiting forever for a peer-initiated WebSocket close frame.
+                                println("[Nt4ClientService] Connection to $url closed without a peer close handshake.")
                             }
                             webSocketSession = null
                             serverTimeOffsetUs = null
@@ -1000,6 +1002,7 @@ open class Nt4ClientService(
         private const val INITIAL_RETRY_DELAY_MS = 1_000L
         private const val MAX_RETRY_DELAY_MS = 10_000L
         private const val HEALTHY_CONNECTION_MS = 10_000L
+        private const val CLOSE_HANDSHAKE_TIMEOUT_MS = 1_000L
         private const val SHUTDOWN_FLUSH_ATTEMPTS = 5
         private const val SHUTDOWN_FLUSH_RETRY_MS = 100L
         private val ALLOWED_INPUT_STRING_TOPICS = setOf(
@@ -1017,6 +1020,8 @@ open class Nt4ClientService(
             "ARES/Input/driveFrame"
         )
         internal const val LIVE_SESSION_ID = "live-telemetry"
+        /** Amount of recent live telemetry intentionally retained in the ephemeral database. */
+        internal const val LIVE_RETENTION_MS = 300_000L
         internal val CANONICAL_SUBSCRIPTION_PREFIXES = listOf(
             "/ARES", "/Drive", "/Robot", "/Hardware", "/Topology", "/Tuning",
             "/Profiling", "/Diagnostics", "/Vision", "/Path", "/Gamepad1", "/Gamepad2",

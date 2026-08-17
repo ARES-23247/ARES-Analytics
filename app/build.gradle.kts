@@ -153,6 +153,21 @@ tasks.withType<JavaExec>().configureEach {
     }
 }
 
+// Opt-in official-template checks run in a forked test JVM. Forward only these reviewed
+// release-check properties so a successful Gradle invocation cannot silently mean the test was
+// skipped because its inputs were visible to Gradle but not to the test process.
+listOf(
+    "ares.officialTemplateArchiveDir",
+    "ares.officialTemplateOutputDir",
+    "ares.officialTemplateValidationRepository",
+).forEach { propertyName ->
+    providers.systemProperty(propertyName).orNull?.let { value ->
+        tasks.withType<Test>().configureEach {
+            systemProperty(propertyName, value)
+        }
+    }
+}
+
 compose.desktop {
     application {
         mainClass = "com.ares.analytics.MainKt"
@@ -256,6 +271,7 @@ private val validationPropertyNames = listOf(
     "maxParquetOperationMs",
     "maxHeapGrowthMb",
     "maxDropRate",
+    "hardwareEnabled",
     "hardwareHost",
     "hardwarePort",
     "hardwareObservationSeconds",

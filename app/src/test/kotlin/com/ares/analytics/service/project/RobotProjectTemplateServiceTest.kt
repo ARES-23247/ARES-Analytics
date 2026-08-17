@@ -44,6 +44,7 @@ class RobotProjectTemplateServiceTest {
         val service = RobotProjectTemplateService()
 
         League.entries.forEach { league ->
+            assertEquals("8.1.0", service.templateFor(league).aresVersion)
             assertEquals(
                 RobotProjectDeploymentPolicy.SIMULATION_ONLY_REFERENCE,
                 service.templateFor(league).deploymentPolicy,

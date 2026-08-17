@@ -62,6 +62,22 @@ class TelemetryStoreTest {
     }
 
     @Test
+    fun `recently refreshed topic survives least recently used eviction`() = runTest {
+        val store = TelemetryStore(maxTrackedTopics = 3)
+        store.accept(frame("Dynamic/A", 1, 1.0))
+        store.accept(frame("Dynamic/B", 2, 2.0))
+        store.accept(frame("Dynamic/C", 3, 3.0))
+
+        store.accept(frame("Dynamic/A", 4, 4.0))
+        store.accept(frame("Dynamic/D", 5, 5.0))
+
+        assertEquals(4.0, store.latest("Dynamic/A")?.value)
+        assertNull(store.latest("Dynamic/B"))
+        assertEquals(3.0, store.latest("Dynamic/C")?.value)
+        assertEquals(5.0, store.latest("Dynamic/D")?.value)
+    }
+
+    @Test
     fun `ingestion allocates single-topic flows only for explicit observers`() = runTest {
         val store = TelemetryStore()
 
