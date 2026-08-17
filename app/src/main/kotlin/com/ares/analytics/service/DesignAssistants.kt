@@ -97,6 +97,46 @@ internal fun parseControlsDesignProposalResponse(
     )
 }
 
+/**
+ * Runs one model proposal attempt and, when the desktop parser or document validation rejects
+ * it, feeds the exact rejection back for a single repair pass.
+ *
+ * Schema drift on a first attempt is the common failure (for example emitting a binding
+ * `"target"` as a plain string instead of an object when the current scheme has no bindings to
+ * imitate). One targeted repair with the parser's error recovers almost all of those without
+ * hiding the final failure: if the second attempt is also rejected, its error is thrown with
+ * the repair context attached.
+ */
+internal suspend fun <T> requestDesignProposalWithRepair(
+    prompt: String,
+    request: suspend (String) -> String,
+    parse: (String) -> T,
+): T {
+    val firstAttempt = request(prompt)
+    try {
+        return parse(firstAttempt)
+    } catch (firstError: Exception) {
+        val repairPrompt = buildString {
+            append(prompt)
+            append("\n\nThe app rejected the previous response:\n")
+            append(firstError.message ?: "The JSON did not match the required document schema.")
+            append("\nReturn one corrected JSON object only. Nested document values such as binding ")
+            append("targets must remain JSON objects with their required fields, never plain strings, ")
+            append("and every enum name must be one of the allowed choices.")
+        }
+        val secondAttempt = request(repairPrompt)
+        return try {
+            parse(secondAttempt)
+        } catch (secondError: Exception) {
+            throw IllegalStateException(
+                "Gemini could not produce a valid document after one repair attempt. Last rejection: " +
+                    (secondError.message ?: secondError.javaClass.simpleName),
+                secondError,
+            )
+        }
+    }
+}
+
 private fun proposalEnvelope(responseText: String) = AppJson.parseToJsonElement(
     responseText.replace(Regex("```(?:json)?\\n?(.*?)\\n?```", RegexOption.DOT_MATCHES_ALL), "$1").trim()
 ).jsonObject

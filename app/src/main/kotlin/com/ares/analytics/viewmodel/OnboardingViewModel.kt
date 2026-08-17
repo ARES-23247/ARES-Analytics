@@ -258,16 +258,21 @@ class OnboardingViewModel(
                     nt4Host = environmentService.getDefaultNt4Host(detectedLeague, robotConfig.teamId),
                     projectDetectionMessage = "Project found. We filled in the ${detectedLeague.name} robot details from .ares-robot.json.",
                     fieldErrors = OnboardingFieldErrors(),
+                    currentStep = advanceAfterDetection(it.currentStep, recognizedProject = true),
                 )
             }
         } else {
             val detectedLeague = environmentService.detectLeague(path)
+            // Only an identified ARES project advances the wizard. A directory that merely exists
+            // may be an intermediate path while the student is still typing.
+            val recognizedProject = detectedLeague == League.FRC || File(path, ".ares").isDirectory
             _state.update {
                 it.copy(
                     league = detectedLeague,
                     nt4Host = environmentService.getDefaultNt4Host(detectedLeague, it.teamId),
                     projectDetectionMessage = "Project found. We detected ${detectedLeague.name}; add the robot details on the next step.",
                     fieldErrors = it.fieldErrors.copy(projectPath = null),
+                    currentStep = advanceAfterDetection(it.currentStep, recognizedProject),
                 )
             }
         }
@@ -415,6 +420,14 @@ private fun plannedProjectPath(state: OnboardingState): String {
     val name = state.projectFolderName.trim()
     return if (parent.isBlank() || name.isBlank()) "" else File(parent, name).path
 }
+
+/**
+ * League detection filled the project page in, so a recognized project moves the student straight
+ * to the robot-details page. An unrecognized directory (possibly a partial path while typing)
+ * leaves the wizard where it is, and a student who already advanced is never pulled back.
+ */
+internal fun advanceAfterDetection(currentStep: OnboardingStep, recognizedProject: Boolean): OnboardingStep =
+    if (currentStep == OnboardingStep.PROJECT && recognizedProject) OnboardingStep.ROBOT else currentStep
 
 internal data class JavaBuildToolsReadiness(
     val isValid: Boolean,

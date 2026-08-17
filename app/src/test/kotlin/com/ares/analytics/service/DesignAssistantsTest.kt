@@ -125,6 +125,74 @@ class DesignAssistantsTest {
         }
     }
 
+    @Test
+    fun `string binding target is repaired on the second attempt`() = runBlocking {
+        val current = ControlSchemeDocument(
+            documentId = "student-controls",
+            name = "Student controls",
+            controllers = listOf(ControllerAssignment("driver", "Driver", "xbox", devicePort = 0)),
+            bindings = emptyList(),
+        )
+        val context = ControlsDesignContext(setOf("intake.run"), emptySet(), mapOf("xbox" to setOf("rightBumper")))
+        // First attempt mirrors the field failure: a plain string where the target object belongs.
+        val malformed = """{"summary":"Draft","explanations":[],"proposedDocument":""" +
+            """{"schemaVersion":2,"documentId":"student-controls","revision":1,"name":"Student controls",""" +
+            """"controllers":[{"slot":"driver","displayName":"Driver","profileId":"xbox","devicePort":0}],""" +
+            """"bindings":[{"bindingId":"b1","displayName":"Run intake",""" +
+            """"source":{"kind":"BUTTON","controllerSlot":"driver","controlIds":["rightBumper"]},""" +
+            """"event":"PRESS","target":"intake.run"}]}}"""
+        val fixed = envelope(
+            "Repaired",
+            ControlSchemeCodec.encode(
+                current.copy(
+                    bindings = listOf(
+                        ControlBindingDocument(
+                            bindingId = "b1",
+                            displayName = "Run intake",
+                            source = ControlSourceDocument(ControlSourceKind.BUTTON, "driver", listOf("rightBumper")),
+                            event = ControlEvent.PRESS,
+                            target = ControlTargetDocument(ControlTargetKind.ACTION, "intake.run"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val requests = mutableListOf<String>()
+
+        val result = requestDesignProposalWithRepair("base prompt", { prompt ->
+            requests.add(prompt)
+            if (requests.size == 1) malformed else fixed
+        }) { parseControlsDesignProposalResponse(current, context, it) }
+
+        assertEquals(1, result.candidate.bindings.size)
+        assertEquals(ControlTargetKind.ACTION, result.candidate.bindings.single().target.kind)
+        assertEquals("intake.run", result.candidate.bindings.single().target.key)
+        assertEquals(2, requests.size)
+        assertTrue(requests[1].contains("rejected"))
+        assertTrue(requests[1].contains("Expected BEGIN_OBJECT but was STRING"))
+    }
+
+    @Test
+    fun `unrepairable proposals surface the second rejection`() = runBlocking {
+        val current = ControlSchemeDocument(
+            documentId = "student-controls",
+            name = "Student controls",
+            controllers = listOf(ControllerAssignment("driver", "Driver", "xbox", devicePort = 0)),
+            bindings = emptyList(),
+        )
+        val context = ControlsDesignContext(setOf("intake.run"), emptySet(), mapOf("xbox" to setOf("rightBumper")))
+        val malformed = """{"summary":"broken","proposedDocument":{"schemaVersion":2,"nope":true}}"""
+
+        val failure = kotlin.runCatching {
+            requestDesignProposalWithRepair("base prompt", { malformed }) {
+                parseControlsDesignProposalResponse(current, context, it)
+            }
+        }.exceptionOrNull()
+
+        assertTrue(failure is IllegalStateException)
+        assertTrue(failure?.message.orEmpty().contains("one repair attempt"))
+    }
+
     private fun envelope(summary: String, documentJson: String): String =
         """{"summary":"$summary","explanations":["Review every change"],"proposedDocument":$documentJson}"""
 }

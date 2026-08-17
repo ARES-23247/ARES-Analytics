@@ -710,11 +710,13 @@ class SyncEngineService(
             $currentJson
         """.trimIndent()
 
-        parseSubsystemDesignProposalResponse(
-            current = current,
-            responseText = requestGeminiStructuredJson(prompt),
-            gson = subsystemDocumentGson,
-        )
+        requestDesignProposalWithRepair(prompt, { requestGeminiStructuredJson(it) }) {
+            parseSubsystemDesignProposalResponse(
+                current = current,
+                responseText = it,
+                gson = subsystemDocumentGson,
+            )
+        }
     }
 
     suspend fun requestDrivebaseDesignProposal(
@@ -751,7 +753,9 @@ class SyncEngineService(
             Current drivetrain document:
             ${DrivetrainDocumentCodec.encode(current)}
         """.trimIndent()
-        parseDrivebaseDesignProposalResponse(current, requestGeminiStructuredJson(prompt))
+        requestDesignProposalWithRepair(prompt, { requestGeminiStructuredJson(it) }) {
+            parseDrivebaseDesignProposalResponse(current, it)
+        }
     }
 
     suspend fun requestControlsDesignProposal(
@@ -770,7 +774,7 @@ class SyncEngineService(
             invent action/routine/control keys.
 
             Rules:
-            - Return a complete control-scheme JSON document matching the supplied schema.
+            - Return a complete control-scheme JSON document matching the schema below.
             - Preserve schemaVersion, documentId, revision, parentContentHash, and controllers.
             - Targets may use only the allowed action keys or routine IDs below.
             - Sources may use only controls belonging to that controller's assigned profile.
@@ -779,6 +783,24 @@ class SyncEngineService(
             - Do not bind the same input ambiguously. Give chords higher priority and suppress
               constituent bindings when appropriate.
             - Preserve all existing valid bindings unless the student explicitly asks to replace them.
+
+            Binding schema — every binding must have exactly this shape:
+            {"bindingId":"stable unique id","displayName":"plain language name",
+             "source":{"kind":"BUTTON|CHORD|AXIS_THRESHOLD|AXIS_VALUE|AXIS_ZONE",
+                       "controllerSlot":"a slot from controllers below","controlIds":["one allowed control id"],
+                       "transform":null,"pressThreshold":null,"releaseThreshold":null,
+                       "thresholdDirection":"ABOVE","zoneMinimum":null,"zoneMaximum":null,
+                       "zoneHysteresis":0.0,"chordWindowSeconds":0.075},
+             "event":"PRESS|RELEASE|HELD|HOLD|REPEAT|VALUE|ZONE_ENTER|ZONE_ACTIVE|ZONE_EXIT",
+             "target":{"kind":"ACTION|ROUTINE|CANCEL_ROUTINE","key":"an allowed action key or routine id",
+                       "arguments":{},"routinePolicy":"IGNORE_IF_RUNNING"},
+             "timing":{"pressDebounceSeconds":0.0,"releaseDebounceSeconds":0.0,"holdAfterSeconds":null,
+                       "repeatAfterSeconds":null,"repeatEverySeconds":null,"cooldownSeconds":0.0,
+                       "maximumActiveSeconds":null},
+             "analogPolicy":null,"priority":0,"suppressConstituentBindings":false,"enabled":true}
+            "target" is always a JSON object with "kind" and "key" fields — never a plain string.
+            Example binding:
+            {"bindingId":"b-intake-run","displayName":"Run intake","source":{"kind":"BUTTON","controllerSlot":"operator","controlIds":["<an allowed control id>"]},"event":"PRESS","target":{"kind":"ACTION","key":"<an allowed action key>","arguments":{}}}
 
             Allowed actions: ${context.actionKeys.sorted().joinToString()}
             Allowed routines: ${context.routineIds.sorted().joinToString()}
@@ -794,7 +816,9 @@ class SyncEngineService(
             Current control scheme:
             ${ControlSchemeCodec.encode(current)}
         """.trimIndent()
-        parseControlsDesignProposalResponse(current, context, requestGeminiStructuredJson(prompt))
+        requestDesignProposalWithRepair(prompt, { requestGeminiStructuredJson(it) }) {
+            parseControlsDesignProposalResponse(current, context, it)
+        }
     }
 
     private suspend fun requestGeminiStructuredJson(prompt: String): String {
