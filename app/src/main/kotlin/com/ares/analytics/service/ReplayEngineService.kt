@@ -162,7 +162,9 @@ class ReplayEngineService(
     private val stringValuesMap = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val windowStringBaseline = java.util.concurrent.ConcurrentHashMap<String, String>()
 
-    private var datagramSocket: DatagramSocket? = DatagramSocket()
+    // Opened lazily on first broadcast; a service instance that never broadcasts
+    // (the common case) no longer holds an ephemeral UDP socket for its lifetime.
+    private var datagramSocket: DatagramSocket? = null
     private val loopbackAddress = InetAddress.getByName("127.0.0.1")
     private val broadcastPort = 5802 // AdvantageScope/dashboard loopback
 
@@ -300,166 +302,186 @@ class ReplayEngineService(
         _speed.value = newSpeed
     }
 
+    // Playhead/index state is read and written by both the 50 Hz play loop (serviceScope)
+    // and UI-thread scrub/step calls; this monitor keeps their mutations exclusive so a
+    // scrub cannot race the loop's incremental aggregation indexes.
+    private val playheadLock = Any()
+
     fun stepForward() {
         if (timestamps.isEmpty()) return
         pause()
-        val index = timestamps.binarySearch(currentPlayheadMs)
-        val nextIndex = if (index >= 0) index + 1 else -index - 1
-        if (nextIndex < timestamps.size) {
-            currentPlayheadMs = timestamps[nextIndex]
-            updateFrameAtPlayhead()
+        synchronized(playheadLock) {
+            val index = timestamps.binarySearch(currentPlayheadMs)
+            val nextIndex = if (index >= 0) index + 1 else -index - 1
+            if (nextIndex < timestamps.size) {
+                currentPlayheadMs = timestamps[nextIndex]
+            } else {
+                return
+            }
         }
+        updateFrameAtPlayhead()
     }
 
     fun stepBackward() {
         if (timestamps.isEmpty()) return
         pause()
-        val index = timestamps.binarySearch(currentPlayheadMs)
-        val prevIndex = if (index >= 0) index - 1 else -index - 2
-        if (prevIndex >= 0) {
-            currentPlayheadMs = timestamps[prevIndex]
-            updateFrameAtPlayhead()
+        synchronized(playheadLock) {
+            val index = timestamps.binarySearch(currentPlayheadMs)
+            val prevIndex = if (index >= 0) index - 1 else -index - 2
+            if (prevIndex >= 0) {
+                currentPlayheadMs = timestamps[prevIndex]
+            } else {
+                return
+            }
         }
+        updateFrameAtPlayhead()
     }
 
     fun scrubTo(percentage: Double) {
         if (timestamps.isEmpty()) return
         val clamped = percentage.coerceIn(0.0, 1.0)
-        val totalDuration = endTimestampMs - startTimestampMs
-        currentPlayheadMs = startTimestampMs + (totalDuration * clamped).toLong()
+        synchronized(playheadLock) {
+            val totalDuration = endTimestampMs - startTimestampMs
+            currentPlayheadMs = startTimestampMs + (totalDuration * clamped).toLong()
+        }
         updateFrameAtPlayhead()
     }
 
     private var emitJob: Job? = null
 
     private fun updateFrameAtPlayhead(emitTelemetry: Boolean = true, broadcast: Boolean = true) {
-        if (timestamps.isEmpty()) return
+        // Single-writer derivation: the play loop and UI scrubs/steps both reach this
+        // method; holding playheadLock across the (suspension-free) body keeps the
+        // incremental aggregation indexes and playhead mutually consistent.
+        synchronized(playheadLock) {
+            if (timestamps.isEmpty()) return
 
-        if (currentPlayheadMs < cachedWindowStartMs || currentPlayheadMs > cachedWindowEndMs) {
-            if (!ensureReplayWindow(emitTelemetry, broadcast)) return
-        }
-
-        // 1. Calculate progress percent
-        val totalDuration = endTimestampMs - startTimestampMs
-        if (totalDuration > 0) {
-            _progress.value = (currentPlayheadMs - startTimestampMs).toDouble() / totalDuration.toDouble()
-        }
-
-        // 2. Fetch or compute the current frame values (all values up to currentPlayheadMs)
-        // For performance, we find the closest timestamp in our list that is <= currentPlayheadMs
-        var index = timestamps.binarySearch(currentPlayheadMs)
-        if (index < 0) {
-            index = -index - 2
-        }
-        index = index.coerceIn(0, timestamps.size - 1)
-        val targetTimestamp = timestamps[index]
-
-        // Reset incremental cache if we seeked backwards or this is first run
-        val seeked = lastTargetTimestamp == -1L ||
-            kotlin.math.abs(targetTimestamp - lastTargetTimestamp) > 1000L ||
-            (if (_speed.value >= 0) targetTimestamp < lastTargetTimestamp else targetTimestamp > lastTargetTimestamp)
-
-        if (seeked) {
-            lastFrameIndex = 0
-            lastActionIndex = 0
-            valuesMap.clear()
-            valuesMap.putAll(windowBaseline)
-            stringValuesMap.clear()
-            stringValuesMap.putAll(windowStringBaseline)
-        }
-        lastTargetTimestamp = targetTimestamp
-        val deltaMap = mutableMapOf<String, Double>()
-
-        // Incrementally aggregate frame updates
-        while (lastFrameIndex < allFrames.size) {
-            val frame = allFrames[lastFrameIndex]
-            if (frame.timestampMs > targetTimestamp) break
-            valuesMap[frame.key] = frame.value
-            deltaMap[frame.key] = frame.value
-            val stringValue = frame.stringValue
-            if (stringValue != null) {
-                stringValuesMap[frame.key] = stringValue
-            } else {
-                stringValuesMap.remove(frame.key)
+            if (currentPlayheadMs < cachedWindowStartMs || currentPlayheadMs > cachedWindowEndMs) {
+                if (!ensureReplayWindow(emitTelemetry, broadcast)) return
             }
-            lastFrameIndex++
-        }
 
-        // Incrementally aggregate actions
-        val actionsList = _sessionActions.value
-        while (lastActionIndex < actionsList.size) {
-            val action = actionsList[lastActionIndex]
-            if (action.timestampMs > targetTimestamp) break
-            try {
-                val payloadObj = jsonParser.parseToJsonElement(action.payloadJson).let {
-                    if (it is JsonObject) it else null
-                }
-                if (payloadObj != null && action.actionType == "PoseUpdate") {
-                    val x = payloadObj["xMeters"]?.let { if (it is JsonPrimitive) it.doubleOrNull else null }
-                    val y = payloadObj["yMeters"]?.let { if (it is JsonPrimitive) it.doubleOrNull else null }
-                    val heading = payloadObj["headingRadians"]?.let { if (it is JsonPrimitive) it.doubleOrNull else null }
-
-                    if (x != null) {
-                        valuesMap["ARES/EstimatedPose/0"] = x
-                        valuesMap["Drive/Odom_X"] = x
-                        stringValuesMap.remove("ARES/EstimatedPose/0")
-                        stringValuesMap.remove("Drive/Odom_X")
-                        deltaMap["ARES/EstimatedPose/0"] = x
-                        deltaMap["Drive/Odom_X"] = x
-                    }
-                    if (y != null) {
-                        valuesMap["ARES/EstimatedPose/1"] = y
-                        valuesMap["Drive/Odom_Y"] = y
-                        stringValuesMap.remove("ARES/EstimatedPose/1")
-                        stringValuesMap.remove("Drive/Odom_Y")
-                        deltaMap["ARES/EstimatedPose/1"] = y
-                        deltaMap["Drive/Odom_Y"] = y
-                    }
-                    if (heading != null) {
-                        valuesMap["ARES/EstimatedPose/2"] = heading
-                        valuesMap["Drive/Odom_Heading"] = heading
-                        stringValuesMap.remove("ARES/EstimatedPose/2")
-                        stringValuesMap.remove("Drive/Odom_Heading")
-                        deltaMap["ARES/EstimatedPose/2"] = heading
-                        deltaMap["Drive/Odom_Heading"] = heading
-                    }
-                }
-            } catch (e: Exception) {
-                // Ignore parsing errors for individual actions
+            // 1. Calculate progress percent
+            val totalDuration = endTimestampMs - startTimestampMs
+            if (totalDuration > 0) {
+                _progress.value = (currentPlayheadMs - startTimestampMs).toDouble() / totalDuration.toDouble()
             }
-            lastActionIndex++
-        }
-        val mapToEmit = if (seeked) valuesMap.toMap() else deltaMap.toMap()
 
-        // Expose a snapshot copy of the aggregated state map
-        val currentValuesMap = valuesMap.toMap()
-        val currentStringValuesMap = stringValuesMap.toMap()
-        val frame = ReplayFrame(targetTimestamp, currentValuesMap, currentStringValuesMap)
-        _currentFrame.value = frame
-
-        // 3. Emit individual TelemetryFrame objects for dashboard widget consumption
-        if (emitTelemetry) {
-            val sessionId = "replay"
-            if (emitJob?.isActive == true) droppedEmissionFrameCount += mapToEmit.size
-            emitJob?.cancel()
-            emitJob = serviceScope.launch {
-                for ((key, value) in mapToEmit) {
-                    val normalizedKey = key.removePrefix("/")
-                    val telemetryFrame = TelemetryFrame(
-                        timestampMs = targetTimestamp,
-                        sessionId = sessionId,
-                        key = normalizedKey,
-                        value = value,
-                        stringValue = currentStringValuesMap[key]
-                    )
-                    _replayTelemetryFlow.emit(telemetryFrame)
-                }
+            // 2. Fetch or compute the current frame values (all values up to currentPlayheadMs)
+            // For performance, we find the closest timestamp in our list that is <= currentPlayheadMs
+            var index = timestamps.binarySearch(currentPlayheadMs)
+            if (index < 0) {
+                index = -index - 2
             }
-            publishCacheMetrics()
-        }
+            index = index.coerceIn(0, timestamps.size - 1)
+            val targetTimestamp = timestamps[index]
 
-        // 4. Re-broadcast via UDP loopback for AdvantageScope / telemetry viewer compatibility
-        if (broadcast) broadcastTelemetry(ReplayFrame(targetTimestamp, mapToEmit))
+            // Reset incremental cache if we seeked backwards or this is first run
+            val seeked = lastTargetTimestamp == -1L ||
+                kotlin.math.abs(targetTimestamp - lastTargetTimestamp) > 1000L ||
+                (if (_speed.value >= 0) targetTimestamp < lastTargetTimestamp else targetTimestamp > lastTargetTimestamp)
+
+            if (seeked) {
+                lastFrameIndex = 0
+                lastActionIndex = 0
+                valuesMap.clear()
+                valuesMap.putAll(windowBaseline)
+                stringValuesMap.clear()
+                stringValuesMap.putAll(windowStringBaseline)
+            }
+            lastTargetTimestamp = targetTimestamp
+            val deltaMap = mutableMapOf<String, Double>()
+
+            // Incrementally aggregate frame updates
+            while (lastFrameIndex < allFrames.size) {
+                val frame = allFrames[lastFrameIndex]
+                if (frame.timestampMs > targetTimestamp) break
+                valuesMap[frame.key] = frame.value
+                deltaMap[frame.key] = frame.value
+                val stringValue = frame.stringValue
+                if (stringValue != null) {
+                    stringValuesMap[frame.key] = stringValue
+                } else {
+                    stringValuesMap.remove(frame.key)
+                }
+                lastFrameIndex++
+            }
+
+            // Incrementally aggregate actions
+            val actionsList = _sessionActions.value
+            while (lastActionIndex < actionsList.size) {
+                val action = actionsList[lastActionIndex]
+                if (action.timestampMs > targetTimestamp) break
+                try {
+                    val payloadObj = jsonParser.parseToJsonElement(action.payloadJson).let {
+                        if (it is JsonObject) it else null
+                    }
+                    if (payloadObj != null && action.actionType == "PoseUpdate") {
+                        val x = payloadObj["xMeters"]?.let { if (it is JsonPrimitive) it.doubleOrNull else null }
+                        val y = payloadObj["yMeters"]?.let { if (it is JsonPrimitive) it.doubleOrNull else null }
+                        val heading = payloadObj["headingRadians"]?.let { if (it is JsonPrimitive) it.doubleOrNull else null }
+
+                        if (x != null) {
+                            valuesMap["ARES/EstimatedPose/0"] = x
+                            valuesMap["Drive/Odom_X"] = x
+                            stringValuesMap.remove("ARES/EstimatedPose/0")
+                            stringValuesMap.remove("Drive/Odom_X")
+                            deltaMap["ARES/EstimatedPose/0"] = x
+                            deltaMap["Drive/Odom_X"] = x
+                        }
+                        if (y != null) {
+                            valuesMap["ARES/EstimatedPose/1"] = y
+                            valuesMap["Drive/Odom_Y"] = y
+                            stringValuesMap.remove("ARES/EstimatedPose/1")
+                            stringValuesMap.remove("Drive/Odom_Y")
+                            deltaMap["ARES/EstimatedPose/1"] = y
+                            deltaMap["Drive/Odom_Y"] = y
+                        }
+                        if (heading != null) {
+                            valuesMap["ARES/EstimatedPose/2"] = heading
+                            valuesMap["Drive/Odom_Heading"] = heading
+                            stringValuesMap.remove("ARES/EstimatedPose/2")
+                            stringValuesMap.remove("Drive/Odom_Heading")
+                            deltaMap["ARES/EstimatedPose/2"] = heading
+                            deltaMap["Drive/Odom_Heading"] = heading
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Ignore parsing errors for individual actions
+                }
+                lastActionIndex++
+            }
+            val mapToEmit = if (seeked) valuesMap.toMap() else deltaMap.toMap()
+
+            // Expose a snapshot copy of the aggregated state map
+            val currentValuesMap = valuesMap.toMap()
+            val currentStringValuesMap = stringValuesMap.toMap()
+            val frame = ReplayFrame(targetTimestamp, currentValuesMap, currentStringValuesMap)
+            _currentFrame.value = frame
+
+            // 3. Emit individual TelemetryFrame objects for dashboard widget consumption
+            if (emitTelemetry) {
+                val sessionId = "replay"
+                if (emitJob?.isActive == true) droppedEmissionFrameCount += mapToEmit.size
+                emitJob?.cancel()
+                emitJob = serviceScope.launch {
+                    for ((key, value) in mapToEmit) {
+                        val normalizedKey = key.removePrefix("/")
+                        val telemetryFrame = TelemetryFrame(
+                            timestampMs = targetTimestamp,
+                            sessionId = sessionId,
+                            key = normalizedKey,
+                            value = value,
+                            stringValue = currentStringValuesMap[key]
+                        )
+                        _replayTelemetryFlow.emit(telemetryFrame)
+                    }
+                }
+                publishCacheMetrics()
+            }
+
+            // 4. Re-broadcast via UDP loopback for AdvantageScope / telemetry viewer compatibility
+            if (broadcast) broadcastTelemetry(ReplayFrame(targetTimestamp, mapToEmit))
+    }
     }
 
     private fun resetReplayCache() {
