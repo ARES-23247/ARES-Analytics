@@ -45,16 +45,16 @@ dependencies {
     implementation("org.duckdb:duckdb_jdbc:1.1.3")
 
     // Networking — Ktor client
-    implementation("io.ktor:ktor-client-cio:3.0.3")
-    implementation("io.ktor:ktor-client-java:3.0.3")
-    implementation("io.ktor:ktor-client-okhttp:3.0.3")
-    implementation("io.ktor:ktor-client-websockets:3.0.3")
-    implementation("io.ktor:ktor-client-content-negotiation:3.0.3")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:3.0.3")
+    implementation("io.ktor:ktor-client-cio:3.5.2")
+    implementation("io.ktor:ktor-client-java:3.5.2")
+    implementation("io.ktor:ktor-client-okhttp:3.5.2")
+    implementation("io.ktor:ktor-client-websockets:3.5.2")
+    implementation("io.ktor:ktor-client-content-negotiation:3.5.2")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:3.5.2")
 
     // Embedded OAuth loopback server
-    implementation("io.ktor:ktor-server-core:3.0.3")
-    implementation("io.ktor:ktor-server-cio:3.0.3")
+    implementation("io.ktor:ktor-server-core:3.5.2")
+    implementation("io.ktor:ktor-server-cio:3.5.2")
 
     // Serialization
     implementation("com.google.code.gson:gson:2.10.1")
@@ -74,7 +74,7 @@ dependencies {
     // Testing
     testImplementation(kotlin("test"))
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
-    testImplementation("io.ktor:ktor-client-mock-jvm:3.0.3")
+    testImplementation("io.ktor:ktor-client-mock-jvm:3.5.2")
     testImplementation("org.mockito:mockito-core:5.23.0")
     
     // Compression
