@@ -61,7 +61,7 @@ import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 
 /**
- * Dialog allowing students and drive teams to define, inspect, and customize Game Piece types
+ * Dialog allowing team members and drive teams to define, inspect, and customize Game Piece types
  * with visual geometry and Dyn4j rigid body physics properties for future seasons.
  */
 @Composable
@@ -106,7 +106,7 @@ fun GamePieceCatalogDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text(
-                    text = "Define the pieces students can place on this field. Dimensions and physics are saved with the workspace and used by the simulator.",
+                    text = "Define the pieces team members can place on this field. Dimensions and physics are saved with the workspace and used by the simulator.",
                     color = AresTextSecondary,
                     fontSize = 12.sp,
                 )

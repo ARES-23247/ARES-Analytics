@@ -101,6 +101,7 @@ fun MainScreen(services: ServiceRegistry) {
     var commandPaletteOpen by remember { mutableStateOf(false) }
     var workspacePendingDeletion by remember { mutableStateOf<Pair<String, String>?>(null) }
     var requestedLessonId by remember { mutableStateOf<String?>(null) }
+    var requestedGlossaryTerm by remember { mutableStateOf<String?>(null) }
     var coachDrawerOpen by remember { mutableStateOf(false) }
     var academyCreateWorkspaceRequested by remember { mutableStateOf(false) }
     val learningProgress by services.learningProgressService.progress.collectAsState()
@@ -619,7 +620,7 @@ fun MainScreen(services: ServiceRegistry) {
                 isSimRunning = isSimRunning,
                 league = currentConfig.league,
                 onNavigate = {
-                    if (it == NavigationTarget.ACADEMY) requestedLessonId = null
+                    if (it == NavigationTarget.ACADEMY) { requestedLessonId = null; requestedGlossaryTerm = null }
                     mainViewModel.onIntent(MainIntent.SetActiveNav(it))
                 },
                 onOpenCommandPalette = { commandPaletteOpen = true },
@@ -825,7 +826,7 @@ fun MainScreen(services: ServiceRegistry) {
 
                             QuickNavigationMenu(
                                 onNavigate = { destination ->
-                                    if (destination == NavigationTarget.ACADEMY) requestedLessonId = null
+                                    if (destination == NavigationTarget.ACADEMY) { requestedLessonId = null; requestedGlossaryTerm = null }
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(destination))
                                 },
                                 compact = compactShell,
@@ -982,6 +983,7 @@ fun MainScreen(services: ServiceRegistry) {
                                     .filter(String::isNotBlank)
                                     .joinToString(" · "),
                                 initialLessonId = requestedLessonId,
+                                initialGlossaryTerm = requestedGlossaryTerm,
                                 runtime = academyRuntime,
                             )
                             NavigationTarget.KDOC_VIEWER -> KDocViewerScreen()
@@ -1184,8 +1186,13 @@ fun MainScreen(services: ServiceRegistry) {
                 developerMode = currentConfig.developerMode,
                 onDismiss = { commandPaletteOpen = false },
                 onNavigate = {
-                    if (it == NavigationTarget.ACADEMY) requestedLessonId = null
+                    if (it == NavigationTarget.ACADEMY) { requestedLessonId = null; requestedGlossaryTerm = null }
                     mainViewModel.onIntent(MainIntent.SetActiveNav(it))
+                },
+                onOpenGlossaryTerm = { termName ->
+                    requestedGlossaryTerm = termName
+                    requestedLessonId = null
+                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
                 }
             )
         }

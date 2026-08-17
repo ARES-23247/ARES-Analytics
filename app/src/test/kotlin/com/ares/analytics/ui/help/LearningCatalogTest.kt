@@ -38,6 +38,25 @@ class LearningCatalogTest {
     }
 
     @Test
+    fun `every workflow screen except profile and admin has contextual help`() {
+        val intentionallyUnmapped = setOf(NavigationTarget.PROFILE, NavigationTarget.ADMIN)
+        NavigationTarget.entries
+            .filter { it !in intentionallyUnmapped }
+            .forEach { target ->
+                assertTrue(
+                    LearningCatalog.lessonFor(target) != null,
+                    "Missing contextual lesson for ${target.name}",
+                )
+            }
+        assertEquals("understand-offline-sync", LearningCatalog.lessonFor(NavigationTarget.CLOUD)?.id)
+        assertEquals("edit-field-documents", LearningCatalog.lessonFor(NavigationTarget.FIELD_EDITOR)?.id)
+        assertEquals("read-driver-coaching", LearningCatalog.lessonFor(NavigationTarget.MATCH_STRATEGY)?.id)
+        assertEquals("compare-run-evidence", LearningCatalog.lessonFor(NavigationTarget.GUIDED_RUN_ANALYSIS)?.id)
+        assertEquals("query-stored-telemetry", LearningCatalog.lessonFor(NavigationTarget.DATABASE_VIEWER)?.id)
+        assertEquals("review-hardware-addresses", LearningCatalog.lessonFor(NavigationTarget.HARDWARE_SETUP)?.id)
+    }
+
+    @Test
     fun `paths and prerequisites reference stable catalog lessons`() {
         val lessonIds = LearningCatalog.lessons.map { it.id }
         assertEquals(lessonIds.size, lessonIds.toSet().size)

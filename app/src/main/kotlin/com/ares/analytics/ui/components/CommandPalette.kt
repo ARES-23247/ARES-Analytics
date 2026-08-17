@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
@@ -35,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ares.analytics.ui.help.GlossaryCatalog
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
 import com.ares.analytics.ui.theme.AresSurface
@@ -57,11 +59,15 @@ fun filterNavigationTargets(query: String, developerMode: Boolean): List<Navigat
 fun CommandPalette(
     developerMode: Boolean,
     onDismiss: () -> Unit,
-    onNavigate: (NavigationTarget) -> Unit
+    onNavigate: (NavigationTarget) -> Unit,
+    onOpenGlossaryTerm: (String) -> Unit = {},
 ) {
     var query by remember { mutableStateOf("") }
     val focusRequester = remember { FocusRequester() }
     val results = remember(query, developerMode) { filterNavigationTargets(query, developerMode) }
+    val glossaryResults = remember(query) {
+        if (query.isBlank()) emptyList() else GlossaryCatalog.search(query).take(5)
+    }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     AlertDialog(
@@ -83,7 +89,7 @@ fun CommandPalette(
                     leadingIcon = { Icon(Icons.Default.Search, null) }
                 )
                 HorizontalDivider(color = AresBorder)
-                if (results.isEmpty()) {
+                if (results.isEmpty() && glossaryResults.isEmpty()) {
                     Box(Modifier.fillMaxWidth().heightIn(min = 180.dp), contentAlignment = Alignment.Center) {
                         Text("No matching screens", color = AresTextSecondary)
                     }
@@ -103,6 +109,28 @@ fun CommandPalette(
                                     Text(target.groupLabel(), color = AresTextTertiary, fontSize = 10.sp)
                                 }
                                 Text("Open", color = AresTextSecondary, fontSize = 11.sp)
+                            }
+                        }
+                        items(glossaryResults, key = { "glossary-${it.term}" }) { entry ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable {
+                                    onOpenGlossaryTerm(entry.term)
+                                    onDismiss()
+                                }.background(AresSurfaceElevated, RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.MenuBook, null, tint = AresCyan, modifier = Modifier.size(20.dp))
+                                Column(Modifier.padding(start = 10.dp).weight(1f)) {
+                                    Text(entry.term, color = AresTextPrimary, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        entry.definition,
+                                        color = AresTextTertiary,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                Text("Glossary", color = AresTextSecondary, fontSize = 11.sp)
                             }
                         }
                     }

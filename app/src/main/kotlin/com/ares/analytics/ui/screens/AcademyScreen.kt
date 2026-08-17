@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Launch
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
@@ -76,6 +77,9 @@ import com.ares.analytics.ui.components.dashboard.EkfSensorFusionLabCard
 import com.ares.analytics.ui.components.pathplanner.MotionProfileLabCard
 import com.ares.analytics.ui.help.AcademyRuntimeSnapshot
 import com.ares.analytics.ui.help.AcademyClassroomToolkit
+import com.ares.analytics.ui.help.DeveloperReferenceCatalog
+import com.ares.analytics.ui.help.GlossaryCatalog
+import com.ares.analytics.ui.help.GlossaryTerm
 import com.ares.analytics.ui.help.LearningAction
 import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.help.LearningCheckpoint
@@ -127,6 +131,7 @@ fun AcademyScreen(
     projectPath: String,
     projectLabel: String,
     initialLessonId: String? = null,
+    initialGlossaryTerm: String? = null,
     runtime: AcademyRuntimeSnapshot = AcademyRuntimeSnapshot.Unavailable,
 ) {
     val progress by progressService.progress.collectAsState()
@@ -147,11 +152,17 @@ fun AcademyScreen(
     }
     var selectedLessonId by remember { mutableStateOf(initialLesson.id) }
     var selectedLab by remember { mutableStateOf<LearningLab?>(null) }
+    var glossaryOpen by remember { mutableStateOf(false) }
     var classroomToolkitOpen by remember { mutableStateOf(false) }
     var compactDetailOpen by remember { mutableStateOf(initialLessonId != null) }
 
     LaunchedEffect(runtime) {
         progressService.observeRuntime(runtime)
+    }
+    LaunchedEffect(initialGlossaryTerm) {
+        if (!initialGlossaryTerm.isNullOrBlank() && GlossaryCatalog.term(initialGlossaryTerm) != null) {
+            glossaryOpen = true
+        }
     }
     LaunchedEffect(initialLessonId) {
         val requested = initialLessonId?.let(LearningCatalog::lesson)
@@ -169,6 +180,28 @@ fun AcademyScreen(
         LearningCatalog.search(query, selectedLevel, selectedPathId)
     }
     val selectedLesson = LearningCatalog.lesson(selectedLessonId)?.takeIf { it in matches } ?: matches.firstOrNull()
+
+    if (glossaryOpen) {
+        GlossaryPane(
+            initialTerm = initialGlossaryTerm,
+            onBack = { glossaryOpen = false },
+            onOpenLesson = { lessonId ->
+                val lesson = LearningCatalog.lesson(lessonId)
+                if (lesson != null) {
+                    glossaryOpen = false
+                    selectedLessonId = lesson.id
+                    selectedLevel = null
+                    selectedPathId = LearningCatalog.paths.firstOrNull { lesson.id in it.lessonIds }?.id
+                        ?: LearningCatalog.paths.first().id
+                    query = ""
+                    compactDetailOpen = true
+                    scope.launch { progressService.startLesson(lesson.id) }
+                }
+            },
+            onOpenDeveloperReference = { onOpenScreen(NavigationTarget.KDOC_VIEWER) },
+        )
+        return
+    }
 
     if (selectedLab != null) {
         LearningLabsPane(initialLab = selectedLab!!, onBack = { selectedLab = null })
@@ -220,6 +253,7 @@ fun AcademyScreen(
                     scope.launch { progressService.startLesson(lesson.id) }
                 },
                 onOpenLabs = { selectedLab = LearningLab.CONTROL },
+                onOpenGlossary = { glossaryOpen = true },
                 onOpenClassroomToolkit = { classroomToolkitOpen = true },
             )
         }
@@ -302,6 +336,7 @@ private fun AcademyCatalogPanel(
     selectedLessonId: String?,
     onLessonSelected: (LearningLesson) -> Unit,
     onOpenLabs: () -> Unit,
+    onOpenGlossary: () -> Unit,
     onOpenClassroomToolkit: () -> Unit,
 ) {
     val path = LearningCatalog.path(selectedPathId) ?: LearningCatalog.paths.first()
@@ -311,6 +346,7 @@ private fun AcademyCatalogPanel(
             practiced = progress.practicedLessonIds.size,
             total = LearningCatalog.lessons.size,
             onOpenLabs = onOpenLabs,
+            onOpenGlossary = onOpenGlossary,
             onOpenClassroomToolkit = onOpenClassroomToolkit,
         )
         Text("Choose a learning path", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -386,6 +422,7 @@ private fun LearningHeader(
     practiced: Int,
     total: Int,
     onOpenLabs: () -> Unit,
+    onOpenGlossary: () -> Unit,
     onOpenClassroomToolkit: () -> Unit,
 ) {
     Card(
@@ -413,6 +450,11 @@ private fun LearningHeader(
                 Icon(Icons.Default.Science, contentDescription = null, modifier = Modifier.size(17.dp))
                 Spacer(Modifier.width(6.dp))
                 Text("Explore guided learning labs")
+            }
+            OutlinedButton(onClick = onOpenGlossary, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Glossary")
             }
             OutlinedButton(onClick = onOpenClassroomToolkit, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Default.School, contentDescription = null, modifier = Modifier.size(17.dp))
@@ -1345,4 +1387,97 @@ private fun statusColor(status: LearningLessonStatus) = when (status) {
     LearningLessonStatus.RECOMMENDED_LATER -> AresAmber
     LearningLessonStatus.IN_PROGRESS -> AresCyan
     LearningLessonStatus.NOT_STARTED -> AresTextTertiary
+}
+
+@Composable
+private fun GlossaryPane(
+    initialTerm: String?,
+    onBack: () -> Unit,
+    onOpenLesson: (String) -> Unit,
+    onOpenDeveloperReference: () -> Unit,
+) {
+    var query by remember { mutableStateOf(initialTerm.orEmpty()) }
+    val matches = remember(query) { GlossaryCatalog.search(query) }
+
+    Column(
+        modifier = Modifier.fillMaxSize().background(AresBackground).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                Spacer(Modifier.width(6.dp))
+                Text("Back to Academy")
+            }
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Glossary", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            Text(
+                "Short definitions for first-year team members. Cross-links open the lesson or developer reference that owns the concept.",
+                color = AresTextSecondary,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+            )
+        }
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            placeholder = { Text("Search terms and definitions") },
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+        )
+        if (matches.isEmpty()) {
+            Box(Modifier.fillMaxWidth().padding(top = 24.dp), contentAlignment = Alignment.Center) {
+                Text("No terms match that search.", color = AresTextSecondary)
+            }
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(matches.size) { index ->
+                    GlossaryTermCard(
+                        entry = matches[index],
+                        onOpenLesson = onOpenLesson,
+                        onOpenDeveloperReference = onOpenDeveloperReference,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlossaryTermCard(
+    entry: GlossaryTerm,
+    onOpenLesson: (String) -> Unit,
+    onOpenDeveloperReference: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AresSurface),
+        border = BorderStroke(1.dp, AresBorder),
+        shape = RoundedCornerShape(10.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(entry.term, color = AresTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+            Text(entry.definition, color = AresTextSecondary, fontSize = 12.sp, lineHeight = 17.sp)
+            entry.mentorNote?.let { note ->
+                Text("Mentor note: $note", color = AresTextTertiary, fontSize = 11.sp, lineHeight = 15.sp)
+            }
+            if (entry.relatedLessonIds.isNotEmpty() || entry.relatedDeveloperReferenceIds.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    entry.relatedLessonIds.forEach { lessonId ->
+                        val lessonTitle = LearningCatalog.lesson(lessonId)?.title ?: lessonId
+                        TextButton(onClick = { onOpenLesson(lessonId) }) {
+                            Text("Lesson: $lessonTitle", fontSize = 11.sp)
+                        }
+                    }
+                    entry.relatedDeveloperReferenceIds.forEach { referenceId ->
+                        val referenceTitle = DeveloperReferenceCatalog.entries.firstOrNull { it.id == referenceId }?.title ?: referenceId
+                        TextButton(onClick = onOpenDeveloperReference) {
+                            Text("Reference: $referenceTitle", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

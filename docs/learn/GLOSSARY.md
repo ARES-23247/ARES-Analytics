@@ -1,6 +1,6 @@
 # ARES Analytics glossary
 
-Definitions are written for a first-year student. “Mentor note” adds the precise system meaning where it matters.
+Definitions are written for a first-year team member. “Mentor note” adds the precise system meaning where it matters.
 
 ## A–D
 
@@ -138,7 +138,7 @@ A named NT4 data channel, such as `Drive/Pose_X`. The name, type, units, and pro
 
 Analytics' saved selection for one robot project: project folder, team, season, robot ID, league, target host, and optional simulator command. It is not the same as a cloud account.
 
-## Four terms students should not mix up
+## Four terms team members should not mix up
 
 | Term | Meaning |
 | --- | --- |
