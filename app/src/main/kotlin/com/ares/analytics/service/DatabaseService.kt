@@ -256,12 +256,17 @@ class DatabaseService(
         checkpointScope.cancel()
         checkpointJob.cancelAndJoin()
         withContext(Dispatchers.IO) {
+            // readMutex drains in-flight queries (bounded by their statement timeouts) so a
+            // reader cannot have its connection closed mid-result; dbMutex orders against
+            // writers. Lock order here matches the repository's established write->read order.
             dbMutex.withLock {
-                matchLogRepo.dispose()
-                if (!conn.isClosed) { conn.close() }
-                if (!readConn.isClosed) { readConn.close() }
-                if (!ephemeralReadConn.isClosed) { ephemeralReadConn.close() }
-                if (!ephemeralConn.isClosed) { ephemeralConn.close() }
+                readMutex.withLock {
+                    matchLogRepo.dispose()
+                    if (!conn.isClosed) { conn.close() }
+                    if (!readConn.isClosed) { readConn.close() }
+                    if (!ephemeralReadConn.isClosed) { ephemeralReadConn.close() }
+                    if (!ephemeralConn.isClosed) { ephemeralConn.close() }
+                }
             }
         }
     }
