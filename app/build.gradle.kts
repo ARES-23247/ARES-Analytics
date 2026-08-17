@@ -78,7 +78,7 @@ dependencies {
     testImplementation("org.mockito:mockito-core:5.23.0")
     
     // Compression
-    implementation("org.tukaani:xz:1.10")
+    implementation("org.tukaani:xz:1.12")
 
     // Gamepad Support (LWJGL / GLFW — no external SDL dependency)
     val lwjglVersion = "3.3.4"
