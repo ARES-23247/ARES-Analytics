@@ -37,6 +37,7 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 | Register existing subsystem Kotlin | [Hand-authored subsystem prototype](SUBSYSTEM_HAND_AUTHORED_PROTOTYPE.md) | USER-OWNED registration, lighting examples, and migration evidence |
 | Diagnose or administer the application | [Operations guide](OPERATIONS.md) | Ports, storage, recovery, and release checks |
 | Find the code behind an ARES concept | **Developer Mode → Developer Reference** in the app | Current source path, units, invariants, and nearby tests |
+| Improve the in-app help itself | [Documentation improvement goal](DOCUMENTATION_GOAL.md) | Verified baseline, prioritized workstreams, acceptance criteria |
 
 ## Know which world you are looking at
 

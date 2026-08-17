@@ -13,7 +13,7 @@ data class DeveloperReference(
 )
 
 /**
- * Small, source-backed map of concepts students commonly need to locate.
+ * Small, source-backed map of concepts team members commonly need to locate.
  *
  * This is deliberately not presented as complete generated API documentation. The linked source
  * and its tests remain authoritative, which prevents curated examples from masquerading as a
@@ -53,7 +53,7 @@ object DeveloperReferenceCatalog {
         ),
         DeveloperReference(
             id = "drive-facades",
-            title = "Student-facing drive facades",
+            title = "Team-member drive facades",
             category = "Drivetrain",
             responsibility = "Expose Mecanum and Swerve drive intent through the shared Redux drivetrain boundary.",
             sourcePath = "ARESLib-Kotlin/core/src/main/kotlin/com/areslib/subsystem/{MecanumDriveFacade,SwerveDriveFacade}.kt",
@@ -125,6 +125,111 @@ object DeveloperReferenceCatalog {
             ),
             relatedTests = "Generated subsystem contract tests plus season subsystem safety tests.",
             keywords = setOf("subsystem", "controller", "io", "neutral", "fault", "redux"),
+        ),
+        DeveloperReference(
+            id = "task-sequencer",
+            title = "Task sequencer",
+            category = "State & control",
+            responsibility = "Compose routine steps into task trees that emit actions for the store to dispatch.",
+            sourcePath = "ARESLib-Kotlin/core/src/main/kotlin/com/areslib/sequencer/TaskExecutor.kt",
+            units = "Durations are seconds in documents and nanoseconds in generated code; path progress is 0..1.",
+            invariants = listOf(
+                "Tasks never touch hardware or state directly; they return actions for dispatch.",
+                "Sequential, parallel, race, and deadline groups mirror the routine step kinds.",
+                "Preemption is nested LIFO and transitions per update are bounded.",
+            ),
+            relatedTests = "core/src/test/kotlin/com/areslib/sequencer/",
+            keywords = setOf("task", "sequence", "parallel", "race", "deadline", "preemption"),
+        ),
+        DeveloperReference(
+            id = "routine-documents",
+            title = "Routine documents & compiler",
+            category = "Autonomous",
+            responsibility = "Define validated routine steps as schema-versioned documents and compile them into task trees.",
+            sourcePath = "ARESLib-Kotlin/core/src/main/kotlin/com/areslib/routine/RoutineDocument.kt",
+            units = "Poses in meters and CCW-positive radians; durations in seconds.",
+            invariants = listOf(
+                "Ten step kinds; each kind validates exactly its own fields.",
+                "Routines are trigger-neutral; catalogs supply start pose, alliance, and mirroring.",
+                "Robots execute generated artifacts, never loose routine JSON.",
+            ),
+            relatedTests = "core/src/test/kotlin/com/areslib/routine/",
+            keywords = setOf("routine", "aresroutine", "steps", "catalog", "alliance", "mirror"),
+        ),
+        DeveloperReference(
+            id = "control-schemes",
+            title = "Teleop control schemes",
+            category = "Teleop",
+            responsibility = "Declare controller assignments and input bindings as documents compiled into controller runtimes.",
+            sourcePath = "ARESLib-Kotlin/core/src/main/kotlin/com/areslib/controls/ControlSchemeDocument.kt",
+            units = "Axis values normalized to -1..1; durations in seconds.",
+            invariants = listOf(
+                "Bindings may only target catalog actions, routine starts, or routine cancels.",
+                "Controller assignments pin Driver Station device ports explicitly.",
+                "Hysteresis, debounce, and suppression are declared, not improvised at runtime.",
+            ),
+            relatedTests = "core/src/test/kotlin/com/areslib/controls/",
+            keywords = setOf("controls", "binding", "gamepad", "chord", "axis", "arescontrols"),
+        ),
+        DeveloperReference(
+            id = "codegen-ownership",
+            title = "Generated code ownership",
+            category = "Code generation",
+            responsibility = "Turn project documents into reviewed Kotlin with explicit ownership headers and staleness gates.",
+            sourcePath = "ARESLib-Kotlin/core/src/main/kotlin/com/areslib/codegen/SubsystemKotlinGenerator.kt",
+            units = "Content hashes tie each generated artifact to its source document.",
+            invariants = listOf(
+                "GENERATED - DO NOT EDIT files change only through regeneration.",
+                "Starters are user-reviewable; regeneration replaces them only after a previewed diff and replacement token.",
+                "Consumer builds fail when generated output is stale relative to its documents.",
+            ),
+            relatedTests = "core/src/test/kotlin/com/areslib/codegen/",
+            keywords = setOf("generator", "ownership", "starter", "token", "stale", "hash"),
+        ),
+        DeveloperReference(
+            id = "power-safety",
+            title = "Power & current safety",
+            category = "Hardware & IO",
+            responsibility = "Scale mechanism output as battery voltage sags and estimated current approaches the budget.",
+            sourcePath = "ARESLib-Kotlin/core/src/main/kotlin/com/areslib/control/safety/CurrentBudgetManager.kt",
+            units = "Current in amps (defaults warn 15 A, critical 18 A); voltage in volts (warn 10.0, critical 7.5).",
+            invariants = listOf(
+                "Graduated power scaling, not an abrupt disable.",
+                "Brownout decisions use hysteresis to avoid oscillation.",
+                "Controllers receive one scale factor alongside each state snapshot.",
+            ),
+            relatedTests = "core/src/test/kotlin/com/areslib/control/safety/",
+            keywords = setOf("brownout", "current", "budget", "voltage", "power"),
+        ),
+        DeveloperReference(
+            id = "nt4-contract",
+            title = "NT4 telemetry contract",
+            category = "Runtime",
+            responsibility = "Publish robot state over NetworkTables and define the one guarded input topic the dashboard may write.",
+            sourcePath = "ARESLib-Kotlin/core/src/main/kotlin/com/areslib/telemetry/ARESNetworkStatePublisher.kt",
+            units = "Topic values carry their own units; timestamps are milliseconds.",
+            invariants = listOf(
+                "The robot is the server on port 5810; the dashboard subscribes.",
+                "Topic names are stripped of leading slashes at publish and subscribe.",
+                "driveFrame is the only dashboard input, leased and disarmed to neutral on any invalid frame.",
+            ),
+            relatedTests = "Wire-contract verification in verify-autos (runVerification).",
+            keywords = setOf("nt4", "networktables", "telemetry", "topics", "driveframe"),
+        ),
+        DeveloperReference(
+            id = "log-server",
+            title = "Offline-first log pipeline",
+            category = "Logging",
+            responsibility = "Serve robot logs over local Wi-Fi so the laptop pulls, parses, and owns any cloud sync.",
+            sourcePath = "ARESLib-Kotlin/core/src/main/kotlin/com/areslib/logging/LogManagerServer.kt",
+            units = "Logs are JSONL; file sizes reported in bytes.",
+            invariants = listOf(
+                "The robot never initiates cloud traffic.",
+                "Downloads are confined to canonical paths; deletes are token-gated.",
+                "Analysis happens on the laptop after the pull, never by pushing from the robot.",
+            ),
+            relatedTests = "core/src/test/kotlin/com/areslib/logging/",
+            keywords = setOf("logs", "jsonl", "download", "offline", "pull"),
         ),
     )
 

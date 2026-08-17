@@ -397,3 +397,102 @@ builder.
   pending until the Windows desktop can be inspected without the lock-screen obstruction.
 - No physical robot was used or required. Real paths still require simulator evidence and later
   supervised field and hardware validation.
+
+## Cycle 8 - In-app glossary, search corpus, and documentation goal
+
+### Objective
+
+Make the in-app help self-sufficient for vocabulary and give the documentation effort a durable,
+testable goal: surface the written glossary inside the app, widen Academy search to lesson content,
+and record the remaining workstreams in a tracked document.
+
+### User-visible outcome
+
+- The Academy header has a **Glossary** button opening a searchable pane of all 33 terms ported
+  verbatim from `docs/learn/GLOSSARY.md`, each cross-linked to the lesson (opens in-place) or
+  Developer Reference entry (opens the viewer) that owns the concept.
+- **Ctrl+K** now returns glossary matches below screen matches; choosing one navigates to the
+  Academy glossary pane focused on that term.
+- Academy lesson search now matches step and before-you-start text, not only titles, outcomes,
+  tracks, levels, and keywords - a search for "hysteresis" or "deadband" finds the lesson that
+  teaches it.
+- Onboarding's first setup step carries a "How this system works" orientation card; the Academy
+  opens with "Why documents instead of programs"; "What immutable state buys" explains the
+  architecture's payoff; the first mission path is titled "New team member - First mission".
+- `docs/DOCUMENTATION_GOAL.md` records the verified baseline and the remaining prioritized
+  workstreams (G2 contextual lessons, G4 error-to-lesson links, G5 nudges, G6 sync) with
+  acceptance criteria.
+
+### Safety and ownership decisions
+
+- The glossary is content only: no project repository, NT4, simulator, or hardware path.
+- `docs/learn/GLOSSARY.md` remains authoritative; `GlossaryCatalogTest` fails when the term sets
+  drift, so neither copy can silently diverge.
+- Two terms (ADB, Gateway) are explicitly unlinked until their owning lessons exist rather than
+  carrying an inaccurate cross-link.
+- Help text continues to state limits; nothing in this cycle claims certification or physical
+  safety.
+
+### Verification evidence
+
+- Focused help-suite run: `GlossaryCatalogTest` (4 tests), `LearningCatalogTest` (17),
+  `LearningJourneyTest` (13), `DeveloperReferenceCatalogTest` (2), plus the remaining help classes
+  and `OnboardingModelTest` - 0 failures.
+- Full Analytics app suite: 620 tests, 0 errors, 3 skips, 1 failure —
+  `DashboardWidgetGridBytecodeTest.generatedDashboardGridLambdaIsValidJvmBytecode`, which also
+  fails on a clean `master` tree with these changes stashed (verified 2026-08-17; the reflected
+  lambda class name no longer matches after the recent Kotlin/Compose bumps). It is unrelated to
+  this cycle and remains open for the dashboard owners.
+- Markdown parity confirmed by the drift test resolving `docs/learn/GLOSSARY.md` from the test
+  working directory.
+
+### Delivery and limitations
+
+- Changes sit uncommitted on the working tree of `master` in ARES-Analytics, stacked with the
+  earlier lesson/dev-reference work from this cycle; move to a feature branch before review.
+- G2, G4, G5, and G6 from the documentation goal remain open.
+
+## Cycle 9 - Contextual help on every workflow screen
+
+### Objective
+
+Close documentation goal G2: no workflow screen should lack an accurate in-context lesson, so the
+Help affordance teaches something everywhere it can appear.
+
+### User-visible outcome
+
+- Six previously unmapped screens now open an owning lesson from Help: Cloud Sync
+  ("What syncs and what never leaves on its own"), Field Editor ("Edit the field everyone plans
+  against"), Strategy Preview ("Read driver coaching as evidence"), Guided Run Review (the existing
+  run-evidence lesson), Database ("Query stored telemetry directly"), and Hardware Setup ("Review
+  hardware addresses before deploy").
+- Five new lessons follow the house shape (outcome, boundaries, steps, success criteria, safety
+  note, reflection checkpoints) and were placed into the driver-operator, robot-builder,
+  data-analyst, and mentor paths without disturbing tested recommendation orderings.
+- The Gateway glossary term now cross-links to the offline-sync lesson and left the unlinkable
+  allowlist; ADB remains the only unlinked term.
+
+### Safety and ownership decisions
+
+- Lesson content was written from each screen's documented behavior (read-only SQL bounds,
+  descriptor-backed address review, history-based coaching), not from aspiration.
+- Safety notes keep the verification boundary explicit: address review does not prove wiring,
+  coaching does not predict new hardware, field documents are models, sync status is not robot
+  status.
+- A new catalog test enforces the invariant structurally: every NavigationTarget except PROFILE
+  and ADMIN must resolve a contextual lesson, so future screens fail CI until documented.
+
+### Verification evidence
+
+- Help suite plus onboarding: 69 tests, 0 failures (LearningCatalogTest now 18 including the new
+  blanket-coverage assertion; GlossaryCatalogTest link-resolution and allowlist checks updated).
+- Full Analytics app suite: 621 tests, 0 errors, 3 skips, 1 failure — only the pre-existing
+  `DashboardWidgetGridBytecodeTest` failure documented in Cycle 8 (fails identically on clean
+  `master`; unrelated to help work).
+
+### Delivery and limitations
+
+- Uncommitted on the ARES-Analytics working tree, stacked on the Cycle 8 changes; move both to a
+  feature branch together.
+- G4 (error-to-lesson deep links), G5 (nudges and empty states), and the remainder of G6 stay
+  open in docs/DOCUMENTATION_GOAL.md.

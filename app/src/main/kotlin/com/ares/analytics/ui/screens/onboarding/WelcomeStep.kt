@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -92,6 +94,43 @@ fun WelcomeStep(currentStep: OnboardingStep) {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(heading, color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
             Text(guidance, style = MaterialTheme.typography.bodyMedium, color = AresTextSecondary, lineHeight = 20.sp)
+        }
+
+        if (currentStep == OnboardingStep.PROJECT) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(AresSurfaceElevated)
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text("How this system works", color = AresCyan, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "•  You describe robot behavior — routines, subsystems, controller bindings — as documents.",
+                    color = AresTextSecondary,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp,
+                )
+                Text(
+                    "•  ARES turns those documents into reviewed Kotlin and verifies it in simulation before anything reaches a robot.",
+                    color = AresTextSecondary,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp,
+                )
+                Text(
+                    "•  Team members still write code for unusual hardware or brand-new capabilities.",
+                    color = AresTextSecondary,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp,
+                )
+                Text(
+                    "New here? The Academy (Help & Learn) opens with \"Why documents instead of programs\".",
+                    color = AresTextSecondary,
+                    fontSize = 12.sp,
+                    fontStyle = FontStyle.Italic,
+                )
+            }
         }
     }
 }
