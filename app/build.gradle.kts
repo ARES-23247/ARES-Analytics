@@ -58,8 +58,8 @@ dependencies {
 
     // Serialization
     implementation("com.google.code.gson:gson:2.10.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
 
     // Windows Credential Protection (DPAPI) for OAuth refresh-token persistence.
     implementation("net.java.dev.jna:jna-platform:5.15.0")
@@ -73,7 +73,7 @@ dependencies {
 
     // Testing
     testImplementation(kotlin("test"))
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
     testImplementation("io.ktor:ktor-client-mock-jvm:3.0.3")
     testImplementation("org.mockito:mockito-core:5.23.0")
     

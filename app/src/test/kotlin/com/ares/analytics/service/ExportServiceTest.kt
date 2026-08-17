@@ -299,7 +299,7 @@ class ExportServiceTest {
                 listOf(TelemetryFrame(1L, sessionId, "Drive/Pose_X", 1.0, sampleOrder = 1L)),
             )
             val exporter = ExportService(database, { _, _ -> throw IOException("injected replace failure") })
-            val directory = createTempDir(prefix = "export-atomic-destinations-")
+            val directory = java.nio.file.Files.createTempDirectory("export-atomic-destinations-").toFile()
             try {
                 suspend fun verifyPreserved(name: String, export: suspend (File) -> Unit) {
                     val destination = File(directory, name).apply { writeText("previous-$name") }
