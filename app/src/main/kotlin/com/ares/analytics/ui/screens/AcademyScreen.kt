@@ -693,7 +693,12 @@ private fun ClassroomToolkitPane(
     var assignmentDue by remember { mutableStateOf("") }
     var assignmentLessonIds by remember(selectedPathId) { mutableStateOf(emptySet<String>()) }
     val summary = AcademyClassroomToolkit.pathSummary(selectedPathId, progress)
-    val activeRecord = classroom.learners.first { it.learnerId == classroom.activeLearnerId }
+    // The active-learner invariant is enforced by the store, but composition must not
+    // crash if a corrupt file or migration ever breaks it — fall back to the first roster
+    // entry instead of throwing NoSuchElementException mid-frame.
+    val activeRecord = classroom.learners.firstOrNull { it.learnerId == classroom.activeLearnerId }
+        ?: classroom.learners.firstOrNull()
+        ?: return
 
     LazyColumn(
         modifier = Modifier.fillMaxSize().background(AresBackground).padding(16.dp),
