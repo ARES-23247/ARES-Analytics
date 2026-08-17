@@ -79,6 +79,12 @@ class SchemaMigrationManager(
                     }
                 }
             } catch (e: Exception) {
+                // Safe to continue (the transactional completion marker means the migration
+                // retries next launch), but it must be user-visible, not a bare stack trace.
+                System.err.println(
+                    "SchemaMigrationManager: legacy migration failed and will retry next launch: " +
+                        "${e.message ?: e::class.java.simpleName}"
+                )
                 e.printStackTrace()
             }
         }
