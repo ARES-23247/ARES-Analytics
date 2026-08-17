@@ -39,7 +39,7 @@ class OfficialProjectTemplateIntegrationTest {
         val output = requireNotNull(outputDirectory).canonicalFile
         output.mkdirs()
         val archives = mapOf(
-            League.FTC to File(archiveRoot, "ftc-schema8.zip"),
+            League.FTC to File(archiveRoot, "ftc.zip"),
             League.FRC to File(archiveRoot, "frc.zip"),
         )
         assertTrue(archives.values.all(File::isFile), "Download both pinned archives before this release check.")

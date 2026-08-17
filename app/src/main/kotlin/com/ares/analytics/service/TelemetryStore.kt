@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filter
 import java.util.ArrayDeque
+import java.util.LinkedHashSet
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
@@ -44,7 +45,7 @@ class TelemetryStore(
     internal val frameHistory = ConcurrentHashMap<String, ArrayDeque<TelemetryFrame>>()
     /** Last frame intentionally published to consumers; silent persistence must not advance it. */
     private val lastNotifiedFrames = ConcurrentHashMap<String, TelemetryFrame>()
-    private val trackedTopicOrder = ArrayDeque<String>()
+    private val trackedTopicOrder = LinkedHashSet<String>()
     private val topicIndexLock = Any()
 
     /** Number of explicitly observed single-topic flows; ingestion alone must not grow this map. */
@@ -60,7 +61,9 @@ class TelemetryStore(
         val observedTopicFlow = synchronized(topicIndexLock) {
             if (!latestFrames.containsKey(canonicalFrame.key)) {
                 while (trackedTopicOrder.size >= maxTrackedTopics) {
-                    val evictedTopic = trackedTopicOrder.removeFirst()
+                    val oldest = trackedTopicOrder.iterator()
+                    val evictedTopic = oldest.next()
+                    oldest.remove()
                     latestFrames.remove(evictedTopic)
                     frameHistory.remove(evictedTopic)
                     lastNotifiedFrames.remove(evictedTopic)
@@ -68,13 +71,13 @@ class TelemetryStore(
                     // do not leave an evicted value looking current.
                     topicFlows[evictedTopic]?.value = null
                 }
-                trackedTopicOrder.addLast(canonicalFrame.key)
+                trackedTopicOrder.add(canonicalFrame.key)
             } else {
                 // Refresh recency so eviction is LRU, not FIFO: without this, core topics
                 // discovered at connect were the first candidates for eviction once a long
                 // session churned past maxTrackedTopics distinct names.
                 trackedTopicOrder.remove(canonicalFrame.key)
-                trackedTopicOrder.addLast(canonicalFrame.key)
+                trackedTopicOrder.add(canonicalFrame.key)
             }
             latestFrames[canonicalFrame.key] = canonicalFrame
 

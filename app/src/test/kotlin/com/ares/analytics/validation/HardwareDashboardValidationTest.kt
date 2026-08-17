@@ -50,6 +50,7 @@ class HardwareDashboardValidationTest {
         val client = Nt4ClientService(database)
         val receivedFrames = AtomicLong()
         val observedKeys = ConcurrentHashMap.newKeySet<String>()
+        val observedTimestamps = ArrayList<Long>()
         val violations = mutableListOf<String>()
         val metrics = linkedMapOf<String, Double>()
         var unexpectedFailure: Throwable? = null
@@ -60,6 +61,7 @@ class HardwareDashboardValidationTest {
                 client.telemetryFlow.collect { frame ->
                     receivedFrames.incrementAndGet()
                     observedKeys += TelemetryMetricCatalog.normalizeTopic(frame.key)
+                    observedTimestamps += frame.timestampMs
                 }
             }
 
@@ -79,11 +81,18 @@ class HardwareDashboardValidationTest {
 
             val frameCount = receivedFrames.get()
             val persistedCount = database.countTelemetryFrames("live-telemetry")
+            val newestObservedTimestamp = observedTimestamps.maxOrNull()
+            val observedRetainedCount = newestObservedTimestamp?.let { newest ->
+                observedTimestamps.count { timestamp ->
+                    timestamp >= newest - Nt4ClientService.LIVE_RETENTION_MS
+                }.toLong()
+            } ?: 0L
             metrics["observation_seconds"] = observedSeconds
             metrics["frames_received"] = frameCount.toDouble()
             metrics["unique_topics"] = observedKeys.size.toDouble()
             metrics["frames_per_second"] = frameCount / observedSeconds.coerceAtLeast(0.001)
             metrics["frames_persisted"] = persistedCount.toDouble()
+            metrics["frames_observed_in_live_window"] = observedRetainedCount.toDouble()
 
             if (frameCount < minimumFrames) {
                 violations += "Received $frameCount frames; expected at least $minimumFrames"
@@ -95,8 +104,14 @@ class HardwareDashboardValidationTest {
             if (missingKeys.isNotEmpty()) {
                 violations += "Required telemetry keys were not observed: ${missingKeys.joinToString()}"
             }
-            if (persistedCount != frameCount) {
-                violations += "Persisted $persistedCount of $frameCount observed frames"
+            // Persistence begins as soon as the NT4 reader starts, while this independent
+            // SharedFlow observer may not be scheduled until after the first announcements.
+            // Therefore the database may legitimately contain more rows than this observer saw,
+            // but it must contain at least every observed row inside the live retention window.
+            if (persistedCount < observedRetainedCount) {
+                violations += "Persisted $persistedCount frames; expected at least $observedRetainedCount " +
+                    "observed within the ${Nt4ClientService.LIVE_RETENTION_MS / 1_000L}-second live window " +
+                    "($frameCount frames observed including retained NT4 values)"
             }
             if (!connectedAfterObservation) {
                 violations += "NT4 connection dropped during the observation window"
