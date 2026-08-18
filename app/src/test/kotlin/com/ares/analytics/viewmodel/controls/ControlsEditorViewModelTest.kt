@@ -129,6 +129,49 @@ class ControlsEditorViewModelTest {
     }
 
     @Test
+    fun `drive axis bindings author save and validate through the editor`() = withProject { project ->
+        val documents = seededDocuments(project)
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+
+        viewModel.selectControl("left_stick_y")
+        viewModel.createBinding()
+        viewModel.updateDraft { binding ->
+            binding.copy(
+                displayName = "Drive forward/back",
+                event = ControlEvent.VALUE,
+                source = binding.source.copy(kind = ControlSourceKind.AXIS_VALUE),
+                analogPolicy = com.areslib.controls.AnalogControlPolicyDocument(),
+            )
+        }
+        viewModel.setTarget(ControlTargetKind.DRIVE, "vx")
+        assertTrue(
+            viewModel.state.value.problems.none {
+                it.severity == ControlsProblemSeverity.ERROR && it.bindingId == viewModel.state.value.draftBinding?.bindingId
+            },
+            viewModel.state.value.problems.joinToString { it.message },
+        )
+        viewModel.applyDraft()
+        viewModel.save()
+
+        val savedScheme = documents.controls.load(project.path, "competition-controls")
+        val saved = savedScheme.bindings.single()
+        assertEquals(ControlTargetKind.DRIVE, saved.target.kind)
+        assertEquals("vx", saved.target.key)
+        assertEquals(ControlEvent.VALUE, saved.event)
+        assertTrue(
+            com.areslib.controls.validateControlScheme(
+                savedScheme,
+                com.areslib.controls.ControlValidationContext(
+                    actionKeys = setOf("intake.run"),
+                    profileControls = mapOf(
+                        "flydigi-vader-5-pro" to setOf("left_stick_x", "left_stick_y", "right_stick_x"),
+                    ),
+                ),
+            ).none { it.severity == com.areslib.controls.ControlValidationSeverity.ERROR },
+        )
+    }
+
+    @Test
     fun `source editor covers chords analog values zones and repeat timing`() = withProject { project ->
         val viewModel = ControlsEditorViewModel(project.path, League.FRC, seededDocuments(project))
         viewModel.selectControl("left_trigger")

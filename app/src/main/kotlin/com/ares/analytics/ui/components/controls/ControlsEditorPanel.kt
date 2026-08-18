@@ -205,11 +205,13 @@ internal fun bindingLearningTrace(state: ControlsEditorState): BindingLearningTr
         }
         ControlTargetKind.ROUTINE -> "routine ${binding.target.key} · ${binding.target.routinePolicy.friendlyName()}"
         ControlTargetKind.CANCEL_ROUTINE -> "cancel routine ${binding.target.key}"
+        ControlTargetKind.DRIVE -> "drivetrain ${binding.target.key} axis"
     }
     val runtimePath = when (binding.target.kind) {
         ControlTargetKind.ACTION -> "Generated binding runtime → typed action task → Redux → subsystem controller → cached IO"
         ControlTargetKind.ROUTINE -> "Generated binding runtime → routine scheduler → typed tasks/resources → Redux"
         ControlTargetKind.CANCEL_ROUTINE -> "Generated binding runtime → routine scheduler cancellation → owned-resource cleanup"
+        ControlTargetKind.DRIVE -> "Generated binding runtime → shaped axis accumulator → drive sink → field-centric drivetrain"
     }
     return BindingLearningTrace(
         input = controls.joinToString(" + "),
@@ -779,27 +781,45 @@ private fun TargetFields(state: ControlsEditorState, binding: ControlBindingDocu
         ControlTargetKind.entries.map { it.name to it.friendlyName() }, Modifier.fillMaxWidth()
     ) { selected ->
         val kind = ControlTargetKind.valueOf(selected)
-        val key = if (kind == ControlTargetKind.ACTION) state.actions.firstOrNull()?.key.orEmpty()
-        else state.routineIds.firstOrNull().orEmpty()
+        val key = when (kind) {
+            ControlTargetKind.ACTION -> state.actions.firstOrNull()?.key.orEmpty()
+            ControlTargetKind.DRIVE -> com.areslib.controls.DriveAxisKeys.VX
+            else -> state.routineIds.firstOrNull().orEmpty()
+        }
         viewModel.setTarget(kind, key)
     }
-    if (binding.target.kind == ControlTargetKind.ACTION) {
-        ActionPicker(state, binding.target.key) { viewModel.setTarget(ControlTargetKind.ACTION, it) }
-        state.selectedAction?.parameters.orEmpty().forEach { parameter ->
-            TargetArgumentField(parameter, binding.target.arguments[parameter.key].orEmpty()) { value ->
-                viewModel.setTargetArgument(parameter.key, value)
+    when (binding.target.kind) {
+        ControlTargetKind.ACTION -> {
+            ActionPicker(state, binding.target.key) { viewModel.setTarget(ControlTargetKind.ACTION, it) }
+            state.selectedAction?.parameters.orEmpty().forEach { parameter ->
+                TargetArgumentField(parameter, binding.target.arguments[parameter.key].orEmpty()) { value ->
+                    viewModel.setTargetArgument(parameter.key, value)
+                }
             }
         }
-    } else {
-        SelectionMenu(
-            "Reusable routine", binding.target.key.ifBlank { "Choose routine" },
-            state.routineIds.map { it to it }, Modifier.fillMaxWidth()
-        ) { viewModel.setTarget(binding.target.kind, it) }
-        SelectionMenu(
-            "Invocation", binding.target.routinePolicy.friendlyName(),
-            RoutineInvocationPolicy.entries.map { it.name to it.friendlyName() }, Modifier.fillMaxWidth()
-        ) { selected ->
-            viewModel.updateDraft { it.copy(target = it.target.copy(routinePolicy = RoutineInvocationPolicy.valueOf(selected))) }
+        ControlTargetKind.DRIVE -> {
+            SelectionMenu(
+                "Drivetrain axis", binding.target.key,
+                com.areslib.controls.DriveAxisKeys.ALL.sorted().map { it to driveAxisLabel(it) },
+                Modifier.fillMaxWidth()
+            ) { viewModel.setTarget(ControlTargetKind.DRIVE, it) }
+            Text(
+                "Drive bindings must use an analog stick axis with a Value event; the generated " +
+                    "runtime shapes each axis and the robot applies alliance mirroring.",
+                color = AresTextSecondary, fontSize = 10.sp
+            )
+        }
+        else -> {
+            SelectionMenu(
+                "Reusable routine", binding.target.key.ifBlank { "Choose routine" },
+                state.routineIds.map { it to it }, Modifier.fillMaxWidth()
+            ) { viewModel.setTarget(binding.target.kind, it) }
+            SelectionMenu(
+                "Invocation", binding.target.routinePolicy.friendlyName(),
+                RoutineInvocationPolicy.entries.map { it.name to it.friendlyName() }, Modifier.fillMaxWidth()
+            ) { selected ->
+                viewModel.updateDraft { it.copy(target = it.target.copy(routinePolicy = RoutineInvocationPolicy.valueOf(selected))) }
+            }
         }
     }
 }
@@ -1076,6 +1096,13 @@ private fun ControlSourceKind.friendlyName() = when (this) {
 
 private fun ControlEvent.friendlyName() = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 private fun ControlTargetKind.friendlyName() = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
+
+private fun driveAxisLabel(axis: String): String = when (axis) {
+    com.areslib.controls.DriveAxisKeys.VX -> "vx — forward/back"
+    com.areslib.controls.DriveAxisKeys.VY -> "vy — strafe left/right"
+    com.areslib.controls.DriveAxisKeys.OMEGA -> "omega — rotate"
+    else -> axis
+}
 private fun RoutineInvocationPolicy.friendlyName() = name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)
 
 private fun allowedEvents(kind: ControlSourceKind): List<ControlEvent> = when (kind) {
