@@ -14,7 +14,7 @@ permissions:
   security-events: write
 
 env:
-  ARES_VERSION: 9.0.0
+  ARES_VERSION: 9.2.1
 
 concurrency:
   group: analytics-codeql-${{ github.ref }}
@@ -51,7 +51,7 @@ jobs:
       - name: Verify immutable ARES release is available
         run: >-
           curl --fail --silent --show-error --head
-          "https://repo1.maven.org/maven2/org/aresfirst/ares/ares-bom/${ARES_VERSION}/ares-bom-${ARES_VERSION}.pom"
+          "https://raw.githubusercontent.com/ARES-23247/ARESLib-Kotlin/maven/org/aresfirst/ares/ares-bom/${ARES_VERSION}/ares-bom-${ARES_VERSION}.pom"
 
       - name: Compile Analytics sources
         working-directory: ARES-Analytics
