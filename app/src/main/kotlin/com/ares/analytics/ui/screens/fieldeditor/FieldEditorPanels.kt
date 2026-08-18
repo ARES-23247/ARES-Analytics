@@ -22,10 +22,10 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.Undo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
@@ -95,8 +95,8 @@ fun FieldEditorCommandBar(
     ) {
         Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                IconButton(onClick = onUndo, enabled = canUndo) { Icon(Icons.Default.Undo, "Undo") }
-                IconButton(onClick = onRedo, enabled = canRedo) { Icon(Icons.Default.Redo, "Redo") }
+                IconButton(onClick = onUndo, enabled = canUndo) { Icon(Icons.AutoMirrored.Filled.Undo, "Undo") }
+                IconButton(onClick = onRedo, enabled = canRedo) { Icon(Icons.AutoMirrored.Filled.Redo, "Redo") }
                 IconButton(onClick = onCopy, enabled = selectionCount > 0) { Icon(Icons.Default.ContentCopy, "Copy selection") }
                 IconButton(onClick = onPaste, enabled = clipboardCount > 0) { Icon(Icons.Default.ContentPaste, "Paste") }
                 Button(

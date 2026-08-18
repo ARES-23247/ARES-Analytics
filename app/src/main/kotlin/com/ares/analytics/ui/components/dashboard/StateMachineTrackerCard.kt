@@ -39,7 +39,7 @@ fun StateMachineTrackerCard(
                 // Typical state paths: /robot/subsystems/Intake/State, /robot/auto/CurrentState
                 if (key.endsWith("/State") || key.endsWith("/CurrentState")) {
                     val subsystem = key.substringBeforeLast("/").substringAfterLast("/")
-                    val stateValue = frame.value?.toString() ?: "Unknown"
+                    val stateValue = frame.value.toString()
                     activeStates[subsystem] = stateValue
                 }
             }

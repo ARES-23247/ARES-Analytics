@@ -337,7 +337,7 @@ fun MainScreen(services: ServiceRegistry) {
     val importCenterViewModel = remember(currentConfig.projectPath) {
         ImportCenterViewModel(
             archiveService = com.ares.analytics.service.ImportArchiveService(),
-            projectPath = currentConfig.projectPath ?: "",
+            projectPath = currentConfig.projectPath,
             scope = scope
         )
     }
@@ -369,7 +369,7 @@ fun MainScreen(services: ServiceRegistry) {
     }
     val subsystemGeneratorViewModel = remember(currentConfig.projectPath, currentConfig.league) {
         SubsystemGeneratorViewModel(
-            projectPath = currentConfig.projectPath ?: "",
+            projectPath = currentConfig.projectPath,
             league = currentConfig.league,
             projectGenerator = services.processManagerService,
             designAssistant = com.ares.analytics.service.SubsystemDesignAssistant { current, request ->
@@ -384,7 +384,7 @@ fun MainScreen(services: ServiceRegistry) {
     val subsystemGeneratorState by subsystemGeneratorViewModel.state.collectAsState()
     val drivebaseBuilderViewModel = remember(currentConfig.projectPath, currentConfig.robotId, currentConfig.league) {
         DrivebaseBuilderViewModel(
-            projectPath = currentConfig.projectPath ?: "",
+            projectPath = currentConfig.projectPath,
             projectId = currentConfig.robotId,
             league = currentConfig.league,
             scope = scope,
@@ -396,13 +396,13 @@ fun MainScreen(services: ServiceRegistry) {
     }
     val superstructureStudioViewModel = remember(currentConfig.projectPath) {
         SuperstructureStudioViewModel(
-            projectPath = currentConfig.projectPath ?: "",
+            projectPath = currentConfig.projectPath,
             scope = scope,
         )
     }
     val hardwareSetupViewModel = remember(currentConfig.projectPath, currentConfig.league) {
         HardwareSetupViewModel(
-            projectPath = currentConfig.projectPath ?: "",
+            projectPath = currentConfig.projectPath,
             league = currentConfig.league,
             service = services.hardwareSetupService,
             scope = scope,
@@ -1026,7 +1026,7 @@ fun MainScreen(services: ServiceRegistry) {
                             NavigationTarget.TUNING -> TuningScreen(
                                 viewModel = tuningViewModel,
                                 sysIdViewModel = sysIdViewModel,
-                                projectPath = currentConfig.projectPath ?: ""
+                                projectPath = currentConfig.projectPath
                             )
                             NavigationTarget.ROBOT_STUDIO -> RobotStudioScreen(
                                 viewModel = robotStudioViewModel,

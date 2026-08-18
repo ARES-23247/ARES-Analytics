@@ -271,7 +271,7 @@ class CloudViewModel(
                                         seasonId = intent.seasonId,
                                         robotId = intent.robotId
                                     )
-                                    logUpload("      -> Parsed session: ${session.sessionId} (${session.durationMs?.let { "${it / 1000}s" } ?: "unknown"} duration)")
+                                    logUpload("      -> Parsed session: ${session.sessionId} (${session.durationMs.let { "${it / 1000}s" }} duration)")
 
                                     logUpload("4/4: Pushing DuckDB Parquet blob to Cloud & syncing...")
                                     try {

@@ -7,7 +7,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.HelpOutline
+import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -282,7 +282,7 @@ private fun PromotionReview(review: TuningProposalReview, viewModel: TuningViewM
 private fun TuningHelp(help: String) {
     var open by remember { mutableStateOf(false) }
     Box {
-        IconButton(onClick = { open = true }, Modifier.size(26.dp).semantics { contentDescription = "Help: $help" }) { Icon(Icons.Default.HelpOutline, "Show tuning field help", tint = AresTextSecondary, modifier = Modifier.size(14.dp)) }
+        IconButton(onClick = { open = true }, Modifier.size(26.dp).semantics { contentDescription = "Help: $help" }) { Icon(Icons.AutoMirrored.Filled.HelpOutline, "Show tuning field help", tint = AresTextSecondary, modifier = Modifier.size(14.dp)) }
         DropdownMenu(open, { open = false }) { Text(help, color = AresTextPrimary, fontSize = 10.sp, modifier = Modifier.widthIn(max = 330.dp).padding(12.dp)) }
     }
 }

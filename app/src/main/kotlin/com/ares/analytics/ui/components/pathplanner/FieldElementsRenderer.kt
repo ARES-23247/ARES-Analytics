@@ -396,7 +396,7 @@ fun DrawScope.drawAprilTags(
         val labelText = "#${at.tagId}"
         val textLayout = textMeasurer.measure(labelText, textStyle)
         val labelOffset = Offset(
-            (atOffset.x - textLayout.size.width / 2f).toFloat(),
+            (atOffset.x - textLayout.size.width / 2f),
             (atOffset.y - rh/2 - textLayout.size.height - 4).toFloat()
         )
 
@@ -460,8 +460,8 @@ fun DrawScope.drawFieldWaypoints(
         val textStyle = if (isSelected) selectedTextStyle else unselectedTextStyle
         val textLayout = textMeasurer.measure(wp.name, textStyle)
         val textOffset = Offset(
-            (offset.x + radius + 6).toFloat(),
-            (offset.y - textLayout.size.height / 2f).toFloat()
+            (offset.x + radius + 6),
+            (offset.y - textLayout.size.height / 2f)
         )
 
         drawRoundRect(

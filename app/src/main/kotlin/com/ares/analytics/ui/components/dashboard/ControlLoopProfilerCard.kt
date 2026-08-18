@@ -77,25 +77,21 @@ fun ControlLoopProfilerCard(
                     val now = System.currentTimeMillis()
                     when {
                         frame.key == "$selectedMotor/TargetPosition" || frame.key == "$selectedMotor/TargetVelocity" -> {
-                            val v = frame.value as? Double
+                            val v = frame.value
                             targetValue = v
-                            if (v != null) {
-                                targetHistory.add(now to v)
-                                // Prune old values
-                                while (targetHistory.isNotEmpty() && now - targetHistory.first().first > historyWindowMs) {
-                                    targetHistory.removeAt(0)
-                                }
+                            targetHistory.add(now to v)
+                            // Prune old values
+                            while (targetHistory.isNotEmpty() && now - targetHistory.first().first > historyWindowMs) {
+                                targetHistory.removeAt(0)
                             }
                         }
                         frame.key == "$selectedMotor/ActualPosition" || frame.key == "$selectedMotor/ActualVelocity" -> {
-                            val v = frame.value as? Double
+                            val v = frame.value
                             actualValue = v
-                            if (v != null) {
-                                actualHistory.add(now to v)
-                                // Prune old values
-                                while (actualHistory.isNotEmpty() && now - actualHistory.first().first > historyWindowMs) {
-                                    actualHistory.removeAt(0)
-                                }
+                            actualHistory.add(now to v)
+                            // Prune old values
+                            while (actualHistory.isNotEmpty() && now - actualHistory.first().first > historyWindowMs) {
+                                actualHistory.removeAt(0)
                             }
                         }
                     }

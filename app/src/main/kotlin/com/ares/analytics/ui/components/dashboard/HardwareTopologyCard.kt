@@ -31,7 +31,6 @@ import com.ares.analytics.shared.models.TopologyNodeType
 import com.ares.analytics.ui.components.core.AnalyticsCard
 import com.ares.analytics.ui.components.core.CardHeader
 import com.ares.analytics.ui.theme.*
-import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
@@ -52,7 +51,9 @@ fun HardwareTopologyCard(
     sessionId: String?,
     modifier: Modifier = Modifier
 ) {
-    val clipboardManager = LocalClipboardManager.current
+    // LocalClipboardManager: the non-deprecated LocalClipboard needs ClipEntry.ofPlainText,
+    // which this Compose version does not ship. Revisit at the next Compose bump.
+    @Suppress("DEPRECATION") val clipboardManager = LocalClipboardManager.current
     val liveTopology by services.nt4ClientService.latestTopology.collectAsState()
     val isConnected by services.nt4ClientService.isConnected.collectAsState()
 

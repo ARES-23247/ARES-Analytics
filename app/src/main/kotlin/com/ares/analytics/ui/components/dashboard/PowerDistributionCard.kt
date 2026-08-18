@@ -38,7 +38,7 @@ fun PowerDistributionCard(
             nt4ClientService.telemetryFlow.collect { frame ->
                 val key = frame.key
                 val lowerKey = key.lowercase()
-                val value = frame.value as? Double ?: return@collect
+                val value = frame.value
 
                 // Typical paths: /robot/hardware/IntakeMotor/CurrentDraw, PDH/Channel1_Current
                 if (lowerKey.contains("current") && !lowerKey.contains("target")) {

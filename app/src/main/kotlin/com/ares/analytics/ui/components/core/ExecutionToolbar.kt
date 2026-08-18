@@ -26,6 +26,10 @@ enum class TargetSelection(val label: String) {
     LOCAL_SIM("Local Sim")
 }
 
+// rememberPlainTooltipPositionProvider: the recommended
+// rememberTooltipPositionProvider is not shipped by this Compose
+// version; migrate at the next Compose bump.
+@Suppress("DEPRECATION")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExecutionToolbar(
@@ -59,7 +63,6 @@ fun ExecutionToolbar(
         } catch (e: Exception) {
             System.err.println("Failed to launch CLI: ${e.message}")
         }
-        Unit
     }
     Row(
         modifier = modifier

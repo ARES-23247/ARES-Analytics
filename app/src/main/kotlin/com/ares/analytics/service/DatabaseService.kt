@@ -96,7 +96,7 @@ class DatabaseService(
     private val backupExporter: DatabaseBackupExporter
 
     private val checkpointScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-    private lateinit var checkpointJob: Job
+    private var checkpointJob: Job
 
     init {
         Class.forName("org.duckdb.DuckDBDriver")
