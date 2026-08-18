@@ -25,21 +25,16 @@ Robot Studio never marks a build ready merely because an old generated file exis
 
 ## Follow the workflow
 
-1. **Workspace & robot identity** — open [Project Identity](PROJECT_IDENTITY.md), confirm the repository, enter measured robot geometry, and review `.ares/project.json` before creation.
-2. **League & platform** — make sure workspace, canonical identity, generator, and season runtime all agree on FTC or FRC.
-3. **Drivebase** — describe physical identity, inversion, geometry, localization, safety, and the supported runtime adapter.
-4. **Mechanisms & subsystems** — add only the mechanisms the robot has; drive-only robots may leave this optional.
-5. **Sensors & localization** — select one compatible primary pose source and optional vision fusion.
-6. **Capabilities & actions** — review the named Redux actions available to controls and autonomous routines.
-7. **Driver & operator controls** — a zero-profile/zero-scheme reviewed season project can use its
-   built-in baseline driving controls. Create a controller profile and control scheme together when
-   adding GUI bindings for named mechanism actions; a half-configured pair is blocked.
-8. **Autonomous routines** — optional while learning TeleOp; start with a short simulator-first routine.
-9. **Tuning & calibration** — keep structural identity separate from reviewed canonical values and local experiments.
-10. **Verify & build** — preview generated work in its owning builder, preserve USER-OWNED source, then run verification, tests, and packaging without deployment.
-11. **Simulate** — run the actual robot project against desktop adapters and identify the telemetry source.
-12. **Import & analyze** — preserve a simulator or robot run before making claims about behavior.
-13. **Supervised deploy (optional)** — only after review, open the separate deploy dialog, verify its exact project and target, then confirm the physical side effect.
+1. **Project & robot identity** — open [Project Identity](PROJECT_IDENTITY.md), confirm the repository, assign team identity, enter measured robot geometry, and review `.ares/project.json` before creation.
+2. **Robot hardware & mechanisms** — describe physical identity, kinematics, wheel geometry, localization (odometry/vision), mechanism subsystems, and verify physical port/CAN bus allocations.
+3. **Superstructure coordination** — coordinate multiple generated mechanisms through complete presets, guarded transitions, interlocks, and dynamic lookup tables.
+4. **Autonomous catalog & routines** — build bounded routines from named actions, path segments, triggers, and scoring sequences. Authored before controls so auto-routines are available for gamepad binding.
+5. **Driver & operator controls** — map real controller inputs to drive axes, named mechanism actions, and automated TeleOp sub-routines.
+6. **Tuning & calibration** — keep structural identity separate from reviewed canonical values and local experiments.
+7. **Verify & build** — preview generated work in its owning builder, preserve USER-OWNED source, then run verification, tests, and packaging without deployment.
+8. **Simulate** — run the actual robot project against desktop adapters and identify the telemetry source.
+9. **1-Click Deploy to robot** — connect over Wi-Fi, compile, and flash APK/binary directly to the physical robot.
+10. **Import & analyze a run** — preserve a simulator or robot run before making claims about behavior.
 
 ## Know what is stored where
 

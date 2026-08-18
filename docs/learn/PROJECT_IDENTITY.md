@@ -29,6 +29,6 @@ An unreadable existing `.ares/project.json` is protected. ARES will not overwrit
 
 ## Success check
 
-Return to Robot Studio. **Workspace & robot identity** and **League & platform** should report **Ready** only when the canonical file exists, validates, and agrees with the selected workspace. This is document evidence, not a build, simulation, deployment, or physical-robot safety result.
+Return to Robot Studio. **Project & robot identity** should report **Ready** only when the canonical file exists, validates, and agrees with the selected workspace. This is document evidence, not a build, simulation, deployment, or physical-robot safety result.
 
 Next: [Build one robot with Robot Studio](ROBOT_STUDIO.md).

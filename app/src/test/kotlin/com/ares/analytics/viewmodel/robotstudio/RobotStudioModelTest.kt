@@ -15,12 +15,34 @@ class RobotStudioModelTest {
     fun `complete canonical evidence enables build and simulation actions without claiming success`() {
         val stages = evaluateRobotStudioStages(completeEvidence(), RobotStudioRuntimeEvidence())
 
-        assertEquals(RobotStudioStageStatus.READY, stages.status(RobotStudioStageId.DRIVEBASE))
+        assertEquals(RobotStudioStageStatus.READY, stages.status(RobotStudioStageId.PROJECT_IDENTITY))
+        assertEquals(RobotStudioStageStatus.READY, stages.status(RobotStudioStageId.HARDWARE))
         assertEquals(RobotStudioStageStatus.READY, stages.status(RobotStudioStageId.CONTROLS))
         assertEquals(RobotStudioStageStatus.NEEDS_ACTION, stages.status(RobotStudioStageId.GENERATE_VERIFY))
         assertEquals(RobotStudioStageStatus.BLOCKED, stages.status(RobotStudioStageId.SIMULATE))
         assertTrue(stages.first { it.id == RobotStudioStageId.SIMULATE }.explanation.contains("Verify & build"))
         assertTrue(stages.first { it.id == RobotStudioStageId.GENERATE_VERIFY }.explanation.contains("not proof"))
+    }
+
+    @Test
+    fun `pipeline stages follow exact dependency order with autonomous before controls`() {
+        val stages = evaluateRobotStudioStages(completeEvidence(), RobotStudioRuntimeEvidence())
+        val ids = stages.map { it.id }
+        assertEquals(
+            listOf(
+                RobotStudioStageId.PROJECT_IDENTITY,
+                RobotStudioStageId.HARDWARE,
+                RobotStudioStageId.COORDINATION,
+                RobotStudioStageId.AUTONOMOUS,
+                RobotStudioStageId.CONTROLS,
+                RobotStudioStageId.TUNING,
+                RobotStudioStageId.GENERATE_VERIFY,
+                RobotStudioStageId.SIMULATE,
+                RobotStudioStageId.DEPLOY,
+                RobotStudioStageId.ANALYZE,
+            ),
+            ids,
+        )
     }
 
     @Test
@@ -33,7 +55,7 @@ class RobotStudioModelTest {
             ),
             RobotStudioRuntimeEvidence(),
         )
-        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, noDrivebase.status(RobotStudioStageId.DRIVEBASE))
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, noDrivebase.status(RobotStudioStageId.HARDWARE))
         assertEquals(RobotStudioStageStatus.BLOCKED, noDrivebase.status(RobotStudioStageId.GENERATE_VERIFY))
         assertEquals(RobotStudioStageStatus.BLOCKED, noDrivebase.status(RobotStudioStageId.SIMULATE))
 
@@ -66,15 +88,19 @@ class RobotStudioModelTest {
 
         assertEquals(
             RobotStudioAction.OPEN_PROJECT_IDENTITY,
-            missing.first { it.id == RobotStudioStageId.WORKSPACE }.action,
+            missing.first { it.id == RobotStudioStageId.PROJECT_IDENTITY }.action,
         )
         assertEquals(
-            "Set up project identity",
-            missing.first { it.id == RobotStudioStageId.WORKSPACE }.actionLabel,
+            "Set up identity",
+            missing.first { it.id == RobotStudioStageId.PROJECT_IDENTITY }.actionLabel,
         )
         assertEquals(
             RobotStudioAction.OPEN_PROJECT_IDENTITY,
-            invalidPlatform.first { it.id == RobotStudioStageId.PLATFORM }.action,
+            invalidPlatform.first { it.id == RobotStudioStageId.PROJECT_IDENTITY }.action,
+        )
+        assertEquals(
+            RobotStudioStageStatus.INVALID,
+            invalidPlatform.status(RobotStudioStageId.PROJECT_IDENTITY),
         )
     }
 
@@ -89,10 +115,10 @@ class RobotStudioModelTest {
         )
         val studio = RobotStudioState(stages = stages)
 
-        assertEquals(RobotStudioStageStatus.CODE_REQUIRED, stages.status(RobotStudioStageId.DRIVEBASE))
+        assertEquals(RobotStudioStageStatus.CODE_REQUIRED, stages.status(RobotStudioStageId.HARDWARE))
         assertEquals(RobotStudioStageStatus.BLOCKED, stages.status(RobotStudioStageId.GENERATE_VERIFY))
         assertTrue(studio.blockingCount >= 2)
-        assertTrue(stages.first { it.id == RobotStudioStageId.DRIVEBASE }.explanation.contains("no no-code runtime adapter"))
+        assertTrue(stages.first { it.id == RobotStudioStageId.HARDWARE }.explanation.contains("no no-code runtime adapter"))
     }
 
     @Test
@@ -105,10 +131,10 @@ class RobotStudioModelTest {
             RobotStudioRuntimeEvidence(),
         )
 
-        assertEquals(RobotStudioStageStatus.INVALID, stages.status(RobotStudioStageId.WORKSPACE))
-        assertEquals(RobotStudioStageStatus.INVALID, stages.status(RobotStudioStageId.CAPABILITIES))
-        assertTrue(stages.first { it.id == RobotStudioStageId.WORKSPACE }.issues.any { "invalid league" in it })
-        assertTrue(stages.first { it.id == RobotStudioStageId.CAPABILITIES }.issues.any { "duplicate action" in it })
+        assertEquals(RobotStudioStageStatus.INVALID, stages.status(RobotStudioStageId.PROJECT_IDENTITY))
+        assertEquals(RobotStudioStageStatus.INVALID, stages.status(RobotStudioStageId.HARDWARE))
+        assertTrue(stages.first { it.id == RobotStudioStageId.PROJECT_IDENTITY }.issues.any { "invalid league" in it })
+        assertTrue(stages.first { it.id == RobotStudioStageId.HARDWARE }.issues.any { "duplicate action" in it })
     }
 
     @Test
@@ -321,10 +347,10 @@ class RobotStudioModelTest {
             completeEvidence().copy(hardwareItemCount = 7),
             RobotStudioRuntimeEvidence(),
         )
-        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, unreviewed.status(RobotStudioStageId.HARDWARE_SETUP))
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, unreviewed.status(RobotStudioStageId.HARDWARE))
         assertEquals(
             RobotStudioAction.OPEN_HARDWARE_SETUP,
-            unreviewed.first { it.id == RobotStudioStageId.HARDWARE_SETUP }.action,
+            unreviewed.first { it.id == RobotStudioStageId.HARDWARE }.action,
         )
 
         val currentButReferenceOnly = evaluateRobotStudioStages(
@@ -336,7 +362,7 @@ class RobotStudioModelTest {
             ),
             RobotStudioRuntimeEvidence(),
         )
-        assertEquals(RobotStudioStageStatus.READY, currentButReferenceOnly.status(RobotStudioStageId.HARDWARE_SETUP))
+        assertEquals(RobotStudioStageStatus.READY, currentButReferenceOnly.status(RobotStudioStageId.HARDWARE))
         assertEquals(RobotStudioStageStatus.BLOCKED, currentButReferenceOnly.status(RobotStudioStageId.DEPLOY))
         assertTrue(currentButReferenceOnly.first { it.id == RobotStudioStageId.DEPLOY }.issues.single().contains("simulation-only"))
     }
