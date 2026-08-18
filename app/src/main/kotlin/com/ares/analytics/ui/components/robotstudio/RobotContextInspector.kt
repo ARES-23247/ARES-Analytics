@@ -161,6 +161,7 @@ private fun ExpandedInspectorPanel(
                     is RobotStudioSelection.Drivetrain -> "Drivetrain Kinematics"
                     is RobotStudioSelection.Subsystem -> selection.displayName.ifBlank { "Subsystem Mechanism" }
                     is RobotStudioSelection.Superstructure -> "Superstructure Coordinator"
+                    is RobotStudioSelection.Autonomous -> "Routines & Autonomous"
                     is RobotStudioSelection.Controls -> "TeleOp Gamepad Controls"
                     is RobotStudioSelection.PortMap -> "Port Map & Review"
                 }
@@ -169,6 +170,7 @@ private fun ExpandedInspectorPanel(
                     is RobotStudioSelection.Drivetrain -> ".ares/drivetrains/*.aresdrivetrain"
                     is RobotStudioSelection.Subsystem -> ".ares/subsystems/${selection.documentId}.aressubsystem"
                     is RobotStudioSelection.Superstructure -> ".ares/superstructures/*.aressuperstructure"
+                    is RobotStudioSelection.Autonomous -> ".ares/routines/*.aresroutine"
                     is RobotStudioSelection.Controls -> ".ares/controls.json"
                     is RobotStudioSelection.PortMap -> ".ares/hardware-review.json"
                 }

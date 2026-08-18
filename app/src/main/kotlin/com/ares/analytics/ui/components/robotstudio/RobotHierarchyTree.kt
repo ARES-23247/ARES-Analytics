@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.ElectricalServices
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.PrecisionManufacturing
+import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material3.Button
@@ -72,6 +73,7 @@ sealed class RobotStudioSelection {
     data object Drivetrain : RobotStudioSelection()
     data class Subsystem(val documentId: String, val displayName: String = "") : RobotStudioSelection()
     data object Superstructure : RobotStudioSelection()
+    data object Autonomous : RobotStudioSelection()
     data object Controls : RobotStudioSelection()
     data object PortMap : RobotStudioSelection()
 }
@@ -276,7 +278,18 @@ private fun ExpandedTreePanel(
                 onClick = { onSelect(RobotStudioSelection.Superstructure) },
             )
 
-            // 5. Controls Node
+            // 5. Routines & Autonomous Node
+            val autoStage = state.stages.firstOrNull { it.id == RobotStudioStageId.AUTONOMOUS }
+            TreeNodeRow(
+                icon = Icons.Default.Route,
+                label = "Routines & Auto",
+                subtitle = "Sequences & Match Auto",
+                status = autoStage?.status ?: RobotStudioStageStatus.READY,
+                isSelected = selected is RobotStudioSelection.Autonomous,
+                onClick = { onSelect(RobotStudioSelection.Autonomous) },
+            )
+
+            // 6. Controls Node
             val controlsStage = state.stages.firstOrNull { it.id == RobotStudioStageId.CONTROLS }
             TreeNodeRow(
                 icon = Icons.Default.SportsEsports,
@@ -287,7 +300,7 @@ private fun ExpandedTreePanel(
                 onClick = { onSelect(RobotStudioSelection.Controls) },
             )
 
-            // 6. Port Map Node
+            // 7. Port Map Node
             TreeNodeRow(
                 icon = Icons.Default.ElectricalServices,
                 label = "Port Map & Review",
@@ -363,6 +376,11 @@ private fun CollapsedTreeRail(
             icon = Icons.Default.Layers,
             isSelected = selected is RobotStudioSelection.Superstructure,
             onClick = { onSelect(RobotStudioSelection.Superstructure) },
+        )
+        CollapsedIconButton(
+            icon = Icons.Default.Route,
+            isSelected = selected is RobotStudioSelection.Autonomous,
+            onClick = { onSelect(RobotStudioSelection.Autonomous) },
         )
         CollapsedIconButton(
             icon = Icons.Default.SportsEsports,

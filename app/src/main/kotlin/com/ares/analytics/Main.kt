@@ -24,6 +24,7 @@ import kotlin.system.exitProcess
 private const val SHUTDOWN_TIMEOUT_MS = 15_000L
 private const val WINDOW_HEALTH_CHECK_MS = 1_000
 private const val WINDOW_RECOVERY_FAILURE_LIMIT = 3
+private const val DESKTOP_WINDOW_TITLE_PREFIX = "ARES Analytics"
 
 private fun ownedWindowsTopLevelWindow(
     window: java.awt.Window,
@@ -31,16 +32,32 @@ private fun ownedWindowsTopLevelWindow(
     if (!window.isDisplayable || !window.isVisible || !window.isShowing) return@runCatching null
 
     val user32 = com.sun.jna.platform.win32.User32.INSTANCE
-    val peerWindow = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Native.getWindowPointer(window))
-    val topLevelWindow = user32.GetAncestor(peerWindow, com.sun.jna.platform.win32.WinUser.GA_ROOT)
-        ?: peerWindow
-    val ownerPid = com.sun.jna.ptr.IntByReference()
-    user32.GetWindowThreadProcessId(topLevelWindow, ownerPid)
     val currentPid = com.sun.jna.platform.win32.Kernel32.INSTANCE.GetCurrentProcessId()
+    var ownedWindow: com.sun.jna.platform.win32.WinDef.HWND? = null
 
-    topLevelWindow.takeIf {
-        ownerPid.value == currentPid && user32.IsWindow(it) && user32.IsWindowVisible(it)
-    }
+    // Do not trust Native.getWindowPointer(window) here. AWT can retain isShowing=true and a
+    // cached/reused peer handle after the real top-level HWND has vanished. EnumWindows is the
+    // same OS-level truth used by strict UI capture and Windows process MainWindowHandle.
+    user32.EnumWindows({ candidate, _ ->
+        val ownerPid = com.sun.jna.ptr.IntByReference()
+        user32.GetWindowThreadProcessId(candidate, ownerPid)
+        val titleLength = user32.GetWindowTextLength(candidate)
+        val title = if (titleLength > 0) {
+            CharArray(titleLength + 1).also { user32.GetWindowText(candidate, it, it.size) }
+                .concatToString()
+                .trimEnd('\u0000')
+        } else {
+            ""
+        }
+        val matches = ownerPid.value == currentPid &&
+            user32.IsWindow(candidate) &&
+            user32.IsWindowVisible(candidate) &&
+            title.startsWith(DESKTOP_WINDOW_TITLE_PREFIX)
+        if (matches) ownedWindow = candidate
+        !matches
+    }, null)
+
+    ownedWindow
 }.getOrNull()
 
 private fun focusWindowsNativeWindow(hwnd: com.sun.jna.platform.win32.WinDef.HWND) {

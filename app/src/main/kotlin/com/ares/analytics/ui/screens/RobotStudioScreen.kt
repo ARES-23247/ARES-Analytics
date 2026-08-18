@@ -83,6 +83,7 @@ fun RobotStudioScreen(
     drivebaseViewModel: DrivebaseBuilderViewModel,
     subsystemViewModel: SubsystemGeneratorViewModel,
     superstructureViewModel: SuperstructureStudioViewModel,
+    pathPlannerViewModel: com.ares.analytics.viewmodel.PathPlannerViewModel,
     controlsViewModel: ControlsEditorViewModel,
     controlsState: ControlsEditorState,
     gamepad1State: GamepadState,
@@ -323,6 +324,21 @@ fun RobotStudioScreen(
                     is RobotStudioSelection.Superstructure -> {
                         SuperstructureStudioScreen(
                             viewModel = superstructureViewModel,
+                        )
+                    }
+                    is RobotStudioSelection.Autonomous -> {
+                        PathPlannerScreen(
+                            viewModel = pathPlannerViewModel,
+                            league = config.league,
+                            projectPath = config.projectPath,
+                            robotDimensions = com.ares.analytics.viewmodel.pathing.RobotDimensions(
+                                lengthMeters = config.robotLengthMeters
+                                    ?: com.ares.analytics.viewmodel.pathing.RobotDimensions
+                                        .defaultFor(config.league).lengthMeters,
+                                widthMeters = config.robotWidthMeters
+                                    ?: com.ares.analytics.viewmodel.pathing.RobotDimensions
+                                        .defaultFor(config.league).widthMeters
+                            ),
                         )
                     }
                     is RobotStudioSelection.Controls -> {

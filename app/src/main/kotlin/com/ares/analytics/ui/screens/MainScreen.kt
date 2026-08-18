@@ -1034,6 +1034,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 drivebaseViewModel = drivebaseBuilderViewModel,
                                 subsystemViewModel = subsystemGeneratorViewModel,
                                 superstructureViewModel = superstructureStudioViewModel,
+                                pathPlannerViewModel = pathPlannerViewModel,
                                 controlsViewModel = controlsEditorViewModel,
                                 controlsState = controlsEditorState,
                                 gamepad1State = gamepad1State,
