@@ -7,6 +7,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
@@ -107,8 +108,7 @@ private fun launchDesktopApplication() {
         val windowState = rememberWindowState(
             placement = WindowPlacement.Floating,
             position = WindowPosition.Aligned(Alignment.Center),
-            width = 1440.dp,
-            height = 900.dp,
+            size = DpSize(1440.dp, 900.dp),
         )
         val services = remember { ServiceRegistry() }
         val shutdownScope = rememberCoroutineScope()
@@ -149,6 +149,9 @@ private fun launchDesktopApplication() {
             visible = true,
         ) {
             DisposableEffect(window) {
+                window.size = java.awt.Dimension(1440, 900)
+                window.minimumSize = java.awt.Dimension(1100, 700)
+                window.setLocationRelativeTo(null)
                 window.isVisible = true
                 window.toFront()
                 window.requestFocus()
