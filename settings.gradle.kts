@@ -62,6 +62,8 @@ dependencyResolutionManagement {
         }
         google()
         mavenCentral()
+        mavenCentral()
+        maven("https://raw.githubusercontent.com/ARES-23247/ARESLib-Kotlin/maven")
         maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
     }
 }

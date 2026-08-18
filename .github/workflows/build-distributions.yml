@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 env:
-  ARES_VERSION: 8.0.0
+  ARES_VERSION: 9.2.1
 
 jobs:
   build-packages:
@@ -71,7 +71,7 @@ jobs:
         shell: bash
         run: >-
           curl --fail --silent --show-error --head
-          "https://repo1.maven.org/maven2/org/aresfirst/ares/ares-bom/${ARES_VERSION}/ares-bom-${ARES_VERSION}.pom"
+          "https://raw.githubusercontent.com/ARES-23247/ARESLib-Kotlin/maven/org/aresfirst/ares/ares-bom/${ARES_VERSION}/ares-bom-${ARES_VERSION}.pom"
 
       - name: Build native package
         env:
