@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 env:
-  ARES_VERSION: 9.2.1
+  ARES_VERSION: 9.2.2
 
 jobs:
   build-packages:
