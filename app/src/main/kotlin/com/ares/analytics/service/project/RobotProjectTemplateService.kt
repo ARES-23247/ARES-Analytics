@@ -390,22 +390,22 @@ class RobotProjectTemplateService(
 
         val OFFICIAL_PROJECT_TEMPLATES: List<RobotProjectTemplate> = listOf(
             RobotProjectTemplate(
-                id = "ares-ftc-9.1.0",
+                id = "ares-ftc-9.2.1",
                 displayName = "ARES FTC",
                 league = League.FTC,
-                aresVersion = "9.1.0",
-                revision = "e0228b58eb26b58bdfb837c5d267e5456a55f4db",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FTC/archive/e0228b58eb26b58bdfb837c5d267e5456a55f4db.zip",
-                archiveSha256 = "316df3d08c2c8dd1dd01d80ec2d196b9389292f84e358976e63ef613f56bc636",
+                aresVersion = "9.2.1",
+                revision = "a9cb5fb45881d28e0576318a32f2741dbf77b4ab",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FTC/archive/a9cb5fb45881d28e0576318a32f2741dbf77b4ab.zip",
+                archiveSha256 = "68775b39bb9629959110ac97a32e92506e11b0001e60cedd1bfe678b2e5af972",
             ),
             RobotProjectTemplate(
-                id = "ares-frc-9.1.0",
+                id = "ares-frc-9.2.1",
                 displayName = "ARES FRC",
                 league = League.FRC,
-                aresVersion = "9.1.0",
-                revision = "609507a7dde538e2fc5205b3b98b17e6c819041d",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FRC/archive/609507a7dde538e2fc5205b3b98b17e6c819041d.zip",
-                archiveSha256 = "13263eae79ff94239cf26634769ba588a0a8293122dfc5bc6750ff39128a8693",
+                aresVersion = "9.2.1",
+                revision = "fb9b81886ac1bc6502dafb97dbb229417a7fcd3c",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FRC/archive/fb9b81886ac1bc6502dafb97dbb229417a7fcd3c.zip",
+                archiveSha256 = "de5aea597ecd043272adb0f79c6e56eddd806e4ef5d53b6f7f575f94548c55d3c",
             ),
         )
 
