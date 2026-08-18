@@ -39,6 +39,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -373,7 +374,7 @@ private fun SchemeToolbar(state: ControlsEditorState, viewModel: ControlsEditorV
 
 @Composable
 private fun SurfaceTabs(surface: ControllerSurfaceDocument, onSurface: (ControllerSurfaceDocument) -> Unit) {
-    TabRow(selectedTabIndex = surface.ordinal) {
+    PrimaryTabRow(selectedTabIndex = surface.ordinal) {
         ControllerSurfaceDocument.entries.forEach { candidate ->
             Tab(
                 selected = surface == candidate,

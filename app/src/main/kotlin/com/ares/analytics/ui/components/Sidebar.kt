@@ -54,6 +54,10 @@ import com.ares.analytics.ui.theme.AresBrandDestination
 import com.ares.analytics.ui.theme.openAresBrandDestination
 import com.ares.analytics.ui.theme.rememberAresLogoPainter
 
+// rememberPlainTooltipPositionProvider: the recommended
+// rememberTooltipPositionProvider is not shipped by this Compose
+// version; migrate at the next Compose bump.
+@Suppress("DEPRECATION")
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 internal fun Sidebar(
@@ -147,6 +151,10 @@ private fun SidebarSectionIcon(section: NavigationSection, isActive: Boolean, on
     }
 }
 
+// rememberPlainTooltipPositionProvider: the recommended
+// rememberTooltipPositionProvider is not shipped by this Compose
+// version; migrate at the next Compose bump.
+@Suppress("DEPRECATION")
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 private fun UtilityButton(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, active: Boolean, onClick: () -> Unit) {
@@ -161,6 +169,10 @@ private fun UtilityButton(label: String, icon: androidx.compose.ui.graphics.vect
     }
 }
 
+// rememberPlainTooltipPositionProvider: the recommended
+// rememberTooltipPositionProvider is not shipped by this Compose
+// version; migrate at the next Compose bump.
+@Suppress("DEPRECATION")
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 internal fun ConnectionIndicator(connected: Boolean, label: String, activeColor: Color = AresGreen) {

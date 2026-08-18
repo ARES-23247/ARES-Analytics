@@ -45,26 +45,25 @@ fun EKFTelemetryCard(
             val key = frame.key
                 when {
                     key.endsWith("Drive/EKF_Drift_X") -> {
-                        val value = frame.value as? Double ?: 0.0
+                        val value = frame.value
                         if (driftXHistory.size >= maxPoints) driftXHistory.removeAt(0)
                         driftXHistory.add(value)
                     }
                     key.endsWith("Drive/EKF_Drift_Y") -> {
-                        val value = frame.value as? Double ?: 0.0
+                        val value = frame.value
                         if (driftYHistory.size >= maxPoints) driftYHistory.removeAt(0)
                         driftYHistory.add(value)
                     }
-                    key.endsWith("Robot/Odometry/Covariance") -> {
-                        val arr = frame.value as? DoubleArray ?: return@collect
-                        if (arr.size >= 3) {
-                            currentCovX = arr[0]
-                            currentCovY = arr[1]
-                            currentCovTheta = arr[2]
-
-                            if (covXHistory.size >= maxPoints) covXHistory.removeAt(0)
-                            covXHistory.add(currentCovX)
-                        }
+                    // The NT4 layer explodes the covariance array into indexed sub-topics
+                    // (.../0, /1, /2), so read the scalars directly. The old single-topic
+                    // DoubleArray branch could never match and silently dropped every update.
+                    key.endsWith("Robot/Odometry/Covariance/0") -> {
+                        currentCovX = frame.value
+                        if (covXHistory.size >= maxPoints) covXHistory.removeAt(0)
+                        covXHistory.add(currentCovX)
                     }
+                    key.endsWith("Robot/Odometry/Covariance/1") -> currentCovY = frame.value
+                    key.endsWith("Robot/Odometry/Covariance/2") -> currentCovTheta = frame.value
                 }
             }
     }

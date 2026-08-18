@@ -216,7 +216,7 @@ fun SingleGamepadVisualizer(
                 scope.launch {
                     nt4ClientService.telemetryFlow.collect { frame ->
                         val key = frame.key
-                        val value = frame.value as? Double ?: return@collect
+                        val value = frame.value
                         when (key) {
                             "$gamepadId/LeftStick_X" -> lx = value
                             "$gamepadId/LeftStick_Y" -> ly = value

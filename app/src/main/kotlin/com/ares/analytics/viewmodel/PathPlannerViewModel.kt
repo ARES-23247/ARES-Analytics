@@ -507,7 +507,6 @@ class PathPlannerViewModel(
                     it.copy(tourStep = prev ?: it.tourStep)
                 }
                 is PathPlannerIntent.DismissTour -> _state.update { it.copy(tourStep = null) }
-                else -> { }
             }
         }
     }

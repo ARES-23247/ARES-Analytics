@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -267,12 +268,16 @@ fun FieldCanvasToolbar(
                 tooltipText = "Rotate Field View 90°",
                 onClick = { onViewRotationChanged((viewRotation - 90f + 360f) % 360f) }
             ) {
-                Icon(Icons.Default.RotateRight, contentDescription = "Rotate View", tint = AresTextSecondary)
+                Icon(Icons.AutoMirrored.Filled.RotateRight, contentDescription = "Rotate View", tint = AresTextSecondary)
             }
         }
     }
 }
 
+// rememberPlainTooltipPositionProvider: the recommended
+// rememberTooltipPositionProvider is not shipped by this Compose
+// version; migrate at the next Compose bump.
+@Suppress("DEPRECATION")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TooltipButton(

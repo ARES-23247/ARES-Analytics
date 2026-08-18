@@ -12,7 +12,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.RotateRight
+import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.Timeline
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Layers
@@ -111,7 +111,7 @@ fun FieldViewerCard(
                         modifier = Modifier.size(24.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.RotateRight,
+                            imageVector = Icons.AutoMirrored.Filled.RotateRight,
                             contentDescription = "Rotate",
                             tint = AresTextSecondary,
                             modifier = Modifier.size(16.dp)

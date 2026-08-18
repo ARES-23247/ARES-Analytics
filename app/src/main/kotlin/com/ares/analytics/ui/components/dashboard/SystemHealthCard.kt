@@ -45,16 +45,16 @@ fun SystemHealthCard(
 
                 when {
                     key.contains("looptime") || key.contains("loop_time") -> {
-                        loopTimeMs = value as? Double
+                        loopTimeMs = value
                     }
                     key.contains("batteryvoltage") || key.contains("battery_voltage") -> {
-                        batteryVoltage = value as? Double
+                        batteryVoltage = value
                     }
                     key.contains("brownoutcount") || key.contains("brownout_count") -> {
-                        brownoutCount = (value as? Double)?.toInt() ?: (value as? Int)
+                        brownoutCount = value.toInt()
                     }
                     key.contains("loopoverruns") || key.contains("loop_overruns") -> {
-                        loopOverruns = (value as? Double)?.toInt() ?: (value as? Int)
+                        loopOverruns = value.toInt()
                     }
                 }
             }

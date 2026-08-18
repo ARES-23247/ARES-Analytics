@@ -349,7 +349,7 @@ class DrivebaseBuilderViewModel(
                 geometry = base.geometry.copy(
                     wheelDiameterMeters = imported.geometry!!.wheelRadiusMeters * 2.0,
                     trackWidthMeters = imported.geometry.trackWidthMeters,
-                    wheelBaseMeters = imported.geometry!!.wheelBaseMeters,
+                    wheelBaseMeters = imported.geometry.wheelBaseMeters,
                     driveGearRatio = requireNotNull(imported.values["driveGearRatio"]),
                     steerGearRatio = requireNotNull(imported.values["steerGearRatio"]),
                     maxLinearSpeedMetersPerSecond = requireNotNull(imported.values["speedAt12Volts"])

@@ -357,7 +357,7 @@ open class Nt4ClientService(
                                 withTimeoutOrNull(CLOSE_HANDSHAKE_TIMEOUT_MS) { closeReason.await() }
                             }
                             if (reason != null) {
-                                println("[Nt4ClientService] Connection to $url closed. Reason: ${reason?.message} (Code: ${reason?.code})")
+                                println("[Nt4ClientService] Connection to $url closed. Reason: ${reason.message} (Code: ${reason.code})")
                             } else {
                                 // A server may remain healthy while the user disconnects. Do not keep stop()
                                 // waiting forever for a peer-initiated WebSocket close frame.

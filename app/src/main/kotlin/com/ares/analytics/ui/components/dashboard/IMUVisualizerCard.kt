@@ -40,7 +40,7 @@ fun IMUVisualizerCard(
     LaunchedEffect(Unit) {
         nt4ClientService.telemetryFlow.collect { frame ->
             val key = frame.key
-            val value = frame.value as? Double ?: return@collect
+            val value = frame.value
 
             when {
                 key.endsWith("IMU/Roll") || key.endsWith("IMU/roll") -> roll = value

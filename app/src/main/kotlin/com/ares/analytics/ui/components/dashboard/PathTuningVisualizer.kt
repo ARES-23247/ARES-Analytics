@@ -44,13 +44,13 @@ fun PathTuningVisualizer(
                 val key = frame.key
                 when {
                     key.endsWith("Path/Error_CrossTrack") -> {
-                        val value = frame.value as? Double ?: 0.0
+                        val value = frame.value
                         currentCrossTrack = value
                         if (crossTrackHistory.size >= maxPoints) crossTrackHistory.removeAt(0)
                         crossTrackHistory.add(value)
                     }
                     key.endsWith("Path/Error_AlongTrack") -> {
-                        val value = frame.value as? Double ?: 0.0
+                        val value = frame.value
                         currentAlongTrack = value
                         if (alongTrackHistory.size >= maxPoints) alongTrackHistory.removeAt(0)
                         alongTrackHistory.add(value)

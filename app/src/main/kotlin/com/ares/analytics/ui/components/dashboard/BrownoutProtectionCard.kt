@@ -35,10 +35,10 @@ fun BrownoutProtectionCard(
             nt4ClientService.telemetryFlow.collect { frame ->
                 val key = frame.key
                 when (key) {
-                    "Robot/BrownoutPowerScale" -> powerScale = frame.value as? Double ?: 1.0
-                    "Robot/StateOfCharge" -> stateOfCharge = frame.value as? Double ?: 100.0
-                    "Robot/BrownoutState" -> brownoutState = frame.value as? String ?: "HEALTHY"
-                    "Diagnostics/Power/BrownoutCount" -> tripCount = (frame.value as? Double)?.toInt() ?: 0
+                    "Robot/BrownoutPowerScale" -> powerScale = frame.value
+                    "Robot/StateOfCharge" -> stateOfCharge = frame.value
+                    "Robot/BrownoutState" -> brownoutState = frame.stringValue ?: "HEALTHY"
+                    "Diagnostics/Power/BrownoutCount" -> tripCount = frame.value.toInt()
                 }
             }
         }

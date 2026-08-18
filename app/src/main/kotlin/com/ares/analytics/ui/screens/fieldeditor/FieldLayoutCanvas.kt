@@ -247,7 +247,7 @@ fun FieldLayoutCanvas(
                                             val obstacleId = targetObstacleId ?: return@drag
                                             val pointer = getRobotCoordFromScreen(change.position, widthPx, heightPx, fieldWidth, fieldHeight, league, zoomScale, panOffset)
                                             onLayoutChanged(initialLayout.copy(obstacles = initialLayout.obstacles.map { obstacle ->
-                                                if (obstacle.id == obstacleId) transformObstacle(obstacle, handle!!, pointer, currentGridSpacing, currentSnapEnabled) else obstacle
+                                                if (obstacle.id == obstacleId) transformObstacle(obstacle, handle, pointer, currentGridSpacing, currentSnapEnabled) else obstacle
                                             }))
                                         }
                                         null -> Unit

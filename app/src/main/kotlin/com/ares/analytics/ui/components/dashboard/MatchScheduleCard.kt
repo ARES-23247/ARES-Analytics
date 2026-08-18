@@ -8,7 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -51,7 +51,7 @@ fun MatchScheduleCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Icon(Icons.Default.EventNote, contentDescription = null, tint = AresCyan)
+            Icon(Icons.AutoMirrored.Filled.EventNote, contentDescription = null, tint = AresCyan)
             Text(
                 "Match Schedule",
                 style = MaterialTheme.typography.titleMedium,

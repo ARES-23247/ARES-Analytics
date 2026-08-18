@@ -40,6 +40,10 @@ private const val SUBSYSTEM_GUIDE =
     "https://github.com/ARES-23247/ARES-Analytics/blob/master/docs/SUBSYSTEM_BUILDER.md"
 
 /** Keyboard-focusable, hoverable help for a concept used by the subsystem form. */
+// rememberPlainTooltipPositionProvider: the recommended
+// rememberTooltipPositionProvider is not shipped by this Compose
+// version; migrate at the next Compose bump.
+@Suppress("DEPRECATION")
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
 internal fun ConceptHelp(
