@@ -149,10 +149,7 @@ private fun launchDesktopApplication() {
             visible = true,
         ) {
             DisposableEffect(window) {
-                window.size = java.awt.Dimension(1440, 900)
                 window.minimumSize = java.awt.Dimension(1100, 700)
-                window.setLocationRelativeTo(null)
-                window.isVisible = true
                 window.toFront()
                 window.requestFocus()
                 println("[ARES-Analytics] Desktop window presented: size=${window.size}, location=${window.location}")
