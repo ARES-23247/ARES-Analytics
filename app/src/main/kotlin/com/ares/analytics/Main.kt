@@ -1,11 +1,8 @@
 package com.ares.analytics
 
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -87,6 +84,7 @@ private fun launchDesktopApplication() {
     })
 
     Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+        val fatalDesktopUiFailure = thread.name.startsWith("AWT-EventQueue")
         try {
             val logDir = java.io.File(System.getProperty("user.home") + "/.ares-analytics/logs")
             logDir.mkdirs()
@@ -101,6 +99,14 @@ private fun launchDesktopApplication() {
             System.err.println("CRITICAL FAULT: Uncaught exception in thread '${thread.name}'. Log: ${crashFile.absolutePath}")
         } catch (e: Exception) {
             e.printStackTrace()
+        } finally {
+            if (fatalDesktopUiFailure) {
+                System.err.println(
+                    "[ARES-Analytics] Fatal desktop UI failure left no usable window; " +
+                        "terminating so the single-instance lock cannot become orphaned."
+                )
+                exitProcess(1)
+            }
         }
     }
 
@@ -112,12 +118,11 @@ private fun launchDesktopApplication() {
         )
         val services = remember { ServiceRegistry() }
         val shutdownScope = rememberCoroutineScope()
-        var shutdownStarted by remember { mutableStateOf(false) }
+        val shutdownStarted = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
 
         Window(
             onCloseRequest = {
-                if (!shutdownStarted) {
-                    shutdownStarted = true
+                if (shutdownStarted.compareAndSet(false, true)) {
                     shutdownScope.launch {
                         // Watchdog: a hung service teardown (NT4 flush retries, DuckDB
                         // checkpoint, drive I/O) must not leave an unclosable window that
@@ -149,16 +154,73 @@ private fun launchDesktopApplication() {
         ) {
             DisposableEffect(window) {
                 window.minimumSize = java.awt.Dimension(1100, 700)
-                window.toFront()
-                window.requestFocus()
-                println("[ARES-Analytics] Desktop window presented: size=${window.size}, location=${window.location}")
                 val listener = object : java.awt.event.WindowAdapter() {
                     override fun windowLostFocus(event: java.awt.event.WindowEvent?) {
                         services.keyboardDriveState.releaseAll()
                     }
                 }
+                val lifecycleListener = object : java.awt.event.WindowAdapter() {
+                    override fun windowOpened(event: java.awt.event.WindowEvent?) {
+                        println("[ARES-Analytics] Desktop window opened")
+                    }
+
+                    override fun windowClosing(event: java.awt.event.WindowEvent?) {
+                        println("[ARES-Analytics] Desktop window closing")
+                    }
+
+                    override fun windowClosed(event: java.awt.event.WindowEvent?) {
+                        println("[ARES-Analytics] Desktop window closed")
+                    }
+                }
+                val visibilityListener = object : java.awt.event.ComponentAdapter() {
+                    override fun componentShown(event: java.awt.event.ComponentEvent?) {
+                        println("[ARES-Analytics] Desktop window shown")
+                    }
+
+                    override fun componentHidden(event: java.awt.event.ComponentEvent?) {
+                        println("[ARES-Analytics] Desktop window hidden")
+                    }
+                }
                 window.addWindowFocusListener(listener)
-                onDispose { window.removeWindowFocusListener(listener) }
+                window.addWindowListener(lifecycleListener)
+                window.addComponentListener(visibilityListener)
+
+                // Window() creates the native peer asynchronously. Present it on the next AWT
+                // event instead of racing peer creation from the initial composition pass.
+                java.awt.EventQueue.invokeLater {
+                    if (!window.isDisplayable) {
+                        System.err.println(
+                            "[ARES-Analytics] Desktop window peer was disposed before presentation."
+                        )
+                    } else {
+                        if (!window.isVisible) window.isVisible = true
+                        window.toFront()
+                        window.requestFocus()
+                        println(
+                            "[ARES-Analytics] Desktop window presented: " +
+                                "size=${window.size}, location=${window.location}, showing=${window.isShowing}"
+                        )
+                    }
+                }
+
+                onDispose {
+                    val shutdownWasRequested = shutdownStarted.get()
+                    println(
+                        "[ARES-Analytics] Desktop window composition disposed: " +
+                            "displayable=${window.isDisplayable}, visible=${window.isVisible}, " +
+                            "showing=${window.isShowing}, shutdownStarted=$shutdownWasRequested"
+                    )
+                    window.removeComponentListener(visibilityListener)
+                    window.removeWindowListener(lifecycleListener)
+                    window.removeWindowFocusListener(listener)
+                    if (!shutdownWasRequested) {
+                        System.err.println(
+                            "[ARES-Analytics] Desktop window disappeared without a shutdown request; " +
+                                "terminating so the next launch can acquire app.lock."
+                        )
+                        exitProcess(1)
+                    }
+                }
             }
             AresTheme {
                 MainScreen(services = services)
