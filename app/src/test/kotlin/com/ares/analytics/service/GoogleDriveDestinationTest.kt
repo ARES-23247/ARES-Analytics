@@ -186,7 +186,7 @@ class GoogleDriveDestinationTest {
     }
 
     @Test
-    fun `concurrent folder creation remains serialized inside the selected workspace`() = runTest {
+    fun `concurrent folder creation remains serialized inside the selected workspace`() = kotlinx.coroutines.runBlocking {
         var createdId: String? = null
         var createCount = 0
         val client = driveClient { request ->

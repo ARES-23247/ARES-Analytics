@@ -169,9 +169,9 @@ class AutoTuningDigitalTwin {
         val dt = 0.01
         val steps = (durationSeconds / dt).toInt()
         val target = when (plant.mechanism) {
-            SysIdMechanism.LINEAR -> 1.5
-            SysIdMechanism.ANGULAR -> 3.0
-            SysIdMechanism.FLYWHEEL -> 120.0
+            SysIdMechanism.LINEAR, SysIdMechanism.ELEVATOR -> 1.5
+            SysIdMechanism.ANGULAR, SysIdMechanism.ARM -> 3.0
+            SysIdMechanism.FLYWHEEL, SysIdMechanism.CUSTOM -> 120.0
         }
         var velocity = 0.0
         var integral = 0.0
@@ -245,15 +245,15 @@ class AutoTuningDigitalTwin {
             return List(cases) { index ->
                 val mechanism = SysIdMechanism.entries[index % SysIdMechanism.entries.size]
                 val plant = when (mechanism) {
-                    SysIdMechanism.LINEAR -> DigitalTwinPlant(
+                    SysIdMechanism.LINEAR, SysIdMechanism.ELEVATOR -> DigitalTwinPlant(
                         mechanism, random.nextDouble(0.15, 0.8), random.nextDouble(1.0, 2.8),
                         random.nextDouble(0.25, 0.75), random.nextDouble(5.0, 8.0)
                     )
-                    SysIdMechanism.ANGULAR -> DigitalTwinPlant(
+                    SysIdMechanism.ANGULAR, SysIdMechanism.ARM -> DigitalTwinPlant(
                         mechanism, random.nextDouble(0.1, 0.7), random.nextDouble(0.6, 2.2),
                         random.nextDouble(0.2, 0.65), random.nextDouble(4.0, 7.0)
                     )
-                    SysIdMechanism.FLYWHEEL -> DigitalTwinPlant(
+                    SysIdMechanism.FLYWHEEL, SysIdMechanism.CUSTOM -> DigitalTwinPlant(
                         mechanism, random.nextDouble(0.1, 0.6), random.nextDouble(0.025, 0.075),
                         random.nextDouble(0.006, 0.025), random.nextDouble(6.0, 9.0)
                     )

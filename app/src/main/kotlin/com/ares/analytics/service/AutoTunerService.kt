@@ -230,7 +230,7 @@ class AutoTunerService(
         kA: Double,
         gains: AutoTunerPIDFGains
     ): Map<String, Double> = when (mechanism) {
-        SysIdMechanism.LINEAR -> linkedMapOf(
+        SysIdMechanism.LINEAR, SysIdMechanism.ELEVATOR -> linkedMapOf(
             TuningParameterKeys.DRIVE_FEEDFORWARD_KS to kS,
             TuningParameterKeys.DRIVE_FEEDFORWARD_KV to kV,
             TuningParameterKeys.DRIVE_FEEDFORWARD_KA to kA,
@@ -238,7 +238,7 @@ class AutoTunerService(
             TuningParameterKeys.DRIVE_TRANSLATION_KI to gains.kI,
             TuningParameterKeys.DRIVE_TRANSLATION_KD to gains.kD
         )
-        SysIdMechanism.ANGULAR -> linkedMapOf(
+        SysIdMechanism.ANGULAR, SysIdMechanism.ARM -> linkedMapOf(
             TuningParameterKeys.DRIVE_ANGULAR_FEEDFORWARD_KS to kS,
             TuningParameterKeys.DRIVE_ANGULAR_FEEDFORWARD_KV to kV,
             TuningParameterKeys.DRIVE_ANGULAR_FEEDFORWARD_KA to kA,
@@ -246,7 +246,7 @@ class AutoTunerService(
             TuningParameterKeys.DRIVE_ROTATION_KI to gains.kI,
             TuningParameterKeys.DRIVE_ROTATION_KD to gains.kD
         )
-        SysIdMechanism.FLYWHEEL -> linkedMapOf(
+        SysIdMechanism.FLYWHEEL, SysIdMechanism.CUSTOM -> linkedMapOf(
             TuningParameterKeys.FLYWHEEL_FEEDFORWARD_KS to kS,
             TuningParameterKeys.FLYWHEEL_FEEDFORWARD_KV to kV,
             TuningParameterKeys.FLYWHEEL_FEEDFORWARD_KA to kA,
