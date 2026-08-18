@@ -444,6 +444,12 @@ object FirstMissionCheckpointIds {
     const val SIMULATOR_STOPPED = "first-mission.simulator-stopped"
 }
 
+object DrivebaseMissionCheckpointIds {
+    const val TYPE_SELECTED = "drivebase-blueprint.type-selected"
+    const val DIMENSIONS_SET = "drivebase-blueprint.dimensions-set"
+    const val BLUEPRINT_SAVED = "drivebase-blueprint.blueprint-saved"
+}
+
 object SubsystemMissionCheckpointIds {
     const val POSITION_DRAFT = "safe-subsystem.position-draft"
     const val NATURAL_STATE = "safe-subsystem.natural-state"
@@ -489,6 +495,12 @@ object SuperstructureMissionCheckpointIds {
     const val STRUCTURED_REVIEW = "coordinate-mechanisms.structured-review"
     const val DOCUMENT_SAVED = "coordinate-mechanisms.document-saved"
     const val FAILURE_REASONING = "coordinate-mechanisms.failure-reasoning"
+}
+
+object StateflowCanvasMissionCheckpointIds {
+    const val NODES_POSITIONED = "stateflow-canvas-mastery.nodes-positioned"
+    const val BEZIER_TRANSITIONS = "stateflow-canvas-mastery.bezier-transitions"
+    const val CONFLICT_LOCKS = "stateflow-canvas-mastery.conflict-locks"
 }
 
 object AutonomousMissionCheckpointIds {

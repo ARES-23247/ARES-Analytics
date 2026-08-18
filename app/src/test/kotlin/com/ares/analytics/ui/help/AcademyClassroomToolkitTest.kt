@@ -9,7 +9,7 @@ import kotlin.test.assertTrue
 class AcademyClassroomToolkitTest {
     @Test
     fun `summary counts only lessons and checkpoints in selected path`() {
-        val path = LearningCatalog.path("first-mission")!!
+        val path = LearningCatalog.path("drivetrains-odometry")!!
         val firstLesson = LearningCatalog.lesson(path.lessonIds.first())!!
         val progress = LearningProgress(
             practicedLessonIds = setOf(firstLesson.id, "safe-subsystem"),
@@ -35,7 +35,7 @@ class AcademyClassroomToolkitTest {
             checkpointReflections = mapOf(reflected.id to "I identified the selected source and its limitation."),
         )
 
-        val report = AcademyClassroomToolkit.markdownReport(progress, "first-mission", "Mentor")
+        val report = AcademyClassroomToolkit.markdownReport(progress, "drivetrains-odometry", "Mentor")
 
         assertTrue(report.contains("[app-observed fact]"))
         assertTrue(report.contains("[student reflection]"))
@@ -48,7 +48,7 @@ class AcademyClassroomToolkitTest {
             assignment = AcademyLearningAssignment(
                 assignmentId = "assignment-1",
                 title = "Mechanism evidence",
-                pathId = "robot-builder",
+                pathId = "subsystems-architecture",
                 lessonIds = listOf("safe-subsystem"),
                 instructions = "Change one thing at a time.",
                 dueLabel = "Friday",
@@ -58,7 +58,7 @@ class AcademyClassroomToolkitTest {
         )
 
         assertTrue(worksheet.contains("Student A"))
-        assertTrue(worksheet.contains("Build a homed position mechanism"))
+        assertTrue(worksheet.contains("Scaffold Decoupled Subsystem Contracts"))
         assertTrue(worksheet.contains("Evidence source and units"))
         assertTrue(worksheet.contains("What this does **not** prove"))
         assertTrue(worksheet.contains("not a grade, certification, code review, or proof of physical robot safety"))

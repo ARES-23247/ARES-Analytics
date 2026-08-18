@@ -931,7 +931,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 viewModel = importCenterViewModel,
                                 projectPath = currentConfig.projectPath.orEmpty(),
                                 onOpenHelp = {
-                                    requestedLessonId = "bring-in-run"
+                                    requestedLessonId = "compare-run-evidence"
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
                                 }
                             )

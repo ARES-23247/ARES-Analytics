@@ -276,7 +276,7 @@ class LearningProgressServiceTest {
         assertTrue(RunImportMissionCheckpointIds.RUN_SELECTED in progress.completedCheckpointIds)
         assertTrue(RunImportMissionCheckpointIds.SOURCE_EVIDENCE in progress.completedCheckpointIds)
         assertTrue(RunImportMissionCheckpointIds.EVIDENCE_DESCRIPTION !in progress.completedCheckpointIds)
-        assertEquals("bring-in-run", progress.activeLessonId)
+        assertEquals("compare-run-evidence", progress.activeLessonId)
     }
 
     @Test
@@ -374,7 +374,7 @@ class LearningProgressServiceTest {
         assertTrue("start-simulator" in service.progress.value.practicedLessonIds)
         assertTrue(SubsystemMissionCheckpointIds.RUNTIME_FLOW !in service.progress.value.checkpointReflections)
 
-        service.resetPath("first-mission")
+        service.resetPath("drivetrains-odometry")
         assertTrue("start-simulator" !in service.progress.value.practicedLessonIds)
     }
 
@@ -389,7 +389,7 @@ class LearningProgressServiceTest {
         service.setRubricRating("runtime-flow", LearningRubricRating.DEVELOPING)
         val output = File(directory, "record.md")
 
-        service.exportMentorReport(output, "robot-builder", "Mentor B")
+        service.exportMentorReport(output, "subsystems-architecture", "Mentor B")
 
         val report = output.readText()
         assertTrue(report.contains("Student A"))
@@ -419,7 +419,7 @@ class LearningProgressServiceTest {
         assertTrue(next.checkpointReflections.isEmpty())
         assertTrue(next.mentorNotes.isEmpty())
         assertTrue(next.rubricRatings.isEmpty())
-        assertEquals("first-mission", next.selectedPathId)
+        assertEquals("drivetrains-odometry", next.selectedPathId)
     }
 
     @Test
@@ -464,15 +464,15 @@ class LearningProgressServiceTest {
         val studentAId = service.classroom.value.activeLearnerId
         service.createAssignment(
             title = "Trace a safe mechanism",
-            pathId = "robot-builder",
+            pathId = "subsystems-architecture",
             lessonIds = listOf("safe-subsystem"),
             instructions = "Predict, observe, and explain the safety boundary.",
             dueLabel = "Session 2",
         )
         val assignment = service.classroom.value.learners.single().assignments.single()
         service.setAssignmentCompleted(assignment.assignmentId, true)
-        val firstSnapshot = service.saveLocalSnapshot("robot-builder", "Mentor")
-        val secondSnapshot = service.saveLocalSnapshot("robot-builder", "Mentor")
+        val firstSnapshot = service.saveLocalSnapshot("subsystems-architecture", "Mentor")
+        val secondSnapshot = service.saveLocalSnapshot("subsystems-architecture", "Mentor")
 
         assertTrue(firstSnapshot.file.isFile)
         assertTrue(secondSnapshot.file.isFile)

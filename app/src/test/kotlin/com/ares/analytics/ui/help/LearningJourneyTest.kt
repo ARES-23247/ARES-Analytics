@@ -278,7 +278,7 @@ class LearningJourneyTest {
 
     @Test
     fun `lesson prerequisites guide sequence without claiming certification`() {
-        val lesson = LearningCatalog.lesson("read-connection-state") ?: error("Missing lesson")
+        val lesson = LearningCatalog.lesson("drivebase-blueprint") ?: error("Missing lesson")
         val waiting = LearningJourneyEvaluator.lessonState(lesson, LearningProgress())
         assertEquals(LearningLessonStatus.RECOMMENDED_LATER, waiting.status)
         assertFalse(waiting.prerequisitesMet)
@@ -293,10 +293,10 @@ class LearningJourneyTest {
 
     @Test
     fun `recommended lesson follows practiced prerequisites`() {
-        val path = LearningCatalog.path("first-mission") ?: error("Missing path")
+        val path = LearningCatalog.path("drivetrains-odometry") ?: error("Missing path")
         assertEquals("start-simulator", LearningJourneyEvaluator.recommendedLesson(path, LearningProgress())?.id)
         assertEquals(
-            "read-connection-state",
+            "drivebase-blueprint",
             LearningJourneyEvaluator.recommendedLesson(
                 path,
                 LearningProgress(practicedLessonIds = setOf("start-simulator")),
@@ -311,26 +311,27 @@ class LearningJourneyTest {
     }
 
     @Test
-    fun `role paths lead a new student through prerequisites outside the selected path`() {
-        val builder = LearningCatalog.path("robot-builder") ?: error("Missing robot builder path")
+    fun `track paths lead a student through progressive milestones`() {
+        val track = LearningCatalog.path("drivetrains-odometry") ?: error("Missing drivetrains path")
 
         assertEquals(
             "start-simulator",
-            LearningJourneyEvaluator.recommendedLesson(builder, LearningProgress())?.id,
+            LearningJourneyEvaluator.recommendedLesson(track, LearningProgress())?.id,
         )
         assertEquals(
-            "read-connection-state",
+            "drivebase-blueprint",
             LearningJourneyEvaluator.recommendedLesson(
-                builder,
+                track,
                 LearningProgress(practicedLessonIds = setOf("start-simulator")),
             )?.id,
         )
         assertEquals(
-            "robot-studio-tour",
+            "drive-kinematics-lab",
             LearningJourneyEvaluator.recommendedLesson(
-                builder,
-                LearningProgress(practicedLessonIds = setOf("start-simulator", "read-connection-state")),
+                track,
+                LearningProgress(practicedLessonIds = setOf("start-simulator", "drivebase-blueprint")),
             )?.id,
         )
     }
 }
+
