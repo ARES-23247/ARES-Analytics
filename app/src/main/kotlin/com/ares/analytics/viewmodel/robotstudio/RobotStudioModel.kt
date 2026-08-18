@@ -260,10 +260,10 @@ internal fun evaluateRobotStudioStages(
         else -> RobotStudioAction.OPEN_HARDWARE_SETUP
     }
     val hardwareActionLabel = when {
-        evidence.drivebaseKind == null -> "Open Drivebase Builder"
-        evidence.hardwareReviewStatus == HardwareReviewStatus.NOT_REVIEWED && evidence.hardwareItemCount > 0 -> "Open Hardware Setup"
-        evidence.subsystemCount == 0 -> "Add Subsystems"
-        else -> "Open Hardware Setup"
+        evidence.drivebaseKind == null -> "Open Hardware Studio"
+        evidence.hardwareReviewStatus == HardwareReviewStatus.NOT_REVIEWED && evidence.hardwareItemCount > 0 -> "Review Hardware Port Map"
+        evidence.subsystemCount == 0 -> "Configure Mechanisms"
+        else -> "Open Hardware Studio"
     }
 
     return listOf(

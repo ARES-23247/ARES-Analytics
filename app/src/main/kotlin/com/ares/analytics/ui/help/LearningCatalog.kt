@@ -1352,6 +1352,7 @@ object LearningCatalog {
         NavigationTarget.PIT_DIAGNOSTICS to "pit-readiness",
         NavigationTarget.TUNING to "tuning-evidence",
         NavigationTarget.ROBOT_STUDIO to "robot-studio-tour",
+        NavigationTarget.HARDWARE_STUDIO to "review-hardware-addresses",
         NavigationTarget.PROJECT_IDENTITY to "robot-studio-tour",
         NavigationTarget.KDOC_VIEWER to "developer-reference",
     )

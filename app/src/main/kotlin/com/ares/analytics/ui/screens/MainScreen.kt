@@ -47,10 +47,8 @@ import com.ares.analytics.ui.components.dashboard.DashboardCommandBar
 import com.ares.analytics.ui.components.dashboard.DashboardMissionHeader
 import com.ares.analytics.ui.components.dashboard.DashboardMissionSnapshot
 import com.ares.analytics.ui.components.terminal.TerminalDrawer
-import com.ares.analytics.ui.help.LearningCatalog
-import com.ares.analytics.ui.components.hardware.HardwareSetupModal
-import com.ares.analytics.ui.components.project.ProjectIdentityModal
 import com.ares.analytics.ui.help.AcademyRuntimeSnapshot
+import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.*
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
@@ -447,8 +445,7 @@ fun MainScreen(services: ServiceRegistry) {
     val deployExecutionState by services.processManagerService.deployState.collectAsState()
     var deployDialogOpen by remember { mutableStateOf(false) }
     var deployAwaitingConfirmation by remember { mutableStateOf(false) }
-    var projectIdentityModalOpen by remember { mutableStateOf(false) }
-    var hardwareSetupModalOpen by remember { mutableStateOf(false) }
+    var hardwareStudioInitialTab by remember { mutableStateOf(HardwareStudioTab.DRIVETRAIN) }
     var targetSelection by remember { mutableStateOf(TargetSelection.LIVE_ROBOT) }
     var liveRobotIp by remember(currentConfig.nt4Host) {
         mutableStateOf(currentConfig.nt4Host ?: "192.168.43.1")
@@ -1036,19 +1033,21 @@ fun MainScreen(services: ServiceRegistry) {
                                 viewModel = robotStudioViewModel,
                                 onAction = { action ->
                                     when (action) {
-                                        RobotStudioAction.OPEN_PROJECT_IDENTITY -> {
-                                            projectIdentityViewModel.load(currentConfig)
-                                            projectIdentityModalOpen = true
+                                        RobotStudioAction.OPEN_PROJECT_IDENTITY ->
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PROJECT_IDENTITY))
+                                        RobotStudioAction.OPEN_DRIVEBASE -> {
+                                            hardwareStudioInitialTab = HardwareStudioTab.DRIVETRAIN
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.HARDWARE_STUDIO))
                                         }
-                                        RobotStudioAction.OPEN_DRIVEBASE ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
-                                        RobotStudioAction.OPEN_SUBSYSTEMS ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
+                                        RobotStudioAction.OPEN_SUBSYSTEMS -> {
+                                            hardwareStudioInitialTab = HardwareStudioTab.MECHANISMS
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.HARDWARE_STUDIO))
+                                        }
                                         RobotStudioAction.OPEN_SUPERSTRUCTURES ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUPERSTRUCTURE_STUDIO))
                                         RobotStudioAction.OPEN_HARDWARE_SETUP -> {
-                                            hardwareSetupViewModel.refresh()
-                                            hardwareSetupModalOpen = true
+                                            hardwareStudioInitialTab = HardwareStudioTab.PORT_MAP
+                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.HARDWARE_STUDIO))
                                         }
                                         RobotStudioAction.OPEN_CONTROLS ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS))
@@ -1091,22 +1090,16 @@ fun MainScreen(services: ServiceRegistry) {
                                 gamepad2State = gamepad2State,
                                 modifier = Modifier.fillMaxSize()
                             )
-                            NavigationTarget.SUBSYSTEM_GEN -> SubsystemGeneratorScreen(subsystemGeneratorViewModel)
                             NavigationTarget.SUPERSTRUCTURE_STUDIO -> SuperstructureStudioScreen(superstructureStudioViewModel)
-                            NavigationTarget.DRIVEBASE_BUILDER -> DrivebaseBuilderScreen(
-                                viewModel = drivebaseBuilderViewModel,
-                                onBackToStudio = {
-                                    robotStudioViewModel.refresh()
-                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ROBOT_STUDIO))
-                                },
-                            )
-                            NavigationTarget.HARDWARE_SETUP -> HardwareSetupScreen(
-                                viewModel = hardwareSetupViewModel,
-                                onOpenDrivebase = {
-                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
-                                },
-                                onOpenSubsystems = {
-                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
+                            NavigationTarget.HARDWARE_STUDIO, NavigationTarget.HARDWARE_SETUP, NavigationTarget.DRIVEBASE_BUILDER, NavigationTarget.SUBSYSTEM_GEN -> HardwareStudioScreen(
+                                drivebaseViewModel = drivebaseBuilderViewModel,
+                                subsystemViewModel = subsystemGeneratorViewModel,
+                                hardwareSetupViewModel = hardwareSetupViewModel,
+                                initialTab = when (activeNav) {
+                                    NavigationTarget.DRIVEBASE_BUILDER -> HardwareStudioTab.DRIVETRAIN
+                                    NavigationTarget.SUBSYSTEM_GEN -> HardwareStudioTab.MECHANISMS
+                                    NavigationTarget.HARDWARE_SETUP -> HardwareStudioTab.PORT_MAP
+                                    else -> hardwareStudioInitialTab
                                 },
                                 onBackToStudio = {
                                     robotStudioViewModel.refresh()
@@ -1268,33 +1261,6 @@ fun MainScreen(services: ServiceRegistry) {
                 onCancel = { services.processManagerService.killActiveBuild() },
             )
         }
-
-        ProjectIdentityModal(
-            isOpen = projectIdentityModalOpen,
-            viewModel = projectIdentityViewModel,
-            config = currentConfig,
-            onDismiss = {
-                projectIdentityModalOpen = false
-                robotStudioViewModel.refresh()
-            },
-        )
-
-        HardwareSetupModal(
-            isOpen = hardwareSetupModalOpen,
-            viewModel = hardwareSetupViewModel,
-            onDismiss = {
-                hardwareSetupModalOpen = false
-                robotStudioViewModel.refresh()
-            },
-            onOpenDrivebase = {
-                hardwareSetupModalOpen = false
-                mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
-            },
-            onOpenSubsystems = {
-                hardwareSetupModalOpen = false
-                mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
-            },
-        )
 
         // ── Update Notification Banner ──────────────────────────────────────────
         val currentUpdateState = updateState

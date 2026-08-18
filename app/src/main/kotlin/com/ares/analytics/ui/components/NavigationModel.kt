@@ -37,6 +37,7 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     CONTROLS("TeleOp Controls", Icons.Default.SportsEsports),
     TUNING("Tuning", Icons.Default.Tune),
     ROBOT_STUDIO("Robot Studio", Icons.Default.PrecisionManufacturing),
+    HARDWARE_STUDIO("Hardware Studio", Icons.Default.Build),
     PROJECT_IDENTITY("Project Identity", Icons.Default.Person),
     HARDWARE_SETUP("Hardware Setup", Icons.Default.Build),
     DRIVEBASE_BUILDER("Drivebase Builder", Icons.Default.Settings),
@@ -65,7 +66,7 @@ val developerToolTargets = setOf(
 
 fun NavigationTarget.section(): NavigationSection? = when (this) {
     NavigationTarget.DASHBOARD -> NavigationSection.DASHBOARD
-    NavigationTarget.ROBOT_STUDIO, NavigationTarget.PROJECT_IDENTITY, NavigationTarget.HARDWARE_SETUP, NavigationTarget.PIT_DIAGNOSTICS, NavigationTarget.CONTROLS,
+    NavigationTarget.ROBOT_STUDIO, NavigationTarget.HARDWARE_STUDIO, NavigationTarget.PROJECT_IDENTITY, NavigationTarget.HARDWARE_SETUP, NavigationTarget.PIT_DIAGNOSTICS, NavigationTarget.CONTROLS,
     NavigationTarget.TUNING, NavigationTarget.DRIVEBASE_BUILDER, NavigationTarget.SUBSYSTEM_GEN, NavigationTarget.SUPERSTRUCTURE_STUDIO -> NavigationSection.ROBOT
     NavigationTarget.PATH_PLANNER, NavigationTarget.FIELD_EDITOR -> NavigationSection.AUTONOMOUS
     NavigationTarget.GUIDED_RUN_ANALYSIS, NavigationTarget.RUN_HISTORY -> NavigationSection.ANALYSIS
@@ -88,14 +89,11 @@ fun NavigationSection.targets(): List<NavigationTarget> = when (this) {
     NavigationSection.DASHBOARD -> listOf(NavigationTarget.DASHBOARD)
     NavigationSection.ROBOT -> listOf(
         NavigationTarget.ROBOT_STUDIO,
-        NavigationTarget.PROJECT_IDENTITY,
-        NavigationTarget.HARDWARE_SETUP,
-        NavigationTarget.SUBSYSTEM_GEN,
+        NavigationTarget.HARDWARE_STUDIO,
         NavigationTarget.SUPERSTRUCTURE_STUDIO,
-        NavigationTarget.DRIVEBASE_BUILDER,
         NavigationTarget.CONTROLS,
-        NavigationTarget.PIT_DIAGNOSTICS,
         NavigationTarget.TUNING,
+        NavigationTarget.PIT_DIAGNOSTICS,
     )
     NavigationSection.AUTONOMOUS -> listOf(NavigationTarget.PATH_PLANNER, NavigationTarget.FIELD_EDITOR)
     NavigationSection.ANALYSIS -> listOf(NavigationTarget.GUIDED_RUN_ANALYSIS, NavigationTarget.RUN_HISTORY)
@@ -133,6 +131,7 @@ fun NavigationTarget.searchTerms(): Set<String> = when (this) {
     NavigationTarget.CONTROLS -> setOf("gamepad", "button", "driver", "operator", "binding")
     NavigationTarget.TUNING -> setOf("pid", "sysid", "feedforward", "calibration")
     NavigationTarget.ROBOT_STUDIO -> setOf("create robot", "build robot", "robot workflow", "project readiness", "start robot")
+    NavigationTarget.HARDWARE_STUDIO -> setOf("hardware", "drivetrain", "subsystems", "mechanisms", "port map", "wiring", "localization", "kinematics")
     NavigationTarget.PROJECT_IDENTITY -> setOf("project metadata", "project id", "robot dimensions", "field dimensions", "coordinate convention")
     NavigationTarget.HARDWARE_SETUP -> setOf("hardware map", "can id", "wiring", "addresses", "direction", "physical robot", "deployment review")
     NavigationTarget.DRIVEBASE_BUILDER -> setOf("drivetrain", "mecanum", "swerve", "differential", "ctre", "tuner constants", "wheelbase", "track width", "localization")
