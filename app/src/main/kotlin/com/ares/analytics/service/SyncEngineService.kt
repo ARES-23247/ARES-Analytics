@@ -792,13 +792,17 @@ class SyncEngineService(
                        "thresholdDirection":"ABOVE","zoneMinimum":null,"zoneMaximum":null,
                        "zoneHysteresis":0.0,"chordWindowSeconds":0.075},
              "event":"PRESS|RELEASE|HELD|HOLD|REPEAT|VALUE|ZONE_ENTER|ZONE_ACTIVE|ZONE_EXIT",
-             "target":{"kind":"ACTION|ROUTINE|CANCEL_ROUTINE","key":"an allowed action key or routine id",
+             "target":{"kind":"ACTION|ROUTINE|CANCEL_ROUTINE|DRIVE","key":"an allowed action key or routine id",
                        "arguments":{},"routinePolicy":"IGNORE_IF_RUNNING"},
              "timing":{"pressDebounceSeconds":0.0,"releaseDebounceSeconds":0.0,"holdAfterSeconds":null,
                        "repeatAfterSeconds":null,"repeatEverySeconds":null,"cooldownSeconds":0.0,
                        "maximumActiveSeconds":null},
              "analogPolicy":null,"priority":0,"suppressConstituentBindings":false,"enabled":true}
             "target" is always a JSON object with "kind" and "key" fields — never a plain string.
+            Drivetrain control uses DRIVE targets: {"kind":"DRIVE","key":"vx"} with key one of
+            vx (forward), vy (strafe), or omega (rotate); the source must be AXIS_VALUE with event
+            VALUE, an analogPolicy is required, and each axis may be bound at most once. When the
+            student asks how a stick drives the robot, propose the three DRIVE bindings.
             Example binding:
             {"bindingId":"b-intake-run","displayName":"Run intake","source":{"kind":"BUTTON","controllerSlot":"operator","controlIds":["<an allowed control id>"]},"event":"PRESS","target":{"kind":"ACTION","key":"<an allowed action key>","arguments":{}}}
 

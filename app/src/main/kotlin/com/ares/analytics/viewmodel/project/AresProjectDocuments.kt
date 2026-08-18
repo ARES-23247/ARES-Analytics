@@ -2,6 +2,7 @@ package com.ares.analytics.viewmodel.project
 
 import com.areslib.catalog.CapabilityCatalogDocument
 import com.areslib.controls.ControlSchemeDocument
+import com.areslib.controls.DriveAxisKeys
 import com.areslib.controls.ControlValidationContext
 import com.areslib.controls.ControlValidationSeverity
 import com.areslib.controls.ControlTargetKind
@@ -187,6 +188,9 @@ class AresProjectDocuments(
                             if (binding.target.key !in routineIds) {
                                 crossReferenceErrors += "Unknown routine '${binding.target.key}'"
                             }
+                        ControlTargetKind.DRIVE -> if (binding.target.key !in DriveAxisKeys.ALL) {
+                            crossReferenceErrors += "Unknown drivetrain axis '${binding.target.key}'"
+                        }
                     }
                 }
                 val validationErrors = validateControlScheme(scheme, context)
