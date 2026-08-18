@@ -6,8 +6,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPlacement
+import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.ares.analytics.di.ServiceRegistry
@@ -102,8 +105,10 @@ private fun launchDesktopApplication() {
 
     application {
         val windowState = rememberWindowState(
+            placement = WindowPlacement.Floating,
+            position = WindowPosition.Aligned(Alignment.Center),
             width = 1440.dp,
-            height = 900.dp
+            height = 900.dp,
         )
         val services = remember { ServiceRegistry() }
         val shutdownScope = rememberCoroutineScope()

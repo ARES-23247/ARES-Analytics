@@ -171,7 +171,7 @@ listOf(
 compose.desktop {
     application {
         mainClass = "com.ares.analytics.MainKt"
-        jvmArgs("-Dorg.jetbrains.skiko.renderApi=OPENGL", "-Dorg.jetbrains.skiko.renderApi.fallback=SOFTWARE")
+        jvmArgs("-Dorg.jetbrains.skiko.renderApi=DIRECT3D", "-Dorg.jetbrains.skiko.renderApi.fallback=SOFTWARE")
 
         // The desktop app intentionally carries reflective and platform-specific libraries (DuckDB,
         // Ktor, JNA, and LWJGL). ProGuard cannot prove those optional entry points and aborts release
