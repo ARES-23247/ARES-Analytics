@@ -2,6 +2,9 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.testing.Test
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 // Single source of truth for the application version. Consumed both by the native
 // distribution packaging below and by the generated BuildConfig (see generateBuildConfig).
@@ -151,6 +154,73 @@ val nestedAresRepositoryUri = providers.gradleProperty("aresRepository").map { c
 tasks.withType<JavaExec>().configureEach {
     nestedAresRepositoryUri.orNull?.let { uri ->
         systemProperty("ares.repository.uri", uri)
+    }
+}
+
+// Compose's development run task normally points the child JVM at mutable build/classes
+// directories. If another agent compiles or cleans while the app is open, a lazily loaded
+// screen can disappear from that running classpath and crash minutes later. Snapshot every
+// directory and project-owned runtime artifact into a unique OS temp directory immediately
+// before launch. External dependency jars in Gradle's immutable cache remain in place.
+var activeDesktopRunSnapshot: File? = null
+val cleanupDesktopRunSnapshot = tasks.register("cleanupDesktopRunSnapshot") {
+    doLast {
+        activeDesktopRunSnapshot?.let { snapshot ->
+            val tempRoot = File(System.getProperty("java.io.tmpdir")).canonicalFile
+            val canonicalSnapshot = snapshot.canonicalFile
+            if (canonicalSnapshot.parentFile == tempRoot && canonicalSnapshot.name.startsWith("ares-analytics-run-")) {
+                canonicalSnapshot.deleteRecursively()
+            }
+        }
+        activeDesktopRunSnapshot = null
+    }
+}
+
+tasks.withType<JavaExec>().configureEach {
+    if (name != "run") return@configureEach
+    finalizedBy(cleanupDesktopRunSnapshot)
+    doFirst {
+        val projectRoot = rootProject.projectDir.toPath().toAbsolutePath().normalize()
+        val snapshotRoot = Files.createTempDirectory("ares-analytics-run-").toFile()
+        val isolatedClasspath = classpath.files.mapIndexed { index, entry ->
+            val entryPath = entry.toPath().toAbsolutePath().normalize()
+            val isMutableProjectArtifact = entryPath.startsWith(projectRoot)
+            if (entry.isDirectory || isMutableProjectArtifact) {
+                val destination = snapshotRoot.resolve("classpath-$index-${entry.name}")
+                if (entry.isDirectory) {
+                    project.copy {
+                        from(entry)
+                        into(destination)
+                    }
+                } else {
+                    destination.parentFile.mkdirs()
+                    Files.copy(entryPath, destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+                destination
+            } else {
+                entry
+            }
+        }
+
+        activeDesktopRunSnapshot = snapshotRoot
+        setClasspath(project.files(isolatedClasspath))
+
+        // Compose passes its application resources as a separate system property instead of a
+        // classpath entry. Isolate that directory too, otherwise :app:clean can remove lazily
+        // requested icons/resources even though all JVM classes were snapshotted.
+        systemProperties["compose.application.resources.dir"]?.toString()?.let { configuredPath ->
+            val resourceDirectory = project.file(configuredPath)
+            if (resourceDirectory.isDirectory) {
+                val isolatedResources = snapshotRoot.resolve("compose-application-resources")
+                project.copy {
+                    from(resourceDirectory)
+                    into(isolatedResources)
+                }
+                systemProperty("compose.application.resources.dir", isolatedResources.absolutePath)
+            }
+        }
+
+        println("[ARES-Analytics] Isolated desktop runtime classpath at ${snapshotRoot.absolutePath}")
     }
 }
 

@@ -25,26 +25,81 @@ private const val SHUTDOWN_TIMEOUT_MS = 15_000L
 private const val WINDOW_HEALTH_CHECK_MS = 1_000
 private const val WINDOW_RECOVERY_FAILURE_LIMIT = 3
 
+private fun ownedWindowsTopLevelWindow(
+    window: java.awt.Window,
+): com.sun.jna.platform.win32.WinDef.HWND? = runCatching {
+    if (!window.isDisplayable || !window.isVisible || !window.isShowing) return@runCatching null
+
+    val user32 = com.sun.jna.platform.win32.User32.INSTANCE
+    val peerWindow = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Native.getWindowPointer(window))
+    val topLevelWindow = user32.GetAncestor(peerWindow, com.sun.jna.platform.win32.WinUser.GA_ROOT)
+        ?: peerWindow
+    val ownerPid = com.sun.jna.ptr.IntByReference()
+    user32.GetWindowThreadProcessId(topLevelWindow, ownerPid)
+    val currentPid = com.sun.jna.platform.win32.Kernel32.INSTANCE.GetCurrentProcessId()
+
+    topLevelWindow.takeIf {
+        ownerPid.value == currentPid && user32.IsWindow(it) && user32.IsWindowVisible(it)
+    }
+}.getOrNull()
+
+private fun focusWindowsNativeWindow(hwnd: com.sun.jna.platform.win32.WinDef.HWND) {
+    val user32 = com.sun.jna.platform.win32.User32.INSTANCE
+    val foregroundWindow = user32.GetForegroundWindow()
+    val currentThreadId = com.sun.jna.platform.win32.WinDef.DWORD(
+        com.sun.jna.platform.win32.Kernel32.INSTANCE.GetCurrentThreadId().toLong()
+    )
+    val foregroundThreadId = foregroundWindow?.let {
+        com.sun.jna.platform.win32.WinDef.DWORD(user32.GetWindowThreadProcessId(it, null).toLong())
+    }
+    val attachedToForeground = foregroundThreadId != null &&
+        foregroundThreadId.toLong() != 0L &&
+        foregroundThreadId != currentThreadId &&
+        user32.AttachThreadInput(currentThreadId, foregroundThreadId, true)
+
+    try {
+        val flags = com.sun.jna.platform.win32.WinUser.SWP_NOMOVE or
+            com.sun.jna.platform.win32.WinUser.SWP_NOSIZE or
+            com.sun.jna.platform.win32.WinUser.SWP_SHOWWINDOW
+        val topmost = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Pointer.createConstant(-1))
+        val notTopmost = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Pointer.createConstant(-2))
+
+        user32.ShowWindow(hwnd, com.sun.jna.platform.win32.WinUser.SW_RESTORE)
+        // Windows may reject SetForegroundWindow for a background process. A short topmost
+        // promotion followed by immediate demotion makes a newly launched/recovered window
+        // visible without leaving it permanently above other applications.
+        user32.SetWindowPos(hwnd, topmost, 0, 0, 0, 0, flags)
+        user32.SetWindowPos(hwnd, notTopmost, 0, 0, 0, 0, flags)
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+    } finally {
+        if (attachedToForeground) {
+            user32.AttachThreadInput(currentThreadId, foregroundThreadId, false)
+        }
+    }
+}
+
 private fun hasUsableNativeWindow(window: java.awt.Window): Boolean {
     if (!window.isDisplayable || !window.isVisible || !window.isShowing) return false
     if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) return true
-
-    return runCatching {
-        val hwnd = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Native.getWindowPointer(window))
-        com.sun.jna.platform.win32.User32.INSTANCE.IsWindow(hwnd) &&
-            com.sun.jna.platform.win32.User32.INSTANCE.IsWindowVisible(hwnd)
-    }.getOrDefault(false)
+    return ownedWindowsTopLevelWindow(window) != null
 }
 
 private fun presentDesktopWindow(window: java.awt.Window): Boolean = runCatching {
     if (!window.isDisplayable || !window.isVisible) window.isVisible = true
 
     if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
-        val hwnd = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Native.getWindowPointer(window))
-        val user32 = com.sun.jna.platform.win32.User32.INSTANCE
-        user32.ShowWindow(hwnd, com.sun.jna.platform.win32.WinUser.SW_RESTORE)
-        user32.BringWindowToTop(hwnd)
-        user32.SetForegroundWindow(hwnd)
+        var hwnd = ownedWindowsTopLevelWindow(window)
+        if (hwnd == null && window.isDisplayable) {
+            // AWT can retain isShowing=true after its native HWND has disappeared. Toggling
+            // visibility asks the existing peer to recreate/show its top-level window.
+            window.isVisible = false
+            window.isVisible = true
+            window.validate()
+            hwnd = ownedWindowsTopLevelWindow(window)
+        }
+        requireNotNull(hwnd) { "AWT has no visible top-level window owned by this process" }
+        focusWindowsNativeWindow(hwnd)
     }
 
     window.toFront()
