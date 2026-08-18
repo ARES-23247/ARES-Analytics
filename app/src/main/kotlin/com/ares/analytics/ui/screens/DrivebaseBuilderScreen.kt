@@ -43,7 +43,11 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 @Composable
-fun DrivebaseBuilderScreen(viewModel: DrivebaseBuilderViewModel, onBackToStudio: () -> Unit) {
+fun DrivebaseBuilderScreen(
+    viewModel: DrivebaseBuilderViewModel,
+    onContinueToSubsystems: (() -> Unit)? = null,
+    onBackToStudio: () -> Unit,
+) {
     val state by viewModel.state.collectAsState()
     var showSpecSummaryModal by remember { mutableStateOf(false) }
     var showAiAssistantDrawer by remember { mutableStateOf(false) }
@@ -104,7 +108,7 @@ fun DrivebaseBuilderScreen(viewModel: DrivebaseBuilderViewModel, onBackToStudio:
                         DrivebaseBuilderStep.LOCALIZATION -> LocalizationStep(state, viewModel)
                         DrivebaseBuilderStep.SAFETY -> SafetyStep(state, viewModel)
                         DrivebaseBuilderStep.LABS -> LabsStep(state, viewModel)
-                        DrivebaseBuilderStep.REVIEW -> ReviewStep(state, viewModel, onBackToStudio)
+                        DrivebaseBuilderStep.REVIEW -> ReviewStep(state, viewModel, onContinueToSubsystems, onBackToStudio)
                     }
                 }
                 IssueRail(state, Modifier.width(260.dp).fillMaxHeight())
@@ -611,7 +615,12 @@ private fun DirectionDiagram(headingDegrees: Double, result: DriveLabResult, mod
 }
 
 @Composable
-private fun ReviewStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel, onBackToStudio: () -> Unit) {
+private fun ReviewStep(
+    state: DrivebaseBuilderState,
+    viewModel: DrivebaseBuilderViewModel,
+    onContinueToSubsystems: (() -> Unit)? = null,
+    onBackToStudio: () -> Unit,
+) {
     SectionHeading("7 · Review & save", "Only the canonical .ares/drivetrains document changes. Generated plumbing/source generation is a later explicit project action.")
     val review = state.saveReview
     val noCodeRunnable = state.draft.kind.runtimeSupport(state.league) == DrivebaseRuntimeSupport.NO_CODE_RUNNABLE
@@ -621,8 +630,22 @@ private fun ReviewStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilder
             Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) }, enabled = noCodeRunnable) { Text(if (noCodeRunnable) "Create reviewed diff" else "Code required before save") }
         } else {
             StatusBanner("Saved · The canonical drivebase already matches this form.", AresGreen)
-            Button(onClick = onBackToStudio, colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) {
-                Text("Continue to Robot Studio")
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (onContinueToSubsystems != null) {
+                    Button(
+                        onClick = onContinueToSubsystems,
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                    ) {
+                        Text("Next: Mechanism Subsystems →")
+                    }
+                    OutlinedButton(onClick = onBackToStudio) {
+                        Text("Return to Robot Studio")
+                    }
+                } else {
+                    Button(onClick = onBackToStudio, colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) {
+                        Text("Continue to Robot Studio")
+                    }
+                }
             }
         }
         if (!noCodeRunnable) Text("This builder will not claim an architecture is runnable when the selected ${state.league.name} season shell has no matching adapter.", color = AresGold, fontSize = 10.sp)

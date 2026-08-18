@@ -112,7 +112,7 @@ fun HardwareSetupScreen(
                 }
             }
             item {
-                ReviewChecklist(state, viewModel)
+                ReviewChecklist(state, viewModel, onBackToStudio)
             }
         }
     }
@@ -211,10 +211,10 @@ private fun SourceActions(onOpenDrivebase: () -> Unit, onOpenSubsystems: () -> U
     ) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Change a name, address, direction, or safety setting", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-            Text("Use the owning builder so there is still one canonical source of truth.", color = AresTextSecondary, fontSize = 12.sp)
+            Text("Switch directly to the Drivetrain or Subsystems tab to edit hardware definitions.", color = AresTextSecondary, fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onOpenDrivebase) { Text("Open Drivebase Builder") }
-                OutlinedButton(onClick = onOpenSubsystems) { Text("Open Subsystem Builder") }
+                OutlinedButton(onClick = onOpenDrivebase) { Text("← Edit Drivetrain") }
+                OutlinedButton(onClick = onOpenSubsystems) { Text("← Edit Subsystems") }
             }
         }
     }
@@ -245,7 +245,11 @@ private fun HardwareItemCard(item: HardwareInventoryItem) {
 }
 
 @Composable
-private fun ReviewChecklist(state: HardwareSetupState, viewModel: HardwareSetupViewModel) {
+private fun ReviewChecklist(
+    state: HardwareSetupState,
+    viewModel: HardwareSetupViewModel,
+    onBackToStudio: () -> Unit,
+) {
     Card(
         colors = CardDefaults.cardColors(containerColor = AresSurface),
         border = BorderStroke(1.dp, AresBorder),
@@ -268,16 +272,26 @@ private fun ReviewChecklist(state: HardwareSetupState, viewModel: HardwareSetupV
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Button(
-                onClick = viewModel::saveReview,
-                enabled = state.canSaveReview,
-                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-            ) {
-                if (state.saving) {
-                    CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp, color = AresOnAccent)
-                    Spacer(Modifier.width(7.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    onClick = viewModel::saveReview,
+                    enabled = state.canSaveReview,
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                ) {
+                    if (state.saving) {
+                        CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp, color = AresOnAccent)
+                        Spacer(Modifier.width(7.dp))
+                    }
+                    Text(if (state.saving) "Recording review…" else "Record reviewed mapping", fontWeight = FontWeight.Bold)
                 }
-                Text(if (state.saving) "Recording review…" else "Record reviewed mapping", fontWeight = FontWeight.Bold)
+                if (state.snapshot?.reviewStatus == HardwareReviewStatus.CURRENT) {
+                    Button(
+                        onClick = onBackToStudio,
+                        colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent),
+                    ) {
+                        Text("Complete Hardware & Return to Studio →")
+                    }
+                }
             }
         }
     }

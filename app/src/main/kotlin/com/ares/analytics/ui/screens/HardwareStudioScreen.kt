@@ -186,12 +186,15 @@ fun HardwareStudioScreen(
                 HardwareStudioTab.DRIVETRAIN -> {
                     DrivebaseBuilderScreen(
                         viewModel = drivebaseViewModel,
+                        onContinueToSubsystems = { activeTab = HardwareStudioTab.MECHANISMS },
                         onBackToStudio = onBackToStudio,
                     )
                 }
                 HardwareStudioTab.MECHANISMS -> {
                     SubsystemGeneratorScreen(
                         viewModel = subsystemViewModel,
+                        onContinueToPortMap = { activeTab = HardwareStudioTab.PORT_MAP },
+                        onBackToDrivetrain = { activeTab = HardwareStudioTab.DRIVETRAIN },
                     )
                 }
                 HardwareStudioTab.PORT_MAP -> {

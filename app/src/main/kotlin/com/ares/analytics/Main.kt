@@ -14,7 +14,6 @@ import androidx.compose.ui.window.rememberWindowState
 import com.ares.analytics.di.ServiceRegistry
 import com.ares.analytics.ui.theme.AresTheme
 import com.ares.analytics.ui.screens.MainScreen
-import com.ares.analytics.ui.theme.rememberAresLogoPainter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -23,6 +22,37 @@ import kotlin.system.exitProcess
 
 /** Bounded window for graceful service disposal before the shutdown watchdog forces exit. */
 private const val SHUTDOWN_TIMEOUT_MS = 15_000L
+private const val WINDOW_HEALTH_CHECK_MS = 1_000
+private const val WINDOW_RECOVERY_FAILURE_LIMIT = 3
+
+private fun hasUsableNativeWindow(window: java.awt.Window): Boolean {
+    if (!window.isDisplayable || !window.isVisible || !window.isShowing) return false
+    if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) return true
+
+    return runCatching {
+        val hwnd = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Native.getWindowPointer(window))
+        com.sun.jna.platform.win32.User32.INSTANCE.IsWindow(hwnd) &&
+            com.sun.jna.platform.win32.User32.INSTANCE.IsWindowVisible(hwnd)
+    }.getOrDefault(false)
+}
+
+private fun presentDesktopWindow(window: java.awt.Window): Boolean = runCatching {
+    if (!window.isDisplayable || !window.isVisible) window.isVisible = true
+
+    if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
+        val hwnd = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Native.getWindowPointer(window))
+        val user32 = com.sun.jna.platform.win32.User32.INSTANCE
+        user32.ShowWindow(hwnd, com.sun.jna.platform.win32.WinUser.SW_RESTORE)
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+    }
+
+    window.toFront()
+    window.requestFocus()
+    hasUsableNativeWindow(window)
+}.onFailure {
+    System.err.println("[ARES-Analytics] Desktop window presentation failed: ${it.message}")
+}.getOrDefault(false)
 
 /**
  * Last-resort exit guarantee: [androidx.compose.ui.window.ApplicationScope.exitApplication]
@@ -185,22 +215,53 @@ private fun launchDesktopApplication() {
                 window.addWindowListener(lifecycleListener)
                 window.addComponentListener(visibilityListener)
 
+                var consecutiveRecoveryFailures = 0
+                val windowHealthTimer = javax.swing.Timer(WINDOW_HEALTH_CHECK_MS) {
+                    if (shutdownStarted.get()) {
+                        (it.source as javax.swing.Timer).stop()
+                    } else if (!hasUsableNativeWindow(window)) {
+                        consecutiveRecoveryFailures++
+                        System.err.println(
+                            "[ARES-Analytics] Native desktop window is missing; " +
+                                "recovery attempt $consecutiveRecoveryFailures/$WINDOW_RECOVERY_FAILURE_LIMIT."
+                        )
+                        if (presentDesktopWindow(window)) {
+                            consecutiveRecoveryFailures = 0
+                            println(
+                                "[ARES-Analytics] Native desktop window recovered: " +
+                                    "size=${window.size}, location=${window.location}, showing=${window.isShowing}"
+                            )
+                        } else if (consecutiveRecoveryFailures >= WINDOW_RECOVERY_FAILURE_LIMIT) {
+                            System.err.println(
+                                "[ARES-Analytics] Native desktop window could not be recovered; " +
+                                    "terminating so the next launch can acquire app.lock."
+                            )
+                            exitProcess(1)
+                        }
+                    } else {
+                        consecutiveRecoveryFailures = 0
+                    }
+                }.apply {
+                    initialDelay = WINDOW_HEALTH_CHECK_MS
+                    isRepeats = true
+                }
+
                 // Window() creates the native peer asynchronously. Present it on the next AWT
                 // event instead of racing peer creation from the initial composition pass.
                 java.awt.EventQueue.invokeLater {
-                    if (!window.isDisplayable) {
+                    if (!presentDesktopWindow(window)) {
                         System.err.println(
-                            "[ARES-Analytics] Desktop window peer was disposed before presentation."
+                            "[ARES-Analytics] Desktop window was not usable after initial presentation; " +
+                                "the native recovery watchdog is active."
                         )
                     } else {
-                        if (!window.isVisible) window.isVisible = true
-                        window.toFront()
-                        window.requestFocus()
                         println(
                             "[ARES-Analytics] Desktop window presented: " +
-                                "size=${window.size}, location=${window.location}, showing=${window.isShowing}"
+                                "size=${window.size}, location=${window.location}, " +
+                                "showing=${window.isShowing}, nativeVisible=true"
                         )
                     }
+                    windowHealthTimer.start()
                 }
 
                 onDispose {
@@ -213,6 +274,7 @@ private fun launchDesktopApplication() {
                     window.removeComponentListener(visibilityListener)
                     window.removeWindowListener(lifecycleListener)
                     window.removeWindowFocusListener(listener)
+                    windowHealthTimer.stop()
                     if (!shutdownWasRequested) {
                         System.err.println(
                             "[ARES-Analytics] Desktop window disappeared without a shutdown request; " +

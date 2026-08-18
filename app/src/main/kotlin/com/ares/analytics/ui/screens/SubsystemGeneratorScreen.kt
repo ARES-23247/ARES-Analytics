@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -128,7 +129,11 @@ import com.areslib.tuning.TuningValue
 
 /** Visual editor for project-backed subsystem DSL documents and their generated Kotlin. */
 @Composable
-fun SubsystemGeneratorScreen(viewModel: SubsystemGeneratorViewModel) {
+fun SubsystemGeneratorScreen(
+    viewModel: SubsystemGeneratorViewModel,
+    onContinueToPortMap: (() -> Unit)? = null,
+    onBackToDrivetrain: (() -> Unit)? = null,
+) {
     val state by viewModel.state.collectAsState()
     var workspaceTab by remember { mutableStateOf(0) }
     var confirmReload by remember { mutableStateOf(false) }
@@ -145,6 +150,8 @@ fun SubsystemGeneratorScreen(viewModel: SubsystemGeneratorViewModel) {
                 },
                 onOpenSpecSummary = { showSpecSummaryModal = true },
                 onOpenAiAssistant = { showAiAssistantDrawer = true },
+                onContinueToPortMap = onContinueToPortMap,
+                onBackToDrivetrain = onBackToDrivetrain,
             )
             state.status?.let { StatusBanner(it, false) }
             state.generationMessage?.let {
@@ -359,6 +366,8 @@ private fun SubsystemHeader(
     onReload: () -> Unit,
     onOpenSpecSummary: () -> Unit,
     onOpenAiAssistant: () -> Unit,
+    onContinueToPortMap: (() -> Unit)? = null,
+    onBackToDrivetrain: (() -> Unit)? = null,
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Column {
@@ -378,6 +387,13 @@ private fun SubsystemHeader(
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (onBackToDrivetrain != null) {
+                OutlinedButton(onClick = onBackToDrivetrain) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Drivetrain")
+                }
+            }
             OutlinedButton(
                 onClick = onOpenAiAssistant,
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = AresCyan),
@@ -425,6 +441,14 @@ private fun SubsystemHeader(
                     },
                     color = AresOnAccent,
                 )
+            }
+            if (onContinueToPortMap != null) {
+                Button(
+                    onClick = onContinueToPortMap,
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                ) {
+                    Text("Next: Port Map →")
+                }
             }
         }
     }
