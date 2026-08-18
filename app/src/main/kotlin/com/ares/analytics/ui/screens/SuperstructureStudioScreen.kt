@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,6 +40,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ares.analytics.ui.components.core.AresInspectorDrawer
+import com.ares.analytics.ui.components.core.AresSpecRow
+import com.ares.analytics.ui.components.core.AresSpecSection
+import com.ares.analytics.ui.components.core.AresSpecSummaryModal
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.superstructure.*
 import com.areslib.subsystem.InterlockComparison
@@ -50,6 +56,7 @@ import kotlin.math.*
 fun SuperstructureStudioScreen(viewModel: SuperstructureStudioViewModel) {
     val state by viewModel.state.collectAsState()
     var createOpen by remember { mutableStateOf(false) }
+    var showSpecSummaryModal by remember { mutableStateOf(false) }
 
     if (createOpen) CreateSuperstructureDialog(
         onDismiss = { createOpen = false },
@@ -86,55 +93,82 @@ fun SuperstructureStudioScreen(viewModel: SuperstructureStudioViewModel) {
         )
     }
 
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        StudioHeader(state, viewModel, onCreate = { createOpen = true })
-        if (state.loading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(color = AresCyan)
-                    Text("Loading subsystems, actions, and coordinators before editing…", color = AresTextSecondary)
-                }
-            }
-            return@Column
-        }
-        state.error?.let { StudioBanner("Action needed", it, AresError) }
-        if (state.status.isNotBlank()) StudioBanner("Saved state", state.status, AresGreen)
-        if (state.generatedSubsystems.isEmpty()) {
-            StudioBanner(
-                "Generated mechanisms required",
-                "This runtime-safe coordinator can currently reference generated subsystem descriptors only. Create a generated mechanism first; hand-authored Kotlin needs an explicit typed adapter and is never guessed.",
-                AresGold,
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            StudioHeader(
+                state = state,
+                viewModel = viewModel,
+                onCreate = { createOpen = true },
+                onOpenSpecSummary = { showSpecSummaryModal = true },
             )
-        }
-
-        val draft = state.draft
-        if (draft == null) {
-            EmptyStudio(onCreate = { createOpen = true })
-        } else {
-            Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                StudioStepRail(state.step, viewModel, Modifier.width(190.dp).fillMaxHeight())
-                Column(
-                    Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    when (state.step) {
-                        SuperstructureStudioStep.OVERVIEW -> OverviewStep(state, draft, viewModel)
-                        SuperstructureStudioStep.STATE_PRESETS -> StatePresetsStep(state, draft, viewModel)
-                        SuperstructureStudioStep.TRANSITIONS -> TransitionsStep(state, draft, viewModel)
-                        SuperstructureStudioStep.INTERLOCKS -> InterlocksStep(state, draft, viewModel)
-                        SuperstructureStudioStep.LOOKUP_TABLES -> LookupTablesStep(draft, viewModel)
-                        SuperstructureStudioStep.SIMULATION -> SimulationStep(state, draft, viewModel)
-                        SuperstructureStudioStep.REVIEW -> ReviewStep(state, draft, viewModel)
+            if (state.loading) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(color = AresCyan)
+                        Text("Loading subsystems, actions, and coordinators before editing…", color = AresTextSecondary)
                     }
                 }
-                ValidationRail(state, Modifier.width(280.dp).fillMaxHeight())
+                return@Box
             }
+            state.error?.let { StudioBanner("Action needed", it, AresError) }
+            if (state.status.isNotBlank()) StudioBanner("Saved state", state.status, AresGreen)
+            if (state.generatedSubsystems.isEmpty()) {
+                StudioBanner(
+                    "Generated mechanisms required",
+                    "This runtime-safe coordinator can currently reference generated subsystem descriptors only. Create a generated mechanism first; hand-authored Kotlin needs an explicit typed adapter and is never guessed.",
+                    AresGold,
+                )
+            }
+
+            val draft = state.draft
+            if (draft == null) {
+                EmptyStudio(onCreate = { createOpen = true })
+            } else {
+                Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    StudioStepRail(state.step, viewModel, Modifier.width(190.dp).fillMaxHeight())
+                    Column(
+                        Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        when (state.step) {
+                            SuperstructureStudioStep.OVERVIEW -> OverviewStep(state, draft, viewModel)
+                            SuperstructureStudioStep.STATE_PRESETS -> StatePresetsStep(state, draft, viewModel)
+                            SuperstructureStudioStep.TRANSITIONS -> TransitionsStep(state, draft, viewModel)
+                            SuperstructureStudioStep.INTERLOCKS -> InterlocksStep(state, draft, viewModel)
+                            SuperstructureStudioStep.LOOKUP_TABLES -> LookupTablesStep(draft, viewModel)
+                            SuperstructureStudioStep.SIMULATION -> SimulationStep(state, draft, viewModel)
+                            SuperstructureStudioStep.REVIEW -> ReviewStep(state, draft, viewModel)
+                        }
+                    }
+                    ValidationRail(state, Modifier.width(280.dp).fillMaxHeight())
+                }
+            }
+        }
+
+        val currentDraft = state.draft
+        if (currentDraft != null) {
+            AresSpecSummaryModal(
+                isOpen = showSpecSummaryModal,
+                title = "${currentDraft.displayName} Posture Matrix",
+                subtitle = "Coordinator · .ares/superstructures/${currentDraft.superstructureId}.aressuperstructure",
+                sections = generateSuperstructureSpecSections(
+                    state = state,
+                    draft = currentDraft,
+                    onSelectState = { stateId ->
+                        showSpecSummaryModal = false
+                        viewModel.selectState(stateId)
+                        viewModel.selectStep(SuperstructureStudioStep.STATE_PRESETS)
+                    },
+                ),
+                onDismiss = { showSpecSummaryModal = false },
+                rawMarkdownGenerator = { generateSuperstructureMarkdown(state, currentDraft) },
+            )
         }
     }
 }
 
 @Composable
-private fun StudioHeader(state: SuperstructureStudioState, viewModel: SuperstructureStudioViewModel, onCreate: () -> Unit) {
+private fun StudioHeader(state: SuperstructureStudioState, viewModel: SuperstructureStudioViewModel, onCreate: () -> Unit, onOpenSpecSummary: () -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text("Superstructure Studio", color = AresTextPrimary, fontSize = 23.sp, fontWeight = FontWeight.Bold)
@@ -147,6 +181,9 @@ private fun StudioHeader(state: SuperstructureStudioState, viewModel: Superstruc
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(onClick = onOpenSpecSummary, enabled = state.draft != null) {
+                Icon(Icons.Default.TableChart, contentDescription = null, Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text("Posture Matrix")
+            }
             if (state.documents.isNotEmpty()) {
                 StudioDropdown(
                     label = state.documents.singleOrNull { it.superstructureId == state.selectedId }?.displayName ?: "Choose coordinator",
@@ -1283,3 +1320,118 @@ private fun neutralFor(option: SuperstructureFieldOption): SuperstructureSubsyst
     SubsystemValueType.BOOLEAN -> SuperstructureSubsystemTarget(option.reference, constantBooleanValue = option.field.defaultBoolean ?: false)
     SubsystemValueType.STRING -> SuperstructureSubsystemTarget(option.reference, constantStringValue = option.field.defaultText.orEmpty())
 }
+
+private fun generateSuperstructureSpecSections(
+    state: SuperstructureStudioState,
+    draft: SuperstructureDocument,
+    onSelectState: (String) -> Unit,
+): List<AresSpecSection> = listOf(
+    AresSpecSection(
+        title = "Postures & Setpoints",
+        rows = draft.states.map { st ->
+            val role = when (st.stateId) {
+                draft.initialStateId -> "INITIAL"
+                draft.faultStateId -> "FAULT"
+                draft.disabledStateId -> "DISABLED"
+                else -> "POSTURE"
+            }
+            AresSpecRow(
+                id = st.stateId,
+                primaryLabel = st.displayName.ifBlank { st.stateId },
+                secondaryLabel = "${st.stateId} · ${st.subsystemTargets.size} targets",
+                badge = role,
+                columns = listOfNotNull(
+                    if (st.description.isNotBlank()) "Description" to st.description else null,
+                    st.timeoutSeconds?.let { "Timeout" to "${it}s → ${st.timeoutTargetStateId ?: draft.faultStateId}" },
+                    if (st.subsystemTargets.isNotEmpty()) {
+                        "Targets" to st.subsystemTargets.joinToString("; ") { target ->
+                            val label = state.targetFields.firstOrNull { it.reference == target.target }?.label ?: target.target.fieldUid
+                            "$label = ${target.constantDoubleValue ?: target.constantBooleanValue ?: target.constantStringValue ?: target.lutId ?: "-"}"
+                        }
+                    } else null,
+                    if (st.onEntryActionKeys.isNotEmpty()) "Entry Actions" to st.onEntryActionKeys.joinToString(", ") else null,
+                    if (st.onExitActionKeys.isNotEmpty()) "Exit Actions" to st.onExitActionKeys.joinToString(", ") else null,
+                ),
+                onEditClick = { onSelectState(st.stateId) },
+            )
+        },
+    ),
+    AresSpecSection(
+        title = "Safe Transitions & Edges",
+        rows = draft.transitions.map { tr ->
+            AresSpecRow(
+                id = tr.transitionId,
+                primaryLabel = "${tr.sourceStateId} → ${tr.targetStateId}",
+                secondaryLabel = "Priority ${tr.priority}${tr.actionKey?.let { " · Action $it" }.orEmpty()}",
+                badge = tr.triggerKind.name,
+                columns = listOfNotNull(
+                    "Source Posture" to tr.sourceStateId,
+                    "Target Posture" to tr.targetStateId,
+                    "Trigger Kind" to tr.triggerKind.name,
+                    tr.actionKey?.let { "Action Key" to it },
+                    if (tr.guards.isNotEmpty()) "Guards" to "${tr.guards.size} safety guard(s)" else null,
+                    tr.timeoutSeconds?.let { "Timeout" to "${it}s (fallback to ${tr.timeoutTargetStateId ?: draft.faultStateId})" },
+                ),
+            )
+        },
+    ),
+    AresSpecSection(
+        title = "Mechanism Interlocks",
+        rows = draft.interlocks.map { rule ->
+            val primaryLabel = state.targetFields.firstOrNull { it.reference == rule.primary }?.label ?: rule.primary.fieldUid
+            val constrainedLabel = state.targetFields.firstOrNull { it.reference == rule.constrained }?.label ?: rule.constrained.fieldUid
+            AresSpecRow(
+                id = rule.ruleId,
+                primaryLabel = rule.description?.takeIf { it.isNotBlank() } ?: rule.ruleId,
+                secondaryLabel = "When $primaryLabel ${rule.conditionComparison.name} ${rule.conditionThreshold}",
+                badge = "INTERLOCK",
+                columns = listOfNotNull(
+                    "Primary Condition" to "$primaryLabel ${rule.conditionComparison.name} ${rule.conditionThreshold}",
+                    "Constrained Field" to constrainedLabel,
+                    if (rule.clampMinimum != null || rule.clampMaximum != null) "Clamped Range" to "[${rule.clampMinimum ?: "-"} .. ${rule.clampMaximum ?: "-"}]" else null,
+                    if (!rule.description.isNullOrBlank()) "Description" to rule.description else null,
+                ),
+            )
+        },
+    ),
+)
+
+private fun generateSuperstructureMarkdown(state: SuperstructureStudioState, draft: SuperstructureDocument): String = buildString {
+    appendLine("# Superstructure Specification: ${draft.displayName}")
+    appendLine("ID: ${draft.superstructureId}")
+    appendLine("Initial State: ${draft.initialStateId}")
+    appendLine("Fault State: ${draft.faultStateId}")
+    appendLine("Disabled Policy: ${draft.disabledPolicy.name}")
+    appendLine()
+    appendLine("## Postures (${draft.states.size})")
+    appendLine("| Posture | State ID | Role | Targets |")
+    appendLine("|---|---|---|---|")
+    draft.states.forEach { st ->
+        val role = when (st.stateId) {
+            draft.initialStateId -> "INITIAL"
+            draft.faultStateId -> "FAULT"
+            draft.disabledStateId -> "DISABLED"
+            else -> "NORMAL"
+        }
+        val targetsStr = st.subsystemTargets.joinToString("; ") { target ->
+            val label = state.targetFields.firstOrNull { it.reference == target.target }?.label ?: target.target.fieldUid
+            "$label=${target.constantDoubleValue ?: target.constantBooleanValue ?: target.constantStringValue ?: target.lutId ?: "-"}"
+        }
+        appendLine("| ${st.displayName} | ${st.stateId} | $role | $targetsStr |")
+    }
+    appendLine()
+    appendLine("## Safe Transitions (${draft.transitions.size})")
+    appendLine("| Transition | Source | Target | Trigger | Action Key | Priority |")
+    appendLine("|---|---|---|---|---|---|")
+    draft.transitions.forEach { tr ->
+        appendLine("| ${tr.transitionId} | ${tr.sourceStateId} | ${tr.targetStateId} | ${tr.triggerKind.name} | ${tr.actionKey ?: "-"} | ${tr.priority} |")
+    }
+    appendLine()
+    appendLine("## Interlocks (${draft.interlocks.size})")
+    appendLine("| Rule ID | Condition | Clamp | Description |")
+    appendLine("|---|---|---|---|")
+    draft.interlocks.forEach { rule ->
+        appendLine("| ${rule.ruleId} | ${rule.primary.fieldUid} ${rule.conditionComparison.name} ${rule.conditionThreshold} | [${rule.clampMinimum ?: "-"}..${rule.clampMaximum ?: "-"}] | ${rule.description} |")
+    }
+}
+

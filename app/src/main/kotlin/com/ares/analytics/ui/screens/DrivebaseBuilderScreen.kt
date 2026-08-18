@@ -13,6 +13,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -29,6 +32,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.drivebase.*
 import com.ares.analytics.shared.League
+import com.ares.analytics.ui.components.core.AresInspectorDrawer
+import com.ares.analytics.ui.components.core.AresSpecRow
+import com.ares.analytics.ui.components.core.AresSpecSection
+import com.ares.analytics.ui.components.core.AresSpecSummaryModal
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.drivebase.*
 import kotlin.math.PI
@@ -38,115 +45,227 @@ import kotlin.math.sin
 @Composable
 fun DrivebaseBuilderScreen(viewModel: DrivebaseBuilderViewModel, onBackToStudio: () -> Unit) {
     val state by viewModel.state.collectAsState()
-    state.aiProposal?.let { review ->
-        AlertDialog(
-            onDismissRequest = viewModel::dismissAiProposal,
-            title = { Text("Review Gemini's drivebase proposal") },
-            text = {
-                Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(review.proposal.summary, color = AresTextPrimary, fontWeight = FontWeight.Bold)
-                    review.proposal.explanations.forEach { Text("• $it", color = AresTextSecondary, fontSize = 11.sp) }
-                    HorizontalDivider(color = AresBorder)
-                    review.changes.forEach { change ->
-                        Text(change.path, color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-                        Text("Before: ${change.before}", color = AresTextSecondary, fontSize = 10.sp)
-                        Text("After: ${change.after}", color = AresTextPrimary, fontSize = 10.sp)
+    var showSpecSummaryModal by remember { mutableStateOf(false) }
+    var showAiAssistantDrawer by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                Column {
+                    Text("Drivebase Builder", color = AresTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text("Describe how the robot moves, localizes, stops safely, and is calibrated.", color = AresTextSecondary, fontSize = 12.sp)
+                    Text("${state.league.name} PROJECT · ${state.draft.kind.runtimeSupportLabel(state.league)}", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text("Drafts never command hardware. Saving requires a content-hash-bound reviewed diff and creates a history backup.", color = AresGold, fontSize = 11.sp)
+                    Text("PROJECT · ${state.projectPath}", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Text("CANONICAL · .ares/drivetrains/${state.draft.documentId}.aresdrivetrain", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Text("GENERATED · robot module build/generated/ares/drivebase (never hand-edit)", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedButton(
+                        onClick = { showAiAssistantDrawer = true },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AresCyan),
+                        border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.6f)),
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(16.dp), tint = AresCyan)
+                        Spacer(Modifier.width(5.dp))
+                        Text("AI Assistant")
                     }
-                    review.issues.forEach { issue ->
-                        Text("${issue.path}: ${issue.message}", color = if (issue.severity == DrivebaseIssueSeverity.ERROR) AresError else AresGold, fontSize = 10.sp)
+                    OutlinedButton(onClick = { showSpecSummaryModal = true }) {
+                        Icon(Icons.Default.TableChart, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text("Spec Summary")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(state.advanced, { viewModel.onIntent(DrivebaseBuilderIntent.SetAdvanced(it)) }, enabled = !state.loading)
+                        Text(" Advanced", color = AresTextPrimary, fontSize = 11.sp)
+                    }
+                    OutlinedButton(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.Reload) }, enabled = !state.loading) {
+                        Icon(Icons.Default.Refresh, "Reload drivebase document", Modifier.size(16.dp)); Text(" Reload")
+                    }
+                    Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) }, enabled = !state.loading && state.dirty, colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) {
+                        Text("Review changes")
                     }
                 }
-            },
-            confirmButton = { Button(viewModel::applyAiProposal, enabled = review.canApply) { Text("Apply to form") } },
-            dismissButton = { OutlinedButton(viewModel::dismissAiProposal) { Text("Keep current form") } },
-        )
-    }
-    if (state.pendingDiscardAction != null) {
-        AlertDialog(
-            onDismissRequest = { viewModel.onIntent(DrivebaseBuilderIntent.CancelDiscard) },
-            title = { Text("Discard unsaved drivebase changes?") },
-            text = { Text("This replaces the current draft. Saved project files are not changed until you review and confirm a save.") },
-            confirmButton = { Button({ viewModel.onIntent(DrivebaseBuilderIntent.ConfirmDiscard) }) { Text("Discard draft") } },
-            dismissButton = { OutlinedButton({ viewModel.onIntent(DrivebaseBuilderIntent.CancelDiscard) }) { Text("Keep editing") } },
-        )
-    }
-    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            Column {
-                Text("Drivebase Builder", color = AresTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Text("Describe how the robot moves, localizes, stops safely, and is calibrated.", color = AresTextSecondary, fontSize = 12.sp)
-                Text("${state.league.name} PROJECT · ${state.draft.kind.runtimeSupportLabel(state.league)}", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Text("Drafts never command hardware. Saving requires a content-hash-bound reviewed diff and creates a history backup.", color = AresGold, fontSize = 11.sp)
-                Text("PROJECT · ${state.projectPath}", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                Text("CANONICAL · .ares/drivetrains/${state.draft.documentId}.aresdrivetrain", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                Text("GENERATED · robot module build/generated/ares/drivebase (never hand-edit)", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Switch(state.advanced, { viewModel.onIntent(DrivebaseBuilderIntent.SetAdvanced(it)) }, enabled = !state.loading)
-                    Text(" Advanced", color = AresTextPrimary, fontSize = 11.sp)
+            state.error?.let { StatusBanner(it, AresError) }
+            if (state.status.isNotBlank()) StatusBanner(state.status, AresGreen)
+            if (state.draft.kind.runtimeSupport(state.league) == DrivebaseRuntimeSupport.CODE_REQUIRED) {
+                StatusBanner("CODE REQUIRED · You can inspect and learn from this architecture, but ARES cannot save it as a runnable no-code ${state.league.name} drivebase until a team-written adapter and lifecycle wiring exist.", AresGold)
+            }
+            if (state.loading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator(); Text("Loading the project drivebase before editing…", color = AresTextSecondary) }
+            } else Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                StepRail(state.step, viewModel, Modifier.width(190.dp).fillMaxHeight())
+                Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when (state.step) {
+                        DrivebaseBuilderStep.DRIVE_TYPE -> DriveTypeStep(state, viewModel)
+                        DrivebaseBuilderStep.HARDWARE -> HardwareStep(state, viewModel)
+                        DrivebaseBuilderStep.GEOMETRY -> GeometryStep(state, viewModel)
+                        DrivebaseBuilderStep.LOCALIZATION -> LocalizationStep(state, viewModel)
+                        DrivebaseBuilderStep.SAFETY -> SafetyStep(state, viewModel)
+                        DrivebaseBuilderStep.LABS -> LabsStep(state, viewModel)
+                        DrivebaseBuilderStep.REVIEW -> ReviewStep(state, viewModel, onBackToStudio)
+                    }
                 }
-                OutlinedButton(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.Reload) }, enabled = !state.loading) {
-                    Icon(Icons.Default.Refresh, "Reload drivebase document", Modifier.size(16.dp)); Text(" Reload")
-                }
-                Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) }, enabled = !state.loading && state.dirty, colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) {
-                    Text("Review changes")
+                IssueRail(state, Modifier.width(260.dp).fillMaxHeight())
+            }
+        }
+
+        // Slide-out Hardware Device Inspector Drawer
+        val selected = state.draft.hardware.firstOrNull { it.id == state.selectedHardwareId }
+        if (selected != null) {
+            AresInspectorDrawer(
+                isOpen = true,
+                title = selected.displayName,
+                categoryBadge = selected.role.name,
+                stableId = selected.id,
+                icon = Icons.Default.Settings,
+                onDismiss = { viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(null)) },
+                onDone = { viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(null)) },
+                onDelete = if (state.advanced || state.draft.kind in setOf(DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM)) {
+                    { viewModel.onIntent(DrivebaseBuilderIntent.RemoveHardware(selected.id)) }
+                } else null,
+                deleteButtonText = "Delete Hardware",
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    HardwareEditor(
+                        device = selected,
+                        hardware = state.draft.hardware,
+                        advanced = state.advanced || state.draft.kind in setOf(DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM),
+                        onUpdate = { viewModel.onIntent(DrivebaseBuilderIntent.UpdateHardware(it)) },
+                        onRemove = { viewModel.onIntent(DrivebaseBuilderIntent.RemoveHardware(selected.id)) },
+                    )
                 }
             }
         }
-        DrivebaseAiAssistantCard(state, viewModel)
-        state.error?.let { StatusBanner(it, AresError) }
-        if (state.status.isNotBlank()) StatusBanner(state.status, AresGreen)
-        if (state.draft.kind.runtimeSupport(state.league) == DrivebaseRuntimeSupport.CODE_REQUIRED) {
-            StatusBanner("CODE REQUIRED · You can inspect and learn from this architecture, but ARES cannot save it as a runnable no-code ${state.league.name} drivebase until a team-written adapter and lifecycle wiring exist.", AresGold)
+
+        // At-a-Glance Drivetrain Spec Summary Modal
+        AresSpecSummaryModal(
+            isOpen = showSpecSummaryModal,
+            title = "${state.draft.displayName} Drivetrain Spec",
+            subtitle = "${state.league.name} · .ares/drivetrains/${state.draft.documentId}.aresdrivetrain",
+            sections = generateDrivebaseSpecSections(
+                state = state,
+                onSelectHardware = { id ->
+                    showSpecSummaryModal = false
+                    viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(id))
+                },
+            ),
+            onDismiss = { showSpecSummaryModal = false },
+            rawMarkdownGenerator = { generateDrivebaseMarkdown(state) },
+        )
+
+        // Slide-out AI Drivebase Assistant Drawer
+        AresInspectorDrawer(
+            isOpen = showAiAssistantDrawer,
+            title = "AI Drivebase Assistant",
+            categoryBadge = "GEMINI",
+            icon = Icons.Default.AutoAwesome,
+            onDismiss = { showAiAssistantDrawer = false },
+            width = 520.dp,
+            doneButtonText = "Close",
+            onDone = { showAiAssistantDrawer = false },
+        ) {
+            DrivebaseAiAssistantContent(state, viewModel)
         }
-        if (state.loading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator(); Text("Loading the project drivebase before editing…", color = AresTextSecondary) }
-        } else Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-            StepRail(state.step, viewModel, Modifier.width(190.dp).fillMaxHeight())
-            Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                when (state.step) {
-                    DrivebaseBuilderStep.DRIVE_TYPE -> DriveTypeStep(state, viewModel)
-                    DrivebaseBuilderStep.HARDWARE -> HardwareStep(state, viewModel)
-                    DrivebaseBuilderStep.GEOMETRY -> GeometryStep(state, viewModel)
-                    DrivebaseBuilderStep.LOCALIZATION -> LocalizationStep(state, viewModel)
-                    DrivebaseBuilderStep.SAFETY -> SafetyStep(state, viewModel)
-                    DrivebaseBuilderStep.LABS -> LabsStep(state, viewModel)
-                    DrivebaseBuilderStep.REVIEW -> ReviewStep(state, viewModel, onBackToStudio)
-                }
-            }
-            IssueRail(state, Modifier.width(260.dp).fillMaxHeight())
+
+        state.aiProposal?.let { review ->
+            AlertDialog(
+                onDismissRequest = viewModel::dismissAiProposal,
+                title = { Text("Review Gemini's drivebase proposal") },
+                text = {
+                    Column(Modifier.heightIn(max = 560.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(review.proposal.summary, color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                        review.proposal.explanations.forEach { Text("• $it", color = AresTextSecondary, fontSize = 11.sp) }
+                        HorizontalDivider(color = AresBorder)
+                        review.changes.forEach { change ->
+                            Text(change.path, color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            Text("Before: ${change.before}", color = AresTextSecondary, fontSize = 10.sp)
+                            Text("After: ${change.after}", color = AresTextPrimary, fontSize = 10.sp)
+                        }
+                        review.issues.forEach { issue ->
+                            Text("${issue.path}: ${issue.message}", color = if (issue.severity == DrivebaseIssueSeverity.ERROR) AresError else AresGold, fontSize = 10.sp)
+                        }
+                    }
+                },
+                confirmButton = { Button(viewModel::applyAiProposal, enabled = review.canApply) { Text("Apply to form") } },
+                dismissButton = { OutlinedButton(viewModel::dismissAiProposal) { Text("Keep current form") } },
+            )
+        }
+        if (state.pendingDiscardAction != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.onIntent(DrivebaseBuilderIntent.CancelDiscard) },
+                title = { Text("Discard unsaved drivebase changes?") },
+                text = { Text("This replaces the current draft. Saved project files are not changed until you review and confirm a save.") },
+                confirmButton = { Button({ viewModel.onIntent(DrivebaseBuilderIntent.ConfirmDiscard) }) { Text("Discard draft") } },
+                dismissButton = { OutlinedButton({ viewModel.onIntent(DrivebaseBuilderIntent.CancelDiscard) }) { Text("Keep editing") } },
+            )
         }
     }
 }
 
 @Composable
-private fun DrivebaseAiAssistantCard(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+private fun DrivebaseAiAssistantContent(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
     var request by remember(state.draft.documentId) { mutableStateOf("") }
-    Card(colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated), border = BorderStroke(1.dp, AresBorder)) {
-        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AresCyan)
-                Text("Help me design this drivebase", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+    Column(
+        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            color = AresSurface,
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Describe your robot's requirements in plain language.",
+                    color = AresTextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                )
+                Text(
+                    "Gemini will generate a structured proposal matching your league rules (${state.league.name}). It suggests reviewed form edits only; it cannot save or edit Kotlin/Java source directly.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                )
             }
-            Text("Describe the robot in ordinary language. Gemini proposes reviewed form edits only; it cannot save, generate, edit CTRE source, or command hardware.", color = AresTextSecondary, fontSize = 11.sp)
-            OutlinedTextField(
-                value = request,
-                onValueChange = { request = it.take(4_000) },
-                label = { Text("What should this drivebase do?") },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !state.loading && !state.aiProposalInProgress,
-                minLines = 2,
+        }
+
+        OutlinedTextField(
+            value = request,
+            onValueChange = { request = it.take(4_000) },
+            label = { Text("What should this drivebase do?") },
+            placeholder = { Text("e.g. 4-motor Mecanum drive with GoBilda 19.2:1 motors and Pinpoint odometry computer...") },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !state.loading && !state.aiProposalInProgress,
+            minLines = 4,
+        )
+
+        Button(
+            onClick = { viewModel.requestAiProposal(request) },
+            enabled = request.isNotBlank() && !state.loading && !state.aiProposalInProgress,
+            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(if (state.aiProposalInProgress) "Preparing proposal…" else "Ask Gemini for a form proposal")
+        }
+
+        state.aiProposalError?.let { Text(it, color = AresError, fontSize = 11.sp) }
+
+        Surface(
+            color = AresBackground.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(6.dp),
+        ) {
+            Text(
+                "Privacy: Only your prompt and current drivebase configuration are sent. Your source files, telemetry logs, and credentials are never transmitted.",
+                color = AresTextTertiary,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                modifier = Modifier.padding(10.dp),
             )
-            Button(
-                onClick = { viewModel.requestAiProposal(request) },
-                enabled = request.isNotBlank() && !state.loading && !state.aiProposalInProgress,
-                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-            ) {
-                Text(if (state.aiProposalInProgress) "Preparing proposal…" else "Ask Gemini for a form proposal")
-            }
-            state.aiProposalError?.let { Text(it, color = AresError, fontSize = 11.sp) }
-            Text("Configure Gemini in Profile → Gemini assistance. Your source files, robot logs, and credentials are not sent.", color = AresTextTertiary, fontSize = 10.sp)
         }
     }
 }
@@ -224,32 +343,21 @@ private fun CtreImportCard(state: DrivebaseBuilderState, viewModel: DrivebaseBui
 
 @Composable
 private fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
-    SectionHeading("2 · Identify hardware", "Select a device on the top-down chassis, then enter the name or CAN information used by robot code.")
+    SectionHeading("2 · Identify hardware", "Select any device on the top-down chassis to edit its properties in the slide-out inspector.")
     if (state.league == League.FTC && state.draft.kind == DrivebaseKind.FTC_MECANUM) {
         FtcHubNameGuide(state.draft)
     }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        ChassisDiagram(state, viewModel, Modifier.weight(1f).height(380.dp))
-        val selected = state.draft.hardware.firstOrNull { it.id == state.selectedHardwareId } ?: state.draft.hardware.firstOrNull()
-        Column(Modifier.weight(1f).driveCard(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            if (selected == null) Text("Choose a drive type with hardware, or use Advanced/custom authoring.", color = AresTextSecondary)
-            else HardwareEditor(
-                selected, state.draft.hardware, state.advanced || state.draft.kind in setOf(DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM),
-                { viewModel.onIntent(DrivebaseBuilderIntent.UpdateHardware(it)) },
-                { viewModel.onIntent(DrivebaseBuilderIntent.RemoveHardware(selected.id)) },
-            )
-            if (state.advanced || state.draft.kind in setOf(DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM)) {
-                var addMenu by remember { mutableStateOf(false) }
-                Box {
-                    OutlinedButton({ addMenu = true }, Modifier.fillMaxWidth()) { Text("+ Add motor, sensor, or follower") }
-                    DropdownMenu(addMenu, { addMenu = false }) {
-                        DriveHardwareRole.entries.forEach { role ->
-                            DropdownMenuItem({ Text(role.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)) }, {
-                                addMenu = false
-                                viewModel.onIntent(DrivebaseBuilderIntent.AddHardware(role))
-                            })
-                        }
-                    }
+    ChassisDiagram(state, viewModel, Modifier.fillMaxWidth().height(380.dp))
+    if (state.advanced || state.draft.kind in setOf(DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM)) {
+        var addMenu by remember { mutableStateOf(false) }
+        Box {
+            OutlinedButton({ addMenu = true }, Modifier.fillMaxWidth()) { Text("+ Add motor, sensor, or follower") }
+            DropdownMenu(addMenu, { addMenu = false }) {
+                DriveHardwareRole.entries.forEach { role ->
+                    DropdownMenuItem({ Text(role.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)) }, {
+                        addMenu = false
+                        viewModel.onIntent(DrivebaseBuilderIntent.AddHardware(role))
+                    })
                 }
             }
         }
@@ -589,3 +697,128 @@ private fun LabSlider(label: String, value: Double, help: String, onValue: (Doub
 
 @Composable private fun StatusBanner(message: String, color: Color) { Text(message, color = color, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().background(color.copy(alpha = .08f), RoundedCornerShape(6.dp)).padding(8.dp)) }
 private fun Modifier.driveCard() = background(AresSurfaceElevated, RoundedCornerShape(10.dp)).border(1.dp, AresBorder, RoundedCornerShape(10.dp)).padding(12.dp)
+
+private fun generateDrivebaseSpecSections(
+    state: DrivebaseBuilderState,
+    onSelectHardware: (String) -> Unit,
+): List<AresSpecSection> {
+    val draft = state.draft
+    return listOf(
+        AresSpecSection(
+            title = "Hardware Map & Actuators",
+            rows = draft.hardware.map { dev ->
+                AresSpecRow(
+                    id = dev.id,
+                    primaryLabel = dev.displayName,
+                    secondaryLabel = "${dev.hardwareName} · ${if (dev.inverted) "INVERTED" else "NORMAL"}",
+                    badge = dev.role.name,
+                    columns = listOfNotNull(
+                        "Role" to dev.role.name.lowercase().replace('_', ' '),
+                        "Hardware Name" to dev.hardwareName,
+                        dev.canId?.let { "CAN ID" to "$it (${dev.canBus ?: "default"})" },
+                        dev.leaderId?.let { "Leader" to it },
+                        "Direction" to if (dev.inverted) "Inverted" else "Normal",
+                    ),
+                    onEditClick = { onSelectHardware(dev.id) },
+                )
+            },
+        ),
+        AresSpecSection(
+            title = "Chassis Geometry",
+            rows = listOf(
+                AresSpecRow(
+                    id = "geom_trackwidth",
+                    primaryLabel = "Trackwidth",
+                    secondaryLabel = "${draft.geometry.trackWidthMeters} m",
+                    badge = "Dimensions",
+                    columns = listOf("Trackwidth" to "${draft.geometry.trackWidthMeters} m (${(draft.geometry.trackWidthMeters * 39.3701).toInt()} in)"),
+                ),
+                AresSpecRow(
+                    id = "geom_wheelbase",
+                    primaryLabel = "Wheelbase",
+                    secondaryLabel = "${draft.geometry.wheelBaseMeters} m",
+                    badge = "Dimensions",
+                    columns = listOf("Wheelbase" to "${draft.geometry.wheelBaseMeters} m (${(draft.geometry.wheelBaseMeters * 39.3701).toInt()} in)"),
+                ),
+                AresSpecRow(
+                    id = "geom_wheel_radius",
+                    primaryLabel = "Wheel Radius",
+                    secondaryLabel = "${draft.geometry.wheelRadiusMeters} m",
+                    badge = "Kinematics",
+                    columns = listOf(
+                        "Wheel Radius" to "${draft.geometry.wheelRadiusMeters} m",
+                    ),
+                ),
+            ),
+        ),
+        AresSpecSection(
+            title = "Localization & Odometry",
+            rows = draft.localization.map { kind ->
+                AresSpecRow(
+                    id = "loc_${kind.name}",
+                    primaryLabel = kind.name.replace('_', ' '),
+                    secondaryLabel = "Enabled",
+                    badge = kind.name,
+                    columns = listOf(
+                        "Type" to kind.name,
+                        "Status" to "Active in build",
+                    ),
+                )
+            },
+        ),
+        AresSpecSection(
+            title = "Kinematic & Safety Limits",
+            rows = listOf(
+                AresSpecRow(
+                    id = "limits_speed",
+                    primaryLabel = "Velocity Limits",
+                    secondaryLabel = "${draft.safety.maxLinearSpeedMetersPerSecond} m/s",
+                    badge = "Limits",
+                    columns = listOf(
+                        "Max Linear Speed" to "${draft.safety.maxLinearSpeedMetersPerSecond} m/s",
+                        "Max Angular Speed" to "${draft.safety.maxAngularSpeedRadiansPerSecond} rad/s",
+                    ),
+                ),
+                AresSpecRow(
+                    id = "limits_safety",
+                    primaryLabel = "Safety Policies",
+                    secondaryLabel = "Freshness: ${draft.safety.feedbackFreshnessTimeoutMs}ms",
+                    badge = "Safety",
+                    columns = listOf(
+                        "Safe Neutral" to if (draft.safety.safeNeutralRequired) "Required" else "Optional",
+                        "Config Health" to if (draft.safety.configurationHealthRequired) "Required" else "Optional",
+                        "Current Monitoring" to if (draft.safety.currentMonitoringRequired) "Required" else "Optional",
+                    ),
+                ),
+            ),
+        ),
+    )
+}
+
+private fun generateDrivebaseMarkdown(state: DrivebaseBuilderState): String = buildString {
+    val draft = state.draft
+    appendLine("# Drivebase Specification: ${draft.displayName}")
+    appendLine("League: ${state.league.name}")
+    appendLine("Kind: ${draft.kind.name}")
+    appendLine("Document ID: ${draft.documentId}")
+    appendLine()
+    appendLine("## Geometry & Kinematics")
+    appendLine("- Trackwidth: ${draft.geometry.trackWidthMeters} m")
+    appendLine("- Wheelbase: ${draft.geometry.wheelBaseMeters} m")
+    appendLine("- Wheel Radius: ${draft.geometry.wheelRadiusMeters} m")
+    appendLine("- Max Linear Speed: ${draft.safety.maxLinearSpeedMetersPerSecond} m/s")
+    appendLine("- Max Angular Speed: ${draft.safety.maxAngularSpeedRadiansPerSecond} rad/s")
+    appendLine()
+    appendLine("## Hardware (${draft.hardware.size} devices)")
+    appendLine("| Name | Hardware Map / CAN | Role | Inverted |")
+    appendLine("|---|---|---|---|")
+    draft.hardware.forEach { dev ->
+        appendLine("| ${dev.displayName} | ${dev.hardwareName}${dev.canId?.let { " (CAN $it)" }.orEmpty()} | ${dev.role.name} | ${if (dev.inverted) "INVERTED" else "NORMAL"} |")
+    }
+    appendLine()
+    appendLine("## Localization (${draft.localization.size} providers)")
+    draft.localization.forEach { kind ->
+        appendLine("- ${kind.name}")
+    }
+}
+

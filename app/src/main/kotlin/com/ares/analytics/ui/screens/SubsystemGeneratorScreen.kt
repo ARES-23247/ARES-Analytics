@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -53,6 +55,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.ui.draw.clip
+import com.ares.analytics.ui.components.core.AresInspectorDrawer
+import com.ares.analytics.ui.components.core.AresSpecRow
+import com.ares.analytics.ui.components.core.AresSpecSection
+import com.ares.analytics.ui.components.core.AresSpecSummaryModal
+import com.areslib.subsystem.SubsystemDocument
 import com.areslib.subsystem.SubsystemTemplate
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -125,59 +132,171 @@ fun SubsystemGeneratorScreen(viewModel: SubsystemGeneratorViewModel) {
     val state by viewModel.state.collectAsState()
     var workspaceTab by remember { mutableStateOf(0) }
     var confirmReload by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        SubsystemHeader(state, viewModel) {
-            if (state.dirty) confirmReload = true else viewModel.reload()
-        }
-        state.status?.let { StatusBanner(it, false) }
-        state.generationMessage?.let {
-            StatusBanner(it, state.generationPhase == AresGenerationPhase.FAILED)
-        }
-        val loadError = state.loadError
-        if (loadError != null) {
-            StatusBanner(loadError, true)
-            return@Column
-        }
-        val draft = state.draft?.document ?: return@Column
-        BuilderProgress(state, viewModel)
-        BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-            if (maxWidth < 980.dp) {
-                Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    BuilderNavigation(state, viewModel, Modifier.fillMaxWidth().weight(.75f))
-                    BuilderEditor(state, viewModel, workspaceTab, { workspaceTab = it }, Modifier.fillMaxWidth().weight(1.5f))
-                }
-            } else {
-                Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    BuilderNavigation(state, viewModel, Modifier.weight(.8f).fillMaxHeight())
-                    BuilderEditor(state, viewModel, workspaceTab, { workspaceTab = it }, Modifier.weight(2.2f).fillMaxHeight())
+    var showSpecSummaryModal by remember { mutableStateOf(false) }
+    var showAiAssistantDrawer by remember { mutableStateOf(false) }
+
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SubsystemHeader(
+                state = state,
+                viewModel = viewModel,
+                onReload = {
+                    if (state.dirty) confirmReload = true else viewModel.reload()
+                },
+                onOpenSpecSummary = { showSpecSummaryModal = true },
+                onOpenAiAssistant = { showAiAssistantDrawer = true },
+            )
+            state.status?.let { StatusBanner(it, false) }
+            state.generationMessage?.let {
+                StatusBanner(it, state.generationPhase == AresGenerationPhase.FAILED)
+            }
+            val loadError = state.loadError
+            if (loadError != null) {
+                StatusBanner(loadError, true)
+                return@Column
+            }
+            val draft = state.draft?.document ?: return@Column
+            BuilderProgress(state, viewModel)
+            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                if (maxWidth < 980.dp) {
+                    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        BuilderNavigation(state, viewModel, Modifier.fillMaxWidth().weight(.75f))
+                        BuilderEditor(state, viewModel, workspaceTab, { workspaceTab = it }, Modifier.fillMaxWidth().weight(1.5f))
+                    }
+                } else {
+                    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        BuilderNavigation(state, viewModel, Modifier.weight(.8f).fillMaxHeight())
+                        BuilderEditor(state, viewModel, workspaceTab, { workspaceTab = it }, Modifier.weight(2.2f).fillMaxHeight())
+                    }
                 }
             }
         }
-    }
 
-    if (confirmReload) {
-        AlertDialog(
-            onDismissRequest = { confirmReload = false },
-            title = { Text("Discard unsaved subsystem changes?") },
-            text = { Text("Reload restores the last saved project revision. Your current edits cannot be recovered.") },
-            confirmButton = {
-                Button(onClick = { confirmReload = false; viewModel.reload() }) { Text("Discard and reload") }
-            },
-            dismissButton = { OutlinedButton(onClick = { confirmReload = false }) { Text("Keep editing") } }
-        )
-    }
-    if (state.pendingStarterReplacements.isNotEmpty()) {
-        StarterReplacementDialog(
-            files = state.pendingStarterReplacements,
-            onConfirm = viewModel::confirmStarterReplacement,
-            onDismiss = viewModel::cancelStarterReplacement,
-        )
-    }
-    if (state.showTemplatePicker) {
-        MechanismTemplatePickerDialog(
-            onSelectTemplate = viewModel::newSubsystem,
-            onDismiss = { viewModel.setTemplatePickerVisible(false) },
-        )
+        val document = state.draft?.document
+        if (document != null) {
+            // Slide-out Hardware Device Inspector Drawer
+            document.hardware.firstOrNull { it.uid == state.selectedHardwareUid }?.let { device ->
+                AresInspectorDrawer(
+                    isOpen = true,
+                    title = device.displayName,
+                    categoryBadge = device.kind.name,
+                    stableId = device.hardwareId,
+                    icon = Icons.Default.Settings,
+                    onDismiss = { viewModel.selectHardware(null) },
+                    onDone = { viewModel.selectHardware(null) },
+                    onDelete = { viewModel.removeHardware(device.hardwareId) },
+                    deleteButtonText = "Delete Hardware",
+                ) {
+                    HardwareInspectorBody(state, device, viewModel)
+                }
+            }
+
+            // Slide-out State Field Inspector Drawer
+            document.stateFields.firstOrNull { it.uid == state.selectedFieldUid }?.let { field ->
+                AresInspectorDrawer(
+                    isOpen = true,
+                    title = field.displayName,
+                    categoryBadge = "${field.role.name} · ${field.type.name}",
+                    stableId = field.fieldId,
+                    icon = Icons.Default.Memory,
+                    onDismiss = { viewModel.selectField(null) },
+                    onDone = { viewModel.selectField(null) },
+                    onDelete = { viewModel.removeStateField(field.fieldId) },
+                    deleteButtonText = "Delete State Value",
+                ) {
+                    StateFieldInspectorBody(field, viewModel)
+                }
+            }
+
+            // Slide-out Controller Rule Inspector Drawer
+            document.controlLoops.firstOrNull { it.uid == state.selectedLoopUid }?.let { loop ->
+                AresInspectorDrawer(
+                    isOpen = true,
+                    title = loop.displayName,
+                    categoryBadge = loop.strategy.name,
+                    stableId = loop.actuatorId,
+                    icon = Icons.Default.Build,
+                    onDismiss = { viewModel.selectLoop(null) },
+                    onDone = { viewModel.selectLoop(null) },
+                    onDelete = { viewModel.removeControlLoop(loop.loopId) },
+                    deleteButtonText = "Delete Controller Rule",
+                ) {
+                    ControlInspectorBody(state, loop, viewModel)
+                }
+            }
+
+            // Slide-out Tuning Parameter Inspector Drawer
+            document.tuningParameters.firstOrNull { it.uid == state.selectedTuningParameterUid }?.let { declaration ->
+                AresInspectorDrawer(
+                    isOpen = true,
+                    title = declaration.displayName,
+                    categoryBadge = declaration.type.name,
+                    stableId = declaration.key,
+                    icon = Icons.Default.Tune,
+                    onDismiss = { viewModel.selectTuningParameter(null) },
+                    onDone = { viewModel.selectTuningParameter(null) },
+                    onDelete = { viewModel.removeTuningParameter(declaration.uid) },
+                    deleteButtonText = "Delete Parameter",
+                ) {
+                    TuningParameterInspectorBody(document, declaration, viewModel)
+                }
+            }
+
+            // Slide-out AI Subsystem Assistant Drawer
+            AresInspectorDrawer(
+                isOpen = showAiAssistantDrawer,
+                title = "AI Subsystem Assistant",
+                categoryBadge = "GEMINI",
+                icon = Icons.Default.AutoAwesome,
+                onDismiss = { showAiAssistantDrawer = false },
+                width = 520.dp,
+                doneButtonText = "Close",
+                onDone = { showAiAssistantDrawer = false },
+            ) {
+                SubsystemAiAssistantContent(state, viewModel)
+            }
+
+            // At-a-Glance Spec Summary Modal
+            AresSpecSummaryModal(
+                isOpen = showSpecSummaryModal,
+                title = "${document.displayName} Spec Summary",
+                subtitle = "${document.platform.name} · .ares/subsystems/${document.documentId}.aressubsystem",
+                sections = generateSubsystemSpecSections(
+                    document = document,
+                    onSelectHardware = { uid -> showSpecSummaryModal = false; viewModel.selectHardware(uid) },
+                    onSelectField = { uid -> showSpecSummaryModal = false; viewModel.selectField(uid) },
+                    onSelectLoop = { uid -> showSpecSummaryModal = false; viewModel.selectLoop(uid) },
+                    onSelectTuning = { uid -> showSpecSummaryModal = false; viewModel.selectTuningParameter(uid) },
+                ),
+                onDismiss = { showSpecSummaryModal = false },
+                rawMarkdownGenerator = { generateSubsystemMarkdown(document) },
+            )
+        }
+
+        if (confirmReload) {
+            AlertDialog(
+                onDismissRequest = { confirmReload = false },
+                title = { Text("Discard unsaved subsystem changes?") },
+                text = { Text("Reload restores the last saved project revision. Your current edits cannot be recovered.") },
+                confirmButton = {
+                    Button(onClick = { confirmReload = false; viewModel.reload() }) { Text("Discard and reload") }
+                },
+                dismissButton = { OutlinedButton(onClick = { confirmReload = false }) { Text("Keep editing") } },
+            )
+        }
+        if (state.pendingStarterReplacements.isNotEmpty()) {
+            StarterReplacementDialog(
+                files = state.pendingStarterReplacements,
+                onConfirm = viewModel::confirmStarterReplacement,
+                onDismiss = viewModel::cancelStarterReplacement,
+            )
+        }
+        if (state.showTemplatePicker) {
+            MechanismTemplatePickerDialog(
+                onSelectTemplate = viewModel::newSubsystem,
+                onDismiss = { viewModel.setTemplatePickerVisible(false) },
+            )
+        }
     }
 }
 
@@ -238,6 +357,8 @@ private fun SubsystemHeader(
     state: SubsystemGeneratorState,
     viewModel: SubsystemGeneratorViewModel,
     onReload: () -> Unit,
+    onOpenSpecSummary: () -> Unit,
+    onOpenAiAssistant: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
         Column {
@@ -251,12 +372,26 @@ private fun SubsystemHeader(
                 fontSize = 12.sp,
             )
             Text(
-                "Open or create a subsystem, then use Help me design this at the top of Configure for reviewed Gemini suggestions.",
+                "Open or create a subsystem, then use the AI Assistant for reviewed Gemini suggestions.",
                 color = AresCyan,
                 fontSize = 11.sp,
             )
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(
+                onClick = onOpenAiAssistant,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = AresCyan),
+                border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.6f)),
+            ) {
+                Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(16.dp), tint = AresCyan)
+                Spacer(Modifier.width(5.dp))
+                Text("AI Assistant")
+            }
+            OutlinedButton(onClick = onOpenSpecSummary) {
+                Icon(Icons.Default.TableChart, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(5.dp))
+                Text("Spec Summary")
+            }
             OutlinedButton(onClick = viewModel::undo, enabled = state.canUndo) { Text("Undo") }
             OutlinedButton(onClick = viewModel::redo, enabled = state.canRedo) { Text("Redo") }
             OutlinedButton(onClick = onReload) {
@@ -501,9 +636,6 @@ private fun TuningStage(state: SubsystemGeneratorState, viewModel: SubsystemGene
             Text("+ Add typed parameter")
         }
     }
-    document.tuningParameters.firstOrNull { it.uid == state.selectedTuningParameterUid }?.let { declaration ->
-        TuningParameterInspector(document, declaration, viewModel)
-    }
     TuningPresetCard(document, viewModel)
     ConceptCard(
         "Profiles own values",
@@ -541,14 +673,14 @@ private fun TuningPresetCard(document: com.areslib.subsystem.SubsystemDocument, 
 }
 
 @Composable
-private fun TuningParameterInspector(
+private fun TuningParameterInspectorBody(
     document: com.areslib.subsystem.SubsystemDocument,
     declaration: TuningParameterDeclaration,
     viewModel: SubsystemGeneratorViewModel,
 ) {
     val owners = listOf(document.uid) + document.hardware.map { it.uid } + document.controlLoops.map { it.uid }
     val index = document.tuningParameters.indexOfFirst { it.uid == declaration.uid }
-    EditorCard("Parameter details", Icons.Default.Edit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         StableIdLabel(
             "Parameter UID",
             declaration.uid,
@@ -611,7 +743,6 @@ private fun TuningParameterInspector(
                 modifier = Modifier.weight(1f),
             ) { Text("Move down") }
         }
-        DeleteButton("Delete parameter") { viewModel.removeTuningParameter(declaration.uid) }
     }
 }
 
@@ -680,7 +811,7 @@ private fun HardwareStage(state: SubsystemGeneratorState, viewModel: SubsystemGe
     val document = state.draft?.document ?: return
     EditorCard("Devices", Icons.Default.Settings) {
         Text(
-            "Hardware names must match the Robot Controller configuration. Every read is cached once per robot loop.",
+            "Hardware names must match the Robot Controller configuration. Every read is cached once per robot loop. Select any device to edit in the slide-out inspector.",
             color = AresTextSecondary,
             fontSize = 12.sp,
         )
@@ -694,9 +825,6 @@ private fun HardwareStage(state: SubsystemGeneratorState, viewModel: SubsystemGe
         }
         AddHardwareButton(viewModel, "+ Add hardware")
     }
-    document.hardware.firstOrNull { it.uid == state.selectedHardwareUid }?.let {
-        HardwareInspector(state, it, viewModel)
-    }
     if (document.hardware.isEmpty()) {
         ConceptCard("Start with one physical device", "Choose Add hardware, then describe what it is and how the robot configuration identifies it.")
     }
@@ -707,7 +835,7 @@ private fun BehaviorStage(state: SubsystemGeneratorState, viewModel: SubsystemGe
     val document = state.draft?.document ?: return
     EditorCard("Immutable state", Icons.Default.Memory) {
         Text(
-            "Status values describe what sensors observed. Target values describe what driver or autonomous code wants. Select Edit to rename or configure a value.",
+            "Status values describe what sensors observed. Target values describe what driver or autonomous code wants. Select any value to edit in the slide-out inspector.",
             color = AresTextSecondary,
             fontSize = 12.sp,
         )
@@ -720,11 +848,10 @@ private fun BehaviorStage(state: SubsystemGeneratorState, viewModel: SubsystemGe
         }
         AddStateValueButton(viewModel, "+ Add state value")
     }
-    document.stateFields.firstOrNull { it.uid == state.selectedFieldUid }?.let { StateFieldInspector(it, viewModel) }
 
     EditorCard("Controller rules", Icons.Default.Build) {
         Text(
-            "A controller converts immutable state into bounded IO commands; it does not read hardware directly. Select Edit to rename or configure a rule.",
+            "A controller converts immutable state into bounded IO commands; it does not read hardware directly. Select any rule to edit in the slide-out inspector.",
             color = AresTextSecondary,
             fontSize = 12.sp,
         )
@@ -744,7 +871,6 @@ private fun BehaviorStage(state: SubsystemGeneratorState, viewModel: SubsystemGe
         }
         if (!canAddControl) Text("Add an actuator and numeric target value first.", color = AresTextSecondary, fontSize = 12.sp)
     }
-    document.controlLoops.firstOrNull { it.uid == state.selectedLoopUid }?.let { ControlInspector(state, it, viewModel) }
 
     com.ares.analytics.ui.components.linkage.LinkageEditorCanvas(
         linkage = document.linkage,
@@ -1764,13 +1890,13 @@ private fun HandAuthoredInspector(
 }
 
 @Composable
-private fun HardwareInspector(
+private fun HardwareInspectorBody(
     state: SubsystemGeneratorState,
     device: SubsystemHardwareDocument,
     viewModel: SubsystemGeneratorViewModel,
 ) {
     val document = state.draft?.document ?: return
-    EditorCard("Edit hardware", Icons.Default.Edit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Use the name field below to rename what students see, then configure its robot connection.", color = AresTextSecondary, fontSize = 12.sp)
         TextInput("Hardware name", device.displayName) { value ->
             viewModel.updateHardware(device.hardwareId) { it.copy(displayName = value) }
@@ -1889,7 +2015,6 @@ private fun HardwareInspector(
                 fontSize = 12.sp,
             )
         }
-        DeleteButton("Delete hardware") { viewModel.removeHardware(device.hardwareId) }
     }
 }
 
@@ -1983,8 +2108,8 @@ private fun CachedMeasurementEditor(
 }
 
 @Composable
-private fun StateFieldInspector(field: SubsystemStateFieldDocument, viewModel: SubsystemGeneratorViewModel) {
-    EditorCard("Edit state value", Icons.Default.Edit) {
+private fun StateFieldInspectorBody(field: SubsystemStateFieldDocument, viewModel: SubsystemGeneratorViewModel) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Use the name field below to rename what students see in the Builder and generated documentation.", color = AresTextSecondary, fontSize = 12.sp)
         TextInput("State value name", field.displayName) { value ->
             viewModel.updateStateField(field.fieldId) { it.copy(displayName = value) }
@@ -2027,12 +2152,11 @@ private fun StateFieldInspector(field: SubsystemStateFieldDocument, viewModel: S
                 viewModel.updateStateField(field.fieldId) { it.copy(maximum = value) }
             }
         }
-        DeleteButton("Delete state value") { viewModel.removeStateField(field.fieldId) }
     }
 }
 
 @Composable
-private fun ControlInspector(
+private fun ControlInspectorBody(
     state: SubsystemGeneratorState,
     loop: SubsystemControlLoopDocument,
     viewModel: SubsystemGeneratorViewModel,
@@ -2040,7 +2164,7 @@ private fun ControlInspector(
     val document = state.draft?.document ?: return
     val actuators = document.hardware.filter { it.kind.isActuator() }.map { it.hardwareId }
     val numericFields = document.stateFields.filter { it.type == SubsystemValueType.DOUBLE || it.type == SubsystemValueType.INT }
-    EditorCard("Edit controller rule", Icons.Default.Edit) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Use the name field below to rename what students see, then choose how the target drives the actuator.", color = AresTextSecondary, fontSize = 12.sp)
         TextInput("Controller rule name", loop.displayName) { value ->
             viewModel.updateControlLoop(loop.loopId) { it.copy(displayName = value) }
@@ -2183,7 +2307,6 @@ private fun ControlInspector(
         DoubleInput("Maximum output", loop.maximumOutput) { value ->
             viewModel.updateControlLoop(loop.loopId) { it.copy(maximumOutput = value) }
         }
-        DeleteButton("Delete control rule") { viewModel.removeControlLoop(loop.loopId) }
     }
 }
 
@@ -2409,7 +2532,6 @@ private fun BuilderEditor(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                SubsystemAiAssistantCard(state, viewModel)
                 StageHeader(state.activeStage)
                 StageContent(state, viewModel)
                 StageNavigation(state, viewModel)
@@ -2424,25 +2546,44 @@ private fun BuilderEditor(
 }
 
 @Composable
-private fun SubsystemAiAssistantCard(
+private fun SubsystemAiAssistantContent(
     state: SubsystemGeneratorState,
     viewModel: SubsystemGeneratorViewModel,
 ) {
     val document = state.draft?.document ?: return
     var request by remember(document.uid) { mutableStateOf("") }
-    EditorCard("Help me design this", Icons.Default.AutoAwesome) {
-        Text(
-            "Describe the mechanism in ordinary language. Gemini proposes form changes only; it cannot save, generate, or edit Kotlin source.",
-            color = AresTextSecondary,
-            fontSize = 12.sp,
-            lineHeight = 15.sp,
-        )
+    Column(
+        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            color = AresSurface,
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Describe your subsystem requirements in plain language.",
+                    color = AresTextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                )
+                Text(
+                    "Gemini will generate a structured subsystem proposal with hardware devices, state fields, control laws, and tuning parameters for ${document.platform.name}. It proposes reviewed form changes only; it cannot save or edit Kotlin source directly.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                )
+            }
+        }
+
         TextInput(
             label = "What should this subsystem do?",
             value = request,
             singleLine = false,
             enabled = !state.aiProposalInProgress,
         ) { request = it.take(4_000) }
+
         Button(
             onClick = { viewModel.requestAiProposal(request) },
             enabled = request.isNotBlank() && !state.aiProposalInProgress,
@@ -2453,13 +2594,21 @@ private fun SubsystemAiAssistantCard(
             Spacer(Modifier.width(6.dp))
             Text(if (state.aiProposalInProgress) "Preparing proposal…" else "Ask Gemini for a form proposal")
         }
+
         state.aiProposalError?.let { Text(it, color = AresError, fontSize = 12.sp) }
-        Text(
-            "Privacy: this sends only the current subsystem form and your request using the AI provider configured in Profile. It does not send robot logs, credentials, or source files.",
-            color = AresTextTertiary,
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
-        )
+
+        Surface(
+            color = AresBackground.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(6.dp),
+        ) {
+            Text(
+                "Privacy: Only your prompt and current subsystem form are sent using the AI provider configured in Profile. Your robot logs, credentials, and source files are never transmitted.",
+                color = AresTextTertiary,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                modifier = Modifier.padding(10.dp),
+            )
+        }
     }
     state.aiProposal?.let { review ->
         SubsystemAiProposalDialog(
@@ -2963,3 +3112,135 @@ private fun SubsystemStateFieldDocument.withType(type: SubsystemValueType): Subs
     maximum = maximum.takeIf { type == SubsystemValueType.DOUBLE || type == SubsystemValueType.INT },
     unit = unit.takeIf { type == SubsystemValueType.DOUBLE || type == SubsystemValueType.INT },
 )
+
+private fun generateSubsystemSpecSections(
+    document: SubsystemDocument,
+    onSelectHardware: (String) -> Unit,
+    onSelectField: (String) -> Unit,
+    onSelectLoop: (String) -> Unit,
+    onSelectTuning: (String) -> Unit,
+): List<AresSpecSection> = listOf(
+    AresSpecSection(
+        title = "Physical Devices",
+        rows = document.hardware.map { dev ->
+            AresSpecRow(
+                id = dev.uid,
+                primaryLabel = dev.displayName,
+                secondaryLabel = "${dev.hardwareId} · ${dev.connectionLabel(document.platform)}",
+                badge = dev.kind.name,
+                columns = listOfNotNull(
+                    "Command source" to (dev.following?.let { "Follows ${it.leaderId} (${it.transform.name})" } ?: "Independent"),
+                    "Required" to if (dev.required) "Yes" else "No",
+                    "Direction" to if (dev.inverted) "Reversed" else "Normal",
+                    dev.safeOutput?.let { "Safe output" to "$it V" },
+                    dev.currentLimitAmps?.let { "Current limit" to "$it A" },
+                    if (dev.measurements.isNotEmpty()) "Cached inputs" to dev.measurements.joinToString(", ") { "${it.source.name} → ${it.fieldId}" } else null,
+                ),
+                onEditClick = { onSelectHardware(dev.uid) },
+            )
+        },
+    ),
+    AresSpecSection(
+        title = "Stateflow Fields",
+        rows = document.stateFields.map { field ->
+            AresSpecRow(
+                id = field.uid,
+                primaryLabel = field.displayName,
+                secondaryLabel = "${field.fieldId} · ${field.type.name}${field.unit?.let { " ($it)" }.orEmpty()}",
+                badge = field.role.name,
+                columns = listOfNotNull(
+                    "Role" to field.role.name,
+                    "Type" to field.type.name,
+                    field.unit?.let { "Unit" to it },
+                    "Default" to (field.defaultNumber?.toString() ?: field.defaultBoolean?.toString() ?: field.defaultInt?.toString() ?: field.defaultText ?: "-"),
+                    field.minimum?.let { "Min" to it.toString() },
+                    field.maximum?.let { "Max" to it.toString() },
+                    field.description?.takeIf { it.isNotBlank() }?.let { "Description" to it },
+                ),
+                onEditClick = { onSelectField(field.uid) },
+            )
+        },
+    ),
+    AresSpecSection(
+        title = "Control Laws",
+        rows = document.controlLoops.map { loop ->
+            AresSpecRow(
+                id = loop.uid,
+                primaryLabel = loop.displayName,
+                secondaryLabel = "${loop.actuatorId} ← target ${loop.targetFieldId}",
+                badge = loop.strategy.name,
+                columns = listOfNotNull(
+                    "Actuator" to loop.actuatorId,
+                    "Target field" to loop.targetFieldId,
+                    loop.measurementFieldId?.let { "Measurement field" to it },
+                    if (loop.strategy == SubsystemControlStrategy.POSITION_PID || loop.strategy == SubsystemControlStrategy.VELOCITY_PID) {
+                        "PID Gains" to "kP=${loop.kP}, kI=${loop.kI}, kD=${loop.kD}"
+                    } else null,
+                    if (loop.feedforward.kind != SubsystemFeedforwardKind.NONE) {
+                        "Feedforward" to "${loop.feedforward.kind.name} (kS=${loop.feedforward.kS}, kV=${loop.feedforward.kV}, kA=${loop.feedforward.kA}, kG=${loop.feedforward.kG})"
+                    } else null,
+                    "Output limits" to "[${loop.minimumOutput} .. ${loop.maximumOutput}]",
+                    loop.tolerance?.let { "Tolerance" to it.toString() },
+                ),
+                onEditClick = { onSelectLoop(loop.uid) },
+            )
+        },
+    ),
+    AresSpecSection(
+        title = "Tuning Parameters",
+        rows = document.tuningParameters.map { param ->
+            AresSpecRow(
+                id = param.uid,
+                primaryLabel = param.displayName,
+                secondaryLabel = "${param.key} · ${param.applyPolicy.name}",
+                badge = param.type.name,
+                columns = listOfNotNull(
+                    "Key" to param.key,
+                    "Component" to param.componentUid,
+                    "Type" to param.type.name,
+                    param.unit?.let { "Unit" to it },
+                    if (param.minimum != null || param.maximum != null) "Bounds" to "[${param.minimum ?: "-"} .. ${param.maximum ?: "-"}]" else null,
+                    "Apply policy" to param.applyPolicy.name,
+                    param.description?.takeIf { it.isNotBlank() }?.let { "Description" to it },
+                ),
+                onEditClick = { onSelectTuning(param.uid) },
+            )
+        },
+    ),
+)
+
+private fun generateSubsystemMarkdown(document: SubsystemDocument): String = buildString {
+    appendLine("# Subsystem Specification: ${document.displayName}")
+    appendLine("Platform: ${document.platform.name}")
+    appendLine("Document ID: ${document.documentId}")
+    appendLine("Revision: r${document.revision}")
+    appendLine()
+    appendLine("## Physical Devices (${document.hardware.size})")
+    appendLine("| Name | Code ID | Kind | Connection | Role |")
+    appendLine("|---|---|---|---|---|")
+    document.hardware.forEach { dev ->
+        appendLine("| ${dev.displayName} | ${dev.hardwareId} | ${dev.kind.name} | ${dev.connectionLabel(document.platform)} | ${dev.following?.let { "Follows ${it.leaderId}" } ?: "Independent"} |")
+    }
+    appendLine()
+    appendLine("## Stateflow Fields (${document.stateFields.size})")
+    appendLine("| Name | Field ID | Role | Type | Unit | Default |")
+    appendLine("|---|---|---|---|---|---|")
+    document.stateFields.forEach { f ->
+        appendLine("| ${f.displayName} | ${f.fieldId} | ${f.role.name} | ${f.type.name} | ${f.unit ?: "-"} | ${f.defaultNumber ?: f.defaultBoolean ?: f.defaultInt ?: f.defaultText ?: "-"} |")
+    }
+    appendLine()
+    appendLine("## Control Laws (${document.controlLoops.size})")
+    appendLine("| Name | Strategy | Actuator | Target | Gains |")
+    appendLine("|---|---|---|---|---|")
+    document.controlLoops.forEach { l ->
+        appendLine("| ${l.displayName} | ${l.strategy.name} | ${l.actuatorId} | ${l.targetFieldId} | kP=${l.kP} kI=${l.kI} kD=${l.kD} |")
+    }
+    appendLine()
+    appendLine("## Tuning Parameters (${document.tuningParameters.size})")
+    appendLine("| Name | Key | Type | Safe Bounds | Apply Policy |")
+    appendLine("|---|---|---|---|---|")
+    document.tuningParameters.forEach { p ->
+        appendLine("| ${p.displayName} | ${p.key} | ${p.type.name} | [${p.minimum ?: "-"} .. ${p.maximum ?: "-"}] | ${p.applyPolicy.name} |")
+    }
+}
+

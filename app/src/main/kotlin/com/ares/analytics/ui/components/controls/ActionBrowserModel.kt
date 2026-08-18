@@ -56,7 +56,7 @@ internal fun actionMatchesBrowserQuery(action: ActionDescriptor, query: String):
 }
 
 internal fun actionCatalogSummary(actions: List<ActionDescriptor>): String {
-    val categoryCount = actions.map { it.category.ifBlank { "General" } }.distinct().size
+    val categoryCount = actions.map { it.category?.ifBlank { "General" } ?: "General" }.distinct().size
     val actionLabel = if (actions.size == 1) "action" else "actions"
     val categoryLabel = if (categoryCount == 1) "category" else "categories"
     return "${actions.size} $actionLabel in $categoryCount $categoryLabel"
@@ -65,8 +65,8 @@ internal fun actionCatalogSummary(actions: List<ActionDescriptor>): String {
 internal fun actionAccessibleLabel(action: ActionDescriptor): String = buildString {
     append(action.displayName)
     append(". Category: ")
-    append(action.category.ifBlank { "General" })
-    if (action.description.isNotBlank()) {
+    append(action.category?.ifBlank { "General" } ?: "General")
+    if (!action.description.isNullOrBlank()) {
         append(". ")
         append(action.description)
     }

@@ -2,6 +2,7 @@ package com.ares.analytics.ui.components.controls
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -22,13 +24,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -40,6 +44,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -61,8 +66,12 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ares.analytics.service.GamepadState
 import com.ares.analytics.service.AresGenerationPhase
+import com.ares.analytics.service.GamepadState
+import com.ares.analytics.ui.components.core.AresInspectorDrawer
+import com.ares.analytics.ui.components.core.AresSpecRow
+import com.ares.analytics.ui.components.core.AresSpecSection
+import com.ares.analytics.ui.components.core.AresSpecSummaryModal
 import com.ares.analytics.ui.theme.AresBackground
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
@@ -71,9 +80,11 @@ import com.ares.analytics.ui.theme.AresGold
 import com.ares.analytics.ui.theme.AresGreen
 import com.ares.analytics.ui.theme.AresOnAccent
 import com.ares.analytics.ui.theme.AresRed
+import com.ares.analytics.ui.theme.AresSurface
 import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
+import com.ares.analytics.ui.theme.AresTextTertiary
 import com.ares.analytics.viewmodel.controls.ControlsEditorState
 import com.ares.analytics.viewmodel.controls.ControlsEditorViewModel
 import com.ares.analytics.viewmodel.controls.ControlsProblemSeverity
@@ -97,9 +108,12 @@ fun ControlsEditorPanel(
     viewModel: ControlsEditorViewModel,
     gamepad1State: GamepadState,
     gamepad2State: GamepadState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val liveState = if (state.selectedControllerSlot == "operator") gamepad2State else gamepad1State
+    var showKeymapSummary by remember { mutableStateOf(false) }
+    var showAiAssistantDrawer by remember { mutableStateOf(false) }
+
     state.aiProposal?.let { review ->
         AlertDialog(
             onDismissRequest = viewModel::dismissAiProposal,
@@ -121,53 +135,120 @@ fun ControlsEditorPanel(
         if (state.learning != null) viewModel.observeDesktopInput(liveState)
     }
 
-    Column(modifier.fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ProjectHeader(state, viewModel)
-        ControlsAiAssistantCard(state, viewModel)
-        if (state.loadError != null) {
-            ProblemBanner(state.loadError, ControlsProblemSeverity.ERROR)
-            return@Column
+    val boundActionLabels = remember(state.selectedScheme?.bindings) {
+        val map = mutableMapOf<String, MutableList<String>>()
+        state.selectedScheme?.bindings.orEmpty().forEach { binding ->
+            binding.source.controlIds.forEach { controlId ->
+                map.getOrPut(controlId) { mutableListOf() }.add(binding.displayName)
+            }
         }
-        Row(
-            Modifier.fillMaxWidth().weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Column(
-                Modifier.weight(1.45f).fillMaxHeight().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        map
+    }
+
+    Box(modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            ProjectHeader(
+                state = state,
+                viewModel = viewModel,
+                onOpenKeymapSummary = { showKeymapSummary = true },
+                onOpenAiAssistant = { showAiAssistantDrawer = true },
+            )
+            if (state.loadError != null) {
+                ProblemBanner(state.loadError, ControlsProblemSeverity.ERROR)
+                return@Column
+            }
+            Row(
+                Modifier.fillMaxWidth().weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
             ) {
-                SchemeToolbar(state, viewModel)
-                SurfaceTabs(state.surface, viewModel::showSurface)
-                state.selectedProfile?.let { profile ->
-                    val isEditingChord = state.draftBinding?.source?.kind == ControlSourceKind.CHORD
-                    val chord = state.draftBinding?.takeIf { isEditingChord }
-                        ?.source?.controlIds.orEmpty().toSet()
-                    val bound = state.selectedScheme?.bindings.orEmpty()
-                        .flatMapTo(linkedSetOf()) { it.source.controlIds }
-                    ControllerCanvas(
-                        profile = profile,
-                        surface = state.surface,
-                        selectedControlId = state.selectedControlId,
-                        chordControlIds = chord,
-                        boundControlIds = bound,
-                        targetPlatform = state.targetPlatform,
-                        liveState = liveState,
-                        onControlSelected = { viewModel.selectControl(it, appendToChord = isEditingChord) }
-                    )
-                    SelectedControlCard(state, viewModel, liveState)
-                    AccessibleControlList(state, viewModel, liveState)
+                Column(
+                    Modifier.weight(1.45f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    SchemeToolbar(state, viewModel)
+                    SurfaceTabs(state.surface, viewModel::showSurface)
+                    state.selectedProfile?.let { profile ->
+                        val isEditingChord = state.draftBinding?.source?.kind == ControlSourceKind.CHORD
+                        val chord = state.draftBinding?.takeIf { isEditingChord }
+                            ?.source?.controlIds.orEmpty().toSet()
+                        val bound = state.selectedScheme?.bindings.orEmpty()
+                            .flatMapTo(linkedSetOf()) { it.source.controlIds }
+                        ControllerCanvas(
+                            profile = profile,
+                            surface = state.surface,
+                            selectedControlId = state.selectedControlId,
+                            chordControlIds = chord,
+                            boundControlIds = bound,
+                            targetPlatform = state.targetPlatform,
+                            liveState = liveState,
+                            onControlSelected = { viewModel.selectControl(it, appendToChord = isEditingChord) },
+                            boundActionLabels = boundActionLabels,
+                        )
+                        SelectedControlCard(state, viewModel, liveState)
+                        AccessibleControlList(state, viewModel, liveState)
+                    }
+                }
+                Column(
+                    Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    BindingList(state, viewModel)
+                    BindingLearningTraceCard(state)
+                    ProblemsCard(state)
                 }
             }
-            Column(
-                Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+        }
+
+        // Slide-out Property Inspector for bindings
+        state.draftBinding?.let { binding ->
+            AresInspectorDrawer(
+                isOpen = true,
+                title = if (state.selectedBindingId == null) "New Control Binding" else "Edit Control Binding",
+                categoryBadge = binding.event.name,
+                stableId = binding.bindingId,
+                icon = Icons.Default.Tune,
+                onDismiss = viewModel::discardDraft,
+                doneButtonText = if (state.selectedBindingId == null) "Add Binding" else "Apply Changes",
+                onDone = viewModel::applyDraft,
+                onDelete = if (state.selectedBindingId != null) {
+                    {
+                        val idToDelete = state.selectedBindingId
+                        viewModel.discardDraft()
+                        if (idToDelete != null) viewModel.deleteBinding(idToDelete)
+                    }
+                } else null,
+                deleteButtonText = "Delete Binding",
             ) {
-                BindingList(state, viewModel)
-                BindingLearningTraceCard(state)
-                state.draftBinding?.let { BindingInspector(state, viewModel, it) }
-                ProblemsCard(state)
+                BindingInspectorBody(state, viewModel, binding)
             }
         }
+
+        // Slide-out AI Controls Assistant Drawer
+        AresInspectorDrawer(
+            isOpen = showAiAssistantDrawer,
+            title = "AI Controls Assistant",
+            categoryBadge = "GEMINI",
+            icon = Icons.Default.AutoAwesome,
+            onDismiss = { showAiAssistantDrawer = false },
+            width = 520.dp,
+            doneButtonText = "Close",
+            onDone = { showAiAssistantDrawer = false },
+        ) {
+            ControlsAiAssistantContent(state, viewModel)
+        }
+
+        // At-a-Glance Keymap Summary Modal
+        AresSpecSummaryModal(
+            isOpen = showKeymapSummary,
+            title = "Controls & TeleOp Keymap Summary",
+            subtitle = "Complete physical control to robot action mapping for ${state.league.name} project",
+            sections = generateKeymapSpecSections(state, onEditBinding = { bindingId ->
+                showKeymapSummary = false
+                viewModel.editBinding(bindingId)
+            }),
+            onDismiss = { showKeymapSummary = false },
+            rawMarkdownGenerator = { generateKeymapMarkdown(state) },
+        )
     }
 }
 
@@ -235,17 +316,13 @@ private fun BindingLearningTraceCard(state: ControlsEditorState) {
             color = AresGold,
             fontSize = 11.sp,
         )
-        TraceLine("1 · Input", trace.input)
-        TraceLine("2 · Event", trace.event)
-        TraceLine("3 · Target", trace.target)
-        TraceLine("4 · Runtime", trace.runtimePath)
-        Text(
-            if (trace.hasBlockingProblem) "BLOCKED · Resolve the binding problem before Apply or Generate."
-            else "READY FOR REVIEW · Validation is not execution or physical verification.",
-            color = if (trace.hasBlockingProblem) AresError else AresGreen,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-        )
+        TraceLine("INPUTS", trace.input)
+        TraceLine("TRIGGER EVENT", trace.event)
+        TraceLine("TARGET BEHAVIOR", trace.target)
+        TraceLine("RUNTIME PIPELINE", trace.runtimePath)
+        if (trace.hasBlockingProblem) {
+            Text("Fix errors in the readiness rail before testing this binding.", color = AresError, fontSize = 11.sp)
+        }
     }
 }
 
@@ -258,34 +335,78 @@ private fun TraceLine(label: String, value: String) {
 }
 
 @Composable
-private fun ControlsAiAssistantCard(state: ControlsEditorState, viewModel: ControlsEditorViewModel) {
+private fun ControlsAiAssistantContent(state: ControlsEditorState, viewModel: ControlsEditorViewModel) {
     var request by remember(state.selectedSchemeId) { mutableStateOf("") }
-    Column(cardModifier(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AresCyan)
-            Text("Help me create bindings", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+    Column(
+        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Surface(
+            color = AresSurface,
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "Describe your driver and operator control scheme.",
+                    color = AresTextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                )
+                Text(
+                    "Gemini can suggest bindings from your project's catalog actions, routines, and gamepad inputs. Nothing is applied until you review and confirm.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                )
+            }
         }
-        Text("Describe how the driver and operator should control the robot. Gemini may propose only catalog actions, routines, and mapped controls. Nothing is saved automatically.", color = AresTextSecondary, fontSize = 11.sp)
+
         OutlinedTextField(
             value = request,
             onValueChange = { request = it.take(4_000) },
-            label = { Text("Example: operator right bumper runs intake while held") },
+            label = { Text("What should these controls do?") },
+            placeholder = { Text("e.g. Right trigger runs intake while held, left bumper raises elevator to High Basket...") },
             modifier = Modifier.fillMaxWidth(),
-            minLines = 2,
+            minLines = 4,
             enabled = !state.aiProposalInProgress,
         )
+
         Button(
             onClick = { viewModel.requestAiProposal(request) },
             enabled = request.isNotBlank() && !state.aiProposalInProgress && state.selectedScheme != null,
             colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-        ) { Text(if (state.aiProposalInProgress) "Preparing proposal…" else "Ask Gemini for binding suggestions") }
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(if (state.aiProposalInProgress) "Preparing proposal…" else "Ask Gemini for binding suggestions")
+        }
+
         state.aiProposalError?.let { Text(it, color = AresError, fontSize = 11.sp) }
-        Text("Configure Gemini in Profile → Gemini assistance. Review source, event, timing, target, and arguments before applying.", color = AresTextSecondary, fontSize = 10.sp)
+
+        Surface(
+            color = AresBackground.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(6.dp),
+        ) {
+            Text(
+                "Configure Gemini in Profile → Gemini assistance. Review source, event, timing, target, and arguments before applying.",
+                color = AresTextTertiary,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                modifier = Modifier.padding(10.dp),
+            )
+        }
     }
 }
 
 @Composable
-private fun ProjectHeader(state: ControlsEditorState, viewModel: ControlsEditorViewModel) {
+private fun ProjectHeader(
+    state: ControlsEditorState,
+    viewModel: ControlsEditorViewModel,
+    onOpenKeymapSummary: () -> Unit,
+    onOpenAiAssistant: () -> Unit,
+) {
     Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text("Visual controls editor", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
@@ -293,36 +414,48 @@ private fun ProjectHeader(state: ControlsEditorState, viewModel: ControlsEditorV
                 "${state.league.name} project • ${state.projectPath} • offline authoring",
                 color = AresTextSecondary,
                 fontSize = 11.sp,
-                fontFamily = FontFamily.Monospace
+                fontFamily = FontFamily.Monospace,
             )
             Text(
                 "Desktop learning writes DESKTOP_GLFW only. ${state.targetPlatform.name} mappings require separate verification.",
                 color = AresGold,
-                fontSize = 11.sp
+                fontSize = 11.sp,
             )
             state.projectMetadata?.let { metadata ->
                 Text(
                     "${metadata.coordinateConvention.name} | robot ${metadata.robotLengthMeters} x ${metadata.robotWidthMeters} m",
                     color = AresTextSecondary,
-                    fontSize = 11.sp
+                    fontSize = 11.sp,
                 )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedButton(
+                onClick = onOpenAiAssistant,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = AresCyan),
+                border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.6f)),
+            ) {
+                Icon(Icons.Default.AutoAwesome, null, Modifier.size(16.dp), tint = AresCyan)
+                Spacer(Modifier.width(5.dp))
+                Text("AI Assistant")
+            }
+            OutlinedButton(onClick = onOpenKeymapSummary) {
+                Icon(Icons.Default.TableChart, null, Modifier.size(16.dp)); Spacer(Modifier.width(5.dp)); Text("Keymap Summary")
+            }
             OutlinedButton(onClick = viewModel::reload) {
                 Icon(Icons.Default.Refresh, null, Modifier.size(16.dp)); Spacer(Modifier.width(5.dp)); Text("Reload")
             }
             Button(
                 onClick = viewModel::save,
                 enabled = state.canSave,
-                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
+                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
             ) {
                 Icon(Icons.Default.Save, null, Modifier.size(16.dp)); Spacer(Modifier.width(5.dp)); Text("Save")
             }
             Button(
                 onClick = viewModel::saveAndGenerate,
                 enabled = state.canGenerate,
-                colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent)
+                colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent),
             ) {
                 Icon(Icons.Default.Save, null, Modifier.size(16.dp)); Spacer(Modifier.width(5.dp))
                 Text(if (state.generationPhase == AresGenerationPhase.RUNNING) "Generating..." else "Save & Generate")
@@ -352,21 +485,21 @@ private fun SchemeToolbar(state: ControlsEditorState, viewModel: ControlsEditorV
                 selected = state.selectedScheme?.name ?: "No scheme",
                 choices = state.schemes.map { it.documentId to it.name },
                 modifier = Modifier.weight(1f),
-                onSelect = viewModel::selectScheme
+                onSelect = viewModel::selectScheme,
             )
             SelectionMenu(
                 label = "Controller",
                 selected = state.selectedController?.displayName ?: "No controller",
                 choices = state.selectedScheme?.controllers.orEmpty().map { it.slot to it.displayName },
                 modifier = Modifier.weight(1f),
-                onSelect = viewModel::selectController
+                onSelect = viewModel::selectController,
             )
             SelectionMenu(
                 label = "Profile",
                 selected = state.selectedProfile?.displayName ?: "No profile",
                 choices = state.profiles.map { it.documentId to it.displayName },
                 modifier = Modifier.weight(1.3f),
-                onSelect = viewModel::assignProfile
+                onSelect = viewModel::assignProfile,
             )
         }
     }
@@ -379,7 +512,7 @@ private fun SurfaceTabs(surface: ControllerSurfaceDocument, onSurface: (Controll
             Tab(
                 selected = surface == candidate,
                 onClick = { onSurface(candidate) },
-                text = { Text(candidate.name.lowercase().replaceFirstChar(Char::uppercase)) }
+                text = { Text(candidate.name.lowercase().replaceFirstChar(Char::uppercase)) },
             )
         }
     }
@@ -389,7 +522,7 @@ private fun SurfaceTabs(surface: ControllerSurfaceDocument, onSurface: (Controll
 private fun SelectedControlCard(
     state: ControlsEditorState,
     viewModel: ControlsEditorViewModel,
-    liveState: GamepadState
+    liveState: GamepadState,
 ) {
     val control = state.selectedControl ?: return
     val assignedBindings = state.selectedScheme?.bindings.orEmpty().filter { control.controlId in it.source.controlIds }
@@ -403,13 +536,13 @@ private fun SelectedControlCard(
                     if (control.isActive(liveState)) "LIVE INPUT ACTIVE" else control.type.name,
                     color = if (control.isActive(liveState)) AresCyan else AresTextSecondary,
                     fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = FontFamily.Monospace,
                 )
             }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Button(
                     onClick = viewModel::createBinding,
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                 ) {
                     Icon(Icons.Default.Add, null, Modifier.size(16.dp)); Text(" Add action")
                 }
@@ -423,7 +556,7 @@ private fun SelectedControlCard(
                         "${assignedBindings.size} assigned action${if (assignedBindings.size == 1) "" else "s"}",
                     color = if (assignedBindings.isEmpty()) AresTextSecondary else AresGreen,
                     fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp
+                    fontSize = 12.sp,
                 )
                 Text(
                     if (targetMapping == null) {
@@ -432,7 +565,7 @@ private fun SelectedControlCard(
                         "Ready for ${state.targetPlatform.studentLabel()} generated code"
                     },
                     color = if (targetMapping == null) AresGold else AresTextSecondary,
-                    fontSize = 11.sp
+                    fontSize = 11.sp,
                 )
             }
             OutlinedButton(onClick = { showHardwareSetup = !showHardwareSetup }) {
@@ -448,75 +581,42 @@ private fun SelectedControlCard(
             HorizontalDivider(color = AresBorder)
             Text("Advanced hardware mapping", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
             Text(
-                "Standard controls are configured automatically. Change these slots only for extra vendor buttons or a nonstandard Driver Station mapping.",
+                "Configure how this physical input maps to raw Driver Station / controller hardware.",
                 color = AresTextSecondary,
-                fontSize = 10.sp
+                fontSize = 11.sp,
             )
-            listOf(state.targetPlatform, ControllerInputPlatform.DESKTOP_GLFW).distinct().forEach { platform ->
-                val mapping = control.mappings.firstOrNull { it.platform == platform }
-                MappingRow(
-                    platform = platform,
-                    index = mapping?.buttonIndex ?: mapping?.axisIndex,
-                    isTarget = platform == state.targetPlatform,
-                    onIndex = { viewModel.setMapping(control.controlId, platform, it) }
-                )
-            }
-            OutlinedButton(onClick = { viewModel.beginDesktopLearning(liveState) }, enabled = liveState.connected) {
-                Text(if (state.learning?.controlId == control.controlId) "Press or move the control now…" else "Detect from this computer")
-            }
+            HardwareMappingRow(control, state.targetPlatform, liveState, viewModel)
         }
     }
 }
 
 @Composable
-private fun MappingRow(
+private fun HardwareMappingRow(
+    control: ControllerControlDocument,
     platform: ControllerInputPlatform,
-    index: Int?,
-    isTarget: Boolean,
-    onIndex: (Int?) -> Unit
+    liveState: GamepadState,
+    viewModel: ControlsEditorViewModel,
 ) {
-    var raw by remember(platform, index) { mutableStateOf(index?.toString().orEmpty()) }
-    Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp), Alignment.CenterVertically) {
-        Text(
-            platform.studentLabel(),
-            modifier = Modifier.width(120.dp),
-            color = if (isTarget) AresGold else AresTextSecondary,
-            fontWeight = if (isTarget) FontWeight.Bold else FontWeight.Normal,
-            fontSize = 11.sp
-        )
-        OutlinedTextField(
-            value = raw,
-            onValueChange = { value ->
-                if (value.isEmpty() || value.all(Char::isDigit)) {
-                    raw = value
-                }
-            },
-            modifier = Modifier.width(110.dp),
-            singleLine = true,
-            label = { Text("Input slot") }
-        )
-        OutlinedButton(onClick = { onIndex(raw.toIntOrNull()) }) {
+    val mapping = control.mappings.firstOrNull { it.platform == platform }
+    val isLearning = control.controlId == control.controlId && false // learning managed in viewmodel
+    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+        Column {
             Text(
-                when {
-                    raw.isBlank() -> "Clear"
-                    else -> "Save slot"
-                },
-                fontSize = 10.sp
+                "${platform.studentLabel()}: ${mapping?.buttonIndex?.let { "button $it" } ?: mapping?.axisIndex?.let { "axis $it" } ?: "unmapped"}",
+                color = AresTextPrimary,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 11.sp,
             )
         }
-        Text(
-            when {
-                index == null && isTarget -> "unverified target mapping"
-                index == null -> "not mapped"
-                else -> "configured"
-            },
-            color = if (index == null && isTarget) AresRed else AresTextSecondary,
-            fontSize = 10.sp
-        )
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedButton(onClick = { viewModel.beginDesktopLearning(liveState) }) {
+                Text("Detect live press", fontSize = 11.sp)
+            }
+        }
     }
 }
 
-private fun ControllerInputPlatform.studentLabel(): String = when (this) {
+private fun ControllerInputPlatform.studentLabel() = when (this) {
     ControllerInputPlatform.FTC -> "FTC"
     ControllerInputPlatform.FRC -> "FRC"
     ControllerInputPlatform.DESKTOP_GLFW -> "Desktop simulator"
@@ -526,7 +626,7 @@ private fun ControllerInputPlatform.studentLabel(): String = when (this) {
 private fun AccessibleControlList(
     state: ControlsEditorState,
     viewModel: ControlsEditorViewModel,
-    liveState: GamepadState
+    liveState: GamepadState,
 ) {
     val profile = state.selectedProfile ?: return
     Column(cardModifier(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -537,7 +637,7 @@ private fun AccessibleControlList(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             leadingIcon = { Icon(Icons.Default.Search, null) },
-            placeholder = { Text("Find a control or binding") }
+            placeholder = { Text("Find a control or binding") },
         )
         profile.controls.filter { control ->
             state.search.isBlank() || control.displayName.contains(state.search, true) ||
@@ -550,13 +650,13 @@ private fun AccessibleControlList(
                 Modifier.fillMaxWidth().clickable { viewModel.selectControl(control.controlId) }
                     .background(Color.Black.copy(alpha = .18f), RoundedCornerShape(6.dp)).padding(8.dp),
                 Arrangement.SpaceBetween,
-                Alignment.CenterVertically
+                Alignment.CenterVertically,
             ) {
                 Text(control.displayName, color = if (control.isActive(liveState)) AresCyan else AresTextPrimary)
                 Text(
                     "${control.surface.name.lowercase()} • ${control.type.name.lowercase()}",
                     color = AresTextSecondary,
-                    fontSize = 10.sp
+                    fontSize = 10.sp,
                 )
             }
         }
@@ -579,7 +679,7 @@ private fun BindingList(state: ControlsEditorState, viewModel: ControlsEditorVie
                     .border(1.dp, if (hasProblem) AresGold else AresBorder, RoundedCornerShape(7.dp))
                     .padding(9.dp),
                 Arrangement.SpaceBetween,
-                Alignment.CenterVertically
+                Alignment.CenterVertically,
             ) {
                 Column(Modifier.weight(1f)) {
                     Text(binding.displayName, color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
@@ -587,7 +687,7 @@ private fun BindingList(state: ControlsEditorState, viewModel: ControlsEditorVie
                         "${binding.source.controlIds.joinToString(" + ")} • ${binding.event} → ${binding.target.key}",
                         color = AresTextSecondary,
                         fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = FontFamily.Monospace,
                     )
                 }
                 IconButton(onClick = { viewModel.deleteBinding(binding.bindingId) }) {
@@ -599,25 +699,21 @@ private fun BindingList(state: ControlsEditorState, viewModel: ControlsEditorVie
 }
 
 @Composable
-private fun BindingInspector(
+private fun BindingInspectorBody(
     state: ControlsEditorState,
     viewModel: ControlsEditorViewModel,
-    binding: ControlBindingDocument
+    binding: ControlBindingDocument,
 ) {
     var advancedExpanded by remember(binding.bindingId) {
         mutableStateOf(hasAdvancedBindingSettings(binding))
     }
-    Column(cardModifier(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            Text(if (state.selectedBindingId == null) "New binding" else "Edit binding", color = AresCyan, fontWeight = FontWeight.Bold)
-            OutlinedButton(onClick = viewModel::discardDraft) { Text("Close") }
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(
             value = binding.displayName,
             onValueChange = { value -> viewModel.updateDraft { it.copy(displayName = value) } },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Binding name") },
-            singleLine = true
+            singleLine = true,
         )
         val sourceKinds = if (state.selectedControl?.type == ControllerControlTypeDocument.AXIS) {
             listOf(ControlSourceKind.AXIS_THRESHOLD, ControlSourceKind.AXIS_VALUE, ControlSourceKind.AXIS_ZONE)
@@ -627,7 +723,7 @@ private fun BindingInspector(
         SelectionMenu(
             "Input type", binding.source.kind.friendlyName(),
             sourceKinds.map { it.name to it.friendlyName() },
-            Modifier.fillMaxWidth()
+            Modifier.fillMaxWidth(),
         ) { viewModel.setSourceKind(ControlSourceKind.valueOf(it)) }
         if (binding.source.kind == ControlSourceKind.CHORD) {
             Text("Chord: ${binding.source.controlIds.joinToString(" + ").ifBlank { "select two controls" }}", color = AresGold, fontSize = 11.sp)
@@ -639,7 +735,7 @@ private fun BindingInspector(
         AnalogSourceFields(binding, viewModel)
         val events = allowedEvents(binding.source.kind)
         SelectionMenu(
-            "Event", binding.event.friendlyName(), events.map { it.name to it.friendlyName() }, Modifier.fillMaxWidth()
+            "Event", binding.event.friendlyName(), events.map { it.name to it.friendlyName() }, Modifier.fillMaxWidth(),
         ) { selected -> viewModel.updateDraft { it.copy(event = ControlEvent.valueOf(selected)) } }
         TargetFields(state, binding, viewModel)
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
@@ -648,29 +744,24 @@ private fun BindingInspector(
                 Text(" Enabled", color = AresTextPrimary, fontSize = 11.sp)
             }
         }
-        Button(
-            onClick = viewModel::applyDraft,
-            modifier = Modifier.fillMaxWidth(),
-            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
-        ) { Text(if (state.selectedBindingId == null) "Add binding" else "Apply changes") }
         HorizontalDivider(color = AresBorder)
         Row(
             Modifier.fillMaxWidth().clickable { advancedExpanded = !advancedExpanded }.padding(vertical = 2.dp),
             Arrangement.SpaceBetween,
-            Alignment.CenterVertically
+            Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
                 Text("Advanced timing & safety", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 Text(
                     advancedBindingSummary(binding),
                     color = if (hasAdvancedBindingSettings(binding)) AresGold else AresTextSecondary,
-                    fontSize = 10.sp
+                    fontSize = 10.sp,
                 )
             }
             Icon(
                 if (advancedExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
                 if (advancedExpanded) "Hide advanced settings" else "Show advanced settings",
-                tint = AresTextSecondary
+                tint = AresTextSecondary,
             )
         }
         if (advancedExpanded) {
@@ -685,7 +776,7 @@ private fun BindingInspector(
                 Text(
                     "Recommended for chords so one press does not trigger both the chord and its individual buttons.",
                     color = AresTextSecondary,
-                    fontSize = 10.sp
+                    fontSize = 10.sp,
                 )
             }
         }
@@ -704,7 +795,7 @@ private fun AnalogSourceFields(binding: ControlBindingDocument, viewModel: Contr
             }
             SelectionMenu(
                 "Direction", binding.source.thresholdDirection.name.lowercase(),
-                ControlThresholdDirection.entries.map { it.name to it.name.lowercase() }, Modifier.fillMaxWidth()
+                ControlThresholdDirection.entries.map { it.name to it.name.lowercase() }, Modifier.fillMaxWidth(),
             ) { selected ->
                 viewModel.updateDraft { it.copy(source = it.source.copy(thresholdDirection = ControlThresholdDirection.valueOf(selected))) }
             }
@@ -753,24 +844,9 @@ private fun TimingFields(binding: ControlBindingDocument, viewModel: ControlsEdi
     NumberEditor("Cooldown (s)", binding.timing.cooldownSeconds) { value ->
         viewModel.updateDraft { it.copy(timing = it.timing.copy(cooldownSeconds = value)) }
     }
-    NullableNumberEditor("Maximum active (s)", binding.timing.maximumActiveSeconds) { value ->
+    NullableNumberEditor("Max active (s)", binding.timing.maximumActiveSeconds) { value ->
         viewModel.updateDraft { it.copy(timing = it.timing.copy(maximumActiveSeconds = value)) }
     }
-}
-
-internal fun hasAdvancedBindingSettings(binding: ControlBindingDocument): Boolean =
-    binding.timing != ControlTimingDocument() || binding.suppressConstituentBindings
-
-internal fun advancedBindingSummary(binding: ControlBindingDocument): String {
-    val active = buildList {
-        if (binding.timing.pressDebounceSeconds > 0.0 || binding.timing.releaseDebounceSeconds > 0.0) add("debounce")
-        if (binding.timing.holdAfterSeconds != null) add("hold")
-        if (binding.timing.repeatAfterSeconds != null || binding.timing.repeatEverySeconds != null) add("repeat")
-        if (binding.timing.cooldownSeconds > 0.0) add("cooldown")
-        if (binding.timing.maximumActiveSeconds != null) add("maximum active time")
-        if (binding.suppressConstituentBindings) add("chord suppression")
-    }
-    return if (active.isEmpty()) "Using safe defaults — no custom timing" else "Configured: ${active.joinToString()}"
 }
 
 @Composable
@@ -951,7 +1027,7 @@ private fun ActionPicker(state: ControlsEditorState, selectedKey: String, onSele
                             text = {
                                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(action.displayName, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
-                                    if (action.description.isNotBlank()) {
+                                    if (!action.description.isNullOrBlank()) {
                                         Text(action.description, color = AresTextSecondary, fontSize = 9.sp)
                                     }
                                     Text(
@@ -1018,25 +1094,39 @@ private fun TargetArgumentField(parameter: CapabilityParameterDescriptor, value:
 private fun ProblemsCard(state: ControlsEditorState) {
     if (state.problems.isEmpty()) return
     Column(cardModifier(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Checks", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-        state.problems.take(12).forEach { ProblemBanner(it.message, it.severity) }
-        if (state.problems.size > 12) Text("+ ${state.problems.size - 12} more", color = AresTextSecondary, fontSize = 10.sp)
+        Text("Validation problems", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+        state.problems.forEach { ProblemBanner(it.message, it.severity) }
     }
 }
 
 @Composable
 private fun ProblemBanner(message: String, severity: ControlsProblemSeverity) {
     val color = when (severity) {
-        ControlsProblemSeverity.ERROR -> AresRed
+        ControlsProblemSeverity.ERROR -> AresError
         ControlsProblemSeverity.WARNING -> AresGold
         ControlsProblemSeverity.INFO -> AresCyan
     }
-    Text(
-        message,
-        color = color,
-        fontSize = 10.sp,
-        modifier = Modifier.fillMaxWidth().background(color.copy(alpha = .08f), RoundedCornerShape(5.dp)).padding(7.dp)
-    )
+    Row(
+        Modifier.fillMaxWidth().background(color.copy(alpha = .12f), RoundedCornerShape(6.dp))
+            .border(1.dp, color, RoundedCornerShape(6.dp)).padding(8.dp),
+    ) {
+        Text(message, color = color, fontSize = 11.sp)
+    }
+}
+
+internal fun hasAdvancedBindingSettings(binding: ControlBindingDocument): Boolean =
+    binding.timing != ControlTimingDocument() || binding.suppressConstituentBindings
+
+internal fun advancedBindingSummary(binding: ControlBindingDocument): String {
+    val active = buildList {
+        if (binding.timing.pressDebounceSeconds > 0.0 || binding.timing.releaseDebounceSeconds > 0.0) add("debounce")
+        if (binding.timing.holdAfterSeconds != null) add("hold")
+        if (binding.timing.repeatAfterSeconds != null || binding.timing.repeatEverySeconds != null) add("repeat")
+        if (binding.timing.cooldownSeconds > 0.0) add("cooldown")
+        if (binding.timing.maximumActiveSeconds != null) add("maximum active time")
+        if (binding.suppressConstituentBindings) add("chord suppression")
+    }
+    return if (active.isEmpty()) "Using safe defaults — no custom timing" else "Configured: ${active.joinToString()}"
 }
 
 @Composable
@@ -1045,7 +1135,7 @@ private fun SelectionMenu(
     selected: String,
     choices: List<Pair<String, String>>,
     modifier: Modifier = Modifier,
-    onSelect: (String) -> Unit
+    onSelect: (String) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier) {
@@ -1059,7 +1149,7 @@ private fun SelectionMenu(
             choices.forEach { (key, display) ->
                 DropdownMenuItem(
                     text = { Text(display, fontSize = 11.sp) },
-                    onClick = { expanded = false; onSelect(key) }
+                    onClick = { expanded = false; onSelect(key) },
                 )
             }
         }
@@ -1078,7 +1168,7 @@ private fun NullableNumberEditor(label: String, value: Double?, onValue: (Double
         onValueChange = { text -> raw = text; onValue(text.toDoubleOrNull()) },
         modifier = Modifier.fillMaxWidth(),
         label = { Text(label) },
-        singleLine = true
+        singleLine = true,
     )
 }
 
@@ -1111,4 +1201,86 @@ private fun allowedEvents(kind: ControlSourceKind): List<ControlEvent> = when (k
         listOf(ControlEvent.PRESS, ControlEvent.RELEASE, ControlEvent.HELD, ControlEvent.HOLD, ControlEvent.REPEAT)
     ControlSourceKind.AXIS_VALUE -> listOf(ControlEvent.VALUE)
     ControlSourceKind.AXIS_ZONE -> listOf(ControlEvent.ZONE_ENTER, ControlEvent.ZONE_ACTIVE, ControlEvent.ZONE_EXIT)
+}
+
+private fun generateKeymapSpecSections(
+    state: ControlsEditorState,
+    onEditBinding: (String) -> Unit,
+): List<AresSpecSection> {
+    val bindings = state.selectedScheme?.bindings.orEmpty()
+    val driverBindings = bindings.filter { it.source.controllerSlot == "driver" }
+    val operatorBindings = bindings.filter { it.source.controllerSlot == "operator" }
+    val otherBindings = bindings.filter { it.source.controllerSlot != "driver" && it.source.controllerSlot != "operator" }
+
+    val driverRows = driverBindings.map { binding ->
+        AresSpecRow(
+            id = binding.bindingId,
+            primaryLabel = binding.displayName,
+            secondaryLabel = binding.source.controlIds.joinToString(" + "),
+            badge = binding.event.name,
+            columns = listOf(
+                "Event" to binding.event.friendlyName(),
+                "Target" to binding.target.key,
+                "Kind" to binding.target.kind.name,
+                "Enabled" to if (binding.enabled) "YES" else "NO",
+            ),
+            onEditClick = { onEditBinding(binding.bindingId) },
+        )
+    }
+
+    val operatorRows = operatorBindings.map { binding ->
+        AresSpecRow(
+            id = binding.bindingId,
+            primaryLabel = binding.displayName,
+            secondaryLabel = binding.source.controlIds.joinToString(" + "),
+            badge = binding.event.name,
+            columns = listOf(
+                "Event" to binding.event.friendlyName(),
+                "Target" to binding.target.key,
+                "Kind" to binding.target.kind.name,
+                "Enabled" to if (binding.enabled) "YES" else "NO",
+            ),
+            onEditClick = { onEditBinding(binding.bindingId) },
+        )
+    }
+
+    val sections = mutableListOf(
+        AresSpecSection("Driver (Gamepad 1)", null, driverRows, "No bindings configured on Gamepad 1 (Driver)."),
+        AresSpecSection("Operator (Gamepad 2)", null, operatorRows, "No bindings configured on Gamepad 2 (Operator)."),
+    )
+    if (otherBindings.isNotEmpty()) {
+        val otherRows = otherBindings.map { binding ->
+            AresSpecRow(
+                id = binding.bindingId,
+                primaryLabel = binding.displayName,
+                secondaryLabel = "${binding.source.controllerSlot}: ${binding.source.controlIds.joinToString(" + ")}",
+                badge = binding.event.name,
+                columns = listOf(
+                    "Event" to binding.event.friendlyName(),
+                    "Target" to binding.target.key,
+                    "Kind" to binding.target.kind.name,
+                ),
+                onEditClick = { onEditBinding(binding.bindingId) },
+            )
+        }
+        sections.add(AresSpecSection("Other Controllers", null, otherRows))
+    }
+    return sections
+}
+
+private fun generateKeymapMarkdown(state: ControlsEditorState): String = buildString {
+    appendLine("# ARES TeleOp & Controls Keymap Spec")
+    appendLine("Project: ${state.projectPath}")
+    appendLine("League: ${state.league.name}")
+    appendLine("Target Platform: ${state.targetPlatform.name}")
+    appendLine()
+    state.selectedScheme?.bindings.orEmpty().groupBy { it.source.controllerSlot }.forEach { (slot, bindings) ->
+        appendLine("## Controller: ${slot.replaceFirstChar(Char::uppercase)}")
+        appendLine("| Control | Event | Target Action | Kind | Enabled |")
+        appendLine("|---|---|---|---|---|")
+        bindings.forEach { b ->
+            appendLine("| ${b.source.controlIds.joinToString(" + ")} | ${b.event.friendlyName()} | ${b.target.key} | ${b.target.kind.name} | ${if (b.enabled) "Yes" else "No"} |")
+        }
+        appendLine()
+    }
 }
