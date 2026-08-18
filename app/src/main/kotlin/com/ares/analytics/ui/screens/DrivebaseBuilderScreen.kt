@@ -53,54 +53,155 @@ fun DrivebaseBuilderScreen(
     var showAiAssistantDrawer by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-                Column {
-                    Text("Drivebase Builder", color = AresTextPrimary, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                    Text("Describe how the robot moves, localizes, stops safely, and is calibrated.", color = AresTextSecondary, fontSize = 12.sp)
-                    Text("${state.league.name} PROJECT · ${state.draft.kind.runtimeSupportLabel(state.league)}", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    Text("Drafts never command hardware. Saving requires a content-hash-bound reviewed diff and creates a history backup.", color = AresGold, fontSize = 11.sp)
-                    Text("PROJECT · ${state.projectPath}", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                    Text("CANONICAL · .ares/drivetrains/${state.draft.documentId}.aresdrivetrain", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                    Text("GENERATED · robot module build/generated/ares/drivebase (never hand-edit)", color = AresTextSecondary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedButton(
-                        onClick = { showAiAssistantDrawer = true },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AresCyan),
-                        border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.6f)),
+        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Compact Sub-Header Strip with Horizontal Stepper
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = AresSurface,
+                border = BorderStroke(1.dp, AresBorder),
+                shape = RoundedCornerShape(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(16.dp), tint = AresCyan)
-                        Spacer(Modifier.width(5.dp))
-                        Text("AI Assistant")
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = AresCyan.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.3f)),
+                        ) {
+                            Text(
+                                state.draft.kind.name.uppercase(),
+                                color = AresCyan,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                        Text(
+                            state.draft.displayName,
+                            color = AresTextPrimary,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
-                    OutlinedButton(onClick = { showSpecSummaryModal = true }) {
-                        Icon(Icons.Default.TableChart, null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("Spec Summary")
+
+                    // Stepper Horizontal Tabs
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        DrivebaseBuilderStep.entries.forEach { step ->
+                            val selected = step == state.step
+                            val label = when (step) {
+                                DrivebaseBuilderStep.DRIVE_TYPE -> "Drive Type"
+                                DrivebaseBuilderStep.HARDWARE -> "Hardware"
+                                DrivebaseBuilderStep.GEOMETRY -> "Geometry"
+                                DrivebaseBuilderStep.LOCALIZATION -> "Localization"
+                                DrivebaseBuilderStep.SAFETY -> "Safety"
+                                DrivebaseBuilderStep.LABS -> "Sim Labs"
+                                DrivebaseBuilderStep.REVIEW -> "Review"
+                            }
+                            FilterChip(
+                                selected = selected,
+                                onClick = { viewModel.onIntent(DrivebaseBuilderIntent.SelectStep(step)) },
+                                label = {
+                                    Text(
+                                        label,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = AresCyan,
+                                    selectedLabelColor = AresOnAccent,
+                                    containerColor = AresSurfaceElevated,
+                                    labelColor = AresTextPrimary,
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    borderColor = if (selected) AresCyan else AresBorder,
+                                    selectedBorderColor = AresCyan,
+                                    enabled = true,
+                                    selected = selected,
+                                ),
+                            )
+                        }
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Switch(state.advanced, { viewModel.onIntent(DrivebaseBuilderIntent.SetAdvanced(it)) }, enabled = !state.loading)
-                        Text(" Advanced", color = AresTextPrimary, fontSize = 11.sp)
-                    }
-                    OutlinedButton(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.Reload) }, enabled = !state.loading) {
-                        Icon(Icons.Default.Refresh, "Reload drivebase document", Modifier.size(16.dp)); Text(" Reload")
-                    }
-                    Button(onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) }, enabled = !state.loading && state.dirty, colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)) {
-                        Text("Review changes")
+
+                    // Quick Actions
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Switch(state.advanced, { viewModel.onIntent(DrivebaseBuilderIntent.SetAdvanced(it)) }, enabled = !state.loading)
+                            Text(" Adv", color = AresTextPrimary, fontSize = 10.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { showAiAssistantDrawer = true },
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AresCyan),
+                            border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.6f)),
+                            modifier = Modifier.height(30.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        ) {
+                            Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(12.dp), tint = AresCyan)
+                            Spacer(Modifier.width(4.dp))
+                            Text("AI", fontSize = 11.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { showSpecSummaryModal = true },
+                            modifier = Modifier.height(30.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        ) {
+                            Icon(Icons.Default.TableChart, null, modifier = Modifier.size(12.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Spec", fontSize = 11.sp)
+                        }
+                        OutlinedButton(
+                            onClick = { viewModel.onIntent(DrivebaseBuilderIntent.Reload) },
+                            enabled = !state.loading,
+                            modifier = Modifier.height(30.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        ) {
+                            Icon(Icons.Default.Refresh, "Reload", Modifier.size(12.dp))
+                        }
+                        Button(
+                            onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) },
+                            enabled = !state.loading && state.dirty,
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                            modifier = Modifier.height(30.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        ) {
+                            Text("Save Draft", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
+
             state.error?.let { StatusBanner(it, AresError) }
             if (state.status.isNotBlank()) StatusBanner(state.status, AresGreen)
             if (state.draft.kind.runtimeSupport(state.league) == DrivebaseRuntimeSupport.CODE_REQUIRED) {
                 StatusBanner("CODE REQUIRED · You can inspect and learn from this architecture, but ARES cannot save it as a runnable no-code ${state.league.name} drivebase until a team-written adapter and lifecycle wiring exist.", AresGold)
             }
-            if (state.loading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator(); Text("Loading the project drivebase before editing…", color = AresTextSecondary) }
-            } else Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                StepRail(state.step, viewModel, Modifier.width(190.dp).fillMaxHeight())
-                Column(Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+
+            if (state.loading) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.height(8.dp))
+                        Text("Loading drivebase configuration…", color = AresTextSecondary)
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     when (state.step) {
                         DrivebaseBuilderStep.DRIVE_TYPE -> DriveTypeStep(state, viewModel)
                         DrivebaseBuilderStep.HARDWARE -> HardwareStep(state, viewModel)
@@ -111,7 +212,6 @@ fun DrivebaseBuilderScreen(
                         DrivebaseBuilderStep.REVIEW -> ReviewStep(state, viewModel, onContinueToSubsystems, onBackToStudio)
                     }
                 }
-                IssueRail(state, Modifier.width(260.dp).fillMaxHeight())
             }
         }
 

@@ -141,7 +141,7 @@ fun SubsystemGeneratorScreen(
     var showAiAssistantDrawer by remember { mutableStateOf(false) }
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             SubsystemHeader(
                 state = state,
                 viewModel = viewModel,
@@ -163,19 +163,14 @@ fun SubsystemGeneratorScreen(
                 return@Column
             }
             val draft = state.draft?.document ?: return@Column
-            BuilderProgress(state, viewModel)
-            BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
-                if (maxWidth < 980.dp) {
-                    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        BuilderNavigation(state, viewModel, Modifier.fillMaxWidth().weight(.75f))
-                        BuilderEditor(state, viewModel, workspaceTab, { workspaceTab = it }, Modifier.fillMaxWidth().weight(1.5f))
-                    }
-                } else {
-                    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        BuilderNavigation(state, viewModel, Modifier.weight(.8f).fillMaxHeight())
-                        BuilderEditor(state, viewModel, workspaceTab, { workspaceTab = it }, Modifier.weight(2.2f).fillMaxHeight())
-                    }
-                }
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                BuilderEditor(
+                    state = state,
+                    viewModel = viewModel,
+                    workspaceTab = workspaceTab,
+                    onTabChange = { workspaceTab = it },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
 
@@ -369,85 +364,162 @@ private fun SubsystemHeader(
     onContinueToPortMap: (() -> Unit)? = null,
     onBackToDrivetrain: (() -> Unit)? = null,
 ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Column {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Icon(Icons.Default.Memory, null, tint = AresCyan, modifier = Modifier.size(22.dp))
-                Text("Subsystem Builder", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-            }
-            Text(
-                "Visual for beginners, readable DSL for learners, direct IO/Redux escape hatches for advanced students.",
-                color = AresTextSecondary,
-                fontSize = 12.sp,
-            )
-            Text(
-                "Open or create a subsystem, then use the AI Assistant for reviewed Gemini suggestions.",
-                color = AresCyan,
-                fontSize = 11.sp,
-            )
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (onBackToDrivetrain != null) {
-                OutlinedButton(onClick = onBackToDrivetrain) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text("Drivetrain")
+    val draft = state.draft?.document
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = AresSurface,
+        border = BorderStroke(1.dp, AresBorder),
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // Left: Name & Template Badge
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (onBackToDrivetrain != null) {
+                    IconButton(onClick = onBackToDrivetrain, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Drivetrain", tint = AresTextSecondary, modifier = Modifier.size(16.dp))
+                    }
                 }
-            }
-            OutlinedButton(
-                onClick = onOpenAiAssistant,
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = AresCyan),
-                border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.6f)),
-            ) {
-                Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(16.dp), tint = AresCyan)
-                Spacer(Modifier.width(5.dp))
-                Text("AI Assistant")
-            }
-            OutlinedButton(onClick = onOpenSpecSummary) {
-                Icon(Icons.Default.TableChart, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(5.dp))
-                Text("Spec Summary")
-            }
-            OutlinedButton(onClick = viewModel::undo, enabled = state.canUndo) { Text("Undo") }
-            OutlinedButton(onClick = viewModel::redo, enabled = state.canRedo) { Text("Redo") }
-            OutlinedButton(onClick = onReload) {
-                Icon(Icons.Default.Refresh, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(5.dp))
-                Text("Reload")
-            }
-            Button(
-                onClick = { viewModel.save() },
-                enabled = state.canSave,
-                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-            ) {
-                Icon(Icons.Default.Save, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(5.dp))
-                Text("Save", color = AresOnAccent)
-            }
-            Button(
-                onClick = viewModel::generate,
-                enabled = state.canSave || state.canGenerate,
-                colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent),
-            ) {
-                Icon(Icons.Default.Build, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(5.dp))
-                val handAuthored = state.draft?.document?.implementation?.kind == SubsystemImplementationKind.HAND_AUTHORED
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = AresCyan.copy(alpha = 0.12f),
+                    border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.3f)),
+                ) {
+                    Text(
+                        (draft?.template?.name ?: "MECHANISM").replace("_", " "),
+                        color = AresCyan,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    )
+                }
                 Text(
-                    when {
-                        state.dirty && handAuthored -> "Save & Refresh Plumbing"
-                        state.dirty -> "Save & Generate"
-                        handAuthored -> "Refresh Plumbing"
-                        else -> "Generate Kotlin"
-                    },
-                    color = AresOnAccent,
+                    draft?.displayName ?: "Subsystem",
+                    color = AresTextPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
                 )
             }
-            if (onContinueToPortMap != null) {
-                Button(
-                    onClick = onContinueToPortMap,
-                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+
+            // Center: Stage Stepper Tabs
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SubsystemBuilderStage.entries.forEach { stage ->
+                    val selected = stage == state.activeStage
+                    FilterChip(
+                        selected = selected,
+                        onClick = { viewModel.selectStage(stage) },
+                        label = {
+                            Text(
+                                stage.displayName,
+                                fontSize = 11.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = AresCyan,
+                            selectedLabelColor = AresOnAccent,
+                            containerColor = AresSurfaceElevated,
+                            labelColor = AresTextPrimary,
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            borderColor = if (selected) AresCyan else AresBorder,
+                            selectedBorderColor = AresCyan,
+                            enabled = true,
+                            selected = selected,
+                        ),
+                    )
+                }
+            }
+
+            // Right: Actions
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(
+                    onClick = viewModel::undo,
+                    enabled = state.canUndo,
+                    modifier = Modifier.height(30.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                 ) {
-                    Text("Next: Port Map →")
+                    Text("Undo", fontSize = 11.sp)
+                }
+                OutlinedButton(
+                    onClick = viewModel::redo,
+                    enabled = state.canRedo,
+                    modifier = Modifier.height(30.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Text("Redo", fontSize = 11.sp)
+                }
+                OutlinedButton(
+                    onClick = onOpenAiAssistant,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = AresCyan),
+                    border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.6f)),
+                    modifier = Modifier.height(30.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(12.dp), tint = AresCyan)
+                    Spacer(Modifier.width(4.dp))
+                    Text("AI", fontSize = 11.sp)
+                }
+                OutlinedButton(
+                    onClick = onOpenSpecSummary,
+                    modifier = Modifier.height(30.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                ) {
+                    Icon(Icons.Default.TableChart, null, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Spec", fontSize = 11.sp)
+                }
+                Button(
+                    onClick = { viewModel.save() },
+                    enabled = state.canSave,
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                    modifier = Modifier.height(30.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                ) {
+                    Icon(Icons.Default.Save, null, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Save", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+                Button(
+                    onClick = viewModel::generate,
+                    enabled = state.canSave || state.canGenerate,
+                    colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent),
+                    modifier = Modifier.height(30.dp),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                ) {
+                    Icon(Icons.Default.Build, null, modifier = Modifier.size(12.dp))
+                    Spacer(Modifier.width(4.dp))
+                    val handAuthored = state.draft?.document?.implementation?.kind == SubsystemImplementationKind.HAND_AUTHORED
+                    Text(
+                        when {
+                            state.dirty && handAuthored -> "Save & Refresh"
+                            state.dirty -> "Save & Gen"
+                            handAuthored -> "Refresh"
+                            else -> "Generate"
+                        },
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AresOnAccent,
+                    )
+                }
+                if (onContinueToPortMap != null) {
+                    Button(
+                        onClick = onContinueToPortMap,
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                        modifier = Modifier.height(30.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                    ) {
+                        Text("Port Map →", fontSize = 11.sp)
+                    }
                 }
             }
         }

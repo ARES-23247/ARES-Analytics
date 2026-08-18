@@ -3,283 +3,365 @@ package com.ares.analytics.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.HourglassTop
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PrecisionManufacturing
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.RocketLaunch
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ares.analytics.service.GamepadState
+import com.ares.analytics.shared.WorkspaceConfig
+import com.ares.analytics.ui.components.controls.ControlsEditorPanel
+import com.ares.analytics.ui.components.robotstudio.RobotContextInspector
+import com.ares.analytics.ui.components.robotstudio.RobotHierarchyTree
+import com.ares.analytics.ui.components.robotstudio.RobotStudioSelection
+import com.ares.analytics.ui.components.robotstudio.SubsystemTreeItem
 import com.ares.analytics.ui.theme.AresAmber
 import com.ares.analytics.ui.theme.AresBackground
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
 import com.ares.analytics.ui.theme.AresGreen
 import com.ares.analytics.ui.theme.AresOnAccent
-import com.ares.analytics.ui.theme.AresRed
 import com.ares.analytics.ui.theme.AresSurface
 import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
-import com.ares.analytics.ui.theme.AresTextTertiary
+import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
+import com.ares.analytics.viewmodel.controls.ControlsEditorState
+import com.ares.analytics.viewmodel.controls.ControlsEditorViewModel
+import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
+import com.ares.analytics.viewmodel.hardware.HardwareSetupViewModel
+import com.ares.analytics.viewmodel.project.ProjectIdentityViewModel
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioAction
-import com.ares.analytics.viewmodel.robotstudio.RobotStudioStage
+import com.ares.analytics.viewmodel.robotstudio.RobotStudioStageId
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioStageStatus
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioViewModel
+import com.ares.analytics.viewmodel.superstructure.SuperstructureStudioViewModel
 
-/** Guided, read-first route through the existing specialized robot authoring tools. */
+/**
+ * Unified 3-Pane Robot Studio Workspace:
+ * Left Pane: Robot Hierarchy Tree (Identity, Drivetrain, Subsystems, Superstructure, Controls, Port Map)
+ * Center Pane: Interactive Visual Canvas (2D Kinematics, Stateflow Node Graph, Posture Matrix, Gamepad Canvas)
+ * Right Pane: Context-sensitive live property inspector and validation checks.
+ */
 @Composable
 fun RobotStudioScreen(
     viewModel: RobotStudioViewModel,
+    drivebaseViewModel: DrivebaseBuilderViewModel,
+    subsystemViewModel: SubsystemGeneratorViewModel,
+    superstructureViewModel: SuperstructureStudioViewModel,
+    controlsViewModel: ControlsEditorViewModel,
+    controlsState: ControlsEditorState,
+    gamepad1State: GamepadState,
+    gamepad2State: GamepadState,
+    hardwareSetupViewModel: HardwareSetupViewModel,
+    projectIdentityViewModel: ProjectIdentityViewModel,
+    config: WorkspaceConfig,
+    initialSelection: RobotStudioSelection = RobotStudioSelection.Identity,
     onAction: (RobotStudioAction) -> Unit,
     onOpenAcademy: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val subsystemState by subsystemViewModel.state.collectAsState()
 
-    BoxWithConstraints(Modifier.fillMaxSize().background(AresBackground)) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(if (maxWidth < 760.dp) 12.dp else 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                RobotStudioHeader(
-                    projectName = state.projectName,
-                    projectPath = state.projectPath,
-                    ready = state.readyCount,
-                    total = state.stages.size,
-                    loading = state.loading,
-                    onRefresh = viewModel::refresh,
-                    onOpenAcademy = onOpenAcademy,
+    var selection by remember { mutableStateOf(initialSelection) }
+    var isLeftTreeCollapsed by remember { mutableStateOf(false) }
+    var isRightInspectorCollapsed by remember { mutableStateOf(false) }
+
+    // Derive list of subsystem items for tree
+    val subsystemTreeItems = remember(subsystemState.documents, subsystemState.draft, subsystemState.dirty) {
+        val all = subsystemState.documents.map { sub ->
+            SubsystemTreeItem(
+                documentId = sub.documentId,
+                displayName = sub.displayName,
+                isDraft = sub.documentId == subsystemState.draft?.document?.documentId && subsystemState.dirty,
+                hasIssues = false,
+            )
+        }
+        if (all.isEmpty() && subsystemState.draft != null) {
+            listOf(
+                SubsystemTreeItem(
+                    documentId = subsystemState.draft!!.document.documentId,
+                    displayName = subsystemState.draft!!.document.displayName,
+                    isDraft = subsystemState.dirty,
+                    hasIssues = false,
                 )
-            }
-            state.error?.let { message ->
-                item { StudioError(message, onRefresh = viewModel::refresh) }
-            }
-            if (state.loading && state.stages.isEmpty()) {
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(24.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
+            )
+        } else all
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AresBackground),
+    ) {
+        // ── Ultra-Slim Top Bar (44dp) ──────────────────────────────────────────
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp),
+            color = AresSurface,
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Left: Robot Title & Readiness Badge
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        state.projectName.takeIf { it.isNotBlank() } ?: "Robot Studio",
+                        color = AresTextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = AresCyan.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.3f)),
                     ) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), color = AresCyan)
-                        Spacer(Modifier.width(10.dp))
-                        Text("Inspecting canonical project documents…", color = AresTextSecondary)
+                        Text(
+                            config.league.name,
+                            color = AresCyan,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+
+                    // Readiness Badge
+                    val readyCount = state.stages.count { it.status == RobotStudioStageStatus.READY }
+                    val totalStages = state.stages.size.coerceAtLeast(1)
+                    val issues = state.stages.flatMap { it.issues }
+                    val isAllReady = issues.isEmpty() && readyCount >= totalStages - 1
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (isAllReady) AresGreen.copy(alpha = 0.12f) else AresAmber.copy(alpha = 0.12f),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(
+                                if (isAllReady) Icons.Default.CheckCircle else Icons.Default.Build,
+                                contentDescription = null,
+                                tint = if (isAllReady) AresGreen else AresAmber,
+                                modifier = Modifier.size(11.dp),
+                            )
+                            Text(
+                                if (isAllReady) "All Stages Ready" else "$readyCount/$totalStages Stages Ready",
+                                color = if (isAllReady) AresGreen else AresAmber,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+
+                // Right: Primary Actions Cluster
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = onOpenAcademy,
+                        modifier = Modifier.size(30.dp),
+                    ) {
+                        Icon(Icons.Default.School, contentDescription = "Tour & Academy Help", tint = AresTextSecondary, modifier = Modifier.size(16.dp))
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            onAction(RobotStudioAction.RUN_BUILD)
+                        },
+                        shape = RoundedCornerShape(6.dp),
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Text("Build", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            onAction(RobotStudioAction.RUN_SIMULATOR)
+                        },
+                        shape = RoundedCornerShape(6.dp),
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp), tint = AresGreen)
+                            Text("Simulate", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            onAction(RobotStudioAction.DEPLOY_ROBOT)
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                        shape = RoundedCornerShape(6.dp),
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(13.dp))
+                            Text("Deploy", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
-            state.nextStage?.let { next ->
-                item { NextStepCard(next, onAction) }
-            }
-            items(state.stages, key = { it.id }) { stage ->
-                RobotStudioStageCard(stage, onAction)
-            }
-            item {
-                Surface(
-                    color = AresSurface,
-                    border = BorderStroke(1.dp, AresBorder),
-                    shape = RoundedCornerShape(12.dp),
-                ) {
-                    Text(
-                        "Robot Studio reports document, simulator, and imported-run evidence only. A successful simulation or build is not physical robot validation; use your team’s supervised hardware checklist before enabling mechanisms.",
-                        color = AresTextSecondary,
-                        modifier = Modifier.fillMaxWidth().padding(14.dp),
-                        lineHeight = 20.sp,
-                    )
-                }
-            }
         }
-    }
-}
 
-@Composable
-private fun RobotStudioHeader(
-    projectName: String,
-    projectPath: String,
-    ready: Int,
-    total: Int,
-    loading: Boolean,
-    onRefresh: () -> Unit,
-    onOpenAcademy: () -> Unit,
-) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = AresSurface),
-        border = BorderStroke(1.dp, AresBorder),
-        shape = RoundedCornerShape(14.dp),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.PrecisionManufacturing, contentDescription = null, tint = AresCyan, modifier = Modifier.size(30.dp))
-                Spacer(Modifier.width(10.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Robot Studio", color = AresTextPrimary, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-                    Text("Build, verify, simulate, and understand one robot without losing the project-wide story.", color = AresTextSecondary)
-                }
-                OutlinedButton(onClick = onRefresh, enabled = !loading) {
-                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(17.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(if (loading) "Refreshing" else "Refresh")
-                }
-            }
-            HorizontalDivider(color = AresBorder)
-            Text(projectName.ifBlank { "Selected robot workspace" }, color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
-            Text(projectPath.ifBlank { "No project folder selected" }, color = AresTextTertiary, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-            if (total > 0) {
-                Text("$ready of $total stages currently ready or running", color = AresTextSecondary, fontSize = 12.sp)
-                LinearProgressIndicator(
-                    progress = { ready.toFloat() / total.toFloat() },
-                    modifier = Modifier.fillMaxWidth().height(7.dp),
-                    color = AresGreen,
-                    trackColor = AresSurfaceElevated,
-                )
-            }
-            OutlinedButton(onClick = onOpenAcademy) { Text("Learn this workflow in Robot Academy") }
-        }
-    }
-}
-
-@Composable
-private fun NextStepCard(stage: RobotStudioStage, onAction: (RobotStudioAction) -> Unit) {
-    Surface(
-        color = AresCyan.copy(alpha = 0.09f),
-        border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.75f)),
-        shape = RoundedCornerShape(12.dp),
-    ) {
+        // ── 3-Pane Main Body ──────────────────────────────────────────────────
         Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
         ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("Recommended next step", color = AresTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                Text(stage.title, color = AresTextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text(stage.explanation, color = AresTextSecondary, lineHeight = 19.sp)
-            }
-            Button(
-                onClick = { onAction(stage.action) },
-                enabled = stage.status != RobotStudioStageStatus.BLOCKED,
-                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+            // Left Pane: Robot Hierarchy Tree
+            RobotHierarchyTree(
+                state = state,
+                subsystems = subsystemTreeItems,
+                selected = selection,
+                onSelect = { newSel ->
+                    selection = newSel
+                    if (newSel is RobotStudioSelection.Subsystem && newSel.documentId.isNotBlank()) {
+                        subsystemViewModel.selectDocument(newSel.documentId)
+                    }
+                },
+                onAddSubsystem = {
+                    selection = RobotStudioSelection.Subsystem("")
+                    subsystemViewModel.setTemplatePickerVisible(true)
+                },
+                onGenerateAndBuild = {
+                    subsystemViewModel.generate()
+                    onAction(RobotStudioAction.RUN_BUILD)
+                },
+                isCollapsed = isLeftTreeCollapsed,
+                onToggleCollapse = { isLeftTreeCollapsed = !isLeftTreeCollapsed },
+            )
+
+            // Center Pane: Active Visual Workspace
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
             ) {
-                Text(stage.actionLabel, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.width(6.dp))
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(17.dp))
-            }
-        }
-    }
-}
-
-@Composable
-private fun RobotStudioStageCard(stage: RobotStudioStage, onAction: (RobotStudioAction) -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = AresSurface),
-        border = BorderStroke(1.dp, AresBorder),
-        shape = RoundedCornerShape(12.dp),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StageStatus(stage.status)
-                Column(Modifier.weight(1f)) {
-                    Text(stage.title, color = AresTextPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                    Text(stage.outcome, color = AresTextSecondary, lineHeight = 19.sp)
+                when (val sel = selection) {
+                    is RobotStudioSelection.Identity -> {
+                        ProjectIdentityScreen(
+                            viewModel = projectIdentityViewModel,
+                            config = config,
+                            onBackToStudio = {},
+                        )
+                    }
+                    is RobotStudioSelection.Drivetrain -> {
+                        DrivebaseBuilderScreen(
+                            viewModel = drivebaseViewModel,
+                            onContinueToSubsystems = {
+                                selection = RobotStudioSelection.Subsystem(
+                                    subsystemTreeItems.firstOrNull()?.documentId ?: ""
+                                )
+                            },
+                            onBackToStudio = {},
+                        )
+                    }
+                    is RobotStudioSelection.Subsystem -> {
+                        SubsystemGeneratorScreen(
+                            viewModel = subsystemViewModel,
+                            onContinueToPortMap = { selection = RobotStudioSelection.PortMap },
+                            onBackToDrivetrain = { selection = RobotStudioSelection.Drivetrain },
+                        )
+                    }
+                    is RobotStudioSelection.Superstructure -> {
+                        SuperstructureStudioScreen(
+                            viewModel = superstructureViewModel,
+                        )
+                    }
+                    is RobotStudioSelection.Controls -> {
+                        ControlsEditorPanel(
+                            state = controlsState,
+                            viewModel = controlsViewModel,
+                            gamepad1State = gamepad1State,
+                            gamepad2State = gamepad2State,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    is RobotStudioSelection.PortMap -> {
+                        HardwareSetupScreen(
+                            viewModel = hardwareSetupViewModel,
+                            onOpenDrivebase = { selection = RobotStudioSelection.Drivetrain },
+                            onOpenSubsystems = {
+                                selection = RobotStudioSelection.Subsystem(
+                                    subsystemTreeItems.firstOrNull()?.documentId ?: ""
+                                )
+                            },
+                            onBackToStudio = {},
+                        )
+                    }
                 }
-                OutlinedButton(
-                    onClick = { onAction(stage.action) },
-                    enabled = stage.status != RobotStudioStageStatus.BLOCKED && stage.status != RobotStudioStageStatus.RUNNING,
-                ) { Text(stage.actionLabel) }
             }
-            Text(stage.explanation, color = AresTextSecondary, lineHeight = 19.sp)
-            stage.issues.forEach { issue ->
-                Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.Top) {
-                    Icon(Icons.Default.Warning, contentDescription = null, tint = AresAmber, modifier = Modifier.size(17.dp))
-                    Text(issue, color = AresTextPrimary, fontSize = 12.sp, lineHeight = 18.sp)
-                }
-            }
-            Surface(color = AresSurfaceElevated, shape = RoundedCornerShape(8.dp)) {
-                Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("Stored in: ${stage.storage}", color = AresTextSecondary, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-                    Text("Used by: ${stage.consumer}", color = AresTextTertiary, fontSize = 11.sp)
-                }
-            }
-        }
-    }
-}
 
-@Composable
-private fun StageStatus(status: RobotStudioStageStatus) {
-    val (icon, tint) = when (status) {
-        RobotStudioStageStatus.READY -> Icons.Default.CheckCircle to AresGreen
-        RobotStudioStageStatus.RUNNING -> Icons.Default.HourglassTop to AresCyan
-        RobotStudioStageStatus.OPTIONAL -> Icons.Default.Info to AresTextSecondary
-        RobotStudioStageStatus.NEEDS_ACTION -> Icons.Default.Warning to AresAmber
-        RobotStudioStageStatus.BLOCKED -> Icons.Default.Block to AresTextSecondary
-        RobotStudioStageStatus.INVALID -> Icons.Default.Error to AresRed
-        RobotStudioStageStatus.CODE_REQUIRED -> Icons.Default.Code to AresAmber
-    }
-    Surface(
-        color = tint.copy(alpha = 0.10f),
-        border = BorderStroke(1.dp, tint.copy(alpha = 0.65f)),
-        shape = RoundedCornerShape(20.dp),
-    ) {
-        Row(Modifier.padding(horizontal = 9.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(5.dp))
-            Text(status.label, color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        }
-    }
-}
-
-@Composable
-private fun StudioError(message: String, onRefresh: () -> Unit) {
-    Surface(
-        color = AresRed.copy(alpha = 0.10f),
-        border = BorderStroke(1.dp, AresRed.copy(alpha = 0.7f)),
-        shape = RoundedCornerShape(12.dp),
-    ) {
-        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Error, contentDescription = null, tint = AresRed)
-            Spacer(Modifier.width(9.dp))
-            Column(Modifier.weight(1f)) {
-                Text("Robot Studio could not inspect the project", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-                Text("$message Check the selected repository and canonical files, then refresh.", color = AresTextSecondary)
-            }
-            OutlinedButton(onClick = onRefresh) { Text("Refresh") }
+            // Right Pane: Context Inspector
+            RobotContextInspector(
+                selection = selection,
+                state = state,
+                isCollapsed = isRightInspectorCollapsed,
+                onToggleCollapse = { isRightInspectorCollapsed = !isRightInspectorCollapsed },
+                onOpenAiAssistant = {
+                    // Open AI Assistant in active workspace if applicable
+                },
+                onOpenSpecSummary = {
+                    // Open Spec summary
+                },
+            )
         }
     }
 }

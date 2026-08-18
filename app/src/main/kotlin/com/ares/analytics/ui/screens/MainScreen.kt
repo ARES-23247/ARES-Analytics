@@ -1031,6 +1031,16 @@ fun MainScreen(services: ServiceRegistry) {
                             )
                             NavigationTarget.ROBOT_STUDIO -> RobotStudioScreen(
                                 viewModel = robotStudioViewModel,
+                                drivebaseViewModel = drivebaseBuilderViewModel,
+                                subsystemViewModel = subsystemGeneratorViewModel,
+                                superstructureViewModel = superstructureStudioViewModel,
+                                controlsViewModel = controlsEditorViewModel,
+                                controlsState = controlsEditorState,
+                                gamepad1State = gamepad1State,
+                                gamepad2State = gamepad2State,
+                                hardwareSetupViewModel = hardwareSetupViewModel,
+                                projectIdentityViewModel = projectIdentityViewModel,
+                                config = currentConfig,
                                 onAction = { action ->
                                     when (action) {
                                         RobotStudioAction.OPEN_PROJECT_IDENTITY ->
