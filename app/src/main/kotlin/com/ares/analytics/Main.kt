@@ -146,8 +146,13 @@ private fun launchDesktopApplication() {
             title = "ARES Analytics — Mission Control",
             state = windowState,
             icon = rememberAresLogoPainter(),
+            visible = true,
         ) {
             DisposableEffect(window) {
+                window.isVisible = true
+                window.toFront()
+                window.requestFocus()
+                println("[ARES-Analytics] Desktop window presented: size=${window.size}, location=${window.location}")
                 val listener = object : java.awt.event.WindowAdapter() {
                     override fun windowLostFocus(event: java.awt.event.WindowEvent?) {
                         services.keyboardDriveState.releaseAll()
