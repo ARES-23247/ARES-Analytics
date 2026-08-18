@@ -145,7 +145,6 @@ private fun launchDesktopApplication() {
             },
             title = "ARES Analytics — Mission Control",
             state = windowState,
-            icon = rememberAresLogoPainter(),
             visible = true,
         ) {
             DisposableEffect(window) {
