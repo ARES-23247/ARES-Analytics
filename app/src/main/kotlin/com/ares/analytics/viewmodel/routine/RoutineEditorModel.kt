@@ -11,6 +11,7 @@ import com.areslib.catalog.CapabilityParameterType
 import com.areslib.catalog.ConditionDescriptor
 import com.areslib.routine.AutonomousCatalogEntry
 import com.areslib.routine.RoutineDocument
+import com.areslib.routine.RoutineAlliance
 import com.areslib.routine.RoutineDriveStep
 import com.areslib.routine.RoutinePose
 import com.areslib.routine.RoutineStep
@@ -19,6 +20,100 @@ import com.areslib.routine.RoutineValidationContext
 import com.areslib.routine.RoutineValidationIssue
 import com.areslib.routine.RoutineValidationSeverity
 import com.areslib.routine.validateRoutine
+import kotlin.math.hypot
+
+/**
+ * Review-only input for the novice First Routine guide.
+ *
+ * Applying this model creates an unsaved canonical draft. It never writes project files, runs
+ * code generation, or commands either a simulator or physical robot.
+ */
+data class GuidedFirstRoutinePlan(
+    val name: String,
+    val startingPose: RoutinePose,
+    val targetPose: RoutinePose,
+    val authoredAlliance: RoutineAlliance = RoutineAlliance.RED,
+    val mirrorForOppositeAlliance: Boolean = true,
+)
+
+/** Conservative, field-valid starting values that the student must still review on the canvas. */
+fun defaultGuidedFirstRoutinePlan(
+    league: League,
+    dimensions: RobotDimensions,
+): GuidedFirstRoutinePlan {
+    val bounds = legalCenterBounds(league, dimensions, headingRadians = 0.0)
+    val startX = (bounds.minX + bounds.maxX) / 2.0
+    val startY = (bounds.minY + bounds.maxY) / 2.0
+    val forwardRoom = bounds.maxX - startX
+    val backwardRoom = startX - bounds.minX
+    val direction = if (forwardRoom >= 0.60 || forwardRoom >= backwardRoom) 1.0 else -1.0
+    val available = if (direction > 0.0) forwardRoom else backwardRoom
+    val distance = available.coerceAtMost(0.75).coerceAtLeast(0.0)
+    return GuidedFirstRoutinePlan(
+        name = "First simulator drive",
+        startingPose = RoutinePose(startX, startY, 0.0),
+        targetPose = RoutinePose(startX + direction * distance, startY, 0.0),
+    )
+}
+
+/** Plain-language, fail-closed checks shared by the dialog and the state owner. */
+fun validateGuidedFirstRoutinePlan(
+    plan: GuidedFirstRoutinePlan,
+    league: League,
+    dimensions: RobotDimensions,
+): List<String> = buildList {
+    if (plan.name.isBlank()) add("Give the routine a name so it can be found again.")
+    if (plan.name.trim().length > 80) add("Keep the routine name to 80 characters or fewer.")
+
+    fun validatePose(label: String, pose: RoutinePose) {
+        if (!pose.xMeters.isFinite() || !pose.yMeters.isFinite() || !pose.headingRadians.isFinite()) {
+            add("$label must use finite X, Y, and heading values.")
+            return
+        }
+        if (pose != clampRoutinePose(pose, league, dimensions)) {
+            add("$label would place part of the robot outside the field boundary.")
+        }
+    }
+    validatePose("Starting pose", plan.startingPose)
+    validatePose("Drive goal", plan.targetPose)
+
+    if (listOf(plan.startingPose, plan.targetPose).all {
+            it.xMeters.isFinite() && it.yMeters.isFinite()
+        }
+    ) {
+        val distance = hypot(
+            plan.targetPose.xMeters - plan.startingPose.xMeters,
+            plan.targetPose.yMeters - plan.startingPose.yMeters,
+        )
+        if (distance < 0.10) add("Move the drive goal at least 0.10 m from the starting pose.")
+        if (distance > 2.00) add("Keep a first guided move at 2.00 m or less; add later goals in the full editor.")
+    }
+}.distinct()
+
+fun guidedFirstRoutineDocument(documentId: String, plan: GuidedFirstRoutinePlan): RoutineDocument =
+    RoutineDocument(
+        documentId = documentId,
+        name = plan.name.trim(),
+        description = "A simulator-first autonomous draft created by the guided First Routine flow.",
+        steps = listOf(
+            RoutineStep.driveTo(
+                RoutineDriveStep(
+                    target = plan.targetPose,
+                    motionPresetKey = "safe",
+                ),
+            ),
+        ),
+    )
+
+fun guidedFirstRoutineEntry(documentId: String, plan: GuidedFirstRoutinePlan): AutonomousCatalogEntry =
+    AutonomousCatalogEntry(
+        entryId = documentId,
+        displayName = plan.name.trim(),
+        routineId = documentId,
+        startingPose = plan.startingPose,
+        authoredAlliance = plan.authoredAlliance,
+        mirrorForOppositeAlliance = plan.mirrorForOppositeAlliance,
+    )
 
 /** Creates a valid novice-friendly starting payload for every supported routine node. */
 fun defaultRoutineStep(

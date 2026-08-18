@@ -202,6 +202,11 @@ The **Input, state & telemetry** lab traces a motor command, positional-servo co
 
 The **Autonomous planning** lab validates a small two-step teaching plan before a student opens the real routine builder. It checks the complete robot footprint at the starting and target poses, estimates drive time, requires timeout margin, detects parallel resource conflicts, checks that named actions and conditions exist, and distinguishes stop-and-report from continue-after-optional failure behavior. A passing sandbox result is only preparation: the student must still use the canonical routine builder, review its structured validation and preview, generate code, run in simulation, and later complete supervised field checks.
 
+For the **Build a safe first autonomous routine** lesson, open **Autonomous Builder** and choose
+**Start guided first routine**. The guide creates one unsaved Safe-preset drive draft using the same
+canonical routine model and validation as the full editor. Inspect its field preview before saving.
+The guide does not generate code, start a simulator, or prove that a physical route is clear.
+
 ## Resume and recover
 
 Academy stores local progress in `.ares-analytics/learning-progress.json` under the current operating-system user. Older practiced marks are preserved when the richer checkpoint format is loaded. Migration never invents checkpoint evidence.
