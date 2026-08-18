@@ -80,6 +80,10 @@ data class SuperstructureStudioState(
     val error: String? = null,
     val pendingSelectionId: String? = null,
     val preview: SuperstructurePreviewSnapshot? = null,
+    val stateflowGraphMode: Boolean = true,
+    val graphPanX: Float = 0f,
+    val graphPanY: Float = 0f,
+    val graphZoom: Float = 1f,
 ) {
     val generatedSubsystems: List<SubsystemDocument>
         get() = subsystems.filter { it.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER }
@@ -443,6 +447,20 @@ class SuperstructureStudioViewModel(
     fun removeTransition(id: String) {
         _state.update { state -> state.copy(editorErrors = state.editorErrors.filterKeys { !it.startsWith("transition:$id:") }) }
         edit { it.copy(transitions = it.transitions.filterNot { edge -> edge.transitionId == id }) }
+    }
+
+    fun moveStateNode(stateId: String, x: Double, y: Double) = edit { document ->
+        val updatedLayouts = document.nodeLayouts.toMutableMap()
+        updatedLayouts[stateId] = com.areslib.superstructure.StateNodeLayout(x = x, y = y)
+        document.copy(nodeLayouts = updatedLayouts)
+    }
+
+    fun setStateflowGraphMode(enabled: Boolean) {
+        _state.update { it.copy(stateflowGraphMode = enabled) }
+    }
+
+    fun updateGraphPanAndZoom(panX: Float, panY: Float, zoom: Float) {
+        _state.update { it.copy(graphPanX = panX, graphPanY = panY, graphZoom = zoom) }
     }
 
     fun addInterlock(source: SuperstructureFieldOption, constrained: SuperstructureFieldOption) = edit { document ->

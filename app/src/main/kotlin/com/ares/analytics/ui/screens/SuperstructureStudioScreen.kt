@@ -1,8 +1,11 @@
 package com.ares.analytics.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,11 +19,23 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Fill
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
@@ -29,6 +44,7 @@ import com.areslib.subsystem.InterlockComparison
 import com.areslib.subsystem.SubsystemValueType
 import com.areslib.superstructure.*
 import java.util.Locale
+import kotlin.math.*
 
 @Composable
 fun SuperstructureStudioScreen(viewModel: SuperstructureStudioViewModel) {
@@ -448,6 +464,46 @@ private fun TransitionsStep(state: SuperstructureStudioState, draft: Superstruct
     var sensorKey by remember(draft.superstructureId) { mutableStateOf(state.sourceFields.firstOrNull()?.let(::key).orEmpty()) }
     var seconds by remember(draft.superstructureId) { mutableStateOf("1.0") }
 
+    Row(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column {
+            Text("State Transitions & Choreography", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text("Model transitions between robot postures visually on the Stateflow canvas or via structured lists.", color = AresTextSecondary, fontSize = 11.sp)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(
+                selected = state.stateflowGraphMode,
+                onClick = { viewModel.setStateflowGraphMode(true) },
+                label = { Text("Stateflow Canvas") },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = AresCyan.copy(alpha = 0.2f),
+                    selectedLabelColor = AresCyan,
+                ),
+            )
+            FilterChip(
+                selected = !state.stateflowGraphMode,
+                onClick = { viewModel.setStateflowGraphMode(false) },
+                label = { Text("Transition List") },
+                colors = FilterChipDefaults.filterChipColors(
+                    selectedContainerColor = AresCyan.copy(alpha = 0.2f),
+                    selectedLabelColor = AresCyan,
+                ),
+            )
+        }
+    }
+
+    if (state.stateflowGraphMode) {
+        StateflowGraphCanvas(
+            state = state,
+            draft = draft,
+            viewModel = viewModel,
+            modifier = Modifier.fillMaxWidth().height(400.dp),
+        )
+    }
+
     StudioSection("Add a transition", "A transition changes from one complete posture to another. Driver/autonomous actions come from the real project catalog; sensors come from cached generated state.") {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             StudioDropdown("From: $source", draft.states.map { it.stateId to it.displayName.ifBlank { it.stateId } }, { source = it }, Modifier.weight(1f))
@@ -483,8 +539,281 @@ private fun TransitionsStep(state: SuperstructureStudioState, draft: Superstruct
             colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
         ) { Text("Add transition") }
     }
-    draft.transitions.forEach { edge -> TransitionCard(state, draft, edge, viewModel) }
-    if (draft.transitions.isEmpty()) StudioBanner("No transitions yet", "Only the initial posture can be reached. Add explicit routes to every other posture.", AresGold)
+
+    if (!state.stateflowGraphMode) {
+        draft.transitions.forEach { edge -> TransitionCard(state, draft, edge, viewModel) }
+        if (draft.transitions.isEmpty()) StudioBanner("No transitions yet", "Only the initial posture can be reached. Add explicit routes to every other posture.", AresGold)
+    }
+}
+
+@Composable
+private fun StateflowGraphCanvas(
+    state: SuperstructureStudioState,
+    draft: SuperstructureDocument,
+    viewModel: SuperstructureStudioViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val textMeasurer = rememberTextMeasurer()
+    val nodeWidth = 190f
+    val nodeHeight = 80f
+
+    val nodePositions = remember(draft.states, draft.nodeLayouts) {
+        val map = mutableMapOf<String, Offset>()
+        val cols = 3
+        draft.states.forEachIndexed { index, statePreset ->
+            val layout = draft.nodeLayouts[statePreset.stateId]
+            if (layout != null) {
+                map[statePreset.stateId] = Offset(layout.x.toFloat(), layout.y.toFloat())
+            } else {
+                val col = index % cols
+                val row = index / cols
+                map[statePreset.stateId] = Offset(40f + col * 230f, 30f + row * 130f)
+            }
+        }
+        map
+    }
+
+    var draggedNodeId by remember { mutableStateOf<String?>(null) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AresSurface),
+        border = BorderStroke(1.dp, AresBorder),
+        modifier = modifier,
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(draft.states, draft.nodeLayouts) {
+                        detectTapGestures { tapOffset ->
+                            val clicked = nodePositions.entries.firstOrNull { (_, pos) ->
+                                tapOffset.x >= pos.x && tapOffset.x <= pos.x + nodeWidth &&
+                                tapOffset.y >= pos.y && tapOffset.y <= pos.y + nodeHeight
+                            }
+                            if (clicked != null) {
+                                viewModel.selectState(clicked.key)
+                            }
+                        }
+                    }
+                    .pointerInput(draft.states, draft.nodeLayouts) {
+                        detectDragGestures(
+                            onDragStart = { startOffset ->
+                                val hit = nodePositions.entries.firstOrNull { (_, pos) ->
+                                    startOffset.x >= pos.x && startOffset.x <= pos.x + nodeWidth &&
+                                    startOffset.y >= pos.y && startOffset.y <= pos.y + nodeHeight
+                                }
+                                if (hit != null) {
+                                    draggedNodeId = hit.key
+                                    viewModel.selectState(hit.key)
+                                }
+                            },
+                            onDrag = { change, dragAmount ->
+                                change.consume()
+                                draggedNodeId?.let { id ->
+                                    val currentPos = nodePositions[id] ?: Offset.Zero
+                                    val newPos = currentPos + dragAmount
+                                    val clampedX = max(10f, min(1400f, newPos.x))
+                                    val clampedY = max(10f, min(900f, newPos.y))
+                                    viewModel.moveStateNode(id, clampedX.toDouble(), clampedY.toDouble())
+                                }
+                            },
+                            onDragEnd = { draggedNodeId = null },
+                            onDragCancel = { draggedNodeId = null },
+                        )
+                    }
+            ) {
+                clipRect {
+                    // 1. Background dot grid
+                    val dotSpacing = 24f
+                    val dotColor = AresBorder.copy(alpha = 0.35f)
+                    var x = 0f
+                    while (x < size.width) {
+                        var y = 0f
+                        while (y < size.height) {
+                            drawCircle(dotColor, radius = 1f, center = Offset(x, y))
+                            y += dotSpacing
+                        }
+                        x += dotSpacing
+                    }
+
+                    // 2. Directed Bezier Transition Curves
+                    draft.transitions.forEach { edge ->
+                        val srcPos = nodePositions[edge.sourceStateId] ?: return@forEach
+                        val tgtPos = nodePositions[edge.targetStateId] ?: return@forEach
+
+                        val srcCenter = Offset(srcPos.x + nodeWidth / 2f, srcPos.y + nodeHeight / 2f)
+                        val tgtCenter = Offset(tgtPos.x + nodeWidth / 2f, tgtPos.y + nodeHeight / 2f)
+
+                        val dx = tgtCenter.x - srcCenter.x
+                        val dy = tgtCenter.y - srcCenter.y
+                        val dist = hypot(dx, dy)
+                        if (dist < 1f) return@forEach
+
+                        val nx = dx / dist
+                        val ny = dy / dist
+
+                        val startPt = Offset(srcCenter.x + nx * (nodeWidth / 2.2f), srcCenter.y + ny * (nodeHeight / 2.2f))
+                        val endPt = Offset(tgtCenter.x - nx * (nodeWidth / 2.2f), tgtCenter.y - ny * (nodeHeight / 2.2f))
+
+                        val perpX = -ny * 30f
+                        val perpY = nx * 30f
+
+                        val ctrl1 = Offset(startPt.x + dx * 0.35f + perpX, startPt.y + dy * 0.35f + perpY)
+                        val ctrl2 = Offset(startPt.x + dx * 0.65f + perpX, startPt.y + dy * 0.65f + perpY)
+
+                        val curveColor = when (edge.triggerKind) {
+                            TransitionTriggerKind.ACTION_REQUEST -> AresCyan
+                            TransitionTriggerKind.SENSOR_CONDITION_AUTO -> AresGreen
+                            TransitionTriggerKind.TIME_ELAPSED -> AresGold
+                        }
+
+                        val path = Path().apply {
+                            moveTo(startPt.x, startPt.y)
+                            cubicTo(ctrl1.x, ctrl1.y, ctrl2.x, ctrl2.y, endPt.x, endPt.y)
+                        }
+                        drawPath(path, color = curveColor.copy(alpha = 0.85f), style = Stroke(width = 2.2f, cap = StrokeCap.Round))
+
+                        // Arrowhead
+                        val arrowAngle = atan2(endPt.y - ctrl2.y, endPt.x - ctrl2.x)
+                        val arrowSize = 10f
+                        val p1 = endPt
+                        val p2 = Offset(endPt.x - arrowSize * cos(arrowAngle - 0.45f), endPt.y - arrowSize * sin(arrowAngle - 0.45f))
+                        val p3 = Offset(endPt.x - arrowSize * cos(arrowAngle + 0.45f), endPt.y - arrowSize * sin(arrowAngle + 0.45f))
+
+                        val arrowPath = Path().apply {
+                            moveTo(p1.x, p1.y)
+                            lineTo(p2.x, p2.y)
+                            lineTo(p3.x, p3.y)
+                            close()
+                        }
+                        drawPath(arrowPath, color = curveColor, style = Fill)
+
+                        // Trigger badge
+                        val midPt = Offset((ctrl1.x + ctrl2.x) / 2f, (ctrl1.y + ctrl2.y) / 2f)
+                        val labelText = when (edge.triggerKind) {
+                            TransitionTriggerKind.ACTION_REQUEST -> edge.actionKey ?: "action"
+                            TransitionTriggerKind.SENSOR_CONDITION_AUTO -> "auto guard"
+                            TransitionTriggerKind.TIME_ELAPSED -> "${edge.timeoutSeconds ?: 1.0}s"
+                        }
+                        val measured = textMeasurer.measure(labelText, TextStyle(color = AresTextPrimary, fontSize = 9.sp, fontWeight = FontWeight.SemiBold))
+                        val badgeWidth = measured.size.width + 10f
+                        val badgeHeight = measured.size.height + 4f
+                        val badgeTopLeft = Offset(midPt.x - badgeWidth / 2f, midPt.y - badgeHeight / 2f)
+
+                        drawRoundRect(
+                            color = AresSurfaceElevated.copy(alpha = 0.95f),
+                            topLeft = badgeTopLeft,
+                            size = Size(badgeWidth, badgeHeight),
+                            cornerRadius = CornerRadius(4f, 4f),
+                        )
+                        drawRoundRect(
+                            color = curveColor.copy(alpha = 0.5f),
+                            topLeft = badgeTopLeft,
+                            size = Size(badgeWidth, badgeHeight),
+                            cornerRadius = CornerRadius(4f, 4f),
+                            style = Stroke(width = 1f),
+                        )
+                        drawText(
+                            textMeasurer,
+                            labelText,
+                            topLeft = Offset(badgeTopLeft.x + 5f, badgeTopLeft.y + 2f),
+                            style = TextStyle(color = curveColor, fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                        )
+                    }
+
+                    // 3. State Node Cards
+                    draft.states.forEach { statePreset ->
+                        val pos = nodePositions[statePreset.stateId] ?: return@forEach
+                        val isSelected = state.selectedStateId == statePreset.stateId
+                        val isInitial = draft.initialStateId == statePreset.stateId
+                        val isFault = draft.faultStateId == statePreset.stateId
+                        val isDisabled = draft.disabledStateId == statePreset.stateId
+
+                        val borderColor = when {
+                            isSelected -> AresCyan
+                            isInitial -> AresCyan.copy(alpha = 0.85f)
+                            isFault -> AresError.copy(alpha = 0.85f)
+                            isDisabled -> AresGold.copy(alpha = 0.85f)
+                            else -> AresBorder
+                        }
+
+                        drawRoundRect(
+                            color = AresSurfaceElevated,
+                            topLeft = pos,
+                            size = Size(nodeWidth, nodeHeight),
+                            cornerRadius = CornerRadius(8f, 8f),
+                        )
+                        drawRoundRect(
+                            color = borderColor,
+                            topLeft = pos,
+                            size = Size(nodeWidth, nodeHeight),
+                            cornerRadius = CornerRadius(8f, 8f),
+                            style = Stroke(width = if (isSelected) 2.2f else 1.2f),
+                        )
+
+                        // Top accent line
+                        drawRoundRect(
+                            color = borderColor,
+                            topLeft = pos,
+                            size = Size(nodeWidth, 3.5f),
+                            cornerRadius = CornerRadius(8f, 8f),
+                        )
+
+                        // State Title
+                        val title = statePreset.displayName.ifBlank { statePreset.stateId }
+                        drawText(
+                            textMeasurer,
+                            title,
+                            topLeft = Offset(pos.x + 10f, pos.y + 10f),
+                            style = TextStyle(color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold),
+                        )
+
+                        // State ID
+                        drawText(
+                            textMeasurer,
+                            statePreset.stateId,
+                            topLeft = Offset(pos.x + 10f, pos.y + 26f),
+                            style = TextStyle(color = AresTextSecondary, fontSize = 9.sp, fontFamily = FontFamily.Monospace),
+                        )
+
+                        // Targets count
+                        drawText(
+                            textMeasurer,
+                            "${statePreset.subsystemTargets.size} targets · ${statePreset.onEntryActionKeys.size} entry",
+                            topLeft = Offset(pos.x + 10f, pos.y + 50f),
+                            style = TextStyle(color = AresCyan, fontSize = 8.5.sp, fontWeight = FontWeight.Medium),
+                        )
+
+                        val roleTag = when {
+                            isInitial -> "INITIAL"
+                            isFault -> "FAULT"
+                            isDisabled -> "DISABLED"
+                            else -> ""
+                        }
+                        if (roleTag.isNotBlank()) {
+                            val tagMeasured = textMeasurer.measure(roleTag, TextStyle(color = borderColor, fontSize = 7.5.sp, fontWeight = FontWeight.Bold))
+                            val tagW = tagMeasured.size.width + 6f
+                            val tagH = tagMeasured.size.height + 3f
+                            val tagPos = Offset(pos.x + nodeWidth - tagW - 6f, pos.y + 8f)
+
+                            drawRoundRect(
+                                color = borderColor.copy(alpha = 0.15f),
+                                topLeft = tagPos,
+                                size = Size(tagW, tagH),
+                                cornerRadius = CornerRadius(3f, 3f),
+                            )
+                            drawText(
+                                textMeasurer,
+                                roleTag,
+                                topLeft = Offset(tagPos.x + 3f, tagPos.y + 1.5f),
+                                style = TextStyle(color = borderColor, fontSize = 7.5.sp, fontWeight = FontWeight.Bold),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
