@@ -60,6 +60,7 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
 
     // Windows Credential Protection (DPAPI) for OAuth refresh-token persistence.
     implementation("net.java.dev.jna:jna-platform:5.15.0")
