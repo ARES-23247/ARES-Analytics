@@ -48,6 +48,8 @@ import com.ares.analytics.ui.components.dashboard.DashboardMissionHeader
 import com.ares.analytics.ui.components.dashboard.DashboardMissionSnapshot
 import com.ares.analytics.ui.components.terminal.TerminalDrawer
 import com.ares.analytics.ui.help.LearningCatalog
+import com.ares.analytics.ui.components.hardware.HardwareSetupModal
+import com.ares.analytics.ui.components.project.ProjectIdentityModal
 import com.ares.analytics.ui.help.AcademyRuntimeSnapshot
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.*
@@ -445,6 +447,8 @@ fun MainScreen(services: ServiceRegistry) {
     val deployExecutionState by services.processManagerService.deployState.collectAsState()
     var deployDialogOpen by remember { mutableStateOf(false) }
     var deployAwaitingConfirmation by remember { mutableStateOf(false) }
+    var projectIdentityModalOpen by remember { mutableStateOf(false) }
+    var hardwareSetupModalOpen by remember { mutableStateOf(false) }
     var targetSelection by remember { mutableStateOf(TargetSelection.LIVE_ROBOT) }
     var liveRobotIp by remember(currentConfig.nt4Host) {
         mutableStateOf(currentConfig.nt4Host ?: "192.168.43.1")
@@ -1032,16 +1036,20 @@ fun MainScreen(services: ServiceRegistry) {
                                 viewModel = robotStudioViewModel,
                                 onAction = { action ->
                                     when (action) {
-                                        RobotStudioAction.OPEN_PROJECT_IDENTITY ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PROJECT_IDENTITY))
+                                        RobotStudioAction.OPEN_PROJECT_IDENTITY -> {
+                                            projectIdentityViewModel.load(currentConfig)
+                                            projectIdentityModalOpen = true
+                                        }
                                         RobotStudioAction.OPEN_DRIVEBASE ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
                                         RobotStudioAction.OPEN_SUBSYSTEMS ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
                                         RobotStudioAction.OPEN_SUPERSTRUCTURES ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUPERSTRUCTURE_STUDIO))
-                                        RobotStudioAction.OPEN_HARDWARE_SETUP ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.HARDWARE_SETUP))
+                                        RobotStudioAction.OPEN_HARDWARE_SETUP -> {
+                                            hardwareSetupViewModel.refresh()
+                                            hardwareSetupModalOpen = true
+                                        }
                                         RobotStudioAction.OPEN_CONTROLS ->
                                             mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS))
                                         RobotStudioAction.OPEN_AUTONOMOUS ->
@@ -1260,6 +1268,33 @@ fun MainScreen(services: ServiceRegistry) {
                 onCancel = { services.processManagerService.killActiveBuild() },
             )
         }
+
+        ProjectIdentityModal(
+            isOpen = projectIdentityModalOpen,
+            viewModel = projectIdentityViewModel,
+            config = currentConfig,
+            onDismiss = {
+                projectIdentityModalOpen = false
+                robotStudioViewModel.refresh()
+            },
+        )
+
+        HardwareSetupModal(
+            isOpen = hardwareSetupModalOpen,
+            viewModel = hardwareSetupViewModel,
+            onDismiss = {
+                hardwareSetupModalOpen = false
+                robotStudioViewModel.refresh()
+            },
+            onOpenDrivebase = {
+                hardwareSetupModalOpen = false
+                mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
+            },
+            onOpenSubsystems = {
+                hardwareSetupModalOpen = false
+                mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
+            },
+        )
 
         // ── Update Notification Banner ──────────────────────────────────────────
         val currentUpdateState = updateState
