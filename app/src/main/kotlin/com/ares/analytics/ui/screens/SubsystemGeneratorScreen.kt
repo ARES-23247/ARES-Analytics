@@ -339,7 +339,7 @@ private fun SubsystemAiAssistantDrawerContent(
 ) {
     var prompt by remember { mutableStateOf("") }
     Column(
-        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Surface(

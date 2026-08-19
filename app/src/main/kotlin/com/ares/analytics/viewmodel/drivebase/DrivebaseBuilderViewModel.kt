@@ -175,7 +175,7 @@ class DrivebaseBuilderViewModel(
         result.fold(
             onSuccess = { saved ->
                 val draft = saved ?: defaultDrivebase(_state.value.projectId, defaultNoCodeDrivebaseKind(_state.value.league))
-                _state.update { it.copy(saved = saved, draft = draft, issues = validateDrivebaseForLeague(draft, it.league), loading = false, dirty = false, error = null, selectedHardwareId = draft.hardware.firstOrNull()?.id) }
+                _state.update { it.copy(saved = saved, draft = draft, issues = validateDrivebaseForLeague(draft, it.league), loading = false, dirty = false, error = null, selectedHardwareId = null) }
             },
             onFailure = { failure -> _state.update { it.copy(loading = false, error = failure.message ?: "Could not load the drivebase document.") } }
         )
@@ -260,7 +260,22 @@ class DrivebaseBuilderViewModel(
             DriveHardwareRole.RIGHT_FOLLOWER -> existing.firstOrNull { it.role == DriveHardwareRole.RIGHT_LEADER }?.id
             else -> null
         }
-        val device = DriveHardwareDeclaration(next, "New ${role.name.lowercase().replace('_', ' ')}", role, leaderId = leader)
+        val countOfSameRole = existing.count { it.role == role } + 1
+        val defaultName = when (role) {
+            DriveHardwareRole.LIMELIGHT -> if (countOfSameRole == 1) "Limelight Vision Camera" else "Limelight $countOfSameRole"
+            DriveHardwareRole.ODOMETRY -> if (countOfSameRole == 1) "goBILDA Pinpoint" else "Odometry Pod $countOfSameRole"
+            DriveHardwareRole.GYRO -> if (countOfSameRole == 1) "Control Hub IMU" else "IMU / Gyro $countOfSameRole"
+            DriveHardwareRole.DISTANCE_SENSOR -> if (countOfSameRole == 1) "Distance Sensor" else "Distance Sensor $countOfSameRole"
+            else -> "New ${role.name.lowercase().replace('_', ' ')}"
+        }
+        val defaultHwName = when (role) {
+            DriveHardwareRole.LIMELIGHT -> if (countOfSameRole == 1) "limelight" else "limelight$countOfSameRole"
+            DriveHardwareRole.ODOMETRY -> if (countOfSameRole == 1) "pinpoint" else "pinpoint$countOfSameRole"
+            DriveHardwareRole.GYRO -> if (countOfSameRole == 1) "imu" else "imu$countOfSameRole"
+            DriveHardwareRole.DISTANCE_SENSOR -> if (countOfSameRole == 1) "distance" else "distance$countOfSameRole"
+            else -> ""
+        }
+        val device = DriveHardwareDeclaration(next, defaultName, role, hardwareName = defaultHwName, leaderId = leader)
         edit(_state.value.draft.copy(hardware = existing + device))
         _state.update { it.copy(selectedHardwareId = next) }
     }
@@ -268,7 +283,7 @@ class DrivebaseBuilderViewModel(
     private fun removeHardware(id: String) {
         val remaining = _state.value.draft.hardware.filterNot { it.id == id }.map { if (it.leaderId == id) it.copy(leaderId = null) else it }
         edit(_state.value.draft.copy(hardware = remaining))
-        _state.update { it.copy(selectedHardwareId = remaining.firstOrNull()?.id) }
+        _state.update { it.copy(selectedHardwareId = null) }
     }
 
     private fun importCtre() = scope.launch {

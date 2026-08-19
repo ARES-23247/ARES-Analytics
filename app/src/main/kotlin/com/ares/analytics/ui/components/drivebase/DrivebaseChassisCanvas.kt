@@ -8,6 +8,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -271,6 +275,7 @@ fun AuxHardwareRow(
     isSelected: Boolean,
     onSelect: () -> Unit,
     onToggleInvert: () -> Unit,
+    onRemove: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -291,13 +296,22 @@ fun AuxHardwareRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                val (badgeText, badgeColor) = when (device.role) {
+                    com.ares.analytics.service.drivebase.DriveHardwareRole.LIMELIGHT -> "CAM" to AresCyan
+                    com.ares.analytics.service.drivebase.DriveHardwareRole.ODOMETRY -> "ODOM" to AresGold
+                    com.ares.analytics.service.drivebase.DriveHardwareRole.GYRO -> "GYRO" to AresCyan
+                    com.ares.analytics.service.drivebase.DriveHardwareRole.DISTANCE_SENSOR -> "DIST" to AresGreen
+                    com.ares.analytics.service.drivebase.DriveHardwareRole.DRIVE_MOTOR -> "MTR" to AresTextSecondary
+                    else -> "AUX" to AresTextSecondary
+                }
                 Surface(
-                    color = AresBorder,
+                    color = badgeColor.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.3f)),
                     shape = RoundedCornerShape(3.dp),
                 ) {
                     Text(
-                        device.role.name.take(4),
-                        color = AresTextSecondary,
+                        badgeText,
+                        color = badgeColor,
                         fontSize = 9.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
@@ -322,6 +336,19 @@ fun AuxHardwareRow(
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
                     )
+                }
+                if (onRemove != null) {
+                    androidx.compose.material3.IconButton(
+                        onClick = onRemove,
+                        modifier = Modifier.size(20.dp),
+                    ) {
+                        androidx.compose.material3.Icon(
+                            androidx.compose.material.icons.Icons.Default.Close,
+                            contentDescription = "Remove sensor",
+                            tint = AresTextTertiary,
+                            modifier = Modifier.size(12.dp)
+                        )
+                    }
                 }
             }
         }

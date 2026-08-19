@@ -337,7 +337,7 @@ private fun TraceLine(label: String, value: String) {
 private fun ControlsAiAssistantContent(state: ControlsEditorState, viewModel: ControlsEditorViewModel) {
     var request by remember(state.selectedSchemeId) { mutableStateOf("") }
     Column(
-        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Surface(

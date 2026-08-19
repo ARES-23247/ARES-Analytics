@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -95,19 +96,19 @@ fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewMo
     SectionHeading("2 · Identify hardware", "Configure the 4 drive corner motors and any auxiliary sensors or odometry pods.")
 
     Row(
-        modifier = Modifier.fillMaxWidth().height(420.dp),
+        modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 440.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        // Left Column (40%): Interactive 2D Chassis Visualizer
+        // Left Column (38%): Interactive 2D Chassis Visualizer
         Surface(
-            modifier = Modifier.weight(0.40f).fillMaxHeight(),
+            modifier = Modifier.weight(0.38f),
             color = AresSurface,
             shape = RoundedCornerShape(10.dp),
             border = BorderStroke(1.dp, AresBorder),
         ) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -133,7 +134,7 @@ fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewMo
                 InteractiveChassisCanvas(
                     state = state,
                     onSelectHardware = { id -> viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(id)) },
-                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    modifier = Modifier.fillMaxWidth().height(260.dp),
                 )
 
                 Row(
@@ -153,16 +154,16 @@ fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewMo
             }
         }
 
-        // Right Column (60%): 2x2 Motor Layout Grid + Auxiliary Hardware
+        // Right Column (62%): 2x2 Motor Layout Grid + Auxiliary Hardware & Sensors
         Surface(
-            modifier = Modifier.weight(0.60f).fillMaxHeight(),
+            modifier = Modifier.weight(0.62f),
             color = AresSurface,
             shape = RoundedCornerShape(10.dp),
             border = BorderStroke(1.dp, AresBorder),
         ) {
             Column(
-                modifier = Modifier.fillMaxSize().padding(14.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth().padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -172,31 +173,6 @@ fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewMo
                     Column {
                         Text("DRIVE MOTORS (2×2 PHYSICAL LAYOUT)", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                         Text("FTC hardware-map names: fl, fr, rl, rr", color = AresTextTertiary, fontSize = 10.sp)
-                    }
-                    if (state.advanced || state.draft.kind in setOf(DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM)) {
-                        var addMenu by remember { mutableStateOf(false) }
-                        Box {
-                            OutlinedButton(
-                                onClick = { addMenu = true },
-                                modifier = Modifier.height(28.dp),
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            ) {
-                                Icon(Icons.Default.Add, null, modifier = Modifier.size(12.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Add Device", fontSize = 10.sp)
-                            }
-                            DropdownMenu(addMenu, { addMenu = false }) {
-                                DriveHardwareRole.entries.forEach { role ->
-                                    DropdownMenuItem(
-                                        text = { Text(role.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase), fontSize = 11.sp) },
-                                        onClick = {
-                                            addMenu = false
-                                            viewModel.onIntent(DrivebaseBuilderIntent.AddHardware(role))
-                                        }
-                                    )
-                                }
-                            }
-                        }
                     }
                 }
 
@@ -250,12 +226,88 @@ fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewMo
                     )
                 }
 
-                // Auxiliary Hardware List
+                // Auxiliary Hardware List & Sensor Creator
                 val cornerIds = cornerHardware.mapNotNull { it?.id }.toSet()
                 val auxHardware = state.draft.hardware.filterNot { it.id in cornerIds }
-                if (auxHardware.isNotEmpty()) {
-                    HorizontalDivider(color = AresBorder)
-                    Text("AUXILIARY HARDWARE & SENSORS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                
+                HorizontalDivider(color = AresBorder)
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text("AUXILIARY SENSORS & CAMERAS (${auxHardware.size})", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("Pinpoint odometry, Limelight cameras, IMUs, and distance sensors", color = AresTextTertiary, fontSize = 10.sp)
+                    }
+                    var addMenu by remember { mutableStateOf(false) }
+                    Box {
+                        Button(
+                            onClick = { addMenu = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                            modifier = Modifier.height(28.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                        ) {
+                            Icon(Icons.Default.Add, null, modifier = Modifier.size(12.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text("Add Sensor / Camera", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                        DropdownMenu(addMenu, { addMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text("📷 Limelight / Vision Camera", fontSize = 11.sp) },
+                                onClick = {
+                                    addMenu = false
+                                    viewModel.onIntent(DrivebaseBuilderIntent.AddHardware(DriveHardwareRole.LIMELIGHT))
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("📍 goBILDA Pinpoint / Odometry Pod", fontSize = 11.sp) },
+                                onClick = {
+                                    addMenu = false
+                                    viewModel.onIntent(DrivebaseBuilderIntent.AddHardware(DriveHardwareRole.ODOMETRY))
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("🧭 Control Hub IMU / Gyroscope", fontSize = 11.sp) },
+                                onClick = {
+                                    addMenu = false
+                                    viewModel.onIntent(DrivebaseBuilderIntent.AddHardware(DriveHardwareRole.GYRO))
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("📏 Laser Distance Sensor (ToF / REV 2m)", fontSize = 11.sp) },
+                                onClick = {
+                                    addMenu = false
+                                    viewModel.onIntent(DrivebaseBuilderIntent.AddHardware(DriveHardwareRole.DISTANCE_SENSOR))
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("⚙️ Custom Sensor / Expansion Device", fontSize = 11.sp) },
+                                onClick = {
+                                    addMenu = false
+                                    viewModel.onIntent(DrivebaseBuilderIntent.AddHardware(DriveHardwareRole.OTHER))
+                                }
+                            )
+                        }
+                    }
+                }
+
+                if (auxHardware.isEmpty()) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        color = AresSurfaceElevated,
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, AresBorder)
+                    ) {
+                        Text(
+                            "No auxiliary sensors configured. Click '+ Add Sensor / Camera' above to add Pinpoint odometry, Limelights, or distance sensors.",
+                            color = AresTextTertiary,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                } else {
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         auxHardware.forEach { device ->
                             AuxHardwareRow(
@@ -263,6 +315,7 @@ fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewMo
                                 isSelected = device.id == state.selectedHardwareId,
                                 onSelect = { viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(device.id)) },
                                 onToggleInvert = { viewModel.onIntent(DrivebaseBuilderIntent.UpdateHardware(device.copy(inverted = !device.inverted))) },
+                                onRemove = { viewModel.onIntent(DrivebaseBuilderIntent.RemoveHardware(device.id)) },
                             )
                         }
                     }
@@ -599,13 +652,52 @@ fun HardwareEditor(
         HelpedTextField("CAN ID", device.canId?.toString().orEmpty(), "The unique numeric CAN address. Valid ARES range: 0–62.") { onUpdate(device.copy(canId = it.toIntOrNull())) }
         HelpedTextField("CAN bus", device.canBus.orEmpty(), "The named CAN network, for example rio or CANivore name.") { onUpdate(device.copy(canBus = it.ifBlank { null })) }
     }
+    val isAuxiliaryOrSensors = device.role in setOf(
+        DriveHardwareRole.ODOMETRY,
+        DriveHardwareRole.LIMELIGHT,
+        DriveHardwareRole.DISTANCE_SENSOR,
+        DriveHardwareRole.GYRO,
+        DriveHardwareRole.OTHER,
+        DriveHardwareRole.CUSTOM
+    )
+
+    if (isAuxiliaryOrSensors || advanced) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("PHYSICAL MOUNTING OFFSETS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            GeometryField(
+                label = "X Mounting Offset",
+                value = device.xMeters ?: 0.0,
+                unit = "m",
+                explanation = "Longitudinal offset forward (+) or backward (-) from robot center of rotation. Required for Pinpoint turning arc compensation and 3D camera pose estimation."
+            ) { onUpdate(device.copy(xMeters = it)) }
+            GeometryField(
+                label = "Y Mounting Offset",
+                value = device.yMeters ?: 0.0,
+                unit = "m",
+                explanation = "Lateral offset left (+) or right (-) from robot center of rotation. Required for Pinpoint turning arc compensation and 3D camera pose estimation."
+            ) { onUpdate(device.copy(yMeters = it)) }
+        }
+    }
+
     Row(verticalAlignment = Alignment.CenterVertically) {
         Switch(device.inverted, { onUpdate(device.copy(inverted = it)) })
         Spacer(Modifier.width(8.dp))
         Text(if (device.inverted) "INVERTED direction" else "NORMAL direction", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
         HelpButton("Mounting inversion changes the sign at the hardware boundary.")
     }
-    if (advanced) OutlinedButton(onRemove, Modifier.fillMaxWidth()) { Text("Remove this hardware") }
+
+    if (isAuxiliaryOrSensors || advanced) {
+        OutlinedButton(
+            onClick = onRemove,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = AresError),
+            border = BorderStroke(1.dp, AresError.copy(alpha = 0.4f)),
+        ) {
+            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp), tint = AresError)
+            Spacer(Modifier.width(6.dp))
+            Text("Remove this device", color = AresError, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+        }
+    }
 }
 
 @Composable

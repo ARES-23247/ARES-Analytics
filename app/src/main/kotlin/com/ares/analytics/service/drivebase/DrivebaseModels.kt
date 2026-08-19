@@ -45,7 +45,7 @@ enum class DriveHardwareRole {
     FRONT_RIGHT_DRIVE, FRONT_RIGHT_STEER, FRONT_RIGHT_ENCODER,
     REAR_LEFT_DRIVE, REAR_LEFT_STEER, REAR_LEFT_ENCODER,
     REAR_RIGHT_DRIVE, REAR_RIGHT_STEER, REAR_RIGHT_ENCODER,
-    GYRO, ODOMETRY, DRIVE_MOTOR, OTHER, CUSTOM
+    GYRO, ODOMETRY, LIMELIGHT, DISTANCE_SENSOR, DRIVE_MOTOR, OTHER, CUSTOM
 }
 
 enum class LocalizationKind {
@@ -65,6 +65,10 @@ data class DriveHardwareDeclaration(
     val required: Boolean = true,
     /** Stable ID of a direct leader. [inverted] independently controls follower direction. */
     val leaderId: String? = null,
+    /** Longitudinal physical offset from robot center of rotation in meters (forward is positive). */
+    val xMeters: Double? = null,
+    /** Lateral physical offset from robot center of rotation in meters (left is positive). */
+    val yMeters: Double? = null,
 )
 
 data class DriveGeometry(
@@ -249,6 +253,8 @@ fun DrivetrainDocument.toUiDrivebase(): DrivebaseDocument = DrivebaseDocument(
             inverted = component.inverted,
             required = component.required,
             leaderId = component.leaderUid,
+            xMeters = component.xMeters,
+            yMeters = component.yMeters,
         )
     },
     geometry = DriveGeometry(
@@ -316,6 +322,8 @@ fun DrivebaseDocument.toCanonicalDrivebase(): DrivetrainDocument {
             inverted = edit.inverted,
             required = edit.required,
             leaderUid = edit.leaderId,
+            xMeters = edit.xMeters,
+            yMeters = edit.yMeters,
         )
     }
     val editedCanBuses = hardware.mapNotNull { it.canBus?.takeIf(String::isNotBlank) }.distinct()
@@ -405,7 +413,11 @@ private fun DrivetrainComponentDocument.toUiRole(kind: DrivetrainKind): DriveHar
     }
     DrivetrainComponentRole.GYRO -> DriveHardwareRole.GYRO
     DrivetrainComponentRole.ODOMETRY_SENSOR -> DriveHardwareRole.ODOMETRY
-    DrivetrainComponentRole.WHEEL_MODULE, DrivetrainComponentRole.OTHER -> DriveHardwareRole.OTHER
+    DrivetrainComponentRole.WHEEL_MODULE, DrivetrainComponentRole.OTHER -> when {
+        normalizedUid.contains("limelight") || normalizedHardwareId.contains("limelight") || displayName.contains("limelight", ignoreCase = true) || displayName.contains("camera", ignoreCase = true) -> DriveHardwareRole.LIMELIGHT
+        normalizedUid.contains("distance") || normalizedHardwareId.contains("distance") || displayName.contains("distance", ignoreCase = true) -> DriveHardwareRole.DISTANCE_SENSOR
+        else -> DriveHardwareRole.OTHER
+    }
 }
 }
 
@@ -414,7 +426,7 @@ private fun DriveHardwareRole.toCanonicalRole(): DrivetrainComponentRole = when 
     name.endsWith("ENCODER") -> DrivetrainComponentRole.ABSOLUTE_ENCODER
     this == DriveHardwareRole.GYRO -> DrivetrainComponentRole.GYRO
     this == DriveHardwareRole.ODOMETRY -> DrivetrainComponentRole.ODOMETRY_SENSOR
-    this == DriveHardwareRole.OTHER || this == DriveHardwareRole.CUSTOM -> DrivetrainComponentRole.OTHER
+    this == DriveHardwareRole.LIMELIGHT || this == DriveHardwareRole.DISTANCE_SENSOR || this == DriveHardwareRole.OTHER || this == DriveHardwareRole.CUSTOM -> DrivetrainComponentRole.OTHER
     else -> DrivetrainComponentRole.DRIVE_MOTOR
 }
 
