@@ -113,6 +113,16 @@ private fun DrawScope.drawAutoFootprint(
             close()
         }
         drawPath(arrow, AresAmber)
+        drawCircle(
+            color = AresAmber,
+            radius = 4.dp.toPx(),
+            center = Offset(frontX + arrowSize, center.y)
+        )
+        drawCircle(
+            color = AresBackground,
+            radius = 1.5.dp.toPx(),
+            center = Offset(frontX + arrowSize, center.y)
+        )
     }
     drawCircle(color = color, radius = 5.dp.toPx(), center = center)
     drawCircle(color = AresBackground, radius = 2.dp.toPx(), center = center)

@@ -59,7 +59,7 @@ fun SubsystemHardwareSection(
             document.hardware.forEach { device ->
                 SelectableRow(
                     title = device.displayName,
-                    subtitle = "${device.kind.name.replace('_', ' ').lowercase()} · ${device.connectionLabel(document.platform)}",
+                    subtitle = "${device.kind.uiLabel()} · ${device.connectionLabel(document.platform)}",
                     selected = state.selectedHardwareUid == device.uid,
                     onClick = { viewModel.selectHardware(device.uid) },
                 )

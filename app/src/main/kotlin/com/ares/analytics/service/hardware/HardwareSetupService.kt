@@ -432,7 +432,9 @@ private fun SubsystemHardwareKind.readableName(): String = name.lowercase().repl
 private fun com.areslib.subsystem.SubsystemHardwareDocument.addressKind(): HardwareAddressKind = when (kind) {
     SubsystemHardwareKind.MOTOR -> HardwareAddressKind.CAN
     SubsystemHardwareKind.POSITIONAL_SERVO,
-    SubsystemHardwareKind.CONTINUOUS_SERVO -> HardwareAddressKind.PWM
+    SubsystemHardwareKind.CONTINUOUS_SERVO,
+    SubsystemHardwareKind.INDICATOR_LIGHT,
+    SubsystemHardwareKind.PRISM_DRIVER -> HardwareAddressKind.PWM
     SubsystemHardwareKind.DIGITAL_INPUT -> HardwareAddressKind.DIO
     SubsystemHardwareKind.ANALOG_INPUT -> HardwareAddressKind.ANALOG
     SubsystemHardwareKind.COLOR_SENSOR -> HardwareAddressKind.UNKNOWN

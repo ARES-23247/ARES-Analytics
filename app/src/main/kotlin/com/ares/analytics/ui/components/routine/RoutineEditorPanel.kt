@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.PathPlannerIntent
@@ -683,9 +684,43 @@ private fun RoutineSetupCard(
                     }
                 }
 
+                HorizontalDivider(color = AresBorder.copy(alpha = .7f))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "Starting position",
+                            color = if (entry != null) AresCyan else AresTextPrimary,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            if (entry != null) "Initial field pose for match autonomous"
+                            else "No starting position (routine runs from current robot pose)",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = AresTextSecondary
+                        )
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            if (entry != null) "Set" else "None",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (entry != null) AresCyan else AresTextSecondary
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Switch(
+                            checked = entry != null,
+                            onCheckedChange = { checked ->
+                                onIntent(PathPlannerIntent.SetAutonomousAvailability(checked, league))
+                            }
+                        )
+                    }
+                }
+
                 if (entry != null) {
-                    HorizontalDivider(color = AresBorder.copy(alpha = .7f))
-                    Text("Autonomous starting pose", color = AresCyan, fontWeight = FontWeight.SemiBold)
+                    Text("Autonomous starting pose & heading", color = AresCyan, style = MaterialTheme.typography.labelMedium)
                     RoutinePoseEditors(entry.startingPose) {
                         onIntent(PathPlannerIntent.UpdateAutonomousEntry(entry.copy(startingPose = it), league))
                     }
@@ -952,12 +987,47 @@ private fun SimpleChildEditor(
 
 @Composable
 private fun RoutinePoseEditors(pose: RoutinePose, onChanged: (RoutinePose) -> Unit) {
-    Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
-        RoutineDecimalEditor(pose.xMeters, "X", "m", Modifier.weight(1f)) { onChanged(pose.copy(xMeters = it)) }
-        RoutineDecimalEditor(pose.yMeters, "Y", "m", Modifier.weight(1f)) { onChanged(pose.copy(yMeters = it)) }
-        RoutineDecimalEditor(Math.toDegrees(pose.headingRadians), "Heading", "°", Modifier.weight(1f)) {
-            val wrapped = ((it + 180.0) % 360.0 + 360.0) % 360.0 - 180.0
-            onChanged(pose.copy(headingRadians = Math.toRadians(wrapped)))
+    val currentHeadingDeg = Math.toDegrees(pose.headingRadians)
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth(), Arrangement.spacedBy(8.dp)) {
+            RoutineDecimalEditor(pose.xMeters, "X", "m", Modifier.weight(1f)) { onChanged(pose.copy(xMeters = it)) }
+            RoutineDecimalEditor(pose.yMeters, "Y", "m", Modifier.weight(1f)) { onChanged(pose.copy(yMeters = it)) }
+            RoutineDecimalEditor(currentHeadingDeg, "Heading", "°", Modifier.weight(1f)) {
+                val wrapped = ((it + 180.0) % 360.0 + 360.0) % 360.0 - 180.0
+                onChanged(pose.copy(headingRadians = Math.toRadians(wrapped)))
+            }
+        }
+        // Quick heading preset chips (0°, 90°, 180°, -90°)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Heading:", style = MaterialTheme.typography.labelSmall, color = AresTextSecondary, fontSize = 10.sp)
+            listOf(
+                0.0 to "0° (→)",
+                90.0 to "90° (↑)",
+                180.0 to "180° (←)",
+                -90.0 to "-90° (↓)"
+            ).forEach { (deg, label) ->
+                val isSelected = Math.abs(((currentHeadingDeg - deg + 180.0) % 360.0 + 360.0) % 360.0 - 180.0) < 1.0
+                Surface(
+                    color = if (isSelected) AresCyan.copy(alpha = 0.2f) else AresSurfaceElevated,
+                    border = BorderStroke(1.dp, if (isSelected) AresCyan else AresBorder),
+                    shape = RoundedCornerShape(4.dp),
+                    modifier = Modifier.clickable {
+                        onChanged(pose.copy(headingRadians = Math.toRadians(deg)))
+                    }
+                ) {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isSelected) AresCyan else AresTextSecondary,
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                        fontSize = 10.sp
+                    )
+                }
+            }
         }
     }
 }

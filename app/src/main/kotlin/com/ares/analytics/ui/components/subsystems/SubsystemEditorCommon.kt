@@ -28,7 +28,9 @@ import com.areslib.subsystem.SubsystemPlatform
 fun SubsystemHardwareKind.isActuator(): Boolean =
     this == SubsystemHardwareKind.MOTOR ||
     this == SubsystemHardwareKind.POSITIONAL_SERVO ||
-    this == SubsystemHardwareKind.CONTINUOUS_SERVO
+    this == SubsystemHardwareKind.CONTINUOUS_SERVO ||
+    this == SubsystemHardwareKind.INDICATOR_LIGHT ||
+    this == SubsystemHardwareKind.PRISM_DRIVER
 
 fun SubsystemHardwareDocument.connectionLabel(platform: SubsystemPlatform): String = when (platform) {
     SubsystemPlatform.FTC -> connection.hardwareMapName?.let { "hwMap: $it" } ?: "unconfigured"
@@ -263,6 +265,17 @@ fun StableIdLabel(
     }
 }
 
+fun SubsystemHardwareKind.uiLabel(): String = when (this) {
+    SubsystemHardwareKind.MOTOR -> "Motor (DC / Brushless)"
+    SubsystemHardwareKind.POSITIONAL_SERVO -> "Positional Servo (PWM 0-1)"
+    SubsystemHardwareKind.CONTINUOUS_SERVO -> "Continuous Servo (CR)"
+    SubsystemHardwareKind.DIGITAL_INPUT -> "Digital Input / Limit Switch"
+    SubsystemHardwareKind.ANALOG_INPUT -> "Analog Sensor / Potentiometer"
+    SubsystemHardwareKind.COLOR_SENSOR -> "Color / Proximity Sensor"
+    SubsystemHardwareKind.INDICATOR_LIGHT -> "RGB Indicator Light (Servo PWM)"
+    SubsystemHardwareKind.PRISM_DRIVER -> "goBILDA Prism LED Driver (PWM)"
+}
+
 @Composable
 fun AddHardwareButton(viewModel: SubsystemGeneratorViewModel, label: String = "+ Add hardware") {
     var expanded by remember { mutableStateOf(false) }
@@ -278,7 +291,7 @@ fun AddHardwareButton(viewModel: SubsystemGeneratorViewModel, label: String = "+
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             SubsystemHardwareKind.entries.forEach { kind ->
                 DropdownMenuItem(
-                    text = { Text(kind.name.replace('_', ' ').lowercase(), fontSize = 11.sp) },
+                    text = { Text(kind.uiLabel(), fontSize = 11.sp) },
                     onClick = {
                         expanded = false
                         viewModel.addHardware(kind)

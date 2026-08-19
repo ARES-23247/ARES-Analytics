@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.AlertDialog
@@ -176,7 +176,7 @@ fun PathPlannerScreen(
                         colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(contentColor = AresCyan)
                     ) {
                         androidx.compose.material3.Icon(
-                            androidx.compose.material.icons.Icons.Default.AutoAwesome,
+                            androidx.compose.material.icons.Icons.Default.School,
                             contentDescription = "Take Tour",
                             modifier = Modifier.size(16.dp)
                         )
