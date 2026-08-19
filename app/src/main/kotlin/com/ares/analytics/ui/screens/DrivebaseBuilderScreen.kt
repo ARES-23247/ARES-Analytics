@@ -7,15 +7,18 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.HelpOutline
-import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableChart
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -447,76 +451,481 @@ private fun CtreImportCard(state: DrivebaseBuilderState, viewModel: DrivebaseBui
 
 @Composable
 private fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
-    SectionHeading("2 · Identify hardware", "Select any device on the top-down chassis to edit its properties in the slide-out inspector.")
-    if (state.league == League.FTC && state.draft.kind == DrivebaseKind.FTC_MECANUM) {
-        FtcHubNameGuide(state.draft)
-    }
-    ChassisDiagram(state, viewModel, Modifier.fillMaxWidth().height(380.dp))
-    if (state.advanced || state.draft.kind in setOf(DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM)) {
-        var addMenu by remember { mutableStateOf(false) }
-        Box {
-            OutlinedButton({ addMenu = true }, Modifier.fillMaxWidth()) { Text("+ Add motor, sensor, or follower") }
-            DropdownMenu(addMenu, { addMenu = false }) {
-                DriveHardwareRole.entries.forEach { role ->
-                    DropdownMenuItem({ Text(role.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)) }, {
-                        addMenu = false
-                        viewModel.onIntent(DrivebaseBuilderIntent.AddHardware(role))
-                    })
-                }
-            }
-        }
-    }
-    Text("Direction is always labeled in text: NORMAL or INVERTED. Color is only supplemental.", color = AresTextSecondary, fontSize = 10.sp)
-}
+    SectionHeading("2 · Identify hardware", "Configure the 4 drive corner motors and any auxiliary sensors or odometry pods.")
 
-@Composable
-private fun FtcHubNameGuide(draft: DrivebaseDocument) {
-    val cornerHardware = draft.cornerDriveHardware()
-    Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        FieldHeading(
-            "FTC Robot Controller names",
-            "Use these exact names in Configure Robot on the Driver Station. ARES matches names exactly, including lowercase letters.",
-        )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            cornerHardware.forEachIndexed { index, device ->
-                val corner = listOf("Front left", "Front right", "Rear left", "Rear right")[index]
-                Column(Modifier.weight(1f)) {
-                    Text(corner, color = AresTextSecondary, fontSize = 9.sp)
-                    Text(device?.hardwareName ?: "Not configured", color = if (device == null) AresGold else AresCyan, fontWeight = FontWeight.Bold)
-                }
-            }
-        }
-        Text("Recommended defaults: fl, fr, rl, rr. Rear motors use rl and rr—not bl and br.", color = AresTextPrimary, fontSize = 10.sp)
-    }
-}
-
-@Composable
-private fun ChassisDiagram(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel, modifier: Modifier) {
-    Column(modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        FieldHeading("Top-down chassis", "The arrow points toward the robot front. Selectable hardware is listed below for keyboard users.")
-        val cornerHardware = state.draft.cornerDriveHardware()
-        val cornerIds = cornerHardware.mapNotNull { it?.id }.toSet()
-        val displayHardware = cornerHardware.filterNotNull() + state.draft.hardware.filterNot { it.id in cornerIds }
-        Canvas(Modifier.fillMaxWidth().height(145.dp)) {
-            val left = size.width * .2f; val right = size.width * .8f; val top = size.height * .17f; val bottom = size.height * .83f
-            drawRoundRect(AresBorder, Offset(left, top), androidx.compose.ui.geometry.Size(right - left, bottom - top), style = Stroke(3f))
-            drawLine(AresCyan, Offset(size.width / 2f, top + 10), Offset(size.width / 2f, top - 30), 5f)
-            drawLine(AresCyan, Offset(size.width / 2f, top - 30), Offset(size.width / 2f - 12, top - 12), 5f)
-            drawLine(AresCyan, Offset(size.width / 2f, top - 30), Offset(size.width / 2f + 12, top - 12), 5f)
-            val positions = listOf(Offset(left, top), Offset(right, top), Offset(left, bottom), Offset(right, bottom))
-            positions.forEachIndexed { index, position ->
-                val device = cornerHardware[index]
-                drawCircle(if (device?.id == state.selectedHardwareId) AresCyan else AresTextSecondary, 16f, position)
-            }
-        }
-        Text("${state.draft.hardware.size} configured devices · scroll to inspect every motor and sensor", color = AresTextSecondary, fontSize = 9.sp)
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            displayHardware.forEach { device ->
-                OutlinedButton(
-                    onClick = { viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(device.id)) },
-                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "Select ${device.displayName}, ${if (device.inverted) "inverted" else "normal direction"}" }
+    Row(
+        modifier = Modifier.fillMaxWidth().height(420.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        // Left Column (40%): Interactive 2D Chassis Visualizer
+        Surface(
+            modifier = Modifier.weight(0.40f).fillMaxHeight(),
+            color = AresSurface,
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("${device.displayName} · ${if (device.inverted) "INVERTED" else "NORMAL"}", Modifier.weight(1f), maxLines = 1)
+                    Text("TOP-DOWN CHASSIS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = AresCyan.copy(alpha = 0.12f),
+                        border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.3f)),
+                    ) {
+                        Text(
+                            "FRONT ▲",
+                            color = AresCyan,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+
+                // Interactive 2D Chassis Canvas
+                InteractiveChassisCanvas(
+                    state = state,
+                    onSelectHardware = { id -> viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(id)) },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
+
+                // Quick Legend
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(8.dp).background(AresGreen, CircleShape))
+                        Text("Normal Direction", color = AresTextSecondary, fontSize = 10.sp)
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(8.dp).background(AresError, CircleShape))
+                        Text("Inverted Direction", color = AresTextSecondary, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+
+        // Right Column (60%): 2x2 Motor Layout Grid + Auxiliary Hardware
+        Surface(
+            modifier = Modifier.weight(0.60f).fillMaxHeight(),
+            color = AresSurface,
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(14.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column {
+                        Text("DRIVE MOTORS (2×2 PHYSICAL LAYOUT)", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("FTC hardware-map names: fl, fr, rl, rr", color = AresTextTertiary, fontSize = 10.sp)
+                    }
+                    if (state.advanced || state.draft.kind in setOf(DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM)) {
+                        var addMenu by remember { mutableStateOf(false) }
+                        Box {
+                            OutlinedButton(
+                                onClick = { addMenu = true },
+                                modifier = Modifier.height(28.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            ) {
+                                Icon(Icons.Default.Add, null, modifier = Modifier.size(12.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Add Device", fontSize = 10.sp)
+                            }
+                            DropdownMenu(addMenu, { addMenu = false }) {
+                                DriveHardwareRole.entries.forEach { role ->
+                                    DropdownMenuItem(
+                                        text = { Text(role.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase), fontSize = 11.sp) },
+                                        onClick = {
+                                            addMenu = false
+                                            viewModel.onIntent(DrivebaseBuilderIntent.AddHardware(role))
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2x2 Physical Grid of Motors
+                val cornerHardware = state.draft.cornerDriveHardware()
+                val fl = cornerHardware.getOrNull(0)
+                val fr = cornerHardware.getOrNull(1)
+                val rl = cornerHardware.getOrNull(2)
+                val rr = cornerHardware.getOrNull(3)
+
+                // Front Row
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    MotorGridCard(
+                        cornerCode = "FL",
+                        defaultCornerName = "Front-Left",
+                        device = fl,
+                        isSelected = fl?.id == state.selectedHardwareId,
+                        onSelect = { fl?.id?.let { viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(it)) } },
+                        onToggleInvert = { fl?.let { dev -> viewModel.onIntent(DrivebaseBuilderIntent.UpdateHardware(dev.copy(inverted = !dev.inverted))) } },
+                        modifier = Modifier.weight(1f),
+                    )
+                    MotorGridCard(
+                        cornerCode = "FR",
+                        defaultCornerName = "Front-Right",
+                        device = fr,
+                        isSelected = fr?.id == state.selectedHardwareId,
+                        onSelect = { fr?.id?.let { viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(it)) } },
+                        onToggleInvert = { fr?.let { dev -> viewModel.onIntent(DrivebaseBuilderIntent.UpdateHardware(dev.copy(inverted = !dev.inverted))) } },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                // Rear Row
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    MotorGridCard(
+                        cornerCode = "RL",
+                        defaultCornerName = "Rear-Left",
+                        device = rl,
+                        isSelected = rl?.id == state.selectedHardwareId,
+                        onSelect = { rl?.id?.let { viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(it)) } },
+                        onToggleInvert = { rl?.let { dev -> viewModel.onIntent(DrivebaseBuilderIntent.UpdateHardware(dev.copy(inverted = !dev.inverted))) } },
+                        modifier = Modifier.weight(1f),
+                    )
+                    MotorGridCard(
+                        cornerCode = "RR",
+                        defaultCornerName = "Rear-Right",
+                        device = rr,
+                        isSelected = rr?.id == state.selectedHardwareId,
+                        onSelect = { rr?.id?.let { viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(it)) } },
+                        onToggleInvert = { rr?.let { dev -> viewModel.onIntent(DrivebaseBuilderIntent.UpdateHardware(dev.copy(inverted = !dev.inverted))) } },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                // Auxiliary Hardware List (if any additional devices exist)
+                val cornerIds = cornerHardware.mapNotNull { it?.id }.toSet()
+                val auxHardware = state.draft.hardware.filterNot { it.id in cornerIds }
+                if (auxHardware.isNotEmpty()) {
+                    HorizontalDivider(color = AresBorder)
+                    Text("AUXILIARY HARDWARE & SENSORS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        auxHardware.forEach { device ->
+                            AuxHardwareRow(
+                                device = device,
+                                isSelected = device.id == state.selectedHardwareId,
+                                onSelect = { viewModel.onIntent(DrivebaseBuilderIntent.SelectHardware(device.id)) },
+                                onToggleInvert = { viewModel.onIntent(DrivebaseBuilderIntent.UpdateHardware(device.copy(inverted = !device.inverted))) },
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InteractiveChassisCanvas(
+    state: DrivebaseBuilderState,
+    onSelectHardware: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cornerHardware = state.draft.cornerDriveHardware()
+    val fl = cornerHardware.getOrNull(0)
+    val fr = cornerHardware.getOrNull(1)
+    val rl = cornerHardware.getOrNull(2)
+    val rr = cornerHardware.getOrNull(3)
+
+    BoxWithConstraints(modifier.background(AresSurfaceElevated, RoundedCornerShape(8.dp)).border(1.dp, AresBorder, RoundedCornerShape(8.dp))) {
+        val widthPx = constraints.maxWidth.toFloat()
+        val heightPx = constraints.maxHeight.toFloat()
+        
+        val padX = widthPx * 0.22f
+        val padY = heightPx * 0.22f
+        val left = padX
+        val right = widthPx - padX
+        val top = padY
+        val bottom = heightPx - padY
+        
+        val wheelW = 26f
+        val wheelH = 46f
+
+        Canvas(Modifier.fillMaxSize()) {
+            // Draw Robot Frame / Bumper Perimeter
+            drawRoundRect(
+                color = AresBorder,
+                topLeft = Offset(left, top),
+                size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(10f, 10f),
+                style = Stroke(2.5f)
+            )
+
+            // Center Crosshair / Center of Mass
+            val cx = (left + right) / 2f
+            val cy = (top + bottom) / 2f
+            drawLine(AresBorder, Offset(cx - 15, cy), Offset(cx + 15, cy), 1.5f)
+            drawLine(AresBorder, Offset(cx, cy - 15), Offset(cx, cy + 15), 1.5f)
+            drawCircle(AresCyan.copy(alpha = 0.3f), 8f, Offset(cx, cy))
+
+            // Forward Orientation Arrow
+            val arrowTop = top - 24f
+            val arrowBot = top + 10f
+            drawLine(AresCyan, Offset(cx, arrowBot), Offset(cx, arrowTop), 3.5f)
+            drawLine(AresCyan, Offset(cx, arrowTop), Offset(cx - 8f, arrowTop + 8f), 3.5f)
+            drawLine(AresCyan, Offset(cx, arrowTop), Offset(cx + 8f, arrowTop + 8f), 3.5f)
+
+            // Draw 4 Corner Wheel Modules
+            val wheelConfigs = listOf(
+                Pair(Offset(left, top), fl),
+                Pair(Offset(right, top), fr),
+                Pair(Offset(left, bottom), rl),
+                Pair(Offset(right, bottom), rr),
+            )
+
+            wheelConfigs.forEach { (pos, device) ->
+                val isSelected = device != null && device.id == state.selectedHardwareId
+                val wheelColor = if (isSelected) AresCyan else if (device?.inverted == true) AresError else AresGreen
+                val bgWheelColor = if (isSelected) AresCyan.copy(alpha = 0.25f) else AresSurface
+
+                // Wheel Body
+                drawRoundRect(
+                    color = bgWheelColor,
+                    topLeft = Offset(pos.x - wheelW / 2, pos.y - wheelH / 2),
+                    size = androidx.compose.ui.geometry.Size(wheelW, wheelH),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f),
+                )
+                drawRoundRect(
+                    color = wheelColor,
+                    topLeft = Offset(pos.x - wheelW / 2, pos.y - wheelH / 2),
+                    size = androidx.compose.ui.geometry.Size(wheelW, wheelH),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f),
+                    style = Stroke(if (isSelected) 3f else 1.5f)
+                )
+
+                // Tread / Roller stripes
+                for (i in -1..1) {
+                    val ty = pos.y + i * 11f
+                    drawLine(
+                        wheelColor.copy(alpha = 0.7f),
+                        Offset(pos.x - wheelW / 2 + 4, ty - 4),
+                        Offset(pos.x + wheelW / 2 - 4, ty + 4),
+                        1.5f
+                    )
+                }
+
+                // Selection Halo
+                if (isSelected) {
+                    drawCircle(AresCyan.copy(alpha = 0.2f), 30f, pos)
+                }
+            }
+        }
+
+        // Clickable Corner Wheel Buttons
+        val density = LocalDensity.current
+        val corners = listOf(
+            Triple(left, top, fl),
+            Triple(right, top, fr),
+            Triple(left, bottom, rl),
+            Triple(right, bottom, rr),
+        )
+        corners.forEachIndexed { idx, (x, y, dev) ->
+            val label = listOf("FL", "FR", "RL", "RR")[idx]
+            val xDp = with(density) { (x - 20).toDp() }
+            val yDp = with(density) { (y - 20).toDp() }
+            Box(
+                modifier = Modifier
+                    .offset(xDp, yDp)
+                    .size(40.dp)
+                    .clickable { dev?.id?.let { onSelectHardware(it) } },
+                contentAlignment = Alignment.Center,
+            ) {
+                Surface(
+                    color = if (dev?.id == state.selectedHardwareId) AresCyan else AresSurface.copy(alpha = 0.8f),
+                    shape = RoundedCornerShape(3.dp),
+                    border = BorderStroke(1.dp, if (dev?.id == state.selectedHardwareId) AresCyan else AresBorder),
+                ) {
+                    Text(
+                        label,
+                        color = if (dev?.id == state.selectedHardwareId) AresOnAccent else AresTextPrimary,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MotorGridCard(
+    cornerCode: String,
+    defaultCornerName: String,
+    device: DriveHardwareDeclaration?,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+    onToggleInvert: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .border(
+                width = if (isSelected) 2.dp else 1.dp,
+                color = if (isSelected) AresCyan else AresBorder,
+                shape = RoundedCornerShape(8.dp)
+            )
+            .clickable(onClick = onSelect),
+        color = if (isSelected) AresCyan.copy(alpha = 0.08f) else AresSurfaceElevated,
+        shape = RoundedCornerShape(8.dp),
+    ) {
+        Column(
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Surface(
+                        color = if (isSelected) AresCyan else AresBorder,
+                        shape = RoundedCornerShape(4.dp),
+                    ) {
+                        Text(
+                            cornerCode,
+                            color = if (isSelected) AresOnAccent else AresTextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                        )
+                    }
+                    Text(
+                        device?.displayName ?: defaultCornerName,
+                        color = AresTextPrimary,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                    )
+                }
+                Text(
+                    "hw: ${device?.hardwareName ?: "none"}",
+                    color = AresCyan,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // Direction Toggle Chip
+                val isInverted = device?.inverted == true
+                Surface(
+                    modifier = Modifier.clickable(onClick = onToggleInvert),
+                    shape = RoundedCornerShape(4.dp),
+                    color = if (isInverted) AresError.copy(alpha = 0.15f) else AresGreen.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, if (isInverted) AresError else AresGreen),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(6.dp).background(if (isInverted) AresError else AresGreen, CircleShape))
+                        Text(
+                            if (isInverted) "INVERTED" else "NORMAL",
+                            color = if (isInverted) AresError else AresGreen,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+
+                Text(
+                    if (isSelected) "● Selected" else "Click to edit",
+                    color = if (isSelected) AresCyan else AresTextTertiary,
+                    fontSize = 10.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AuxHardwareRow(
+    device: DriveHardwareDeclaration,
+    isSelected: Boolean,
+    onSelect: () -> Unit,
+    onToggleInvert: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .border(
+                width = if (isSelected) 1.5.dp else 1.dp,
+                color = if (isSelected) AresCyan else AresBorder,
+                shape = RoundedCornerShape(6.dp)
+            )
+            .clickable(onClick = onSelect),
+        color = if (isSelected) AresCyan.copy(alpha = 0.08f) else AresSurfaceElevated,
+        shape = RoundedCornerShape(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    color = AresBorder,
+                    shape = RoundedCornerShape(3.dp),
+                ) {
+                    Text(
+                        device.role.name.take(4),
+                        color = AresTextSecondary,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
+                }
+                Text(device.displayName, color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("hw: ${device.hardwareName}", color = AresCyan, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                val isInverted = device.inverted
+                Surface(
+                    modifier = Modifier.clickable(onClick = onToggleInvert),
+                    shape = RoundedCornerShape(3.dp),
+                    color = if (isInverted) AresError.copy(alpha = 0.15f) else AresGreen.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, if (isInverted) AresError else AresGreen),
+                ) {
+                    Text(
+                        if (isInverted) "INV" else "NORM",
+                        color = if (isInverted) AresError else AresGreen,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                    )
                 }
             }
         }
@@ -581,123 +990,294 @@ private fun GeometryStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuild
         configuredMaxLinearSpeedMps = state.draft.safety.maxLinearSpeedMetersPerSecond,
         useCornerModuleRadius = state.draft.kind == DrivebaseKind.FRC_CTRE_SWERVE
     )
-    Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        GeometryField("Wheel radius", geometry.wheelRadiusMeters, "m", "Measure from the axle center to the floor under normal robot weight.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(geometry.copy(wheelRadiusMeters = it))) }
-        GeometryField("Track width", geometry.trackWidthMeters, "m", "Center-to-center distance between the left and right wheel contact lines.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(geometry.copy(trackWidthMeters = it))) }
-        GeometryField("Wheelbase", geometry.wheelBaseMeters, "m", "Center-to-center distance between the front and rear wheel/module contact lines.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(geometry.copy(wheelBaseMeters = it))) }
-        
-        HorizontalDivider(color = AresBorder)
-        FieldHeading("Configured Kinematic Limits", "Derived from this drivebase's reviewed safety envelope and measured geometry; no motor or gear ratio is guessed.")
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Surface(Modifier.weight(1f), color = AresSurface, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AresBorder)) {
-                Column(Modifier.padding(10.dp)) {
-                    Text("Linear Limit", color = AresTextSecondary, fontSize = 11.sp)
-                    Text(labResult.maxLinearSpeedMps?.let { "%.2f m/s".format(it) } ?: "Not configured", color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("≈ ${"%.1f".format((labResult.maxLinearSpeedMps ?: 0.0) * 3.28084)} ft/s", color = AresTextTertiary, fontSize = 10.sp)
-                }
-            }
-            Surface(Modifier.weight(1f), color = AresSurface, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AresBorder)) {
-                Column(Modifier.padding(10.dp)) {
-                    Text("Max Angular Rate", color = AresTextSecondary, fontSize = 11.sp)
-                    Text("${"%.1f".format(labResult.maxAngularSpeedRadPerSec ?: 0.0)} rad/s", color = AresGreen, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text("≈ ${"%.0f".format((labResult.maxAngularSpeedRadPerSec ?: 0.0) * 180.0 / Math.PI)}°/s", color = AresTextTertiary, fontSize = 10.sp)
-                }
-            }
-            Surface(Modifier.weight(1f), color = AresSurface, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AresBorder)) {
-                Column(Modifier.padding(10.dp)) {
-                    val ratio = if (geometry.trackWidthMeters > 0.01) geometry.wheelBaseMeters / geometry.trackWidthMeters else 1.0
-                    Text("Aspect Ratio (L/W)", color = AresTextSecondary, fontSize = 11.sp)
-                    Text("%.2f".format(ratio), color = if (ratio in 0.7..1.4) AresTextPrimary else AresGold, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(if (ratio in 0.7..1.4) "Balanced turning" else "High scrub risk", color = if (ratio in 0.7..1.4) AresGreen else AresGold, fontSize = 10.sp)
-                }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        // Left Column (50%): Physical Measurements
+        Surface(
+            modifier = Modifier.weight(1f),
+            color = AresSurface,
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("PHYSICAL MEASUREMENTS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                GeometryField("Wheel radius", geometry.wheelRadiusMeters, "m", "Measure from axle center to floor under normal robot weight.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(geometry.copy(wheelRadiusMeters = it))) }
+                GeometryField("Track width", geometry.trackWidthMeters, "m", "Center-to-center distance between left and right wheel contact lines.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(geometry.copy(trackWidthMeters = it))) }
+                GeometryField("Wheelbase", geometry.wheelBaseMeters, "m", "Center-to-center distance between front and rear wheel contact lines.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateGeometry(geometry.copy(wheelBaseMeters = it))) }
             }
         }
-        Text("Overall bumper dimensions are intentionally not collected by drivetrain schema v1; field-collision dimensions belong to the robot geometry contract.", color = AresTextSecondary, fontSize = 10.sp)
+
+        // Right Column (50%): Derived Kinematic Limits & Aspect Ratio
+        Surface(
+            modifier = Modifier.weight(1f),
+            color = AresSurface,
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("CONFIGURED KINEMATIC LIMITS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Surface(Modifier.weight(1f), color = AresSurfaceElevated, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AresBorder)) {
+                        Column(Modifier.padding(10.dp)) {
+                            Text("Linear Limit", color = AresTextSecondary, fontSize = 10.sp)
+                            Text(labResult.maxLinearSpeedMps?.let { "%.2f m/s".format(it) } ?: "Not configured", color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("≈ ${"%.1f".format((labResult.maxLinearSpeedMps ?: 0.0) * 3.28084)} ft/s", color = AresTextTertiary, fontSize = 10.sp)
+                        }
+                    }
+                    Surface(Modifier.weight(1f), color = AresSurfaceElevated, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AresBorder)) {
+                        Column(Modifier.padding(10.dp)) {
+                            Text("Max Angular Rate", color = AresTextSecondary, fontSize = 10.sp)
+                            Text("${"%.1f".format(labResult.maxAngularSpeedRadPerSec ?: 0.0)} rad/s", color = AresGreen, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            Text("≈ ${"%.0f".format((labResult.maxAngularSpeedRadPerSec ?: 0.0) * 180.0 / Math.PI)}°/s", color = AresTextTertiary, fontSize = 10.sp)
+                        }
+                    }
+                }
+                val ratio = if (geometry.trackWidthMeters > 0.01) geometry.wheelBaseMeters / geometry.trackWidthMeters else 1.0
+                Surface(Modifier.fillMaxWidth(), color = AresSurfaceElevated, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AresBorder)) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column {
+                            Text("Aspect Ratio (L/W)", color = AresTextSecondary, fontSize = 10.sp)
+                            Text("%.2f".format(ratio), color = if (ratio in 0.7..1.4) AresTextPrimary else AresGold, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = if (ratio in 0.7..1.4) AresGreen.copy(alpha = 0.15f) else AresGold.copy(alpha = 0.15f),
+                            border = BorderStroke(1.dp, if (ratio in 0.7..1.4) AresGreen else AresGold),
+                        ) {
+                            Text(
+                                if (ratio in 0.7..1.4) "Balanced Turning" else "High Scrub Risk",
+                                color = if (ratio in 0.7..1.4) AresGreen else AresGold,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            )
+                        }
+                    }
+                }
+                Text("Overall frame perimeter & bumper geometry belong to the robot identity contract.", color = AresTextTertiary, fontSize = 10.sp)
+            }
+        }
     }
 }
 
 @Composable
 private fun LocalizationStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
-    SectionHeading("4 · Choose localization", "Localization estimates where the robot is. Multiple sources can be fused, but each must use CCW-positive headings and valid freshness.")
-    LocalizationKind.entries.forEach { kind ->
-        val description = when (kind) {
-            LocalizationKind.FTC_PINPOINT -> "goBILDA Pinpoint odometry computer; ARES normalizes heading at this boundary."
-            LocalizationKind.WHEEL_ODOMETRY_GYRO -> "Wheel encoders plus a gyro; works for differential and custom drives."
-            LocalizationKind.CTRE_POSE_ESTIMATOR -> "CTRE swerve module and Pigeon observations."
-            LocalizationKind.VISION_FUSION -> "AprilTag/vision corrections fused only when valid and statistically plausible."
-            LocalizationKind.CUSTOM -> "Team-maintained estimator with an explicit ARES adapter."
-        }
-        Row(Modifier.fillMaxWidth().driveCard(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) { Text(kind.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase), color = AresTextPrimary, fontWeight = FontWeight.Bold); Text(description, color = AresTextSecondary, fontSize = 10.sp) }
-            Checkbox(kind in state.draft.localization, { viewModel.onIntent(DrivebaseBuilderIntent.SetLocalization(kind, it)) }, Modifier.semantics { contentDescription = "Use ${kind.name.lowercase().replace('_', ' ')} localization" })
+    SectionHeading("4 · Choose localization", "Localization estimates robot pose on the field. Multiple sources can be fused with CCW-positive standard.")
+    val kinds = LocalizationKind.entries
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        kinds.chunked(2).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                row.forEach { kind ->
+                    val isChecked = kind in state.draft.localization
+                    val description = when (kind) {
+                        LocalizationKind.FTC_PINPOINT -> "goBILDA Pinpoint odometry computer; CCW-positive normalized."
+                        LocalizationKind.WHEEL_ODOMETRY_GYRO -> "Wheel deadwheel encoders plus internal IMU gyro."
+                        LocalizationKind.CTRE_POSE_ESTIMATOR -> "CTRE swerve module and Pigeon observations."
+                        LocalizationKind.VISION_FUSION -> "AprilTag vision corrections with Mahalanobis gating."
+                        LocalizationKind.CUSTOM -> "Team-maintained custom estimator adapter."
+                    }
+                    Surface(
+                        modifier = Modifier
+                            .weight(1f)
+                            .border(
+                                width = if (isChecked) 1.5.dp else 1.dp,
+                                color = if (isChecked) AresCyan else AresBorder,
+                                shape = RoundedCornerShape(8.dp)
+                            )
+                            .clickable { viewModel.onIntent(DrivebaseBuilderIntent.SetLocalization(kind, !isChecked)) },
+                        color = if (isChecked) AresCyan.copy(alpha = 0.08f) else AresSurface,
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(
+                                    kind.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase),
+                                    color = AresTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                )
+                                Text(description, color = AresTextSecondary, fontSize = 10.sp, lineHeight = 14.sp)
+                            }
+                            Spacer(Modifier.width(8.dp))
+                            Switch(
+                                checked = isChecked,
+                                onCheckedChange = { viewModel.onIntent(DrivebaseBuilderIntent.SetLocalization(kind, it)) },
+                            )
+                        }
+                    }
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
         }
     }
 }
 
 @Composable
 private fun SafetyStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
-    SectionHeading("5 · Safety contract", "These requirements fail closed. A drivebase cannot be saved if safe neutral, configuration health, or explicit neutral recovery are disabled.")
+    SectionHeading("5 · Safety contract", "These requirements fail closed. A drivebase cannot be saved if safe neutral or configuration health are disabled.")
     val safety = state.draft.safety
-    Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        SafetySwitch("Safe neutral required", safety.safeNeutralRequired, "Outputs become neutral at startup, disable, stop, fault, and close.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(safeNeutralRequired = it))) }
-        SafetySwitch("Configuration health required", safety.configurationHealthRequired, "Nonzero motion is blocked until every required device reports healthy configuration.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(configurationHealthRequired = it))) }
-        SafetySwitch("Explicit neutral recovery", safety.explicitNeutralRecoveryRequired, "After a fault, motion resumes only after a successful neutral write is confirmed.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(explicitNeutralRecoveryRequired = it))) }
-        SafetySwitch("Current monitoring required", safety.currentMonitoringRequired, "Unknown current is invalid rather than zero; monitoring must report validity.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(currentMonitoringRequired = it))) }
-        GeometryField("Feedback freshness timeout", safety.feedbackFreshnessTimeoutMs.toDouble(), "ms", "Feedback older than this is stale and blocks nonzero closed-loop output.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(feedbackFreshnessTimeoutMs = it.toInt()))) }
-        GeometryField("Maximum linear speed", safety.maxLinearSpeedMetersPerSecond, "m/s", "Hard command envelope used by control, simulation, and verification.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(maxLinearSpeedMetersPerSecond = it))) }
-        GeometryField("Maximum angular speed", safety.maxAngularSpeedRadiansPerSecond, "rad/s", "Positive rotation is counter-clockwise when viewed from above.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(maxAngularSpeedRadiansPerSecond = it))) }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        // Left Column (50%): Interlocks
+        Surface(
+            modifier = Modifier.weight(1f),
+            color = AresSurface,
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("FAIL-CLOSED INTERLOCKS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                SafetySwitch("Safe neutral required", safety.safeNeutralRequired, "Outputs become neutral at startup, disable, stop, and fault.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(safeNeutralRequired = it))) }
+                SafetySwitch("Configuration health required", safety.configurationHealthRequired, "Nonzero motion is blocked until all required devices report healthy configuration.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(configurationHealthRequired = it))) }
+                SafetySwitch("Explicit neutral recovery", safety.explicitNeutralRecoveryRequired, "Motion resumes only after a successful neutral write is confirmed.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(explicitNeutralRecoveryRequired = it))) }
+                SafetySwitch("Current monitoring required", safety.currentMonitoringRequired, "Monitoring must report validity for continuous current protection.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(currentMonitoringRequired = it))) }
+            }
+        }
+
+        // Right Column (50%): Limits & Timeouts
+        Surface(
+            modifier = Modifier.weight(1f),
+            color = AresSurface,
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("COMMAND ENVELOPE & TIME LIMITS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                GeometryField("Feedback freshness timeout", safety.feedbackFreshnessTimeoutMs.toDouble(), "ms", "Feedback older than this is stale and blocks closed-loop output.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(feedbackFreshnessTimeoutMs = it.toInt()))) }
+                GeometryField("Maximum linear speed", safety.maxLinearSpeedMetersPerSecond, "m/s", "Hard command envelope used by control and simulation.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(maxLinearSpeedMetersPerSecond = it))) }
+                GeometryField("Maximum angular speed", safety.maxAngularSpeedRadiansPerSecond, "rad/s", "Positive rotation is counter-clockwise.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(maxAngularSpeedRadiansPerSecond = it))) }
+            }
+        }
     }
 }
 
 @Composable
 private fun LabsStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
-    SectionHeading("6 · Direction & field-relative lab", "This interactive diagram performs local math only. It never publishes NT4, starts a simulator process, or commands robot hardware.")
+    SectionHeading("6 · Direction & field-relative lab", "Interactive local simulation lab. Never commands real robot hardware.")
     val lab = state.lab
     val result = evaluateDriveLab(state.draft.kind, lab, state.draft.geometry, state.draft.hardware)
-    val geometryResult = evaluateGeometryLab(
-        geometry = state.draft.geometry,
-        linearCommand = lab.forward,
-        angularCommand = lab.rotate,
-        configuredMaxLinearSpeedMps = state.draft.safety.maxLinearSpeedMetersPerSecond,
-        useCornerModuleRadius = state.draft.kind == DrivebaseKind.FRC_CTRE_SWERVE
-    )
     val localizationResult = evaluateLocalizationFailure(lab.localizationScenario)
-    Column(Modifier.driveCard(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("SIMULATION ONLY · NO HARDWARE OUTPUT", color = AresGold, fontWeight = FontWeight.Bold, fontSize = 11.sp)
-        LabSlider("Forward command", lab.forward, "Positive means away from the driver / toward robot front.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(forward = it))) }
-        LabSlider("Strafe command", lab.strafe, "Positive means robot-left in the CCW-positive coordinate convention.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(strafe = it))) }
-        LabSlider("Turn command", lab.rotate, "Positive means counter-clockwise when viewed from above.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(rotate = it))) }
-        LabSlider("Robot heading", lab.headingDegrees / 180.0, "Heading is shown in degrees here; runtime math uses radians.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(headingDegrees = it * 180.0))) }
-        Row(verticalAlignment = Alignment.CenterVertically) { Switch(lab.fieldRelative, { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(fieldRelative = it))) }); Text(" Field-relative input", color = AresTextPrimary); HelpButton("Field-relative means forward follows the field even when the robot turns. ARES rotates that command into the robot frame.") }
-        Text("Robot-frame result: forward ${"%.2f".format(result.robotForward)}, strafe ${"%.2f".format(result.robotStrafe)}", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-        result.wheelOutputs.forEach { (wheel, output) ->
-            val angle = result.moduleAnglesDegrees[wheel]?.let { " · module angle ${"%.1f".format(it)}°" }.orEmpty()
-            Text("${wheel.replace(Regex("([a-z])([A-Z])"), "$1 $2")}: ${if (output >= 0) "FORWARD" else "REVERSE"} ${"%.2f".format(kotlin.math.abs(output))}$angle", color = AresTextPrimary, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-        }
-        Text(result.explanation, color = AresTextSecondary, fontSize = 10.sp)
-        DirectionDiagram(lab.headingDegrees, result, Modifier.fillMaxWidth().height(220.dp))
-        HorizontalDivider(color = AresBorder)
-        FieldHeading("Geometry & turning-radius lab", "The center turning radius is linear command divided by angular command. Track width explains why outside wheels and modules travel farther.")
-        Text(geometryResult.explanation, color = AresTextPrimary, fontSize = 10.sp)
-        Text("Track-circle diameter: ${geometryResult.trackCircleDiameterMeters?.let { "%.2f m".format(it) } ?: "not applicable while driving straight"}", color = AresTextSecondary, fontSize = 10.sp)
-        HorizontalDivider(color = AresBorder)
-        FieldHeading("Localization failure lab", "Try each failure. Primary motion feedback and heading fail closed; optional vision may be rejected without disabling healthy odometry.")
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            LocalizationFailureScenario.entries.chunked(2).forEach { scenarios ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    scenarios.forEach { scenario ->
-                        FilterChip(
-                            selected = lab.localizationScenario == scenario,
-                            onClick = { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(localizationScenario = scenario))) },
-                            label = { Text(scenario.name.lowercase().replace('_', ' '), fontSize = 9.sp) },
-                            modifier = Modifier.semantics { contentDescription = "Simulate localization scenario ${scenario.name.lowercase().replace('_', ' ')}" }
-                        )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        // Left Column (50%): Simulation Controls
+        Surface(
+            modifier = Modifier.weight(1f),
+            color = AresSurface,
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("INPUT COMMANDS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Surface(color = AresGold.copy(alpha = 0.15f), shape = RoundedCornerShape(4.dp)) {
+                        Text("SIMULATION ONLY", color = AresGold, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                    }
+                }
+                LabSlider("Forward command", lab.forward, "Toward robot front / field forward.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(forward = it))) }
+                LabSlider("Strafe command", lab.strafe, "Positive means robot-left.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(strafe = it))) }
+                LabSlider("Turn command", lab.rotate, "Positive means CCW rotation.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(rotate = it))) }
+                LabSlider("Robot heading", lab.headingDegrees / 180.0, "Degrees here; math uses radians.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(headingDegrees = it * 180.0))) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(lab.fieldRelative, { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(fieldRelative = it))) })
+                    Spacer(Modifier.width(8.dp))
+                    Text("Field-relative input", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+
+                HorizontalDivider(color = AresBorder)
+                Text("LOCALIZATION FAILURE SCENARIO", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    LocalizationFailureScenario.entries.chunked(2).forEach { scenarios ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            scenarios.forEach { scenario ->
+                                FilterChip(
+                                    selected = lab.localizationScenario == scenario,
+                                    onClick = { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(localizationScenario = scenario))) },
+                                    label = { Text(scenario.name.lowercase().replace('_', ' '), fontSize = 10.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = AresCyan,
+                                        selectedLabelColor = AresOnAccent,
+                                    ),
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
-        Text("Closed-loop drive: ${if (localizationResult.canDriveClosedLoop) "AVAILABLE" else "BLOCKED"} · vision correction: ${if (localizationResult.usesVisionCorrection) "USED WHEN VALID" else "NOT USED"}", color = if (localizationResult.canDriveClosedLoop) AresGreen else AresError, fontWeight = FontWeight.Bold, fontSize = 10.sp)
-        Text(localizationResult.message, color = AresTextPrimary, fontSize = 10.sp)
+
+        // Right Column (50%): Vector Visualizer & Wheel Diagnostics
+        Surface(
+            modifier = Modifier.weight(1f),
+            color = AresSurface,
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text("VECTOR DIAGRAM & OUTPUTS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                DirectionDiagram(lab.headingDegrees, result, Modifier.fillMaxWidth().height(160.dp))
+                
+                Surface(
+                    color = AresSurfaceElevated,
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, AresBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Robot-frame result: forward ${"%.2f".format(result.robotForward)}, strafe ${"%.2f".format(result.robotStrafe)}", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        result.wheelOutputs.forEach { (wheel, output) ->
+                            val angle = result.moduleAnglesDegrees[wheel]?.let { " · ${"%.1f".format(it)}°" }.orEmpty()
+                            Text("${wheel.take(12)}: ${if (output >= 0) "FWD" else "REV"} ${"%.2f".format(kotlin.math.abs(output))}$angle", color = AresTextPrimary, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                        }
+                    }
+                }
+
+                Surface(
+                    color = if (localizationResult.canDriveClosedLoop) AresGreen.copy(alpha = 0.1f) else AresError.copy(alpha = 0.1f),
+                    border = BorderStroke(1.dp, if (localizationResult.canDriveClosedLoop) AresGreen else AresError),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(8.dp)) {
+                        Text("Closed-loop: ${if (localizationResult.canDriveClosedLoop) "AVAILABLE" else "BLOCKED"} · Vision: ${if (localizationResult.usesVisionCorrection) "FUSED" else "IGNORED"}", color = if (localizationResult.canDriveClosedLoop) AresGreen else AresError, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                        Text(localizationResult.message, color = AresTextPrimary, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
     }
 }
 
