@@ -275,7 +275,30 @@ class DrivebaseBuilderViewModel(
             DriveHardwareRole.DISTANCE_SENSOR -> if (countOfSameRole == 1) "distance" else "distance$countOfSameRole"
             else -> ""
         }
-        val device = DriveHardwareDeclaration(next, defaultName, role, hardwareName = defaultHwName, leaderId = leader)
+        val defaultX = when (role) {
+            DriveHardwareRole.LIMELIGHT -> 0.15
+            DriveHardwareRole.DISTANCE_SENSOR -> 0.18
+            else -> 0.0
+        }
+        val defaultZ = when (role) {
+            DriveHardwareRole.LIMELIGHT -> 0.20
+            DriveHardwareRole.DISTANCE_SENSOR -> 0.10
+            DriveHardwareRole.ODOMETRY -> 0.02
+            else -> 0.0
+        }
+        val device = DriveHardwareDeclaration(
+            id = next,
+            displayName = defaultName,
+            role = role,
+            hardwareName = defaultHwName,
+            leaderId = leader,
+            xMeters = defaultX,
+            yMeters = 0.0,
+            zMeters = defaultZ,
+            pitchDegrees = 0.0,
+            yawDegrees = 0.0,
+            rollDegrees = 0.0,
+        )
         edit(_state.value.draft.copy(hardware = existing + device))
         _state.update { it.copy(selectedHardwareId = next) }
     }

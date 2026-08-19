@@ -69,6 +69,14 @@ data class DriveHardwareDeclaration(
     val xMeters: Double? = null,
     /** Lateral physical offset from robot center of rotation in meters (left is positive). */
     val yMeters: Double? = null,
+    /** Vertical physical mounting height from ground/robot origin in meters (up is positive). */
+    val zMeters: Double? = null,
+    /** Camera pitch angle in degrees (up is positive). */
+    val pitchDegrees: Double? = null,
+    /** Camera yaw angle in degrees (facing forward is 0°, left is +90°, right is -90°, back is 180°). */
+    val yawDegrees: Double? = null,
+    /** Camera roll angle in degrees. */
+    val rollDegrees: Double? = null,
 )
 
 data class DriveGeometry(
@@ -255,6 +263,10 @@ fun DrivetrainDocument.toUiDrivebase(): DrivebaseDocument = DrivebaseDocument(
             leaderId = component.leaderUid,
             xMeters = component.xMeters,
             yMeters = component.yMeters,
+            zMeters = component.zMeters,
+            pitchDegrees = component.pitchDegrees,
+            yawDegrees = component.yawDegrees,
+            rollDegrees = component.rollDegrees,
         )
     },
     geometry = DriveGeometry(
@@ -324,6 +336,10 @@ fun DrivebaseDocument.toCanonicalDrivebase(): DrivetrainDocument {
             leaderUid = edit.leaderId,
             xMeters = edit.xMeters,
             yMeters = edit.yMeters,
+            zMeters = edit.zMeters,
+            pitchDegrees = edit.pitchDegrees,
+            yawDegrees = edit.yawDegrees,
+            rollDegrees = edit.rollDegrees,
         )
     }
     val editedCanBuses = hardware.mapNotNull { it.canBus?.takeIf(String::isNotBlank) }.distinct()

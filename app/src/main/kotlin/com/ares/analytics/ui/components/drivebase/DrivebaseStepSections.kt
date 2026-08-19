@@ -660,10 +660,11 @@ fun HardwareEditor(
         DriveHardwareRole.OTHER,
         DriveHardwareRole.CUSTOM
     )
+    val isVisionCamera = device.role == DriveHardwareRole.LIMELIGHT
 
     if (isAuxiliaryOrSensors || advanced) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("PHYSICAL MOUNTING OFFSETS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text("PHYSICAL MOUNTING POSITION (3D TRANSLATION)", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             GeometryField(
                 label = "X Mounting Offset",
                 value = device.xMeters ?: 0.0,
@@ -676,6 +677,36 @@ fun HardwareEditor(
                 unit = "m",
                 explanation = "Lateral offset left (+) or right (-) from robot center of rotation. Required for Pinpoint turning arc compensation and 3D camera pose estimation."
             ) { onUpdate(device.copy(yMeters = it)) }
+            GeometryField(
+                label = "Z Mounting Height",
+                value = device.zMeters ?: 0.0,
+                unit = "m",
+                explanation = "Vertical height from the floor / ground plane up to the sensor or camera optical center."
+            ) { onUpdate(device.copy(zMeters = it)) }
+        }
+
+        if (isVisionCamera || advanced) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("CAMERA ORIENTATION & ANGLES (3D ROTATION)", color = AresCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                GeometryField(
+                    label = "Camera Pitch",
+                    value = device.pitchDegrees ?: 0.0,
+                    unit = "°",
+                    explanation = "Tilt angle above (+) or below (-) the horizontal horizon. Crucial for MegaTag2 / AprilTag vertical angle solving."
+                ) { onUpdate(device.copy(pitchDegrees = it)) }
+                GeometryField(
+                    label = "Camera Yaw",
+                    value = device.yawDegrees ?: 0.0,
+                    unit = "°",
+                    explanation = "Horizontal angle: facing straight ahead (0°), facing left (+90°), facing right (-90°), facing rear (180°)."
+                ) { onUpdate(device.copy(yawDegrees = it)) }
+                GeometryField(
+                    label = "Camera Roll",
+                    value = device.rollDegrees ?: 0.0,
+                    unit = "°",
+                    explanation = "Rotation / tilt of the camera around its own optical lens axis (clockwise/counter-clockwise)."
+                ) { onUpdate(device.copy(rollDegrees = it)) }
+            }
         }
     }
 
