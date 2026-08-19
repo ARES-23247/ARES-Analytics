@@ -271,9 +271,9 @@ fun SubsystemHardwareKind.uiLabel(): String = when (this) {
     SubsystemHardwareKind.CONTINUOUS_SERVO -> "Continuous Servo (CR)"
     SubsystemHardwareKind.DIGITAL_INPUT -> "Digital Input / Limit Switch"
     SubsystemHardwareKind.ANALOG_INPUT -> "Analog Sensor / Potentiometer"
-    SubsystemHardwareKind.COLOR_SENSOR -> "Color / Proximity Sensor"
+    SubsystemHardwareKind.COLOR_SENSOR -> "Color / Proximity Sensor (I2C)"
     SubsystemHardwareKind.INDICATOR_LIGHT -> "RGB Indicator Light (Servo PWM)"
-    SubsystemHardwareKind.PRISM_DRIVER -> "goBILDA Prism LED Driver (PWM)"
+    SubsystemHardwareKind.PRISM_DRIVER -> "goBILDA Prism LED Driver (I2C)"
 }
 
 @Composable
