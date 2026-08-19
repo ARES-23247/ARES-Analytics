@@ -1,8 +1,11 @@
 package com.ares.analytics
 
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -24,7 +27,12 @@ import kotlin.system.exitProcess
 private const val SHUTDOWN_TIMEOUT_MS = 15_000L
 private const val WINDOW_HEALTH_CHECK_MS = 1_000
 private const val WINDOW_INITIAL_PRESENTATION_DELAY_MS = 2_000
+private const val WINDOW_STARTUP_TOPMOST_MS = 2_500
+private const val WINDOW_TOPMOST_SETTLEMENT_CHECK_MS = 100
+private const val WINDOW_TOPMOST_SETTLEMENT_LIMIT = 20
 private const val WINDOW_RECOVERY_FAILURE_LIMIT = 3
+private const val STARTUP_CAPTURE_ENV = "ARES_ANALYTICS_STARTUP_CAPTURE"
+private const val STARTUP_CAPTURE_CLOSE_ENV = "ARES_ANALYTICS_STARTUP_CAPTURE_CLOSE"
 
 internal fun isExpectedNativeWindow(
     expectedHandle: Long,
@@ -72,42 +80,6 @@ private fun ownedWindowsTopLevelWindow(
     ownedWindow
 }.getOrNull()
 
-private fun focusWindowsNativeWindow(hwnd: com.sun.jna.platform.win32.WinDef.HWND) {
-    val user32 = com.sun.jna.platform.win32.User32.INSTANCE
-    val foregroundWindow = user32.GetForegroundWindow()
-    val currentThreadId = com.sun.jna.platform.win32.WinDef.DWORD(
-        com.sun.jna.platform.win32.Kernel32.INSTANCE.GetCurrentThreadId().toLong()
-    )
-    val foregroundThreadId = foregroundWindow?.let {
-        com.sun.jna.platform.win32.WinDef.DWORD(user32.GetWindowThreadProcessId(it, null).toLong())
-    }
-    val attachedToForeground = foregroundThreadId != null &&
-        foregroundThreadId.toLong() != 0L &&
-        foregroundThreadId != currentThreadId &&
-        user32.AttachThreadInput(currentThreadId, foregroundThreadId, true)
-
-    try {
-        val flags = com.sun.jna.platform.win32.WinUser.SWP_NOMOVE or
-            com.sun.jna.platform.win32.WinUser.SWP_NOSIZE or
-            com.sun.jna.platform.win32.WinUser.SWP_SHOWWINDOW
-        val topmost = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Pointer.createConstant(-1))
-        val notTopmost = com.sun.jna.platform.win32.WinDef.HWND(com.sun.jna.Pointer.createConstant(-2))
-
-        user32.ShowWindow(hwnd, com.sun.jna.platform.win32.WinUser.SW_RESTORE)
-        // Windows may reject SetForegroundWindow for a background process. A short topmost
-        // promotion followed by immediate demotion makes a newly launched/recovered window
-        // visible without leaving it permanently above other applications.
-        user32.SetWindowPos(hwnd, topmost, 0, 0, 0, 0, flags)
-        user32.SetWindowPos(hwnd, notTopmost, 0, 0, 0, 0, flags)
-        user32.BringWindowToTop(hwnd)
-        user32.SetForegroundWindow(hwnd)
-    } finally {
-        if (attachedToForeground) {
-            user32.AttachThreadInput(currentThreadId, foregroundThreadId, false)
-        }
-    }
-}
-
 private fun hasUsableNativeWindow(window: java.awt.Window): Boolean {
     if (!window.isDisplayable || !window.isVisible || !window.isShowing) return false
     if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) return true
@@ -115,28 +87,73 @@ private fun hasUsableNativeWindow(window: java.awt.Window): Boolean {
 }
 
 private fun presentDesktopWindow(window: java.awt.Window): Boolean = runCatching {
-    if (!window.isDisplayable || !window.isVisible) window.isVisible = true
-
-    if (System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) {
-        var hwnd = ownedWindowsTopLevelWindow(window)
-        if (hwnd == null && window.isDisplayable) {
-            // AWT can retain isShowing=true after its native HWND has disappeared. Toggling
-            // visibility asks the existing peer to recreate/show its top-level window.
-            window.isVisible = false
-            window.isVisible = true
-            window.validate()
-            hwnd = ownedWindowsTopLevelWindow(window)
-        }
-        requireNotNull(hwnd) { "AWT has no visible top-level window owned by this process" }
-        focusWindowsNativeWindow(hwnd)
+    require(window.isDisplayable && window.isVisible && window.isShowing) {
+        "Compose window is not displayable and visible"
     }
 
+    // Compose owns visibility, native peer creation, and always-on-top state. Keep native APIs
+    // observation-only: forcing ShowWindow/SetWindowPos/AttachThreadInput during windowOpened
+    // races Compose's peer lifecycle and SetForegroundWindow is allowed to fail silently.
     window.toFront()
     window.requestFocus()
     hasUsableNativeWindow(window)
 }.onFailure {
     System.err.println("[ARES-Analytics] Desktop window presentation failed: ${it.message}")
 }.getOrDefault(false)
+
+/**
+ * Captures the real on-screen window only when the desktop test harness explicitly requests it.
+ * Keeping this inside the ARES JVM avoids false negatives when separate test-tool processes are
+ * assigned different Windows desktops/window stations. Normal application launches do no I/O.
+ */
+private fun captureStartupWindowIfRequested(window: java.awt.Window): Boolean {
+    val outputPath = System.getenv(STARTUP_CAPTURE_ENV)?.trim().orEmpty()
+    if (outputPath.isEmpty()) return false
+
+    return runCatching {
+        require(window.isShowing) { "desktop window is not showing" }
+        val bounds = window.bounds
+        require(bounds.width > 0 && bounds.height > 0) { "desktop window has invalid bounds: $bounds" }
+        val outputFile = java.io.File(outputPath).absoluteFile
+        outputFile.parentFile?.mkdirs()
+        val image = java.awt.Robot(window.graphicsConfiguration.device).createScreenCapture(bounds)
+        require(javax.imageio.ImageIO.write(image, "png", outputFile)) {
+            "no PNG writer is available"
+        }
+        println(
+            "[ARES-Analytics] Desktop startup capture written: " +
+                "path=${outputFile.absolutePath}, size=${image.width}x${image.height}"
+        )
+    }.onFailure {
+        System.err.println("[ARES-Analytics] Desktop startup capture failed: ${it.message}")
+    }.isSuccess
+}
+
+/** Posts the same native WM_CLOSE used by the external tester, but only in opt-in capture runs. */
+private fun closeCapturedStartupWindowIfRequested(
+    window: java.awt.Window,
+    captureSucceeded: Boolean,
+) {
+    if (!captureSucceeded || !System.getenv(STARTUP_CAPTURE_CLOSE_ENV).toBoolean()) return
+    if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) return
+
+    val hwnd = ownedWindowsTopLevelWindow(window)
+    if (hwnd == null) {
+        System.err.println("[ARES-Analytics] Desktop startup capture close failed: native HWND is missing")
+        return
+    }
+
+    com.sun.jna.platform.win32.User32.INSTANCE.PostMessage(
+        hwnd,
+        com.sun.jna.platform.win32.WinUser.WM_CLOSE,
+        com.sun.jna.platform.win32.WinDef.WPARAM(0L),
+        com.sun.jna.platform.win32.WinDef.LPARAM(0L),
+    )
+    println(
+        "[ARES-Analytics] Desktop startup capture WM_CLOSE posted: " +
+            "hwnd=${com.sun.jna.Pointer.nativeValue(hwnd.pointer)}, requestSent=true"
+    )
+}
 
 /**
  * Last-resort exit guarantee: [androidx.compose.ui.window.ApplicationScope.exitApplication]
@@ -233,6 +250,7 @@ private fun launchDesktopApplication() {
         val services = remember { ServiceRegistry() }
         val shutdownScope = rememberCoroutineScope()
         val shutdownStarted = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
+        var startupAlwaysOnTop by remember { mutableStateOf(true) }
 
         Window(
             onCloseRequest = {
@@ -264,12 +282,40 @@ private fun launchDesktopApplication() {
             },
             title = "ARES Analytics — Mission Control",
             state = windowState,
+            // Windows may deny a foreground request from a Gradle-launched child process. Let
+            // Compose create the window topmost so it is visible even when activation is denied,
+            // then release topmost status shortly after the native peer has opened.
+            alwaysOnTop = startupAlwaysOnTop,
             visible = true,
         ) {
             DisposableEffect(window) {
                 window.minimumSize = java.awt.Dimension(1100, 700)
                 val initialPresentationScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
                 lateinit var windowHealthTimer: javax.swing.Timer
+                var topmostSettlementChecks = 0
+                val startupTopmostSettlementTimer = javax.swing.Timer(WINDOW_TOPMOST_SETTLEMENT_CHECK_MS) {
+                    topmostSettlementChecks++
+                    val settled = !window.isAlwaysOnTop
+                    if (settled || topmostSettlementChecks >= WINDOW_TOPMOST_SETTLEMENT_LIMIT) {
+                        (it.source as javax.swing.Timer).stop()
+                        val message =
+                            "[ARES-Analytics] Desktop startup presentation settled: " +
+                                "alwaysOnTop=${window.isAlwaysOnTop}, focused=${window.isFocused}, " +
+                                "active=${window.isActive}, showing=${window.isShowing}"
+                        if (settled) println(message) else System.err.println(message)
+                        val captureSucceeded = captureStartupWindowIfRequested(window)
+                        closeCapturedStartupWindowIfRequested(window, captureSucceeded)
+                    }
+                }.apply {
+                    isRepeats = true
+                }
+                val startupTopmostReleaseTimer = javax.swing.Timer(WINDOW_STARTUP_TOPMOST_MS) {
+                    startupAlwaysOnTop = false
+                    topmostSettlementChecks = 0
+                    startupTopmostSettlementTimer.restart()
+                }.apply {
+                    isRepeats = false
+                }
 
                 fun scheduleInitialPresentation(reason: String) {
                     if (!initialPresentationScheduled.compareAndSet(false, true)) return
@@ -294,11 +340,18 @@ private fun launchDesktopApplication() {
                                     "hwnd=${hwnd?.pointer?.let { com.sun.jna.Pointer.nativeValue(it) }}"
                             )
                         }
+                        if (!startupTopmostReleaseTimer.isRunning) {
+                            startupTopmostReleaseTimer.start()
+                        }
                         if (!windowHealthTimer.isRunning) windowHealthTimer.start()
                     }
                 }
 
                 val listener = object : java.awt.event.WindowAdapter() {
+                    override fun windowGainedFocus(event: java.awt.event.WindowEvent?) {
+                        println("[ARES-Analytics] Desktop window focused")
+                    }
+
                     override fun windowLostFocus(event: java.awt.event.WindowEvent?) {
                         services.keyboardDriveState.releaseAll()
                     }
@@ -383,6 +436,8 @@ private fun launchDesktopApplication() {
                     window.removeWindowListener(lifecycleListener)
                     window.removeWindowFocusListener(listener)
                     initialPresentationFallback.stop()
+                    startupTopmostReleaseTimer.stop()
+                    startupTopmostSettlementTimer.stop()
                     windowHealthTimer.stop()
                     if (!shutdownWasRequested) {
                         System.err.println(
