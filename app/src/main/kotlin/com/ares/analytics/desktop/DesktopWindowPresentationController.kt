@@ -6,18 +6,16 @@ import java.awt.event.ComponentEvent
 import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
 import java.util.concurrent.atomic.AtomicBoolean
-import javax.swing.Timer
 
-internal const val WINDOW_HEALTH_CHECK_MS = 1_000
-internal const val WINDOW_INITIAL_PRESENTATION_DELAY_MS = 2_000
-internal const val WINDOW_STARTUP_TOPMOST_MS = 2_500
-internal const val WINDOW_TOPMOST_SETTLEMENT_CHECK_MS = 100
+internal const val WINDOW_HEALTH_CHECK_MS = 1_000L
+internal const val WINDOW_INITIAL_PRESENTATION_DELAY_MS = 2_000L
+internal const val WINDOW_STARTUP_TOPMOST_MS = 2_500L
+internal const val WINDOW_TOPMOST_SETTLEMENT_CHECK_MS = 100L
 internal const val WINDOW_TOPMOST_SETTLEMENT_LIMIT = 20
-internal const val WINDOW_RECOVERY_FAILURE_LIMIT = 3
 internal const val STARTUP_CAPTURE_ENV = "ARES_ANALYTICS_STARTUP_CAPTURE"
 internal const val STARTUP_CAPTURE_CLOSE_ENV = "ARES_ANALYTICS_STARTUP_CAPTURE_CLOSE"
 
-/** Pure decisions of the presentation policy, separated from Swing timers for unit testing. */
+/** Pure decisions of the presentation policy, separated from scheduling for unit testing. */
 internal object DesktopPresentationPolicy {
     /**
      * Windows may deny a foreground request from a Gradle-launched child process, so Compose
@@ -40,9 +38,16 @@ internal object DesktopPresentationPolicy {
  * Owns the desktop window's startup presentation, topmost settlement, health recovery, and
  * the opt-in same-process capture/WM_CLOSE verifier. Compose remains the sole owner of
  * visibility and always-on-top state: this controller only observes the native window,
- * calls the AWT-level toFront()/requestFocus(), and drives Compose state via [onStartupAlwaysOnTopChange].
+ * calls the AWT-level toFront()/requestFocus(), and drives Compose state via
+ * [onStartupAlwaysOnTopChange].
  *
- * All work runs on the AWT event thread (Swing timers + window callbacks).
+ * The [DesktopStartupMachine] loss budget is the single authoritative recovery counter for
+ * both failure kinds this controller handles — native window loss and topmost-settlement
+ * timeout — and it resets only when the window is fully settled again.
+ *
+ * All work runs on the AWT event thread (scheduler callbacks + window events). The
+ * scheduler and window ports are injectable so controller sequencing is testable against
+ * a virtual clock without native windows.
  */
 internal class DesktopWindowPresentationController(
     private val window: Window,
@@ -51,33 +56,16 @@ internal class DesktopWindowPresentationController(
     private val onStartupAlwaysOnTopChange: (Boolean) -> Unit,
     private val onFocusLost: () -> Unit,
     private val onUnrecoverableWindowLoss: (reason: String) -> Nothing,
+    private val scheduler: DesktopScheduler = SwingDesktopScheduler,
+    private val windowPort: DesktopWindowPort = AwtDesktopWindowPort(window),
 ) {
     private val initialPresentationScheduled = AtomicBoolean(false)
     private var topmostSettlementChecks = 0
-    private var consecutiveRecoveryFailures = 0
 
-    private lateinit var healthTimer: Timer
-    private val topmostSettlementTimer = Timer(WINDOW_TOPMOST_SETTLEMENT_CHECK_MS) {
-        topmostSettlementChecks++
-        val settled = DesktopPresentationPolicy.isSettled(window.isAlwaysOnTop)
-        if (settled || DesktopPresentationPolicy.settlementExceeded(topmostSettlementChecks)) {
-            (it.source as Timer).stop()
-            val message =
-                "[ARES-Analytics] Desktop startup presentation settled: " +
-                    "alwaysOnTop=${window.isAlwaysOnTop}, focused=${window.isFocused}, " +
-                    "active=${window.isActive}, showing=${window.isShowing}"
-            if (settled) println(message) else System.err.println(message)
-            machine.transitionTo(DesktopStartupState.SETTLED)
-            val captureSucceeded = captureStartupWindowIfRequested()
-            closeCapturedStartupWindowIfRequested(captureSucceeded)
-        }
-    }.apply { isRepeats = true }
-
-    private val topmostReleaseTimer = Timer(WINDOW_STARTUP_TOPMOST_MS) {
-        onStartupAlwaysOnTopChange(false)
-        topmostSettlementChecks = 0
-        topmostSettlementTimer.restart()
-    }.apply { isRepeats = false }
+    private var initialPresentationFallbackTask: DesktopScheduledTask? = null
+    private var topmostReleaseTask: DesktopScheduledTask? = null
+    private var topmostSettlementTask: DesktopScheduledTask? = null
+    private var healthTask: DesktopScheduledTask? = null
 
     private val focusListener = object : WindowAdapter() {
         override fun windowGainedFocus(event: WindowEvent?) {
@@ -91,9 +79,7 @@ internal class DesktopWindowPresentationController(
 
     private val lifecycleListener = object : WindowAdapter() {
         override fun windowOpened(event: WindowEvent?) {
-            println("[ARES-Analytics] Desktop window opened")
-            machine.transitionTo(DesktopStartupState.OPENED)
-            scheduleInitialPresentation("windowOpened")
+            onWindowOpened()
         }
 
         override fun windowClosing(event: WindowEvent?) {
@@ -101,8 +87,7 @@ internal class DesktopWindowPresentationController(
         }
 
         override fun windowClosed(event: WindowEvent?) {
-            println("[ARES-Analytics] Desktop window closed")
-            machine.markClosed()
+            onWindowClosed()
         }
     }
 
@@ -116,17 +101,13 @@ internal class DesktopWindowPresentationController(
         }
     }
 
-    private val initialPresentationFallback = Timer(WINDOW_INITIAL_PRESENTATION_DELAY_MS) {
-        scheduleInitialPresentation("startup fallback")
-    }.apply { isRepeats = false }
-
-    private var healthTimerInitialized = false
-
     fun attach() {
         window.addWindowFocusListener(focusListener)
         window.addWindowListener(lifecycleListener)
         window.addComponentListener(visibilityListener)
-        initialPresentationFallback.start()
+        initialPresentationFallbackTask = scheduler.schedule(WINDOW_INITIAL_PRESENTATION_DELAY_MS, 0L) {
+            scheduleInitialPresentation("startup fallback")
+        }
     }
 
     fun detach(expectedShutdown: Boolean) {
@@ -138,10 +119,10 @@ internal class DesktopWindowPresentationController(
         window.removeComponentListener(visibilityListener)
         window.removeWindowListener(lifecycleListener)
         window.removeWindowFocusListener(focusListener)
-        initialPresentationFallback.stop()
-        topmostReleaseTimer.stop()
-        topmostSettlementTimer.stop()
-        if (healthTimerInitialized) healthTimer.stop()
+        initialPresentationFallbackTask?.cancel()
+        topmostReleaseTask?.cancel()
+        topmostSettlementTask?.cancel()
+        healthTask?.cancel()
         if (!expectedShutdown) {
             onUnrecoverableWindowLoss(
                 "Desktop window disappeared without a shutdown request; " +
@@ -150,143 +131,176 @@ internal class DesktopWindowPresentationController(
         }
     }
 
+    /** windowOpened observation; safe to receive late or duplicated. */
+    internal fun onWindowOpened() {
+        println("[ARES-Analytics] Desktop window opened")
+        machine.observeOpened()
+        scheduleInitialPresentation("windowOpened")
+    }
+
+    internal fun onWindowClosed() {
+        println("[ARES-Analytics] Desktop window closed")
+        machine.markClosed()
+    }
+
     private fun scheduleInitialPresentation(reason: String) {
         if (!initialPresentationScheduled.compareAndSet(false, true)) return
 
         // Let the lifecycle event finish before touching focus/Z-order. windowOpened proves
         // that Compose's real AWT peer reached its opened lifecycle instead of exposing a
-        // transient HWND that a generic startup invokeLater could validate too early.
-        java.awt.EventQueue.invokeLater {
-            if (isShutdownStarted()) return@invokeLater
+        // transient HWND that a generic startup invokeLater could validate too early. The
+        // bounded fallback covers listeners attached after the opened event fired.
+        scheduler.invokeLater {
+            if (isShutdownStarted() || machine.isShuttingDown) return@invokeLater
 
-            if (!presentDesktopWindow()) {
+            if (windowPort.presentWindow()) {
+                // Tolerates a missed windowOpened: observation walks CREATING -> OPENED ->
+                // PRESENTED through the transition table instead of assuming OPENED happened.
+                machine.observePresented()
+                println(
+                    "[ARES-Analytics] Desktop window presented after $reason: " +
+                        "${windowPort.windowDiagnostics()}, nativeVisible=true, " +
+                        "hwnd=${windowPort.nativeWindowHandle()}"
+                )
+            } else {
                 System.err.println(
                     "[ARES-Analytics] Desktop window was not usable after $reason; " +
                         "the native recovery watchdog is active."
                 )
-            } else {
-                val hwnd = NativeWindowProbe.ownedTopLevelWindow(window)
-                println(
-                    "[ARES-Analytics] Desktop window presented after $reason: " +
-                        "size=${window.size}, location=${window.location}, " +
-                        "showing=${window.isShowing}, nativeVisible=true, " +
-                        "hwnd=${hwnd?.pointer?.let { com.sun.jna.Pointer.nativeValue(it) }}"
-                )
-                machine.transitionTo(DesktopStartupState.PRESENTED)
             }
-            if (!topmostReleaseTimer.isRunning) {
-                topmostReleaseTimer.start()
+            if (topmostReleaseTask == null) {
+                topmostReleaseTask = scheduler.schedule(WINDOW_STARTUP_TOPMOST_MS, 0L) {
+                    releaseStartupTopmost()
+                }
             }
-            ensureHealthTimerStarted()
+            ensureHealthTaskStarted()
         }
     }
 
-    /** Compose owns visibility, native peer creation, and always-on-top state; native APIs stay observation-only. */
-    private fun presentDesktopWindow(): Boolean = runCatching {
-        require(window.isDisplayable && window.isVisible && window.isShowing) {
-            "Compose window is not displayable and visible"
-        }
-        window.toFront()
-        window.requestFocus()
-        NativeWindowProbe.hasUsableNativeWindow(window)
-    }.onFailure {
-        System.err.println("[ARES-Analytics] Desktop window presentation failed: ${it.message}")
-    }.getOrDefault(false)
-
-    private fun ensureHealthTimerStarted() {
-        if (healthTimerInitialized) {
-            if (!healthTimer.isRunning) healthTimer.start()
-            return
-        }
-        healthTimerInitialized = true
-        healthTimer = Timer(WINDOW_HEALTH_CHECK_MS) {
-            if (isShutdownStarted()) {
-                (it.source as Timer).stop()
-            } else if (!NativeWindowProbe.hasUsableNativeWindow(window)) {
-                consecutiveRecoveryFailures++
-                System.err.println(
-                    "[ARES-Analytics] Native desktop window is missing; " +
-                        "recovery attempt $consecutiveRecoveryFailures/$WINDOW_RECOVERY_FAILURE_LIMIT."
-                )
-                if (presentDesktopWindow()) {
-                    machine.recordWindowRecovered(DesktopStartupState.PRESENTED)
-                    consecutiveRecoveryFailures = 0
-                    val hwnd = NativeWindowProbe.ownedTopLevelWindow(window)
-                    println(
-                        "[ARES-Analytics] Native desktop window recovered: " +
-                            "size=${window.size}, location=${window.location}, " +
-                            "showing=${window.isShowing}, " +
-                            "hwnd=${hwnd?.pointer?.let { com.sun.jna.Pointer.nativeValue(it) }}"
-                    )
-                } else if (consecutiveRecoveryFailures >= WINDOW_RECOVERY_FAILURE_LIMIT) {
-                    onUnrecoverableWindowLoss(
-                        "Native desktop window could not be recovered; " +
-                            "terminating so the next launch can acquire app.lock."
-                    )
-                }
-            } else {
-                consecutiveRecoveryFailures = 0
+    /** Releases the Compose-owned startup topmost state, then verifies it actually settled. */
+    private fun releaseStartupTopmost() {
+        if (isShutdownStarted() || machine.isShuttingDown) return
+        onStartupAlwaysOnTopChange(false)
+        topmostSettlementChecks = 0
+        topmostSettlementTask?.cancel()
+        topmostSettlementTask =
+            scheduler.schedule(WINDOW_TOPMOST_SETTLEMENT_CHECK_MS, WINDOW_TOPMOST_SETTLEMENT_CHECK_MS) {
+                checkTopmostSettlement()
             }
-        }.apply {
-            initialDelay = WINDOW_HEALTH_CHECK_MS
-            isRepeats = true
-        }
-        healthTimer.start()
     }
 
     /**
-     * Captures the real on-screen window only when the desktop test harness explicitly
-     * requests it. Keeping this inside the ARES JVM avoids false negatives when separate
-     * test-tool processes are assigned different Windows desktops/window stations. Normal
-     * application launches do no I/O.
+     * SETTLED means the Compose-owned topmost state actually returned to false. A topmost
+     * release that never settles is a recovery condition, not a settled launch: each
+     * bounded timeout round records a window loss, re-issues the release, and escalates to
+     * termination when the machine's loss budget is exhausted. Capture and close never run
+     * from the timeout path.
      */
-    private fun captureStartupWindowIfRequested(): Boolean {
-        val outputPath = System.getenv(STARTUP_CAPTURE_ENV)?.trim().orEmpty()
-        if (!DesktopPresentationPolicy.captureRequested(outputPath)) return false
-
-        return runCatching {
-            require(window.isShowing) { "desktop window is not showing" }
-            val bounds = window.bounds
-            require(bounds.width > 0 && bounds.height > 0) { "desktop window has invalid bounds: $bounds" }
-            val outputFile = java.io.File(outputPath).absoluteFile
-            outputFile.parentFile?.mkdirs()
-            val image = java.awt.Robot(window.graphicsConfiguration.device).createScreenCapture(bounds)
-            require(javax.imageio.ImageIO.write(image, "png", outputFile)) {
-                "no PNG writer is available"
+    private fun checkTopmostSettlement() {
+        if (isShutdownStarted() || machine.isShuttingDown) {
+            topmostSettlementTask?.cancel()
+            return
+        }
+        topmostSettlementChecks++
+        when {
+            DesktopPresentationPolicy.isSettled(windowPort.isAlwaysOnTop()) -> {
+                topmostSettlementTask?.cancel()
+                onStartupSettled()
             }
-            println(
-                "[ARES-Analytics] Desktop startup capture written: " +
-                    "path=${outputFile.absolutePath}, size=${image.width}x${image.height}"
-            )
-        }.onFailure {
-            System.err.println("[ARES-Analytics] Desktop startup capture failed: ${it.message}")
-        }.isSuccess
+            DesktopPresentationPolicy.settlementExceeded(topmostSettlementChecks) -> {
+                topmostSettlementChecks = 0
+                val attemptPermitted = machine.recordWindowLoss()
+                System.err.println(
+                    "[ARES-Analytics] Desktop startup topmost release did not settle after " +
+                        "$WINDOW_TOPMOST_SETTLEMENT_LIMIT checks (alwaysOnTop=true); " +
+                        "recovery attempt ${machine.attemptsUsed}/${machine.maxAttempts}."
+                )
+                if (!attemptPermitted) {
+                    onUnrecoverableWindowLoss(
+                        "Desktop startup presentation never released always-on-top after " +
+                            "${machine.maxAttempts} recovery attempts; " +
+                            "terminating so the next launch can acquire app.lock."
+                    )
+                }
+                // Compose-owned re-release; the repeating settlement check continues.
+                onStartupAlwaysOnTopChange(false)
+            }
+        }
     }
 
-    /** Posts the same native WM_CLOSE used by the external tester, but only in opt-in capture runs. */
-    private fun closeCapturedStartupWindowIfRequested(captureSucceeded: Boolean) {
-        if (!captureSucceeded ||
-            !DesktopPresentationPolicy.closeAfterCaptureRequested(System.getenv(STARTUP_CAPTURE_CLOSE_ENV))
-        ) {
+    /** Runs only after alwaysOnTop verifiably returned to false. */
+    private fun onStartupSettled() {
+        if (!windowPort.isNativeWindowUsable()) {
+            System.err.println(
+                "[ARES-Analytics] Desktop window became unusable at settlement; " +
+                    "the native recovery watchdog is active."
+            )
             return
         }
-        if (!System.getProperty("os.name").startsWith("Windows", ignoreCase = true)) return
-
-        val hwnd = NativeWindowProbe.ownedTopLevelWindow(window)
-        if (hwnd == null) {
-            System.err.println("[ARES-Analytics] Desktop startup capture close failed: native HWND is missing")
-            return
-        }
-
-        com.sun.jna.platform.win32.User32.INSTANCE.PostMessage(
-            hwnd,
-            com.sun.jna.platform.win32.WinUser.WM_CLOSE,
-            com.sun.jna.platform.win32.WinDef.WPARAM(0L),
-            com.sun.jna.platform.win32.WinDef.LPARAM(0L),
-        )
+        machine.observePresented()
+        machine.transitionTo(DesktopStartupState.SETTLED)
         println(
-            "[ARES-Analytics] Desktop startup capture WM_CLOSE posted: " +
-                "hwnd=${com.sun.jna.Pointer.nativeValue(hwnd.pointer)}, requestSent=true"
+            "[ARES-Analytics] Desktop startup presentation settled: " +
+                windowPort.windowFocusDiagnostics()
+        )
+        val captureSucceeded = windowPort.attemptStartupCapture()
+        windowPort.postCaptureCloseRequest(captureSucceeded)
+    }
+
+    private fun ensureHealthTaskStarted() {
+        if (healthTask != null) return
+        healthTask = scheduler.schedule(WINDOW_HEALTH_CHECK_MS, WINDOW_HEALTH_CHECK_MS) {
+            checkNativeWindowHealth()
+        }
+    }
+
+    private fun checkNativeWindowHealth() {
+        when {
+            isShutdownStarted() || machine.isShuttingDown -> healthTask?.cancel()
+            !windowPort.isNativeWindowUsable() -> recoverMissingNativeWindow()
+            machine.state == DesktopStartupState.WINDOW_LOST -> resumeRecoveredNativeWindow()
+            else -> Unit
+        }
+    }
+
+    /**
+     * Records the loss first — [DesktopStartupMachine.recordWindowRecovered] is only legal
+     * from WINDOW_LOST — then re-presents. Escalates to termination once the machine's
+     * budget is exhausted; there is no separate controller-side failure counter.
+     */
+    private fun recoverMissingNativeWindow() {
+        val attemptPermitted = machine.recordWindowLoss()
+        System.err.println(
+            "[ARES-Analytics] Native desktop window is missing; " +
+                "recovery attempt ${machine.attemptsUsed}/${machine.maxAttempts}."
+        )
+        if (!attemptPermitted) {
+            onUnrecoverableWindowLoss(
+                "Native desktop window could not be recovered after " +
+                    "${machine.maxAttempts} attempts; " +
+                    "terminating so the next launch can acquire app.lock."
+            )
+        }
+        if (windowPort.presentWindow()) {
+            machine.recordWindowRecovered()
+            println(
+                "[ARES-Analytics] Native desktop window recovered: " +
+                    "${windowPort.windowDiagnostics()}, hwnd=${windowPort.nativeWindowHandle()}"
+            )
+        }
+    }
+
+    /**
+     * The window is natively usable again while marked lost — either it healed without a
+     * controller re-presentation or a settlement retry is still pending. Resuming restores
+     * the state the window was lost from; the loss budget only resets once the window is
+     * fully settled again, so repeated settlement failures stay bounded.
+     */
+    private fun resumeRecoveredNativeWindow() {
+        machine.recordWindowRecovered()
+        println(
+            "[ARES-Analytics] Native desktop window is usable again; " +
+                "resuming ${machine.state}."
         )
     }
 }

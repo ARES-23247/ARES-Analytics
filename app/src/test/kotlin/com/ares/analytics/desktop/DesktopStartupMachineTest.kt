@@ -56,7 +56,7 @@ class DesktopStartupMachineTest {
     }
 
     @Test
-    fun `recovery budget is enforced and reset by a successful recovery`() {
+    fun `recovery budget is enforced and resets only on a fully settled window`() {
         val machine = DesktopStartupMachine(maxRecoveryAttempts = 2)
         machine.transitionTo(DesktopStartupState.OPENED)
         machine.transitionTo(DesktopStartupState.PRESENTED)
@@ -66,8 +66,63 @@ class DesktopStartupMachineTest {
         assertFalse(machine.recordWindowLoss(), "third loss exceeds the recovery policy")
 
         machine.recordWindowRecovered(DesktopStartupState.PRESENTED)
-        assertTrue(machine.recordWindowLoss(), "budget resets after a successful recovery")
+        assertEquals(
+            3,
+            machine.attemptsUsed,
+            "an intermediate recovery to PRESENTED keeps the budget accountable",
+        )
+        machine.transitionTo(DesktopStartupState.SETTLED)
+        assertEquals(0, machine.attemptsUsed, "reaching SETTLED is the only full-health reset")
+        assertTrue(machine.recordWindowLoss(), "budget resets after the window fully settled")
         assertEquals(1, machine.attemptsUsed)
+    }
+
+    @Test
+    fun `recovery without an argument resumes the state the window was lost from`() {
+        val machine = DesktopStartupMachine()
+        machine.transitionTo(DesktopStartupState.OPENED)
+        machine.transitionTo(DesktopStartupState.PRESENTED)
+        machine.recordWindowLoss()
+        machine.recordWindowRecovered()
+        assertEquals(DesktopStartupState.PRESENTED, machine.state)
+
+        machine.transitionTo(DesktopStartupState.SETTLED)
+        machine.recordWindowLoss()
+        machine.recordWindowRecovered()
+        assertEquals(DesktopStartupState.SETTLED, machine.state)
+        assertEquals(0, machine.attemptsUsed, "resuming SETTLED is full health and resets the budget")
+    }
+
+    @Test
+    fun `opened and presented observations are idempotent and tolerate fallback ordering`() {
+        val machine = DesktopStartupMachine()
+        machine.observePresented() // startup fallback before any windowOpened event
+        assertEquals(DesktopStartupState.PRESENTED, machine.state)
+        machine.observeOpened() // late windowOpened after the fallback presented
+        machine.observePresented() // duplicate observation
+        assertEquals(DesktopStartupState.PRESENTED, machine.state)
+        machine.transitionTo(DesktopStartupState.SETTLED)
+        machine.observeOpened()
+        machine.observePresented() // late events after settlement are no-ops
+        assertEquals(DesktopStartupState.SETTLED, machine.state)
+        machine.recordWindowLoss()
+        machine.observePresented() // presentation observation resumes from WINDOW_LOST
+        assertEquals(DesktopStartupState.PRESENTED, machine.state)
+    }
+
+    @Test
+    fun `shutdown states ignore window loss and presentation observations`() {
+        val machine = DesktopStartupMachine()
+        machine.beginClosing()
+        assertTrue(
+            machine.recordWindowLoss(),
+            "a loss recorded during shutdown must not demand termination",
+        )
+        assertEquals(DesktopStartupState.CLOSING, machine.state)
+        assertEquals(0, machine.attemptsUsed)
+        machine.observeOpened()
+        machine.observePresented()
+        assertEquals(DesktopStartupState.CLOSING, machine.state)
     }
 
     @Test
