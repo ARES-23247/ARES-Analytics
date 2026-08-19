@@ -205,22 +205,52 @@ tasks.withType<JavaExec>().configureEach {
         activeDesktopRunSnapshot = snapshotRoot
         setClasspath(project.files(isolatedClasspath))
 
-        // Compose passes its application resources as a separate system property instead of a
-        // classpath entry. Isolate that directory too, otherwise :app:clean can remove lazily
-        // requested icons/resources even though all JVM classes were snapshotted.
-        systemProperties["compose.application.resources.dir"]?.toString()?.let { configuredPath ->
-            val resourceDirectory = project.file(configuredPath)
-            if (resourceDirectory.isDirectory) {
-                val isolatedResources = snapshotRoot.resolve("compose-application-resources")
-                project.copy {
-                    from(resourceDirectory)
-                    into(isolatedResources)
-                }
-                systemProperty("compose.application.resources.dir", isolatedResources.absolutePath)
+        // Compose appends its application-resources directory as a raw -D JVM argument rather
+        // than through JavaExec.systemProperties. Replace that mutable build/ path explicitly;
+        // merely adding a second property leaves argument ordering to Gradle and can still launch
+        // against build/compose/tmp after another agent cleans it.
+        val composeResourcesProperty = "compose.application.resources.dir"
+        val composeResourcesPrefix = "-D$composeResourcesProperty="
+        val configuredResourcesPath = systemProperties[composeResourcesProperty]?.toString()
+            ?: jvmArgs.orEmpty()
+                .firstOrNull { argument -> argument.startsWith(composeResourcesPrefix) }
+                ?.removePrefix(composeResourcesPrefix)
+        requireNotNull(configuredResourcesPath) {
+            "Compose run task did not expose $composeResourcesProperty for runtime isolation"
+        }
+
+        val resourceDirectory = project.file(configuredResourcesPath)
+        val isolatedResources = snapshotRoot.resolve("compose-application-resources")
+        if (resourceDirectory.isDirectory) {
+            project.copy {
+                from(resourceDirectory)
+                into(isolatedResources)
             }
+        } else {
+            // prepareAppResources is legitimately NO-SOURCE when the application has no
+            // Compose-managed resources. Keep the property isolated anyway so a later build
+            // cannot make a previously absent mutable directory appear under the running JVM.
+            require(isolatedResources.mkdirs()) {
+                "Could not create isolated empty Compose application resources directory"
+            }
+        }
+        require(isolatedResources.isDirectory) {
+            "Compose application resources snapshot was not created: ${isolatedResources.absolutePath}"
+        }
+
+        // Remove Compose's original raw argument before installing the isolated value as the
+        // single authoritative system property.
+        setJvmArgs(jvmArgs.orEmpty().filterNot { argument -> argument.startsWith(composeResourcesPrefix) })
+        systemProperty(composeResourcesProperty, isolatedResources.absolutePath)
+        require(jvmArgs.orEmpty().none { argument -> argument.startsWith(composeResourcesPrefix) }) {
+            "Mutable Compose application resources JVM argument was not removed"
+        }
+        require(systemProperties[composeResourcesProperty] == isolatedResources.absolutePath) {
+            "Compose application resources did not switch to the runtime snapshot"
         }
 
         println("[ARES-Analytics] Isolated desktop runtime classpath at ${snapshotRoot.absolutePath}")
+        println("[ARES-Analytics] Isolated Compose application resources at ${isolatedResources.absolutePath}")
     }
 }
 
