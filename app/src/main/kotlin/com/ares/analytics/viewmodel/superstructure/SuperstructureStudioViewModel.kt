@@ -34,12 +34,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class SuperstructureStudioStep {
-    OVERVIEW,
-    STATE_PRESETS,
+    POSTURES,
     TRANSITIONS,
-    INTERLOCKS,
-    LOOKUP_TABLES,
-    SIMULATION,
     REVIEW,
 }
 
@@ -68,7 +64,7 @@ data class SuperstructureStudioState(
     val subsystems: List<SubsystemDocument> = emptyList(),
     val actions: List<ActionDescriptor> = emptyList(),
     val diagnostics: List<ProjectDocumentDiagnostic> = emptyList(),
-    val step: SuperstructureStudioStep = SuperstructureStudioStep.OVERVIEW,
+    val step: SuperstructureStudioStep = SuperstructureStudioStep.POSTURES,
     val selectedStateId: String? = null,
     val validationErrors: List<String> = emptyList(),
     val validationWarnings: List<String> = emptyList(),
@@ -185,7 +181,7 @@ class SuperstructureStudioViewModel(
                 savedContentHash = null,
                 draft = draft,
                 selectedStateId = initial.stateId,
-                step = SuperstructureStudioStep.OVERVIEW,
+                step = SuperstructureStudioStep.POSTURES,
                 dirty = true,
                 status = "New draft created. Nothing has been written yet.",
                 error = null,
