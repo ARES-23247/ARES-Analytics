@@ -20,7 +20,7 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
-enum class DrivebaseBuilderStep { DRIVE_TYPE, HARDWARE, GEOMETRY, LOCALIZATION, SAFETY, LABS, REVIEW }
+enum class DrivebaseBuilderStep { DRIVE_TYPE, HARDWARE, GEOMETRY, LOCALIZATION, REVIEW }
 enum class DrivebaseDiscardAction { RELOAD, CHANGE_KIND }
 
 data class DriveLabState(
