@@ -23,7 +23,21 @@ import kotlin.system.exitProcess
 /** Bounded window for graceful service disposal before the shutdown watchdog forces exit. */
 private const val SHUTDOWN_TIMEOUT_MS = 15_000L
 private const val WINDOW_HEALTH_CHECK_MS = 1_000
+private const val WINDOW_INITIAL_PRESENTATION_DELAY_MS = 2_000
 private const val WINDOW_RECOVERY_FAILURE_LIMIT = 3
+
+internal fun isExpectedNativeWindow(
+    expectedHandle: Long,
+    candidateHandle: Long,
+    ownerPid: Int,
+    currentPid: Int,
+    valid: Boolean,
+    visible: Boolean,
+): Boolean = expectedHandle != 0L &&
+    candidateHandle == expectedHandle &&
+    ownerPid == currentPid &&
+    valid &&
+    visible
 
 private fun ownedWindowsTopLevelWindow(
     window: java.awt.Window,
@@ -32,26 +46,27 @@ private fun ownedWindowsTopLevelWindow(
 
     val user32 = com.sun.jna.platform.win32.User32.INSTANCE
     val currentPid = com.sun.jna.platform.win32.Kernel32.INSTANCE.GetCurrentProcessId()
+    val expectedPointer = com.sun.jna.Native.getWindowPointer(window) ?: return@runCatching null
+    val expectedHandle = com.sun.jna.Pointer.nativeValue(expectedPointer)
+    if (expectedHandle == 0L) return@runCatching null
     var ownedWindow: com.sun.jna.platform.win32.WinDef.HWND? = null
 
-    // Do not trust Native.getWindowPointer(window) here. AWT can retain isShowing=true and a
-    // cached/reused peer handle after the real top-level HWND has vanished. EnumWindows is the
-    // same OS-level truth used by strict UI capture and Windows process MainWindowHandle.
+    // Native.getWindowPointer identifies the actual Compose/AWT peer but is not sufficient by
+    // itself: AWT can retain a stale handle after its HWND disappears. Cross-check that exact
+    // handle against EnumWindows, which is the same OS-level truth used by strict UI capture.
     user32.EnumWindows({ candidate, _ ->
         val ownerPid = com.sun.jna.ptr.IntByReference()
         user32.GetWindowThreadProcessId(candidate, ownerPid)
-        if (ownerPid.value != currentPid) {
-            true
-        } else {
-            // Do not query native window text here. GetWindowTextLength may synchronously
-            // message AWT's toolkit thread and deadlock the event queue. EnumWindows already
-            // guarantees a top-level HWND; current-PID ownership and visibility are sufficient,
-            // and treating an owned modal dialog as usable is intentional.
-            val matches = user32.IsWindow(candidate) &&
-                user32.IsWindowVisible(candidate)
-            if (matches) ownedWindow = candidate
-            !matches
-        }
+        val matches = isExpectedNativeWindow(
+            expectedHandle = expectedHandle,
+            candidateHandle = com.sun.jna.Pointer.nativeValue(candidate.pointer),
+            ownerPid = ownerPid.value,
+            currentPid = currentPid,
+            valid = user32.IsWindow(candidate),
+            visible = user32.IsWindowVisible(candidate),
+        )
+        if (matches) ownedWindow = candidate
+        !matches
     }, null)
 
     ownedWindow
@@ -253,6 +268,36 @@ private fun launchDesktopApplication() {
         ) {
             DisposableEffect(window) {
                 window.minimumSize = java.awt.Dimension(1100, 700)
+                val initialPresentationScheduled = java.util.concurrent.atomic.AtomicBoolean(false)
+                lateinit var windowHealthTimer: javax.swing.Timer
+
+                fun scheduleInitialPresentation(reason: String) {
+                    if (!initialPresentationScheduled.compareAndSet(false, true)) return
+
+                    // Let the lifecycle event finish before manipulating focus/Z-order. Unlike a
+                    // generic startup invokeLater, windowOpened proves that Compose's real AWT
+                    // peer reached its opened lifecycle instead of exposing a transient HWND.
+                    java.awt.EventQueue.invokeLater {
+                        if (shutdownStarted.get()) return@invokeLater
+
+                        if (!presentDesktopWindow(window)) {
+                            System.err.println(
+                                "[ARES-Analytics] Desktop window was not usable after $reason; " +
+                                    "the native recovery watchdog is active."
+                            )
+                        } else {
+                            val hwnd = ownedWindowsTopLevelWindow(window)
+                            println(
+                                "[ARES-Analytics] Desktop window presented after $reason: " +
+                                    "size=${window.size}, location=${window.location}, " +
+                                    "showing=${window.isShowing}, nativeVisible=true, " +
+                                    "hwnd=${hwnd?.pointer?.let { com.sun.jna.Pointer.nativeValue(it) }}"
+                            )
+                        }
+                        if (!windowHealthTimer.isRunning) windowHealthTimer.start()
+                    }
+                }
+
                 val listener = object : java.awt.event.WindowAdapter() {
                     override fun windowLostFocus(event: java.awt.event.WindowEvent?) {
                         services.keyboardDriveState.releaseAll()
@@ -261,6 +306,7 @@ private fun launchDesktopApplication() {
                 val lifecycleListener = object : java.awt.event.WindowAdapter() {
                     override fun windowOpened(event: java.awt.event.WindowEvent?) {
                         println("[ARES-Analytics] Desktop window opened")
+                        scheduleInitialPresentation("windowOpened")
                     }
 
                     override fun windowClosing(event: java.awt.event.WindowEvent?) {
@@ -280,12 +326,9 @@ private fun launchDesktopApplication() {
                         println("[ARES-Analytics] Desktop window hidden")
                     }
                 }
-                window.addWindowFocusListener(listener)
-                window.addWindowListener(lifecycleListener)
-                window.addComponentListener(visibilityListener)
 
                 var consecutiveRecoveryFailures = 0
-                val windowHealthTimer = javax.swing.Timer(WINDOW_HEALTH_CHECK_MS) {
+                windowHealthTimer = javax.swing.Timer(WINDOW_HEALTH_CHECK_MS) {
                     if (shutdownStarted.get()) {
                         (it.source as javax.swing.Timer).stop()
                     } else if (!hasUsableNativeWindow(window)) {
@@ -296,9 +339,12 @@ private fun launchDesktopApplication() {
                         )
                         if (presentDesktopWindow(window)) {
                             consecutiveRecoveryFailures = 0
+                            val hwnd = ownedWindowsTopLevelWindow(window)
                             println(
                                 "[ARES-Analytics] Native desktop window recovered: " +
-                                    "size=${window.size}, location=${window.location}, showing=${window.isShowing}"
+                                    "size=${window.size}, location=${window.location}, " +
+                                    "showing=${window.isShowing}, " +
+                                    "hwnd=${hwnd?.pointer?.let { com.sun.jna.Pointer.nativeValue(it) }}"
                             )
                         } else if (consecutiveRecoveryFailures >= WINDOW_RECOVERY_FAILURE_LIMIT) {
                             System.err.println(
@@ -315,23 +361,16 @@ private fun launchDesktopApplication() {
                     isRepeats = true
                 }
 
-                // Window() creates the native peer asynchronously. Present it on the next AWT
-                // event instead of racing peer creation from the initial composition pass.
-                java.awt.EventQueue.invokeLater {
-                    if (!presentDesktopWindow(window)) {
-                        System.err.println(
-                            "[ARES-Analytics] Desktop window was not usable after initial presentation; " +
-                                "the native recovery watchdog is active."
-                        )
-                    } else {
-                        println(
-                            "[ARES-Analytics] Desktop window presented: " +
-                                "size=${window.size}, location=${window.location}, " +
-                                "showing=${window.isShowing}, nativeVisible=true"
-                        )
-                    }
-                    windowHealthTimer.start()
+                val initialPresentationFallback = javax.swing.Timer(WINDOW_INITIAL_PRESENTATION_DELAY_MS) {
+                    scheduleInitialPresentation("startup fallback")
+                }.apply {
+                    isRepeats = false
                 }
+
+                window.addWindowFocusListener(listener)
+                window.addWindowListener(lifecycleListener)
+                window.addComponentListener(visibilityListener)
+                initialPresentationFallback.start()
 
                 onDispose {
                     val shutdownWasRequested = shutdownStarted.get()
@@ -343,6 +382,7 @@ private fun launchDesktopApplication() {
                     window.removeComponentListener(visibilityListener)
                     window.removeWindowListener(lifecycleListener)
                     window.removeWindowFocusListener(listener)
+                    initialPresentationFallback.stop()
                     windowHealthTimer.stop()
                     if (!shutdownWasRequested) {
                         System.err.println(

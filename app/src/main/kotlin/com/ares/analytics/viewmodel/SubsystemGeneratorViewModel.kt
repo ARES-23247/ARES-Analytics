@@ -345,6 +345,35 @@ class SubsystemGeneratorViewModel(
 
     fun selectTemplate(template: SubsystemTemplate) = _state.update { it.copy(selectedTemplate = template) }
 
+    fun applyTemplate(template: SubsystemTemplate) {
+        val currentDocument = _state.value.draft?.document ?: return
+        val templateDocument = SubsystemTemplates.create(
+            template = template,
+            documentId = currentDocument.documentId,
+            kotlinTypeName = currentDocument.kotlinTypeName,
+            platform = currentDocument.platform,
+            displayName = currentDocument.displayName,
+        ).copy(
+            revision = currentDocument.revision,
+            parentContentHash = currentDocument.parentContentHash,
+            uid = currentDocument.uid,
+        )
+
+        _state.update { current ->
+            val draft = current.draft ?: return@update current
+            current.copy(
+                draft = draft.edit { templateDocument },
+                selectedHardwareUid = templateDocument.hardware.firstOrNull()?.uid,
+                selectedFieldUid = templateDocument.stateFields.firstOrNull()?.uid,
+                selectedLoopUid = templateDocument.controlLoops.firstOrNull()?.uid,
+                selectedTuningParameterUid = templateDocument.tuningParameters.firstOrNull()?.uid,
+                selectedTemplate = template,
+                dirty = true,
+                status = "Applied ${template.name.lowercase().replace('_', ' ')} starter template.",
+            ).revalidated()
+        }
+    }
+
     fun selectStage(stage: SubsystemBuilderStage) = _state.update {
         it.copy(activeStage = stage, visitedStages = it.visitedStages + stage)
     }

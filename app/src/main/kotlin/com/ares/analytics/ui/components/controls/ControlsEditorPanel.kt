@@ -210,13 +210,12 @@ fun ControlsEditorPanel(
                 onDismiss = viewModel::discardDraft,
                 doneButtonText = if (state.selectedBindingId == null) "Add Binding" else "Apply Changes",
                 onDone = viewModel::applyDraft,
-                onDelete = if (state.selectedBindingId != null) {
+                onDelete = state.selectedBindingId?.let { idToDelete ->
                     {
-                        val idToDelete = state.selectedBindingId
                         viewModel.discardDraft()
-                        if (idToDelete != null) viewModel.deleteBinding(idToDelete)
+                        viewModel.deleteBinding(idToDelete)
                     }
-                } else null,
+                },
                 deleteButtonText = "Delete Binding",
             ) {
                 BindingInspectorBody(state, viewModel, binding)

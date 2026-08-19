@@ -1,37 +1,17 @@
 package com.ares.analytics.ui.screens
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
@@ -40,17 +20,9 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
-import com.ares.analytics.ui.theme.AresBorder
-import com.ares.analytics.ui.theme.AresCyan
-import com.ares.analytics.ui.theme.AresError
-import com.ares.analytics.ui.theme.AresGold
-import com.ares.analytics.ui.theme.AresGreen
-import com.ares.analytics.ui.theme.AresOnAccent
-import com.ares.analytics.ui.theme.AresSurfaceElevated
-import com.ares.analytics.ui.theme.AresTextPrimary
-import com.ares.analytics.ui.theme.AresTextSecondary
-import com.ares.analytics.ui.theme.AresTextTertiary
+import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.project.ProjectIdentityEditorState
 import com.ares.analytics.viewmodel.project.ProjectIdentityField
 import com.ares.analytics.viewmodel.project.ProjectIdentityViewModel
@@ -80,15 +52,16 @@ fun ProjectIdentityScreen(
                 }
                 Column {
                     Text(
-                        "Project identity & field frame",
+                        "Project Identity & Robot Footprint",
                         modifier = Modifier.semantics { heading() },
                         color = AresTextPrimary,
                         fontWeight = FontWeight.Bold,
                         fontSize = 24.sp,
                     )
                     Text(
-                        "Create or review the Git-tracked identity shared by builders, generation, simulation, and autonomous validation.",
+                        "Configure the robot identity and outer physical boundary shared by simulators, collision checkers, and autonomous paths.",
                         color = AresTextSecondary,
+                        fontSize = 12.sp,
                     )
                 }
             }
@@ -196,12 +169,7 @@ private fun ProjectIdentityDestinationCard(state: ProjectIdentityEditorState) {
             HorizontalDivider(color = AresBorder)
             Text("Stored in: .ares/project.json", color = AresTextPrimary)
             Text(
-                "Consumed by: Robot Studio, Drivebase Builder, Auto Builder, code generation, simulators, and field-boundary validation.",
-                color = AresTextSecondary,
-                fontSize = 12.sp,
-            )
-            Text(
-                "This file describes identity and geometry. It does not contain tuning, device IDs, secrets, or proof of physical validation.",
+                "Consumed by: Robot Studio, Drivebase Builder, Superstructure Studio, Autonomous Planner, simulators, and collision bounds.",
                 color = AresTextSecondary,
                 fontSize = 12.sp,
             )
@@ -230,6 +198,13 @@ private fun ProjectIdentityForm(
     state: ProjectIdentityEditorState,
     onUpdate: (ProjectIdentityField, String) -> Unit,
 ) {
+    val isFtc = state.workspaceLeague == League.FTC
+    val lengthM = state.draft.robotLengthMeters.toDoubleOrNull() ?: 0.0
+    val widthM = state.draft.robotWidthMeters.toDoubleOrNull() ?: 0.0
+    val lengthIn = lengthM * 39.3701
+    val widthIn = widthM * 39.3701
+    val fitsSizingBox = !isFtc || (lengthM <= 0.4572 && widthM <= 0.4572 && lengthM > 0.0 && widthM > 0.0)
+
     Card(
         colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
         border = BorderStroke(1.dp, AresBorder),
@@ -252,50 +227,88 @@ private fun ProjectIdentityForm(
             ReadOnlyIdentityRow("League", state.workspaceLeague.name)
             ReadOnlyIdentityRow(
                 "Coordinate convention",
-                if (state.workspaceLeague == com.ares.analytics.shared.League.FTC) {
-                    "CENTER_ORIGIN_CCW"
-                } else {
-                    "BLUE_CORNER_ORIGIN_CCW"
-                },
+                if (isFtc) "CENTER_ORIGIN_CCW (0,0 center)" else "BLUE_CORNER_ORIGIN_CCW (0,0 blue corner)",
             )
 
             HorizontalDivider(color = AresBorder)
-            Text("Measured robot footprint", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-            Text(
-                "Measure bumper-to-bumper length and width. Do not copy wheelbase or track width; those are different drivebase dimensions.",
-                color = AresTextSecondary,
-                fontSize = 12.sp,
-            )
+
+            // Robot Outer Footprint Section
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text("Robot Bumper Footprint (Outer Dimensions)", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Measure bumper-to-bumper outer length and width for collision detection and autonomous path clearance.",
+                        color = AresTextSecondary,
+                        fontSize = 11.sp,
+                    )
+                }
+
+                if (isFtc && lengthM > 0.0 && widthM > 0.0) {
+                    Surface(
+                        color = if (fitsSizingBox) AresGreen.copy(alpha = 0.15f) else AresError.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(4.dp),
+                        border = BorderStroke(1.dp, if (fitsSizingBox) AresGreen else AresError),
+                    ) {
+                        Text(
+                            if (fitsSizingBox) "✓ 18\" Sizing Box Compliant" else "⚠ Exceeds 18\" FTC Sizing Box",
+                            color = if (fitsSizingBox) AresGreen else AresError,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
+                }
+            }
+
             GeometryRow(
-                firstLabel = "Robot length (m)",
+                firstLabel = "Robot length (meters)",
                 firstValue = state.draft.robotLengthMeters,
                 firstError = state.fieldErrors[ProjectIdentityField.ROBOT_LENGTH],
                 onFirst = { onUpdate(ProjectIdentityField.ROBOT_LENGTH, it) },
-                secondLabel = "Robot width (m)",
+                firstHelp = if (lengthIn > 0.0) "≈ ${"%.1f".format(lengthIn)} inches" else "Positive decimal meters.",
+                secondLabel = "Robot width (meters)",
                 secondValue = state.draft.robotWidthMeters,
                 secondError = state.fieldErrors[ProjectIdentityField.ROBOT_WIDTH],
                 onSecond = { onUpdate(ProjectIdentityField.ROBOT_WIDTH, it) },
+                secondHelp = if (widthIn > 0.0) "≈ ${"%.1f".format(widthIn)} inches" else "Positive decimal meters.",
                 enabled = state.protectedError == null,
             )
 
             HorizontalDivider(color = AresBorder)
-            Text("Field frame", color = AresTextPrimary, fontWeight = FontWeight.Bold)
-            Text(
-                "ARES pre-fills its current FTC or FRC field preset. Verify these dimensions against the selected season before saving; they define autonomous bounds.",
-                color = AresGold,
-                fontSize = 12.sp,
-            )
-            GeometryRow(
-                firstLabel = "Field length (m)",
-                firstValue = state.draft.fieldLengthMeters,
-                firstError = state.fieldErrors[ProjectIdentityField.FIELD_LENGTH],
-                onFirst = { onUpdate(ProjectIdentityField.FIELD_LENGTH, it) },
-                secondLabel = "Field width (m)",
-                secondValue = state.draft.fieldWidthMeters,
-                secondError = state.fieldErrors[ProjectIdentityField.FIELD_WIDTH],
-                onSecond = { onUpdate(ProjectIdentityField.FIELD_WIDTH, it) },
-                enabled = state.protectedError == null,
-            )
+
+            // Standard Field Environment Preset Card (Read-only automatic preset)
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = AresSurface,
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, AresBorder),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.Default.Info, contentDescription = null, tint = AresCyan, modifier = Modifier.size(20.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            "Field Environment: Official ${state.workspaceLeague.name} Standard",
+                            color = AresTextPrimary,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                        )
+                        Text(
+                            if (isFtc) "Standard 12ft × 12ft (3.66m × 3.66m) competition perimeter. Game elements & AprilTags are configured in the Field Editor / Autonomous Planner."
+                            else "Standard 54ft × 27ft (16.54m × 8.21m) competition perimeter. Game elements & AprilTags are configured in the Field Editor / Autonomous Planner.",
+                            color = AresTextSecondary,
+                            fontSize = 10.sp,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -306,15 +319,17 @@ private fun GeometryRow(
     firstValue: String,
     firstError: String?,
     onFirst: (String) -> Unit,
+    firstHelp: String = "Positive decimal meters.",
     secondLabel: String,
     secondValue: String,
     secondError: String?,
     onSecond: (String) -> Unit,
+    secondHelp: String = "Positive decimal meters.",
     enabled: Boolean,
 ) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        IdentityField(firstLabel, firstValue, onFirst, firstError, enabled, "Positive decimal meters.", Modifier.weight(1f))
-        IdentityField(secondLabel, secondValue, onSecond, secondError, enabled, "Positive decimal meters.", Modifier.weight(1f))
+        IdentityField(firstLabel, firstValue, onFirst, firstError, enabled, firstHelp, Modifier.weight(1f))
+        IdentityField(secondLabel, secondValue, onSecond, secondError, enabled, secondHelp, Modifier.weight(1f))
     }
 }
 
