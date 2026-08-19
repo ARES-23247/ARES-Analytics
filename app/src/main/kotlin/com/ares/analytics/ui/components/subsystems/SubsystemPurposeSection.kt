@@ -89,27 +89,45 @@ fun SubsystemPurposeSection(
                         }
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        subsystemTemplateOptions.take(4).forEach { tplOption ->
-                            val isSelected = document.template == tplOption.template
-                            Surface(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .border(
-                                        width = if (isSelected) 2.dp else 1.dp,
-                                        color = if (isSelected) AresCyan else AresBorder,
-                                        shape = RoundedCornerShape(8.dp),
-                                    )
-                                    .clickable { viewModel.selectTemplate(tplOption.template) },
-                                color = if (isSelected) AresCyan.copy(alpha = 0.08f) else AresSurfaceElevated,
-                                shape = RoundedCornerShape(8.dp),
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        subsystemTemplateOptions.chunked(3).forEach { rowOptions ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(tplOption.label, color = if (isSelected) AresCyan else AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                                    Text(tplOption.description, color = AresTextSecondary, fontSize = 10.sp, maxLines = 2)
+                                rowOptions.forEach { tplOption ->
+                                    val isSelected = document.template == tplOption.template
+                                    Surface(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .border(
+                                                width = if (isSelected) 2.dp else 1.dp,
+                                                color = if (isSelected) AresCyan else AresBorder,
+                                                shape = RoundedCornerShape(8.dp),
+                                            )
+                                            .clickable { viewModel.applyTemplate(tplOption.template) },
+                                        color = if (isSelected) AresCyan.copy(alpha = 0.08f) else AresSurfaceElevated,
+                                        shape = RoundedCornerShape(8.dp),
+                                    ) {
+                                        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                Text(tplOption.label, color = if (isSelected) AresCyan else AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                                if (isSelected) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(4.dp),
+                                                        color = AresCyan.copy(alpha = 0.2f),
+                                                    ) {
+                                                        Text("Active", color = AresCyan, fontSize = 9.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp))
+                                                    }
+                                                }
+                                            }
+                                            Text(tplOption.description, color = AresTextSecondary, fontSize = 10.sp, maxLines = 2)
+                                        }
+                                    }
+                                }
+                                // Fill remaining space in last row if not full
+                                repeat(3 - rowOptions.size) {
+                                    Spacer(Modifier.weight(1f))
                                 }
                             }
                         }
@@ -123,13 +141,28 @@ fun SubsystemPurposeSection(
                 shape = RoundedCornerShape(10.dp),
                 border = BorderStroke(1.dp, AresBorder),
             ) {
-                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("EXISTING USER-OWNED IMPLEMENTATION", color = AresGold, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    Text(
-                        "This definition documents Kotlin source your team already owns. ARES validates its classes, simulation support, and actions without overwriting your custom files.",
-                        color = AresTextSecondary,
-                        fontSize = 11.sp,
-                    )
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("EXISTING USER-OWNED IMPLEMENTATION", color = AresGold, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                "This definition documents Kotlin source your team already owns. ARES validates its classes, simulation support, and actions without overwriting your custom files.",
+                                color = AresTextSecondary,
+                                fontSize = 11.sp,
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = {
+                                viewModel.applyTemplate(com.areslib.subsystem.SubsystemTemplate.SIMPLE_ACTUATOR)
+                            },
+                        ) {
+                            Text("Reset to Blank Starter", fontSize = 11.sp)
+                        }
+                    }
                 }
             }
         }

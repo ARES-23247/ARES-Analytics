@@ -3,6 +3,7 @@ package com.ares.analytics.ui.screens
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -308,6 +309,18 @@ fun SubsystemGeneratorScreen(
                 )
             }
 
+            // Subsystem Template Picker Modal
+            if (state.showTemplatePicker) {
+                SubsystemTemplatePickerDialog(
+                    currentTemplate = doc.template,
+                    onApplyTemplate = { tpl ->
+                        viewModel.applyTemplate(tpl)
+                        viewModel.setTemplatePickerVisible(false)
+                    },
+                    onDismiss = { viewModel.setTemplatePickerVisible(false) },
+                )
+            }
+
             // Specification Summary Modal
             AresSpecSummaryModal(
                 isOpen = showSpecSummaryModal,
@@ -460,6 +473,101 @@ private fun SubsystemAiProposalDialog(
         dismissButton = {
             TextButton(onClick = onDismiss) {
                 Text("Dismiss", color = AresTextSecondary)
+            }
+        },
+    )
+}
+
+@Composable
+private fun SubsystemTemplatePickerDialog(
+    currentTemplate: com.areslib.subsystem.SubsystemTemplate,
+    onApplyTemplate: (com.areslib.subsystem.SubsystemTemplate) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Column {
+                Text("Select Subsystem Starter Template", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text(
+                    "Choose an archetype to configure default hardware, state fields, and control loops.",
+                    color = AresTextSecondary,
+                    fontSize = 12.sp,
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(420.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                com.ares.analytics.viewmodel.subsystemTemplateOptions.forEach { tplOption ->
+                    val isSelected = currentTemplate == tplOption.template
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) AresCyan else AresBorder,
+                                shape = RoundedCornerShape(8.dp),
+                            )
+                            .clickable {
+                                onApplyTemplate(tplOption.template)
+                            },
+                        color = if (isSelected) AresCyan.copy(alpha = 0.08f) else AresSurfaceElevated,
+                        shape = RoundedCornerShape(8.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    tplOption.label,
+                                    color = if (isSelected) AresCyan else AresTextPrimary,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                )
+                                Text(
+                                    tplOption.description,
+                                    color = AresTextSecondary,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            if (isSelected) {
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = AresCyan.copy(alpha = 0.15f),
+                                ) {
+                                    Text(
+                                        "ACTIVE",
+                                        color = AresCyan,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onDismiss,
+                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+            ) {
+                Text("Done")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel", color = AresTextSecondary)
             }
         },
     )

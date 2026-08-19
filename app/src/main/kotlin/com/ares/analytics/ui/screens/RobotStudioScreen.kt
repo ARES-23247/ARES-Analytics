@@ -141,8 +141,9 @@ fun RobotStudioScreen(
                 }
             },
             onAddSubsystem = {
-                selection = RobotStudioSelection.Subsystem("")
-                subsystemViewModel.setTemplatePickerVisible(true)
+                subsystemViewModel.newSubsystem(com.areslib.subsystem.SubsystemTemplate.SIMPLE_ACTUATOR)
+                val newId = subsystemViewModel.state.value.selectedDocumentId ?: ""
+                selection = RobotStudioSelection.Subsystem(newId)
             },
             onGenerateAndBuild = {
                 subsystemViewModel.generate()
