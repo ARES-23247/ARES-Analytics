@@ -29,7 +29,7 @@ plugins {
 
 
 dependencies {
-    val aresVersion = providers.gradleProperty("aresVersion").orElse("9.3.0").get()
+    val aresVersion = providers.gradleProperty("aresVersion").orElse("9.3.2").get()
 
     // Compose Desktop
     implementation(compose.desktop.currentOs)

@@ -4,7 +4,7 @@ plugins {
 }
 
 dependencies {
-    val aresVersion = providers.gradleProperty("aresVersion").orElse("9.3.0").get()
+    val aresVersion = providers.gradleProperty("aresVersion").orElse("9.3.2").get()
     api(platform("org.aresfirst.ares:ares-bom:$aresVersion"))
     api("org.aresfirst.ares:core")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
