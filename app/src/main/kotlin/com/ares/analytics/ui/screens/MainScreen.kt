@@ -24,6 +24,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import com.ares.analytics.di.ServiceRegistry
 import com.ares.analytics.service.AutoImportService
+import com.ares.analytics.service.BuildExecutionPhase
 import com.ares.analytics.service.MatchInfo
 import com.ares.analytics.service.UpdateCheckerService
 import com.ares.analytics.shared.*
@@ -54,7 +55,6 @@ import com.ares.analytics.viewmodel.*
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
 import com.ares.analytics.viewmodel.hardware.HardwareSetupViewModel
 import com.ares.analytics.viewmodel.project.ProjectIdentityViewModel
-import com.ares.analytics.viewmodel.robotstudio.RobotStudioAction
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioRuntimeEvidence
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioViewModel
 import com.ares.analytics.viewmodel.runanalysis.GuidedRunAnalysisViewModel
@@ -485,6 +485,17 @@ fun MainScreen(services: ServiceRegistry) {
             )
         )
     }
+    LaunchedEffect(buildExecutionState.requestId, buildExecutionState.phase) {
+        if (
+            buildExecutionState.requestId > 0L && buildExecutionState.phase in setOf(
+                BuildExecutionPhase.SUCCEEDED,
+                BuildExecutionPhase.FAILED,
+                BuildExecutionPhase.CANCELED,
+            )
+        ) {
+            robotStudioViewModel.refresh()
+        }
+    }
     val academyRuntime = AcademyRuntimeSnapshot(
         isAvailable = true,
         isLocalSimulatorSelected = targetSelection == TargetSelection.LOCAL_SIM,
@@ -553,13 +564,17 @@ fun MainScreen(services: ServiceRegistry) {
                 if (keyEvent.type == KeyEventType.KeyDown && isCtrl) {
                     when (keyEvent.key) {
                         Key.B -> {
-                            services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
-                            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                            if (robotStudioState.canRunBuild && !isBuildRunning) {
+                                services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
+                                mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                            }
                             true
                         }
                         Key.D -> {
-                            services.processManagerService.runSimulation(currentConfig.projectPath, currentConfig.league, currentConfig.simulatorCommand)
-                            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                            if (robotStudioState.canRunSimulation && !isSimRunning) {
+                                services.processManagerService.runSimulation(currentConfig.projectPath, currentConfig.league, currentConfig.simulatorCommand)
+                                mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                            }
                             true
                         }
                         Key.K -> {
@@ -804,6 +819,10 @@ fun MainScreen(services: ServiceRegistry) {
                             isLocalSimOnline = isLocalSimOnline,
                             isBuildRunning = isBuildRunning,
                             isSimRunning = isSimRunning,
+                            buildEnabled = robotStudioState.canRunBuild,
+                            buildDisabledReason = robotStudioState.buildDisabledReason,
+                            simulationEnabled = robotStudioState.canRunSimulation,
+                            simulationDisabledReason = robotStudioState.simulationDisabledReason,
                             onTargetChanged = { targetSelection = it },
                             onTargetIpChanged = { ip ->
                                 if (targetSelection == TargetSelection.LIVE_ROBOT) {
@@ -811,12 +830,16 @@ fun MainScreen(services: ServiceRegistry) {
                                 }
                             },
                             onRunBuild = {
-                                services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
-                                mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                if (robotStudioState.canRunBuild) {
+                                    services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
+                                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                }
                             },
                             onRunSim = {
-                                services.processManagerService.runSimulation(currentConfig.projectPath, currentConfig.league, currentConfig.simulatorCommand)
-                                mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                if (robotStudioState.canRunSimulation) {
+                                    services.processManagerService.runSimulation(currentConfig.projectPath, currentConfig.league, currentConfig.simulatorCommand)
+                                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                }
                             },
                             onStopAll = {
                                 services.processManagerService.killActiveBuild()
@@ -1042,57 +1065,6 @@ fun MainScreen(services: ServiceRegistry) {
                                 hardwareSetupViewModel = hardwareSetupViewModel,
                                 projectIdentityViewModel = projectIdentityViewModel,
                                 config = currentConfig,
-                                onAction = { action ->
-                                    when (action) {
-                                        RobotStudioAction.OPEN_PROJECT_IDENTITY ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PROJECT_IDENTITY))
-                                        RobotStudioAction.OPEN_DRIVEBASE -> {
-                                            hardwareStudioInitialTab = HardwareStudioTab.DRIVETRAIN
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.HARDWARE_STUDIO))
-                                        }
-                                        RobotStudioAction.OPEN_SUBSYSTEMS -> {
-                                            hardwareStudioInitialTab = HardwareStudioTab.MECHANISMS
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.HARDWARE_STUDIO))
-                                        }
-                                        RobotStudioAction.OPEN_SUPERSTRUCTURES ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUPERSTRUCTURE_STUDIO))
-                                        RobotStudioAction.OPEN_HARDWARE_SETUP -> {
-                                            hardwareStudioInitialTab = HardwareStudioTab.PORT_MAP
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.HARDWARE_STUDIO))
-                                        }
-                                        RobotStudioAction.OPEN_CONTROLS ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS))
-                                        RobotStudioAction.OPEN_AUTONOMOUS ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PATH_PLANNER))
-                                        RobotStudioAction.OPEN_TUNING ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.TUNING))
-                                        RobotStudioAction.OPEN_IMPORTS ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.IMPORT_CENTER))
-                                        RobotStudioAction.OPEN_GUIDED_ANALYSIS ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.GUIDED_RUN_ANALYSIS))
-                                        RobotStudioAction.RUN_BUILD -> {
-                                            services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
-                                            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
-                                        }
-                                        RobotStudioAction.RUN_SIMULATOR -> {
-                                            targetSelection = TargetSelection.LOCAL_SIM
-                                            services.processManagerService.runSimulation(
-                                                currentConfig.projectPath,
-                                                currentConfig.league,
-                                                currentConfig.simulatorCommand,
-                                            )
-                                            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
-                                        }
-                                        RobotStudioAction.DEPLOY_ROBOT -> {
-                                            deployAwaitingConfirmation = true
-                                            deployDialogOpen = true
-                                        }
-                                    }
-                                },
-                                onOpenAcademy = {
-                                    requestedLessonId = "robot-studio-tour"
-                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
-                                },
                             )
                             NavigationTarget.CONTROLS -> com.ares.analytics.ui.components.controls.ControlsEditorPanel(
                                 state = controlsEditorState,

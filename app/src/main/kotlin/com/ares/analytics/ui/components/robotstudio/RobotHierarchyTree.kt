@@ -1,7 +1,6 @@
 package com.ares.analytics.ui.components.robotstudio
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -23,7 +21,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Badge
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Construction
@@ -34,8 +31,6 @@ import androidx.compose.material.icons.filled.PrecisionManufacturing
 import androidx.compose.material.icons.filled.Route
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SportsEsports
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,14 +51,11 @@ import com.ares.analytics.ui.theme.AresBackground
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
 import com.ares.analytics.ui.theme.AresGreen
-import com.ares.analytics.ui.theme.AresOnAccent
 import com.ares.analytics.ui.theme.AresRed
 import com.ares.analytics.ui.theme.AresSurface
-import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresTextTertiary
-import com.ares.analytics.viewmodel.robotstudio.RobotStudioStage
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioStageId
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioStageStatus
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioState
@@ -82,7 +74,7 @@ data class SubsystemTreeItem(
     val documentId: String,
     val displayName: String,
     val isDraft: Boolean = false,
-    val hasIssues: Boolean = false,
+    val status: RobotStudioStageStatus = RobotStudioStageStatus.READY,
 )
 
 @Composable
@@ -92,7 +84,6 @@ fun RobotHierarchyTree(
     selected: RobotStudioSelection,
     onSelect: (RobotStudioSelection) -> Unit,
     onAddSubsystem: () -> Unit,
-    onGenerateAndBuild: () -> Unit,
     isCollapsed: Boolean,
     onToggleCollapse: () -> Unit,
     modifier: Modifier = Modifier,
@@ -117,7 +108,6 @@ fun RobotHierarchyTree(
                 selected = selected,
                 onSelect = onSelect,
                 onAddSubsystem = onAddSubsystem,
-                onGenerateAndBuild = onGenerateAndBuild,
                 onToggleCollapse = onToggleCollapse,
             )
         }
@@ -131,7 +121,6 @@ private fun ExpandedTreePanel(
     selected: RobotStudioSelection,
     onSelect: (RobotStudioSelection) -> Unit,
     onAddSubsystem: () -> Unit,
-    onGenerateAndBuild: () -> Unit,
     onToggleCollapse: () -> Unit,
 ) {
     Column(
@@ -165,16 +154,14 @@ private fun ExpandedTreePanel(
                         fontWeight = FontWeight.Bold,
                         letterSpacing = 0.8.sp,
                     )
-                    val readyCount = state.stages.count { it.status == RobotStudioStageStatus.READY }
-                    val totalStages = state.stages.size.coerceAtLeast(1)
-                    val isAllReady = state.stages.flatMap { it.issues }.isEmpty() && readyCount >= totalStages - 1
+                    val progress = state.progressPresentation()
                     Surface(
                         shape = RoundedCornerShape(4.dp),
-                        color = if (isAllReady) AresGreen.copy(alpha = 0.12f) else AresAmber.copy(alpha = 0.12f),
+                        color = progress.tone.color().copy(alpha = 0.12f),
                     ) {
                         Text(
-                            if (isAllReady) "Ready" else "$readyCount/$totalStages",
-                            color = if (isAllReady) AresGreen else AresAmber,
+                            progress.label,
+                            color = progress.tone.color(),
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
@@ -183,7 +170,7 @@ private fun ExpandedTreePanel(
                 }
                 IconButton(
                     onClick = onToggleCollapse,
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(40.dp),
                 ) {
                     Icon(
                         Icons.Default.ChevronLeft,
@@ -202,7 +189,8 @@ private fun ExpandedTreePanel(
                 icon = Icons.Default.Badge,
                 label = "Project Identity",
                 subtitle = state.projectName.takeIf { it.isNotBlank() } ?: "FTC/FRC Setup",
-                status = identityStage?.status ?: RobotStudioStageStatus.READY,
+                status = identityStage?.status,
+                state = state,
                 isSelected = selected is RobotStudioSelection.Identity,
                 onClick = { onSelect(RobotStudioSelection.Identity) },
             )
@@ -213,7 +201,8 @@ private fun ExpandedTreePanel(
                 icon = Icons.Default.Settings,
                 label = "Drivetrain",
                 subtitle = "Kinematics & Odom",
-                status = hardwareStage?.status ?: RobotStudioStageStatus.READY,
+                status = hardwareStage?.status,
+                state = state,
                 isSelected = selected is RobotStudioSelection.Drivetrain,
                 onClick = { onSelect(RobotStudioSelection.Drivetrain) },
             )
@@ -277,7 +266,8 @@ private fun ExpandedTreePanel(
                         icon = Icons.Default.Construction,
                         label = sub.displayName,
                         subtitle = if (sub.isDraft) "Draft edits" else "Subsystem DSL",
-                        status = if (sub.hasIssues) RobotStudioStageStatus.INVALID else if (sub.isDraft) RobotStudioStageStatus.NEEDS_ACTION else RobotStudioStageStatus.READY,
+                        status = sub.status,
+                        state = state,
                         isSelected = isSubSelected,
                         indent = 12.dp,
                         onClick = { onSelect(RobotStudioSelection.Subsystem(sub.documentId, sub.displayName)) },
@@ -293,7 +283,8 @@ private fun ExpandedTreePanel(
                 icon = Icons.Default.Layers,
                 label = "Superstructure",
                 subtitle = "Presets & Interlocks",
-                status = coordStage?.status ?: RobotStudioStageStatus.OPTIONAL,
+                status = coordStage?.status,
+                state = state,
                 isSelected = selected is RobotStudioSelection.Superstructure,
                 onClick = { onSelect(RobotStudioSelection.Superstructure) },
             )
@@ -304,7 +295,8 @@ private fun ExpandedTreePanel(
                 icon = Icons.Default.Route,
                 label = "Routines & Auto",
                 subtitle = "Sequences & Match Auto",
-                status = autoStage?.status ?: RobotStudioStageStatus.READY,
+                status = autoStage?.status,
+                state = state,
                 isSelected = selected is RobotStudioSelection.Autonomous,
                 onClick = { onSelect(RobotStudioSelection.Autonomous) },
             )
@@ -315,7 +307,8 @@ private fun ExpandedTreePanel(
                 icon = Icons.Default.SportsEsports,
                 label = "TeleOp Controls",
                 subtitle = "Gamepad Bindings",
-                status = controlsStage?.status ?: RobotStudioStageStatus.READY,
+                status = controlsStage?.status,
+                state = state,
                 isSelected = selected is RobotStudioSelection.Controls,
                 onClick = { onSelect(RobotStudioSelection.Controls) },
             )
@@ -325,32 +318,32 @@ private fun ExpandedTreePanel(
                 icon = Icons.Default.ElectricalServices,
                 label = "Port Map & Review",
                 subtitle = "Hardware Review",
-                status = if (state.stages.none { it.status == RobotStudioStageStatus.INVALID || it.status == RobotStudioStageStatus.BLOCKED }) RobotStudioStageStatus.READY else RobotStudioStageStatus.NEEDS_ACTION,
+                status = hardwareStage?.status,
+                state = state,
                 isSelected = selected is RobotStudioSelection.PortMap,
                 onClick = { onSelect(RobotStudioSelection.PortMap) },
             )
         }
 
-        // Bottom Action Button
+        // Read-only guidance. Project verification is the single action in the global toolbar.
         Column(
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             HorizontalDivider(color = AresBorder)
-            Button(
-                onClick = onGenerateAndBuild,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-                shape = RoundedCornerShape(8.dp),
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(15.dp))
-                    Text("Generate & Build", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                }
-            }
+            val nextStage = state.nextStage
+            Text(
+                when {
+                    state.loading -> "Checking canonical project documents…"
+                    state.error != null -> "Readiness unavailable — refresh after fixing the project inspection error."
+                    nextStage != null -> "Next: ${nextStage.title}"
+                    else -> "Authoring is current. Use Verify & build in the top toolbar."
+                },
+                color = if (state.error != null) AresRed else AresTextSecondary,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+            )
         }
     }
 }
@@ -379,36 +372,43 @@ private fun CollapsedTreeRail(
 
         CollapsedIconButton(
             icon = Icons.Default.Badge,
+            contentDescription = "Project Identity",
             isSelected = selected is RobotStudioSelection.Identity,
             onClick = { onSelect(RobotStudioSelection.Identity) },
         )
         CollapsedIconButton(
             icon = Icons.Default.Settings,
+            contentDescription = "Drivetrain",
             isSelected = selected is RobotStudioSelection.Drivetrain,
             onClick = { onSelect(RobotStudioSelection.Drivetrain) },
         )
         CollapsedIconButton(
             icon = Icons.Default.Construction,
+            contentDescription = "Mechanisms and subsystems",
             isSelected = selected is RobotStudioSelection.Subsystem,
             onClick = { onSelect(RobotStudioSelection.Subsystem("")) },
         )
         CollapsedIconButton(
             icon = Icons.Default.Layers,
+            contentDescription = "Superstructure",
             isSelected = selected is RobotStudioSelection.Superstructure,
             onClick = { onSelect(RobotStudioSelection.Superstructure) },
         )
         CollapsedIconButton(
             icon = Icons.Default.Route,
+            contentDescription = "Routines and autonomous",
             isSelected = selected is RobotStudioSelection.Autonomous,
             onClick = { onSelect(RobotStudioSelection.Autonomous) },
         )
         CollapsedIconButton(
             icon = Icons.Default.SportsEsports,
+            contentDescription = "TeleOp controls",
             isSelected = selected is RobotStudioSelection.Controls,
             onClick = { onSelect(RobotStudioSelection.Controls) },
         )
         CollapsedIconButton(
             icon = Icons.Default.ElectricalServices,
+            contentDescription = "Port map and hardware review",
             isSelected = selected is RobotStudioSelection.PortMap,
             onClick = { onSelect(RobotStudioSelection.PortMap) },
         )
@@ -418,12 +418,13 @@ private fun CollapsedTreeRail(
 @Composable
 private fun CollapsedIconButton(
     icon: ImageVector,
+    contentDescription: String,
     isSelected: Boolean,
     onClick: () -> Unit,
 ) {
     Surface(
         modifier = Modifier
-            .size(38.dp)
+            .size(48.dp)
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick),
         color = if (isSelected) AresCyan.copy(alpha = 0.15f) else Color.Transparent,
@@ -433,7 +434,7 @@ private fun CollapsedIconButton(
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 icon,
-                contentDescription = null,
+                contentDescription = contentDescription,
                 tint = if (isSelected) AresCyan else AresTextSecondary,
                 modifier = Modifier.size(18.dp),
             )
@@ -446,7 +447,8 @@ private fun TreeNodeRow(
     icon: ImageVector,
     label: String,
     subtitle: String,
-    status: RobotStudioStageStatus,
+    status: RobotStudioStageStatus?,
+    state: RobotStudioState,
     isSelected: Boolean,
     indent: androidx.compose.ui.unit.Dp = 0.dp,
     onClick: () -> Unit,
@@ -489,24 +491,34 @@ private fun TreeNodeRow(
                     maxLines = 1,
                 )
             }
-            StatusDot(status)
+            StatusBadge(state.nodePresentation(status))
         }
     }
 }
 
 @Composable
-private fun StatusDot(status: RobotStudioStageStatus) {
-    val color = when (status) {
-        RobotStudioStageStatus.READY -> AresGreen
-        RobotStudioStageStatus.NEEDS_ACTION -> AresAmber
-        RobotStudioStageStatus.BLOCKED, RobotStudioStageStatus.INVALID -> AresRed
-        RobotStudioStageStatus.OPTIONAL -> AresTextTertiary
-        RobotStudioStageStatus.CODE_REQUIRED -> AresAmber
-        RobotStudioStageStatus.RUNNING -> AresCyan
+private fun StatusBadge(status: RobotStudioStatusPresentation) {
+    val color = status.tone.color()
+    Surface(
+        color = color.copy(alpha = 0.12f),
+        shape = RoundedCornerShape(4.dp),
+    ) {
+        Text(
+            text = status.label,
+            color = color,
+            fontSize = 8.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+        )
     }
-    Box(
-        modifier = Modifier
-            .size(7.dp)
-            .background(color, CircleShape),
-    )
+}
+
+@Composable
+internal fun RobotStudioPresentationTone.color(): Color = when (this) {
+    RobotStudioPresentationTone.SUCCESS -> AresGreen
+    RobotStudioPresentationTone.INFO -> AresCyan
+    RobotStudioPresentationTone.WARNING -> AresAmber
+    RobotStudioPresentationTone.ERROR -> AresRed
+    RobotStudioPresentationTone.MUTED -> AresTextTertiary
 }

@@ -25,6 +25,7 @@ import com.ares.analytics.ui.components.core.AresInspectorDrawer
 import com.ares.analytics.ui.components.core.AresSpecRow
 import com.ares.analytics.ui.components.core.AresSpecSection
 import com.ares.analytics.ui.components.core.AresSpecSummaryModal
+import com.ares.analytics.ui.components.core.ResponsiveBuilderHeader
 import com.ares.analytics.ui.components.drivebase.*
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.drivebase.*
@@ -44,19 +45,9 @@ fun DrivebaseBuilderScreen(
             modifier = Modifier.fillMaxSize().padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // Compact Single-Row Sub-Bar
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = AresSurface,
-                border = BorderStroke(1.dp, AresBorder),
-                shape = RoundedCornerShape(8.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Left: Kind & Display Name
+            val headerControlHeight = if (AresThemeSettings.touchOptimizedMode) 48.dp else 36.dp
+            ResponsiveBuilderHeader(
+                identity = {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -81,95 +72,88 @@ fun DrivebaseBuilderScreen(
                             fontWeight = FontWeight.Bold,
                         )
                     }
-
-                    // Stepper Horizontal Tabs (5 clean steps)
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        DrivebaseBuilderStep.entries.forEach { step ->
-                            val selected = step == state.step
-                            val label = when (step) {
-                                DrivebaseBuilderStep.DRIVE_TYPE -> "1. Drive Type"
-                                DrivebaseBuilderStep.HARDWARE -> "2. Hardware"
-                                DrivebaseBuilderStep.GEOMETRY -> "3. Geometry"
-                                DrivebaseBuilderStep.LOCALIZATION -> "4. Localization"
-                                DrivebaseBuilderStep.REVIEW -> "5. Safety & Review"
-                            }
-                            FilterChip(
+                },
+                steps = {
+                    DrivebaseBuilderStep.entries.forEach { step ->
+                        val selected = step == state.step
+                        val label = when (step) {
+                            DrivebaseBuilderStep.DRIVE_TYPE -> "1. Drive Type"
+                            DrivebaseBuilderStep.HARDWARE -> "2. Hardware"
+                            DrivebaseBuilderStep.GEOMETRY -> "3. Geometry"
+                            DrivebaseBuilderStep.LOCALIZATION -> "4. Localization"
+                            DrivebaseBuilderStep.REVIEW -> "5. Safety & Review"
+                        }
+                        FilterChip(
+                            selected = selected,
+                            modifier = Modifier.height(headerControlHeight),
+                            onClick = { viewModel.onIntent(DrivebaseBuilderIntent.SelectStep(step)) },
+                            label = {
+                                Text(
+                                    label,
+                                    fontSize = 11.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = AresCyan,
+                                selectedLabelColor = AresOnAccent,
+                                containerColor = AresSurfaceElevated,
+                                labelColor = AresTextPrimary,
+                            ),
+                            border = FilterChipDefaults.filterChipBorder(
+                                borderColor = if (selected) AresCyan else AresBorder,
+                                selectedBorderColor = AresCyan,
+                                enabled = true,
                                 selected = selected,
-                                onClick = { viewModel.onIntent(DrivebaseBuilderIntent.SelectStep(step)) },
-                                label = {
-                                    Text(
-                                        label,
-                                        fontSize = 11.sp,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = AresCyan,
-                                    selectedLabelColor = AresOnAccent,
-                                    containerColor = AresSurfaceElevated,
-                                    labelColor = AresTextPrimary,
-                                ),
-                                border = FilterChipDefaults.filterChipBorder(
-                                    borderColor = if (selected) AresCyan else AresBorder,
-                                    selectedBorderColor = AresCyan,
-                                    enabled = true,
-                                    selected = selected,
-                                ),
-                            )
-                        }
+                            ),
+                        )
                     }
-
-                    // Right Actions
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Switch(
-                                checked = state.advanced,
-                                onCheckedChange = { viewModel.onIntent(DrivebaseBuilderIntent.SetAdvanced(it)) },
-                                modifier = Modifier.height(24.dp),
-                            )
-                            Text(" Adv", color = AresTextPrimary, fontSize = 10.sp)
-                        }
-                        OutlinedButton(
-                            onClick = { showAiAssistantDrawer = true },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = AresCyan),
-                            border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.6f)),
-                            modifier = Modifier.height(30.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        ) {
-                            Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(12.dp), tint = AresCyan)
-                            Spacer(Modifier.width(4.dp))
-                            Text("AI", fontSize = 11.sp)
-                        }
-                        OutlinedButton(
-                            onClick = { showSpecSummaryModal = true },
-                            modifier = Modifier.height(30.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                        ) {
-                            Icon(Icons.Default.TableChart, null, modifier = Modifier.size(12.dp))
-                            Spacer(Modifier.width(4.dp))
-                            Text("Spec", fontSize = 11.sp)
-                        }
-                        IconButton(
-                            onClick = { viewModel.onIntent(DrivebaseBuilderIntent.Reload) },
-                            modifier = Modifier.size(30.dp),
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Reload", modifier = Modifier.size(14.dp), tint = AresTextSecondary)
-                        }
-                        Button(
-                            onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) },
-                            enabled = state.dirty,
-                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-                            modifier = Modifier.height(30.dp),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        ) {
-                            Text("Save Draft", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
+                },
+                actions = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Switch(
+                            checked = state.advanced,
+                            onCheckedChange = { viewModel.onIntent(DrivebaseBuilderIntent.SetAdvanced(it)) },
+                        )
+                        Text("Advanced", color = AresTextPrimary, fontSize = 10.sp)
                     }
-                }
-            }
+                    OutlinedButton(
+                        onClick = { showAiAssistantDrawer = true },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AresCyan),
+                        border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.6f)),
+                        modifier = Modifier.height(headerControlHeight),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    ) {
+                        Icon(Icons.Default.AutoAwesome, "Open AI drivetrain assistant", modifier = Modifier.size(16.dp), tint = AresCyan)
+                        Spacer(Modifier.width(4.dp))
+                        Text("AI", fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { showSpecSummaryModal = true },
+                        modifier = Modifier.height(headerControlHeight),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    ) {
+                        Icon(Icons.Default.TableChart, "Open drivetrain specification", modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Spec", fontSize = 11.sp)
+                    }
+                    IconButton(
+                        onClick = { viewModel.onIntent(DrivebaseBuilderIntent.Reload) },
+                        modifier = Modifier.size(headerControlHeight),
+                    ) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Reload drivetrain", modifier = Modifier.size(18.dp), tint = AresTextSecondary)
+                    }
+                    Button(
+                        onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave) },
+                        enabled = state.dirty,
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                        modifier = Modifier.height(headerControlHeight),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    ) {
+                        Text("Review & save", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+                },
+            )
 
             state.error?.let { StatusBanner(it, AresError) }
             if (state.status.isNotBlank()) StatusBanner(state.status, AresGreen)

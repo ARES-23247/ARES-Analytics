@@ -37,19 +37,9 @@ fun SuperstructureStudioScreen(
             modifier = Modifier.fillMaxSize().padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // Sleek Top Header Bar
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = AresSurface,
-                border = BorderStroke(1.dp, AresBorder),
-                shape = RoundedCornerShape(8.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Left: Coordinator Badge & Selector
+            val headerControlHeight = if (AresThemeSettings.touchOptimizedMode) 48.dp else 36.dp
+            ResponsiveBuilderHeader(
+                identity = {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -74,87 +64,81 @@ fun SuperstructureStudioScreen(
                             fontWeight = FontWeight.Bold,
                         )
                     }
-
-                    // Stepper Horizontal Tabs (3 clean stages)
+                },
+                steps = {
                     if (state.draft != null) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            SuperstructureStudioStep.entries.forEach { step ->
-                                val selected = step == state.step
-                                val label = when (step) {
-                                    SuperstructureStudioStep.POSTURES -> "1. Postures & Setpoints"
-                                    SuperstructureStudioStep.TRANSITIONS -> "2. Transitions & Interlocks"
-                                    SuperstructureStudioStep.REVIEW -> "3. Verification & Save"
-                                }
-                                FilterChip(
+                        SuperstructureStudioStep.entries.forEach { step ->
+                            val selected = step == state.step
+                            val label = when (step) {
+                                SuperstructureStudioStep.POSTURES -> "1. Postures & Setpoints"
+                                SuperstructureStudioStep.TRANSITIONS -> "2. Transitions & Interlocks"
+                                SuperstructureStudioStep.REVIEW -> "3. Verification & Save"
+                            }
+                            FilterChip(
+                                selected = selected,
+                                modifier = Modifier.height(headerControlHeight),
+                                onClick = { viewModel.selectStep(step) },
+                                label = {
+                                    Text(
+                                        label,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = AresCyan,
+                                    selectedLabelColor = AresOnAccent,
+                                    containerColor = AresSurfaceElevated,
+                                    labelColor = AresTextPrimary,
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    borderColor = if (selected) AresCyan else AresBorder,
+                                    selectedBorderColor = AresCyan,
+                                    enabled = true,
                                     selected = selected,
-                                    onClick = { viewModel.selectStep(step) },
-                                    label = {
-                                        Text(
-                                            label,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                        )
-                                    },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = AresCyan,
-                                        selectedLabelColor = AresOnAccent,
-                                        containerColor = AresSurfaceElevated,
-                                        labelColor = AresTextPrimary,
-                                    ),
-                                    border = FilterChipDefaults.filterChipBorder(
-                                        borderColor = if (selected) AresCyan else AresBorder,
-                                        selectedBorderColor = AresCyan,
-                                        enabled = true,
-                                        selected = selected,
-                                    ),
-                                )
-                            }
+                                ),
+                            )
                         }
                     }
-
-                    // Right Actions
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                },
+                actions = {
+                    OutlinedButton(
+                        onClick = { createOpen = true },
+                        modifier = Modifier.height(headerControlHeight),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                    ) {
+                        Icon(Icons.Default.Add, "Create coordinator", modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("New", fontSize = 11.sp)
+                    }
+                    if (state.draft != null) {
                         OutlinedButton(
-                            onClick = { createOpen = true },
-                            modifier = Modifier.height(30.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            onClick = { showSpecSummaryModal = true },
+                            modifier = Modifier.height(headerControlHeight),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         ) {
-                            Icon(Icons.Default.Add, null, modifier = Modifier.size(12.dp))
+                            Icon(Icons.Default.TableChart, "Open coordinator specification", modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("New", fontSize = 11.sp)
+                            Text("Spec", fontSize = 11.sp)
                         }
-                        if (state.draft != null) {
-                            OutlinedButton(
-                                onClick = { showSpecSummaryModal = true },
-                                modifier = Modifier.height(30.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            ) {
-                                Icon(Icons.Default.TableChart, null, modifier = Modifier.size(12.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Spec", fontSize = 11.sp)
-                            }
-                            IconButton(
-                                onClick = { viewModel.reload() },
-                                modifier = Modifier.size(30.dp),
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Reload", modifier = Modifier.size(14.dp), tint = AresTextSecondary)
-                            }
-                            Button(
-                                onClick = viewModel::reviewSave,
-                                enabled = state.canSave,
-                                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-                                modifier = Modifier.height(30.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            ) {
-                                Text("Save Draft", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
+                        IconButton(
+                            onClick = { viewModel.reload() },
+                            modifier = Modifier.size(headerControlHeight),
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Reload coordinator", modifier = Modifier.size(18.dp), tint = AresTextSecondary)
+                        }
+                        Button(
+                            onClick = viewModel::reviewSave,
+                            enabled = state.canSave,
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                            modifier = Modifier.height(headerControlHeight),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        ) {
+                            Text("Review & save", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-                }
-            }
+                },
+            )
 
             state.error?.let { StatusBanner(it, AresError) }
             if (state.status.isNotBlank()) StatusBanner(state.status, AresGreen)

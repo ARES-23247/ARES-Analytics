@@ -1,15 +1,11 @@
 package com.ares.analytics.ui.components.robotstudio
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -17,41 +13,27 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.TableChart
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.ares.analytics.ui.theme.AresAmber
-import com.ares.analytics.ui.theme.AresBackground
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
-import com.ares.analytics.ui.theme.AresGreen
-import com.ares.analytics.ui.theme.AresOnAccent
-import com.ares.analytics.ui.theme.AresRed
 import com.ares.analytics.ui.theme.AresSurface
 import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
@@ -83,7 +65,7 @@ fun RobotContextInspector(
             ) {
                 IconButton(
                     onClick = onToggleCollapse,
-                    modifier = Modifier.size(36.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(Icons.Default.ChevronLeft, contentDescription = "Expand inspector", tint = AresCyan)
                 }
@@ -126,7 +108,7 @@ private fun ExpandedInspectorPanel(
             )
             IconButton(
                 onClick = onToggleCollapse,
-                modifier = Modifier.size(24.dp),
+                modifier = Modifier.size(40.dp),
             ) {
                 Icon(
                     Icons.Default.ChevronRight,
@@ -165,7 +147,7 @@ private fun ExpandedInspectorPanel(
                     is RobotStudioSelection.Subsystem -> ".ares/subsystems/${selection.documentId}.aressubsystem"
                     is RobotStudioSelection.Superstructure -> ".ares/superstructures/*.aressuperstructure"
                     is RobotStudioSelection.Autonomous -> ".ares/routines/*.aresroutine"
-                    is RobotStudioSelection.Controls -> ".ares/controls.json"
+                    is RobotStudioSelection.Controls -> ".ares/controls/*.arescontrols"
                     is RobotStudioSelection.PortMap -> ".ares/hardware-review.json"
                 }
 
@@ -185,21 +167,21 @@ private fun ExpandedInspectorPanel(
                 modifier = Modifier.padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                val validation = state.validationPresentation(selection)
+                val validationColor = validation.status.tone.color()
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text("LIVE VALIDATION", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    val issues = state.stages.flatMap { it.issues }
-                    val allPass = issues.isEmpty()
                     Surface(
                         shape = RoundedCornerShape(4.dp),
-                        color = if (allPass) AresGreen.copy(alpha = 0.12f) else AresAmber.copy(alpha = 0.12f),
+                        color = validationColor.copy(alpha = 0.12f),
                     ) {
                         Text(
-                            if (allPass) "PASS" else "${issues.size} ISSUES",
-                            color = if (allPass) AresGreen else AresAmber,
+                            validation.status.label,
+                            color = validationColor,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
@@ -207,22 +189,44 @@ private fun ExpandedInspectorPanel(
                     }
                 }
 
-                val issues = state.stages.flatMap { it.issues }
-                if (issues.isEmpty()) {
+                Text(
+                    validation.explanation,
+                    color = AresTextPrimary,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp,
+                )
+
+                if (validation.issues.isEmpty()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = AresGreen, modifier = Modifier.size(14.dp))
-                        Text("No address or safety conflicts", color = AresTextPrimary, fontSize = 11.sp)
+                        Icon(
+                            if (validation.status.tone == RobotStudioPresentationTone.SUCCESS) Icons.Default.CheckCircle else Icons.Default.Info,
+                            contentDescription = null,
+                            tint = validationColor,
+                            modifier = Modifier.size(14.dp),
+                        )
+                        Text(
+                            when (validation.status.tone) {
+                                RobotStudioPresentationTone.SUCCESS -> "This section passed canonical project validation."
+                                RobotStudioPresentationTone.INFO -> "Validation is still in progress."
+                                RobotStudioPresentationTone.WARNING -> "Follow the guidance above before verification."
+                                RobotStudioPresentationTone.ERROR -> "Validation could not produce detailed issues."
+                                RobotStudioPresentationTone.MUTED -> "No validation result is available yet."
+                            },
+                            color = AresTextSecondary,
+                            fontSize = 11.sp,
+                            lineHeight = 15.sp,
+                        )
                     }
                 } else {
-                    for (issue in issues.take(3)) {
+                    for (issue in validation.issues.take(4)) {
                         Row(
                             verticalAlignment = Alignment.Top,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            Icon(Icons.Default.Warning, contentDescription = null, tint = AresAmber, modifier = Modifier.size(14.dp).padding(top = 1.dp))
+                            Icon(Icons.Default.Warning, contentDescription = null, tint = validationColor, modifier = Modifier.size(14.dp).padding(top = 1.dp))
                             Text(issue, color = AresTextPrimary, fontSize = 11.sp, lineHeight = 15.sp)
                         }
                     }

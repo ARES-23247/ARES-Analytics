@@ -88,6 +88,48 @@ data class RobotStudioState(
             it.status == RobotStudioStageStatus.BLOCKED ||
             it.status == RobotStudioStageStatus.NEEDS_ACTION
     } ?: stages.firstOrNull { it.status == RobotStudioStageStatus.CODE_REQUIRED }
+
+    val buildStage: RobotStudioStage?
+        get() = stages.firstOrNull { it.id == RobotStudioStageId.GENERATE_VERIFY }
+
+    val simulationStage: RobotStudioStage?
+        get() = stages.firstOrNull { it.id == RobotStudioStageId.SIMULATE }
+
+    val hasCompleteReadiness: Boolean
+        get() = stages.mapTo(linkedSetOf()) { it.id } == RobotStudioStageId.entries.toSet()
+
+    val canRunBuild: Boolean
+        get() = !loading && error == null && hasCompleteReadiness && buildStage?.status in setOf(
+            RobotStudioStageStatus.NEEDS_ACTION,
+            RobotStudioStageStatus.INVALID,
+            RobotStudioStageStatus.READY,
+        )
+
+    val buildDisabledReason: String
+        get() = when {
+            loading -> "Project readiness is still being checked."
+            error != null -> "Project readiness is unavailable: $error"
+            !hasCompleteReadiness -> "Project readiness is incomplete. Refresh Robot Studio before verification."
+            buildStage == null -> "No verification stage is available. Refresh Robot Studio."
+            buildStage?.status == RobotStudioStageStatus.RUNNING -> "Verification is already running."
+            else -> buildStage?.explanation ?: "Resolve the required authoring stages before verification."
+        }
+
+    val canRunSimulation: Boolean
+        get() = !loading && error == null && hasCompleteReadiness && simulationStage?.status in setOf(
+            RobotStudioStageStatus.NEEDS_ACTION,
+            RobotStudioStageStatus.READY,
+        )
+
+    val simulationDisabledReason: String
+        get() = when {
+            loading -> "Project readiness is still being checked."
+            error != null -> "Project readiness is unavailable: $error"
+            !hasCompleteReadiness -> "Project readiness is incomplete. Refresh Robot Studio before simulation."
+            simulationStage == null -> "No simulation stage is available. Refresh Robot Studio."
+            simulationStage?.status == RobotStudioStageStatus.RUNNING -> "The simulator is already running."
+            else -> simulationStage?.explanation ?: "Verify the project before starting simulation."
+        }
 }
 
 /** Converts validated project facts into the one novice-facing Studio sequence. */

@@ -54,19 +54,9 @@ fun SubsystemGeneratorScreen(
             modifier = Modifier.fillMaxSize().padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            // Sleek Top Header Bar
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = AresSurface,
-                border = BorderStroke(1.dp, AresBorder),
-                shape = RoundedCornerShape(8.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // Left: Subsystem Identity & Selector
+            val headerControlHeight = if (AresThemeSettings.touchOptimizedMode) 48.dp else 36.dp
+            ResponsiveBuilderHeader(
+                identity = {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -91,102 +81,89 @@ fun SubsystemGeneratorScreen(
                             fontWeight = FontWeight.Bold,
                         )
                     }
-
-                    // Stepper Horizontal Tabs (4 Consolidated Stages)
+                },
+                steps = {
                     if (state.draft != null) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            val activeStage = state.activeStage
-                            val stages = listOf(
-                                SubsystemBuilderStage.PURPOSE to "1. Purpose & Template",
-                                SubsystemBuilderStage.HARDWARE to "2. Hardware & IO",
-                                SubsystemBuilderStage.STATE_AND_BEHAVIOR to "3. Stateflow & Control",
-                                SubsystemBuilderStage.REVIEW to "4. Tuning & Review",
-                            )
-
-                            stages.forEach { (stage, label) ->
-                                val selected = when (stage) {
-                                    SubsystemBuilderStage.PURPOSE -> activeStage == SubsystemBuilderStage.PURPOSE
-                                    SubsystemBuilderStage.HARDWARE -> activeStage == SubsystemBuilderStage.HARDWARE
-                                    SubsystemBuilderStage.STATE_AND_BEHAVIOR -> activeStage in setOf(SubsystemBuilderStage.STATE_AND_BEHAVIOR, SubsystemBuilderStage.SAFETY)
-                                    SubsystemBuilderStage.REVIEW -> activeStage in setOf(SubsystemBuilderStage.TUNING, SubsystemBuilderStage.CAPABILITIES, SubsystemBuilderStage.SIMULATION_AND_TESTING, SubsystemBuilderStage.REVIEW)
-                                    else -> false
-                                }
-
-                                FilterChip(
+                        val activeStage = state.activeStage
+                        val stages = listOf(
+                            SubsystemBuilderStage.PURPOSE to "1. Purpose & Template",
+                            SubsystemBuilderStage.HARDWARE to "2. Hardware & IO",
+                            SubsystemBuilderStage.STATE_AND_BEHAVIOR to "3. Stateflow & Control",
+                            SubsystemBuilderStage.REVIEW to "4. Tuning & Review",
+                        )
+                        stages.forEach { (stage, label) ->
+                            val selected = when (stage) {
+                                SubsystemBuilderStage.PURPOSE -> activeStage == SubsystemBuilderStage.PURPOSE
+                                SubsystemBuilderStage.HARDWARE -> activeStage == SubsystemBuilderStage.HARDWARE
+                                SubsystemBuilderStage.STATE_AND_BEHAVIOR -> activeStage in setOf(SubsystemBuilderStage.STATE_AND_BEHAVIOR, SubsystemBuilderStage.SAFETY)
+                                SubsystemBuilderStage.REVIEW -> activeStage in setOf(SubsystemBuilderStage.TUNING, SubsystemBuilderStage.CAPABILITIES, SubsystemBuilderStage.SIMULATION_AND_TESTING, SubsystemBuilderStage.REVIEW)
+                                else -> false
+                            }
+                            FilterChip(
+                                selected = selected,
+                                modifier = Modifier.height(headerControlHeight),
+                                onClick = { viewModel.selectStage(stage) },
+                                label = {
+                                    Text(
+                                        label,
+                                        fontSize = 11.sp,
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                    )
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = AresCyan,
+                                    selectedLabelColor = AresOnAccent,
+                                    containerColor = AresSurfaceElevated,
+                                    labelColor = AresTextPrimary,
+                                ),
+                                border = FilterChipDefaults.filterChipBorder(
+                                    borderColor = if (selected) AresCyan else AresBorder,
+                                    selectedBorderColor = AresCyan,
+                                    enabled = true,
                                     selected = selected,
-                                    onClick = { viewModel.selectStage(stage) },
-                                    label = {
-                                        Text(
-                                            label,
-                                            fontSize = 11.sp,
-                                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                                        )
-                                    },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = AresCyan,
-                                        selectedLabelColor = AresOnAccent,
-                                        containerColor = AresSurfaceElevated,
-                                        labelColor = AresTextPrimary,
-                                    ),
-                                    border = FilterChipDefaults.filterChipBorder(
-                                        borderColor = if (selected) AresCyan else AresBorder,
-                                        selectedBorderColor = AresCyan,
-                                        enabled = true,
-                                        selected = selected,
-                                    ),
-                                )
-                            }
+                                ),
+                            )
                         }
                     }
-
-                    // Right Action Buttons
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                },
+                actions = {
+                    OutlinedButton(
+                        onClick = { showAiAssistantDrawer = true },
+                        modifier = Modifier.height(headerControlHeight),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                     ) {
+                        Icon(Icons.Default.AutoAwesome, "Open AI subsystem assistant", modifier = Modifier.size(16.dp), tint = AresCyan)
+                        Spacer(Modifier.width(4.dp))
+                        Text("AI Assistant", fontSize = 11.sp)
+                    }
+                    if (state.draft != null) {
                         OutlinedButton(
-                            onClick = { showAiAssistantDrawer = true },
-                            modifier = Modifier.height(30.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                            onClick = { showSpecSummaryModal = true },
+                            modifier = Modifier.height(headerControlHeight),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                         ) {
-                            Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(12.dp), tint = AresCyan)
+                            Icon(Icons.Default.TableChart, "Open subsystem specification", modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("AI Assistant", fontSize = 11.sp)
+                            Text("Spec", fontSize = 11.sp)
                         }
-
-                        if (state.draft != null) {
-                            OutlinedButton(
-                                onClick = { showSpecSummaryModal = true },
-                                modifier = Modifier.height(30.dp),
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-                            ) {
-                                Icon(Icons.Default.TableChart, null, modifier = Modifier.size(12.dp))
-                                Spacer(Modifier.width(4.dp))
-                                Text("Spec", fontSize = 11.sp)
-                            }
-
-                            IconButton(
-                                onClick = { viewModel.reload() },
-                                modifier = Modifier.size(30.dp),
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = "Reload", modifier = Modifier.size(14.dp), tint = AresTextSecondary)
-                            }
-
-                            Button(
-                                onClick = { viewModel.save() },
-                                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-                                modifier = Modifier.height(30.dp),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                            ) {
-                                Text("Save Subsystem", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                            }
+                        IconButton(
+                            onClick = { viewModel.reload() },
+                            modifier = Modifier.size(headerControlHeight),
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Reload subsystem", modifier = Modifier.size(18.dp), tint = AresTextSecondary)
+                        }
+                        Button(
+                            onClick = { viewModel.save() },
+                            enabled = state.canSave,
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                            modifier = Modifier.height(headerControlHeight),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                        ) {
+                            Text("Save subsystem", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
-                }
-            }
+                },
+            )
 
             state.status?.let { StatusBanner(it, AresGreen) }
             state.loadError?.let { StatusBanner(it, AresError) }

@@ -4,27 +4,212 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.ImageComposeScene
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.GamepadState
+import com.ares.analytics.shared.League
 import com.ares.analytics.ui.components.controls.ControllerCanvas
 import com.ares.analytics.ui.components.core.AresInspectorDrawer
 import com.ares.analytics.ui.components.core.AresSpecRow
 import com.ares.analytics.ui.components.core.AresSpecSection
 import com.ares.analytics.ui.components.core.AresSpecSummaryModal
+import com.ares.analytics.ui.components.robotstudio.RobotStudioSelection
+import com.ares.analytics.ui.components.robotstudio.SubsystemTreeItem
+import com.ares.analytics.ui.components.routine.RoutineBuilderPane
+import com.ares.analytics.ui.components.routine.RoutineBuilderResponsiveBody
+import com.ares.analytics.ui.components.routine.routineBuilderLayoutPresentation
+import com.ares.analytics.ui.screens.RobotStudioWorkspace
+import com.ares.analytics.ui.screens.RoutineBuilderHeader
 import com.ares.analytics.ui.theme.AresBackground
+import com.ares.analytics.ui.theme.AresBorder
+import com.ares.analytics.ui.theme.AresCyan
+import com.ares.analytics.ui.theme.AresSurfaceElevated
+import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTheme
+import com.ares.analytics.viewmodel.robotstudio.RobotStudioAction
+import com.ares.analytics.viewmodel.robotstudio.RobotStudioStage
+import com.ares.analytics.viewmodel.robotstudio.RobotStudioStageId
+import com.ares.analytics.viewmodel.robotstudio.RobotStudioStageStatus
+import com.ares.analytics.viewmodel.robotstudio.RobotStudioState
 import com.areslib.controls.*
 import org.jetbrains.skia.EncodedImageFormat
 import java.io.File
 import kotlin.test.Test
+import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class BuilderVisualScreenshotTest {
 
-    private val outputDir = File("C:/Users/david/.gemini/antigravity/brain/4081e3eb-e3a3-4e9c-9ea3-a9bbd492a7b1")
+    private val outputDir = File("build/diagnostics/builder-visual-tests").apply { mkdirs() }
+
+    @Test
+    fun renderRobotStudioAtFullHdWithAllThreePanes() {
+        renderRobotStudioWindow(width = 1920, height = 1080, name = "robot_studio_1920x1080.png")
+    }
+
+    @Test
+    fun renderRobotStudioAtDefaultWindowWithInspectorCollapsed() {
+        renderRobotStudioWindow(width = 1440, height = 900, name = "robot_studio_1440x900.png")
+    }
+
+    @Test
+    fun renderRobotStudioAtCompactHdWithBothSidePanesCollapsed() {
+        renderRobotStudioWindow(width = 1280, height = 720, name = "robot_studio_1280x720.png")
+    }
+
+    private fun renderRobotStudioWindow(width: Int, height: Int, name: String) {
+        val scene = ImageComposeScene(width, height)
+        val state = RobotStudioState(
+            loading = false,
+            projectName = "FTC-23247-GoBilda-2026",
+            projectPath = "C:/fixture/robot",
+            stages = listOf(
+                studioStage(RobotStudioStageId.PROJECT_IDENTITY, "Project & robot identity", RobotStudioStageStatus.READY),
+                studioStage(
+                    RobotStudioStageId.HARDWARE,
+                    "Robot hardware & mechanisms",
+                    RobotStudioStageStatus.NEEDS_ACTION,
+                    issues = listOf("Review the physical port map before hardware testing."),
+                ),
+                studioStage(RobotStudioStageId.COORDINATION, "Superstructure coordination", RobotStudioStageStatus.OPTIONAL),
+                studioStage(RobotStudioStageId.AUTONOMOUS, "Autonomous catalog & routines", RobotStudioStageStatus.READY),
+                studioStage(RobotStudioStageId.CONTROLS, "Driver & operator controls", RobotStudioStageStatus.READY),
+                studioStage(RobotStudioStageId.GENERATE_VERIFY, "Verify & build", RobotStudioStageStatus.BLOCKED),
+            ),
+        )
+        scene.setContent {
+            AresTheme {
+                Row(Modifier.fillMaxSize().background(AresBackground)) {
+                    Surface(
+                        modifier = Modifier.width(88.dp).fillMaxHeight(),
+                        color = AresSurfaceElevated,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
+                    ) {
+                        Text(
+                            "ARES",
+                            color = AresCyan,
+                            fontSize = 11.sp,
+                            modifier = Modifier.padding(top = 20.dp),
+                        )
+                    }
+                    RobotStudioWorkspace(
+                        state = state,
+                        subsystems = listOf(
+                            SubsystemTreeItem("intake", "Intake", status = RobotStudioStageStatus.READY),
+                            SubsystemTreeItem("flywheel", "Flywheel", isDraft = true, status = RobotStudioStageStatus.NEEDS_ACTION),
+                        ),
+                        selection = RobotStudioSelection.Drivetrain,
+                        onSelect = {},
+                        onAddSubsystem = {},
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxSize().background(AresBackground).padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text("DRIVETRAIN · MECANUM", color = AresCyan, fontSize = 12.sp)
+                            Text("Visual Robot Builder", color = AresTextPrimary, fontSize = 24.sp)
+                            Row(
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                repeat(3) { index ->
+                                    Surface(
+                                        modifier = Modifier.weight(1f).fillMaxHeight(),
+                                        color = AresSurfaceElevated,
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
+                                        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
+                                    ) {
+                                        Text(
+                                            listOf("Kinematics", "Hardware & IO", "Localization")[index],
+                                            color = AresTextPrimary,
+                                            fontSize = 14.sp,
+                                            modifier = Modifier.padding(16.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        val file = saveScene(scene, name)
+        assertTrue(file.length() > 10_000, "Robot Studio screenshot should contain rendered UI content")
+    }
+
+    @Test
+    fun renderRoutineBuilderAtMediumCenterWidth() {
+        renderRoutineBuilderWorkspace(width = 1_100, height = 720, name = "routine_builder_medium_1100x720.png")
+    }
+
+    @Test
+    fun renderRoutineBuilderAtCompactCenterWidth() {
+        renderRoutineBuilderWorkspace(width = 900, height = 720, name = "routine_builder_compact_900x720.png")
+    }
+
+    private fun renderRoutineBuilderWorkspace(width: Int, height: Int, name: String) {
+        val scene = ImageComposeScene(width, height)
+        val presentation = routineBuilderLayoutPresentation(width.toFloat(), largeText = false)
+        scene.setContent {
+            AresTheme {
+                Column(
+                    modifier = Modifier.fillMaxSize().background(AresBackground).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    RoutineBuilderHeader(
+                        projectPath = "C:/fixture/robot",
+                        league = League.FTC,
+                        stackActions = presentation.stackHeaderActions,
+                        onStartTour = {},
+                        onChangeProject = {},
+                    )
+                    RoutineBuilderResponsiveBody(
+                        presentation = presentation,
+                        selectedPane = RoutineBuilderPane.ROUTINE,
+                        onPaneSelected = {},
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        editor = { paneModifier ->
+                            Surface(
+                                modifier = paneModifier,
+                                color = AresSurfaceElevated,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                            ) {
+                                Text(
+                                    "Routine steps and controls",
+                                    color = AresTextPrimary,
+                                    modifier = Modifier.padding(18.dp),
+                                )
+                            }
+                        },
+                        fieldPreview = { paneModifier ->
+                            Surface(
+                                modifier = paneModifier,
+                                color = AresSurfaceElevated,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                            ) {
+                                Text(
+                                    "Field preview",
+                                    color = AresTextPrimary,
+                                    modifier = Modifier.padding(18.dp),
+                                )
+                            }
+                        },
+                    )
+                }
+            }
+        }
+
+        val file = saveScene(scene, name)
+        assertTrue(file.length() > 10_000, "Routine Builder screenshot should contain rendered UI content")
+    }
 
     @Test
     fun renderControllerCanvasWithActionPills() {
@@ -360,4 +545,38 @@ class BuilderVisualScreenshotTest {
             println("Saved screenshot to: ${file.absolutePath}")
         }
     }
+
+    private fun saveScene(scene: ImageComposeScene, name: String): File {
+        val data = assertNotNull(scene.render().encodeToData(EncodedImageFormat.PNG))
+        val file = File(outputDir, name)
+        file.writeBytes(data.bytes)
+        println("Saved screenshot to: ${file.absolutePath}")
+        return file
+    }
+
+    private fun studioStage(
+        id: RobotStudioStageId,
+        title: String,
+        status: RobotStudioStageStatus,
+        issues: List<String> = emptyList(),
+    ) = RobotStudioStage(
+        id = id,
+        title = title,
+        outcome = "Fixture outcome",
+        status = status,
+        explanation = when (status) {
+            RobotStudioStageStatus.READY -> "Canonical documents for this section passed validation."
+            RobotStudioStageStatus.NEEDS_ACTION -> "Complete the named review before verification."
+            RobotStudioStageStatus.BLOCKED -> "Resolve the preceding authoring stage first."
+            RobotStudioStageStatus.INVALID -> "Fix the invalid canonical document."
+            RobotStudioStageStatus.OPTIONAL -> "Optional for this robot."
+            RobotStudioStageStatus.CODE_REQUIRED -> "This configuration needs handwritten runtime code."
+            RobotStudioStageStatus.RUNNING -> "Verification is running."
+        },
+        issues = issues,
+        storage = ".ares/fixture.json",
+        consumer = "Generated robot runtime",
+        action = RobotStudioAction.OPEN_DRIVEBASE,
+        actionLabel = "Open",
+    )
 }

@@ -1,43 +1,23 @@
 package com.ares.analytics.ui.screens
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.RocketLaunch
-import androidx.compose.material.icons.filled.School
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -49,33 +29,32 @@ import com.ares.analytics.ui.components.robotstudio.RobotContextInspector
 import com.ares.analytics.ui.components.robotstudio.RobotHierarchyTree
 import com.ares.analytics.ui.components.robotstudio.RobotStudioSelection
 import com.ares.analytics.ui.components.robotstudio.SubsystemTreeItem
-import com.ares.analytics.ui.theme.AresAmber
+import com.ares.analytics.ui.components.robotstudio.robotStudioPanePresentation
+import com.ares.analytics.ui.components.robotstudio.robotStudioPersistedRevision
 import com.ares.analytics.ui.theme.AresBackground
-import com.ares.analytics.ui.theme.AresBorder
-import com.ares.analytics.ui.theme.AresCyan
-import com.ares.analytics.ui.theme.AresGreen
-import com.ares.analytics.ui.theme.AresOnAccent
-import com.ares.analytics.ui.theme.AresSurface
-import com.ares.analytics.ui.theme.AresSurfaceElevated
+import com.ares.analytics.ui.theme.AresRed
+import com.ares.analytics.ui.theme.AresThemeSettings
 import com.ares.analytics.ui.theme.AresTextPrimary
-import com.ares.analytics.ui.theme.AresTextSecondary
+import com.ares.analytics.viewmodel.PathPlannerViewModel
 import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
+import com.ares.analytics.viewmodel.SubsystemProblemSeverity
 import com.ares.analytics.viewmodel.controls.ControlsEditorState
 import com.ares.analytics.viewmodel.controls.ControlsEditorViewModel
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
 import com.ares.analytics.viewmodel.hardware.HardwareSetupViewModel
+import com.ares.analytics.viewmodel.pathing.RobotDimensions
 import com.ares.analytics.viewmodel.project.ProjectIdentityViewModel
-import com.ares.analytics.viewmodel.robotstudio.RobotStudioAction
-import com.ares.analytics.viewmodel.robotstudio.RobotStudioStageId
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioStageStatus
+import com.ares.analytics.viewmodel.robotstudio.RobotStudioState
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioViewModel
 import com.ares.analytics.viewmodel.superstructure.SuperstructureStudioViewModel
+import com.areslib.subsystem.SubsystemTemplate
+import com.areslib.subsystem.validateSubsystemDocument
+import kotlinx.coroutines.delay
 
 /**
- * Unified 3-Pane Robot Studio Workspace:
- * Left Pane: Robot Hierarchy Tree (Identity, Drivetrain, Subsystems, Superstructure, Controls, Port Map)
- * Center Pane: Interactive Visual Canvas (2D Kinematics, Stateflow Node Graph, Posture Matrix, Gamepad Canvas)
- * Right Pane: Context-sensitive live property inspector and validation checks.
+ * Unified Robot Studio workspace. The hierarchy and context inspector wrap the real canonical
+ * editors; they never maintain a second copy of robot configuration state.
  */
 @Composable
 fun RobotStudioScreen(
@@ -83,7 +62,7 @@ fun RobotStudioScreen(
     drivebaseViewModel: DrivebaseBuilderViewModel,
     subsystemViewModel: SubsystemGeneratorViewModel,
     superstructureViewModel: SuperstructureStudioViewModel,
-    pathPlannerViewModel: com.ares.analytics.viewmodel.PathPlannerViewModel,
+    pathPlannerViewModel: PathPlannerViewModel,
     controlsViewModel: ControlsEditorViewModel,
     controlsState: ControlsEditorState,
     gamepad1State: GamepadState,
@@ -92,149 +71,217 @@ fun RobotStudioScreen(
     projectIdentityViewModel: ProjectIdentityViewModel,
     config: WorkspaceConfig,
     initialSelection: RobotStudioSelection = RobotStudioSelection.Identity,
-    onAction: (RobotStudioAction) -> Unit,
-    onOpenAcademy: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val drivebaseState by drivebaseViewModel.state.collectAsState()
     val subsystemState by subsystemViewModel.state.collectAsState()
+    val superstructureState by superstructureViewModel.state.collectAsState()
+    val pathPlannerState by pathPlannerViewModel.state.collectAsState()
+    val hardwareState by hardwareSetupViewModel.state.collectAsState()
+    val identityState by projectIdentityViewModel.state.collectAsState()
 
-    var selection by remember { mutableStateOf(initialSelection) }
-    var isLeftTreeCollapsed by remember { mutableStateOf(false) }
-    var isRightInspectorCollapsed by remember { mutableStateOf(false) }
+    var selection by remember(initialSelection) { mutableStateOf(initialSelection) }
 
-    // Derive list of subsystem items for tree
-    val subsystemTreeItems = remember(subsystemState.documents, subsystemState.draft, subsystemState.dirty) {
-        val all = subsystemState.documents.map { sub ->
+    val subsystemTreeItems = remember(
+        subsystemState.documents,
+        subsystemState.draft,
+        subsystemState.dirty,
+        subsystemState.problems,
+    ) {
+        val draftId = subsystemState.draft?.document?.documentId
+        val items = subsystemState.documents.map { subsystem ->
+            val isDraft = subsystem.documentId == draftId && subsystemState.dirty
+            val hasErrors = if (subsystem.documentId == draftId) {
+                subsystemState.problems.any { it.severity == SubsystemProblemSeverity.ERROR }
+            } else {
+                validateSubsystemDocument(subsystem).isNotEmpty()
+            }
             SubsystemTreeItem(
-                documentId = sub.documentId,
-                displayName = sub.displayName,
-                isDraft = sub.documentId == subsystemState.draft?.document?.documentId && subsystemState.dirty,
-                hasIssues = false,
+                documentId = subsystem.documentId,
+                displayName = subsystem.displayName,
+                isDraft = isDraft,
+                status = when {
+                    hasErrors -> RobotStudioStageStatus.INVALID
+                    isDraft -> RobotStudioStageStatus.NEEDS_ACTION
+                    else -> RobotStudioStageStatus.READY
+                },
             )
         }
-        if (all.isEmpty() && subsystemState.draft != null) {
-            listOf(
+        val unsavedDraft = subsystemState.draft?.document
+        if (unsavedDraft != null && items.none { it.documentId == unsavedDraft.documentId }) {
+            items +
                 SubsystemTreeItem(
-                    documentId = subsystemState.draft!!.document.documentId,
-                    displayName = subsystemState.draft!!.document.displayName,
+                    documentId = unsavedDraft.documentId,
+                    displayName = unsavedDraft.displayName,
                     isDraft = subsystemState.dirty,
-                    hasIssues = false,
+                    status = when {
+                        subsystemState.problems.any { it.severity == SubsystemProblemSeverity.ERROR } ->
+                            RobotStudioStageStatus.INVALID
+                        subsystemState.dirty -> RobotStudioStageStatus.NEEDS_ACTION
+                        else -> RobotStudioStageStatus.READY
+                    },
                 )
-            )
-        } else all
+        } else {
+            items
+        }
     }
 
-    Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(AresBackground),
+    // Refresh readiness only after a canonical save settles. Draft edits deliberately do not
+    // claim project-wide readiness and do not cause repeated filesystem inspections.
+    val persistedRevision = remember(
+        identityState,
+        drivebaseState,
+        subsystemState,
+        superstructureState,
+        controlsState,
+        pathPlannerState,
+        hardwareState,
     ) {
-        // Left Pane: Robot Hierarchy Tree
-        RobotHierarchyTree(
-            state = state,
-            subsystems = subsystemTreeItems,
-            selected = selection,
-            onSelect = { newSel ->
-                selection = newSel
-                if (newSel is RobotStudioSelection.Subsystem && newSel.documentId.isNotBlank()) {
-                    subsystemViewModel.selectDocument(newSel.documentId)
-                }
-            },
-            onAddSubsystem = {
-                subsystemViewModel.newSubsystem(com.areslib.subsystem.SubsystemTemplate.SIMPLE_ACTUATOR)
-                val newId = subsystemViewModel.state.value.selectedDocumentId ?: ""
-                selection = RobotStudioSelection.Subsystem(newId)
-            },
-            onGenerateAndBuild = {
-                subsystemViewModel.generate()
-                onAction(RobotStudioAction.RUN_BUILD)
-            },
-            isCollapsed = isLeftTreeCollapsed,
-            onToggleCollapse = { isLeftTreeCollapsed = !isLeftTreeCollapsed },
+        robotStudioPersistedRevision(
+            loading = identityState.loading || drivebaseState.loading || superstructureState.loading ||
+                pathPlannerState.projectLoading || hardwareState.loading,
+            hasUnsavedChanges = drivebaseState.dirty ||
+                subsystemState.dirty || superstructureState.dirty || controlsState.dirty ||
+                pathPlannerState.routineDirty,
+            fingerprints = listOf(
+                identityState.currentContentHash,
+                drivebaseState.saved?.hashCode(),
+                subsystemState.documents.hashCode(),
+                superstructureState.savedContentHash,
+                controlsState.profiles.hashCode(),
+                controlsState.schemes.hashCode(),
+                controlsState.generatedContentHash,
+                pathPlannerState.availableRoutines.hashCode(),
+                hardwareState.snapshot?.hashCode(),
+            ),
         )
+    }
+    var lastPersistedRevision by remember(config.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(persistedRevision) {
+        val revision = persistedRevision ?: return@LaunchedEffect
+        val previous = lastPersistedRevision
+        lastPersistedRevision = revision
+        if (previous != null && previous != revision) {
+            delay(150)
+            viewModel.refresh()
+        }
+    }
 
-        // Center Pane: Active Visual Workspace
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight(),
-        ) {
-            when (val sel = selection) {
-                is RobotStudioSelection.Identity -> {
-                    ProjectIdentityScreen(
-                        viewModel = projectIdentityViewModel,
-                        config = config,
-                        onBackToStudio = null,
-                    )
-                }
-                is RobotStudioSelection.Drivetrain -> {
-                    DrivebaseBuilderScreen(
-                        viewModel = drivebaseViewModel,
-                        onContinueToSubsystems = {
-                            selection = RobotStudioSelection.Subsystem(
-                                subsystemTreeItems.firstOrNull()?.documentId ?: ""
-                            )
-                        },
-                        onBackToStudio = null,
-                    )
-                }
-                is RobotStudioSelection.Subsystem -> {
-                    SubsystemGeneratorScreen(
-                        viewModel = subsystemViewModel,
-                        onContinueToPortMap = { selection = RobotStudioSelection.PortMap },
-                        onBackToDrivetrain = { selection = RobotStudioSelection.Drivetrain },
-                    )
-                }
-                is RobotStudioSelection.Superstructure -> {
-                    SuperstructureStudioScreen(
-                        viewModel = superstructureViewModel,
-                    )
-                }
-                is RobotStudioSelection.Autonomous -> {
-                    PathPlannerScreen(
-                        viewModel = pathPlannerViewModel,
-                        league = config.league,
-                        projectPath = config.projectPath,
-                        robotDimensions = com.ares.analytics.viewmodel.pathing.RobotDimensions(
-                            lengthMeters = config.robotLengthMeters
-                                ?: com.ares.analytics.viewmodel.pathing.RobotDimensions
-                                    .defaultFor(config.league).lengthMeters,
-                            widthMeters = config.robotWidthMeters
-                                ?: com.ares.analytics.viewmodel.pathing.RobotDimensions
-                                    .defaultFor(config.league).widthMeters
-                        ),
-                    )
-                }
-                is RobotStudioSelection.Controls -> {
-                    ControlsEditorPanel(
-                        state = controlsState,
-                        viewModel = controlsViewModel,
-                        gamepad1State = gamepad1State,
-                        gamepad2State = gamepad2State,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-                is RobotStudioSelection.PortMap -> {
-                    HardwareSetupScreen(
-                        viewModel = hardwareSetupViewModel,
-                        onOpenDrivebase = { selection = RobotStudioSelection.Drivetrain },
-                        onOpenSubsystems = {
-                            selection = RobotStudioSelection.Subsystem(
-                                subsystemTreeItems.firstOrNull()?.documentId ?: ""
-                            )
-                        },
-                        onBackToStudio = null,
+    RobotStudioWorkspace(
+        state = state,
+        subsystems = subsystemTreeItems,
+        selection = selection,
+        onSelect = { newSelection ->
+            selection = newSelection
+            if (newSelection is RobotStudioSelection.Subsystem && newSelection.documentId.isNotBlank()) {
+                subsystemViewModel.selectDocument(newSelection.documentId)
+            }
+        },
+        onAddSubsystem = {
+            subsystemViewModel.newSubsystem(SubsystemTemplate.SIMPLE_ACTUATOR)
+            selection = RobotStudioSelection.Subsystem(subsystemViewModel.state.value.selectedDocumentId.orEmpty())
+        },
+    ) { selected ->
+        when (selected) {
+            RobotStudioSelection.Identity -> ProjectIdentityScreen(
+                viewModel = projectIdentityViewModel,
+                config = config,
+                onBackToStudio = null,
+            )
+            RobotStudioSelection.Drivetrain -> DrivebaseBuilderScreen(
+                viewModel = drivebaseViewModel,
+                onContinueToSubsystems = {
+                    selection = RobotStudioSelection.Subsystem(subsystemTreeItems.firstOrNull()?.documentId.orEmpty())
+                },
+                onBackToStudio = null,
+            )
+            is RobotStudioSelection.Subsystem -> SubsystemGeneratorScreen(
+                viewModel = subsystemViewModel,
+                onContinueToPortMap = { selection = RobotStudioSelection.PortMap },
+                onBackToDrivetrain = { selection = RobotStudioSelection.Drivetrain },
+            )
+            RobotStudioSelection.Superstructure -> SuperstructureStudioScreen(superstructureViewModel)
+            RobotStudioSelection.Autonomous -> PathPlannerScreen(
+                viewModel = pathPlannerViewModel,
+                league = config.league,
+                projectPath = config.projectPath,
+                robotDimensions = RobotDimensions(
+                    lengthMeters = config.robotLengthMeters ?: RobotDimensions.defaultFor(config.league).lengthMeters,
+                    widthMeters = config.robotWidthMeters ?: RobotDimensions.defaultFor(config.league).widthMeters,
+                ),
+            )
+            RobotStudioSelection.Controls -> ControlsEditorPanel(
+                state = controlsState,
+                viewModel = controlsViewModel,
+                gamepad1State = gamepad1State,
+                gamepad2State = gamepad2State,
+                modifier = Modifier.fillMaxSize(),
+            )
+            RobotStudioSelection.PortMap -> HardwareSetupScreen(
+                viewModel = hardwareSetupViewModel,
+                onOpenDrivebase = { selection = RobotStudioSelection.Drivetrain },
+                onOpenSubsystems = {
+                    selection = RobotStudioSelection.Subsystem(subsystemTreeItems.firstOrNull()?.documentId.orEmpty())
+                },
+                onBackToStudio = null,
+            )
+        }
+    }
+}
+
+/** Shared by production and screenshot regression tests so the test covers the actual shell. */
+@Composable
+internal fun RobotStudioWorkspace(
+    state: RobotStudioState,
+    subsystems: List<SubsystemTreeItem>,
+    selection: RobotStudioSelection,
+    onSelect: (RobotStudioSelection) -> Unit,
+    onAddSubsystem: () -> Unit,
+    modifier: Modifier = Modifier,
+    centerContent: @Composable (RobotStudioSelection) -> Unit,
+) {
+    BoxWithConstraints(modifier.fillMaxSize().background(AresBackground)) {
+        val presentation = robotStudioPanePresentation(maxWidth.value, AresThemeSettings.largeTextMode)
+        var leftCollapsed by remember { mutableStateOf(presentation.collapseTree) }
+        var rightCollapsed by remember { mutableStateOf(presentation.collapseInspector) }
+
+        LaunchedEffect(presentation) {
+            leftCollapsed = presentation.collapseTree
+            rightCollapsed = presentation.collapseInspector
+        }
+
+        Column(Modifier.fillMaxSize()) {
+            state.error?.let { error ->
+                Surface(color = AresRed.copy(alpha = 0.14f), modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        "Robot Studio readiness is unavailable: $error",
+                        color = AresTextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                     )
                 }
             }
+            Row(Modifier.fillMaxSize()) {
+                RobotHierarchyTree(
+                    state = state,
+                    subsystems = subsystems,
+                    selected = selection,
+                    onSelect = onSelect,
+                    onAddSubsystem = onAddSubsystem,
+                    isCollapsed = leftCollapsed,
+                    onToggleCollapse = { leftCollapsed = !leftCollapsed },
+                )
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                    centerContent(selection)
+                }
+                RobotContextInspector(
+                    selection = selection,
+                    state = state,
+                    isCollapsed = rightCollapsed,
+                    onToggleCollapse = { rightCollapsed = !rightCollapsed },
+                )
+            }
         }
-
-        // Right Pane: Context Inspector
-        RobotContextInspector(
-            selection = selection,
-            state = state,
-            isCollapsed = isRightInspectorCollapsed,
-            onToggleCollapse = { isRightInspectorCollapsed = !isRightInspectorCollapsed },
-        )
     }
 }
