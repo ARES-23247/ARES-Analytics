@@ -1,6 +1,5 @@
 package com.ares.analytics.desktop
 
-import java.awt.Window
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.WindowAdapter
@@ -50,14 +49,13 @@ internal object DesktopPresentationPolicy {
  * a virtual clock without native windows.
  */
 internal class DesktopWindowPresentationController(
-    private val window: Window,
+    private val windowPort: DesktopWindowPort,
     private val machine: DesktopStartupMachine,
     private val isShutdownStarted: () -> Boolean,
     private val onStartupAlwaysOnTopChange: (Boolean) -> Unit,
     private val onFocusLost: () -> Unit,
     private val onUnrecoverableWindowLoss: (reason: String) -> Nothing,
     private val scheduler: DesktopScheduler = SwingDesktopScheduler,
-    private val windowPort: DesktopWindowPort = AwtDesktopWindowPort(window),
 ) {
     private val initialPresentationScheduled = AtomicBoolean(false)
     private var topmostSettlementChecks = 0
@@ -102,9 +100,7 @@ internal class DesktopWindowPresentationController(
     }
 
     fun attach() {
-        window.addWindowFocusListener(focusListener)
-        window.addWindowListener(lifecycleListener)
-        window.addComponentListener(visibilityListener)
+        windowPort.attachListeners(focusListener, lifecycleListener, visibilityListener)
         initialPresentationFallbackTask = scheduler.schedule(WINDOW_INITIAL_PRESENTATION_DELAY_MS, 0L) {
             scheduleInitialPresentation("startup fallback")
         }
@@ -113,15 +109,12 @@ internal class DesktopWindowPresentationController(
     fun detach(expectedShutdown: Boolean) {
         println(
             "[ARES-Analytics] Desktop window composition disposed: " +
-                "displayable=${window.isDisplayable}, visible=${window.isVisible}, " +
-                "showing=${window.isShowing}, shutdownStarted=$expectedShutdown"
+                "${windowPort.disposalDiagnostics()}, shutdownStarted=$expectedShutdown"
         )
-        window.removeComponentListener(visibilityListener)
-        window.removeWindowListener(lifecycleListener)
-        window.removeWindowFocusListener(focusListener)
+        windowPort.detachListeners(focusListener, lifecycleListener, visibilityListener)
         initialPresentationFallbackTask?.cancel()
         topmostReleaseTask?.cancel()
-        topmostSettlementTask?.cancel()
+        stopTopmostSettlementChecks()
         healthTask?.cancel()
         if (!expectedShutdown) {
             onUnrecoverableWindowLoss(
@@ -182,11 +175,20 @@ internal class DesktopWindowPresentationController(
         if (isShutdownStarted() || machine.isShuttingDown) return
         onStartupAlwaysOnTopChange(false)
         topmostSettlementChecks = 0
+        startTopmostSettlementChecks()
+    }
+
+    private fun startTopmostSettlementChecks() {
         topmostSettlementTask?.cancel()
         topmostSettlementTask =
             scheduler.schedule(WINDOW_TOPMOST_SETTLEMENT_CHECK_MS, WINDOW_TOPMOST_SETTLEMENT_CHECK_MS) {
                 checkTopmostSettlement()
             }
+    }
+
+    private fun stopTopmostSettlementChecks() {
+        topmostSettlementTask?.cancel()
+        topmostSettlementTask = null
     }
 
     /**
@@ -198,14 +200,22 @@ internal class DesktopWindowPresentationController(
      */
     private fun checkTopmostSettlement() {
         if (isShutdownStarted() || machine.isShuttingDown) {
-            topmostSettlementTask?.cancel()
+            stopTopmostSettlementChecks()
             return
         }
         topmostSettlementChecks++
         when {
             DesktopPresentationPolicy.isSettled(windowPort.isAlwaysOnTop()) -> {
-                topmostSettlementTask?.cancel()
-                onStartupSettled()
+                stopTopmostSettlementChecks()
+                if (windowPort.isNativeWindowUsable()) {
+                    onStartupSettled()
+                } else {
+                    System.err.println(
+                        "[ARES-Analytics] Desktop window became unusable at settlement; " +
+                            "the native recovery watchdog is active."
+                    )
+                    recoverMissingNativeWindow()
+                }
             }
             DesktopPresentationPolicy.settlementExceeded(topmostSettlementChecks) -> {
                 topmostSettlementChecks = 0
@@ -228,15 +238,8 @@ internal class DesktopWindowPresentationController(
         }
     }
 
-    /** Runs only after alwaysOnTop verifiably returned to false. */
+    /** Runs only after alwaysOnTop returned to false and the exact native window is usable. */
     private fun onStartupSettled() {
-        if (!windowPort.isNativeWindowUsable()) {
-            System.err.println(
-                "[ARES-Analytics] Desktop window became unusable at settlement; " +
-                    "the native recovery watchdog is active."
-            )
-            return
-        }
         machine.observePresented()
         machine.transitionTo(DesktopStartupState.SETTLED)
         println(
@@ -287,6 +290,7 @@ internal class DesktopWindowPresentationController(
                 "[ARES-Analytics] Native desktop window recovered: " +
                     "${windowPort.windowDiagnostics()}, hwnd=${windowPort.nativeWindowHandle()}"
             )
+            resumeSettlementVerificationIfNeeded()
         }
     }
 
@@ -302,5 +306,15 @@ internal class DesktopWindowPresentationController(
             "[ARES-Analytics] Native desktop window is usable again; " +
                 "resuming ${machine.state}."
         )
+        resumeSettlementVerificationIfNeeded()
+    }
+
+    /** A pre-SETTLED native recovery must re-enter the settlement verifier. */
+    private fun resumeSettlementVerificationIfNeeded() {
+        if (isShutdownStarted() || machine.isShuttingDown) return
+        if (machine.state == DesktopStartupState.PRESENTED && !windowPort.isAlwaysOnTop()) {
+            topmostSettlementChecks = 0
+            startTopmostSettlementChecks()
+        }
     }
 }

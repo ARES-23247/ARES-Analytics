@@ -1,6 +1,9 @@
 package com.ares.analytics.desktop
 
 import java.awt.Window
+import java.awt.event.ComponentListener
+import java.awt.event.WindowFocusListener
+import java.awt.event.WindowListener
 import java.io.File
 
 /**
@@ -12,6 +15,23 @@ import java.io.File
  * visibility and focus, and the exact-peer native check stays the acceptance criterion.
  */
 internal interface DesktopWindowPort {
+    /** Registers the AWT listeners owned by the presentation controller. */
+    fun attachListeners(
+        focusListener: WindowFocusListener,
+        lifecycleListener: WindowListener,
+        visibilityListener: ComponentListener,
+    )
+
+    /** Removes the AWT listeners previously registered by [attachListeners]. */
+    fun detachListeners(
+        focusListener: WindowFocusListener,
+        lifecycleListener: WindowListener,
+        visibilityListener: ComponentListener,
+    )
+
+    /** Current AWT visibility fragment used by the disposal diagnostic. */
+    fun disposalDiagnostics(): String
+
     /** Observation-only native usability check of the exact Compose/AWT peer. */
     fun isNativeWindowUsable(): Boolean
 
@@ -39,6 +59,29 @@ internal interface DesktopWindowPort {
 
 /** Production binding to the real desktop window. */
 internal class AwtDesktopWindowPort(private val window: Window) : DesktopWindowPort {
+    override fun attachListeners(
+        focusListener: WindowFocusListener,
+        lifecycleListener: WindowListener,
+        visibilityListener: ComponentListener,
+    ) {
+        window.addWindowFocusListener(focusListener)
+        window.addWindowListener(lifecycleListener)
+        window.addComponentListener(visibilityListener)
+    }
+
+    override fun detachListeners(
+        focusListener: WindowFocusListener,
+        lifecycleListener: WindowListener,
+        visibilityListener: ComponentListener,
+    ) {
+        window.removeComponentListener(visibilityListener)
+        window.removeWindowListener(lifecycleListener)
+        window.removeWindowFocusListener(focusListener)
+    }
+
+    override fun disposalDiagnostics(): String =
+        "displayable=${window.isDisplayable}, visible=${window.isVisible}, showing=${window.isShowing}"
+
     override fun isNativeWindowUsable(): Boolean = NativeWindowProbe.hasUsableNativeWindow(window)
 
     /** Compose owns visibility, native peer creation, and always-on-top state; native APIs stay observation-only. */

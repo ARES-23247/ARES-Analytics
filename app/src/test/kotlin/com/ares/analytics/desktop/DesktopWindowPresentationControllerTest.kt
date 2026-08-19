@@ -1,6 +1,8 @@
 package com.ares.analytics.desktop
 
-import javax.swing.JFrame
+import java.awt.event.ComponentListener
+import java.awt.event.WindowFocusListener
+import java.awt.event.WindowListener
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -70,10 +72,26 @@ private class FakeWindowPort : DesktopWindowPort {
     var closeRequests = 0
         private set
 
+    override fun attachListeners(
+        focusListener: WindowFocusListener,
+        lifecycleListener: WindowListener,
+        visibilityListener: ComponentListener,
+    ) = Unit
+
+    override fun detachListeners(
+        focusListener: WindowFocusListener,
+        lifecycleListener: WindowListener,
+        visibilityListener: ComponentListener,
+    ) = Unit
+
+    override fun disposalDiagnostics(): String =
+        "displayable=false, visible=false, showing=false"
+
     override fun isNativeWindowUsable(): Boolean = usable
 
     override fun presentWindow(): Boolean {
         presentCalls++
+        if (presentSucceeds) usable = true
         return presentSucceeds
     }
 
@@ -106,7 +124,7 @@ private class ControllerHarness {
     var shutdownStarted = false
 
     val controller = DesktopWindowPresentationController(
-        window = JFrame(),
+        windowPort = port,
         machine = machine,
         isShutdownStarted = { shutdownStarted },
         onStartupAlwaysOnTopChange = { value ->
@@ -119,7 +137,6 @@ private class ControllerHarness {
             throw UnrecoverableWindowLoss(reason)
         },
         scheduler = scheduler,
-        windowPort = port,
     )
 
     /** attach -> opened -> presented -> topmost release -> settled, with one capture. */
@@ -274,6 +291,30 @@ class DesktopWindowPresentationControllerTest {
         assertEquals(DesktopStartupState.WINDOW_LOST, harness.machine.state)
         assertEquals(0, harness.port.captureCalls, "a failed settlement must never be captured as success")
         assertEquals(4, harness.releaseInvocations, "the final exhausted round terminates before another release")
+    }
+
+    @Test
+    fun `native loss at settlement recovers and re-enters settlement verification`() {
+        val harness = ControllerHarness()
+        harness.controller.attach()
+        harness.controller.onWindowOpened()
+
+        harness.scheduler.advanceTime(WINDOW_STARTUP_TOPMOST_MS)
+        harness.port.usable = false
+        harness.port.presentSucceeds = false
+        harness.scheduler.advanceTime(WINDOW_TOPMOST_SETTLEMENT_CHECK_MS)
+
+        assertEquals(DesktopStartupState.WINDOW_LOST, harness.machine.state)
+        assertEquals(1, harness.machine.attemptsUsed)
+        assertEquals(0, harness.port.captureCalls)
+
+        harness.port.usable = true
+        harness.scheduler.advanceTime(WINDOW_HEALTH_CHECK_MS)
+
+        assertEquals(DesktopStartupState.SETTLED, harness.machine.state)
+        assertEquals(0, harness.machine.attemptsUsed)
+        assertEquals(1, harness.port.captureCalls)
+        assertEquals(1, harness.port.closeRequests)
     }
 
     @Test
