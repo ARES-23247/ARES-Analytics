@@ -33,6 +33,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SubsystemGeneratorViewModelTest {
@@ -214,7 +215,7 @@ class SubsystemGeneratorViewModelTest {
         val state = viewModel.state.value
         assertFalse(state.showTemplatePicker)
         assertEquals(SubsystemTemplate.SENSOR_ONLY_SUBSYSTEM, state.draft?.document?.template)
-        assertEquals(state.draft?.document?.hardware?.firstOrNull()?.uid, state.selectedHardwareUid)
+        assertNull(state.selectedHardwareUid)
         viewModel.close()
     }
 

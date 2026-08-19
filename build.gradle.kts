@@ -9,6 +9,20 @@ plugins {
 group = "com.ares.analytics"
 version = "1.0.0-SNAPSHOT"
 
+// Centralized ARES library version resolution
+// Priority: 1. CLI -ParesVersion  2. Sibling ../ARESLib-Kotlin/gradle.properties  3. Local gradle.properties
+val siblingAresProps = file("../ARESLib-Kotlin/gradle.properties")
+val siblingAresVersion = if (siblingAresProps.exists()) {
+    val props = java.util.Properties().apply { siblingAresProps.inputStream().use { load(it) } }
+    props.getProperty("aresVersion")
+} else null
+
+val resolvedAresVersion = providers.gradleProperty("aresVersion")
+    .orElse(providers.provider { siblingAresVersion })
+    .getOrElse("9.3.2")
+
+extra["aresVersion"] = resolvedAresVersion
+
 subprojects {
     group = rootProject.group
     version = rootProject.version

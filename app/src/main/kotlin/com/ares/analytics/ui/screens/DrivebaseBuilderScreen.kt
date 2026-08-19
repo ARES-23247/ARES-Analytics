@@ -261,6 +261,52 @@ fun DrivebaseBuilderScreen(
             sections = generateDrivebaseSpecSections(state),
             onDismiss = { showSpecSummaryModal = false }
         )
+
+        // Discard Changes Confirmation Dialog
+        state.pendingDiscardAction?.let { action ->
+            val title = when (action) {
+                DrivebaseDiscardAction.CHANGE_KIND -> "Discard Edits & Switch Drivebase Type?"
+                DrivebaseDiscardAction.RELOAD -> "Discard Edits & Reload From Disk?"
+            }
+            val targetName = state.pendingKind?.let { kind ->
+                when (kind) {
+                    DrivebaseKind.FTC_MECANUM -> "FTC Mecanum"
+                    DrivebaseKind.FRC_CTRE_SWERVE -> "FRC CTRE Swerve"
+                    DrivebaseKind.DIFFERENTIAL -> "Differential / Tank"
+                    DrivebaseKind.CUSTOM -> "Advanced / Custom"
+                }
+            } ?: "another drivebase"
+            val message = when (action) {
+                DrivebaseDiscardAction.CHANGE_KIND -> "You have unsaved modifications on your current drivebase. Switching to $targetName will discard your uncommitted changes. Do you want to continue?"
+                DrivebaseDiscardAction.RELOAD -> "Reloading will discard all uncommitted changes made during this session."
+            }
+            val confirmLabel = when (action) {
+                DrivebaseDiscardAction.CHANGE_KIND -> "Discard & Switch to $targetName"
+                DrivebaseDiscardAction.RELOAD -> "Discard & Reload"
+            }
+
+            AlertDialog(
+                onDismissRequest = { viewModel.onIntent(DrivebaseBuilderIntent.CancelDiscard) },
+                title = { Text(title, color = AresTextPrimary, fontWeight = FontWeight.Bold) },
+                text = { Text(message, color = AresTextSecondary, fontSize = 13.sp) },
+                confirmButton = {
+                    Button(
+                        onClick = { viewModel.onIntent(DrivebaseBuilderIntent.ConfirmDiscard) },
+                        colors = ButtonDefaults.buttonColors(containerColor = AresError, contentColor = AresOnAccent),
+                    ) {
+                        Text(confirmLabel, fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = { viewModel.onIntent(DrivebaseBuilderIntent.CancelDiscard) },
+                    ) {
+                        Text("Keep Editing")
+                    }
+                },
+                containerColor = AresSurfaceElevated,
+            )
+        }
     }
 }
 
