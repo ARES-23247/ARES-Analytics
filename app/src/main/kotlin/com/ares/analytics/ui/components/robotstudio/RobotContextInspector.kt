@@ -65,8 +65,6 @@ fun RobotContextInspector(
     state: RobotStudioState,
     isCollapsed: Boolean,
     onToggleCollapse: () -> Unit,
-    onOpenSpecSummary: () -> Unit = {},
-    onOpenAiAssistant: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -95,8 +93,6 @@ fun RobotContextInspector(
                 selection = selection,
                 state = state,
                 onToggleCollapse = onToggleCollapse,
-                onOpenSpecSummary = onOpenSpecSummary,
-                onOpenAiAssistant = onOpenAiAssistant,
             )
         }
     }
@@ -107,8 +103,6 @@ private fun ExpandedInspectorPanel(
     selection: RobotStudioSelection,
     state: RobotStudioState,
     onToggleCollapse: () -> Unit,
-    onOpenSpecSummary: () -> Unit,
-    onOpenAiAssistant: () -> Unit,
 ) {
     Column(
         modifier = Modifier
@@ -232,41 +226,6 @@ private fun ExpandedInspectorPanel(
                             Text(issue, color = AresTextPrimary, fontSize = 11.sp, lineHeight = 15.sp)
                         }
                     }
-                }
-            }
-        }
-
-        // Quick Tools & Actions
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("STUDIO TOOLS", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-
-            OutlinedButton(
-                onClick = onOpenAiAssistant,
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = AresCyan),
-                border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(6.dp),
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = AresCyan, modifier = Modifier.size(14.dp))
-                    Text("AI Robotics Assistant", fontSize = 11.sp)
-                }
-            }
-
-            OutlinedButton(
-                onClick = onOpenSpecSummary,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(6.dp),
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(Icons.Default.TableChart, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Text("Spec Summary Table", fontSize = 11.sp)
                 }
             }
         }

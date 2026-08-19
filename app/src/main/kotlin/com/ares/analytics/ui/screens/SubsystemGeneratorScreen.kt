@@ -1,6 +1,8 @@
 package com.ares.analytics.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -297,6 +299,15 @@ fun SubsystemGeneratorScreen(
                 SubsystemAiAssistantDrawerContent(state, viewModel)
             }
 
+            // Subsystem AI Proposal Review Dialog
+            state.aiProposal?.let { review ->
+                SubsystemAiProposalDialog(
+                    review = review,
+                    onApply = { viewModel.applyAiProposal() },
+                    onDismiss = { viewModel.dismissAiProposal() },
+                )
+            }
+
             // Specification Summary Modal
             AresSpecSummaryModal(
                 isOpen = showSpecSummaryModal,
@@ -327,14 +338,38 @@ private fun SubsystemAiAssistantDrawerContent(
     viewModel: SubsystemGeneratorViewModel,
 ) {
     var prompt by remember { mutableStateOf("") }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("Ask Gemini to generate or suggest subsystem structures, gains, or safety rules.", color = AresTextSecondary, fontSize = 11.sp)
+    Column(
+        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Surface(
+            color = AresSurface,
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "Describe your subsystem requirements in plain language.",
+                    color = AresTextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                )
+                Text(
+                    "Gemini will generate a structured proposal with hardware devices, state fields, control laws, and live tuning parameters.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+
         OutlinedTextField(
             value = prompt,
             onValueChange = { prompt = it },
             label = { Text("What should this subsystem do?") },
             modifier = Modifier.fillMaxWidth().height(100.dp),
+            placeholder = { Text("e.g. Dual-motor intake with current-based jam detection and automatic reverse") },
         )
+
         Button(
             onClick = {
                 if (prompt.isNotBlank()) {
@@ -345,9 +380,89 @@ private fun SubsystemAiAssistantDrawerContent(
             colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(if (state.aiProposalInProgress) "Generating Proposal…" else "Generate AI Proposal")
+            Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(if (state.aiProposalInProgress) "Generating proposal…" else "Generate AI Proposal")
+        }
+
+        state.aiProposalError?.let { Text(it, color = AresError, fontSize = 12.sp) }
+
+        Surface(
+            color = AresBackground.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(6.dp),
+        ) {
+            Text(
+                "Privacy: Only your prompt and current subsystem form are sent using the configured AI provider. Your logs and credentials are never transmitted.",
+                color = AresTextTertiary,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                modifier = Modifier.padding(8.dp),
+            )
         }
     }
+}
+
+@Composable
+private fun SubsystemAiProposalDialog(
+    review: com.ares.analytics.viewmodel.SubsystemAiProposalReview,
+    onApply: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Review Gemini's Subsystem Proposal") },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().height(420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(review.proposal.summary, color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
+                review.proposal.explanations.forEach { explanation ->
+                    Text("• $explanation", color = AresTextSecondary, fontSize = 12.sp)
+                }
+                if (review.problems.isNotEmpty()) {
+                    Text("Validation Review", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    review.problems.forEach { problem ->
+                        Text(
+                            "${if (problem.severity == com.ares.analytics.viewmodel.SubsystemProblemSeverity.ERROR) "Blocking" else "Warning"}: ${problem.message}",
+                            color = if (problem.severity == com.ares.analytics.viewmodel.SubsystemProblemSeverity.ERROR) AresError else AresGold,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+                if (review.diff.isNotEmpty()) {
+                    Text("Proposed Form Changes", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    Column(
+                        Modifier.fillMaxWidth().background(AresBackground, RoundedCornerShape(6.dp))
+                            .border(1.dp, AresBorder, RoundedCornerShape(6.dp)).padding(8.dp),
+                    ) {
+                        review.diff.forEach { line ->
+                            val color = when (line.kind) {
+                                com.ares.analytics.viewmodel.SubsystemDiffLineKind.ADDED -> AresGreen
+                                com.ares.analytics.viewmodel.SubsystemDiffLineKind.REMOVED -> AresRed
+                                com.ares.analytics.viewmodel.SubsystemDiffLineKind.CONTEXT -> AresTextSecondary
+                            }
+                            Text(line.text, color = color, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onApply,
+                enabled = review.canApply,
+                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+            ) {
+                Text("Apply Proposal")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Dismiss", color = AresTextSecondary)
+            }
+        },
+    )
 }
 
 private fun generateSubsystemSpecSections(document: SubsystemDocument): List<AresSpecSection> = listOf(

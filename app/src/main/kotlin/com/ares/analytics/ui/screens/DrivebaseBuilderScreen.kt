@@ -232,6 +232,28 @@ fun DrivebaseBuilderScreen(
             }
         }
 
+        // Slide-out Drivetrain AI Assistant Drawer
+        AresInspectorDrawer(
+            isOpen = showAiAssistantDrawer,
+            title = "Drivetrain AI Assistant",
+            categoryBadge = "GEMINI",
+            stableId = "drivebase-assistant",
+            icon = Icons.Default.AutoAwesome,
+            onDismiss = { showAiAssistantDrawer = false },
+            onDone = { showAiAssistantDrawer = false },
+        ) {
+            DrivebaseAiAssistantDrawerContent(state, viewModel)
+        }
+
+        // Drivetrain AI Proposal Review Dialog
+        state.aiProposal?.let { review ->
+            DrivebaseAiProposalDialog(
+                review = review,
+                onApply = { viewModel.applyAiProposal() },
+                onDismiss = { viewModel.dismissAiProposal() },
+            )
+        }
+
         AresSpecSummaryModal(
             isOpen = showSpecSummaryModal,
             title = "${state.draft.displayName} Drivetrain Specification",
@@ -240,6 +262,139 @@ fun DrivebaseBuilderScreen(
             onDismiss = { showSpecSummaryModal = false }
         )
     }
+}
+
+@Composable
+private fun DrivebaseAiAssistantDrawerContent(
+    state: DrivebaseBuilderState,
+    viewModel: DrivebaseBuilderViewModel,
+) {
+    var prompt by remember { mutableStateOf("") }
+    Column(
+        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Surface(
+            color = AresSurface,
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    "Describe your drivetrain requirements in plain language.",
+                    color = AresTextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.sp,
+                )
+                Text(
+                    "Gemini will generate a structured drivetrain proposal with motors, encoders, kinematics dimensions, and safety envelopes for ${state.league.name}.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+
+        OutlinedTextField(
+            value = prompt,
+            onValueChange = { prompt = it },
+            label = { Text("What drivetrain should Gemini configure?") },
+            modifier = Modifier.fillMaxWidth().height(100.dp),
+            placeholder = { Text("e.g. 4-wheel mecanum with GoBILDA 5202 motors and Pinpoint odometry") },
+        )
+
+        Button(
+            onClick = {
+                if (prompt.isNotBlank()) {
+                    viewModel.requestAiProposal(prompt)
+                }
+            },
+            enabled = prompt.isNotBlank() && !state.aiProposalInProgress,
+            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.width(6.dp))
+            Text(if (state.aiProposalInProgress) "Generating proposal…" else "Generate AI Proposal")
+        }
+
+        state.aiProposalError?.let { Text(it, color = AresError, fontSize = 12.sp) }
+
+        Surface(
+            color = AresBackground.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(6.dp),
+        ) {
+            Text(
+                "Privacy: Only your prompt and current drivebase form are sent using the configured AI provider. Your logs and credentials are never transmitted.",
+                color = AresTextTertiary,
+                fontSize = 10.sp,
+                lineHeight = 14.sp,
+                modifier = Modifier.padding(8.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun DrivebaseAiProposalDialog(
+    review: DrivebaseAiProposalReview,
+    onApply: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Review Gemini's Drivetrain Proposal") },
+        text = {
+            Column(
+                Modifier.fillMaxWidth().height(420.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Text(review.proposal.summary, color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
+                review.proposal.explanations.forEach { explanation ->
+                    Text("• $explanation", color = AresTextSecondary, fontSize = 12.sp)
+                }
+                if (review.issues.isNotEmpty()) {
+                    Text("Validation Review", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    review.issues.forEach { issue ->
+                        Text(
+                            "${if (issue.severity == DrivebaseIssueSeverity.ERROR) "Blocking" else "Warning"}: ${issue.message}",
+                            color = if (issue.severity == DrivebaseIssueSeverity.ERROR) AresError else AresGold,
+                            fontSize = 12.sp,
+                        )
+                    }
+                }
+                if (review.changes.isNotEmpty()) {
+                    Text("Proposed Changes (${review.changes.size})", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                    review.changes.forEach { change ->
+                        Surface(
+                            color = AresSurfaceElevated,
+                            shape = RoundedCornerShape(4.dp),
+                            border = BorderStroke(1.dp, AresBorder),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(Modifier.padding(6.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(change.path, color = AresCyan, fontSize = 10.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+                                Text("${change.before} → ${change.after}", color = AresTextSecondary, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = onApply,
+                enabled = review.canApply,
+                colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+            ) {
+                Text("Apply Proposal")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Dismiss", color = AresTextSecondary)
+            }
+        },
+    )
 }
 
 @Composable

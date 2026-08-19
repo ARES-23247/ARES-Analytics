@@ -371,12 +371,6 @@ fun RobotStudioScreen(
                 state = state,
                 isCollapsed = isRightInspectorCollapsed,
                 onToggleCollapse = { isRightInspectorCollapsed = !isRightInspectorCollapsed },
-                onOpenAiAssistant = {
-                    // Open AI Assistant in active workspace if applicable
-                },
-                onOpenSpecSummary = {
-                    // Open Spec summary
-                },
             )
         }
     }
