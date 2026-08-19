@@ -24,7 +24,6 @@ import kotlin.system.exitProcess
 private const val SHUTDOWN_TIMEOUT_MS = 15_000L
 private const val WINDOW_HEALTH_CHECK_MS = 1_000
 private const val WINDOW_RECOVERY_FAILURE_LIMIT = 3
-private const val DESKTOP_WINDOW_TITLE_PREFIX = "ARES Analytics"
 
 private fun ownedWindowsTopLevelWindow(
     window: java.awt.Window,
@@ -41,20 +40,18 @@ private fun ownedWindowsTopLevelWindow(
     user32.EnumWindows({ candidate, _ ->
         val ownerPid = com.sun.jna.ptr.IntByReference()
         user32.GetWindowThreadProcessId(candidate, ownerPid)
-        val titleLength = user32.GetWindowTextLength(candidate)
-        val title = if (titleLength > 0) {
-            CharArray(titleLength + 1).also { user32.GetWindowText(candidate, it, it.size) }
-                .concatToString()
-                .trimEnd('\u0000')
+        if (ownerPid.value != currentPid) {
+            true
         } else {
-            ""
+            // Do not query native window text here. GetWindowTextLength may synchronously
+            // message AWT's toolkit thread and deadlock the event queue. EnumWindows already
+            // guarantees a top-level HWND; current-PID ownership and visibility are sufficient,
+            // and treating an owned modal dialog as usable is intentional.
+            val matches = user32.IsWindow(candidate) &&
+                user32.IsWindowVisible(candidate)
+            if (matches) ownedWindow = candidate
+            !matches
         }
-        val matches = ownerPid.value == currentPid &&
-            user32.IsWindow(candidate) &&
-            user32.IsWindowVisible(candidate) &&
-            title.startsWith(DESKTOP_WINDOW_TITLE_PREFIX)
-        if (matches) ownedWindow = candidate
-        !matches
     }, null)
 
     ownedWindow
