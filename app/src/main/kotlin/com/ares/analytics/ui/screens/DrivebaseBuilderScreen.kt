@@ -33,7 +33,7 @@ import com.ares.analytics.viewmodel.drivebase.*
 fun DrivebaseBuilderScreen(
     viewModel: DrivebaseBuilderViewModel,
     onContinueToSubsystems: (() -> Unit)? = null,
-    onBackToStudio: () -> Unit,
+    onBackToStudio: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsState()
     var showSpecSummaryModal by remember { mutableStateOf(false) }

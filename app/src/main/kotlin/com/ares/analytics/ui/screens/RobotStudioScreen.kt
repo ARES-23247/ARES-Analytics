@@ -124,254 +124,116 @@ fun RobotStudioScreen(
         } else all
     }
 
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxSize()
             .background(AresBackground),
     ) {
-        // ── Ultra-Slim Top Bar (44dp) ──────────────────────────────────────────
-        Surface(
+        // Left Pane: Robot Hierarchy Tree
+        RobotHierarchyTree(
+            state = state,
+            subsystems = subsystemTreeItems,
+            selected = selection,
+            onSelect = { newSel ->
+                selection = newSel
+                if (newSel is RobotStudioSelection.Subsystem && newSel.documentId.isNotBlank()) {
+                    subsystemViewModel.selectDocument(newSel.documentId)
+                }
+            },
+            onAddSubsystem = {
+                selection = RobotStudioSelection.Subsystem("")
+                subsystemViewModel.setTemplatePickerVisible(true)
+            },
+            onGenerateAndBuild = {
+                subsystemViewModel.generate()
+                onAction(RobotStudioAction.RUN_BUILD)
+            },
+            isCollapsed = isLeftTreeCollapsed,
+            onToggleCollapse = { isLeftTreeCollapsed = !isLeftTreeCollapsed },
+        )
+
+        // Center Pane: Active Visual Workspace
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp),
-            color = AresSurface,
-            border = BorderStroke(1.dp, AresBorder),
+                .weight(1f)
+                .fillMaxHeight(),
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // Left: Robot Title & Readiness Badge
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        state.projectName.takeIf { it.isNotBlank() } ?: "Robot Studio",
-                        color = AresTextPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
+            when (val sel = selection) {
+                is RobotStudioSelection.Identity -> {
+                    ProjectIdentityScreen(
+                        viewModel = projectIdentityViewModel,
+                        config = config,
+                        onBackToStudio = null,
                     )
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = AresCyan.copy(alpha = 0.12f),
-                        border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.3f)),
-                    ) {
-                        Text(
-                            config.league.name,
-                            color = AresCyan,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                        )
-                    }
-
-                    // Readiness Badge
-                    val readyCount = state.stages.count { it.status == RobotStudioStageStatus.READY }
-                    val totalStages = state.stages.size.coerceAtLeast(1)
-                    val issues = state.stages.flatMap { it.issues }
-                    val isAllReady = issues.isEmpty() && readyCount >= totalStages - 1
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = if (isAllReady) AresGreen.copy(alpha = 0.12f) else AresAmber.copy(alpha = 0.12f),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Icon(
-                                if (isAllReady) Icons.Default.CheckCircle else Icons.Default.Build,
-                                contentDescription = null,
-                                tint = if (isAllReady) AresGreen else AresAmber,
-                                modifier = Modifier.size(11.dp),
-                            )
-                            Text(
-                                if (isAllReady) "All Stages Ready" else "$readyCount/$totalStages Stages Ready",
-                                color = if (isAllReady) AresGreen else AresAmber,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
                 }
-
-                // Right: Primary Actions Cluster
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    IconButton(
-                        onClick = onOpenAcademy,
-                        modifier = Modifier.size(30.dp),
-                    ) {
-                        Icon(Icons.Default.School, contentDescription = "Tour & Academy Help", tint = AresTextSecondary, modifier = Modifier.size(16.dp))
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            onAction(RobotStudioAction.RUN_BUILD)
+                is RobotStudioSelection.Drivetrain -> {
+                    DrivebaseBuilderScreen(
+                        viewModel = drivebaseViewModel,
+                        onContinueToSubsystems = {
+                            selection = RobotStudioSelection.Subsystem(
+                                subsystemTreeItems.firstOrNull()?.documentId ?: ""
+                            )
                         },
-                        shape = RoundedCornerShape(6.dp),
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Text("Build", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    OutlinedButton(
-                        onClick = {
-                            onAction(RobotStudioAction.RUN_SIMULATOR)
+                        onBackToStudio = null,
+                    )
+                }
+                is RobotStudioSelection.Subsystem -> {
+                    SubsystemGeneratorScreen(
+                        viewModel = subsystemViewModel,
+                        onContinueToPortMap = { selection = RobotStudioSelection.PortMap },
+                        onBackToDrivetrain = { selection = RobotStudioSelection.Drivetrain },
+                    )
+                }
+                is RobotStudioSelection.Superstructure -> {
+                    SuperstructureStudioScreen(
+                        viewModel = superstructureViewModel,
+                    )
+                }
+                is RobotStudioSelection.Autonomous -> {
+                    PathPlannerScreen(
+                        viewModel = pathPlannerViewModel,
+                        league = config.league,
+                        projectPath = config.projectPath,
+                        robotDimensions = com.ares.analytics.viewmodel.pathing.RobotDimensions(
+                            lengthMeters = config.robotLengthMeters
+                                ?: com.ares.analytics.viewmodel.pathing.RobotDimensions
+                                    .defaultFor(config.league).lengthMeters,
+                            widthMeters = config.robotWidthMeters
+                                ?: com.ares.analytics.viewmodel.pathing.RobotDimensions
+                                    .defaultFor(config.league).widthMeters
+                        ),
+                    )
+                }
+                is RobotStudioSelection.Controls -> {
+                    ControlsEditorPanel(
+                        state = controlsState,
+                        viewModel = controlsViewModel,
+                        gamepad1State = gamepad1State,
+                        gamepad2State = gamepad2State,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+                is RobotStudioSelection.PortMap -> {
+                    HardwareSetupScreen(
+                        viewModel = hardwareSetupViewModel,
+                        onOpenDrivebase = { selection = RobotStudioSelection.Drivetrain },
+                        onOpenSubsystems = {
+                            selection = RobotStudioSelection.Subsystem(
+                                subsystemTreeItems.firstOrNull()?.documentId ?: ""
+                            )
                         },
-                        shape = RoundedCornerShape(6.dp),
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(14.dp), tint = AresGreen)
-                            Text("Simulate", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    Button(
-                        onClick = {
-                            onAction(RobotStudioAction.DEPLOY_ROBOT)
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-                        shape = RoundedCornerShape(6.dp),
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(Icons.Default.RocketLaunch, contentDescription = null, modifier = Modifier.size(13.dp))
-                            Text("Deploy", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
+                        onBackToStudio = null,
+                    )
                 }
             }
         }
 
-        // ── 3-Pane Main Body ──────────────────────────────────────────────────
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-        ) {
-            // Left Pane: Robot Hierarchy Tree
-            RobotHierarchyTree(
-                state = state,
-                subsystems = subsystemTreeItems,
-                selected = selection,
-                onSelect = { newSel ->
-                    selection = newSel
-                    if (newSel is RobotStudioSelection.Subsystem && newSel.documentId.isNotBlank()) {
-                        subsystemViewModel.selectDocument(newSel.documentId)
-                    }
-                },
-                onAddSubsystem = {
-                    selection = RobotStudioSelection.Subsystem("")
-                    subsystemViewModel.setTemplatePickerVisible(true)
-                },
-                onGenerateAndBuild = {
-                    subsystemViewModel.generate()
-                    onAction(RobotStudioAction.RUN_BUILD)
-                },
-                isCollapsed = isLeftTreeCollapsed,
-                onToggleCollapse = { isLeftTreeCollapsed = !isLeftTreeCollapsed },
-            )
-
-            // Center Pane: Active Visual Workspace
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-            ) {
-                when (val sel = selection) {
-                    is RobotStudioSelection.Identity -> {
-                        ProjectIdentityScreen(
-                            viewModel = projectIdentityViewModel,
-                            config = config,
-                            onBackToStudio = {},
-                        )
-                    }
-                    is RobotStudioSelection.Drivetrain -> {
-                        DrivebaseBuilderScreen(
-                            viewModel = drivebaseViewModel,
-                            onContinueToSubsystems = {
-                                selection = RobotStudioSelection.Subsystem(
-                                    subsystemTreeItems.firstOrNull()?.documentId ?: ""
-                                )
-                            },
-                            onBackToStudio = {},
-                        )
-                    }
-                    is RobotStudioSelection.Subsystem -> {
-                        SubsystemGeneratorScreen(
-                            viewModel = subsystemViewModel,
-                            onContinueToPortMap = { selection = RobotStudioSelection.PortMap },
-                            onBackToDrivetrain = { selection = RobotStudioSelection.Drivetrain },
-                        )
-                    }
-                    is RobotStudioSelection.Superstructure -> {
-                        SuperstructureStudioScreen(
-                            viewModel = superstructureViewModel,
-                        )
-                    }
-                    is RobotStudioSelection.Autonomous -> {
-                        PathPlannerScreen(
-                            viewModel = pathPlannerViewModel,
-                            league = config.league,
-                            projectPath = config.projectPath,
-                            robotDimensions = com.ares.analytics.viewmodel.pathing.RobotDimensions(
-                                lengthMeters = config.robotLengthMeters
-                                    ?: com.ares.analytics.viewmodel.pathing.RobotDimensions
-                                        .defaultFor(config.league).lengthMeters,
-                                widthMeters = config.robotWidthMeters
-                                    ?: com.ares.analytics.viewmodel.pathing.RobotDimensions
-                                        .defaultFor(config.league).widthMeters
-                            ),
-                        )
-                    }
-                    is RobotStudioSelection.Controls -> {
-                        ControlsEditorPanel(
-                            state = controlsState,
-                            viewModel = controlsViewModel,
-                            gamepad1State = gamepad1State,
-                            gamepad2State = gamepad2State,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                    is RobotStudioSelection.PortMap -> {
-                        HardwareSetupScreen(
-                            viewModel = hardwareSetupViewModel,
-                            onOpenDrivebase = { selection = RobotStudioSelection.Drivetrain },
-                            onOpenSubsystems = {
-                                selection = RobotStudioSelection.Subsystem(
-                                    subsystemTreeItems.firstOrNull()?.documentId ?: ""
-                                )
-                            },
-                            onBackToStudio = {},
-                        )
-                    }
-                }
-            }
-
-            // Right Pane: Context Inspector
-            RobotContextInspector(
-                selection = selection,
-                state = state,
-                isCollapsed = isRightInspectorCollapsed,
-                onToggleCollapse = { isRightInspectorCollapsed = !isRightInspectorCollapsed },
-            )
-        }
+        // Right Pane: Context Inspector
+        RobotContextInspector(
+            selection = selection,
+            state = state,
+            isCollapsed = isRightInspectorCollapsed,
+            onToggleCollapse = { isRightInspectorCollapsed = !isRightInspectorCollapsed },
+        )
     }
 }

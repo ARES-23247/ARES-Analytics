@@ -480,7 +480,7 @@ fun SafetyAndReviewStep(
     state: DrivebaseBuilderState,
     viewModel: DrivebaseBuilderViewModel,
     onContinueToSubsystems: (() -> Unit)? = null,
-    onBackToStudio: () -> Unit,
+    onBackToStudio: (() -> Unit)? = null,
 ) {
     SectionHeading("5 · Safety rules & save review", "Review fail-closed safety contracts, validate the draft diff, and save the canonical drivebase.")
     val safety = state.draft.safety
@@ -573,8 +573,10 @@ fun SafetyAndReviewStep(
                                     Text("Next: Mechanism Subsystems →", fontWeight = FontWeight.Bold)
                                 }
                             }
-                            OutlinedButton(onClick = onBackToStudio) {
-                                Text("Return to Robot Studio")
+                            if (onBackToStudio != null) {
+                                OutlinedButton(onClick = onBackToStudio) {
+                                    Text("Return to Robot Studio")
+                                }
                             }
                         }
                     }

@@ -154,13 +154,33 @@ private fun ExpandedTreePanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    "ROBOT STRUCTURE",
-                    color = AresTextSecondary,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.8.sp,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        "ROBOT STRUCTURE",
+                        color = AresTextSecondary,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp,
+                    )
+                    val readyCount = state.stages.count { it.status == RobotStudioStageStatus.READY }
+                    val totalStages = state.stages.size.coerceAtLeast(1)
+                    val isAllReady = state.stages.flatMap { it.issues }.isEmpty() && readyCount >= totalStages - 1
+                    Surface(
+                        shape = RoundedCornerShape(4.dp),
+                        color = if (isAllReady) AresGreen.copy(alpha = 0.12f) else AresAmber.copy(alpha = 0.12f),
+                    ) {
+                        Text(
+                            if (isAllReady) "Ready" else "$readyCount/$totalStages",
+                            color = if (isAllReady) AresGreen else AresAmber,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp),
+                        )
+                    }
+                }
                 IconButton(
                     onClick = onToggleCollapse,
                     modifier = Modifier.size(24.dp),

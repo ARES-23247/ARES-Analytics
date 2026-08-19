@@ -65,7 +65,7 @@ fun HardwareSetupScreen(
     viewModel: HardwareSetupViewModel,
     onOpenDrivebase: () -> Unit,
     onOpenSubsystems: () -> Unit,
-    onBackToStudio: () -> Unit,
+    onBackToStudio: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsState()
     LazyColumn(
@@ -88,31 +88,32 @@ fun HardwareSetupScreen(
                     Text("Reading canonical hardware descriptors…", color = AresTextSecondary)
                 }
             }
-        }
-        state.snapshot?.let { snapshot ->
-            item { ReviewStatusCard(snapshot) }
-            snapshot.issues.forEach { issue ->
-                item { MessageCard(if (issue.itemUid == null) "Project check" else "Device check", issue.message, issue.severity) }
-            }
-            item {
-                SourceActions(onOpenDrivebase, onOpenSubsystems)
-            }
-            HardwareInventoryOwner.entries.forEach { owner ->
-                val owned = snapshot.items.filter { it.owner == owner }
-                if (owned.isNotEmpty()) {
-                    item {
-                        Text(
-                            if (owner == HardwareInventoryOwner.DRIVEBASE) "Drivebase hardware" else "Subsystem hardware",
-                            color = AresTextPrimary,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                        )
-                    }
-                    items(owned, key = HardwareInventoryItem::uid) { item -> HardwareItemCard(item) }
+        } else {
+            state.snapshot?.let { snapshot ->
+                item { ReviewStatusCard(snapshot) }
+                snapshot.issues.forEach { issue ->
+                    item { MessageCard(if (issue.itemUid == null) "Project check" else "Device check", issue.message, issue.severity) }
                 }
-            }
-            item {
-                ReviewChecklist(state, viewModel, onBackToStudio)
+                item {
+                    SourceActions(onOpenDrivebase, onOpenSubsystems)
+                }
+                HardwareInventoryOwner.entries.forEach { owner ->
+                    val owned = snapshot.items.filter { it.owner == owner }
+                    if (owned.isNotEmpty()) {
+                        item {
+                            Text(
+                                if (owner == HardwareInventoryOwner.DRIVEBASE) "Drivebase hardware" else "Subsystem hardware",
+                                color = AresTextPrimary,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                        items(owned, key = HardwareInventoryItem::uid) { item -> HardwareItemCard(item) }
+                    }
+                }
+                item {
+                    ReviewChecklist(state, viewModel, onBackToStudio)
+                }
             }
         }
     }
@@ -122,7 +123,7 @@ fun HardwareSetupScreen(
 private fun HardwareSetupHeader(
     state: HardwareSetupState,
     onRefresh: () -> Unit,
-    onBack: () -> Unit,
+    onBack: (() -> Unit)? = null,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = AresSurface),
@@ -131,12 +132,14 @@ private fun HardwareSetupHeader(
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(17.dp))
-                    Spacer(Modifier.width(5.dp))
-                    Text("Robot Studio")
+                if (onBack != null) {
+                    OutlinedButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(17.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text("Robot Studio")
+                    }
                 }
-                Text("Hardware Setup", color = AresTextPrimary, fontSize = 25.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text("Hardware Setup", color = AresTextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 OutlinedButton(onClick = onRefresh, enabled = !state.loading && !state.saving) {
                     Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(17.dp))
                     Spacer(Modifier.width(5.dp))
@@ -248,7 +251,7 @@ private fun HardwareItemCard(item: HardwareInventoryItem) {
 private fun ReviewChecklist(
     state: HardwareSetupState,
     viewModel: HardwareSetupViewModel,
-    onBackToStudio: () -> Unit,
+    onBackToStudio: (() -> Unit)? = null,
 ) {
     Card(
         colors = CardDefaults.cardColors(containerColor = AresSurface),
@@ -284,7 +287,7 @@ private fun ReviewChecklist(
                     }
                     Text(if (state.saving) "Recording review…" else "Record reviewed mapping", fontWeight = FontWeight.Bold)
                 }
-                if (state.snapshot?.reviewStatus == HardwareReviewStatus.CURRENT) {
+                if (state.snapshot?.reviewStatus == HardwareReviewStatus.CURRENT && onBackToStudio != null) {
                     Button(
                         onClick = onBackToStudio,
                         colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent),

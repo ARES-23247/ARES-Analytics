@@ -33,7 +33,7 @@ import com.ares.analytics.viewmodel.project.ProjectIdentityViewModel
 fun ProjectIdentityScreen(
     viewModel: ProjectIdentityViewModel,
     config: WorkspaceConfig,
-    onBackToStudio: () -> Unit,
+    onBackToStudio: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsState()
@@ -45,10 +45,12 @@ fun ProjectIdentityScreen(
     ) {
         item {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedButton(onClick = onBackToStudio) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Robot Studio")
+                if (onBackToStudio != null) {
+                    OutlinedButton(onClick = onBackToStudio) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Robot Studio")
+                    }
                 }
                 Column {
                     Text(
@@ -56,7 +58,7 @@ fun ProjectIdentityScreen(
                         modifier = Modifier.semantics { heading() },
                         color = AresTextPrimary,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 24.sp,
+                        fontSize = 18.sp,
                     )
                     Text(
                         "Configure the robot identity and outer physical boundary shared by simulators, collision checkers, and autonomous paths.",
