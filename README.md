@@ -177,6 +177,7 @@ the secret to a desktop build.
 - [Accessibility and contrast](docs/learn/ACCESSIBILITY_AND_CONTRAST.md) - readable palettes, status cues, text scaling, and touch targets
 - [Teaching with ARES](docs/mentor/TEACHING_WITH_ARES.md) - mentor-led simulator-first lesson and physical robot safety gate
 - [Automated dashboard validation](docs/VALIDATION.md) - smoke/soak profiles, performance budgets, reports, and CI
+- [Desktop UI regression capture](docs/UI_REGRESSION.md) - exact-window captures for 1080p, default, and narrow-card layouts
 - [Student routines and controller bindings](docs/ROUTINES_AND_CONTROLS.md) - offline authoring, visual controls, generation, selection, and troubleshooting
 - [Subsystem Builder](docs/SUBSYSTEM_BUILDER.md) - visual mechanism authoring, generated ownership, safety, and manual Redux/IO equivalent
 - [Architecture](ARCHITECTURE.md) — modules, service lifecycles, persistence, replay, and extension points
