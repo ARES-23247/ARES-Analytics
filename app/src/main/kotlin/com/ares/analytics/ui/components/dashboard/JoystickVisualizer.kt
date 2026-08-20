@@ -134,9 +134,9 @@ fun JoystickVisualizer(
         if (keyboardControlEnabled) {
             Text(
                 if (keyboardState.useGamepad) {
-                    "Hold the left trigger to send local gamepad commands. Releasing it immediately neutralizes every output."
+                    "Move the gamepad sticks directly while armed. Drive publication is restricted to the loopback simulator."
                 } else {
-                    "Field-centric keyboard: hold Space; W drives toward the opposing station and A/D strafe."
+                    "Field-centric keyboard: W drives toward the opposing station and A/D strafe. Loopback simulator only."
                 },
                 color = AresGold,
                 fontSize = 11.sp,
@@ -232,7 +232,7 @@ fun SingleGamepadVisualizer(
         nt4ClientService != null && !keyboardControlEnabled -> {
             LaunchedEffect(Unit) {
                 scope.launch {
-                    nt4ClientService.telemetryFlow.collect { frame ->
+                    nt4ClientService.uiTelemetryFlow.collect { frame ->
                         val key = frame.key
                         val value = frame.value
                         when (key) {
@@ -309,7 +309,7 @@ fun SingleGamepadVisualizer(
                         }
                         lb = keyboardState.isQPressed
                         rb = keyboardState.isEPressed
-                        lt = if (keyboardState.isSpacePressed) 1.0 else 0.0
+                        lt = 0.0
                         rt = if (keyboardState.isShiftPressed) 1.0 else 0.0
                         btnA = keyboardState.isJPressed
                         btnB = keyboardState.isLPressed

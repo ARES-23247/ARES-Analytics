@@ -64,7 +64,7 @@ fun ProfilingDiagnosticsCard(
 
     LaunchedEffect(Unit) {
         scope.launch {
-            nt4ClientService.telemetryFlow.collect { frame ->
+            nt4ClientService.uiTelemetryFlow.collect { frame ->
                 val key = frame.key
                 if (key.startsWith("Profiling/")) {
                     val cleanKey = key.removePrefix("Profiling/").removeSuffix("_ms")

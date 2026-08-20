@@ -34,7 +34,7 @@ fun StateMachineTrackerCard(
 
     LaunchedEffect(Unit) {
         scope.launch {
-            nt4ClientService.telemetryFlow.collect { frame ->
+            nt4ClientService.uiTelemetryFlow.collect { frame ->
                 val key = frame.key
                 // Typical state paths: /robot/subsystems/Intake/State, /robot/auto/CurrentState
                 if (key.endsWith("/State") || key.endsWith("/CurrentState")) {

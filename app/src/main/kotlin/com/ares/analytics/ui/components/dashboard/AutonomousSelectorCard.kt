@@ -78,7 +78,7 @@ fun AutonomousSelectorCard(
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(nt4ClientService) {
-        nt4ClientService.telemetryFlow.collect { frame ->
+        nt4ClientService.uiTelemetryFlow.collect { frame ->
             when (frame.key) {
                 RobotTopicContract.AVAILABLE_AUTONOMOUS_ROUTINES -> {
                     available = parseAvailableAutoDocuments(frame.stringValue)

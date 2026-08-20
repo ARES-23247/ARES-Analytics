@@ -27,6 +27,7 @@ import com.ares.analytics.service.AutoImportService
 import com.ares.analytics.service.BuildExecutionPhase
 import com.ares.analytics.service.MatchInfo
 import com.ares.analytics.service.UpdateCheckerService
+import com.ares.analytics.service.isLoopbackDriveControlHost
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.CommandPalette
 import com.ares.analytics.ui.components.LearningCoachDrawer
@@ -145,15 +146,6 @@ fun MainScreen(services: ServiceRegistry) {
     }
 
     val isNt4Connected by services.nt4ClientService.isConnected.collectAsState()
-    val activeLeague = currentConfig?.league ?: League.FTC
-    DesktopDriveInputPublisher(
-        nt4ClientService = services.nt4ClientService,
-        keyboardState = services.keyboardDriveState,
-        gamepadState = services.gamepadService.gamepad1State,
-        connected = isNt4Connected,
-        controlSurfaceActive = currentConfig != null && activeNav == NavigationTarget.DASHBOARD,
-        league = activeLeague,
-    )
 
     if (currentConfig == null) {
         val onboardingViewModel = remember {
@@ -381,6 +373,19 @@ fun MainScreen(services: ServiceRegistry) {
     }
     val isLiveRobotOnline by services.targetScannerService.isLiveRobotOnline.collectAsState()
     val isLocalSimOnline by services.targetScannerService.isLocalSimOnline.collectAsState()
+    val localSimulatorControlAuthorized =
+        activeNav == NavigationTarget.DASHBOARD &&
+            targetSelection == TargetSelection.LOCAL_SIM &&
+            isNt4Connected &&
+            isLoopbackDriveControlHost(services.nt4ClientService.serverIp)
+    DesktopDriveInputPublisher(
+        nt4ClientService = services.nt4ClientService,
+        keyboardState = services.keyboardDriveState,
+        gamepadState = services.gamepadService.gamepad1State,
+        connected = localSimulatorControlAuthorized,
+        controlSurfaceActive = localSimulatorControlAuthorized,
+        league = currentConfig.league,
+    )
     val unmanagedSimulatorOnline = isLocalSimOnline && !isSimRunning
     val simulatorLaunchEnabled = robotStudioState.canRunSimulation && !unmanagedSimulatorOnline
     var pendingSimulatorLaunch by remember(currentConfig.id) { mutableStateOf(false) }
@@ -424,7 +429,7 @@ fun MainScreen(services: ServiceRegistry) {
     }
     DesktopDriveKeyDispatcher(
         state = services.keyboardDriveState,
-        controlSurfaceActive = activeNav == NavigationTarget.DASHBOARD,
+        controlSurfaceActive = localSimulatorControlAuthorized,
     )
 
     LaunchedEffect(currentConfig, runsIndexReloadTrigger) {

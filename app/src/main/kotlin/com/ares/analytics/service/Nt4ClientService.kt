@@ -12,6 +12,87 @@ import kotlinx.serialization.json.*
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.withLock
+import kotlin.math.hypot
+
+internal const val SIMULATOR_POSE_FRAME_TOPIC = "ARES/SimulatorPoseFrame"
+internal const val SIMULATOR_POSE_FRAME_VALUE_COUNT = 10
+
+/** One immutable, same-cycle simulator localization sample decoded from the packed NT4 topic. */
+data class SimulatorPoseFrameSnapshot(
+    val trueX: Double,
+    val trueY: Double,
+    val trueHeading: Double,
+    val ekfX: Double,
+    val ekfY: Double,
+    val ekfHeading: Double,
+    val odomX: Double,
+    val odomY: Double,
+    val odomHeading: Double,
+    val sequence: Long,
+    val timestampMs: Long,
+    val timestampUs: Long,
+)
+
+/** Decodes without retaining any producer- or MessagePack-owned array storage. */
+internal fun decodeSimulatorPoseFrame(
+    value: Any?,
+    timestampMs: Long,
+    timestampUs: Long,
+): SimulatorPoseFrameSnapshot? {
+    val size = when (value) {
+        is JsonArray -> value.size
+        is List<*> -> value.size
+        is DoubleArray -> value.size
+        is FloatArray -> value.size
+        is Array<*> -> value.size
+        else -> return null
+    }
+    if (size != SIMULATOR_POSE_FRAME_VALUE_COUNT) return null
+
+    fun numberAt(index: Int): Double? {
+        val element = when (value) {
+            is JsonArray -> value[index]
+            is List<*> -> value[index]
+            is DoubleArray -> value[index]
+            is FloatArray -> value[index]
+            is Array<*> -> value[index]
+            else -> null
+        }
+        return when (element) {
+            is JsonPrimitive -> element.doubleOrNull
+            is Number -> element.toDouble()
+            else -> null
+        }?.takeIf(Double::isFinite)
+    }
+
+    val trueX = numberAt(0) ?: return null
+    val trueY = numberAt(1) ?: return null
+    val trueHeading = numberAt(2) ?: return null
+    val ekfX = numberAt(3) ?: return null
+    val ekfY = numberAt(4) ?: return null
+    val ekfHeading = numberAt(5) ?: return null
+    val odomX = numberAt(6) ?: return null
+    val odomY = numberAt(7) ?: return null
+    val odomHeading = numberAt(8) ?: return null
+    val sequenceValue = numberAt(9) ?: return null
+    val sequence = sequenceValue.toLong()
+    if (sequence < 0L || sequence.toDouble() != sequenceValue) return null
+
+    return SimulatorPoseFrameSnapshot(
+        trueX = trueX,
+        trueY = trueY,
+        trueHeading = trueHeading,
+        ekfX = ekfX,
+        ekfY = ekfY,
+        ekfHeading = ekfHeading,
+        odomX = odomX,
+        odomY = odomY,
+        odomHeading = odomHeading,
+        sequence = sequence,
+        timestampMs = timestampMs,
+        timestampUs = timestampUs,
+    )
+}
 
 /**
  * High-performance **NetworkTables NT4 WebSocket Streaming Client**.
@@ -43,7 +124,20 @@ open class Nt4ClientService(
     val isReplayActive = MutableStateFlow(false)
 
     val telemetryStore = TelemetryStore()
+    private val uiTelemetryFanout = UiTelemetryFanout(serviceScope)
     open val telemetryFlow: SharedFlow<TelemetryFrame> = telemetryStore.updates
+    /** UI-rate latest values; raw logging and analysis continue to use [telemetryFlow]. */
+    open val uiTelemetryFlow: SharedFlow<TelemetryFrame> = uiTelemetryFanout.updates
+    private val _simulatorPoseFrame = MutableStateFlow<SimulatorPoseFrameSnapshot?>(null)
+    /** Latest packed simulator pose, kept atomic and independent of the lossy telemetry fan-out. */
+    val simulatorPoseFrame: StateFlow<SimulatorPoseFrameSnapshot?> = _simulatorPoseFrame.asStateFlow()
+    private var lastSimulatorPoseDivergenceLogNs = Long.MIN_VALUE
+
+    init {
+        serviceScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            telemetryStore.updates.collect(uiTelemetryFanout::offer)
+        }
+    }
 
     private val _consoleFlow = MutableSharedFlow<ConsoleMessage>(
         replay = 100,
@@ -71,6 +165,9 @@ open class Nt4ClientService(
     }
 
     private val outboundPublisher = Nt4OutboundPublisher()
+    private val driveFrameTelemetryRecorder = DriveFrameTelemetryRecorder(serviceScope) { frame ->
+        telemetryStore.accept(frame, notifyConsumers = false)
+    }
     private val inboundRouter = Nt4InboundRouter(
         onClockSyncReply = outboundPublisher::acceptTimeSyncReply,
         onValue = { topic, value, timestampMs, timestampUs, target ->
@@ -165,6 +262,7 @@ open class Nt4ClientService(
     internal fun clearLiveTargetState() {
         inboundRouter.clear()
         telemetryStore.clear()
+        _simulatorPoseFrame.value = null
     }
 
     fun start(host: String, teamId: String, seasonId: String, robotId: String, port: Int = 5810) {
@@ -271,6 +369,13 @@ open class Nt4ClientService(
         val normalizedName = com.ares.analytics.service.log.TelemetryTopicExtractor.normalizeTopic(ntTopic.name.removePrefix("/"))
 
         inboundRouter.markDiscovered(normalizedName, ntTopic.type)
+
+        if (normalizedName == SIMULATOR_POSE_FRAME_TOPIC) {
+            decodeSimulatorPoseFrame(valueElement, timestampMs, timestampUs)?.let { frame ->
+                logSimulatorPoseDivergence(frame)
+                _simulatorPoseFrame.value = frame
+            }
+        }
 
         // Skip input topics that the dashboard publishes — they echo back from the
         // simulator and cause 50Hz recomposition storms across all widgets
@@ -384,6 +489,33 @@ open class Nt4ClientService(
         }
         telemetryStore.accept(frame, notifyConsumers = !isReplayActive.value)
     }
+
+    /**
+     * Leaves one rate-limited breadcrumb when a simulator publishes localization sources that are
+     * visibly far apart. This distinguishes a producer/EKF defect from downstream UI staleness.
+     */
+    private fun logSimulatorPoseDivergence(frame: SimulatorPoseFrameSnapshot) {
+        val ekfErrorM = hypot(frame.ekfX - frame.trueX, frame.ekfY - frame.trueY)
+        val odomErrorM = hypot(frame.odomX - frame.trueX, frame.odomY - frame.trueY)
+        if (ekfErrorM <= SIMULATOR_POSE_DIVERGENCE_LOG_THRESHOLD_M &&
+            odomErrorM <= SIMULATOR_POSE_DIVERGENCE_LOG_THRESHOLD_M
+        ) return
+
+        val nowNs = System.nanoTime()
+        if (lastSimulatorPoseDivergenceLogNs != Long.MIN_VALUE &&
+            nowNs - lastSimulatorPoseDivergenceLogNs < SIMULATOR_POSE_DIVERGENCE_LOG_INTERVAL_NS
+        ) return
+
+        lastSimulatorPoseDivergenceLogNs = nowNs
+        println(
+            "[SimulatorPoseFrame] divergence sequence=${frame.sequence}, " +
+                "ekfErrorM=$ekfErrorM, odomErrorM=$odomErrorM, " +
+                "truth=(${frame.trueX}, ${frame.trueY}, ${frame.trueHeading}), " +
+                "ekf=(${frame.ekfX}, ${frame.ekfY}, ${frame.ekfHeading}), " +
+                "odom=(${frame.odomX}, ${frame.odomY}, ${frame.odomHeading})"
+        )
+    }
+
     suspend fun publishDouble(key: String, value: Double) {
         val cleanKey = key.removePrefix("/")
         require(!cleanKey.startsWith("ARES/Input/")) {
@@ -432,15 +564,20 @@ open class Nt4ClientService(
     fun nextDriveSessionNonce(): Double = outboundPublisher.nextDriveSessionNonce()
 
     suspend fun publishDriveFrame(values: DoubleArray): Boolean {
-        val frame = values.copyOf()
-        if (!outboundPublisher.publishDriveFrame(frame)) return false
-        val now = System.currentTimeMillis()
-        val sessionId = _currentSession.value?.sessionId ?: "live-telemetry"
-        frame.forEachIndexed { index, value ->
-            telemetryStore.accept(
-                TelemetryFrame(now, sessionId, "ARES/Input/driveFrame/$index", value)
+        // Dashboard drive input is a simulator-only capability. Enforce that at the transport
+        // boundary so a stale armed UI cannot publish motion to a Control Hub or roboRIO after a
+        // target switch.
+        if (!isLoopbackDriveControlHost(serverIp)) return false
+        if (!outboundPublisher.publishDriveFrame(values)) return false
+        driveFrameTelemetryRecorder.offer(
+            DriveFrameTelemetrySnapshot(
+                timestampMs = System.currentTimeMillis(),
+                sessionId = _currentSession.value?.sessionId ?: "live-telemetry",
+                // The UI session reuses its packet buffer. Copy only after the synchronous wire
+                // encoder has consumed it, and transfer this copy to the background recorder.
+                values = values.copyOf(),
             )
-        }
+        )
         return true
     }
 
@@ -464,6 +601,8 @@ open class Nt4ClientService(
         private const val MAX_INCOMING_ARRAY_ELEMENTS = 4_096
         private const val SHUTDOWN_FLUSH_ATTEMPTS = 5
         private const val SHUTDOWN_FLUSH_RETRY_MS = 100L
+        private const val SIMULATOR_POSE_DIVERGENCE_LOG_THRESHOLD_M = 0.05
+        private const val SIMULATOR_POSE_DIVERGENCE_LOG_INTERVAL_NS = 500_000_000L
         private val ALLOWED_INPUT_STRING_TOPICS = setOf(
             "ARES/Input/obstacles",
             "ARES/Input/fieldConfig"
@@ -478,6 +617,14 @@ open class Nt4ClientService(
             "/LoopTimeMs", "/TimestampMs"
         )
     }
+}
+
+/** True only for hosts that cannot directly address a physical robot on the network. */
+internal fun isLoopbackDriveControlHost(host: String): Boolean = when (
+    host.trim().lowercase().removePrefix("[").removeSuffix("]")
+) {
+    "127.0.0.1", "localhost", "::1" -> true
+    else -> false
 }
 
 internal data class DriveFrameSendState(

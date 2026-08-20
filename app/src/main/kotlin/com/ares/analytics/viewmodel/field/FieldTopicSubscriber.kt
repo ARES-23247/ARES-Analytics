@@ -1,24 +1,207 @@
 package com.ares.analytics.viewmodel.field
 
 import com.ares.analytics.service.Nt4ClientService
+import com.ares.analytics.service.SimulatorPoseFrameSnapshot
 import com.ares.analytics.shared.GamePiece
 import com.ares.analytics.viewmodel.FieldViewerState
 import com.ares.analytics.viewmodel.LivePoseState
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/** Filters the global telemetry bus before field state reduction touches any Compose-facing state. */
+internal fun isFieldViewerTopic(key: String): Boolean = when (key) {
+    "ARES/TruePose/0", "ARES/TruePose/1", "ARES/TruePose/2",
+    "ARES/EstimatedPose/0", "ARES/EstimatedPose/1", "ARES/EstimatedPose/2",
+    "Drive/Pose_X", "Drive/Pose_Y", "Drive/Pose_Heading", "Drive/Drive_Heading",
+    "Drive/Odom_X", "Drive/Odom_Y", "Drive/Odom_Heading",
+    "Vision/HasTarget", "Vision/Pose_X", "Vision/Pose_Y", "Vision/Pose_Heading",
+    "ARES/GamePieces/Count" -> true
+    else -> key.startsWith("ARES/SimulatorPoseFrame/") ||
+        key.startsWith("Superstructure/IndicatorLight/") ||
+        key.startsWith("Vision/PoseArray/") ||
+        key.startsWith("AdvantageScope/VisionPose/") ||
+        key.startsWith("ARES/GamePieces/")
+}
+
+internal fun isFieldPoseTopic(key: String): Boolean = when (key) {
+    "ARES/TruePose/0", "ARES/TruePose/1", "ARES/TruePose/2",
+    "ARES/EstimatedPose/0", "ARES/EstimatedPose/1", "ARES/EstimatedPose/2",
+    "Drive/Pose_X", "Drive/Pose_Y", "Drive/Pose_Heading", "Drive/Drive_Heading",
+    "Drive/Odom_X", "Drive/Odom_Y", "Drive/Odom_Heading" -> true
+    else -> key.startsWith("ARES/SimulatorPoseFrame/")
+}
+
+/**
+ * Stages the packed simulator pose frame and preserves scalar compatibility for physical robots.
+ *
+ * NT4 suppresses unchanged scalar values, so no coordinate or heading can safely mark the end of a
+ * frame. Current simulators therefore publish `ARES/SimulatorPoseFrame`, whose changing sequence
+ * is element 9. Once that packed source appears, legacy pose scalars are ignored and Compose state
+ * changes exactly once after all nine pose values have arrived.
+ */
+internal class FieldPoseFrameAccumulator {
+    private var trueX: Double? = null
+    private var trueY: Double? = null
+    private var trueHeading: Double? = null
+    private var ekfX: Double? = null
+    private var ekfY: Double? = null
+    private var ekfHeading: Double? = null
+    private var odomX: Double? = null
+    private var odomY: Double? = null
+    private var odomHeading: Double? = null
+    private var hasCompleteTruePose = false
+    private var hasSeenEstimatedPose = false
+    private var hasSeenPackedFrame = false
+    private var hasSeenAtomicPackedFrame = false
+
+    @Synchronized
+    fun reset() {
+        trueX = null
+        trueY = null
+        trueHeading = null
+        ekfX = null
+        ekfY = null
+        ekfHeading = null
+        odomX = null
+        odomY = null
+        odomHeading = null
+        hasCompleteTruePose = false
+        hasSeenEstimatedPose = false
+        hasSeenPackedFrame = false
+        hasSeenAtomicPackedFrame = false
+    }
+
+    /** Accepts the packed parent value as one immutable sample, bypassing lossy scalar fan-out. */
+    @Synchronized
+    fun accept(frame: SimulatorPoseFrameSnapshot) {
+        trueX = frame.trueX
+        trueY = frame.trueY
+        trueHeading = frame.trueHeading
+        ekfX = frame.ekfX
+        ekfY = frame.ekfY
+        ekfHeading = frame.ekfHeading
+        odomX = frame.odomX
+        odomY = frame.odomY
+        odomHeading = frame.odomHeading
+        hasCompleteTruePose = true
+        hasSeenEstimatedPose = true
+        hasSeenPackedFrame = true
+        hasSeenAtomicPackedFrame = true
+    }
+
+    /** Returns true only when the staged values form the next safe Compose render snapshot. */
+    @Synchronized
+    fun accept(key: String, value: Double): Boolean {
+        if (key.startsWith(SIMULATOR_POSE_FRAME_PREFIX)) {
+            if (hasSeenAtomicPackedFrame) return false
+            val index = key.substringAfterLast('/').toIntOrNull() ?: return false
+            hasSeenPackedFrame = true
+            when (index) {
+                0 -> trueX = value
+                1 -> trueY = value
+                2 -> trueHeading = value
+                3 -> ekfX = value
+                4 -> ekfY = value
+                5 -> ekfHeading = value
+                6 -> odomX = value
+                7 -> odomY = value
+                8 -> odomHeading = value
+                9 -> {
+                    hasCompleteTruePose = true
+                    hasSeenEstimatedPose = true
+                    return true
+                }
+            }
+            return false
+        }
+
+        if (hasSeenPackedFrame) return false
+
+        return when (key) {
+            "ARES/TruePose/0" -> true.also {
+                trueX = value
+                hasCompleteTruePose = true
+            }
+            "ARES/TruePose/1" -> true.also {
+                trueY = value
+                hasCompleteTruePose = true
+            }
+            "ARES/TruePose/2" -> true.also {
+                trueHeading = value
+                hasCompleteTruePose = true
+            }
+            "ARES/EstimatedPose/0" -> true.also {
+                ekfX = value
+                hasSeenEstimatedPose = true
+            }
+            "ARES/EstimatedPose/1" -> true.also {
+                ekfY = value
+                hasSeenEstimatedPose = true
+            }
+            "ARES/EstimatedPose/2" -> true.also {
+                ekfHeading = value
+                hasSeenEstimatedPose = true
+            }
+            "Drive/Pose_X" -> if (hasCompleteTruePose && hasSeenEstimatedPose) {
+                false
+            } else {
+                true.also { ekfX = value }
+            }
+            "Drive/Pose_Y" -> if (hasCompleteTruePose && hasSeenEstimatedPose) {
+                false
+            } else {
+                true.also { ekfY = value }
+            }
+            "Drive/Pose_Heading", "Drive/Drive_Heading" -> if (hasCompleteTruePose && hasSeenEstimatedPose) {
+                false
+            } else {
+                true.also { ekfHeading = value }
+            }
+            "Drive/Odom_X" -> true.also { odomX = value }
+            "Drive/Odom_Y" -> true.also { odomY = value }
+            "Drive/Odom_Heading" -> true.also { odomHeading = value }
+            else -> false
+        }
+    }
+
+    @Synchronized
+    fun snapshot(current: LivePoseState): LivePoseState = current.copy(
+        trueX = trueX ?: current.trueX,
+        trueY = trueY ?: current.trueY,
+        simHeading = trueHeading ?: current.simHeading,
+        trueHeading = trueHeading ?: current.trueHeading,
+        hasTruePoseData = hasCompleteTruePose || current.hasTruePoseData,
+        ekfX = ekfX ?: current.ekfX,
+        ekfY = ekfY ?: current.ekfY,
+        ekfHeading = ekfHeading ?: current.ekfHeading,
+        odomX = odomX ?: current.odomX,
+        odomY = odomY ?: current.odomY,
+        odomHeading = odomHeading ?: current.odomHeading,
+    )
+
+    private companion object {
+        const val SIMULATOR_POSE_FRAME_PREFIX = "ARES/SimulatorPoseFrame/"
+    }
+}
 
 /** Reduces normalized NT4 topic updates into the field viewer's live-pose state. */
 class FieldTopicSubscriber(
     private val nt4ClientService: Nt4ClientService,
     private val scope: CoroutineScope,
     private val stateFlow: MutableStateFlow<FieldViewerState>,
-    private val livePoseFlow: MutableStateFlow<LivePoseState>
+    private val livePoseFlow: MutableStateFlow<LivePoseState>,
+    private val processingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
+    private val poseAccumulator = FieldPoseFrameAccumulator()
+
     init {
         scope.launch {
             nt4ClientService.isConnected.collect { connected ->
+                if (!connected) poseAccumulator.reset()
                 livePoseFlow.update { currentState ->
                     currentState.copy(
                         isConnected = connected,
@@ -34,47 +217,37 @@ class FieldTopicSubscriber(
             }
         }
 
-        scope.launch {
-            var frameCount = 0L
-            var lastDiagLog = System.currentTimeMillis()
+        // The parent double[] is decoded before it is flattened onto the lossy global telemetry
+        // bus. Consuming this StateFlow prevents startup bursts from dropping one array element
+        // and committing a new sequence marker with an older staged coordinate.
+        scope.launch(processingDispatcher) {
+            nt4ClientService.simulatorPoseFrame.collect { frame ->
+                if (frame != null) {
+                    poseAccumulator.accept(frame)
+                    livePoseFlow.update(poseAccumulator::snapshot)
+                }
+            }
+        }
 
+        // The global bus can exceed tens of thousands of frames per second when tuning schemas are
+        // announced. Reduce only field-owned topics, and never do that work on Compose's UI thread.
+        scope.launch(processingDispatcher) {
             nt4ClientService.telemetryFlow.collect { frame ->
                 val key = frame.key
+                if (!isFieldViewerTopic(key)) return@collect
                 val value = frame.value
-                frameCount++
 
-                // Diagnostic: log every 2 seconds
-                val now2 = System.currentTimeMillis()
-                if (now2 - lastDiagLog > 2000) {
-                    val s = livePoseFlow.value
-                    println("[FieldTopicSubscriber] DIAG: $frameCount frames received, ekfX=${s.ekfX}, ekfY=${s.ekfY}, trueX=${s.trueX}, trueY=${s.trueY}")
-                    lastDiagLog = now2
-                    frameCount = 0
+                if (isFieldPoseTopic(key)) {
+                    if (poseAccumulator.accept(key, value)) {
+                        livePoseFlow.update(poseAccumulator::snapshot)
+                    }
+                    return@collect
                 }
 
                 livePoseFlow.update { current ->
                     var next = current
 
                     when (key) {
-                        "ARES/TruePose/0" -> next = next.copy(trueX = value, hasTruePoseData = true)
-                        "ARES/TruePose/1" -> next = next.copy(trueY = value, hasTruePoseData = true)
-                        "ARES/TruePose/2" -> next = next.copy(simHeading = value, trueHeading = value, hasTruePoseData = true)
-                        "ARES/EstimatedPose/0" -> next = next.copy(ekfX = value)
-                        "ARES/EstimatedPose/1" -> next = next.copy(ekfY = value)
-                        "ARES/EstimatedPose/2" -> next = next.copy(ekfHeading = value)
-                        // The local simulator publishes ARES/TruePose and ARES/EstimatedPose from the
-                        // same post-physics-step pose. Its Redux Drive/Pose topics can trail behind and
-                        // must not race the simulator-owned estimate. Hardware has no TruePose stream,
-                        // so Drive/Pose remains the fallback there.
-                        "Drive/Pose_X" -> if (!next.hasTruePoseData) next = next.copy(ekfX = value)
-                        "Drive/Pose_Y" -> if (!next.hasTruePoseData) next = next.copy(ekfY = value)
-                        "Drive/Pose_Heading", "Drive/Drive_Heading" -> {
-                            if (!next.hasTruePoseData) next = next.copy(ekfHeading = value)
-                        }
-
-                        "Drive/Odom_X" -> next = next.copy(odomX = value)
-                        "Drive/Odom_Y" -> next = next.copy(odomY = value)
-                        "Drive/Odom_Heading" -> next = next.copy(odomHeading = value)
                         "Vision/HasTarget" -> {
                             val hasTarget = value > 0.5
                             next = next.copy(visionHasTarget = hasTarget)

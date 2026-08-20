@@ -98,7 +98,7 @@ fun DashboardScreen(
     // Telemetry flow listener for health metrics and freshness tracking
     LaunchedEffect(Unit) {
         scope.launch {
-            services.nt4ClientService.telemetryFlow.collect { frame ->
+            services.nt4ClientService.uiTelemetryFlow.collect { frame ->
                 lastUpdateTimestampMs = System.currentTimeMillis()
                 val key = frame.key.lowercase()
                 val value = frame.value
@@ -162,7 +162,7 @@ fun DashboardScreen(
         }
     }
 
-    // Bridge replay telemetry flow into the same nt4ClientService.telemetryFlow
+    // Bridge replay telemetry into the raw service; UI fan-out is coalesced independently.
     LaunchedEffect(Unit) {
         replayEngine.replayTelemetryFlow.collect { frame ->
             services.nt4ClientService.emitReplayFrame(frame)

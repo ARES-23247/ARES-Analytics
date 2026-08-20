@@ -4,6 +4,7 @@ import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.viewmodel.FieldViewerState
 import com.ares.analytics.viewmodel.LivePoseState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -18,7 +19,8 @@ class FieldPoseBufferManager(
     private val poseBuffer = ArrayDeque<Waypoint>(MAX_TRACE_SAMPLES)
 
     init {
-        scope.launch {
+        // Trace sampling must not fall behind a busy Compose render or dashboard layout pass.
+        scope.launch(Dispatchers.Default) {
             while (true) {
                 delay(50)
                 val currentLiveState = livePoseFlow.value

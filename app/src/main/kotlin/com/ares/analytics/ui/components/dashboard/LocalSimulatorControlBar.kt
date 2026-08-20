@@ -129,8 +129,8 @@ internal fun localSimulatorLaunchRequest(
  * An always-visible control path for the headless FTC simulator.
  *
  * Starting the simulator only creates the physics/NT4 server. Motion additionally requires a
- * running TeleOp, an armed local-control surface, and a held deadman. Keeping those three facts in
- * one strip prevents an online-but-idle simulator from looking like a crashed process.
+ * running TeleOp and an armed local-control surface. The transport rejects drive frames for every
+ * non-loopback target, so this strip cannot become a physical-robot control path.
  */
 @Composable
 fun LocalSimulatorControlBar(
@@ -166,7 +166,7 @@ fun LocalSimulatorControlBar(
     val connectedNow by rememberUpdatedState(isConnected)
 
     LaunchedEffect(nt4Client) {
-        nt4Client.telemetryFlow.collect { frame ->
+        nt4Client.uiTelemetryFlow.collect { frame ->
             when (frame.key.trimStart('/')) {
                 TELEOP_LIST_TOPIC -> frame.stringValue?.let { encoded ->
                     teleOps = decodeSimulatorTeleOps(encoded)
@@ -429,13 +429,13 @@ fun LocalSimulatorControlBar(
                     !isConnected && launchRequiresVerification -> "Verify the current project, then launch its simulator automatically. No code is deployed."
                     !isConnected -> "Launch the physics server here. When it connects, choose a TeleOp and Start driving."
                     !isFtc -> if (keyboardDriveState.enabled) {
-                        "FRC field-centric control armed: hold Space; W crosses the field toward the opposing station (+/-X)."
+                        "FRC field-centric control armed: W crosses the field toward the opposing station (+/-X). Loopback only."
                     } else {
                         "Enable TeleOp in the WPILib Simulation GUI, then Arm control. Robot-centric axes remain league-independent."
                     }
                     !isRunning -> "Choose a TeleOp, then Start driving. The simulator can be online while no OpMode is running."
-                    keyboardDriveState.useGamepad -> "Hold the left trigger while moving the sticks. Releasing it sends neutral immediately."
-                    else -> "Field-centric: hold Space; W drives toward the opposing station, A/D strafe, and ←/→ rotate."
+                    keyboardDriveState.useGamepad -> "Move the sticks directly while armed. Dashboard drive frames are blocked for non-loopback targets."
+                    else -> "Field-centric: W drives toward the opposing station, A/D strafe, and ←/→ rotate. Loopback only."
                 },
                 color = if (isRunning && keyboardDriveState.enabled) AresGreen else AresTextSecondary,
                 fontSize = 10.sp,

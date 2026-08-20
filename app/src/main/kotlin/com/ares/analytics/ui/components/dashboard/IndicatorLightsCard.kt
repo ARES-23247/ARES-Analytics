@@ -46,7 +46,7 @@ fun IndicatorLightsCard(
 
     // Collect the telemetry flow to discover indicator light topics
     LaunchedEffect(Unit) {
-        nt4ClientService.telemetryFlow.collect { frame ->
+        nt4ClientService.uiTelemetryFlow.collect { frame ->
             if (frame.key.startsWith("Superstructure/IndicatorLight/")) {
                 val lightName = frame.key.substringAfterLast("/")
                 lights[lightName] = frame.value

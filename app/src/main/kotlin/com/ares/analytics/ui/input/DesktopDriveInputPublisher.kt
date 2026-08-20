@@ -2,16 +2,21 @@ package com.ares.analytics.ui.input
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import com.ares.analytics.di.KeyboardDriveState
 import com.ares.analytics.service.GamepadState
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.shared.League
 import com.areslib.math.InputMath
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
 
 /** One fail-closed desktop control snapshot before protocol sequencing is applied. */
 internal data class DesktopDriveIntent(
@@ -20,12 +25,52 @@ internal data class DesktopDriveIntent(
     val actuationFlags: Long,
 )
 
+/** Immutable handoff from Compose/AWT input state to the independent control heartbeat. */
+internal data class DesktopKeyboardDriveSnapshot(
+    val enabled: Boolean,
+    val useGamepad: Boolean,
+    val isWPressed: Boolean,
+    val isSPressed: Boolean,
+    val isAPressed: Boolean,
+    val isDPressed: Boolean,
+    val isUpPressed: Boolean,
+    val isDownPressed: Boolean,
+    val isLeftPressed: Boolean,
+    val isRightPressed: Boolean,
+    val isQPressed: Boolean,
+    val isEPressed: Boolean,
+    val isJPressed: Boolean,
+    val isLPressed: Boolean,
+    val isUPressed: Boolean,
+    val isShiftPressed: Boolean,
+)
+
+internal fun KeyboardDriveState.driveSnapshot() = DesktopKeyboardDriveSnapshot(
+    enabled = enabled,
+    useGamepad = useGamepad,
+    isWPressed = isWPressed,
+    isSPressed = isSPressed,
+    isAPressed = isAPressed,
+    isDPressed = isDPressed,
+    isUpPressed = isUpPressed,
+    isDownPressed = isDownPressed,
+    isLeftPressed = isLeftPressed,
+    isRightPressed = isRightPressed,
+    isQPressed = isQPressed,
+    isEPressed = isEPressed,
+    isJPressed = isJPressed,
+    isLPressed = isLPressed,
+    isUPressed = isUPressed,
+    isShiftPressed = isShiftPressed,
+)
+
 /**
  * Builds the atomic v2 drive frames for one leased connection session.
  *
- * The first successfully transmitted frame is always neutral. Motion and mechanism flags are
- * admitted only after that handshake, and sequence numbers advance only after transport accepts a
- * frame. The returned array is reused by this session and must be consumed synchronously.
+ * Every new session holds a neutral handshake across five successfully transmitted frames so the
+ * 50 Hz receiver cannot miss it at a scheduling boundary. Motion and mechanism flags are admitted
+ * only after that interval, and sequence numbers advance only after transport accepts a frame. The
+ * returned array is reused by this session and must be consumed synchronously.
  */
 internal class DesktopDriveFrameSession(
     private val sessionNonce: Double,
@@ -33,25 +78,40 @@ internal class DesktopDriveFrameSession(
 ) {
     private val frame = DoubleArray(FRAME_VALUE_COUNT)
     private var sequence = 0L
-    private var neutralHandshakeTransmitted = false
+    private var neutralHandshakeFramesTransmitted = 0
+    private var lastSuccessfulTransmissionMs: Long? = null
+
+    private val neutralHandshakeComplete: Boolean
+        get() = neutralHandshakeFramesTransmitted >= NEUTRAL_HANDSHAKE_FRAME_COUNT
 
     fun frameFor(intent: DesktopDriveIntent): DoubleArray = frame.apply {
         this[VERSION_INDEX] = FRAME_VERSION
         this[SESSION_INDEX] = sessionNonce
         this[SEQUENCE_INDEX] = sequence.toDouble()
         this[CLIENT_TIME_INDEX] = clockMs().toDouble()
-        this[VX_INDEX] = if (neutralHandshakeTransmitted) intent.command.vxMetersPerSecond else 0.0
-        this[VY_INDEX] = if (neutralHandshakeTransmitted) intent.command.vyMetersPerSecond else 0.0
-        this[OMEGA_INDEX] = if (neutralHandshakeTransmitted) intent.command.omegaRadiansPerSecond else 0.0
+        this[VX_INDEX] = if (neutralHandshakeComplete) intent.command.vxMetersPerSecond else 0.0
+        this[VY_INDEX] = if (neutralHandshakeComplete) intent.command.vyMetersPerSecond else 0.0
+        this[OMEGA_INDEX] = if (neutralHandshakeComplete) intent.command.omegaRadiansPerSecond else 0.0
         this[FLAGS_INDEX] = (
-            intent.modeFlags or if (neutralHandshakeTransmitted) intent.actuationFlags else 0L
+            intent.modeFlags or if (neutralHandshakeComplete) intent.actuationFlags else 0L
         ).toDouble()
     }
 
     fun markTransmitted() {
-        neutralHandshakeTransmitted = true
+        if (!neutralHandshakeComplete) neutralHandshakeFramesTransmitted++
         sequence++
+        lastSuccessfulTransmissionMs = clockMs()
     }
+
+    /** Age of the last accepted transport write, used only for sparse stall diagnostics. */
+    fun successfulTransmissionAgeMs(): Long? = lastSuccessfulTransmissionMs?.let { last ->
+        (clockMs() - last).coerceAtLeast(0L)
+    }
+
+    /** A delayed publisher must begin a new neutral session before sending motion again. */
+    fun needsRehandshake(): Boolean = successfulTransmissionAgeMs()?.let { age ->
+        age >= REHANDSHAKE_AFTER_GAP_MS
+    } ?: false
 }
 
 /** Converts current keyboard/gamepad state into canonical league-aware field commands. */
@@ -61,14 +121,23 @@ internal fun desktopDriveIntent(
     controlSurfaceActive: Boolean,
     league: League,
     isRedAlliance: Boolean,
+): DesktopDriveIntent = desktopDriveIntent(
+    keyboard = keyboard.driveSnapshot(),
+    gamepad = gamepad,
+    controlSurfaceActive = controlSurfaceActive,
+    league = league,
+    isRedAlliance = isRedAlliance,
+)
+
+internal fun desktopDriveIntent(
+    keyboard: DesktopKeyboardDriveSnapshot,
+    gamepad: GamepadState,
+    controlSurfaceActive: Boolean,
+    league: League,
+    isRedAlliance: Boolean,
 ): DesktopDriveIntent {
     val armedSurface = controlSurfaceActive && keyboard.enabled
-    val deadmanActive = if (keyboard.useGamepad) {
-        gamepad.connected && gamepad.leftTrigger > 0.5f
-    } else {
-        keyboard.deadmanPressed
-    }
-    val inputActive = armedSurface && deadmanActive
+    val inputActive = armedSurface && (!keyboard.useGamepad || gamepad.connected)
 
     val command = when {
         !inputActive -> DesktopFieldDriveCommand(0.0, 0.0, 0.0)
@@ -129,7 +198,7 @@ internal fun desktopDriveIntent(
 }
 
 private inline fun inputPressed(
-    keyboard: KeyboardDriveState,
+    keyboard: DesktopKeyboardDriveSnapshot,
     gamepad: GamepadState,
     keyboardPressed: Boolean,
     gamepadPressed: (GamepadState) -> Boolean,
@@ -145,34 +214,57 @@ internal fun DesktopDriveInputPublisher(
     controlSurfaceActive: Boolean,
     league: League,
 ) {
+    val keyboardSnapshot = remember(keyboardState) {
+        MutableStateFlow(keyboardState.driveSnapshot())
+    }
+    LaunchedEffect(keyboardState) {
+        snapshotFlow { keyboardState.driveSnapshot() }.collect { snapshot ->
+            keyboardSnapshot.value = snapshot
+        }
+    }
+
     LaunchedEffect(connected, controlSurfaceActive, league) {
         if (!connected) return@LaunchedEffect
-        while (currentCoroutineContext().isActive) {
-            val session = DesktopDriveFrameSession(nt4ClientService.nextDriveSessionNonce())
-            try {
-                while (currentCoroutineContext().isActive) {
-                    val intent = desktopDriveIntent(
-                        keyboard = keyboardState,
-                        gamepad = gamepadState.value,
-                        controlSurfaceActive = controlSurfaceActive,
-                        league = league,
-                        isRedAlliance = nt4ClientService.selectedRedAlliance.value,
-                    )
-                    if (nt4ClientService.publishDriveFrame(session.frameFor(intent))) {
-                        session.markTransmitted()
+        // Incoming telemetry and Compose layout can briefly saturate the UI dispatcher. The
+        // simulator's 500 ms fail-closed lease must be renewed independently of that work, using
+        // the latest immutable input snapshot produced by the UI thread.
+        withContext(Dispatchers.IO) {
+            while (currentCoroutineContext().isActive) {
+                val session = DesktopDriveFrameSession(nt4ClientService.nextDriveSessionNonce())
+                try {
+                    while (currentCoroutineContext().isActive) {
+                        // A single GC/transport pause can outlive the simulator's receiver lease.
+                        // Resume with a new session's neutral handshake; an old-session motion
+                        // frame is intentionally rejected by the fail-closed receiver.
+                        if (session.needsRehandshake()) {
+                            System.err.println(
+                                "[DesktopDriveInput] Control heartbeat stalled for " +
+                                    "${session.successfulTransmissionAgeMs()} ms; starting a neutral session"
+                            )
+                            break
+                        }
+                        val intent = desktopDriveIntent(
+                            keyboard = keyboardSnapshot.value,
+                            gamepad = gamepadState.value,
+                            controlSurfaceActive = controlSurfaceActive,
+                            league = league,
+                            isRedAlliance = nt4ClientService.selectedRedAlliance.value,
+                        )
+                        if (nt4ClientService.publishDriveFrame(session.frameFor(intent))) {
+                            session.markTransmitted()
+                        }
+                        delay(PUBLISH_INTERVAL_MS)
                     }
-                    delay(PUBLISH_INTERVAL_MS)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    System.err.println(
+                        "[DesktopDriveInput] Publisher session failed; restarting with a neutral frame: " +
+                            "${error::class.simpleName}: ${error.message}"
+                    )
+                    error.printStackTrace(System.err)
+                    delay(RESTART_DELAY_MS)
                 }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                keyboardState.releaseAll()
-                System.err.println(
-                    "[DesktopDriveInput] Publisher session failed; restarting with a neutral frame: " +
-                        "${error::class.simpleName}: ${error.message}"
-                )
-                error.printStackTrace(System.err)
-                delay(RESTART_DELAY_MS)
             }
         }
     }
@@ -180,6 +272,8 @@ internal fun DesktopDriveInputPublisher(
 
 private const val PUBLISH_INTERVAL_MS = 20L
 private const val RESTART_DELAY_MS = 250L
+internal const val REHANDSHAKE_AFTER_GAP_MS = 250L
+internal const val NEUTRAL_HANDSHAKE_FRAME_COUNT = 5
 private const val FRAME_VALUE_COUNT = 8
 private const val FRAME_VERSION = 2.0
 private const val VERSION_INDEX = 0

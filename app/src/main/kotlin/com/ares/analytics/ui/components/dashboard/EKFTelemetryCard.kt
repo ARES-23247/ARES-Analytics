@@ -41,7 +41,7 @@ fun EKFTelemetryCard(
     var currentCovTheta by remember { mutableStateOf(0.0) }
 
     LaunchedEffect(Unit) {
-        nt4ClientService.telemetryFlow.collect { frame ->
+        nt4ClientService.uiTelemetryFlow.collect { frame ->
             val key = frame.key
                 when {
                     key.endsWith("Drive/EKF_Drift_X") -> {

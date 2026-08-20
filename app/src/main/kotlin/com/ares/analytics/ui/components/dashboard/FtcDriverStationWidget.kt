@@ -152,7 +152,7 @@ fun FtcDriverStationWidget(
     // Listen to NT4 topics
     LaunchedEffect(nt4Client) {
         launch {
-            nt4Client.telemetryFlow.collect { frame ->
+            nt4Client.uiTelemetryFlow.collect { frame ->
                 val cleanKey = frame.key.trimStart('/')
                 when {
                     cleanKey == "ARES/DriverStation/TeleOpList" || cleanKey.endsWith("TeleOpList") -> {
@@ -184,7 +184,7 @@ fun FtcDriverStationWidget(
 
         // Listen to telemetry lines which arrive as .../Telemetry/0, 1, 2...
         launch {
-            nt4Client.telemetryFlow.filter { it.key.startsWith("ARES/DriverStation/Telemetry") }.collect { frame ->
+            nt4Client.uiTelemetryFlow.filter { it.key.startsWith("ARES/DriverStation/Telemetry") }.collect { frame ->
                 frame.stringValue?.let { line ->
                     val indexPart = frame.key.substringAfterLast("/")
                     val idx = indexPart.toIntOrNull()

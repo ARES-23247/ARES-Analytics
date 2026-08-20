@@ -8,30 +8,24 @@ import kotlin.test.assertTrue
 
 class DesktopDriveKeyDispatcherTest {
     @Test
-    fun `drive keys are ignored until control is armed then tracked independently of deadman`() {
+    fun `drive keys are ignored until loopback simulator control is armed`() {
         val state = KeyboardDriveState()
 
         assertFalse(applyDesktopDriveKey(state, true, KeyEvent.VK_SPACE, true))
         state.enabled = true
         assertTrue(applyDesktopDriveKey(state, true, KeyEvent.VK_W, true))
         assertTrue(state.isWPressed)
-
-        assertTrue(applyDesktopDriveKey(state, true, KeyEvent.VK_SPACE, true))
-        assertTrue(state.deadmanPressed)
-        assertTrue(applyDesktopDriveKey(state, true, KeyEvent.VK_W, true))
-        assertTrue(state.isWPressed)
     }
 
     @Test
-    fun `releasing deadman stops authorization without losing held movement keys`() {
+    fun `space is not consumed or used as a drive authorization switch`() {
         val state = KeyboardDriveState().apply { enabled = true }
-        applyDesktopDriveKey(state, true, KeyEvent.VK_SPACE, true)
         applyDesktopDriveKey(state, true, KeyEvent.VK_W, true)
         applyDesktopDriveKey(state, true, KeyEvent.VK_LEFT, true)
 
-        assertTrue(applyDesktopDriveKey(state, true, KeyEvent.VK_SPACE, false))
+        assertFalse(applyDesktopDriveKey(state, true, KeyEvent.VK_SPACE, true))
+        assertFalse(applyDesktopDriveKey(state, true, KeyEvent.VK_SPACE, false))
         assertTrue(state.enabled)
-        assertFalse(state.deadmanPressed)
         assertTrue(state.isWPressed)
         assertTrue(state.isLeftPressed)
     }
@@ -43,7 +37,6 @@ class DesktopDriveKeyDispatcherTest {
         assertFalse(applyDesktopDriveKey(state, true, KeyEvent.VK_D, true, controlDown = true))
         state.useGamepad = true
         assertFalse(applyDesktopDriveKey(state, true, KeyEvent.VK_SPACE, true))
-        assertFalse(state.deadmanPressed)
     }
 
     @Test

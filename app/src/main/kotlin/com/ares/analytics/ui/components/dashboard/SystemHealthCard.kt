@@ -39,7 +39,7 @@ fun SystemHealthCard(
 
     LaunchedEffect(Unit) {
         scope.launch {
-            nt4ClientService.telemetryFlow.collect { frame ->
+            nt4ClientService.uiTelemetryFlow.collect { frame ->
                 val key = frame.key.lowercase()
                 val value = frame.value
 

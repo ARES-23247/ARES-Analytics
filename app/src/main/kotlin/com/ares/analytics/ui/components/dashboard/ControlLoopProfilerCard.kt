@@ -73,7 +73,7 @@ fun ControlLoopProfilerCard(
             actualHistory.clear()
 
             scope.launch {
-                nt4ClientService.telemetryFlow.collect { frame ->
+                nt4ClientService.uiTelemetryFlow.collect { frame ->
                     val now = System.currentTimeMillis()
                     when {
                         frame.key == "$selectedMotor/TargetPosition" || frame.key == "$selectedMotor/TargetVelocity" -> {

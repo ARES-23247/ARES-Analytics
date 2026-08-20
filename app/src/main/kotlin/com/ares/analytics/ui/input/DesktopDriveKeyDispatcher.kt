@@ -4,8 +4,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
 import com.ares.analytics.di.KeyboardDriveState
+import java.awt.AWTEvent
 import java.awt.KeyEventDispatcher
 import java.awt.KeyboardFocusManager
+import java.awt.Toolkit
+import java.awt.event.AWTEventListener
 import java.awt.event.KeyEvent
 
 /**
@@ -13,8 +16,8 @@ import java.awt.event.KeyEvent
  *
  * Compose controls such as buttons, menus, and text fields can become the focused AWT child and
  * consume a key before a root `Modifier.onPreviewKeyEvent` observes it. The desktop dispatcher is
- * intentionally installed at the window event-queue boundary; it remains inert until Dashboard is
- * active and local control has been explicitly armed.
+ * intentionally installed at the window event-queue boundary; it remains inert until the local
+ * simulator Dashboard is active and local control has been explicitly armed.
  */
 internal fun applyDesktopDriveKey(
     state: KeyboardDriveState,
@@ -25,16 +28,9 @@ internal fun applyDesktopDriveKey(
 ): Boolean {
     if (!controlSurfaceActive || !state.enabled || state.useGamepad) return false
 
-    if (keyCode == KeyEvent.VK_SPACE) {
-        if (controlDown && isPressed) return false
-        state.deadmanPressed = isPressed
-        return true
-    }
-
-    // Track physical key state while armed even when Space is not down. The drive publisher is
-    // the authorization boundary and remains neutral until deadmanPressed is true. This makes
-    // W+Space and Space+W equivalent, and it prevents a Ctrl-modified key release from leaving a
-    // movement key latched. Focus loss still calls releaseAll() as the fail-safe reset.
+    // Track physical key state only while the loopback simulator surface is armed. The publisher
+    // independently enforces the loopback-only destination boundary, and a Ctrl-modified key
+    // release still clears a movement key instead of leaving it latched.
     return when (keyCode) {
         KeyEvent.VK_W -> updateDriveKey(isPressed, controlDown) { state.isWPressed = it }
         KeyEvent.VK_S -> updateDriveKey(isPressed, controlDown) { state.isSPressed = it }
@@ -74,7 +70,7 @@ fun DesktopDriveKeyDispatcher(
 
     DisposableEffect(state) {
         val focusManager = KeyboardFocusManager.getCurrentKeyboardFocusManager()
-        val dispatcher = KeyEventDispatcher { event ->
+        val applyEvent: (KeyEvent) -> Boolean = { event ->
             if (event.id != KeyEvent.KEY_PRESSED && event.id != KeyEvent.KEY_RELEASED) {
                 false
             } else {
@@ -87,8 +83,17 @@ fun DesktopDriveKeyDispatcher(
                 )
             }
         }
+        val dispatcher = KeyEventDispatcher(applyEvent)
+        // Compose popups and focus-owner transitions can bypass or replace the initially observed
+        // KeyboardFocusManager dispatch route. The toolkit listener is an independent, JVM-local
+        // fallback; duplicate press/release assignments are idempotent.
+        val toolkitListener = AWTEventListener { event ->
+            if (event is KeyEvent) applyEvent(event)
+        }
         focusManager.addKeyEventDispatcher(dispatcher)
+        Toolkit.getDefaultToolkit().addAWTEventListener(toolkitListener, AWTEvent.KEY_EVENT_MASK)
         onDispose {
+            Toolkit.getDefaultToolkit().removeAWTEventListener(toolkitListener)
             focusManager.removeKeyEventDispatcher(dispatcher)
             state.releaseAll()
         }

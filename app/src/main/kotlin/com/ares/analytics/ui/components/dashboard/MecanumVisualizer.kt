@@ -58,7 +58,7 @@ fun MecanumVisualizer(
         }
         nt4ClientService != null -> {
             LaunchedEffect(Unit) {
-                nt4ClientService.telemetryFlow.collect { frame ->
+                nt4ClientService.uiTelemetryFlow.collect { frame ->
                     val key = frame.key
                     val value = frame.value
                     when (key) {

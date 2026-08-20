@@ -92,9 +92,11 @@ internal class Nt4OutboundPublisher(
     }.toDouble()
 
     suspend fun publishDriveFrame(values: DoubleArray): Boolean = driveFramePublishMutex.withLock {
-        val frame = values.copyOf()
-        val pendingState = driveFrameValidator.validate(frame)
-        if (!publishInputDoubleArray(DRIVE_FRAME_PUB_UID, frame)) return@withLock false
+        // The caller retains the buffer until this method returns. Validation and MessagePack
+        // encoding are synchronous inside this mutex, so a defensive second array copy only adds
+        // allocation pressure to the 50 Hz control path.
+        val pendingState = driveFrameValidator.validate(values)
+        if (!publishInputDoubleArray(DRIVE_FRAME_PUB_UID, values)) return@withLock false
         driveFrameValidator.commit(pendingState)
         true
     }

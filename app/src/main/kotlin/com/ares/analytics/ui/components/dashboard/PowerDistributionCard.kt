@@ -35,7 +35,7 @@ fun PowerDistributionCard(
 
     LaunchedEffect(Unit) {
         scope.launch {
-            nt4ClientService.telemetryFlow.collect { frame ->
+            nt4ClientService.uiTelemetryFlow.collect { frame ->
                 val key = frame.key
                 val lowerKey = key.lowercase()
                 val value = frame.value

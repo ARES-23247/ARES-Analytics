@@ -26,11 +26,28 @@ import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.FieldViewerViewModel
 import com.ares.analytics.viewmodel.FieldViewerIntent
+import com.ares.analytics.viewmodel.LivePoseState
 import androidx.compose.material.icons.filled.SwapHoriz
 
 private fun waypointOrNull(x: Double?, y: Double?, headingRad: Double?): Waypoint? {
     return Waypoint(x ?: return null, y ?: return null, headingRad ?: return null)
 }
+
+/** Keeps the live simulator robot current even when the optional trace publishes less often. */
+internal fun fieldRobotPath(
+    poseHistory: List<Waypoint>,
+    liveTruePose: Waypoint?,
+    tracerEnabled: Boolean,
+): List<Waypoint> = when {
+    liveTruePose == null -> poseHistory
+    !tracerEnabled -> listOf(liveTruePose)
+    poseHistory.lastOrNull() == liveTruePose -> poseHistory
+    else -> poseHistory + liveTruePose
+}
+
+/** Keeps the estimator overlay independent from simulator truth so EKF error remains observable. */
+internal fun fieldEstimatedPose(liveState: LivePoseState): Waypoint? =
+    waypointOrNull(liveState.ekfX, liveState.ekfY, liveState.ekfHeading)
 
 @Composable
 fun FieldViewerCard(
@@ -45,7 +62,10 @@ fun FieldViewerCard(
     val viewModel = remember(nt4ClientService) { FieldViewerViewModel(nt4ClientService, scope) }
     val state by viewModel.state.collectAsState()
     val liveState by viewModel.livePose.collectAsState()
-    val estimatedPose = waypointOrNull(liveState.ekfX, liveState.ekfY, liveState.ekfHeading)
+    val liveTruePose = if (liveState.hasTruePoseData) {
+        waypointOrNull(liveState.trueX, liveState.trueY, liveState.trueHeading)
+    } else null
+    val estimatedPose = fieldEstimatedPose(liveState)
     val odomPose = waypointOrNull(liveState.odomX, liveState.odomY, liveState.odomHeading)
     var showEkfPose by remember { mutableStateOf(true) }
     var showOdomPose by remember { mutableStateOf(true) }
@@ -188,7 +208,11 @@ fun FieldViewerCard(
                                             checkmarkColor = AresBackground
                                         )
                                     )
-                                    Text("Estimated (EKF)", color = AresTextPrimary, fontSize = 12.sp)
+                                    Text(
+                                        "Estimated (EKF)",
+                                        color = AresTextPrimary,
+                                        fontSize = 12.sp,
+                                    )
                                 }
                             }
                             DropdownMenuItem(onClick = { showOdomPose = !showOdomPose }) {
@@ -265,7 +289,7 @@ fun FieldViewerCard(
                 FieldCanvas(
                     league = league,
                     waypoints = emptyList(),
-                    actualPath = if (tracerEnabled) state.poseHistory else listOfNotNull(state.poseHistory.lastOrNull() ?: Waypoint(liveState.trueX, liveState.trueY, liveState.trueHeading)),
+                    actualPath = fieldRobotPath(state.poseHistory, liveTruePose, tracerEnabled),
                     onWaypointsChanged = {},
                     projectPath = projectPath,
                     estimatedPose = estimatedPose,

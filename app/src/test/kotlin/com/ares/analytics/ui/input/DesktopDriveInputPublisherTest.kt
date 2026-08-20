@@ -9,22 +9,21 @@ import kotlin.test.assertTrue
 
 class DesktopDriveInputPublisherTest {
     @Test
-    fun `keyboard motion requires armed dashboard and deadman`() {
+    fun `keyboard motion requires only an armed local simulator surface`() {
         val keyboard = KeyboardDriveState().apply {
             enabled = true
             isWPressed = true
         }
 
-        val withoutDeadman = desktopDriveIntent(
+        val inactiveSurface = desktopDriveIntent(
             keyboard,
             GamepadState(),
-            controlSurfaceActive = true,
+            controlSurfaceActive = false,
             league = League.FTC,
             isRedAlliance = true,
         )
-        assertEquals(DesktopFieldDriveCommand(0.0, 0.0, 0.0), withoutDeadman.command)
+        assertEquals(DesktopFieldDriveCommand(0.0, 0.0, 0.0), inactiveSurface.command)
 
-        keyboard.deadmanPressed = true
         val armed = desktopDriveIntent(
             keyboard,
             GamepadState(),
@@ -33,6 +32,29 @@ class DesktopDriveInputPublisherTest {
             isRedAlliance = true,
         )
         assertEquals(DesktopFieldDriveCommand(0.0, 4.0, 0.0), armed.command)
+    }
+
+    @Test
+    fun `publisher gap forces a fresh neutral handshake session`() {
+        var now = 1_000L
+        val session = DesktopDriveFrameSession(sessionNonce = 88.0, clockMs = { now })
+        val intent = DesktopDriveIntent(
+            command = DesktopFieldDriveCommand(1.0, 0.0, 0.0),
+            modeFlags = desktopDriveModeFlags(isRedAlliance = true),
+            actuationFlags = 0L,
+        )
+
+        session.frameFor(intent)
+        session.markTransmitted()
+        now += REHANDSHAKE_AFTER_GAP_MS - 1L
+        assertEquals(REHANDSHAKE_AFTER_GAP_MS - 1L, session.successfulTransmissionAgeMs())
+        assertTrue(!session.needsRehandshake())
+        now += 1L
+        assertEquals(REHANDSHAKE_AFTER_GAP_MS, session.successfulTransmissionAgeMs())
+        assertTrue(session.needsRehandshake())
+
+        val replacement = DesktopDriveFrameSession(sessionNonce = 89.0, clockMs = { now })
+        assertEquals(listOf(0.0, 0.0, 0.0), replacement.frameFor(intent).slice(4..6))
     }
 
     @Test
@@ -48,11 +70,14 @@ class DesktopDriveInputPublisherTest {
         assertEquals(listOf(0.0, 0.0, 0.0), neutral.slice(4..6))
         assertEquals(intent.modeFlags.toDouble(), neutral[7])
 
-        session.markTransmitted()
+        repeat(NEUTRAL_HANDSHAKE_FRAME_COUNT) {
+            assertEquals(listOf(0.0, 0.0, 0.0), session.frameFor(intent).slice(4..6))
+            session.markTransmitted()
+        }
         val active = session.frameFor(intent).copyOf()
         assertEquals(listOf(1.0, 2.0, 3.0), active.slice(4..6))
         assertEquals((intent.modeFlags or intent.actuationFlags).toDouble(), active[7])
-        assertEquals(1.0, active[2])
+        assertEquals(NEUTRAL_HANDSHAKE_FRAME_COUNT.toDouble(), active[2])
     }
 
     @Test
@@ -74,14 +99,13 @@ class DesktopDriveInputPublisherTest {
     }
 
     @Test
-    fun `gamepad mechanism flags require its deadman`() {
+    fun `connected gamepad drives directly while local simulator control is armed`() {
         val keyboard = KeyboardDriveState().apply {
             enabled = true
             useGamepad = true
         }
         val gamepad = GamepadState(
             connected = true,
-            leftTrigger = 1.0f,
             leftStickY = 1.0f,
             leftBumper = true,
             a = true,

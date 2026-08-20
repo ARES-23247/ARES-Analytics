@@ -27,6 +27,16 @@ import kotlin.test.assertTrue
  * Nt4ClientServiceTest class.
  */
 class Nt4ClientServiceTest {
+    @Test
+    fun `dashboard drive control accepts only loopback target hosts`() {
+        assertTrue(isLoopbackDriveControlHost("127.0.0.1"))
+        assertTrue(isLoopbackDriveControlHost("localhost"))
+        assertTrue(isLoopbackDriveControlHost("[::1]"))
+        assertFalse(isLoopbackDriveControlHost("192.168.43.1"))
+        assertFalse(isLoopbackDriveControlHost("10.232.47.2"))
+        assertFalse(isLoopbackDriveControlHost("robot.local"))
+    }
+
     private lateinit var tempDb: File
     private lateinit var databaseService: DatabaseService
     private lateinit var nt4ClientService: Nt4ClientService

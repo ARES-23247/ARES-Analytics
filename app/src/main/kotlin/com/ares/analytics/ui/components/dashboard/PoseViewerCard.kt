@@ -75,7 +75,7 @@ fun PoseViewerCard(
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(nt4ClientService) {
-        nt4ClientService.telemetryFlow.collect { frame ->
+        nt4ClientService.uiTelemetryFlow.collect { frame ->
             // Refresh on every received sample, even when a stationary robot repeatedly
             // publishes the same numeric value and Compose suppresses equal state writes.
             if (frame.key in POSE_STATUS_TOPICS) {

@@ -82,7 +82,7 @@ fun SignalTreePanel(
 
     // Subscribe to live telemetry flow to update values
     LaunchedEffect(Unit) {
-        nt4ClientService.telemetryFlow.collect { frame ->
+        nt4ClientService.uiTelemetryFlow.collect { frame ->
             liveValues[frame.key] = frame.value
         }
     }

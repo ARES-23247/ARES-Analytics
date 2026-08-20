@@ -2,6 +2,7 @@ package com.ares.analytics.viewmodel.field
 
 import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.service.Nt4ClientService
+import com.ares.analytics.service.SimulatorPoseFrameSnapshot
 import com.ares.analytics.viewmodel.FieldViewerState
 import com.ares.analytics.viewmodel.FieldViewerIntent
 import com.ares.analytics.viewmodel.FieldViewerViewModel
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -20,6 +22,98 @@ import kotlin.test.assertTrue
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class FieldTopicSubscriberTest {
+    @Test
+    fun `packed simulator pose commits once at its sequence marker`() {
+        val accumulator = FieldPoseFrameAccumulator()
+        val values = listOf(1.0, 2.0, 0.3, 1.01, 2.01, 0.31, 1.0, 2.0, 0.3)
+        values.forEachIndexed { index, value ->
+            assertFalse(accumulator.accept("ARES/SimulatorPoseFrame/$index", value))
+        }
+        assertTrue(accumulator.accept("ARES/SimulatorPoseFrame/9", 42.0))
+
+        val rendered = accumulator.snapshot(LivePoseState())
+        assertEquals(1.0, rendered.trueX)
+        assertEquals(2.0, rendered.trueY)
+        assertEquals(1.0, rendered.odomX)
+        assertEquals(2.0, rendered.odomY)
+        assertEquals(1.01, rendered.ekfX)
+        assertEquals(2.01, rendered.ekfY)
+        assertFalse(accumulator.accept("ARES/EstimatedPose/0", -7.0))
+        assertEquals(1.01, accumulator.snapshot(rendered).ekfX)
+    }
+
+    @Test
+    fun `atomic packed parent cannot be overwritten by dropped scalar fragments`() {
+        val accumulator = FieldPoseFrameAccumulator()
+        accumulator.accept(
+            SimulatorPoseFrameSnapshot(
+                trueX = 4.0,
+                trueY = 5.0,
+                trueHeading = 0.4,
+                ekfX = 4.01,
+                ekfY = 5.01,
+                ekfHeading = 0.41,
+                odomX = 4.0,
+                odomY = 5.0,
+                odomHeading = 0.4,
+                sequence = 17L,
+                timestampMs = 100L,
+                timestampUs = 100_000L,
+            )
+        )
+
+        assertFalse(accumulator.accept("ARES/SimulatorPoseFrame/4", -99.0))
+        assertFalse(accumulator.accept("ARES/SimulatorPoseFrame/9", 18.0))
+        val rendered = accumulator.snapshot(LivePoseState())
+        assertEquals(4.0, rendered.trueX)
+        assertEquals(5.01, rendered.ekfY)
+        assertEquals(5.0, rendered.odomY)
+    }
+
+    @Test
+    fun `field subscriber consumes packed parent as one immutable pose`() = runTest {
+        val databaseFile = File.createTempFile("field-atomic-pose", ".duckdb")
+        val database = DatabaseService(databaseFile.absolutePath)
+        val nt4 = Nt4ClientService(database)
+        try {
+            val state = MutableStateFlow(FieldViewerState())
+            val livePose = MutableStateFlow(LivePoseState())
+            FieldTopicSubscriber(nt4, backgroundScope, state, livePose, UnconfinedTestDispatcher(testScheduler))
+            runCurrent()
+
+            nt4.handleIncomingText(
+                """[{"method":"announce","params":{"name":"/ARES/SimulatorPoseFrame","id":40,"type":"double[]"}}]""",
+                "team", "season", "robot"
+            )
+            nt4.handleIncomingText(
+                """[{"topic":40,"time":123000,"value":[1.0,2.0,0.3,1.01,2.01,0.31,1.0,2.0,0.3,42.0]}]""",
+                "team", "season", "robot"
+            )
+            runCurrent()
+
+            assertEquals(42L, nt4.simulatorPoseFrame.value?.sequence)
+            assertEquals(1.0, livePose.value.trueX)
+            assertEquals(2.0, livePose.value.trueY)
+            assertEquals(1.01, livePose.value.ekfX)
+            assertEquals(2.01, livePose.value.ekfY)
+            assertEquals(1.0, livePose.value.odomX)
+            assertEquals(2.0, livePose.value.odomY)
+        } finally {
+            nt4.stop()
+            database.close()
+            databaseFile.delete()
+        }
+    }
+
+    @Test
+    fun `field reducer rejects unrelated high-rate telemetry before state work`() {
+        assertTrue(isFieldViewerTopic("ARES/TruePose/0"))
+        assertTrue(isFieldViewerTopic("Vision/PoseArray/3"))
+        assertTrue(isFieldViewerTopic("ARES/GamePieces/7"))
+        assertFalse(isFieldViewerTopic("Tuning/Parameters/ftc.drive.heading.kp/Current"))
+        assertFalse(isFieldViewerTopic("Hardware/Motors/fl/Velocity"))
+    }
+
     @Test
     fun `alliance toggle updates the atomic frame selection`() = runTest {
         val databaseFile = File.createTempFile("field-alliance-toggle", ".duckdb")
@@ -67,7 +161,7 @@ class FieldTopicSubscriberTest {
         try {
             val state = MutableStateFlow(FieldViewerState())
             val livePose = MutableStateFlow(LivePoseState())
-            FieldTopicSubscriber(nt4, backgroundScope, state, livePose)
+            FieldTopicSubscriber(nt4, backgroundScope, state, livePose, UnconfinedTestDispatcher(testScheduler))
             runCurrent()
 
             nt4.handleIncomingText(
@@ -105,29 +199,37 @@ class FieldTopicSubscriberTest {
     }
 
     @Test
-    fun `simulator estimate cannot be overwritten by trailing robot pose topics`() = runTest {
+    fun `simulator estimate alias cannot be overwritten by duplicate robot pose topics`() = runTest {
         val databaseFile = File.createTempFile("field-pose-source-priority", ".duckdb")
         val database = DatabaseService(databaseFile.absolutePath)
         val nt4 = Nt4ClientService(database)
         try {
             val state = MutableStateFlow(FieldViewerState())
             val livePose = MutableStateFlow(LivePoseState())
-            FieldTopicSubscriber(nt4, backgroundScope, state, livePose)
+            FieldTopicSubscriber(nt4, backgroundScope, state, livePose, UnconfinedTestDispatcher(testScheduler))
             runCurrent()
 
             nt4.handleIncomingText(
                 """[
                     {"method":"announce","params":{"name":"/ARES/TruePose/0","id":30,"type":"double"}},
-                    {"method":"announce","params":{"name":"/ARES/EstimatedPose/0","id":31,"type":"double"}},
-                    {"method":"announce","params":{"name":"/Drive/Pose_X","id":32,"type":"double"}}
+                    {"method":"announce","params":{"name":"/ARES/TruePose/1","id":31,"type":"double"}},
+                    {"method":"announce","params":{"name":"/ARES/TruePose/2","id":32,"type":"double"}},
+                    {"method":"announce","params":{"name":"/ARES/EstimatedPose/0","id":33,"type":"double"}},
+                    {"method":"announce","params":{"name":"/ARES/EstimatedPose/1","id":34,"type":"double"}},
+                    {"method":"announce","params":{"name":"/ARES/EstimatedPose/2","id":35,"type":"double"}},
+                    {"method":"announce","params":{"name":"/Drive/Pose_X","id":36,"type":"double"}}
                 ]""".trimIndent(),
                 "team", "season", "robot"
             )
             nt4.handleIncomingText(
                 """[
                     {"topic":30,"time":1000,"value":4.0},
-                    {"topic":31,"time":1001,"value":4.0},
-                    {"topic":32,"time":1002,"value":-7.0}
+                    {"topic":31,"time":1000,"value":5.0},
+                    {"topic":32,"time":1000,"value":0.4},
+                    {"topic":33,"time":1000,"value":3.8},
+                    {"topic":34,"time":1000,"value":4.8},
+                    {"topic":35,"time":1000,"value":0.38},
+                    {"topic":36,"time":1000,"value":-7.0}
                 ]""",
                 "team", "season", "robot"
             )
@@ -135,7 +237,7 @@ class FieldTopicSubscriberTest {
 
             assertTrue(livePose.value.hasTruePoseData)
             assertEquals(4.0, livePose.value.trueX)
-            assertEquals(4.0, livePose.value.ekfX)
+            assertEquals(3.8, livePose.value.ekfX)
         } finally {
             nt4.stop()
             database.close()

@@ -64,13 +64,17 @@ Work from the top of this table; do not repeatedly launch more simulator process
 - **Verify & build** regenerates, compiles, and tests the selected project without deploying it.
   Robot Studio requires a successful build for the selected workspace before enabling its simulator
   action, preventing stale generated code from being launched accidentally.
-- Keyboard/driver controls may command the simulated model. Use them only when the instructor has explained the deadman/enable behavior.
+- Keyboard/driver controls may command the simulated model after **Arm control**. They have no held deadman; the NT4 transport rejects drive frames unless the active connection is loopback, so this control surface cannot address a physical robot target.
 - A green simulator dot does not prove a nearby robot is disabled. Continue to follow the team's physical robot rules.
 
 ## Mentor / advanced detail
 
 The toolbar launches the configured simulator command in the active robot project. With no override, Analytics uses the league default (FTC `:TeamCode:runSim`, FRC `simulateJava`) or a packaged simulator JAR when present. It then connects the same `Nt4ClientService` used for robots to loopback.
 
-Simulator ground-truth pose normally arrives under `ARES/EstimatedPose/*`; robot estimator pose normally arrives under `Drive/Pose_*`. Both are CCW-positive radians internally. If a heading visualization disagrees, verify the producer rather than adding a dashboard sign flip.
+Simulator ground truth arrives under `ARES/TruePose/*`. Its real Redux EKF arrives under
+`ARES/EstimatedPose/*` and the `Drive/Pose_*` aliases; raw odometry arrives under `Drive/Odom_*`.
+All are CCW-positive radians internally and describe the same observation cycle. If overlays
+disagree, verify producer timestamps and ownership rather than masking one stream in the dashboard
+or adding a sign flip.
 
 Next: [Bring in a run](../operate/BRING_IN_A_RUN.md).
