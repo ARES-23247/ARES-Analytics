@@ -22,6 +22,7 @@ class FieldTopicSubscriber(
                 livePoseFlow.update { currentState ->
                     currentState.copy(
                         isConnected = connected,
+                        hasTruePoseData = if (connected) currentState.hasTruePoseData else false,
                         visionHasTarget = if (connected) currentState.visionHasTarget else false,
                         visionX = if (connected && currentState.visionHasTarget) currentState.visionX else null,
                         visionY = if (connected && currentState.visionHasTarget) currentState.visionY else null,
@@ -58,9 +59,18 @@ class FieldTopicSubscriber(
                         "ARES/TruePose/0" -> next = next.copy(trueX = value, hasTruePoseData = true)
                         "ARES/TruePose/1" -> next = next.copy(trueY = value, hasTruePoseData = true)
                         "ARES/TruePose/2" -> next = next.copy(simHeading = value, trueHeading = value, hasTruePoseData = true)
-                        "ARES/EstimatedPose/0", "Drive/Pose_X" -> next = next.copy(ekfX = value)
-                        "ARES/EstimatedPose/1", "Drive/Pose_Y" -> next = next.copy(ekfY = value)
-                        "ARES/EstimatedPose/2", "Drive/Pose_Heading", "Drive/Drive_Heading" -> next = next.copy(ekfHeading = value)
+                        "ARES/EstimatedPose/0" -> next = next.copy(ekfX = value)
+                        "ARES/EstimatedPose/1" -> next = next.copy(ekfY = value)
+                        "ARES/EstimatedPose/2" -> next = next.copy(ekfHeading = value)
+                        // The local simulator publishes ARES/TruePose and ARES/EstimatedPose from the
+                        // same post-physics-step pose. Its Redux Drive/Pose topics can trail behind and
+                        // must not race the simulator-owned estimate. Hardware has no TruePose stream,
+                        // so Drive/Pose remains the fallback there.
+                        "Drive/Pose_X" -> if (!next.hasTruePoseData) next = next.copy(ekfX = value)
+                        "Drive/Pose_Y" -> if (!next.hasTruePoseData) next = next.copy(ekfY = value)
+                        "Drive/Pose_Heading", "Drive/Drive_Heading" -> {
+                            if (!next.hasTruePoseData) next = next.copy(ekfHeading = value)
+                        }
 
                         "Drive/Odom_X" -> next = next.copy(odomX = value)
                         "Drive/Odom_Y" -> next = next.copy(odomY = value)

@@ -103,4 +103,43 @@ class FieldTopicSubscriberTest {
             databaseFile.delete()
         }
     }
+
+    @Test
+    fun `simulator estimate cannot be overwritten by trailing robot pose topics`() = runTest {
+        val databaseFile = File.createTempFile("field-pose-source-priority", ".duckdb")
+        val database = DatabaseService(databaseFile.absolutePath)
+        val nt4 = Nt4ClientService(database)
+        try {
+            val state = MutableStateFlow(FieldViewerState())
+            val livePose = MutableStateFlow(LivePoseState())
+            FieldTopicSubscriber(nt4, backgroundScope, state, livePose)
+            runCurrent()
+
+            nt4.handleIncomingText(
+                """[
+                    {"method":"announce","params":{"name":"/ARES/TruePose/0","id":30,"type":"double"}},
+                    {"method":"announce","params":{"name":"/ARES/EstimatedPose/0","id":31,"type":"double"}},
+                    {"method":"announce","params":{"name":"/Drive/Pose_X","id":32,"type":"double"}}
+                ]""".trimIndent(),
+                "team", "season", "robot"
+            )
+            nt4.handleIncomingText(
+                """[
+                    {"topic":30,"time":1000,"value":4.0},
+                    {"topic":31,"time":1001,"value":4.0},
+                    {"topic":32,"time":1002,"value":-7.0}
+                ]""",
+                "team", "season", "robot"
+            )
+            runCurrent()
+
+            assertTrue(livePose.value.hasTruePoseData)
+            assertEquals(4.0, livePose.value.trueX)
+            assertEquals(4.0, livePose.value.ekfX)
+        } finally {
+            nt4.stop()
+            database.close()
+            databaseFile.delete()
+        }
+    }
 }

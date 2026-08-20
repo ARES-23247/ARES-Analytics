@@ -406,8 +406,10 @@ open class Nt4ClientService(
         val timestampUs = localMonotonicTimeUs() + offsetUs
         val buffer = encodeNt4BinaryUpdate(pubuid, timestampUs, typeId, valueBytes)
 
-        session.send(Frame.Binary(true, buffer))
-        return true
+        // Control publication must never suspend behind a stalled WebSocket writer. A full or
+        // closed outgoing queue fails this frame immediately; the receiver's 500 ms lease then
+        // neutralizes motion, and the 50 Hz publisher can retry without losing its coroutine.
+        return session.outgoing.trySend(Frame.Binary(true, buffer)).isSuccess
     }
 
     internal fun encodeNt4BinaryUpdate(

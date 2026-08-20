@@ -56,6 +56,11 @@ fun DashboardScreen(
     services: ServiceRegistry,
     currentConfig: WorkspaceConfig,
     isLocalSimulatorSelected: Boolean,
+    isSimulatorLaunchPreparationRunning: Boolean,
+    simulatorLaunchRequiresVerification: Boolean,
+    canLaunchSimulator: Boolean,
+    simulatorLaunchDisabledReason: String?,
+    onLaunchSimulator: () -> Unit,
     matches: List<MatchInfo>,
     onForensicsCompleted: (ForensicsResponse) -> Unit,
     onSelectMatch: (MatchInfo, String) -> Unit,
@@ -197,6 +202,22 @@ fun DashboardScreen(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+
+        if (isLocalSimulator) {
+            LocalSimulatorControlBar(
+                nt4Client = services.nt4ClientService,
+                keyboardDriveState = services.keyboardDriveState,
+                league = currentConfig.league,
+                isConnected = state.isConnected,
+                isSimulatorProcessRunning = isSimRunning,
+                isLaunchPreparationRunning = isSimulatorLaunchPreparationRunning,
+                launchRequiresVerification = simulatorLaunchRequiresVerification,
+                canLaunchSimulator = canLaunchSimulator,
+                simulatorLaunchDisabledReason = simulatorLaunchDisabledReason,
+                onLaunchSimulator = onLaunchSimulator,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
 
         // Configurable widgets area
         val layout = state.currentLayout

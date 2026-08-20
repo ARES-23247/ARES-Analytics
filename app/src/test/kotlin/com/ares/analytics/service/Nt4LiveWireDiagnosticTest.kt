@@ -27,6 +27,8 @@ class Nt4LiveWireDiagnosticTest {
         val topicMap = ConcurrentHashMap<Int, String>()
         val receivedAnnounces = mutableListOf<String>()
         val receivedBinaryTopics = mutableListOf<String>()
+        val latestValues = ConcurrentHashMap<String, Any?>()
+        val updateCounts = ConcurrentHashMap<String, Int>()
         var textFrameCount = 0
         var binaryFrameCount = 0
         var announceCount = 0
@@ -34,7 +36,7 @@ class Nt4LiveWireDiagnosticTest {
         println("=== LIVE WIRE DIAGNOSTIC: Connecting to ws://127.0.0.1:5810 ===")
 
         val result = try {
-            withTimeoutOrNull(3_000) {
+            withTimeoutOrNull(7_000) {
                 client.webSocket(
                     method = io.ktor.http.HttpMethod.Get,
                     host = "127.0.0.1",
@@ -50,6 +52,30 @@ class Nt4LiveWireDiagnosticTest {
                         [{"method": "subscribe", "params": {"topics": [""], "subuid": 1, "options": {"prefix": true}}}]
                     """.trimIndent()
                     send(Frame.Text(subMsg))
+
+                    if (System.getenv("ARES_LIVE_START_FTC_TELEOP") == "1") {
+                        send(
+                            Frame.Text(
+                                """[{"method":"publish","params":{"name":"ARES/DriverStation/SelectedOpMode","pubuid":2091,"type":"string"}},{"method":"publish","params":{"name":"ARES/DriverStation/Command","pubuid":2092,"type":"string"}}]"""
+                            )
+                        )
+                        delay(100)
+                        send(
+                            Frame.Binary(
+                                true,
+                                NT4WireProtocol.encodeValueMessage(
+                                    2091,
+                                    0,
+                                    4,
+                                    "org.firstinspires.ftc.teamcode.opmodes.ARESMecanumTeleOp",
+                                ),
+                            )
+                        )
+                        send(Frame.Binary(true, NT4WireProtocol.encodeValueMessage(2092, 0, 4, "INIT")))
+                        delay(2_000)
+                        send(Frame.Binary(true, NT4WireProtocol.encodeValueMessage(2092, 0, 4, "START")))
+                        println("[DIAG] Requested FTC ARESMecanumTeleOp INIT -> START")
+                    }
 
                     val readJob = launch {
                         for (frame in incoming) {
@@ -80,8 +106,11 @@ class Nt4LiveWireDiagnosticTest {
                                     try {
                                         val messages = NT4WireProtocol.unpackMessageFrames(bytes)
                                         for (msg in messages) {
-                                            val topicName = topicMap[msg.topicId.toInt()] ?: "UNKNOWN(id=${msg.topicId})"
+                                            val topicName = (topicMap[msg.topicId.toInt()] ?: "UNKNOWN(id=${msg.topicId})")
+                                                .removePrefix("/")
                                             receivedBinaryTopics.add(topicName)
+                                            msg.value?.let { latestValues[topicName] = it }
+                                            updateCounts.compute(topicName) { _, count -> (count ?: 0) + 1 }
                                         }
                                     } catch (_: Exception) {}
                                 }
@@ -90,7 +119,7 @@ class Nt4LiveWireDiagnosticTest {
                         }
                     }
 
-                    delay(1000)
+                    delay(5_000)
                     readJob.cancel()
                 }
                 "OK"
@@ -102,6 +131,29 @@ class Nt4LiveWireDiagnosticTest {
 
         if (result != null) {
             assertTrue(announceCount > 0, "Expected at least 1 announce from the server")
+            println("[DIAG] Text frames=$textFrameCount, binary frames=$binaryFrameCount, announces=$announceCount")
+            println(
+                "[DIAG] Relevant announced topics=" +
+                    topicMap.values
+                        .filter { name ->
+                            name.contains("ARES", ignoreCase = true) ||
+                                name.contains("DriverStation", ignoreCase = true) ||
+                                name.contains("Pose", ignoreCase = true)
+                        }
+                        .sorted()
+                        .joinToString()
+            )
+            listOf(
+                "ARES/Input/driveFrame",
+                "ARES/DriverStation/Command",
+                "ARES/DriverStation/ActiveOpModeState",
+                "ARES/DriverStation/SelectedOpMode",
+                "ARES/TruePose",
+                "ARES/EstimatedPose/0",
+                "ARES/EstimatedPose/1",
+            ).forEach { topic ->
+                println("[DIAG] $topic updates=${updateCounts[topic] ?: 0}, latest=${latestValues[topic]}")
+            }
         }
         client.close()
     }

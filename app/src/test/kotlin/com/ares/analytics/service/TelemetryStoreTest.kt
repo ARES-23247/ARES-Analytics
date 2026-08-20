@@ -1,8 +1,12 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.TelemetryFrame
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -90,6 +94,29 @@ class TelemetryStoreTest {
         assertEquals(1, store.topicObserverCount)
         store.accept(frame("Unobserved/99", 101L, 101.0))
         assertEquals(101.0, observed.value?.value)
+    }
+
+    @Test
+    fun `slow dashboard collector cannot stall live telemetry producers`() = runTest {
+        val store = TelemetryStore()
+        val releaseCollector = CompletableDeferred<Unit>()
+        val collector = backgroundScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            store.updates.collect {
+                releaseCollector.await()
+            }
+        }
+
+        withTimeout(1_000) {
+            // Exceeds replay + extra buffer capacity. BufferOverflow.SUSPEND deadlocks here
+            // behind the deliberately stalled collector; DROP_OLDEST remains non-blocking.
+            repeat(5_000) { index ->
+                store.accept(frame("Drive/Live", index.toLong(), index.toDouble()))
+            }
+        }
+
+        assertEquals(4_999.0, store.latest("Drive/Live")?.value)
+        releaseCollector.complete(Unit)
+        collector.cancel()
     }
 
     private fun frame(key: String, timestampMs: Long, value: Double) = TelemetryFrame(

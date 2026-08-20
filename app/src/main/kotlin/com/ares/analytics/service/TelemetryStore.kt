@@ -36,7 +36,11 @@ class TelemetryStore(
     private val mutableUpdates = MutableSharedFlow<TelemetryFrame>(
         replay = 100,
         extraBufferCapacity = 4_096,
-        onBufferOverflow = BufferOverflow.SUSPEND
+        // This is a live UI fan-out bus, not the durable recording queue. A slow or paused
+        // dashboard collector must never backpressure NT4 ingestion or the safety-critical
+        // desktop drive publisher. Keep the freshest telemetry and let lagging UI consumers
+        // catch up from latestFrames/history instead of suspending the producer indefinitely.
+        onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
     val updates: SharedFlow<TelemetryFrame> = mutableUpdates.asSharedFlow()
 
