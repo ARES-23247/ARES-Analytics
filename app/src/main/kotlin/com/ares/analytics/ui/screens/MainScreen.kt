@@ -42,9 +42,8 @@ import com.ares.analytics.ui.components.QuickNavigationMenu
 import com.ares.analytics.ui.components.SectionNavigationBar
 import com.ares.analytics.ui.components.Sidebar
 import com.ares.analytics.ui.components.core.TargetSelection
+import com.ares.analytics.ui.input.DesktopDriveInputPublisher
 import com.ares.analytics.ui.input.DesktopDriveKeyDispatcher
-import com.ares.analytics.ui.input.desktopDriveModeFlags
-import com.ares.analytics.ui.input.mapDesktopFieldCentricDrive
 import com.ares.analytics.ui.components.core.ExecutionToolbar
 import com.ares.analytics.ui.components.core.OneClickDeployDialog
 import com.ares.analytics.ui.components.dashboard.DashboardCommandBar
@@ -64,7 +63,7 @@ import com.ares.analytics.viewmodel.robotstudio.RobotStudioRuntimeEvidence
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioViewModel
 import com.ares.analytics.viewmodel.runanalysis.GuidedRunAnalysisViewModel
 import com.ares.analytics.viewmodel.superstructure.SuperstructureStudioViewModel
-import kotlinx.coroutines.*
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -145,121 +144,16 @@ fun MainScreen(services: ServiceRegistry) {
         }
     }
 
-    // Global 50Hz Drive Input Loop (Keyboard & Gamepad)
     val isNt4Connected by services.nt4ClientService.isConnected.collectAsState()
     val activeLeague = currentConfig?.league ?: League.FTC
-    LaunchedEffect(isNt4Connected, activeNav, activeLeague) {
-        if (!isNt4Connected) return@LaunchedEffect
-        while (currentCoroutineContext().isActive) {
-            val driveFrame = DoubleArray(8)
-            val driveSessionNonce = services.nt4ClientService.nextDriveSessionNonce()
-            var driveSequence = 0L
-            var sentNeutralHandshake = false
-
-            try {
-                while (currentCoroutineContext().isActive) {
-                    val ks = services.keyboardDriveState
-                    val g1 = services.gamepadService.gamepad1State.value
-                    val controlSurfaceActive = activeNav == NavigationTarget.DASHBOARD && ks.enabled
-                    val deadmanActive = if (ks.useGamepad) {
-                        g1.connected && g1.leftTrigger > 0.5f
-                    } else {
-                        ks.deadmanPressed
-                    }
-                    val localInputActive = controlSurfaceActive && deadmanActive
-
-                    val (vx, vy, omega) = if (localInputActive && ks.useGamepad && g1.connected) {
-                        val rawY = com.areslib.math.InputMath.applyDeadband(g1.leftStickY.toDouble(), 0.02)
-                        val rawX = com.areslib.math.InputMath.applyDeadband(g1.leftStickX.toDouble(), 0.02)
-                        val rawRot = com.areslib.math.InputMath.applyDeadband(g1.rightStickX.toDouble(), 0.02)
-                        val command = mapDesktopFieldCentricDrive(
-                            league = activeLeague,
-                            forward = com.areslib.math.InputMath.applyCurve(rawY, 1.2),
-                            right = com.areslib.math.InputMath.applyCurve(rawX, 1.2),
-                            counterClockwise = -com.areslib.math.InputMath.applyCurve(rawRot, 1.2),
-                        )
-                        Triple(command.vxMetersPerSecond, command.vyMetersPerSecond, command.omegaRadiansPerSecond)
-                    } else if (localInputActive) {
-                        val forward = when {
-                            ks.isWPressed || ks.isUpPressed -> 4.0
-                            ks.isSPressed || ks.isDownPressed -> -4.0
-                            else -> 0.0
-                        }
-                        val right = when {
-                            ks.isDPressed -> 4.0
-                            ks.isAPressed -> -4.0
-                            else -> 0.0
-                        }
-                        val counterClockwise = when {
-                            ks.isLeftPressed -> 4.0
-                            ks.isRightPressed -> -4.0
-                            else -> 0.0
-                        }
-                        val command = mapDesktopFieldCentricDrive(
-                            league = activeLeague,
-                            forward = forward / 4.0,
-                            right = right / 4.0,
-                            counterClockwise = counterClockwise / 4.0,
-                        )
-                        Triple(command.vxMetersPerSecond, command.vyMetersPerSecond, command.omegaRadiansPerSecond)
-                    } else {
-                        Triple(0.0, 0.0, 0.0)
-                    }
-
-                    val qPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.leftBumper else ks.isQPressed
-                    val ePressed = localInputActive && if (ks.useGamepad && g1.connected) g1.rightBumper else ks.isEPressed
-                    val shiftPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.rightTrigger > 0.5f else ks.isShiftPressed
-                    val jPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.a else ks.isJPressed
-                    val lPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.b else ks.isLPressed
-                    val uPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.x else ks.isUPressed
-
-                    // Complete v2 command contract. Every new connection starts with a neutral
-                    // actuation frame; consumers may arm only on a later sequence in this session.
-                    var flags = desktopDriveModeFlags(services.nt4ClientService.selectedRedAlliance.value)
-                    if (sentNeutralHandshake && qPressed) flags = flags or (1L shl 0)
-                    if (sentNeutralHandshake && ePressed) flags = flags or (1L shl 1)
-                    if (sentNeutralHandshake && shiftPressed) flags = flags or (1L shl 2)
-                    if (sentNeutralHandshake && jPressed) flags = flags or (1L shl 6)
-                    if (sentNeutralHandshake && lPressed) flags = flags or (1L shl 7)
-                    if (sentNeutralHandshake && uPressed) flags = flags or (1L shl 8)
-                    // Bit 9 (pose reset) is edge-triggered and currently has no global shortcut.
-
-                    driveFrame[0] = 2.0
-                    driveFrame[1] = driveSessionNonce
-                    driveFrame[2] = driveSequence.toDouble()
-                    driveFrame[3] = (System.nanoTime() / 1_000_000L).toDouble()
-                    driveFrame[4] = if (sentNeutralHandshake) vx else 0.0
-                    driveFrame[5] = if (sentNeutralHandshake) vy else 0.0
-                    driveFrame[6] = if (sentNeutralHandshake) omega else 0.0
-                    driveFrame[7] = flags.toDouble()
-                    val driveFrameTransmitted = services.nt4ClientService.publishDriveFrame(driveFrame)
-                    if (!driveFrameTransmitted) {
-                        // isConnected becomes true before the NT4 clock offset is established. Keep
-                        // retrying the neutral sequence and do not emit legacy motion in that window.
-                        delay(20)
-                        continue
-                    }
-                    sentNeutralHandshake = true
-                    driveSequence++
-
-                    delay(20)
-                }
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                // A control publisher must never fail once and silently remain dead while the
-                // desktop and simulator stay connected. Fail closed, log the cause, then begin a
-                // fresh leased session whose first frame is guaranteed neutral.
-                services.keyboardDriveState.releaseAll()
-                System.err.println(
-                    "[DesktopDriveInput] Publisher session failed; restarting with a neutral frame: " +
-                        "${error::class.simpleName}: ${error.message}"
-                )
-                error.printStackTrace(System.err)
-                delay(250)
-            }
-        }
-    }
+    DesktopDriveInputPublisher(
+        nt4ClientService = services.nt4ClientService,
+        keyboardState = services.keyboardDriveState,
+        gamepadState = services.gamepadService.gamepad1State,
+        connected = isNt4Connected,
+        controlSurfaceActive = currentConfig != null && activeNav == NavigationTarget.DASHBOARD,
+        league = activeLeague,
+    )
 
     if (currentConfig == null) {
         val onboardingViewModel = remember {
