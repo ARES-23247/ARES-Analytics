@@ -48,6 +48,7 @@ import com.ares.analytics.ui.components.pathplanner.GamePieceCatalogDialog
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.FieldEditorIntent
 import com.ares.analytics.viewmodel.FieldEditorViewModel
+import com.ares.analytics.viewmodel.AprilTagExportFormat
 import com.ares.analytics.viewmodel.field.FieldEditorLayout
 
 /**
@@ -566,18 +567,29 @@ fun FieldEditorScreen(
                     }
 
                     if (!projectPath.isNullOrEmpty()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Button(
                             onClick = {
                                 SwingUtilities.invokeLater {
                                     val chooser = JFileChooser().apply {
-                                        dialogTitle = "Select Limelight .fmap File"
-                                        fileFilter = FileNameExtensionFilter("AprilTag Map (.fmap)", "fmap")
+                                        dialogTitle = "Import an AprilTag map for review"
+                                        fileFilter = FileNameExtensionFilter(
+                                            "AprilTag maps (.fmap, WPILib .json, ARES field .json)",
+                                            "fmap",
+                                            "json",
+                                        )
                                     }
                                     val result = chooser.showOpenDialog(null)
                                     if (result == JFileChooser.APPROVE_OPTION) {
                                         val selectedFile = chooser.selectedFile
-                                        val fmapContent = selectedFile.readText()
-                                        viewModel.onIntent(FieldEditorIntent.ImportFmap(fmapContent, projectPath, league))
+                                        viewModel.onIntent(
+                                            FieldEditorIntent.PreviewAprilTagMap(
+                                                content = selectedFile.readText(),
+                                                fileName = selectedFile.name,
+                                                projectPath = projectPath,
+                                                league = league,
+                                            )
+                                        )
                                     }
                                 }
                             },
@@ -587,7 +599,56 @@ fun FieldEditorScreen(
                         ) {
                             Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(14.dp), tint = AresTextPrimary)
                             Spacer(Modifier.width(4.dp))
-                            Text("Import .fmap", fontSize = 11.sp, color = AresTextPrimary)
+                            Text("Import map", fontSize = 11.sp, color = AresTextPrimary)
+                        }
+                        TextButton(onClick = {
+                            chooseAprilTagExport("apriltags-wpilib.json", "json") { file ->
+                                viewModel.onIntent(FieldEditorIntent.ExportAprilTagMap(AprilTagExportFormat.WPILIB_JSON, file))
+                            }
+                        }) { Text("WPILib export", fontSize = 11.sp) }
+                        TextButton(onClick = {
+                            chooseAprilTagExport("apriltags.fmap", "fmap") { file ->
+                                viewModel.onIntent(FieldEditorIntent.ExportAprilTagMap(AprilTagExportFormat.LIMELIGHT_FMAP, file))
+                            }
+                        }) { Text("Limelight export", fontSize = 11.sp) }
+                        }
+                    }
+                }
+                state.aprilTagImportPreview?.let { preview ->
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "Review import · ${preview.tags.size} tags · ${preview.format.name.replace('_', ' ')}",
+                                color = AresTextPrimary,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(preview.sourceName, color = AresTextSecondary, fontSize = 11.sp)
+                            preview.fieldLengthMeters?.let { length ->
+                                preview.fieldWidthMeters?.let { width ->
+                                    Text(
+                                        "Source field: ${"%.4f".format(length)} m × ${"%.4f".format(width)} m",
+                                        color = AresTextSecondary,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                            }
+                            preview.warnings.forEach { warning ->
+                                Text("Warning: $warning", color = AresAmber, fontSize = 11.sp)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { viewModel.onIntent(FieldEditorIntent.ApplyAprilTagImport(true)) }) {
+                                    Text("Replace layout")
+                                }
+                                OutlinedButton(onClick = { viewModel.onIntent(FieldEditorIntent.ApplyAprilTagImport(false)) }) {
+                                    Text("Merge new IDs")
+                                }
+                                TextButton(onClick = { viewModel.onIntent(FieldEditorIntent.DismissAprilTagImport) }) {
+                                    Text("Cancel")
+                                }
+                            }
                         }
                     }
                 }
@@ -701,6 +762,25 @@ fun FieldEditorScreen(
                     onLayoutChanged = { viewModel.onIntent(FieldEditorIntent.SetLayout(it)) }
                 )
             }
+        }
+    }
+}
+
+private fun chooseAprilTagExport(defaultName: String, extension: String, onSelected: (File) -> Unit) {
+    SwingUtilities.invokeLater {
+        val chooser = JFileChooser().apply {
+            dialogTitle = "Export reviewed AprilTag map"
+            selectedFile = File(defaultName)
+            fileFilter = FileNameExtensionFilter("AprilTag map (.$extension)", extension)
+        }
+        if (chooser.showSaveDialog(null) == JFileChooser.APPROVE_OPTION) {
+            val selected = chooser.selectedFile
+            val destination = if (selected.extension.equals(extension, ignoreCase = true)) {
+                selected
+            } else {
+                File(selected.parentFile, "${selected.name}.$extension")
+            }
+            onSelected(destination)
         }
     }
 }
