@@ -13,6 +13,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.ReplayFrame
@@ -54,61 +55,78 @@ fun JoystickVisualizer(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        Text(
+            "Gamepad Monitor",
+            color = AresTextPrimary,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.titleMedium,
+            modifier = Modifier.fillMaxWidth()
+        )
+
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                "Gamepad Monitor",
-                color = AresTextPrimary,
-                fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleMedium
-            )
+            Button(
+                onClick = onOpenKeybindings,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated),
+                shape = RoundedCornerShape(6.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    "Configure controls",
+                    color = AresTextPrimary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
-                    onClick = onOpenKeybindings,
-                    colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated),
-                    shape = RoundedCornerShape(6.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Text("Configure controls", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-
+            Button(
+                onClick = {
+                    keyboardState.releaseAll()
+                    keyboardState.useGamepad = !keyboardState.useGamepad
+                },
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (keyboardState.useGamepad) AresCyan else AresSurfaceElevated,
+                    contentColor = if (keyboardState.useGamepad) AresOnAccent else AresTextPrimary,
+                ),
+                shape = RoundedCornerShape(6.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    if (keyboardState.useGamepad) "Input: Gamepad" else "Input: Keyboard",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (nt4ClientService != null) {
                 Button(
                     onClick = {
-                        keyboardState.releaseAll()
-                        keyboardState.useGamepad = !keyboardState.useGamepad
+                        if (keyboardControlEnabled) keyboardState.disarm() else keyboardState.enabled = true
                     },
+                    modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (keyboardState.useGamepad) AresCyan else AresSurfaceElevated,
-                        contentColor = if (keyboardState.useGamepad) AresOnAccent else AresTextPrimary,
+                        containerColor = if (keyboardControlEnabled) AresGold else AresCyan,
+                        contentColor = AresOnAccent,
                     ),
                     shape = RoundedCornerShape(6.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                 ) {
-                    Text(if (keyboardState.useGamepad) "Input: Gamepad" else "Input: Keyboard", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-                if (nt4ClientService != null) {
-                    Button(
-                        onClick = {
-                            if (keyboardControlEnabled) keyboardState.disarm() else keyboardState.enabled = true
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (keyboardControlEnabled) AresGold else AresCyan,
-                            contentColor = AresOnAccent,
-                        ),
-                        shape = RoundedCornerShape(6.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            if (keyboardControlEnabled) "Disarm local control" else "Arm local control",
-                            color = AresBackground,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    Text(
+                        if (keyboardControlEnabled) "Disarm control" else "Arm control",
+                        color = AresBackground,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
             }
         }
@@ -116,9 +134,9 @@ fun JoystickVisualizer(
         if (keyboardControlEnabled) {
             Text(
                 if (keyboardState.useGamepad) {
-                    "Hold the left trigger to send local gamepad commands. Releasing it immediately neutralizes every output."
+                    "Move the gamepad sticks directly while armed. Drive publication is restricted to the loopback simulator."
                 } else {
-                    "Hold Space while using the keyboard. Releasing Space immediately neutralizes every output."
+                    "Field-centric keyboard: W drives toward the opposing station and A/D strafe. Loopback simulator only."
                 },
                 color = AresGold,
                 fontSize = 11.sp,
@@ -214,7 +232,7 @@ fun SingleGamepadVisualizer(
         nt4ClientService != null && !keyboardControlEnabled -> {
             LaunchedEffect(Unit) {
                 scope.launch {
-                    nt4ClientService.telemetryFlow.collect { frame ->
+                    nt4ClientService.uiTelemetryFlow.collect { frame ->
                         val key = frame.key
                         val value = frame.value
                         when (key) {
@@ -291,7 +309,7 @@ fun SingleGamepadVisualizer(
                         }
                         lb = keyboardState.isQPressed
                         rb = keyboardState.isEPressed
-                        lt = if (keyboardState.isSpacePressed) 1.0 else 0.0
+                        lt = 0.0
                         rt = if (keyboardState.isShiftPressed) 1.0 else 0.0
                         btnA = keyboardState.isJPressed
                         btnB = keyboardState.isLPressed
@@ -448,13 +466,36 @@ fun SingleGamepadVisualizer(
                 drawRoundRect(color = AresBorder, topLeft = Offset(cx + 40f * scale, cy - 35f * scale), size = Size(centerBtnW, centerBtnH), cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f * scale), style = Stroke(width = 1.5f * scale))
             }
         }
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
-            Text(text = "L: (${"%.2f".format(lx)}, ${"%.2f".format(ly)})", color = AresTextSecondary, fontSize = 9.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-            Text(text = "R: (${"%.2f".format(rx)}, ${"%.2f".format(ry)})", color = AresTextSecondary, fontSize = 9.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
-            Text(text = "T: ${"%.2f".format(lt)} | ${"%.2f".format(rt)}", color = AresTextSecondary, fontSize = 9.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "L (${"%.2f".format(lx)}, ${"%.2f".format(ly)})",
+                    color = AresTextSecondary,
+                    fontSize = 9.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    maxLines = 1
+                )
+                Text(
+                    text = "R (${"%.2f".format(rx)}, ${"%.2f".format(ry)})",
+                    color = AresTextSecondary,
+                    fontSize = 9.sp,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    maxLines = 1
+                )
+            }
+            Text(
+                text = "LT ${"%.2f".format(lt)}   RT ${"%.2f".format(rt)}",
+                color = AresTextSecondary,
+                fontSize = 9.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                maxLines = 1
+            )
         }
     }
 }

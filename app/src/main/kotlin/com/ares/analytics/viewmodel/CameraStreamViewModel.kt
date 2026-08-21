@@ -13,7 +13,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import java.io.ByteArrayOutputStream
+import java.util.ArrayDeque
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 data class CameraStreamState(
     val streamUrl: String = "http://10.0.0.2:1181/stream.mjpg",
@@ -48,7 +50,11 @@ class CameraStreamViewModel(
     val state: StateFlow<CameraStreamState> = _state.asStateFlow()
 
     private var streamJob: Job? = null
-    private var previousSkiaImage: org.jetbrains.skia.Image? = null
+    private val closed = AtomicBoolean(false)
+    private val streamGeneration = AtomicLong(0L)
+    private val imageLock = Any()
+    private var currentSkiaImage: org.jetbrains.skia.Image? = null
+    private val retiredSkiaImages = ArrayDeque<org.jetbrains.skia.Image>()
 
     private val httpClient = HttpClient(CIO) {
         install(HttpTimeout) {
@@ -82,18 +88,32 @@ class CameraStreamViewModel(
     }
 
     private fun stopStreaming() {
+        streamGeneration.incrementAndGet()
         streamJob?.cancel()
         streamJob = null
         _state.update { it.copy(isConnected = false, currentFrame = null) }
     }
 
     fun close() {
+        if (!closed.compareAndSet(false, true)) return
         stopStreaming()
         httpClient.close()
+        val images = synchronized(imageLock) {
+            buildList {
+                currentSkiaImage?.let(::add)
+                addAll(retiredSkiaImages)
+            }.also {
+                currentSkiaImage = null
+                retiredSkiaImages.clear()
+            }
+        }
+        images.forEach { image -> runCatching { image.close() } }
     }
 
     private fun startStreaming() {
+        if (closed.get()) return
         streamJob?.cancel()
+        val generation = streamGeneration.incrementAndGet()
 
         streamJob = scope.launch(Dispatchers.IO) {
             var retryDelayMs = 1000L
@@ -112,43 +132,14 @@ class CameraStreamViewModel(
                             _state.update { it.copy(isConnected = true) }
                             retryDelayMs = 1000L
                             val channel = response.bodyAsChannel()
-                            val bos = ByteArrayOutputStream()
+                            val assembler = MjpegFrameAssembler()
                             val readBuffer = ByteArray(8192)
 
                             while (isActive && !channel.isClosedForRead && !_state.value.isConfiguring) {
                                 val read = channel.readAvailable(readBuffer, 0, readBuffer.size)
                                 if (read > 0) {
-                                    bos.write(readBuffer, 0, read)
-                                    val currentBytes = bos.toByteArray()
-                                    var soi = -1
-                                    var eoi = -1
-                                    for (i in 0 until currentBytes.size - 1) {
-                                        if (currentBytes[i] == 0xFF.toByte() && currentBytes[i + 1] == 0xD8.toByte()) {
-                                            soi = i
-                                        }
-                                        if (soi != -1 && currentBytes[i] == 0xFF.toByte() && currentBytes[i + 1] == 0xD9.toByte()) {
-                                            eoi = i + 1
-                                            break
-                                        }
-                                    }
-
-                                    if (soi != -1 && eoi != -1 && eoi > soi) {
-                                        val frameBytes = currentBytes.copyOfRange(soi, eoi + 1)
-                                        val remainder = currentBytes.copyOfRange(eoi + 1, currentBytes.size)
-                                        bos.reset()
-                                        bos.write(remainder)
-
-                                        try {
-                                            previousSkiaImage?.close()
-                                            val skiaImage = org.jetbrains.skia.Image.makeFromEncoded(frameBytes)
-                                            previousSkiaImage = skiaImage
-                                            val imageBitmap = skiaImage.toComposeImageBitmap()
-                                            _state.update { it.copy(currentFrame = imageBitmap) }
-                                        } catch (e: Exception) {
-                                            // Ignore
-                                        }
-                                    } else if (currentBytes.size > 2_000_000) {
-                                        bos.reset()
+                                    assembler.offer(readBuffer, read) { frameBytes ->
+                                        publishFrame(frameBytes, generation)
                                     }
                                 }
                             }
@@ -156,6 +147,8 @@ class CameraStreamViewModel(
                             _state.update { it.copy(errorMessage = "HTTP Error: ${response.status}") }
                         }
                     }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
                     _state.update { it.copy(isConnected = false, errorMessage = e.message ?: "Connection failed") }
                 } finally {
@@ -168,5 +161,47 @@ class CameraStreamViewModel(
                 }
             }
         }
+    }
+
+    private fun publishFrame(frameBytes: ByteArray, generation: Long) {
+        if (closed.get() || generation != streamGeneration.get()) return
+        val skiaImage = try {
+            org.jetbrains.skia.Image.makeFromEncoded(frameBytes)
+        } catch (_: Exception) {
+            return
+        }
+        val imageBitmap = try {
+            skiaImage.toComposeImageBitmap()
+        } catch (_: Exception) {
+            skiaImage.close()
+            return
+        }
+
+        var imageToClose: org.jetbrains.skia.Image? = null
+        val accepted = synchronized(imageLock) {
+            if (closed.get() || generation != streamGeneration.get()) {
+                false
+            } else {
+                currentSkiaImage?.let(retiredSkiaImages::addLast)
+                currentSkiaImage = skiaImage
+                if (retiredSkiaImages.size > RETAINED_FRAME_COUNT) {
+                    imageToClose = retiredSkiaImages.removeFirst()
+                }
+                true
+            }
+        }
+        if (!accepted) {
+            skiaImage.close()
+            return
+        }
+
+        // Commit the new Compose frame before retiring an older native image. Keeping a short
+        // queue avoids invalidating an image that the renderer still owns during recomposition.
+        _state.update { it.copy(currentFrame = imageBitmap) }
+        imageToClose?.close()
+    }
+
+    private companion object {
+        const val RETAINED_FRAME_COUNT = 2
     }
 }

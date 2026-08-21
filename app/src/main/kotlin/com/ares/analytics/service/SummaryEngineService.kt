@@ -2,6 +2,7 @@ package com.ares.analytics.service
 
 import com.ares.analytics.shared.Session
 import com.ares.analytics.shared.SessionSummary
+import com.ares.analytics.shared.AnalysisDiagnostic
 import com.ares.analytics.shared.TelemetryFrame
 import com.ares.analytics.shared.TelemetryMetricCatalog
 import com.ares.analytics.service.AlignedDataRow
@@ -200,7 +201,10 @@ class SummaryEngineService(
                 },
                 prefixes = listOf("Diagnostics/%", "Hardware/Motors/%", "Vision/%", "Path/%")
             )
-            if (allFrames.isEmpty()) return resolvedTags
+            if (allFrames.isEmpty()) {
+                databaseService.replaceAnalysisDiagnostics(session.sessionId, emptyList())
+                return resolvedTags
+            }
             val framesToInsert = mutableListOf<TelemetryFrame>()
 
             // Loop Overruns and Comms Losses calculation
@@ -559,9 +563,17 @@ class SummaryEngineService(
                 databaseService.updateSessionTags(session.sessionId, finalUniqueTags)
             }
 
-            if (framesToInsert.isNotEmpty()) {
-                databaseService.insertTelemetryFrames(framesToInsert)
-            }
+            databaseService.replaceAnalysisDiagnostics(
+                session.sessionId,
+                framesToInsert.map { frame ->
+                    AnalysisDiagnostic(
+                        sessionId = frame.sessionId,
+                        key = frame.key,
+                        value = frame.value,
+                        stringValue = frame.stringValue,
+                    )
+                },
+            )
         } catch (e: Exception) {
             e.printStackTrace()
         }

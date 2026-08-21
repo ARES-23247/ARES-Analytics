@@ -40,9 +40,9 @@ data class MechanismGainEnvelope(
 /** Robot-independent quality and gain limits enforced before a recommendation can be applied. */
 object AutoTuningSafetyPolicy {
     fun envelopeFor(mechanism: SysIdMechanism): MechanismGainEnvelope = when (mechanism) {
-        SysIdMechanism.LINEAR -> MechanismGainEnvelope(3.0, 0.01, 15.0, 10.0, 30.0, 60.0, 8.0)
-        SysIdMechanism.ANGULAR -> MechanismGainEnvelope(3.0, 0.01, 20.0, 10.0, 40.0, 80.0, 10.0)
-        SysIdMechanism.FLYWHEEL -> MechanismGainEnvelope(3.0, 0.001, 3.0, 2.0, 12.0, 25.0, 3.0)
+        SysIdMechanism.LINEAR, SysIdMechanism.ELEVATOR -> MechanismGainEnvelope(3.0, 0.01, 15.0, 10.0, 30.0, 60.0, 8.0)
+        SysIdMechanism.ANGULAR, SysIdMechanism.ARM -> MechanismGainEnvelope(3.0, 0.01, 20.0, 10.0, 40.0, 80.0, 10.0)
+        SysIdMechanism.FLYWHEEL, SysIdMechanism.CUSTOM -> MechanismGainEnvelope(3.0, 0.001, 3.0, 2.0, 12.0, 25.0, 3.0)
     }
 
     fun assessData(mechanism: SysIdMechanism, samples: List<AlignedDataRow>): AutoTuningDataQuality {

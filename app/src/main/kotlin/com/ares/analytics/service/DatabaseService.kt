@@ -217,6 +217,14 @@ class DatabaseService(
     suspend fun getTelemetryForKeyPatterns(sessionId: String, patterns: List<String>): List<TelemetryFrame> =
         matchLogRepo.getTelemetryForKeyPatterns(sessionId, patterns)
     suspend fun getDiagnosticsTelemetry(sessionId: String): List<TelemetryFrame> = matchLogRepo.getDiagnosticsTelemetry(sessionId)
+    suspend fun replaceAnalysisDiagnostics(sessionId: String, diagnostics: List<AnalysisDiagnostic>) =
+        matchLogRepo.replaceAnalysisDiagnostics(sessionId, diagnostics)
+    suspend fun getAnalysisDiagnostics(sessionId: String): List<AnalysisDiagnostic> =
+        matchLogRepo.getAnalysisDiagnostics(sessionId)
+    internal suspend fun replaceSessionImportReports(sessionId: String, reports: List<ImportReport>) =
+        matchLogRepo.replaceSessionImportReports(sessionId, reports)
+    internal suspend fun getSessionImportReports(sessionId: String): List<ImportReport> =
+        matchLogRepo.getSessionImportReports(sessionId)
     suspend fun getTelemetryForFilters(sessionId: String, keys: List<String>, prefixes: List<String>): List<TelemetryFrame> = matchLogRepo.getTelemetryForFilters(sessionId, keys, prefixes)
     suspend fun getDistinctTimestamps(sessionId: String): List<Long> = matchLogRepo.getDistinctTimestamps(sessionId)
     suspend fun deleteTelemetryFrames(sessionId: String) = matchLogRepo.deleteTelemetryFrames(sessionId)
@@ -239,6 +247,29 @@ class DatabaseService(
         backupExporter.importParquetAsSession(file, sessionId)
     suspend fun importCloudSessionAtomically(file: File, summary: SessionSummary, session: Session) =
         backupExporter.importCloudSessionAtomically(file, summary, session)
+    internal suspend fun importCloudSessionBundleAtomically(
+        file: File,
+        summary: SessionSummary,
+        session: Session,
+        actions: List<RobotActionRecord>,
+        annotations: List<SessionAnnotation>,
+        alerts: List<AlertRecord>,
+        consoleMessages: List<ConsoleMessage>,
+        analysisDiagnostics: List<AnalysisDiagnostic>,
+        importReports: List<ImportReport>,
+    ) = backupExporter.importCloudSessionBundleAtomically(
+        file,
+        summary,
+        session,
+        CloudSessionAncillaryData(
+            actions,
+            annotations,
+            alerts,
+            consoleMessages,
+            analysisDiagnostics,
+            importReports,
+        ),
+    )
     internal fun setCloudImportFailureInjector(injector: ((CloudImportStage) -> Unit)?) {
         backupExporter.cloudImportFailureInjector = injector
     }

@@ -56,6 +56,11 @@ fun DashboardScreen(
     services: ServiceRegistry,
     currentConfig: WorkspaceConfig,
     isLocalSimulatorSelected: Boolean,
+    isSimulatorLaunchPreparationRunning: Boolean,
+    simulatorLaunchRequiresVerification: Boolean,
+    canLaunchSimulator: Boolean,
+    simulatorLaunchDisabledReason: String?,
+    onLaunchSimulator: () -> Unit,
     matches: List<MatchInfo>,
     onForensicsCompleted: (ForensicsResponse) -> Unit,
     onSelectMatch: (MatchInfo, String) -> Unit,
@@ -93,7 +98,7 @@ fun DashboardScreen(
     // Telemetry flow listener for health metrics and freshness tracking
     LaunchedEffect(Unit) {
         scope.launch {
-            services.nt4ClientService.telemetryFlow.collect { frame ->
+            services.nt4ClientService.uiTelemetryFlow.collect { frame ->
                 lastUpdateTimestampMs = System.currentTimeMillis()
                 val key = frame.key.lowercase()
                 val value = frame.value
@@ -157,7 +162,7 @@ fun DashboardScreen(
         }
     }
 
-    // Bridge replay telemetry flow into the same nt4ClientService.telemetryFlow
+    // Bridge replay telemetry into the raw service; UI fan-out is coalesced independently.
     LaunchedEffect(Unit) {
         replayEngine.replayTelemetryFlow.collect { frame ->
             services.nt4ClientService.emitReplayFrame(frame)
@@ -197,6 +202,30 @@ fun DashboardScreen(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+
+        if (isLocalSimulator) {
+            LocalSimulatorControlBar(
+                nt4Client = services.nt4ClientService,
+                keyboardDriveState = services.keyboardDriveState,
+                league = currentConfig.league,
+                isConnected = state.isConnected,
+                isSimulatorProcessRunning = isSimRunning,
+                isLaunchPreparationRunning = isSimulatorLaunchPreparationRunning,
+                launchRequiresVerification = simulatorLaunchRequiresVerification,
+                canLaunchSimulator = canLaunchSimulator,
+                simulatorLaunchDisabledReason = simulatorLaunchDisabledReason,
+                onLaunchSimulator = onLaunchSimulator,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+
+        if (shouldShowDashboardOfflineGuide(state.isConnected, state.primarySessionId, offlineGuideDismissed)) {
+            DashboardOfflineGuide(
+                onOpenRunHistory = onOpenRunHistory,
+                onOpenHelp = onOpenHelp,
+                onDismiss = { offlineGuideDismissed = true },
+            )
+        }
 
         // Configurable widgets area
         val layout = state.currentLayout
@@ -358,6 +387,12 @@ fun DashboardScreen(
                     IndicatorLightsCard(services.nt4ClientService, mod)
                 }
             )
+            val rendererCatalogIssue = remember(builders.keys) {
+                DashboardWidgetCatalog.completenessError(builders.keys, "Dashboard renderer")
+            }
+            LaunchedEffect(rendererCatalogIssue) {
+                rendererCatalogIssue?.let { System.err.println("[Dashboard] $it") }
+            }
 
             DashboardWidgetGrid(
                 widgets = layout.widgets,

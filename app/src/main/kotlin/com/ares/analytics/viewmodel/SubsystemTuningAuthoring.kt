@@ -69,7 +69,12 @@ object SubsystemTuningAuthoring {
         .filter(String::isNotEmpty)
 
     fun availablePresets(loop: SubsystemControlLoopDocument): List<SubsystemTuningPreset> = buildList {
-        if (loop.strategy == SubsystemControlStrategy.POSITION_PID || loop.strategy == SubsystemControlStrategy.VELOCITY_PID) {
+        if (loop.strategy in setOf(
+                SubsystemControlStrategy.POSITION_PID,
+                SubsystemControlStrategy.PROFILED_POSITION_PID,
+                SubsystemControlStrategy.VELOCITY_PID,
+            )
+        ) {
             add(SubsystemTuningPreset.PID_GAINS)
         }
         if (loop.feedforward.kind != SubsystemFeedforwardKind.NONE) add(SubsystemTuningPreset.FEEDFORWARD_GAINS)

@@ -45,7 +45,7 @@ enum class DriveHardwareRole {
     FRONT_RIGHT_DRIVE, FRONT_RIGHT_STEER, FRONT_RIGHT_ENCODER,
     REAR_LEFT_DRIVE, REAR_LEFT_STEER, REAR_LEFT_ENCODER,
     REAR_RIGHT_DRIVE, REAR_RIGHT_STEER, REAR_RIGHT_ENCODER,
-    GYRO, ODOMETRY, DRIVE_MOTOR, OTHER, CUSTOM
+    GYRO, ODOMETRY, LIMELIGHT, DISTANCE_SENSOR, DRIVE_MOTOR, OTHER, CUSTOM
 }
 
 enum class LocalizationKind {
@@ -61,10 +61,27 @@ data class DriveHardwareDeclaration(
     val hardwareName: String = "",
     val canId: Int? = null,
     val canBus: String? = null,
+    val controllerModel: String? = null,
+    val encoderModel: String? = null,
+    val currentMeasurementRequired: Boolean = false,
+    val currentMeasurementAvailable: Boolean = false,
+    val currentLimitAmps: Double? = null,
     val inverted: Boolean = false,
     val required: Boolean = true,
     /** Stable ID of a direct leader. [inverted] independently controls follower direction. */
     val leaderId: String? = null,
+    /** Longitudinal physical offset from robot center of rotation in meters (forward is positive). */
+    val xMeters: Double? = null,
+    /** Lateral physical offset from robot center of rotation in meters (left is positive). */
+    val yMeters: Double? = null,
+    /** Vertical physical mounting height from ground/robot origin in meters (up is positive). */
+    val zMeters: Double? = null,
+    /** Camera pitch angle in degrees (up is positive). */
+    val pitchDegrees: Double? = null,
+    /** Camera yaw angle in degrees (facing forward is 0°, left is +90°, right is -90°, back is 180°). */
+    val yawDegrees: Double? = null,
+    /** Camera roll angle in degrees. */
+    val rollDegrees: Double? = null,
 )
 
 data class DriveGeometry(
@@ -80,7 +97,10 @@ data class DriveSafetyDeclaration(
     val maxLinearSpeedMetersPerSecond: Double = 3.0,
     val maxAngularSpeedRadiansPerSecond: Double = 6.0,
     val currentMonitoringRequired: Boolean = true,
-    val explicitNeutralRecoveryRequired: Boolean = true
+    val faultLatchingRequired: Boolean = true,
+    val explicitNeutralRecoveryRequired: Boolean = true,
+    val enabledNeutralMode: DrivetrainNeutralMode = DrivetrainNeutralMode.BRAKE,
+    val disabledPolicy: DisabledDrivePolicy = DisabledDrivePolicy.FORCE_NEUTRAL_BRAKE,
 )
 
 data class DriveCalibrationRecord(
@@ -103,6 +123,11 @@ data class DrivebaseDocument(
     val geometry: DriveGeometry = DriveGeometry(),
     val localization: List<LocalizationKind> = emptyList(),
     val safety: DriveSafetyDeclaration = DriveSafetyDeclaration(),
+    val supportedControlModes: List<DrivetrainControlKind> = listOf(
+        DrivetrainControlKind.OPEN_LOOP,
+        DrivetrainControlKind.CHASSIS_VELOCITY,
+    ),
+    val defaultControlMode: DrivetrainControlKind = DrivetrainControlKind.OPEN_LOOP,
     val calibrations: List<DriveCalibrationRecord> = emptyList(),
     val fieldRelativeEnabled: Boolean = true,
     val vendorSourceReadOnly: Boolean = true,
@@ -133,6 +158,12 @@ fun validateDrivebase(document: DrivebaseDocument): List<DrivebaseIssue> = build
         if (device.canId != null && device.canId !in 0..62) {
             add(error("hardware.${device.id}.canId", "CAN IDs must be between 0 and 62."))
         }
+        if (device.currentMeasurementRequired && !device.currentMeasurementAvailable) {
+            add(error("hardware.${device.id}.currentMeasurementAvailable", "${device.displayName} requires current monitoring, but the selected adapter cannot provide it."))
+        }
+        device.currentLimitAmps?.let { limit ->
+            if (!limit.isFinite() || limit <= 0.0) add(error("hardware.${device.id}.currentLimitAmps", "Current limit must be finite and positive."))
+        }
         val follower = device.role == DriveHardwareRole.LEFT_FOLLOWER || device.role == DriveHardwareRole.RIGHT_FOLLOWER
         if (follower && device.leaderId.isNullOrBlank()) add(error("hardware.${device.id}.leaderId", "Choose a direct leader for ${device.displayName}."))
         if (!follower && device.leaderId != null) add(error("hardware.${device.id}.leaderId", "Only follower motors may name a leader."))
@@ -144,6 +175,8 @@ fun validateDrivebase(document: DrivebaseDocument): List<DrivebaseIssue> = build
             }
         }
     }
+    if (document.supportedControlModes.isEmpty()) add(error("control.supported", "Choose at least one drive control mode."))
+    if (document.defaultControlMode !in document.supportedControlModes) add(error("control.default", "The default drive mode must also be enabled."))
     with(document.geometry) {
         if (wheelRadiusMeters !in 0.01..0.25) add(error("geometry.wheelRadiusMeters", "Wheel radius must be 1–25 cm."))
         if (trackWidthMeters !in 0.1..2.0) add(error("geometry.trackWidthMeters", "Track width must be 0.1–2.0 m."))
@@ -208,6 +241,8 @@ fun diffDrivebase(before: DrivebaseDocument?, after: DrivebaseDocument): List<Dr
     change("geometry", before.geometry, after.geometry)
     change("localization", before.localization, after.localization)
     change("safety", before.safety, after.safety)
+    change("supportedControlModes", before.supportedControlModes, after.supportedControlModes)
+    change("defaultControlMode", before.defaultControlMode, after.defaultControlMode)
     change("fieldRelativeEnabled", before.fieldRelativeEnabled, after.fieldRelativeEnabled)
     (before.hardware.associateBy { it.id }.keys + after.hardware.associateBy { it.id }.keys).sorted().forEach { id ->
         change("hardware.$id", before.hardware.firstOrNull { it.id == id }, after.hardware.firstOrNull { it.id == id })
@@ -246,9 +281,20 @@ fun DrivetrainDocument.toUiDrivebase(): DrivebaseDocument = DrivebaseDocument(
             hardwareName = component.hardwareId,
             canId = component.hardwareId.toIntOrNull(),
             canBus = ctreImport?.canBusName,
+            controllerModel = component.controllerModel,
+            encoderModel = component.encoderModel,
+            currentMeasurementRequired = component.currentMeasurementRequired,
+            currentMeasurementAvailable = component.currentMeasurementAvailable,
+            currentLimitAmps = component.currentLimitAmps,
             inverted = component.inverted,
             required = component.required,
             leaderId = component.leaderUid,
+            xMeters = component.xMeters,
+            yMeters = component.yMeters,
+            zMeters = component.zMeters,
+            pitchDegrees = component.pitchDegrees,
+            yawDegrees = component.yawDegrees,
+            rollDegrees = component.rollDegrees,
         )
     },
     geometry = DriveGeometry(
@@ -272,8 +318,13 @@ fun DrivetrainDocument.toUiDrivebase(): DrivebaseDocument = DrivebaseDocument(
         maxLinearSpeedMetersPerSecond = geometry.maxLinearSpeedMetersPerSecond,
         maxAngularSpeedRadiansPerSecond = geometry.maxAngularSpeedRadiansPerSecond,
         currentMonitoringRequired = safety.currentValidityRequired,
-        explicitNeutralRecoveryRequired = safety.explicitNeutralRecoveryRequired
+        faultLatchingRequired = safety.faultLatchingRequired,
+        explicitNeutralRecoveryRequired = safety.explicitNeutralRecoveryRequired,
+        enabledNeutralMode = safety.enabledNeutralMode,
+        disabledPolicy = safety.disabledPolicy,
     ),
+    supportedControlModes = control.supported,
+    defaultControlMode = control.defaultControl,
     calibrations = calibrationProvenance.map { provenance ->
         DriveCalibrationRecord(
             id = provenance.uid,
@@ -306,16 +357,30 @@ fun DrivebaseDocument.toCanonicalDrivebase(): DrivetrainDocument {
             displayName = edit.displayName,
             role = role,
             hardwareId = edit.canId?.toString() ?: edit.hardwareName,
+            controllerModel = edit.controllerModel,
+            encoderModel = edit.encoderModel,
+            currentMeasurementRequired = edit.currentMeasurementRequired,
+            currentMeasurementAvailable = edit.currentMeasurementAvailable,
+            currentLimitAmps = edit.currentLimitAmps,
             moduleUid = inferredModule,
-            currentMeasurementRequired = role == DrivetrainComponentRole.DRIVE_MOTOR,
-            currentMeasurementAvailable = role == DrivetrainComponentRole.DRIVE_MOTOR,
         )).copy(
             displayName = edit.displayName,
             role = role,
             hardwareId = edit.canId?.toString() ?: edit.hardwareName,
+            controllerModel = edit.controllerModel,
+            encoderModel = edit.encoderModel,
+            currentMeasurementRequired = edit.currentMeasurementRequired,
+            currentMeasurementAvailable = edit.currentMeasurementAvailable,
+            currentLimitAmps = edit.currentLimitAmps,
             inverted = edit.inverted,
             required = edit.required,
             leaderUid = edit.leaderId,
+            xMeters = edit.xMeters,
+            yMeters = edit.yMeters,
+            zMeters = edit.zMeters,
+            pitchDegrees = edit.pitchDegrees,
+            yawDegrees = edit.yawDegrees,
+            rollDegrees = edit.rollDegrees,
         )
     }
     val editedCanBuses = hardware.mapNotNull { it.canBus?.takeIf(String::isNotBlank) }.distinct()
@@ -359,13 +424,20 @@ fun DrivebaseDocument.toCanonicalDrivebase(): DrivetrainDocument {
             headingSourceUid = if (localizationChanged) components.firstOrNull { it.role == DrivetrainComponentRole.GYRO }?.uid ?: primary.uid else base.localization.headingSourceUid,
             visionFusion = vision
         ),
-        control = base.control.copy(fieldCentric = fieldRelativeEnabled),
+        control = base.control.copy(
+            supported = supportedControlModes,
+            defaultControl = defaultControlMode,
+            fieldCentric = fieldRelativeEnabled,
+        ),
         safety = base.safety.copy(
             safeNeutralRequired = safety.safeNeutralRequired,
             configurationHealthRequired = safety.configurationHealthRequired,
             staleFeedbackTimeoutMs = safety.feedbackFreshnessTimeoutMs.toLong(),
             currentValidityRequired = safety.currentMonitoringRequired,
-            explicitNeutralRecoveryRequired = safety.explicitNeutralRecoveryRequired
+            faultLatchingRequired = safety.faultLatchingRequired,
+            explicitNeutralRecoveryRequired = safety.explicitNeutralRecoveryRequired,
+            enabledNeutralMode = safety.enabledNeutralMode,
+            disabledPolicy = safety.disabledPolicy,
         ),
         ctreImport = ctreImport
     )
@@ -405,7 +477,11 @@ private fun DrivetrainComponentDocument.toUiRole(kind: DrivetrainKind): DriveHar
     }
     DrivetrainComponentRole.GYRO -> DriveHardwareRole.GYRO
     DrivetrainComponentRole.ODOMETRY_SENSOR -> DriveHardwareRole.ODOMETRY
-    DrivetrainComponentRole.WHEEL_MODULE, DrivetrainComponentRole.OTHER -> DriveHardwareRole.OTHER
+    DrivetrainComponentRole.WHEEL_MODULE, DrivetrainComponentRole.OTHER -> when {
+        normalizedUid.contains("limelight") || normalizedHardwareId.contains("limelight") || displayName.contains("limelight", ignoreCase = true) || displayName.contains("camera", ignoreCase = true) -> DriveHardwareRole.LIMELIGHT
+        normalizedUid.contains("distance") || normalizedHardwareId.contains("distance") || displayName.contains("distance", ignoreCase = true) -> DriveHardwareRole.DISTANCE_SENSOR
+        else -> DriveHardwareRole.OTHER
+    }
 }
 }
 
@@ -414,7 +490,7 @@ private fun DriveHardwareRole.toCanonicalRole(): DrivetrainComponentRole = when 
     name.endsWith("ENCODER") -> DrivetrainComponentRole.ABSOLUTE_ENCODER
     this == DriveHardwareRole.GYRO -> DrivetrainComponentRole.GYRO
     this == DriveHardwareRole.ODOMETRY -> DrivetrainComponentRole.ODOMETRY_SENSOR
-    this == DriveHardwareRole.OTHER || this == DriveHardwareRole.CUSTOM -> DrivetrainComponentRole.OTHER
+    this == DriveHardwareRole.LIMELIGHT || this == DriveHardwareRole.DISTANCE_SENSOR || this == DriveHardwareRole.OTHER || this == DriveHardwareRole.CUSTOM -> DrivetrainComponentRole.OTHER
     else -> DrivetrainComponentRole.DRIVE_MOTOR
 }
 

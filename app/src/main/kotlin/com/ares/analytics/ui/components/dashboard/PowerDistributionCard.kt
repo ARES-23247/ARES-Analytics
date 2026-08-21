@@ -1,7 +1,6 @@
 package com.ares.analytics.ui.components.dashboard
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -11,7 +10,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -22,42 +20,67 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import com.ares.analytics.ui.components.core.*
 
+internal data class PowerCurrentTopic(val channelName: String?, val isTotal: Boolean)
+
+private val MOTOR_CURRENT_TOPIC = Regex("^Hardware/Motors/([^/]+)/Current(?:Amps)?$", RegexOption.IGNORE_CASE)
+private val DRIVE_MOTOR_CURRENT_TOPIC = Regex("^Drive/MotorCurrent_([^/]+)$", RegexOption.IGNORE_CASE)
+private val POWER_CHANNEL_TOPIC = Regex(
+    "^(?:PDH|PDP)/Channel(?:/)?([^/]+?)(?:_Current|/Current(?:Amps)?)$",
+    RegexOption.IGNORE_CASE
+)
+
+internal fun parsePowerCurrentTopic(rawKey: String): PowerCurrentTopic? {
+    val key = rawKey.trim().trimStart('/')
+    if (key.equals("Robot/TotalCurrentAmps", ignoreCase = true) ||
+        key.equals("PDH/TotalCurrent", ignoreCase = true) ||
+        key.equals("PDP/TotalCurrent", ignoreCase = true)
+    ) {
+        return PowerCurrentTopic(channelName = null, isTotal = true)
+    }
+
+    val channel = MOTOR_CURRENT_TOPIC.matchEntire(key)?.groupValues?.get(1)
+        ?: DRIVE_MOTOR_CURRENT_TOPIC.matchEntire(key)?.groupValues?.get(1)
+        ?: POWER_CHANNEL_TOPIC.matchEntire(key)?.groupValues?.get(1)
+        ?: return null
+    return PowerCurrentTopic(channelName = channel, isTotal = false)
+}
+
 @Composable
 fun PowerDistributionCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    val scope = rememberCoroutineScope()
-
     // Map of channel name to current in amps
-    val currentDraws = remember { mutableStateMapOf<String, Double>() }
-    var totalCurrent by remember { mutableStateOf(0.0) }
+    val currentDraws = remember(nt4ClientService) { mutableStateMapOf<String, Double>() }
+    var reportedTotalCurrent by remember(nt4ClientService) { mutableStateOf<Double?>(null) }
 
-    LaunchedEffect(Unit) {
-        scope.launch {
-            nt4ClientService.telemetryFlow.collect { frame ->
-                val key = frame.key
-                val lowerKey = key.lowercase()
-                val value = frame.value
-
-                // Typical paths: /robot/hardware/IntakeMotor/CurrentDraw, PDH/Channel1_Current
-                if (lowerKey.contains("current") && !lowerKey.contains("target")) {
-                    val channelName = key.substringAfterLast("/").replace("Current", "").replace("_", "").takeIf { it.isNotEmpty() } ?: key.substringBeforeLast("/").substringAfterLast("/")
-                    currentDraws[channelName] = value
-
-                    // Estimate total current if a specific total key isn't provided
-                    if (lowerKey.contains("totalcurrent") || lowerKey.contains("total_current")) {
-                        totalCurrent = value
+    LaunchedEffect(nt4ClientService) {
+        launch {
+            nt4ClientService.isConnected.collect { connected ->
+                if (!connected) {
+                    currentDraws.clear()
+                    reportedTotalCurrent = null
+                }
+            }
+        }
+        launch {
+            nt4ClientService.uiTelemetryFlow.collect { frame ->
+                if (!frame.value.isFinite() || frame.value < 0.0) return@collect
+                parsePowerCurrentTopic(frame.key)?.let { topic ->
+                    if (topic.isTotal) {
+                        reportedTotalCurrent = frame.value
                     } else {
-                        // Very rough estimate: sum all currents. This might double count if there's a total, so we only sum if we haven't seen a total key.
-                        if (!currentDraws.keys.any { it.lowercase().contains("total") }) {
-                            totalCurrent = currentDraws.values.sum()
+                        topic.channelName?.let { channel ->
+                            currentDraws[channel] = frame.value
                         }
                     }
                 }
             }
         }
     }
+    val displayedTotalCurrent = reportedTotalCurrent ?: currentDraws.values
+        .sum()
+        .takeIf { currentDraws.isNotEmpty() }
 
     AnalyticsCard(
         modifier = modifier.fillMaxWidth(),
@@ -69,8 +92,8 @@ fun PowerDistributionCard(
             iconTint = AresGold,
             trailingContent = {
                 Text(
-                    text = String.format("%.1f A Total", totalCurrent),
-                    color = if (totalCurrent > 120.0) AresError else AresGold,
+                    text = displayedTotalCurrent?.let { String.format("%.1f A Total", it) } ?: "--- A Total",
+                    color = if ((displayedTotalCurrent ?: 0.0) > 120.0) AresError else AresGold,
                     fontSize = 14.sp,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold
@@ -78,7 +101,7 @@ fun PowerDistributionCard(
             }
         )
 
-            if (currentDraws.filterKeys { !it.lowercase().contains("total") }.isEmpty()) {
+            if (currentDraws.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxWidth().height(100.dp),
                     contentAlignment = Alignment.Center
@@ -87,7 +110,7 @@ fun PowerDistributionCard(
                 }
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    currentDraws.filterKeys { !it.lowercase().contains("total") }.toList().sortedByDescending { it.second }.take(6).forEach { (channel, amps) ->
+                    currentDraws.toList().sortedByDescending { it.second }.take(6).forEach { (channel, amps) ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically

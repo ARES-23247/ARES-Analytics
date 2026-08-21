@@ -23,7 +23,7 @@ import java.util.UUID
  * ### Supported Formats:
  * - `.wpilog` / `.rlog` / `.revlog`: WPILib, AdvantageKit, REV binary logs
  * - `.jsonl`: Line-delimited JSON Redux action and telemetry streams
- * - `.csv`: Wide or long tabular CSV log recordings
+ * - `.csv` / `.csv.gz`: Wide or long tabular CSV log recordings
  * - `.parquet`: Native columnar telemetry backups with timestamp/key/value columns
  *
  * ### Thread Safety & Performance Guarantees:
@@ -122,7 +122,7 @@ class LogParserService(
                 }
             }
             lowerName.endsWith(".jsonl") -> {
-                if (lowerName.startsWith("action_log_")) {
+                if (isActionLogName(lowerName)) {
                     val actionMeta = jsonlDecoder.parseActionLogJsonl(file, sessionId)
                     if (actionMeta != null) {
                         val enrichedSession = session.copy(
@@ -139,6 +139,9 @@ class LogParserService(
                 } else {
                     jsonlDecoder.parseJsonlLog(file, sessionId, batcher)
                 }
+            }
+            lowerName.endsWith(".csv.gz") -> {
+                csvLogDecoder.parseCsvLogStreaming(file, sessionId, batcher)
             }
             lowerName.endsWith(".csv") -> {
                 databaseService.insertSession(session)
@@ -295,7 +298,7 @@ class LogParserService(
                     }
                 }
                 lowerName.endsWith(".jsonl") -> {
-                    if (lowerName.startsWith("action_log_")) {
+                    if (isActionLogName(lowerName)) {
                         val actionMeta = jsonlDecoder.parseActionLogJsonl(file, sessionId)
                         if (actionMeta != null) {
                             currentMatchNumber = currentMatchNumber ?: actionMeta.matchNumber
@@ -308,7 +311,7 @@ class LogParserService(
                         jsonlDecoder.parseJsonlLog(file, sessionId, batcher)
                     }
                 }
-                lowerName.endsWith(".csv") -> {
+                lowerName.endsWith(".csv.gz") || lowerName.endsWith(".csv") -> {
                     // Native CSV import numbers duplicate samples from zero for each file.
                     // Multi-file sessions instead share this streaming batcher so overlapping
                     // timestamp/topic samples receive repository-wide stable storage order.
@@ -380,9 +383,10 @@ class LogParserService(
         val name = file.name.lowercase()
         return when {
             name.endsWith(".wpilogxz") -> "wpilog-xz"
-            name.startsWith("action_log_") && name.endsWith(".jsonl") -> "action-jsonl"
+            isActionLogName(name) && name.endsWith(".jsonl") -> "action-jsonl"
             name.endsWith(".wpilog") -> "wpilog"
             name.endsWith(".jsonl") -> "jsonl"
+            name.endsWith(".csv.gz") -> "csv-gzip"
             name.endsWith(".csv") -> "csv"
             name.endsWith(".parquet") -> "parquet"
             name.endsWith(".dslog") || name.endsWith(".dsevents") -> "driver-station"
@@ -436,3 +440,8 @@ class LogParserService(
         private const val MAX_XZ_EXPANDED_BYTES = 512L * 1024L * 1024L
     }
 }
+
+private fun isActionLogName(lowerName: String): Boolean =
+    lowerName.startsWith("action_log_") || HASH_PREFIXED_ACTION_LOG.matches(lowerName)
+
+private val HASH_PREFIXED_ACTION_LOG = Regex("^[0-9a-f]{12}_action_log_.*\\.jsonl$")

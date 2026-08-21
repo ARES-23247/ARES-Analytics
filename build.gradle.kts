@@ -9,11 +9,28 @@ plugins {
 group = "com.ares.analytics"
 version = "1.0.0-SNAPSHOT"
 
+// Centralized ARES library version resolution
+// Priority: 1. CLI -ParesVersion  2. Sibling ../ARESLib-Kotlin/gradle.properties  3. Local gradle.properties
+val siblingAresProps = file("../ARESLib-Kotlin/gradle.properties")
+val siblingAresVersion = if (siblingAresProps.exists()) {
+    val props = java.util.Properties().apply { siblingAresProps.inputStream().use { load(it) } }
+    props.getProperty("aresVersion")
+} else null
+
+val resolvedAresVersion = providers.gradleProperty("aresVersion")
+    .orElse(providers.provider { siblingAresVersion })
+    .getOrElse("9.3.2")
+
+extra["aresVersion"] = resolvedAresVersion
+
 subprojects {
     group = rootProject.group
     version = rootProject.version
 
-    tasks.matching { it.name == "run" || it.name == "clean" }.configureEach {
+    // A running desktop app uses an isolated runtime classpath, so compilation and clean tasks
+    // must be safe while it is open. Only a new run owns replacement of an existing app process;
+    // coupling clean to killExisting made unrelated agent rebuilds silently close the UI.
+    tasks.matching { it.name == "run" }.configureEach {
         if (!project.hasProperty("fromRootRun") && !project.hasProperty("skipKill")) {
             dependsOn(":killExisting")
         }
@@ -32,6 +49,10 @@ subprojects {
 }
 
 tasks.register("killExisting") {
+    // A replacement run must prove its own app bytecode is buildable before closing the healthy
+    // instance. mustRunAfter adds ordering only when :app:jar is already in the task graph; a
+    // direct, explicit killExisting invocation remains immediate.
+    mustRunAfter(":app:jar")
     doFirst {
         println("[ARES-Analytics] Checking for existing orphaned ARES Analytics processes...")
         var killedCount = 0

@@ -23,8 +23,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
+import com.ares.analytics.service.isLoopbackDriveControlHost
 import com.ares.analytics.ui.theme.*
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
@@ -36,29 +36,21 @@ enum class MatchState {
     IDLE, AUTO_INIT, AUTO_RUNNING, TRANSITION, TELEOP_INIT, TELEOP_RUNNING
 }
 
-private var cachedSelectedOpMode: String? = null
-private var cachedSelectedAutoOpMode: String? = null
-private var cachedSelectedTeleOpMode: String? = null
-private var cachedDsState: DsState = DsState.STOP
-private var cachedMatchState: MatchState = MatchState.IDLE
+internal fun canIssueDashboardDriverStationCommands(isConnected: Boolean, host: String): Boolean =
+    isConnected && isLoopbackDriveControlHost(host)
 
 @Composable
 fun FtcDriverStationWidget(
     nt4Client: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    var selectedOpMode by remember { mutableStateOf(cachedSelectedOpMode) } // For manual control
-    var selectedAutoOpMode by remember { mutableStateOf(cachedSelectedAutoOpMode) }
-    var selectedTeleOpMode by remember { mutableStateOf(cachedSelectedTeleOpMode) }
-    var dsState by remember { mutableStateOf(cachedDsState) }
-    var matchState by remember { mutableStateOf(cachedMatchState) }
-
-    // Save to cache whenever changed
-    cachedSelectedOpMode = selectedOpMode
-    cachedSelectedAutoOpMode = selectedAutoOpMode
-    cachedSelectedTeleOpMode = selectedTeleOpMode
-    cachedDsState = dsState
-    cachedMatchState = matchState
+    val isConnected by nt4Client.isConnected.collectAsState()
+    val canControlSimulator = canIssueDashboardDriverStationCommands(isConnected, nt4Client.serverIp)
+    var selectedOpMode by remember { mutableStateOf<String?>(null) } // For manual control
+    var selectedAutoOpMode by remember { mutableStateOf<String?>(null) }
+    var selectedTeleOpMode by remember { mutableStateOf<String?>(null) }
+    var dsState by remember { mutableStateOf(DsState.STOP) }
+    var matchState by remember { mutableStateOf(MatchState.IDLE) }
     var matchTimeRemaining by remember { mutableIntStateOf(0) }
     var teleOps by remember {
         mutableStateOf(
@@ -80,11 +72,14 @@ fun FtcDriverStationWidget(
     val scope = rememberCoroutineScope()
 
     // Match Orchestrator
-    LaunchedEffect(matchTimeRemaining) {
-        nt4Client.publishDouble("ARES/DriverStation/MatchTimeRemaining", matchTimeRemaining.toDouble())
+    LaunchedEffect(matchTimeRemaining, canControlSimulator) {
+        if (canControlSimulator) {
+            nt4Client.publishDouble("ARES/DriverStation/MatchTimeRemaining", matchTimeRemaining.toDouble())
+        }
     }
 
-    LaunchedEffect(matchState) {
+    LaunchedEffect(matchState, canControlSimulator) {
+        if (!canControlSimulator) return@LaunchedEffect
         nt4Client.publishString("ARES/DriverStation/MatchState", matchState.name)
         when (matchState) {
             MatchState.AUTO_INIT -> {
@@ -149,43 +144,45 @@ fun FtcDriverStationWidget(
         }
     }
 
+    // A disconnect or target switch cancels the orchestrator and clears every latched command.
+    LaunchedEffect(isConnected, nt4Client.serverIp) {
+        if (!canControlSimulator) {
+            selectedOpMode = null
+            selectedAutoOpMode = null
+            selectedTeleOpMode = null
+            dsState = DsState.STOP
+            matchState = MatchState.IDLE
+            matchTimeRemaining = 0
+            telemetryLines.clear()
+            teleOps = emptyList()
+            autos = emptyList()
+        }
+    }
+
     // Listen to NT4 topics
     LaunchedEffect(nt4Client) {
-        launch {
-            nt4Client.telemetryFlow.collect { frame ->
-                val cleanKey = frame.key.trimStart('/')
-                when {
-                    cleanKey == "ARES/DriverStation/TeleOpList" || cleanKey.endsWith("TeleOpList") -> {
-                        frame.stringValue?.let {
-                            try {
-                                println("Received TeleOpList JSON: $it")
-                                teleOps = Json.decodeFromString<List<String>>(it)
-                                println("Successfully parsed TeleOps: $teleOps")
-                            } catch (e: Exception) {
-                                println("Failed to parse TeleOpList: ${e.message}")
-                            }
-                        }
-                    }
-                    cleanKey == "ARES/DriverStation/AutonomousList" || cleanKey.endsWith("AutonomousList") -> {
-                        frame.stringValue?.let {
-                            try {
-                                println("Received AutonomousList JSON: $it")
-                                autos = Json.decodeFromString<List<String>>(it)
-                                println("Successfully parsed Autos: $autos")
-                            } catch (e: Exception) {
-                                println("Failed to parse AutonomousList: ${e.message}")
-                            }
+        nt4Client.uiTelemetryFlow.collect { frame ->
+            val cleanKey = frame.key.trimStart('/')
+            when {
+                cleanKey == "ARES/DriverStation/TeleOpList" || cleanKey.endsWith("TeleOpList") -> {
+                    frame.stringValue?.let {
+                        try {
+                            teleOps = Json.decodeFromString<List<String>>(it)
+                        } catch (e: Exception) {
+                            println("Failed to parse TeleOpList: ${e.message}")
                         }
                     }
                 }
-            }
-
-        }
-
-        // Listen to telemetry lines which arrive as .../Telemetry/0, 1, 2...
-        launch {
-            nt4Client.telemetryFlow.filter { it.key.startsWith("ARES/DriverStation/Telemetry") }.collect { frame ->
-                frame.stringValue?.let { line ->
+                cleanKey == "ARES/DriverStation/AutonomousList" || cleanKey.endsWith("AutonomousList") -> {
+                    frame.stringValue?.let {
+                        try {
+                            autos = Json.decodeFromString<List<String>>(it)
+                        } catch (e: Exception) {
+                            println("Failed to parse AutonomousList: ${e.message}")
+                        }
+                    }
+                }
+                cleanKey.startsWith("ARES/DriverStation/Telemetry/") -> frame.stringValue?.let { line ->
                     val indexPart = frame.key.substringAfterLast("/")
                     val idx = indexPart.toIntOrNull()
                     if (idx != null) {
@@ -254,9 +251,22 @@ fun FtcDriverStationWidget(
             }
         }
 
+        if (!canControlSimulator) {
+            Text(
+                text = if (isConnected) {
+                    "Driver Station commands are disabled for physical robot connections. Use Local Sim to run OpModes here."
+                } else {
+                    "Connect to Local Sim to run OpModes from this widget."
+                },
+                color = AresAmber,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(bottom = 12.dp),
+            )
+        }
+
         // Dropdown Selectors
-        val displayAutos = if (autos.isNotEmpty()) autos else listOf("com.areslib.ftc.hardware.AresHardwareTestOpMode")
-        val displayTeleOps = if (teleOps.isNotEmpty()) teleOps else listOf("com.areslib.ftc.hardware.AresHardwareTestOpMode")
+        val displayAutos = autos
+        val displayTeleOps = teleOps
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -293,6 +303,13 @@ fun FtcDriverStationWidget(
                     onDismissRequest = { isAutoExpanded = false },
                     modifier = Modifier.background(AresSurfaceElevated)
                 ) {
+                    if (displayAutos.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("No autonomous OpModes published", color = AresTextSecondary) },
+                            onClick = {},
+                            enabled = false,
+                        )
+                    }
                     displayAutos.forEach { opMode ->
                         DropdownMenuItem(
                             text = { Text(opMode.substringAfterLast("."), color = AresTextPrimary) },
@@ -337,6 +354,13 @@ fun FtcDriverStationWidget(
                     onDismissRequest = { isTeleOpExpanded = false },
                     modifier = Modifier.background(AresSurfaceElevated)
                 ) {
+                    if (displayTeleOps.isEmpty()) {
+                        DropdownMenuItem(
+                            text = { Text("No TeleOp OpModes published", color = AresTextSecondary) },
+                            onClick = {},
+                            enabled = false,
+                        )
+                    }
                     displayTeleOps.forEach { opMode ->
                         DropdownMenuItem(
                             text = { Text(opMode.substringAfterLast("."), color = AresTextPrimary) },
@@ -356,7 +380,7 @@ fun FtcDriverStationWidget(
         // Match Start Button
         Button(
             onClick = {
-                if (matchState == MatchState.IDLE && selectedAutoOpMode != null && selectedTeleOpMode != null) {
+                if (canControlSimulator && matchState == MatchState.IDLE && selectedAutoOpMode != null && selectedTeleOpMode != null) {
                     telemetryLines.clear()
                     matchState = MatchState.AUTO_INIT
                 } else if (matchState != MatchState.IDLE) {
@@ -367,7 +391,7 @@ fun FtcDriverStationWidget(
                     }
                 }
             },
-            enabled = (matchState == MatchState.IDLE && selectedAutoOpMode != null && selectedTeleOpMode != null) || matchState != MatchState.IDLE,
+            enabled = canControlSimulator && ((matchState == MatchState.IDLE && selectedAutoOpMode != null && selectedTeleOpMode != null) || matchState != MatchState.IDLE),
             colors = ButtonDefaults.buttonColors(
                 containerColor = if (matchState == MatchState.IDLE) AresCyan else AresError,
                 contentColor = AresOnAccent,
@@ -396,7 +420,7 @@ fun FtcDriverStationWidget(
                         }
                     }
                 },
-                enabled = dsState == DsState.STOP && selectedOpMode != null,
+                enabled = canControlSimulator && dsState == DsState.STOP && selectedOpMode != null,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AresCyan,
                     contentColor = AresOnAccent,
@@ -416,7 +440,7 @@ fun FtcDriverStationWidget(
                         nt4Client.publishString("ARES/DriverStation/Command", "START")
                     }
                 },
-                enabled = dsState == DsState.INIT,
+                enabled = canControlSimulator && dsState == DsState.INIT,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AresGreen,
                     contentColor = AresOnAccent,
@@ -437,7 +461,7 @@ fun FtcDriverStationWidget(
                         nt4Client.publishString("ARES/DriverStation/Command", "STOP")
                     }
                 },
-                enabled = true, // Always allow emergency stop
+                enabled = canControlSimulator,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = AresError,
                     contentColor = AresOnAccent,

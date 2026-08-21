@@ -11,6 +11,7 @@ import kotlinx.serialization.decodeFromString
 import org.mockito.Mockito
 import java.io.File
 import java.nio.file.Files
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import javax.tools.ToolProvider
@@ -371,6 +372,49 @@ class AutoImportServiceTest {
         assertTrue(result.succeeded)
         assertEquals(AutoImportService.MAX_PROCESS_OUTPUT_BYTES, result.stdout.toByteArray().size)
         assertEquals(AutoImportService.MAX_PROCESS_OUTPUT_BYTES, result.stderr.toByteArray().size)
+    }
+
+    @Test
+    fun `only a direct logs retry file can bypass quarantine dedup`() = runBlocking {
+        val project = Files.createTempDirectory("auto-import-retry-source").toFile()
+        val logs = File(project, "logs").apply { mkdirs() }
+        val nested = File(logs, "nested").apply { mkdirs() }
+        val config = WorkspaceConfig(
+            teamId = "23247",
+            seasonId = "2026",
+            robotId = "robot",
+            projectPath = project.absolutePath,
+            league = League.FTC
+        )
+        val service = bareService(this)
+
+        assertTrue(service.isExplicitRetrySource(config, File(logs, "retry_123_match.csv")))
+        assertFalse(service.isExplicitRetrySource(config, File(logs, "match.csv")))
+        assertFalse(service.isExplicitRetrySource(config, File(nested, "retry_123_match.csv")))
+        project.deleteRecursively()
+        Unit
+    }
+
+    @Test
+    fun `single-file fingerprints stay backward compatible and DS companions affect the run fingerprint`() = runBlocking {
+        val directory = Files.createTempDirectory("auto-import-ds-fingerprint").toFile()
+        val dslog = File(directory, "match.dslog").apply { writeBytes(byteArrayOf(1, 2, 3, 4)) }
+        val events = File(directory, "match.dsevents").apply { writeBytes(byteArrayOf(5, 6, 7)) }
+        val service = bareService(this)
+        try {
+            val expectedLegacy = MessageDigest.getInstance("SHA-256")
+                .digest(dslog.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            assertEquals(expectedLegacy, service.contentFingerprint(dslog))
+
+            val firstComposite = service.contentFingerprint(listOf(dslog, events))
+            events.writeBytes(byteArrayOf(5, 6, 8))
+            val changedComposite = service.contentFingerprint(listOf(dslog, events))
+            assertTrue(firstComposite != changedComposite, "Driver Station event changes must invalidate dedup")
+        } finally {
+            directory.deleteRecursively()
+        }
+        Unit
     }
 
     private fun bareService(

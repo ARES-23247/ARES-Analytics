@@ -2,6 +2,9 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.gradle.api.tasks.Exec
 import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.testing.Test
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 // Single source of truth for the application version. Consumed both by the native
 // distribution packaging below and by the generated BuildConfig (see generateBuildConfig).
@@ -26,7 +29,7 @@ plugins {
 
 
 dependencies {
-    val aresVersion = providers.gradleProperty("aresVersion").orElse("9.2.2").get()
+    val aresVersion = rootProject.extra["aresVersion"] as String
 
     // Compose Desktop
     implementation(compose.desktop.currentOs)
@@ -60,6 +63,7 @@ dependencies {
     implementation("com.google.code.gson:gson:2.10.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
 
     // Windows Credential Protection (DPAPI) for OAuth refresh-token persistence.
     implementation("net.java.dev.jna:jna-platform:5.15.0")
@@ -153,6 +157,103 @@ tasks.withType<JavaExec>().configureEach {
     }
 }
 
+// Compose's development run task normally points the child JVM at mutable build/classes
+// directories. If another agent compiles or cleans while the app is open, a lazily loaded
+// screen can disappear from that running classpath and crash minutes later. Snapshot every
+// directory and project-owned runtime artifact into a unique OS temp directory immediately
+// before launch. External dependency jars in Gradle's immutable cache remain in place.
+var activeDesktopRunSnapshot: File? = null
+val cleanupDesktopRunSnapshot = tasks.register("cleanupDesktopRunSnapshot") {
+    doLast {
+        activeDesktopRunSnapshot?.let { snapshot ->
+            val tempRoot = File(System.getProperty("java.io.tmpdir")).canonicalFile
+            val canonicalSnapshot = snapshot.canonicalFile
+            if (canonicalSnapshot.parentFile == tempRoot && canonicalSnapshot.name.startsWith("ares-analytics-run-")) {
+                canonicalSnapshot.deleteRecursively()
+            }
+        }
+        activeDesktopRunSnapshot = null
+    }
+}
+
+tasks.withType<JavaExec>().configureEach {
+    if (name != "run") return@configureEach
+    finalizedBy(cleanupDesktopRunSnapshot)
+    doFirst {
+        val projectRoot = rootProject.projectDir.toPath().toAbsolutePath().normalize()
+        val snapshotRoot = Files.createTempDirectory("ares-analytics-run-").toFile()
+        val isolatedClasspath = classpath.files.mapIndexed { index, entry ->
+            val entryPath = entry.toPath().toAbsolutePath().normalize()
+            val isMutableProjectArtifact = entryPath.startsWith(projectRoot)
+            if (entry.isDirectory || isMutableProjectArtifact) {
+                val destination = snapshotRoot.resolve("classpath-$index-${entry.name}")
+                if (entry.isDirectory) {
+                    project.copy {
+                        from(entry)
+                        into(destination)
+                    }
+                } else {
+                    destination.parentFile.mkdirs()
+                    Files.copy(entryPath, destination.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                }
+                destination
+            } else {
+                entry
+            }
+        }
+
+        activeDesktopRunSnapshot = snapshotRoot
+        setClasspath(project.files(isolatedClasspath))
+
+        // Compose appends its application-resources directory as a raw -D JVM argument rather
+        // than through JavaExec.systemProperties. Replace that mutable build/ path explicitly;
+        // merely adding a second property leaves argument ordering to Gradle and can still launch
+        // against build/compose/tmp after another agent cleans it.
+        val composeResourcesProperty = "compose.application.resources.dir"
+        val composeResourcesPrefix = "-D$composeResourcesProperty="
+        val configuredResourcesPath = systemProperties[composeResourcesProperty]?.toString()
+            ?: jvmArgs.orEmpty()
+                .firstOrNull { argument -> argument.startsWith(composeResourcesPrefix) }
+                ?.removePrefix(composeResourcesPrefix)
+        requireNotNull(configuredResourcesPath) {
+            "Compose run task did not expose $composeResourcesProperty for runtime isolation"
+        }
+
+        val resourceDirectory = project.file(configuredResourcesPath)
+        val isolatedResources = snapshotRoot.resolve("compose-application-resources")
+        if (resourceDirectory.isDirectory) {
+            project.copy {
+                from(resourceDirectory)
+                into(isolatedResources)
+            }
+        } else {
+            // prepareAppResources is legitimately NO-SOURCE when the application has no
+            // Compose-managed resources. Keep the property isolated anyway so a later build
+            // cannot make a previously absent mutable directory appear under the running JVM.
+            require(isolatedResources.mkdirs()) {
+                "Could not create isolated empty Compose application resources directory"
+            }
+        }
+        require(isolatedResources.isDirectory) {
+            "Compose application resources snapshot was not created: ${isolatedResources.absolutePath}"
+        }
+
+        // Remove Compose's original raw argument before installing the isolated value as the
+        // single authoritative system property.
+        setJvmArgs(jvmArgs.orEmpty().filterNot { argument -> argument.startsWith(composeResourcesPrefix) })
+        systemProperty(composeResourcesProperty, isolatedResources.absolutePath)
+        require(jvmArgs.orEmpty().none { argument -> argument.startsWith(composeResourcesPrefix) }) {
+            "Mutable Compose application resources JVM argument was not removed"
+        }
+        require(systemProperties[composeResourcesProperty] == isolatedResources.absolutePath) {
+            "Compose application resources did not switch to the runtime snapshot"
+        }
+
+        println("[ARES-Analytics] Isolated desktop runtime classpath at ${snapshotRoot.absolutePath}")
+        println("[ARES-Analytics] Isolated Compose application resources at ${isolatedResources.absolutePath}")
+    }
+}
+
 // Opt-in official-template checks run in a forked test JVM. Forward only these reviewed
 // release-check properties so a successful Gradle invocation cannot silently mean the test was
 // skipped because its inputs were visible to Gradle but not to the test process.
@@ -171,7 +272,6 @@ listOf(
 compose.desktop {
     application {
         mainClass = "com.ares.analytics.MainKt"
-        jvmArgs("-Dorg.jetbrains.skiko.renderApi=OPENGL", "-Dorg.jetbrains.skiko.renderApi.fallback=SOFTWARE")
 
         // The desktop app intentionally carries reflective and platform-specific libraries (DuckDB,
         // Ktor, JNA, and LWJGL). ProGuard cannot prove those optional entry points and aborts release
@@ -318,6 +418,29 @@ tasks.register<Test>("dashboardSoak") {
     filter {
         includeTestsMatching("com.ares.analytics.validation.DashboardValidationTest")
         includeTestsMatching("com.ares.analytics.service.AppSimE2EPipelineTest")
+    }
+}
+
+tasks.register<Test>("simulatorControlSoak") {
+    group = "verification"
+    description = "Runs a required wall-clock Analytics -> NT4 -> FTC simulator control soak with JFR. Start :TeamCode:runSim first."
+    maxParallelForks = 1
+    maxHeapSize = "2g"
+    outputs.upToDateWhen { false }
+    systemProperty("java.awt.headless", "true")
+    systemProperty("ares.simSoak.required", "true")
+    systemProperty("ares.simSoak.seconds", providers.gradleProperty("simSoak.seconds").orElse("3600").get())
+    listOf("host", "port", "opMode").forEach { name ->
+        providers.gradleProperty("simSoak.$name").orNull?.let { value ->
+            systemProperty("ares.simSoak.$name", value)
+        }
+    }
+    val jfrDirectory = layout.buildDirectory.dir("reports/simulator-control-soak").get().asFile
+    jfrDirectory.mkdirs()
+    val jfrPath = jfrDirectory.resolve("analytics-control-soak.jfr").absolutePath.replace('\\', '/')
+    jvmArgs("-XX:StartFlightRecording=filename=$jfrPath,settings=default,dumponexit=true,maxsize=256m")
+    filter {
+        includeTestsMatching("com.ares.analytics.service.SimulatorControlSoakTest")
     }
 }
 

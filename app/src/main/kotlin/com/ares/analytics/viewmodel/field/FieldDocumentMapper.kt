@@ -19,7 +19,13 @@ import com.areslib.state.RobotFieldObstacle
 import com.areslib.state.RobotFieldPoint
 import com.areslib.state.RobotFieldWaypoint
 
-/** Lossless-enough adapter between the editor presentation models and the canonical ARES field document. */
+/**
+ * Adapter between the editor presentation models and the canonical ARES field document.
+ *
+ * The presentation models intentionally expose only authorable fields. Canonical properties that
+ * are not currently editable (for example obstacle physics or element depth/movability) are copied
+ * from the prior document by stable ID so an unrelated editor save cannot erase runtime behavior.
+ */
 internal object FieldDocumentMapper {
     fun newDocument(league: League, image: FieldImageConfig = defaultImageConfig(league)): RobotFieldConfig =
         RobotFieldConfig(
@@ -43,9 +49,13 @@ internal object FieldDocumentMapper {
     ): RobotFieldConfig {
         require(gamePieceTypes.map { it.id }.distinct().size == gamePieceTypes.size) { "Game-piece catalog IDs must be unique" }
         require(gamePieceTypes.all { it.id.isNotBlank() && it.name.isNotBlank() }) { "Game-piece catalog IDs and names are required" }
-        val existingTypes = gamePieceTypes.associate { it.id to with(this) { it.toCanonical() } }.toMutableMap()
+        val priorTypes = base.elementTypes.associateBy { it.id }
+        val existingTypes = gamePieceTypes.associate { type ->
+            type.id to with(this) { type.toCanonical(priorTypes[type.id]) }
+        }.toMutableMap()
         val typesByName = existingTypes.values.associateBy { it.name.lowercase() }.toMutableMap()
         val existingElements = base.elements.associateBy { it.id }
+        val existingObstacles = base.obstacles.associateBy { it.id }
 
         val elements = gamePieces.map { piece ->
             val prior = existingElements[piece.id]
@@ -77,7 +87,7 @@ internal object FieldDocumentMapper {
             widthMeters = image.widthMeters,
             heightMeters = image.heightMeters,
             image = image.toCanonical(),
-            obstacles = obstacles.map { it.toCanonical() },
+            obstacles = obstacles.map { obstacle -> obstacle.toCanonical(existingObstacles[obstacle.id]) },
             apriltags = aprilTags.map { it.toCanonical() },
             elementTypes = existingTypes.values.sortedBy { it.id },
             elements = elements,
@@ -186,19 +196,19 @@ internal object FieldDocumentMapper {
         restitution = restitution
     )
 
-    fun com.ares.analytics.shared.GamePieceType.toCanonical(): RobotFieldElementType = RobotFieldElementType(
+    fun com.ares.analytics.shared.GamePieceType.toCanonical(
+        prior: RobotFieldElementType? = null
+    ): RobotFieldElementType = (prior ?: RobotFieldElementType(depth = width, movable = true)).copy(
         id = id,
         name = name,
         shape = shape,
         width = width,
         height = height,
-        depth = width,
         diameter = diameter,
         color = colorHex,
         massKg = massKg,
         friction = friction,
-        restitution = restitution,
-        movable = true
+        restitution = restitution
     )
 
     fun aprilTags(document: RobotFieldConfig): List<AprilTagPlacement> = document.apriltags.map { tag ->
@@ -244,8 +254,8 @@ internal object FieldDocumentMapper {
         }
     )
 
-    private fun Obstacle.toCanonical(): RobotFieldObstacle = when (this) {
-        is Obstacle.Circle -> RobotFieldObstacle(
+    private fun Obstacle.toCanonical(prior: RobotFieldObstacle? = null): RobotFieldObstacle = when (this) {
+        is Obstacle.Circle -> (prior ?: RobotFieldObstacle()).copy(
             id = id,
             name = name,
             x = centerX,
@@ -256,7 +266,7 @@ internal object FieldDocumentMapper {
             locked = locked,
             color = colorHex
         )
-        is Obstacle.Rectangle -> RobotFieldObstacle(
+        is Obstacle.Rectangle -> (prior ?: RobotFieldObstacle()).copy(
             id = id,
             name = name,
             x = centerX,
@@ -268,7 +278,7 @@ internal object FieldDocumentMapper {
             locked = locked,
             color = colorHex
         )
-        is Obstacle.Polygon -> RobotFieldObstacle(
+        is Obstacle.Polygon -> (prior ?: RobotFieldObstacle()).copy(
             id = id,
             name = name,
             shape = "polygon",

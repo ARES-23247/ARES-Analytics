@@ -25,7 +25,6 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -42,19 +41,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.shared.RobotUnit
-import com.ares.analytics.shared.TelemetryFrame
 import com.ares.analytics.shared.UnitCategory
 import com.ares.analytics.shared.UnitConversion
 import com.ares.analytics.ui.theme.*
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.ui.draw.clipToBounds
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
-
-private val scratchChartPath = Path()
 
 fun buildSignalTree(keys: List<String>): SignalNode {
     val root = SignalNode("", "", false)
@@ -84,7 +77,6 @@ fun TelemetryChartPanel(
     onPropertiesChanged: (Map<String, String>) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val scope = rememberCoroutineScope()
     var parentWindowOffset by remember { mutableStateOf(Offset.Zero) }
     var draggedKey by remember { mutableStateOf<String?>(null) }
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
@@ -416,7 +408,9 @@ fun TelemetryChartPanel(
                                     DropdownMenuItem(
                                         text = { Text(unit.name + " (${unit.symbol})", color = AresTextPrimary, fontSize = 12.sp) },
                                         onClick = {
-                                            targetUnits[key] = unit
+                                            selectedKeys
+                                                .filter { telemetryChartCategory(it) == detectedUnit.category }
+                                                .forEach { sameCategoryKey -> targetUnits[sameCategoryKey] = unit }
                                             unitMenuExpanded = false
                                         }
                                     )
@@ -427,13 +421,38 @@ fun TelemetryChartPanel(
                 }
             }
         }
+        if (telemetryChartGroupCount(selectedKeys) > 1) {
+            Text(
+                text = "Mixed dimensions use separate, time-aligned Y-axis bands.",
+                color = AresTextTertiary,
+                fontSize = 11.sp,
+            )
+        }
         val signalTree = remember(activeTopics.toList()) { buildSignalTree(activeTopics.toList()) }
 
-        // Plot Canvas
-        var minY by remember { mutableStateOf(0.0) }
-        var maxY by remember { mutableStateOf(1.0) }
-        val firstKey = selectedKeys.firstOrNull()
-        val currentUnitSymbol = firstKey?.let { targetUnits[it] ?: UnitConversion.detectUnitFromKey(it) }?.symbol ?: ""
+        val selectedKeySnapshot = selectedKeys.toList()
+        val targetUnitSnapshot = targetUnits.toMap()
+        val pointsSnapshot = remember(selectedKeySnapshot, lastUpdateTick, liveTime) {
+            selectedKeySnapshot.associateWith { key ->
+                telemetryData[key]?.let { queue -> synchronized(queue) { queue.toList() } }.orEmpty()
+            }
+        }
+        val chartSnapshot = remember(
+            selectedKeySnapshot,
+            targetUnitSnapshot,
+            pointsSnapshot,
+            liveTime,
+            selectedWindowSec,
+        ) {
+            buildTelemetryChartSnapshot(
+                selectedKeys = selectedKeySnapshot,
+                pointsByKey = pointsSnapshot,
+                targetUnits = targetUnitSnapshot,
+                nowMs = liveTime,
+                windowMs = selectedWindowSec * 1_000L,
+            )
+        }
+        val chartPaths = remember { List(8) { Path() } }
 
         Row(
             modifier = Modifier
@@ -501,7 +520,6 @@ fun TelemetryChartPanel(
                     }
                 } else {
                     Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 12.dp).clipToBounds()) {
-                        val _tick = liveTime
                         val width = size.width
                         val height = size.height
 
@@ -512,125 +530,60 @@ fun TelemetryChartPanel(
                         val x = width * i / gridLinesX
                         drawLine(color = AresBorder, start = Offset(x, 0f), end = Offset(x, height), strokeWidth = 1f)
                     }
-                    for (i in 0..gridLinesY) {
-                        val y = height * i / gridLinesY
-                        drawLine(color = AresBorder, start = Offset(0f, y), end = Offset(width, y), strokeWidth = 1f)
-                    }
+                    val bandHeight = height / chartSnapshot.groups.size.coerceAtLeast(1)
+                    chartSnapshot.groups.forEachIndexed { groupIndex, group ->
+                        val bandTop = bandHeight * groupIndex
+                        for (i in 0..gridLinesY) {
+                            val y = bandTop + bandHeight * i / gridLinesY
+                            drawLine(color = AresBorder, start = Offset(0f, y), end = Offset(width, y), strokeWidth = 1f)
+                        }
 
-                    // 2. Compute Global Bounds (Y-axis auto-scaling)
-                    var tempMinY = Double.MAX_VALUE
-                    var tempMaxY = -Double.MAX_VALUE
-                    var hasData = false
+                        group.series.forEach { series ->
+                            val points = series.points
+                            if (points.isNotEmpty()) {
+                                val channelIdx = selectedKeySnapshot.indexOf(series.key).coerceAtLeast(0)
+                                val color = channelColors[channelIdx % channelColors.size]
+                                val now = liveTime
+                                val minX = now - (selectedWindowSec * 1000)
+                                val maxX = now
+                                val path = chartPaths[channelIdx].apply { reset() }
 
-                    selectedKeys.forEach { key ->
-                        val deque = telemetryData[key]
-                        val points = if (deque != null) synchronized(deque) { deque.toList() } else emptyList()
-                        val detectedUnit = UnitConversion.detectUnitFromKey(key)
-                        val targetUnit = targetUnits[key] ?: detectedUnit
-                        if (points.isNotEmpty()) {
-                            hasData = true
-                            points.forEach {
-                                val value = if (detectedUnit != null && targetUnit != null) {
-                                    UnitConversion.convert(it.value, detectedUnit, targetUnit)
-                                } else {
-                                    it.value
+                                fun getPy(value: Double): Float {
+                                    val converted = convertTelemetryChartValue(value, series.sourceUnit, series.displayUnit)
+                                    val yPct = ((converted - group.bounds.min) / (group.bounds.max - group.bounds.min)).toFloat()
+                                    return bandTop + bandHeight - (yPct * bandHeight)
                                 }
-                                if (value < tempMinY) tempMinY = value
-                                if (value > tempMaxY) tempMaxY = value
-                            }
-                        }
-                    }
+                                var isFirst = true
 
-                    // Handle edge cases
-                    when {
-                        !hasData -> {
-                            tempMinY = 0.0
-                            tempMaxY = 1.0
-                        }
-                        tempMinY == tempMaxY -> {
-                            tempMinY -= 1.0
-                            tempMaxY += 1.0
-                        }
-                        else -> {
-                            // Add 10% padding
-                            val diff = tempMaxY - tempMinY
-                            tempMinY -= diff * 0.1
-                            tempMaxY += diff * 0.1
-                        }
-                    }
+                                var visibleStartIndex = points.indexOfFirst { it.timestampMs >= minX }
+                                if (visibleStartIndex == -1) visibleStartIndex = points.size
+                                val startIndex = kotlin.math.max(0, visibleStartIndex - 1)
 
-                    minY = tempMinY
-                    maxY = tempMaxY
-
-                    // 4. Plot each active channel
-                    selectedKeys.forEachIndexed { channelIdx, key ->
-                        val deque = telemetryData[key]
-                        val points = if (deque != null) synchronized(deque) { deque.toList() } else emptyList()
-                        val detectedUnit = UnitConversion.detectUnitFromKey(key)
-                        val targetUnit = targetUnits[key] ?: detectedUnit
-                        if (points.isNotEmpty()) {
-                            val color = channelColors[channelIdx % channelColors.size]
-                            val now = liveTime
-                            val minX = now - (selectedWindowSec * 1000)
-                            val maxX = now
-                            val path = scratchChartPath.apply { reset() }
-
-                            fun getPy(value: Double): Float {
-                                val converted = if (detectedUnit != null && targetUnit != null) {
-                                    UnitConversion.convert(value, detectedUnit, targetUnit)
-                                } else {
-                                    value
-                                }
-                                val yPct = ((converted - minY) / (maxY - minY)).toFloat()
-                                return height - (yPct * height)
-                            }
-                            var isFirst = true
-
-                            // Find the first point that is visible (>= minX)
-                            var visibleStartIndex = points.indexOfFirst { it.timestampMs >= minX }
-                            if (visibleStartIndex == -1) visibleStartIndex = points.size
-
-                            // Include one point before minX to connect the line correctly off-screen
-                            val startIndex = kotlin.math.max(0, visibleStartIndex - 1)
-
-                            // 1. Prepend virtual point at minX if the point before minX exists
-                            if (startIndex < visibleStartIndex && points[startIndex].timestampMs < minX) {
-                                val py = getPy(points[startIndex].value)
-                                path.moveTo(0f, py)
-                                isFirst = false
-                            }
-
-                            // 2. Draw points starting from startIndex
-                            for (i in startIndex until points.size) {
-                                val pt = points[i]
-                                val xPct = (pt.timestampMs - minX).toFloat() / (maxX - minX)
-                                val px = xPct * width
-                                val py = getPy(pt.value)
-
-                                if (isFirst) {
-                                    path.moveTo(px, py)
+                                if (startIndex < visibleStartIndex && points[startIndex].timestampMs < minX) {
+                                    path.moveTo(0f, getPy(points[startIndex].value))
                                     isFirst = false
-                                } else {
-                                    path.lineTo(px, py)
                                 }
-                            }
 
-                            // 3. Append virtual point at maxX if the last point is older than maxX
-                            val lastPt = points.last()
-                            if (lastPt.timestampMs < maxX) {
-                                val py = getPy(lastPt.value)
-                                if (isFirst) {
-                                    path.moveTo(width, py)
-                                } else {
-                                    path.lineTo(width, py)
+                                for (i in startIndex until points.size) {
+                                    val pt = points[i]
+                                    val px = ((pt.timestampMs - minX).toFloat() / (maxX - minX)) * width
+                                    val py = getPy(pt.value)
+                                    if (isFirst) {
+                                        path.moveTo(px, py)
+                                        isFirst = false
+                                    } else {
+                                        path.lineTo(px, py)
+                                    }
                                 }
-                            }
 
-                            drawPath(
-                                path = path,
-                                color = color,
-                                style = Stroke(width = 2.dp.toPx())
-                            )
+                                val lastPt = points.last()
+                                if (lastPt.timestampMs < maxX) {
+                                    val py = getPy(lastPt.value)
+                                    if (isFirst) path.moveTo(width, py) else path.lineTo(width, py)
+                                }
+
+                                drawPath(path = path, color = color, style = Stroke(width = 2.dp.toPx()))
+                            }
                         }
                     }
                 }
@@ -638,22 +591,34 @@ fun TelemetryChartPanel(
                 // Overlay Y-axis labels
                 Column(
                     modifier = Modifier.fillMaxHeight().padding(start = 12.dp, top = 8.dp, bottom = 8.dp),
-                    verticalArrangement = Arrangement.SpaceBetween
+                    verticalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text(
-                        text = String.format("%.2f %s", maxY, currentUnitSymbol),
-                        color = AresTextSecondary,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = String.format("%.2f %s", minY, currentUnitSymbol),
-                        color = AresTextSecondary,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold
-                    )
+                    chartSnapshot.groups.forEach { group ->
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            Text(
+                                text = String.format("%.2f %s", group.bounds.max, group.unitSymbol),
+                                color = AresTextSecondary,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.align(Alignment.TopStart),
+                            )
+                            Text(
+                                text = group.category?.name?.replace('_', ' ') ?: "RAW",
+                                color = AresTextTertiary,
+                                fontSize = 8.sp,
+                                modifier = Modifier.align(Alignment.CenterStart),
+                            )
+                            Text(
+                                text = String.format("%.2f %s", group.bounds.min, group.unitSymbol),
+                                color = AresTextSecondary,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.align(Alignment.BottomStart),
+                            )
+                        }
+                    }
                 }
             }
             }

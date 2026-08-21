@@ -2,10 +2,15 @@ package com.ares.analytics.service
 
 import com.ares.analytics.shared.RobotActionRecord
 import com.ares.analytics.shared.Session
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.io.File
 import org.tukaani.xz.LZMA2Options
 import org.tukaani.xz.XZOutputStream
+import java.util.zip.GZIPOutputStream
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -103,6 +108,73 @@ class LogParserServiceTest {
 
         tempFile.delete()
         tempDb.delete()
+    }
+
+    @Test
+    fun `compressed ARES csv imports through bounded streaming decoder`() = runTest {
+        val tempDb = File.createTempFile("log_csv_gzip_db", ".db")
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val summaryEngineService = SummaryEngineService(
+            databaseService,
+            sysIdService,
+            DriverAnalysisService(databaseService, sysIdService)
+        )
+        val logParser = LogParserService(databaseService, summaryEngineService)
+        val compressed = File.createTempFile("ares_log_test", ".csv.gz")
+        val replayEngine = ReplayEngineService(databaseService)
+        try {
+            GZIPOutputStream(compressed.outputStream()).bufferedWriter().use { writer ->
+                writer.write("TimestampMs,Drive/Pose_X,_ExtraFieldsJson\n")
+                writer.write("1000,1.25,{}\n")
+                writer.write("1020,1.50,\"{\"\"Late/Current\"\":12.5}\"\n")
+            }
+
+            val session = logParser.parseLogFile(
+                file = compressed,
+                teamId = "23247",
+                seasonId = "2026",
+                robotId = "ares-bot"
+            )
+
+            assertEquals(20L, session.durationMs)
+            assertEquals(
+                listOf(1.25, 1.50),
+                databaseService.getTelemetryForKey(session.sessionId, "Drive/Pose_X").map { it.value }
+            )
+            assertEquals(
+                12.5,
+                databaseService.getTelemetryForKey(session.sessionId, "Late/Current").single().value
+            )
+            assertEquals("csv-gzip", logParser.decoderName(compressed))
+
+            replayEngine.loadSession(session.sessionId)
+            assertEquals(1.25, replayEngine.currentFrame.value?.values?.get("Drive/Pose_X"))
+            assertTrue("Late/Current" !in replayEngine.currentFrame.value?.values.orEmpty())
+
+            replayEngine.scrubTo(1.0)
+            withContext(Dispatchers.Default.limitedParallelism(1)) {
+                withTimeout(2_000L) {
+                    while (replayEngine.currentFrame.value?.values?.get("Drive/Pose_X") != 1.50) delay(10L)
+                }
+            }
+            assertEquals(1.50, replayEngine.currentFrame.value?.values?.get("Drive/Pose_X"))
+            assertEquals(12.5, replayEngine.currentFrame.value?.values?.get("Late/Current"))
+
+            replayEngine.scrubTo(0.0)
+            withContext(Dispatchers.Default.limitedParallelism(1)) {
+                withTimeout(2_000L) {
+                    while (replayEngine.currentFrame.value?.values?.get("Drive/Pose_X") != 1.25) delay(10L)
+                }
+            }
+            assertEquals(1.25, replayEngine.currentFrame.value?.values?.get("Drive/Pose_X"))
+            assertTrue("Late/Current" !in replayEngine.currentFrame.value?.values.orEmpty())
+        } finally {
+            replayEngine.disposeAndJoin()
+            databaseService.close()
+            compressed.delete()
+            tempDb.delete()
+        }
     }
 
     @Test

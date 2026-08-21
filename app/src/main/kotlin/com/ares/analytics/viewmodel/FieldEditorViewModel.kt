@@ -13,8 +13,11 @@ import com.ares.analytics.viewmodel.field.FieldMeasurementUnit
 import com.ares.analytics.viewmodel.field.FieldPrefabCatalog
 import com.ares.analytics.viewmodel.field.FieldPrefabKind
 import com.ares.analytics.viewmodel.field.FieldValidationIssue
+import com.ares.analytics.viewmodel.field.FieldValidationSeverity
+import com.areslib.state.FieldType
 import com.areslib.state.RobotFieldConfig
 import com.areslib.state.RobotFieldDocument
+import com.areslib.state.RobotFieldValidator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -95,9 +98,6 @@ sealed class FieldEditorIntent {
     data class SetMeasurementUnit(val unit: FieldMeasurementUnit) : FieldEditorIntent()
     data class AddPrefab(val prefabId: String) : FieldEditorIntent()
     object PushToSimulator : FieldEditorIntent()
-    object StartSimulator : FieldEditorIntent()
-    object PauseSimulator : FieldEditorIntent()
-    object ResetSimulator : FieldEditorIntent()
     object ClearSaveStatus : FieldEditorIntent()
     data class SetObstacles(val obstacles: List<Obstacle>) : FieldEditorIntent()
     data class SetGamePieces(val gamePieces: List<GamePiece>) : FieldEditorIntent()
@@ -116,7 +116,8 @@ sealed class FieldEditorIntent {
  */
 class FieldEditorViewModel(
     private val scope: CoroutineScope,
-    private val nt4ClientService: Nt4ClientService? = null
+    private val nt4ClientService: Nt4ClientService? = null,
+    private val fieldConfigPublisher: (suspend (String) -> Boolean)? = null,
 ) {
     private val _state = MutableStateFlow(FieldEditorState())
     val state: StateFlow<FieldEditorState> = _state.asStateFlow()
@@ -197,9 +198,6 @@ class FieldEditorViewModel(
             is FieldEditorIntent.SetMeasurementUnit -> _state.update { it.copy(measurementUnit = intent.unit) }
             is FieldEditorIntent.AddPrefab -> addPrefab(intent.prefabId)
             FieldEditorIntent.PushToSimulator -> pushToSimulator()
-            FieldEditorIntent.StartSimulator -> sendSimulatorCommand("START", "Simulator started")
-            FieldEditorIntent.PauseSimulator -> sendSimulatorCommand("STOP", "Simulator paused")
-            FieldEditorIntent.ResetSimulator -> resetSimulator()
             FieldEditorIntent.ClearSaveStatus -> _state.update { it.copy(saveStatus = "") }
             FieldEditorIntent.SaveDocument -> saveImmediately()
         }
@@ -537,54 +535,39 @@ class FieldEditorViewModel(
     }
 
     private fun pushToSimulator() {
-        val client = nt4ClientService
-        val document = _state.value.document
-        if (client == null || document == null) {
+        val current = _state.value
+        val document = current.document
+        val publisher = fieldConfigPublisher ?: nt4ClientService?.let { client ->
+            { payload: String -> client.publishString("ARES/Input/fieldConfig", payload) }
+        }
+        if (publisher == null || document == null) {
             _state.update { it.copy(simulatorStatus = "Simulator connection is unavailable") }
+            return
+        }
+        val validationErrors = current.validationIssues.count { it.severity == FieldValidationSeverity.ERROR }
+        if (validationErrors > 0) {
+            _state.update {
+                it.copy(
+                    simulatorStatus = "Field not pushed: fix $validationErrors validation error${if (validationErrors == 1) "" else "s"}"
+                )
+            }
             return
         }
         scope.launch {
             _state.update { it.copy(simulatorStatus = "Pushing field…") }
             try {
-                client.publishString("ARES/Input/obstacles", AppJson.encodeToString(_state.value.obstacles))
-                client.publishString("ARES/Input/fieldConfig", RobotFieldDocument.encode(document))
-                _state.update { it.copy(simulatorStatus = "Field pushed to simulator") }
+                val published = publisher(RobotFieldDocument.encode(document))
+                _state.update {
+                    it.copy(
+                        simulatorStatus = if (published) {
+                            "Field pushed to simulator"
+                        } else {
+                            "Simulator push failed: field configuration was not accepted"
+                        }
+                    )
+                }
             } catch (error: Exception) {
                 _state.update { it.copy(simulatorStatus = "Simulator push failed: ${error.message}") }
-            }
-        }
-    }
-
-    private fun sendSimulatorCommand(command: String, successStatus: String) {
-        val client = nt4ClientService
-        if (client == null) {
-            _state.update { it.copy(simulatorStatus = "Simulator connection is unavailable") }
-            return
-        }
-        scope.launch {
-            try {
-                client.publishString("ARES/DriverStation/Command", command)
-                _state.update { it.copy(simulatorStatus = successStatus) }
-            } catch (error: Exception) {
-                _state.update { it.copy(simulatorStatus = "Simulator command failed: ${error.message}") }
-            }
-        }
-    }
-
-    private fun resetSimulator() {
-        val client = nt4ClientService
-        if (client == null) {
-            _state.update { it.copy(simulatorStatus = "Simulator connection is unavailable") }
-            return
-        }
-        scope.launch {
-            try {
-                client.publishString("ARES/DriverStation/Command", "STOP")
-                delay(75)
-                client.publishString("ARES/DriverStation/Command", "INIT")
-                _state.update { it.copy(simulatorStatus = "Simulator reset") }
-            } catch (error: Exception) {
-                _state.update { it.copy(simulatorStatus = "Simulator reset failed: ${error.message}") }
             }
         }
     }
@@ -592,18 +575,38 @@ class FieldEditorViewModel(
     private fun withValidation(state: FieldEditorState): FieldEditorState {
         val width = state.fieldImageConfig.widthMeters.takeIf { it > 0.0 } ?: if (activeLeague == League.FTC) 3.6576 else 16.541
         val height = state.fieldImageConfig.heightMeters.takeIf { it > 0.0 } ?: if (activeLeague == League.FTC) 3.6576 else 8.211
-        return state.copy(
-            validationIssues = FieldEditorValidator.validate(
-                league = activeLeague,
-                widthMeters = width,
-                heightMeters = height,
-                obstacles = state.obstacles,
-                gamePieces = state.gamePieces,
-                aprilTags = state.aprilTags,
-                waypoints = state.fieldWaypoints
+        val editorIssues = FieldEditorValidator.validate(
+            league = activeLeague,
+            widthMeters = width,
+            heightMeters = height,
+            obstacles = state.obstacles,
+            gamePieces = state.gamePieces,
+            aprilTags = state.aprilTags,
+            waypoints = state.fieldWaypoints
+        )
+        val requiredFieldType = if (activeLeague == League.FTC) FieldType.FTC else FieldType.FRC
+        val canonicalIssues = state.document.orEmptyValidation(requiredFieldType).map { issue ->
+            FieldValidationIssue(
+                severity = FieldValidationSeverity.ERROR,
+                message = issue.message,
+                elementIds = issue.elementIds,
             )
+        }
+        return state.copy(
+            validationIssues = (editorIssues + canonicalIssues).distinctBy { issue ->
+                issue.severity to (issue.message to issue.elementIds)
+            }
         )
     }
+
+    private fun RobotFieldConfig?.orEmptyValidation(requiredFieldType: FieldType) =
+        this?.let { document ->
+            RobotFieldValidator.validate(
+                config = document,
+                requiredFieldType = requiredFieldType,
+                requireAprilTags = requiredFieldType == FieldType.FTC,
+            )
+        }.orEmpty()
 
     private fun selectionClipboard(state: FieldEditorState): FieldEditorClipboard {
         val selected = state.selectedElementIds

@@ -143,6 +143,8 @@ Access is serialized with coroutine mutexes at the repository boundary. Keep tra
 - `sessions`: identity, team/season/robot, duration, match metadata, tags
 - `session_summaries`: derived health/performance metrics
 - `telemetry_frames`: `(session_id, key, timestamp_ms)` primary key plus numeric and optional string values
+- `analysis_diagnostics`: replaceable analyzer-owned results keyed by session and metric; never raw timeline samples
+- `session_import_reports`: decoder provenance and accepted/rejected-record evidence retained with the session across cloud round trips
 - `robot_actions`: timestamped Redux/action records
 - `alerts`: trigger/resolution and triage state
 - `session_annotations`: human notes
@@ -187,7 +189,9 @@ CSV import expands `_ExtraFieldsJson`, which is emitted when ARESDataLogger disc
 
 ### Automatic import identity
 
-Local, FTC, and FRC scanners maintain a durable identity for each source file. A file that remains on a robot must not create a new session every scan. Active or changing files are deferred until stable, and a failed archive move is not treated as completed import.
+Local, FTC, and FRC scanners maintain a durable content identity for each source file. A file that remains on a robot must not create a new session every scan. Active or changing files are deferred until stable, and a failed archive move is not treated as completed import. FRC Driver Station `.dslog` and `.dsevents` companions are stabilized, copied, archived, quarantined, and fingerprinted as one evidence set.
+
+The Cloud screen's HTTP pull uses the same durability rules: remote basenames and declared sizes are validated, the `file` query is encoded, streaming is capped at the exact advertised byte count, and raw files are retained under the active workspace's `logs/imported/` directory before parsing. A run-level content manifest makes a cloud-upload retry reuse the local session instead of importing duplicate rows. Robot deletion is a separate authenticated action and is never part of import success.
 
 ## 8. Replay model
 
@@ -217,6 +221,14 @@ Summary metrics use explicit topic families:
 - loop statistics use loop-time topics, not generic “period” keys;
 - motor current device names include the parent path of `CurrentAmps`;
 - missing vision acceptance data reports no observations rather than a fabricated 100%.
+
+Analyzer-generated diagnostics are atomically replaced in `analysis_diagnostics`. They may be projected into the diagnostics UI, but they are not appended to `telemetry_frames`, do not alter the source timestamp range, and cannot feed back into the next summary calculation.
+
+### Cloud session bundles
+
+New Google Drive uploads are immutable versioned `.ares-session.zip` objects. Each bundle contains `telemetry.parquet` plus a bounded `manifest.json` carrying the session/summary, Redux actions, annotations, alerts, console messages, analysis diagnostics, and associated import reports. The outer Drive object and inner telemetry entry both have exact size and SHA-256 checks. The manifest carries a stable league/team/season/robot workspace key, and download fails closed on an identity mismatch.
+
+Bundle import replaces the complete session atomically across telemetry and ancillary tables. A failure at telemetry, summary, session, or ancillary insertion rolls the entire transaction back. Legacy telemetry-only `.parquet` Drive objects remain readable, but all new uploads use the complete bundle format.
 
 ### SysId
 

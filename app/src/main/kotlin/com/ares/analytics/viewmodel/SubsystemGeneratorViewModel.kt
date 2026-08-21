@@ -22,6 +22,7 @@ import com.areslib.subsystem.SubsystemControlLoopDocument
 import com.areslib.subsystem.SubsystemControlStrategy
 import com.areslib.subsystem.SubsystemDocument
 import com.areslib.subsystem.SubsystemFaultRecoveryDocument
+import com.areslib.subsystem.SubsystemFeedforwardDocument
 import com.areslib.subsystem.SubsystemFieldRole
 import com.areslib.subsystem.SubsystemFollowerDocument
 import com.areslib.subsystem.SubsystemFollowerTransform
@@ -118,6 +119,8 @@ data class SubsystemTemplateOption(
     val template: SubsystemTemplate,
     val label: String,
     val description: String,
+    val category: String,
+    val beginnerRecommended: Boolean = false,
 )
 
 val subsystemTemplateOptions = listOf(
@@ -125,36 +128,121 @@ val subsystemTemplateOptions = listOf(
         SubsystemTemplate.SIMPLE_ACTUATOR,
         "Simple actuator",
         "Bounded open-loop motor output with a declared neutral state and fault monitoring.",
+        "Motors",
+        true,
     ),
     SubsystemTemplateOption(
         SubsystemTemplate.POSITION_CONTROLLED_MECHANISM,
         "Position-controlled mechanism",
         "Closed-loop position control with cached feedback, soft limits, and stale-signal handling.",
+        "Motors",
     ),
     SubsystemTemplateOption(
         SubsystemTemplate.VELOCITY_CONTROLLED_MECHANISM,
         "Velocity-controlled mechanism",
         "Closed-loop velocity control with current monitoring and a safe spin-down path.",
+        "Motors",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.ELEVATOR_LIFT,
+        "Elevator or lift",
+        "Profiled height control, limit-switch homing, gravity feedforward, and soft limits.",
+        "Common mechanisms",
+        true,
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.ARM_PIVOT,
+        "Arm or pivot",
+        "Profiled angular control, homing, cosine gravity feedforward, and angular limits.",
+        "Common mechanisms",
+        true,
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.FLYWHEEL_SHOOTER,
+        "Flywheel or shooter",
+        "Velocity PID plus feedforward, ready tolerance, and current monitoring.",
+        "Common mechanisms",
+        true,
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.INTAKE_CONVEYOR,
+        "Intake, conveyor, or indexer",
+        "Open-loop motion with current-based jam detection, bounded recovery, and game-piece simulation.",
+        "Common mechanisms",
+        true,
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.DUAL_MOTOR_FOLLOWER,
+        "Dual-motor leader/follower",
+        "One controller drives a leader and an explicitly inverted follower with group-safe neutral behavior.",
+        "Motors",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.POSITIONAL_SERVO,
+        "Positional servo",
+        "Normalized 0–1 position commands, a reviewed safe position, inversion, and mirrored followers.",
+        "Servos and indicators",
+        true,
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.CONTINUOUS_SERVO,
+        "Continuous-rotation servo",
+        "Normalized bidirectional power with neutral, inversion, and follower support.",
+        "Servos and indicators",
     ),
     SubsystemTemplateOption(
         SubsystemTemplate.SENSOR_ONLY_SUBSYSTEM,
         "Sensor-only subsystem",
         "A cached, validity-aware input snapshot with telemetry and no actuator output.",
+        "Sensors",
     ),
     SubsystemTemplateOption(
         SubsystemTemplate.HOMED_MECHANISM,
         "Homed mechanism",
         "Position control gated on an explicit home reference, calibration health, and soft limits.",
+        "Homing",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.CURRENT_HOMED_MECHANISM,
+        "Current-stall homing",
+        "Bounded sensorless homing using fresh current evidence, dwell, timeout, and neutral-before-zero.",
+        "Homing",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.VELOCITY_HOMED_MECHANISM,
+        "Velocity-stall homing",
+        "Bounded sensorless homing using fresh low-velocity evidence, dwell, and timeout.",
+        "Homing",
     ),
     SubsystemTemplateOption(
         SubsystemTemplate.COMPOSITE_MECHANISM,
         "Composite mechanism",
         "Coordinated devices with one atomic snapshot, neutral policy, and partial-failure handling.",
+        "Advanced mechanisms",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.TWO_DOF_ARM,
+        "Two-joint arm",
+        "Two profiled joints with explicit geometry, coupled gravity feedforward, and generated linkage simulation.",
+        "Advanced mechanisms",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.INDICATOR_LIGHT_PWM,
+        "PWM indicator light",
+        "Color-safe named lighting output with a declared off state.",
+        "Servos and indicators",
+    ),
+    SubsystemTemplateOption(
+        SubsystemTemplate.PRISM_LED_DRIVER,
+        "goBILDA Prism LED driver",
+        "Pattern pulse-width control, brightness metadata, and a safe off preset.",
+        "Servos and indicators",
     ),
     SubsystemTemplateOption(
         SubsystemTemplate.ADVANCED_CUSTOM,
         "Advanced/custom",
         "An explicit starting point that requires every applicable hardware and safety choice.",
+        "Advanced mechanisms",
     ),
 )
 
@@ -293,10 +381,10 @@ class SubsystemGeneratorViewModel(
                     documents = if (matching.isEmpty()) listOf(first) else matching,
                     selectedDocumentId = first.documentId,
                     draft = SubsystemEditorDraft(first),
-                    selectedHardwareUid = first.hardware.firstOrNull()?.uid,
+                    selectedHardwareUid = null,
                     selectedFieldUid = null,
                     selectedLoopUid = null,
-                    selectedTuningParameterUid = first.tuningParameters.firstOrNull()?.uid,
+                    selectedTuningParameterUid = null,
                     selectedTemplate = first.template,
                     dirty = matching.isEmpty(),
                     status = if (matching.isEmpty()) "Create your first subsystem, then save it as a project revision." else null,
@@ -324,10 +412,10 @@ class SubsystemGeneratorViewModel(
                 documents = current.documents + document,
                 selectedDocumentId = document.documentId,
                 draft = SubsystemEditorDraft(document),
-                selectedHardwareUid = document.hardware.firstOrNull()?.uid,
+                selectedHardwareUid = null,
                 selectedFieldUid = null,
                 selectedLoopUid = null,
-                selectedTuningParameterUid = document.tuningParameters.firstOrNull()?.uid,
+                selectedTuningParameterUid = null,
                 activeStage = SubsystemBuilderStage.PURPOSE,
                 visitedStages = setOf(SubsystemBuilderStage.PURPOSE),
                 selectedTemplate = document.template,
@@ -344,6 +432,35 @@ class SubsystemGeneratorViewModel(
     fun setTemplatePickerVisible(visible: Boolean) = _state.update { it.copy(showTemplatePicker = visible) }
 
     fun selectTemplate(template: SubsystemTemplate) = _state.update { it.copy(selectedTemplate = template) }
+
+    fun applyTemplate(template: SubsystemTemplate) {
+        val currentDocument = _state.value.draft?.document ?: return
+        val templateDocument = SubsystemTemplates.create(
+            template = template,
+            documentId = currentDocument.documentId,
+            kotlinTypeName = currentDocument.kotlinTypeName,
+            platform = currentDocument.platform,
+            displayName = currentDocument.displayName,
+        ).copy(
+            revision = currentDocument.revision,
+            parentContentHash = currentDocument.parentContentHash,
+            uid = currentDocument.uid,
+        )
+
+        _state.update { current ->
+            val draft = current.draft ?: return@update current
+            current.copy(
+                draft = draft.edit { templateDocument },
+                selectedHardwareUid = null,
+                selectedFieldUid = null,
+                selectedLoopUid = null,
+                selectedTuningParameterUid = null,
+                selectedTemplate = template,
+                dirty = true,
+                status = "Applied ${template.name.lowercase().replace('_', ' ')} starter template.",
+            ).revalidated()
+        }
+    }
 
     fun selectStage(stage: SubsystemBuilderStage) = _state.update {
         it.copy(activeStage = stage, visitedStages = it.visitedStages + stage)
@@ -473,10 +590,10 @@ class SubsystemGeneratorViewModel(
             current.copy(
                 selectedDocumentId = document.documentId,
                 draft = SubsystemEditorDraft(document),
-                selectedHardwareUid = document.hardware.firstOrNull()?.uid,
+                selectedHardwareUid = null,
                 selectedFieldUid = null,
                 selectedLoopUid = null,
-                selectedTuningParameterUid = document.tuningParameters.firstOrNull()?.uid,
+                selectedTuningParameterUid = null,
                 activeStage = SubsystemBuilderStage.PURPOSE,
                 visitedStages = setOf(SubsystemBuilderStage.PURPOSE),
                 selectedTemplate = document.template,
@@ -833,6 +950,19 @@ class SubsystemGeneratorViewModel(
         document.copy(stateFields = document.stateFields.map { if (it.fieldId == id) transform(it) else it })
     }
 
+    fun changeStateFieldType(id: String, type: SubsystemValueType) = updateStateField(id) { field ->
+        field.copy(
+            type = type,
+            defaultNumber = if (type == SubsystemValueType.DOUBLE) field.defaultNumber ?: 0.0 else null,
+            defaultBoolean = if (type == SubsystemValueType.BOOLEAN) field.defaultBoolean ?: false else null,
+            defaultInt = if (type == SubsystemValueType.INT) field.defaultInt ?: 0 else null,
+            defaultText = if (type == SubsystemValueType.STRING) field.defaultText.orEmpty() else null,
+            unit = field.unit.takeIf { type == SubsystemValueType.DOUBLE || type == SubsystemValueType.INT },
+            minimum = field.minimum.takeIf { type == SubsystemValueType.DOUBLE || type == SubsystemValueType.INT },
+            maximum = field.maximum.takeIf { type == SubsystemValueType.DOUBLE || type == SubsystemValueType.INT },
+        )
+    }
+
     fun renameStateFieldId(id: String, newId: String) {
         if (newId == id) return
         edit { document ->
@@ -902,6 +1032,46 @@ class SubsystemGeneratorViewModel(
 
     fun updateControlLoop(id: String, transform: (SubsystemControlLoopDocument) -> SubsystemControlLoopDocument) = edit { document ->
         document.copy(controlLoops = document.controlLoops.map { if (it.loopId == id) transform(it) else it })
+    }
+
+    fun renameControlLoopId(id: String, newId: String) {
+        if (newId == id) return
+        edit { document ->
+            document.copy(
+                controlLoops = document.controlLoops.map { loop ->
+                    if (loop.loopId == id) loop.copy(loopId = newId) else loop
+                },
+            )
+        }
+    }
+
+    fun changeControlLoopStrategy(id: String, strategy: SubsystemControlStrategy) = edit { document ->
+        val loop = document.controlLoops.firstOrNull { it.loopId == id } ?: return@edit document
+        val actuator = document.hardware.firstOrNull { it.hardwareId == loop.actuatorId }
+        val preferredSource = when (strategy) {
+            SubsystemControlStrategy.VELOCITY_PID -> SubsystemMeasurementSource.MOTOR_VELOCITY_NATIVE_PER_SECOND
+            SubsystemControlStrategy.POSITION_PID,
+            SubsystemControlStrategy.PROFILED_POSITION_PID,
+            SubsystemControlStrategy.BANG_BANG -> SubsystemMeasurementSource.MOTOR_POSITION_NATIVE
+            else -> null
+        }
+        val preferredMeasurement = preferredSource?.let { source ->
+            actuator?.measurements?.firstOrNull { it.source == source }?.fieldId
+        } ?: document.stateFields.firstOrNull {
+            it.role == SubsystemFieldRole.MEASUREMENT && it.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT)
+        }?.fieldId
+        val supportsFeedforward = strategy in setOf(
+            SubsystemControlStrategy.POSITION_PID,
+            SubsystemControlStrategy.PROFILED_POSITION_PID,
+            SubsystemControlStrategy.VELOCITY_PID,
+        )
+        document.copy(controlLoops = document.controlLoops.map { candidate ->
+            if (candidate.loopId != id) candidate else candidate.copy(
+                strategy = strategy,
+                measurementFieldId = preferredMeasurement.takeIf { strategy.requiresMeasurement() },
+                feedforward = candidate.feedforward.takeIf { supportsFeedforward } ?: SubsystemFeedforwardDocument(),
+            )
+        })
     }
 
     fun selectInterlock(id: String?) = _state.update { it.copy(selectedInterlockId = id) }
@@ -1181,7 +1351,8 @@ private fun safetyWarnings(document: SubsystemDocument): List<SubsystemProblem> 
 }
 
 private fun SubsystemHardwareKind.isActuator(): Boolean = this == SubsystemHardwareKind.MOTOR ||
-    this == SubsystemHardwareKind.POSITIONAL_SERVO || this == SubsystemHardwareKind.CONTINUOUS_SERVO
+    this == SubsystemHardwareKind.POSITIONAL_SERVO || this == SubsystemHardwareKind.CONTINUOUS_SERVO ||
+    this == SubsystemHardwareKind.INDICATOR_LIGHT || this == SubsystemHardwareKind.PRISM_DRIVER
 
 private fun SubsystemValueType.isNumeric(): Boolean = this == SubsystemValueType.DOUBLE || this == SubsystemValueType.INT
 

@@ -44,15 +44,39 @@ The dashboard canvas uses `canvasX = -fieldY` and `canvasY = -fieldX`. The robot
 | `Drive/Pose_X` | `double` | fused/EKF field X |
 | `Drive/Pose_Y` | `double` | fused/EKF field Y |
 | `Drive/Pose_Heading` | `double` | canonical fused heading |
-| `ARES/EstimatedPose` | `double[]` | `[x, y, heading]` fused or simulator pose |
+| `ARES/EstimatedPose` | `double[]` | `[x, y, heading]` fused/EKF pose |
 | `ARES/EstimatedPose/0` | `double` | pose X compatibility scalar |
 | `ARES/EstimatedPose/1` | `double` | pose Y compatibility scalar |
 | `ARES/EstimatedPose/2` | `double` | pose heading compatibility scalar |
+| `ARES/TruePose/0` | `double` | simulator-only Dyn4j truth X |
+| `ARES/TruePose/1` | `double` | simulator-only Dyn4j truth Y |
+| `ARES/TruePose/2` | `double` | simulator-only Dyn4j truth heading |
+| `ARES/SimulatorPoseFrame` | `double[10]` | atomic simulator render frame: truth x/y/h, EKF x/y/h, odom x/y/h, sequence |
+| `ARES/GamePiecesFrame` | `double[]` | atomic typed frame: version, count, nine-value records, sequence |
 | `Drive/Odom_X` | `double` | raw odometry X |
 | `Drive/Odom_Y` | `double` | raw odometry Y |
 | `Drive/Odom_Heading` | `double` | raw odometry heading |
 
-The simulator must publish `ARES/EstimatedPose` from physics ground truth (`currentPose`), not from a disconnected default Redux state.
+The simulator publishes `ARES/TruePose/*` from Dyn4j and publishes `ARES/EstimatedPose/*`,
+`Drive/Pose_*`, and `Drive/Odom_*` from the active OpMode's Redux state. It must use the same
+pre-step observation for that frame. Never overwrite the estimator topics with physics truth after
+publishing Redux state; doing so alternates two sources under one name and creates a visible ghost.
+Although the values describe one observation cycle, NT4 transports scalar components sequentially
+and suppresses unchanged values. The field viewer therefore stages `ARES/SimulatorPoseFrame` and
+commits once at its changing final sequence element. A coordinate or heading is not a valid frame
+marker. The viewer must not expose intermediate simulator scalars or replace the EKF with truth.
+
+The field viewer likewise commits `ARES/GamePiecesFrame` only when its final sequence element
+arrives. Each record is `[instanceKey, typeKey, x, y, rotation, width, height, shapeCode,
+colorRgb]`; meters and CCW-positive radians are used throughout. This preserves identity and visual
+properties across intake, inventory, ejection, FRC flight, landing, and scoring transitions.
+
+For `live-telemetry` persistence, Analytics records the packed frame on a monotonic laptop receipt
+timeline while preserving the source timestamp in the live transport state. This is intentional:
+an NT4 retained sample can predate the current connection, and a simulator clock can restart at
+zero. Neither event may stretch a newly opened rewind timeline. Replay owns the field pose while it
+is active; live packed frames resume ownership only after the replay boundary resets the frame
+accumulator.
 
 ## Drive and estimator diagnostics
 
@@ -83,6 +107,24 @@ Do not derive “drift” summary metrics from every key containing `EKF`; pose 
 | `Diagnostics/Power/BrownoutCount` | `double` | cumulative trip count |
 
 Summary code treats only explicit battery-voltage topics as battery voltage. Per-motor voltage is not a battery minimum.
+
+### Robot logging health
+
+| Topic | Type | Meaning |
+| --- | --- | --- |
+| `Diagnostics/Logging/Profile` | `string` | `COMPETITION`, `SIMULATION`, or `FORENSIC` |
+| `Diagnostics/Logging/AcceptedFrames` | `double` | cumulative frames accepted by the bounded queue |
+| `Diagnostics/Logging/WrittenFrames` | `double` | cumulative frames durably written |
+| `Diagnostics/Logging/DroppedFrames` | `double` | cumulative frames rejected or lost after a sink failure |
+| `Diagnostics/Logging/QueueDepth` | `double` | current asynchronous writer queue depth |
+| `Diagnostics/Logging/CurrentFileBytes` | `double` | compressed bytes in the active file |
+| `Diagnostics/Logging/CompletedBytes` | `double` | compressed bytes finalized during this logger lifetime |
+| `Diagnostics/Logging/Rotations` | `double` | completed automatic file rotations |
+| `Diagnostics/Logging/PrunedFiles` | `double` | completed files removed by retention |
+
+Dashboard health derives log throughput from the change in current plus completed bytes. A rotation
+must therefore not appear as a negative write rate. Drops and a sustained high queue are degraded
+health; a normal size-based rotation is not.
 
 ## Hardware and topology
 
@@ -143,8 +185,8 @@ The Analytics client publishes one atomic, leased control frame. Receivers depen
 | Topic | Type | Meaning/default |
 | --- | --- | --- |
 | `ARES/Input/driveFrame` | `double[8]` | protocol-v2 atomic control frame described below |
-| `ARES/Input/obstacles` | `string` | serialized simulator obstacle update |
-| `ARES/Input/fieldConfig` | `string` | serialized simulator field configuration update |
+| `ARES/Input/obstacles` | `string` | legacy obstacle-only compatibility update |
+| `ARES/Input/fieldConfig` | `string` | single authoritative canonical field-document update |
 | `ARES/DriverStation/Command` | `string` | driver-station command |
 | `ARES/DriverStation/SelectedOpMode` | `string` | selected OpMode |
 | `ARES/DriverStation/MatchTime` | `double` | current match time |
@@ -159,9 +201,31 @@ fit exactly below `2^53`. Sequence strictly increases within a session and clien
 regresses. `vx` and `vy` are independently bounded to `[-8, 8] m/s`; `omega` is bounded to
 `[-4π, 4π] rad/s`. Flag bits are: 0 intake, 1 flywheel, 2 transfer, 3 teleop, 4 field-centric, 5 red
 alliance, 6 A, 7 B, 8 X, and 9 pose reset. A new session must begin with neutral axes and all
-actuator/button/reset bits clear. Every field in a frame shares one receiver-time lease; malformed,
+actuator/button/reset bits clear. The Analytics publisher repeats that neutral handshake for five
+frames (100 ms at 50 Hz), preventing a receiver tick from observing motion before the handshake.
+Every field in a frame shares one receiver-time lease; malformed,
 replayed, out-of-order, or expired frames fail closed. The desktop simulator uses a 500 ms lease;
 the physical FTC Remote Drive OpMode deliberately uses a tighter 200 ms deadman lease.
+
+### Control and telemetry rate isolation
+
+Control, storage/analysis, and presentation are separate rate domains:
+
+- `ARES/Input/driveFrame` is transmitted at 50 Hz. This safety-critical send path must not
+  synchronously write telemetry history, access a database, update Compose state, or wait behind
+  inbound telemetry work.
+- `Nt4ClientService.telemetryFlow` is the unthrottled source stream. It is reserved for consumers
+  that need every sample, such as logging, analysis, SysId, and alert processing.
+- Compose UI consumers use `Nt4ClientService.uiTelemetryFlow`. It coalesces by topic and publishes
+  the newest value at 20 Hz, preventing high-rate telemetry bursts from starving keyboard and
+  rendering work on the AWT event thread.
+- `DriveFrameTelemetryRecorder` is a conflated background side channel. It records only `vx`, `vy`,
+  and `omega` at 10 Hz. Do not synchronously flatten all eight fields into `TelemetryStore` on each
+  50 Hz control tick.
+
+`VisionState.measurements` is ordered oldest to newest. A publisher representing the current vision
+or filtered pose must use a fresh `lastOrNull()` sample, never `firstOrNull()`; using the oldest
+buffer entry creates a trailing field ghost while the robot moves.
 
 Simulator inputs must all be read from the same custom `NT4Server` instance used by Analytics. Mixing WPILib's process-local `NetworkTableInstance` subscribers with the custom server leaves values stuck at defaults.
 

@@ -46,7 +46,7 @@ fun MechanismVisualizer(
     } else if (nt4ClientService != null) {
         LaunchedEffect(Unit) {
             scope.launch {
-                nt4ClientService.telemetryFlow.collect { frame ->
+                nt4ClientService.uiTelemetryFlow.collect { frame ->
                     val key = frame.key
                     val value = frame.value
                     when (key) {

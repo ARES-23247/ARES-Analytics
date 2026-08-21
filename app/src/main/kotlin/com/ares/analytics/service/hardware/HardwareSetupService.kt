@@ -23,6 +23,7 @@ enum class HardwareAddressKind(val label: String) {
     FTC_HARDWARE_MAP("FTC hardware-map name"),
     CAN("CAN device"),
     PWM("PWM channel"),
+    I2C("I2C device"),
     DIO("digital-input channel"),
     ANALOG("analog-input channel"),
     UNKNOWN("unclassified address"),
@@ -380,6 +381,7 @@ class HardwareSetupService(
         HardwareAddressKind.FTC_HARDWARE_MAP -> "ftc:${item.address.lowercase()}"
         HardwareAddressKind.CAN -> "can:${item.bus.orEmpty().lowercase()}:${item.address}"
         HardwareAddressKind.PWM -> "pwm:${item.address}"
+        HardwareAddressKind.I2C -> "i2c:${item.address.lowercase()}"
         HardwareAddressKind.DIO -> "dio:${item.address}"
         HardwareAddressKind.ANALOG -> "analog:${item.address}"
         HardwareAddressKind.UNKNOWN -> "unknown:${item.address.lowercase()}"
@@ -432,8 +434,10 @@ private fun SubsystemHardwareKind.readableName(): String = name.lowercase().repl
 private fun com.areslib.subsystem.SubsystemHardwareDocument.addressKind(): HardwareAddressKind = when (kind) {
     SubsystemHardwareKind.MOTOR -> HardwareAddressKind.CAN
     SubsystemHardwareKind.POSITIONAL_SERVO,
-    SubsystemHardwareKind.CONTINUOUS_SERVO -> HardwareAddressKind.PWM
+    SubsystemHardwareKind.CONTINUOUS_SERVO,
+    SubsystemHardwareKind.INDICATOR_LIGHT -> HardwareAddressKind.PWM
+    SubsystemHardwareKind.PRISM_DRIVER,
+    SubsystemHardwareKind.COLOR_SENSOR -> HardwareAddressKind.I2C
     SubsystemHardwareKind.DIGITAL_INPUT -> HardwareAddressKind.DIO
     SubsystemHardwareKind.ANALOG_INPUT -> HardwareAddressKind.ANALOG
-    SubsystemHardwareKind.COLOR_SENSOR -> HardwareAddressKind.UNKNOWN
 }

@@ -10,7 +10,6 @@ class KeyboardDriveStateTest {
         val state = KeyboardDriveState()
         assertFalse(state.enabled)
         assertFalse(state.useGamepad)
-        assertFalse(state.deadmanPressed)
     }
 
     @Test
@@ -18,7 +17,6 @@ class KeyboardDriveStateTest {
         val state = KeyboardDriveState().apply {
             enabled = true
             useGamepad = true
-            deadmanPressed = true
             isWPressed = true
             isQPressed = true
             isJPressed = true
@@ -26,7 +24,6 @@ class KeyboardDriveStateTest {
         }
         state.releaseAll()
         assertTrue(state.enabled)
-        assertFalse(state.deadmanPressed)
         assertFalse(state.isWPressed)
         assertFalse(state.isQPressed)
         assertFalse(state.isJPressed)

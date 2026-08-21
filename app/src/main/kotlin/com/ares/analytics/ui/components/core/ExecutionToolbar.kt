@@ -39,6 +39,10 @@ fun ExecutionToolbar(
     isLocalSimOnline: Boolean,
     isBuildRunning: Boolean,
     isSimRunning: Boolean,
+    buildEnabled: Boolean = true,
+    buildDisabledReason: String? = null,
+    simulationEnabled: Boolean = true,
+    simulationDisabledReason: String? = null,
     onTargetChanged: (TargetSelection) -> Unit,
     onTargetIpChanged: (String) -> Unit,
     onRunBuild: () -> Unit,
@@ -165,12 +169,22 @@ fun ExecutionToolbar(
         // Compile-only project verification. Physical deployment is always a separate workflow.
         TooltipBox(
             positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-            tooltip = { PlainTooltip { Text("Verify generated ownership, run tests, and build a package. Nothing is deployed. (Ctrl+B)") } },
+            tooltip = {
+                PlainTooltip {
+                    Text(
+                        if (!buildEnabled && !isBuildRunning) {
+                            buildDisabledReason ?: "Complete the required Robot Studio stages before verification."
+                        } else {
+                            "Verify generated ownership, run tests, and build a package. Nothing is deployed. (Ctrl+B)"
+                        }
+                    )
+                }
+            },
             state = rememberTooltipState()
         ) {
             Button(
                 onClick = onRunBuild,
-                enabled = !isBuildRunning,
+                enabled = buildEnabled && !isBuildRunning,
                 modifier = Modifier.height(32.dp),
                 shape = RoundedCornerShape(6.dp),
                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
@@ -202,12 +216,22 @@ fun ExecutionToolbar(
         val simIconTint by animateColorAsState(targetValue = if (isSimRunning) AresGreen else AresCyan)
         TooltipBox(
             positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
-            tooltip = { PlainTooltip { Text("Launch Desktop Simulator (Ctrl+D)") } },
+            tooltip = {
+                PlainTooltip {
+                    Text(
+                        if (!simulationEnabled && !isSimRunning) {
+                            simulationDisabledReason ?: "Verify the current project before simulation."
+                        } else {
+                            "Launch Desktop Simulator (Ctrl+D)"
+                        }
+                    )
+                }
+            },
             state = rememberTooltipState()
         ) {
             IconButton(
                 onClick = onRunSim,
-                enabled = !isSimRunning,
+                enabled = simulationEnabled && !isSimRunning,
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(

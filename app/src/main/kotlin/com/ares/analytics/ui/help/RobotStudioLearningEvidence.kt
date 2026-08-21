@@ -7,8 +7,7 @@ import com.ares.analytics.viewmodel.robotstudio.RobotStudioState
 /** Converts the project-matched Robot Studio stage graph to narrow graduation evidence. */
 fun RobotStudioState.toAcademyGraduationSnapshot(): AcademyGraduationSnapshot {
     val byId = stages.associateBy { it.id }
-    val projectIdentity = byId[RobotStudioStageId.WORKSPACE]?.status == RobotStudioStageStatus.READY &&
-        byId[RobotStudioStageId.PLATFORM]?.status == RobotStudioStageStatus.READY
+    val projectIdentity = byId[RobotStudioStageId.PROJECT_IDENTITY]?.status == RobotStudioStageStatus.READY
     val build = byId[RobotStudioStageId.GENERATE_VERIFY]
     return AcademyGraduationSnapshot(
         isAvailable = !loading && error == null && projectPath.isNotBlank(),

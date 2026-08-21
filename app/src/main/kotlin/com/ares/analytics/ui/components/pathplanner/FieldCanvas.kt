@@ -284,24 +284,24 @@ fun FieldCanvas(
                                      val hitRadiusPx = 15.dp.toPx() / zoomScale
 
                                      // 1. Prioritize handles of the ALREADY selected waypoint (if any)
-                                     if (!autoGoalMode && selectedWaypointIndex in currentWaypoints.indices) {
+                                     if (selectedWaypointIndex in currentWaypoints.indices) {
                                          val wp = currentWaypoints[selectedWaypointIndex]
-
-                                         // Heading handle (tangent arrowhead)
                                          val selHeading = resolveHeading(currentWaypoints, selectedWaypointIndex)
-                                         val headingWp = Waypoint(wp.x + wp.nextControlLength * cos(selHeading), wp.y + wp.nextControlLength * sin(selHeading))
+                                         val handleDist = if (autoGoalMode) (robotDimensions.lengthMeters / 2.0 + 0.08) else wp.nextControlLength
+                                         val headingWp = Waypoint(wp.x + handleDist * cos(selHeading), wp.y + handleDist * sin(selHeading))
                                          val headingBase = getCanvasOffsetBase(headingWp, w, h, fieldWidthM, fieldHeightM, league)
                                          if (sqrt((basePress.x - headingBase.x).pow(2) + (basePress.y - headingBase.y).pow(2)) < hitRadiusPx) {
                                              hitIdx = selectedWaypointIndex; hitHeading = true
                                          }
 
-                                         // Prev Heading handle
-                                         val prevHeadingWp = Waypoint(wp.x + wp.prevControlLength * cos(selHeading + Math.PI), wp.y + wp.prevControlLength * sin(selHeading + Math.PI))
-                                         val prevHeadingBase = getCanvasOffsetBase(prevHeadingWp, w, h, fieldWidthM, fieldHeightM, league)
-                                         if (hitIdx == -1 && sqrt((basePress.x - prevHeadingBase.x).pow(2) + (basePress.y - prevHeadingBase.y).pow(2)) < hitRadiusPx) {
-                                             hitIdx = selectedWaypointIndex; hitPrevHeading = true
+                                         // Prev Heading handle (spline curve only)
+                                         if (!autoGoalMode) {
+                                             val prevHeadingWp = Waypoint(wp.x + wp.prevControlLength * cos(selHeading + Math.PI), wp.y + wp.prevControlLength * sin(selHeading + Math.PI))
+                                             val prevHeadingBase = getCanvasOffsetBase(prevHeadingWp, w, h, fieldWidthM, fieldHeightM, league)
+                                             if (hitIdx == -1 && sqrt((basePress.x - prevHeadingBase.x).pow(2) + (basePress.y - prevHeadingBase.y).pow(2)) < hitRadiusPx) {
+                                                 hitIdx = selectedWaypointIndex; hitPrevHeading = true
+                                             }
                                          }
-
                                      }
 
                                      // 2. Check all waypoint center dots
@@ -315,20 +315,23 @@ fun FieldCanvas(
                                      }
 
                                      // 3. Check other waypoints' tangent handles
-                                     if (hitIdx == -1 && !autoGoalMode) {
+                                     if (hitIdx == -1) {
                                          for (i in currentWaypoints.indices) {
                                              if (i == selectedWaypointIndex) continue
                                              val wp = currentWaypoints[i]
                                              val hd = resolveHeading(currentWaypoints, i)
-                                             val headingWp = Waypoint(wp.x + wp.nextControlLength * cos(hd), wp.y + wp.nextControlLength * sin(hd))
+                                             val handleDist = if (autoGoalMode) (robotDimensions.lengthMeters / 2.0 + 0.08) else wp.nextControlLength
+                                             val headingWp = Waypoint(wp.x + handleDist * cos(hd), wp.y + handleDist * sin(hd))
                                              val headingBase = getCanvasOffsetBase(headingWp, w, h, fieldWidthM, fieldHeightM, league)
                                              if (sqrt((basePress.x - headingBase.x).pow(2) + (basePress.y - headingBase.y).pow(2)) < hitRadiusPx) {
                                                  hitIdx = i; hitHeading = true; break
                                              }
-                                             val prevHeadingWp = Waypoint(wp.x + wp.prevControlLength * cos(hd + Math.PI), wp.y + wp.prevControlLength * sin(hd + Math.PI))
-                                             val prevHeadingBase = getCanvasOffsetBase(prevHeadingWp, w, h, fieldWidthM, fieldHeightM, league)
-                                             if (sqrt((basePress.x - prevHeadingBase.x).pow(2) + (basePress.y - prevHeadingBase.y).pow(2)) < hitRadiusPx) {
-                                                 hitIdx = i; hitPrevHeading = true; break
+                                             if (!autoGoalMode) {
+                                                 val prevHeadingWp = Waypoint(wp.x + wp.prevControlLength * cos(hd + Math.PI), wp.y + wp.prevControlLength * sin(hd + Math.PI))
+                                                 val prevHeadingBase = getCanvasOffsetBase(prevHeadingWp, w, h, fieldWidthM, fieldHeightM, league)
+                                                 if (sqrt((basePress.x - prevHeadingBase.x).pow(2) + (basePress.y - prevHeadingBase.y).pow(2)) < hitRadiusPx) {
+                                                     hitIdx = i; hitPrevHeading = true; break
+                                                 }
                                              }
                                          }
                                      }
@@ -451,7 +454,7 @@ fun FieldCanvas(
                                                      val dy = posMeters.y - wp.y
                                                      val angle = kotlin.math.atan2(dy, dx)
                                                      val mag = kotlin.math.sqrt(dx * dx + dy * dy)
-                                                     onWaypointsChanged(currentWaypoints.toMutableList().apply { set(selectedWaypointIndex, wp.copy(headingRad = angle, nextControlLength = if (isShiftPressed) snap(mag) else mag, prevControlLength = if (isShiftPressed) snap(mag) else mag)) })
+                                                     onWaypointsChanged(currentWaypoints.toMutableList().apply { set(selectedWaypointIndex, wp.copy(headingRad = angle, rotationDeg = Math.toDegrees(angle), nextControlLength = if (isShiftPressed) snap(mag) else mag, prevControlLength = if (isShiftPressed) snap(mag) else mag)) })
                                                  }
                                                  isDraggingPrevHeading -> {
                                                      val wp = currentWaypoints[selectedWaypointIndex]

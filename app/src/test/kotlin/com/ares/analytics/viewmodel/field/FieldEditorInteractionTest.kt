@@ -8,6 +8,8 @@ import com.ares.analytics.shared.League
 import com.ares.analytics.shared.Obstacle
 import com.ares.analytics.viewmodel.FieldEditorIntent
 import com.ares.analytics.viewmodel.FieldEditorViewModel
+import com.areslib.state.FieldType
+import com.areslib.state.RobotFieldDocument
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -72,6 +74,34 @@ class FieldEditorInteractionTest {
         assertTrue(issues.any { it.message.contains("outside the field") })
         assertTrue(issues.any { it.message.contains("ID 4") && it.elementIds == setOf("tag-a", "tag-b") })
         assertFalse(issues.isEmpty())
+    }
+
+    @Test
+    fun FTCEditorSurfacesRuntimeRequirementForAnAprilTagLayout() {
+        val viewModel = FieldEditorViewModel(CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
+
+        viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FTC))
+
+        assertTrue(viewModel.state.value.validationIssues.any { it.message.contains("AprilTag layout") })
+    }
+
+    @Test
+    fun simulatorPublishReportsTransportFailureAndUsesOneCanonicalMessage() {
+        val payloads = mutableListOf<String>()
+        val viewModel = FieldEditorViewModel(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            fieldConfigPublisher = { payload ->
+                payloads += payload
+                false
+            },
+        )
+        viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FRC))
+
+        viewModel.onIntent(FieldEditorIntent.PushToSimulator)
+
+        assertEquals(1, payloads.size)
+        assertEquals(FieldType.FRC, RobotFieldDocument.decode(payloads.single()).fieldType)
+        assertTrue(viewModel.state.value.simulatorStatus.contains("not accepted"))
     }
 
     @Test

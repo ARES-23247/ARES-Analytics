@@ -20,6 +20,7 @@ typealias Session = com.ares.analytics.shared.models.Session
 typealias SessionSummary = com.ares.analytics.shared.models.SessionSummary
 typealias SessionAnnotation = com.ares.analytics.shared.models.SessionAnnotation
 typealias TelemetryFrame = com.ares.analytics.shared.models.TelemetryFrame
+typealias AnalysisDiagnostic = com.ares.analytics.shared.models.AnalysisDiagnostic
 typealias RobotActionRecord = com.ares.analytics.shared.models.RobotActionRecord
 typealias AlertRecord = com.ares.analytics.shared.models.AlertRecord
 typealias ThresholdRule = com.ares.analytics.shared.models.ThresholdRule
@@ -118,7 +119,13 @@ data class GamePiece(
     val type: String = "Custom",
     /** Stable catalog ID. Null is accepted only while migrating older name-only editor data. */
     val typeId: String? = null,
-    val locked: Boolean = false
+    val locked: Boolean = false,
+    /** Optional live-simulator visual data; authored placements continue to resolve through their catalog. */
+    val rotationRadians: Double = 0.0,
+    val widthMeters: Double? = null,
+    val heightMeters: Double? = null,
+    val simulationShape: String? = null,
+    val colorRgb: Int? = null,
 )
 
 /** Catalog definition of a game-piece archetype with visual and physics properties. */

@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit
  *
  * Polling service executing on `Dispatchers.IO` to continuously discover and import new robot log files.
  * Supports FTC Control Hub log pulling via ADB (`adb pull /sdcard/FIRST/logs/` on port 5555) and FRC RoboRIO SCP pulling (`rio@10.TE.AM.2`).
- * Interoperates with [LogParserService] to automatically ingest `.wpilog`, `.rlog`, `.hoot`, `.dslog`, `.revlog`, `.jsonl`, and `.csv` files.
+ * Interoperates with [LogParserService] to automatically ingest `.wpilog`, `.rlog`, `.hoot`, `.dslog`, `.revlog`, `.jsonl`, `.csv`, and `.csv.gz` files.
  *
  * ### Import Pipelines:
  * 1. **Local Disk Watcher**: Scans active workspace project directory for newly created `.jsonl` or `.wpilog` files.
@@ -167,12 +167,21 @@ class AutoImportService(
                 if (!observeStableSource(sourceId, snapshot)) {
                     continue
                 }
+                val dsEventsSource = matchingDsEvents(file)?.takeIf(File::isFile)
+                val dsEventsSnapshot = dsEventsSource?.let { SourceSnapshot(it.length(), it.lastModified()) }
+                if (dsEventsSource != null && dsEventsSnapshot != null) {
+                    val eventsSourceId = "local:${dsEventsSource.absoluteFile.toPath().normalize()}"
+                    if (!observeStableSource(eventsSourceId, dsEventsSnapshot)) continue
+                }
 
                 val archiveDir = File(config.projectPath, "logs/imported")
                 archiveDir.mkdirs()
                 val manifest = File(archiveDir, IMPORT_MANIFEST_NAME)
                 val quarantineManifest = quarantineManifest(config)
                 val stagingFile = File(archiveDir, ".${stagingKey(sourceId, snapshot)}.partial")
+                val eventsStagingFile = dsEventsSnapshot?.let {
+                    File(archiveDir, ".${stagingKey("$sourceId:events", it)}.dsevents.partial")
+                }
                 var fingerprint: String? = null
                 var archivedFile: File? = null
 
@@ -183,10 +192,14 @@ class AutoImportService(
                         baseTags.add("simulated")
                     }
                     copyStableLocalFile(file, stagingFile, snapshot)
-                    val stableFingerprint = contentFingerprint(stagingFile)
+                    if (dsEventsSource != null && dsEventsSnapshot != null && eventsStagingFile != null) {
+                        copyStableLocalFile(dsEventsSource, eventsStagingFile, dsEventsSnapshot)
+                    }
+                    val stableFingerprint = contentFingerprint(listOfNotNull(stagingFile, eventsStagingFile))
                     fingerprint = stableFingerprint
                     if (isFingerprintImported(manifest, stableFingerprint) ||
-                        isFingerprintImported(quarantineManifest, stableFingerprint)
+                        (isFingerprintImported(quarantineManifest, stableFingerprint) &&
+                            !isExplicitRetrySource(config, file))
                     ) {
                         stagingFile.delete()
                         continue
@@ -194,6 +207,13 @@ class AutoImportService(
                     val targetFile = safeArchiveFile(archiveDir, stableFingerprint, file.name)
                     archivedFile = targetFile
                     Files.move(stagingFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                    if (eventsStagingFile != null && eventsStagingFile.exists()) {
+                        Files.move(
+                            eventsStagingFile.toPath(),
+                            archivedDsEvents(targetFile).toPath(),
+                            StandardCopyOption.REPLACE_EXISTING
+                        )
+                    }
                     val result = if (file.name.endsWith(".hoot", ignoreCase = true)) {
                         val sessionId = hootDecoderService.importHootLog(targetFile, config.teamId, config.seasonId, config.robotId)
                         sessionId to logParserService.buildImportReport(targetFile, sessionId, decoderOverride = "hoot")
@@ -214,6 +234,7 @@ class AutoImportService(
                             "[AUTO-IMPORT] Imported ${file.name}; source could not be removed and will be ignored by fingerprint"
                         )
                     }
+                    dsEventsSource?.delete()
                     _importNotifications.emit("[AUTO-IMPORT] Successfully imported ${file.name} (Session ID: ${sessionId.take(8)}...)")
 
                     // Trigger UI reload
@@ -231,6 +252,7 @@ class AutoImportService(
                     e.printStackTrace()
                 } finally {
                     stagingFile.delete()
+                    eventsStagingFile?.delete()
                 }
             }
         }
@@ -335,6 +357,7 @@ class AutoImportService(
 
         for (robotDir in robotDirs) {
             val filesOnRobot = listFilesOnFrcRobot(host, robotDir)
+            val remoteNamesByLowercase = filesOnRobot.associateBy { it.lowercase() }
             for (filename in filesOnRobot) {
                 val lower = filename.lowercase()
                 if (isSupportedLog(lower)) {
@@ -342,14 +365,29 @@ class AutoImportService(
                     val sourceId = "frc:$host:$remotePath"
                     val snapshot = getFrcFileSnapshot(host, remotePath) ?: continue
                     if (!observeStableSource(sourceId, snapshot)) continue
+                    val eventsFilename = filename.takeIf { lower.endsWith(".dslog") }
+                        ?.let { it.substringBeforeLast('.') + ".dsevents" }
+                        ?.let { remoteNamesByLowercase[it.lowercase()] }
+                    val eventsRemotePath = eventsFilename?.let { "$robotDir$it" }
+                    val eventsSourceId = eventsRemotePath?.let { "frc:$host:$it" }
+                    val eventsSnapshot = eventsRemotePath?.let { getFrcFileSnapshot(host, it) }
+                    if (eventsRemotePath != null && eventsSnapshot == null) continue
+                    if (eventsSourceId != null && eventsSnapshot != null &&
+                        !observeStableSource(eventsSourceId, eventsSnapshot)
+                    ) continue
                     val manifest = File(localDestDir, IMPORT_MANIFEST_NAME)
                     val quarantineManifest = quarantineManifest(config)
 
                     // Check if file is still being written to by DataLogManager
-                    if (isFileInUseOnFrcRobot(host, remotePath)) {
+                    if (isFileInUseOnFrcRobot(host, remotePath) ||
+                        (eventsRemotePath != null && isFileInUseOnFrcRobot(host, eventsRemotePath))
+                    ) {
                         continue
                     }
                     val tempLocalFile = File(localDestDir, ".${stagingKey(sourceId, snapshot)}.partial")
+                    val tempEventsFile = eventsSnapshot?.let {
+                        File(localDestDir, ".${stagingKey("$sourceId:events", it)}.dsevents.partial")
+                    }
                     var fingerprint: String? = null
                     var archivedFile: File? = null
 
@@ -362,7 +400,16 @@ class AutoImportService(
                                 if (afterPull != null) sourceObservations[sourceId] = afterPull
                                 continue
                             }
-                            val stableFingerprint = contentFingerprint(tempLocalFile)
+                            if (eventsRemotePath != null && eventsSnapshot != null && tempEventsFile != null) {
+                                check(pullFileFromFrcRobot(host, eventsRemotePath, tempEventsFile)) {
+                                    "Could not pull matching Driver Station events file"
+                                }
+                                val eventsAfterPull = getFrcFileSnapshot(host, eventsRemotePath)
+                                check(eventsAfterPull == eventsSnapshot && tempEventsFile.length() == eventsSnapshot.size) {
+                                    "Driver Station events file changed during transfer"
+                                }
+                            }
+                            val stableFingerprint = contentFingerprint(listOfNotNull(tempLocalFile, tempEventsFile))
                             fingerprint = stableFingerprint
                             if (isFingerprintImported(manifest, stableFingerprint) ||
                                 isFingerprintImported(quarantineManifest, stableFingerprint)
@@ -373,6 +420,13 @@ class AutoImportService(
                             val targetFile = safeArchiveFile(localDestDir, stableFingerprint, filename)
                             archivedFile = targetFile
                             Files.move(tempLocalFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                            if (tempEventsFile != null && tempEventsFile.exists()) {
+                                Files.move(
+                                    tempEventsFile.toPath(),
+                                    archivedDsEvents(targetFile).toPath(),
+                                    StandardCopyOption.REPLACE_EXISTING
+                                )
+                            }
                             val result = if (lower.endsWith(".hoot")) {
                                 val sessionId = hootDecoderService.importHootLog(targetFile, config.teamId, config.seasonId, config.robotId)
                                 sessionId to logParserService.buildImportReport(targetFile, sessionId, decoderOverride = "hoot")
@@ -407,6 +461,7 @@ class AutoImportService(
                         e.printStackTrace()
                     } finally {
                         tempLocalFile.delete()
+                        tempEventsFile?.delete()
                     }
                 }
             }
@@ -518,19 +573,52 @@ class AutoImportService(
         return digest.digest(bytes).toHexString()
     }
 
-    /** Hashes the verified local copy, never mutable source metadata, for durable deduplication. */
+    /** Hashes verified local copies, never mutable source metadata, for durable deduplication. */
     internal fun contentFingerprint(stableFile: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(CONTENT_HASH_BUFFER_BYTES)
-        stableFile.inputStream().use { input ->
+        stableFile.inputStream().buffered().use { input ->
             while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
             }
         }
         return digest.digest().toHexString()
     }
+
+    internal fun contentFingerprint(stableFiles: List<File>): String {
+        require(stableFiles.isNotEmpty()) { "At least one stable file is required" }
+        if (stableFiles.size == 1) return contentFingerprint(stableFiles.single())
+
+        val digest = MessageDigest.getInstance("SHA-256")
+        val buffer = ByteArray(CONTENT_HASH_BUFFER_BYTES)
+        for (stableFile in stableFiles) {
+            digest.update(stableFile.length().toString().toByteArray(Charsets.US_ASCII))
+            digest.update(0.toByte())
+            stableFile.inputStream().use { input ->
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+        }
+        return digest.digest().toHexString()
+    }
+
+    private fun matchingDsEvents(dslog: File): File? {
+        if (!dslog.name.endsWith(".dslog", ignoreCase = true)) return null
+        val baseName = dslog.name.substringBeforeLast('.')
+        return dslog.parentFile?.listFiles()?.firstOrNull { candidate ->
+            candidate.isFile &&
+                candidate.name.endsWith(".dsevents", ignoreCase = true) &&
+                candidate.name.substringBeforeLast('.').equals(baseName, ignoreCase = true)
+        } ?: File(dslog.parentFile, "$baseName.dsevents")
+    }
+
+    private fun archivedDsEvents(dslog: File): File =
+        File(dslog.parentFile, dslog.name.substringBeforeLast('.') + ".dsevents")
 
     private fun ByteArray.toHexString(): String = joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
@@ -601,6 +689,14 @@ class AutoImportService(
         quarantineDir.mkdirs()
         val quarantinedFile = File(quarantineDir, archivedFile.name)
         Files.move(archivedFile.toPath(), quarantinedFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        val archivedEvents = matchingDsEvents(archivedFile)
+        if (archivedEvents?.isFile == true) {
+            Files.move(
+                archivedEvents.toPath(),
+                archivedDsEvents(quarantinedFile).toPath(),
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        }
         val report = logParserService.buildRejectedImportReport(quarantinedFile, failure)
             .copy(sourceName = sourceName)
         writeImportReport(quarantinedFile, report)
@@ -631,6 +727,13 @@ class AutoImportService(
     private fun isSupportedLog(name: String): Boolean {
         val lower = name.lowercase()
         return SUPPORTED_EXTENSIONS.any(lower::endsWith)
+    }
+
+    /** Only ImportArchiveService's direct-child retry files may bypass quarantine dedup once. */
+    internal fun isExplicitRetrySource(config: WorkspaceConfig, file: File): Boolean {
+        val logsRoot = File(config.projectPath, "logs").toPath().toAbsolutePath().normalize()
+        val candidate = file.toPath().toAbsolutePath().normalize()
+        return candidate.parent == logsRoot && file.name.startsWith("retry_") && isSupportedLog(file.name)
     }
 
     private fun copyStableLocalFile(source: File, destination: File, expected: SourceSnapshot) {
@@ -812,7 +915,7 @@ class AutoImportService(
         private const val TRANSFER_PROCESS_TIMEOUT_MS = 60_000L
         private const val PROCESS_KILL_GRACE_MS = 1_000L
         internal val SUPPORTED_EXTENSIONS = setOf(
-            ".wpilog", ".wpilogxz", ".jsonl", ".csv", ".parquet", ".hoot",
+            ".wpilog", ".wpilogxz", ".jsonl", ".csv.gz", ".csv", ".parquet", ".hoot",
             ".dslog", ".rlog", ".revlog", ".log"
         )
     }

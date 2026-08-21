@@ -21,6 +21,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.shared.SessionSummary
@@ -66,10 +67,15 @@ fun CloudScreen(
         CloudDeletionConfirmationDialog(
             request = request,
             onDismiss = { pendingDeletion = null },
-            onConfirm = {
+            onConfirm = { deleteToken ->
                 when (request) {
                     is PendingCloudDeletion.RobotRuns -> {
-                        viewModel.onIntent(CloudIntent.DeleteMultipleRobotRuns(request.runs.map { it.runId }))
+                        viewModel.onIntent(
+                            CloudIntent.DeleteMultipleRobotRuns(
+                                request.runs.map { it.runId },
+                                requireNotNull(deleteToken)
+                            )
+                        )
                         checkedRobotRuns.removeAll(request.runs.map { it.runId }.toSet())
                     }
                     is PendingCloudDeletion.LocalSessions -> {
@@ -486,8 +492,9 @@ private data class DeletionDialogCopy(
 private fun CloudDeletionConfirmationDialog(
     request: PendingCloudDeletion,
     onDismiss: () -> Unit,
-    onConfirm: () -> Unit
+    onConfirm: (String?) -> Unit
 ) {
+    var deleteToken by remember(request) { mutableStateOf("") }
     val copy = when (request) {
         is PendingCloudDeletion.RobotRuns -> {
             val fileCount = request.runs.sumOf { it.files.size }
@@ -548,12 +555,24 @@ private fun CloudDeletionConfirmationDialog(
                 }
 
                 Text(copy.retainedCopyNote, color = AresTextSecondary, fontSize = 12.sp)
+                if (request is PendingCloudDeletion.RobotRuns) {
+                    OutlinedTextField(
+                        value = deleteToken,
+                        onValueChange = { deleteToken = it },
+                        label = { Text("Robot log-delete token") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        supportingText = { Text("Must match the token configured on the robot log server.") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 Text("This deletion cannot be undone from ARES.", color = AresAmber, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
         },
         confirmButton = {
             Button(
-                onClick = onConfirm,
+                onClick = { onConfirm(deleteToken.takeIf { request is PendingCloudDeletion.RobotRuns }) },
+                enabled = request !is PendingCloudDeletion.RobotRuns || deleteToken.length >= 16,
                 colors = ButtonDefaults.buttonColors(containerColor = AresRed, contentColor = AresOnAccent)
             ) {
                 Text(copy.confirmLabel, color = AresOnAccent, fontWeight = FontWeight.Bold)

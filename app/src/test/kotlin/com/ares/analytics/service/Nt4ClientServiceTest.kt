@@ -27,6 +27,25 @@ import kotlin.test.assertTrue
  * Nt4ClientServiceTest class.
  */
 class Nt4ClientServiceTest {
+    @Test
+    fun `dashboard drive control accepts only loopback target hosts`() {
+        assertTrue(isLoopbackDriveControlHost("127.0.0.1"))
+        assertTrue(isLoopbackDriveControlHost("localhost"))
+        assertTrue(isLoopbackDriveControlHost("[::1]"))
+        assertFalse(isLoopbackDriveControlHost("192.168.43.1"))
+        assertFalse(isLoopbackDriveControlHost("10.232.47.2"))
+        assertFalse(isLoopbackDriveControlHost("robot.local"))
+    }
+
+    @Test
+    fun `dashboard driver station commands are rejected for physical targets`() {
+        assertTrue(isDashboardDriverStationCommandAllowed("127.0.0.1", "ARES/DriverStation/Command"))
+        assertTrue(isDashboardDriverStationCommandAllowed("localhost", "/ARES/DriverStation/SelectedOpMode"))
+        assertFalse(isDashboardDriverStationCommandAllowed("192.168.43.1", "ARES/DriverStation/Command"))
+        assertFalse(isDashboardDriverStationCommandAllowed("10.23.247.2", "ARES/DriverStation/MatchState"))
+        assertTrue(isDashboardDriverStationCommandAllowed("192.168.43.1", "Camera/SelectedPipeline"))
+    }
+
     private lateinit var tempDb: File
     private lateinit var databaseService: DatabaseService
     private lateinit var nt4ClientService: Nt4ClientService
@@ -120,6 +139,38 @@ class Nt4ClientServiceTest {
             assertEquals(1.25, frame.value)
             assertEquals(1000L, frame.timestampMs) // 1000000 micros = 1000 ms
         }
+    }
+
+    @Test
+    fun `live rewind persists receipt time instead of a stale retained source timestamp`() = runBlocking {
+        nt4ClientService.handleIncomingText(
+            """[{"method":"announce","params":{"name":"/Drive/Pose_X","id":10,"type":"double"}}]""",
+            "team-1",
+            "season-1",
+            "robot-1"
+        )
+        nt4ClientService.handleIncomingText(
+            """[{"topic":10,"time":1000000,"value":1.25}]""",
+            "team-1",
+            "season-1",
+            "robot-1"
+        )
+        assertTrue(nt4ClientService.flushPendingFrames())
+
+        val persisted = databaseService.getTelemetryForKey(
+            Nt4ClientService.LIVE_SESSION_ID,
+            "Drive/Pose_X"
+        ).single()
+        val receiptAgeMs = System.currentTimeMillis() - persisted.timestampMs
+        assertTrue(
+            persisted.timestampMs > 1_000_000_000_000L,
+            "Live persistence kept the stale source timestamp ${persisted.timestampMs}"
+        )
+        assertTrue(
+            receiptAgeMs in 0L..5_000L,
+            "Live persistence receipt time is outside the test window: age=$receiptAgeMs ms"
+        )
+        assertEquals(1.25, persisted.value)
     }
 
     @Test
@@ -450,6 +501,7 @@ class Nt4ClientServiceTest {
         nt4ClientService.topicMap[1] = com.ares.analytics.service.nt4.Nt4Topic(1, "/Old/Value", "double")
         val frame = com.ares.analytics.shared.TelemetryFrame(1L, "live-telemetry", "Old/Value", 2.0)
         nt4ClientService.telemetryStore.accept(frame)
+        assertEquals(2.0, withTimeout(1_000) { nt4ClientService.uiTelemetryFlow.first() }.value)
 
         nt4ClientService.clearLiveTargetState()
 
@@ -457,5 +509,6 @@ class Nt4ClientServiceTest {
         assertNull(nt4ClientService.telemetryStore.latest(frame.key))
         assertTrue(nt4ClientService.telemetryStore.history(frame.key).isEmpty())
         assertTrue(nt4ClientService.getActiveTopics().isEmpty())
+        assertNull(withTimeoutOrNull(100) { nt4ClientService.uiTelemetryFlow.first() })
     }
 }

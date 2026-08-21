@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowRight
@@ -28,6 +29,45 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
 
+data class FlattenedSignalItem(
+    val node: SignalNode,
+    val depth: Int,
+    val currentPath: String,
+    val cleanPath: String,
+    val isLeaf: Boolean,
+    val isExpanded: Boolean,
+)
+
+private fun collectVisibleNodes(
+    node: SignalNode,
+    depth: Int,
+    path: String,
+    expandedStates: Map<String, Boolean>,
+    result: MutableList<FlattenedSignalItem>
+) {
+    node.children.values.sortedBy { it.name }.forEach { child ->
+        val currentPath = if (path.isEmpty()) child.name else "$path/${child.name}"
+        val isLeaf = child.isLeaf
+        val cleanPath = child.fullPath.removePrefix("/")
+        val isExpanded = expandedStates[currentPath] ?: false
+
+        result.add(
+            FlattenedSignalItem(
+                node = child,
+                depth = depth,
+                currentPath = currentPath,
+                cleanPath = cleanPath,
+                isLeaf = isLeaf,
+                isExpanded = isExpanded,
+            )
+        )
+
+        if (!isLeaf && isExpanded) {
+            collectVisibleNodes(child, depth + 1, currentPath, expandedStates, result)
+        }
+    }
+}
+
 @Composable
 fun SignalTreeExplorer(
     rootNode: SignalNode,
@@ -39,111 +79,105 @@ fun SignalTreeExplorer(
 ) {
     val expandedStates = remember { mutableStateMapOf<String, Boolean>() }
 
+    val visibleNodes = remember(rootNode, expandedStates.toMap()) {
+        val list = mutableListOf<FlattenedSignalItem>()
+        collectVisibleNodes(rootNode, 0, "", expandedStates, list)
+        list
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
             .padding(4.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        fun renderNode(node: SignalNode, depth: Int, path: String) {
-            node.children.values.sortedBy { it.name }.forEach { child ->
-                val currentPath = if (path.isEmpty()) child.name else "$path/${child.name}"
-                val isLeaf = child.isLeaf
-                val cleanPath = child.fullPath.removePrefix("/")
-                val isExpanded = expandedStates[currentPath] ?: false
+        items(
+            items = visibleNodes,
+            key = { it.currentPath }
+        ) { item ->
+            var nodeOffset by remember { mutableStateOf(Offset.Zero) }
 
-                item(key = currentPath) {
-                    var nodeOffset by remember { mutableStateOf(Offset.Zero) }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = (depth * 8).dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(
-                                if (isLeaf && selectedKeys.contains(cleanPath)) AresCyan.copy(alpha = 0.1f)
-                                else Color.Transparent
-                            )
-                            .onGloballyPositioned { coords ->
-                                nodeOffset = coords.positionInWindow()
-                            }
-                            .pointerInput(isLeaf) {
-                                if (isLeaf) {
-                                    detectDragGestures(
-                                        onDragStart = { offset ->
-                                            onDragStart(cleanPath, nodeOffset + offset)
-                                        },
-                                        onDragEnd = { onDragEnd() },
-                                        onDragCancel = { onDragEnd() },
-                                        onDrag = { change, dragAmount ->
-                                            change.consume()
-                                            onDrag(dragAmount)
-                                        }
-                                    )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = (item.depth * 8).dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(
+                        if (item.isLeaf && selectedKeys.contains(item.cleanPath)) AresCyan.copy(alpha = 0.1f)
+                        else Color.Transparent
+                    )
+                    .onGloballyPositioned { coords ->
+                        nodeOffset = coords.positionInWindow()
+                    }
+                    .pointerInput(item.isLeaf) {
+                        if (item.isLeaf) {
+                            detectDragGestures(
+                                onDragStart = { offset ->
+                                    onDragStart(item.cleanPath, nodeOffset + offset)
+                                },
+                                onDragEnd = { onDragEnd() },
+                                onDragCancel = { onDragEnd() },
+                                onDrag = { change, dragAmount ->
+                                    change.consume()
+                                    onDrag(dragAmount)
                                 }
-                            }
-                            .clickable {
-                                if (isLeaf) {
-                                    onKeySelected(cleanPath)
-                                } else {
-                                    expandedStates[currentPath] = !isExpanded
-                                }
-                            }
-                            .padding(vertical = 4.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        if (!isLeaf) {
-                            Icon(
-                                imageVector = if (isExpanded) Icons.Default.ArrowDropDown else Icons.AutoMirrored.Filled.ArrowRight,
-                                contentDescription = null,
-                                tint = AresTextSecondary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Icon(
-                                imageVector = Icons.Default.Folder,
-                                contentDescription = null,
-                                tint = AresCyan.copy(alpha = 0.8f),
-                                modifier = Modifier.size(14.dp)
-                            )
-                        } else {
-                            Spacer(modifier = Modifier.width(16.dp))
-                            Icon(
-                                imageVector = Icons.Default.Analytics,
-                                contentDescription = null,
-                                tint = AresAmber.copy(alpha = 0.8f),
-                                modifier = Modifier.size(12.dp)
-                            )
-                        }
-
-                        Text(
-                            text = child.name,
-                            color = if (isLeaf && selectedKeys.contains(cleanPath)) AresCyan else AresTextPrimary,
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        if (isLeaf) {
-                            Icon(
-                                imageVector = Icons.Default.Add,
-                                contentDescription = "Add",
-                                tint = AresTextTertiary,
-                                modifier = Modifier
-                                    .size(14.dp)
-                                    .clickable { onKeySelected(cleanPath) }
                             )
                         }
                     }
+                    .clickable {
+                        if (item.isLeaf) {
+                            onKeySelected(item.cleanPath)
+                        } else {
+                            expandedStates[item.currentPath] = !item.isExpanded
+                        }
+                    }
+                    .padding(vertical = 4.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (!item.isLeaf) {
+                    Icon(
+                        imageVector = if (item.isExpanded) Icons.Default.ArrowDropDown else Icons.AutoMirrored.Filled.ArrowRight,
+                        contentDescription = null,
+                        tint = AresTextSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Icon(
+                        imageVector = Icons.Default.Folder,
+                        contentDescription = null,
+                        tint = AresCyan.copy(alpha = 0.8f),
+                        modifier = Modifier.size(14.dp)
+                    )
+                } else {
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Icon(
+                        imageVector = Icons.Default.Analytics,
+                        contentDescription = null,
+                        tint = AresAmber.copy(alpha = 0.8f),
+                        modifier = Modifier.size(12.dp)
+                    )
                 }
 
-                if (!isLeaf && isExpanded) {
-                    renderNode(child, depth + 1, currentPath)
+                Text(
+                    text = item.node.name,
+                    color = if (item.isLeaf && selectedKeys.contains(item.cleanPath)) AresCyan else AresTextPrimary,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+
+                if (item.isLeaf) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add",
+                        tint = AresTextTertiary,
+                        modifier = Modifier
+                            .size(14.dp)
+                            .clickable { onKeySelected(item.cleanPath) }
+                    )
                 }
             }
         }
-
-        renderNode(rootNode, 0, "")
     }
 }

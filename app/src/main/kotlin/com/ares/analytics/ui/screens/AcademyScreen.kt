@@ -349,7 +349,7 @@ private fun AcademyCatalogPanel(
             onOpenGlossary = onOpenGlossary,
             onOpenClassroomToolkit = onOpenClassroomToolkit,
         )
-        Text("Choose a learning path", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Text("Engineering Mastery Tracks", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         FlowRow(
             modifier = Modifier.fillMaxWidth().selectableGroup(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),

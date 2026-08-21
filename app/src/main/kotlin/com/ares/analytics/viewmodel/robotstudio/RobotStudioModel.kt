@@ -9,16 +9,11 @@ import com.ares.analytics.service.hardware.HardwareReviewStatus
 import java.io.File
 
 enum class RobotStudioStageId {
-    WORKSPACE,
-    PLATFORM,
-    DRIVEBASE,
-    MECHANISMS,
+    PROJECT_IDENTITY,
+    HARDWARE,
     COORDINATION,
-    HARDWARE_SETUP,
-    LOCALIZATION,
-    CAPABILITIES,
-    CONTROLS,
     AUTONOMOUS,
+    CONTROLS,
     TUNING,
     GENERATE_VERIFY,
     SIMULATE,
@@ -93,6 +88,48 @@ data class RobotStudioState(
             it.status == RobotStudioStageStatus.BLOCKED ||
             it.status == RobotStudioStageStatus.NEEDS_ACTION
     } ?: stages.firstOrNull { it.status == RobotStudioStageStatus.CODE_REQUIRED }
+
+    val buildStage: RobotStudioStage?
+        get() = stages.firstOrNull { it.id == RobotStudioStageId.GENERATE_VERIFY }
+
+    val simulationStage: RobotStudioStage?
+        get() = stages.firstOrNull { it.id == RobotStudioStageId.SIMULATE }
+
+    val hasCompleteReadiness: Boolean
+        get() = stages.mapTo(linkedSetOf()) { it.id } == RobotStudioStageId.entries.toSet()
+
+    val canRunBuild: Boolean
+        get() = !loading && error == null && hasCompleteReadiness && buildStage?.status in setOf(
+            RobotStudioStageStatus.NEEDS_ACTION,
+            RobotStudioStageStatus.INVALID,
+            RobotStudioStageStatus.READY,
+        )
+
+    val buildDisabledReason: String
+        get() = when {
+            loading -> "Project readiness is still being checked."
+            error != null -> "Project readiness is unavailable: $error"
+            !hasCompleteReadiness -> "Project readiness is incomplete. Refresh Robot Studio before verification."
+            buildStage == null -> "No verification stage is available. Refresh Robot Studio."
+            buildStage?.status == RobotStudioStageStatus.RUNNING -> "Verification is already running."
+            else -> buildStage?.explanation ?: "Resolve the required authoring stages before verification."
+        }
+
+    val canRunSimulation: Boolean
+        get() = !loading && error == null && hasCompleteReadiness && simulationStage?.status in setOf(
+            RobotStudioStageStatus.NEEDS_ACTION,
+            RobotStudioStageStatus.READY,
+        )
+
+    val simulationDisabledReason: String
+        get() = when {
+            loading -> "Project readiness is still being checked."
+            error != null -> "Project readiness is unavailable: $error"
+            !hasCompleteReadiness -> "Project readiness is incomplete. Refresh Robot Studio before simulation."
+            simulationStage == null -> "No simulation stage is available. Refresh Robot Studio."
+            simulationStage?.status == RobotStudioStageStatus.RUNNING -> "The simulator is already running."
+            else -> simulationStage?.explanation ?: "Verify the project before starting simulation."
+        }
 }
 
 /** Converts validated project facts into the one novice-facing Studio sequence. */
@@ -114,43 +151,20 @@ internal fun evaluateRobotStudioStages(
         actionLabel: String,
     ) = RobotStudioStage(id, title, outcome, status, explanation, issues, storage, consumer, action, actionLabel)
 
-    val workspaceStatus = when {
+    val projectIdentityStatus = when {
         projectBlocked -> RobotStudioStageStatus.INVALID
         evidence.metadataErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
-        evidence.metadataPresent -> RobotStudioStageStatus.READY
-        else -> RobotStudioStageStatus.NEEDS_ACTION
-    }
-    val platformStatus = when {
-        projectBlocked || !evidence.metadataPresent -> RobotStudioStageStatus.BLOCKED
-        evidence.metadataLeagueMatches -> RobotStudioStageStatus.READY
-        else -> RobotStudioStageStatus.INVALID
+        !evidence.metadataPresent -> RobotStudioStageStatus.NEEDS_ACTION
+        !evidence.metadataLeagueMatches -> RobotStudioStageStatus.INVALID
+        else -> RobotStudioStageStatus.READY
     }
     val drivebaseStatus = when {
-        projectBlocked || platformStatus != RobotStudioStageStatus.READY -> RobotStudioStageStatus.BLOCKED
+        projectBlocked || projectIdentityStatus != RobotStudioStageStatus.READY -> RobotStudioStageStatus.BLOCKED
         evidence.drivebaseKind == null && evidence.drivebaseErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
         evidence.drivebaseKind == null -> RobotStudioStageStatus.NEEDS_ACTION
         evidence.drivebaseErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
         !evidence.drivebaseNoCodeSupported -> RobotStudioStageStatus.CODE_REQUIRED
         else -> RobotStudioStageStatus.READY
-    }
-    val mechanismsStatus = when {
-        projectBlocked -> RobotStudioStageStatus.BLOCKED
-        evidence.subsystemErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
-        evidence.subsystemCount == 0 -> RobotStudioStageStatus.OPTIONAL
-        else -> RobotStudioStageStatus.READY
-    }
-    val coordinationStatus = when {
-        projectBlocked -> RobotStudioStageStatus.BLOCKED
-        evidence.superstructureErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
-        evidence.superstructureCount == 0 -> RobotStudioStageStatus.OPTIONAL
-        else -> RobotStudioStageStatus.READY
-    }
-    val hardwareStatus = when {
-        projectBlocked || platformStatus != RobotStudioStageStatus.READY -> RobotStudioStageStatus.BLOCKED
-        evidence.hardwareErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
-        evidence.hardwareItemCount == 0 -> RobotStudioStageStatus.NEEDS_ACTION
-        evidence.hardwareReviewStatus == HardwareReviewStatus.CURRENT -> RobotStudioStageStatus.READY
-        else -> RobotStudioStageStatus.NEEDS_ACTION
     }
     val localizationStatus = when {
         drivebaseStatus == RobotStudioStageStatus.BLOCKED -> RobotStudioStageStatus.BLOCKED
@@ -158,10 +172,49 @@ internal fun evaluateRobotStudioStages(
         evidence.localizationConfigured -> RobotStudioStageStatus.READY
         else -> RobotStudioStageStatus.NEEDS_ACTION
     }
+    val mechanismsStatus = when {
+        projectBlocked -> RobotStudioStageStatus.BLOCKED
+        evidence.subsystemErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        evidence.subsystemCount == 0 -> RobotStudioStageStatus.OPTIONAL
+        else -> RobotStudioStageStatus.READY
+    }
+    val hardwareReviewStatus = when {
+        projectBlocked || projectIdentityStatus != RobotStudioStageStatus.READY -> RobotStudioStageStatus.BLOCKED
+        evidence.hardwareErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        evidence.hardwareItemCount == 0 -> RobotStudioStageStatus.NEEDS_ACTION
+        evidence.hardwareReviewStatus == HardwareReviewStatus.CURRENT -> RobotStudioStageStatus.READY
+        else -> RobotStudioStageStatus.NEEDS_ACTION
+    }
     val capabilitiesStatus = when {
         projectBlocked -> RobotStudioStageStatus.BLOCKED
         evidence.capabilityErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
         evidence.capabilityActionCount == 0 -> RobotStudioStageStatus.OPTIONAL
+        else -> RobotStudioStageStatus.READY
+    }
+
+    val hardwareStatus = when {
+        projectBlocked -> RobotStudioStageStatus.BLOCKED
+        drivebaseStatus == RobotStudioStageStatus.INVALID || mechanismsStatus == RobotStudioStageStatus.INVALID ||
+            hardwareReviewStatus == RobotStudioStageStatus.INVALID || capabilitiesStatus == RobotStudioStageStatus.INVALID ||
+            evidence.drivebaseErrors.isNotEmpty() || evidence.subsystemErrors.isNotEmpty() ||
+            evidence.hardwareErrors.isNotEmpty() || evidence.capabilityErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        projectIdentityStatus != RobotStudioStageStatus.READY -> RobotStudioStageStatus.BLOCKED
+        drivebaseStatus == RobotStudioStageStatus.CODE_REQUIRED -> RobotStudioStageStatus.CODE_REQUIRED
+        drivebaseStatus == RobotStudioStageStatus.NEEDS_ACTION || localizationStatus == RobotStudioStageStatus.NEEDS_ACTION ||
+            (evidence.hardwareItemCount > 0 && evidence.hardwareReviewStatus == HardwareReviewStatus.NOT_REVIEWED) -> RobotStudioStageStatus.NEEDS_ACTION
+        else -> RobotStudioStageStatus.READY
+    }
+
+    val coordinationStatus = when {
+        projectBlocked -> RobotStudioStageStatus.BLOCKED
+        evidence.superstructureErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        evidence.superstructureCount == 0 -> RobotStudioStageStatus.OPTIONAL
+        else -> RobotStudioStageStatus.READY
+    }
+    val autonomousStatus = when {
+        projectBlocked -> RobotStudioStageStatus.BLOCKED
+        evidence.autonomousErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        evidence.routineCount == 0 || !evidence.autonomousCatalogPresent -> RobotStudioStageStatus.OPTIONAL
         else -> RobotStudioStageStatus.READY
     }
     val controlsStatus = when {
@@ -171,12 +224,6 @@ internal fun evaluateRobotStudioStages(
         evidence.controlSchemeCount == 0 || evidence.controllerProfileCount == 0 -> RobotStudioStageStatus.NEEDS_ACTION
         else -> RobotStudioStageStatus.READY
     }
-    val autonomousStatus = when {
-        projectBlocked -> RobotStudioStageStatus.BLOCKED
-        evidence.autonomousErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
-        evidence.routineCount == 0 || !evidence.autonomousCatalogPresent -> RobotStudioStageStatus.OPTIONAL
-        else -> RobotStudioStageStatus.READY
-    }
     val tuningStatus = when {
         projectBlocked -> RobotStudioStageStatus.BLOCKED
         evidence.tuningError != null -> RobotStudioStageStatus.INVALID
@@ -184,20 +231,19 @@ internal fun evaluateRobotStudioStages(
         evidence.tuningProfileCount == 0 -> RobotStudioStageStatus.NEEDS_ACTION
         else -> RobotStudioStageStatus.READY
     }
+
     val requiredStagesReady = listOf(
-        workspaceStatus,
-        platformStatus,
-        drivebaseStatus,
-        localizationStatus,
+        projectIdentityStatus,
+        hardwareStatus,
     ).all { it == RobotStudioStageStatus.READY }
+
     val optionalStagesSafe = listOf(
-        mechanismsStatus,
         coordinationStatus,
-        capabilitiesStatus,
-        controlsStatus,
         autonomousStatus,
+        controlsStatus,
         tuningStatus,
     ).all { it == RobotStudioStageStatus.READY || it == RobotStudioStageStatus.OPTIONAL }
+
     val authoredStagesReady = requiredStagesReady && optionalStagesSafe
     val selectedBuild = runtime.build.takeIf { build ->
         build.league == evidence.league && sameProjectPath(build.projectPath, evidence.projectPath)
@@ -239,62 +285,60 @@ internal fun evaluateRobotStudioStages(
     }
     val analysisStatus = if (evidence.importedRunCount > 0) RobotStudioStageStatus.READY else RobotStudioStageStatus.NEEDS_ACTION
 
+    val hardwareIssues = evidence.drivebaseErrors + evidence.subsystemErrors + evidence.hardwareErrors + evidence.capabilityErrors
+    val hardwareExplanation = when {
+        hardwareStatus == RobotStudioStageStatus.CODE_REQUIRED -> "This drivebase descriptor type is valid documentation, but the selected season project has no no-code runtime adapter for it."
+        evidence.drivebaseKind == null -> "Configure one platform-supported drivebase and add any needed mechanism subsystems."
+        !evidence.localizationConfigured -> "Configure a compatible primary localization source in the Drivebase settings."
+        evidence.hardwareReviewStatus == HardwareReviewStatus.NOT_REVIEWED && evidence.hardwareItemCount > 0 -> "${evidence.hardwareItemCount} physical device(s) are declared. Review the hardware port and CAN map before physical testing."
+        evidence.subsystemCount > 0 -> "A platform-supported ${evidence.drivebaseKind.name.lowercase().replace('_', ' ')} drivetrain and ${evidence.subsystemCount} subsystem(s) passed validation."
+        else -> "A platform-supported ${evidence.drivebaseKind.name.lowercase().replace('_', ' ')} drive-only robot passed validation."
+    }
+
+    val hardwareAction = when {
+        evidence.drivebaseKind == null -> RobotStudioAction.OPEN_DRIVEBASE
+        evidence.hardwareReviewStatus == HardwareReviewStatus.NOT_REVIEWED && evidence.hardwareItemCount > 0 -> RobotStudioAction.OPEN_HARDWARE_SETUP
+        evidence.subsystemCount == 0 -> RobotStudioAction.OPEN_SUBSYSTEMS
+        else -> RobotStudioAction.OPEN_HARDWARE_SETUP
+    }
+    val hardwareActionLabel = when {
+        evidence.drivebaseKind == null -> "Open Hardware Studio"
+        evidence.hardwareReviewStatus == HardwareReviewStatus.NOT_REVIEWED && evidence.hardwareItemCount > 0 -> "Review Hardware Port Map"
+        evidence.subsystemCount == 0 -> "Configure Mechanisms"
+        else -> "Open Hardware Studio"
+    }
+
     return listOf(
         stage(
-            RobotStudioStageId.WORKSPACE,
-            "Workspace & robot identity",
-            "Select the repository and give this robot one stable identity.",
-            workspaceStatus,
-            if (evidence.metadataPresent) "Canonical project metadata was found." else "Create or repair .ares/project.json before generation.",
-            listOfNotNull(evidence.projectError) + evidence.metadataErrors,
+            RobotStudioStageId.PROJECT_IDENTITY,
+            "Project & robot identity",
+            "Select the repository, assign team identity, and choose the FTC/FRC platform.",
+            projectIdentityStatus,
+            if (projectIdentityStatus == RobotStudioStageStatus.READY) "Workspace and canonical metadata agree on ${evidence.league.name}."
+            else if (!evidence.metadataPresent) "Create or repair .ares/project.json before generation."
+            else "Workspace league and canonical metadata do not agree.",
+            listOfNotNull(evidence.projectError) + evidence.metadataErrors +
+                if (!evidence.metadataLeagueMatches && evidence.metadataPresent) listOf("Choose the correct workspace league or repair project metadata.") else emptyList(),
             ".ares/project.json",
-            "Analytics, code generation, simulators, and the season robot project",
+            "Analytics, code generation, simulators, and platform runtime adapters",
             RobotStudioAction.OPEN_PROJECT_IDENTITY,
-            if (evidence.metadataPresent) "Review project identity" else "Set up project identity",
+            if (evidence.metadataPresent) "Review identity" else "Set up identity",
         ),
         stage(
-            RobotStudioStageId.PLATFORM,
-            "League & platform",
-            "Keep the workspace, descriptor, generator, and runtime on the same FTC or FRC platform.",
-            platformStatus,
-            if (evidence.metadataLeagueMatches) "Workspace and canonical metadata agree on ${evidence.league.name}." else "The selected workspace league and canonical metadata do not agree.",
-            if (platformStatus == RobotStudioStageStatus.INVALID) listOf("Choose the correct workspace league or repair the project metadata before continuing.") else emptyList(),
-            ".ares/project.json",
-            "Every builder and platform-specific generated adapter",
-            RobotStudioAction.OPEN_PROJECT_IDENTITY,
-            "Review project identity",
-        ),
-        stage(
-            RobotStudioStageId.DRIVEBASE,
-            "Drivebase",
-            "Describe the hardware identity, geometry, inversion, safety, and supported runtime adapter.",
-            drivebaseStatus,
-            when (drivebaseStatus) {
-                RobotStudioStageStatus.CODE_REQUIRED -> "This descriptor type is valid documentation, but the selected season project has no no-code runtime adapter for it."
-                RobotStudioStageStatus.READY -> "A platform-supported ${evidence.drivebaseKind?.name?.lowercase()?.replace('_', ' ')} drivebase passed validation."
-                else -> "Configure one platform-supported drivebase and resolve every validation error."
-            },
-            evidence.drivebaseErrors,
-            ".ares/drivetrains/*.aresdrivetrain",
-            "Generated typed configuration plus the FTC/FRC season drivetrain adapter",
-            RobotStudioAction.OPEN_DRIVEBASE,
-            "Open Drivebase Builder",
-        ),
-        stage(
-            RobotStudioStageId.MECHANISMS,
-            "Mechanisms & subsystems",
-            "Add motors, servos, sensors, safe outputs, controllers, and simulation behavior.",
-            mechanismsStatus,
-            if (evidence.subsystemCount == 0) "A drive-only robot is valid. Add a subsystem when the robot has another mechanism." else "${evidence.subsystemCount} subsystem definition(s) passed project loading.",
-            evidence.subsystemErrors,
-            ".ares/subsystems/*.aressubsystem and user-owned starter source",
-            "Generated registry, controller, IO, mock/simulator, and verification",
-            RobotStudioAction.OPEN_SUBSYSTEMS,
-            "Open Subsystem Builder",
+            RobotStudioStageId.HARDWARE,
+            "Robot hardware & mechanisms",
+            "Configure drivetrain kinematics, localization, mechanism subsystems, and physical port/CAN topology.",
+            hardwareStatus,
+            hardwareExplanation,
+            hardwareIssues,
+            ".ares/drivetrains/*.aresdrivetrain, .ares/subsystems/*.aressubsystem, .ares/hardware-review.json",
+            "Generated hardware registry, drivetrain & subsystem IO controllers, and simulator",
+            hardwareAction,
+            hardwareActionLabel,
         ),
         stage(
             RobotStudioStageId.COORDINATION,
-            "Coordinated mechanism postures",
+            "Superstructure coordination",
             "Coordinate multiple generated mechanisms through complete presets, guarded transitions, interlocks, and lookup tables.",
             coordinationStatus,
             if (evidence.superstructureCount == 0) {
@@ -304,63 +348,30 @@ internal fun evaluateRobotStudioStages(
             },
             evidence.superstructureErrors,
             ".ares/superstructures/*.aressuperstructure",
-            "Generated Redux coordinator runtime, subsystem target tasks, autonomous/controller actions, and contract tests",
+            "Generated Redux coordinator runtime, subsystem target tasks, and contract tests",
             RobotStudioAction.OPEN_SUPERSTRUCTURES,
             "Open Superstructure Studio",
         ),
         stage(
-            RobotStudioStageId.HARDWARE_SETUP,
-            "Physical hardware setup",
-            "Compare every canonical device address, direction, safe output, and limit with the actual robot.",
-            hardwareStatus,
-            when (evidence.hardwareReviewStatus) {
-                HardwareReviewStatus.CURRENT ->
-                    "${evidence.hardwareReviewedBy.orEmpty()} reviewed the current ${evidence.hardwareItemCount}-device inventory. Any descriptor edit makes this review stale."
-                HardwareReviewStatus.STALE ->
-                    "The drivetrain or subsystem descriptors changed after the previous review. Compare the current mapping again."
-                HardwareReviewStatus.INVALID ->
-                    "The review record is invalid. Repair the reported issue and record a new review."
-                HardwareReviewStatus.NOT_REVIEWED ->
-                    "${evidence.hardwareItemCount} physical device(s) are declared but have not been compared with a robot. Simulation remains available."
-            },
-            evidence.hardwareErrors,
-            ".ares/drivetrains, .ares/subsystems, and hash-bound .ares/hardware-review.json",
-            "Drivebase/subsystem generated adapters and the physical deployment gate",
-            RobotStudioAction.OPEN_HARDWARE_SETUP,
-            "Open Hardware Setup",
-        ),
-        stage(
-            RobotStudioStageId.LOCALIZATION,
-            "Sensors & localization",
-            "Choose one primary pose source and optional vision fusion with explicit units and direction conventions.",
-            localizationStatus,
-            if (evidence.localizationConfigured) "One validated primary localization source is configured." else "Choose a compatible primary localization source in the Drivebase Builder.",
-            emptyList(),
-            ".ares/drivetrains/*.aresdrivetrain",
-            "Pose estimator, simulator, field preview, and autonomous validation",
-            RobotStudioAction.OPEN_DRIVEBASE,
-            "Configure localization",
-        ),
-        stage(
-            RobotStudioStageId.CAPABILITIES,
-            "Capabilities & actions",
-            "Expose named robot behavior that controls and autonomous routines can request through Redux.",
-            capabilitiesStatus,
-            if (evidence.capabilityActionCount == 0) "No named actions are currently available. Sensor-only and drive-only robots may not need mechanism actions." else "${evidence.capabilityActionCount} named action(s) are available to controls and routines.",
-            evidence.capabilityErrors,
-            ".ares/action-catalog.json plus subsystem capability metadata",
-            "Controller Bindings, autonomous routines, tasks, and Redux",
-            RobotStudioAction.OPEN_SUBSYSTEMS,
-            "Review subsystem capabilities",
+            RobotStudioStageId.AUTONOMOUS,
+            "Autonomous catalog & routines",
+            "Build bounded routines from named actions, path segments, triggers, and scoring sequences.",
+            autonomousStatus,
+            if (evidence.routineCount == 0) "Autonomous is optional while learning TeleOp. Add a short simulator-first routine when ready." else "${evidence.routineCount} routine(s) and an autonomous catalog loaded.",
+            evidence.autonomousErrors,
+            ".ares/routines/*.aresroutine and .ares/autonomous-catalog.json",
+            "Generated routine runtime, autonomous chooser, and TeleOp routine bindings",
+            RobotStudioAction.OPEN_AUTONOMOUS,
+            "Open Auto Builder",
         ),
         stage(
             RobotStudioStageId.CONTROLS,
             "Driver & operator controls",
-            "Map real controller inputs to named actions, routines, and safe timing behavior.",
+            "Map real controller inputs to drive axes, named mechanism actions, and automated TeleOp sub-routines.",
             controlsStatus,
             when (controlsStatus) {
                 RobotStudioStageStatus.READY -> "${evidence.controlSchemeCount} control scheme(s) and ${evidence.controllerProfileCount} controller profile(s) loaded."
-                RobotStudioStageStatus.OPTIONAL -> "The reviewed season project supplies safe baseline driving controls. Add GUI bindings when you want controller buttons to run named mechanism actions."
+                RobotStudioStageStatus.OPTIONAL -> "The reviewed season project supplies safe baseline driving controls. Add GUI bindings when you want controller buttons to run named mechanism actions or auto-routines."
                 else -> "A controller profile and control scheme must be created together; finish or remove the incomplete pair."
             },
             evidence.controlErrors,
@@ -368,18 +379,6 @@ internal fun evaluateRobotStudioStages(
             "Generated project bindings and the platform TeleOp runtime",
             RobotStudioAction.OPEN_CONTROLS,
             "Open TeleOp Controls",
-        ),
-        stage(
-            RobotStudioStageId.AUTONOMOUS,
-            "Autonomous routines",
-            "Build bounded routines from named actions, resources, conditions, and drive steps.",
-            autonomousStatus,
-            if (evidence.routineCount == 0) "Autonomous is optional while learning TeleOp. Add a short simulator-first routine when ready." else "${evidence.routineCount} routine(s) and an autonomous catalog loaded.",
-            evidence.autonomousErrors,
-            ".ares/routines/*.aresroutine and .ares/autonomous-catalog.json",
-            "Generated routine runtime and autonomous chooser",
-            RobotStudioAction.OPEN_AUTONOMOUS,
-            "Open Auto Builder",
         ),
         stage(
             RobotStudioStageId.TUNING,

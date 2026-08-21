@@ -35,7 +35,7 @@ fun SwerveModuleVisualizer(
     val anglesActual = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
 
     LaunchedEffect(nt4ClientService) {
-        nt4ClientService.telemetryFlow.collect { frame ->
+        nt4ClientService.uiTelemetryFlow.collect { frame ->
             val key = frame.key
             val value = frame.value
             when {

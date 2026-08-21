@@ -4,14 +4,19 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -28,7 +33,11 @@ import com.ares.analytics.service.GamepadState
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
 import com.ares.analytics.ui.theme.AresGold
+import com.ares.analytics.ui.theme.AresGreen
+import com.ares.analytics.ui.theme.AresSurface
+import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
+import com.ares.analytics.ui.theme.AresTextTertiary
 import com.areslib.controls.ControllerControlDocument
 import com.areslib.controls.ControllerInputPlatform
 import com.areslib.controls.ControllerProfileDocument
@@ -46,13 +55,14 @@ fun ControllerCanvas(
     targetPlatform: ControllerInputPlatform,
     liveState: GamepadState,
     onControlSelected: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    boundActionLabels: Map<String, List<String>> = emptyMap(),
 ) {
     val controls = profile.controls.filter { it.surface == surface }
     BoxWithConstraints(
         modifier = modifier.fillMaxWidth().height(360.dp)
             .background(Color.Black.copy(alpha = .18f), RoundedCornerShape(14.dp))
-            .border(1.dp, AresBorder, RoundedCornerShape(14.dp))
+            .border(1.dp, AresBorder, RoundedCornerShape(14.dp)),
     ) {
         Canvas(Modifier.fillMaxSize().padding(24.dp)) {
             val outline = Path().apply {
@@ -74,7 +84,7 @@ fun ControllerCanvas(
                     topLeft = Offset(size.width * .40f, size.height * .24f),
                     size = androidx.compose.ui.geometry.Size(size.width * .20f, size.height * .25f),
                     cornerRadius = CornerRadius(18f),
-                    style = Stroke(2f)
+                    style = Stroke(2f),
                 )
             } else {
                 drawRoundRect(
@@ -82,7 +92,7 @@ fun ControllerCanvas(
                     topLeft = Offset(size.width * .31f, size.height * .22f),
                     size = androidx.compose.ui.geometry.Size(size.width * .38f, size.height * .58f),
                     cornerRadius = CornerRadius(36f),
-                    style = Stroke(3f)
+                    style = Stroke(3f),
                 )
             }
         }
@@ -92,32 +102,88 @@ fun ControllerCanvas(
             val selected = control.controlId == selectedControlId
             val inChord = control.controlId in chordControlIds
             val bound = control.controlId in boundControlIds
-            val color = when {
+            val actionLabels = boundActionLabels[control.controlId].orEmpty()
+            val hasBindings = bound || actionLabels.isNotEmpty()
+
+            val borderColor = when {
                 active -> AresCyan
-                inChord -> AresGold
                 selected -> AresGold
-                bound -> AresGold.copy(alpha = .72f)
-                else -> AresTextSecondary
+                inChord -> AresGold
+                hasBindings -> AresCyan
+                else -> AresBorder
             }
+
+            val backgroundColor = when {
+                active -> AresCyan.copy(alpha = 0.35f)
+                selected -> AresGold.copy(alpha = 0.25f)
+                inChord -> AresGold.copy(alpha = 0.20f)
+                hasBindings -> AresCyan.copy(alpha = 0.14f)
+                else -> Color.Black.copy(alpha = 0.75f)
+            }
+
+            val textColor = when {
+                active -> AresCyan
+                selected -> AresGold
+                inChord -> AresGold
+                hasBindings -> AresTextPrimary
+                else -> AresTextTertiary
+            }
+
             val targetMapped = control.mappings.any { it.platform == targetPlatform }
+
             Box(
                 modifier = Modifier
                     .offset(
-                        x = maxWidth * control.anchor.x.toFloat() - 27.dp,
-                        y = maxHeight * control.anchor.y.toFloat() - 18.dp
+                        x = maxWidth * control.anchor.x.toFloat() - 32.dp,
+                        y = maxHeight * control.anchor.y.toFloat() - 20.dp,
                     )
-                    .background(Color.Black.copy(alpha = .88f), RoundedCornerShape(8.dp))
-                    .border(if (active || selected) 2.dp else 1.dp, color, RoundedCornerShape(8.dp))
+                    .background(backgroundColor, RoundedCornerShape(8.dp))
+                    .border(if (active || selected || hasBindings) 1.5.dp else 1.dp, borderColor, RoundedCornerShape(8.dp))
                     .clickable { onControlSelected(control.controlId) }
-                    .padding(horizontal = 9.dp, vertical = 6.dp),
-                contentAlignment = Alignment.Center
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = control.displayName + if (targetMapped) "" else " !",
-                    color = color,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Text(
+                            text = control.displayName + if (targetMapped) "" else " !",
+                            color = textColor,
+                            fontSize = 10.sp,
+                            fontWeight = if (hasBindings || selected) FontWeight.Bold else FontWeight.Normal,
+                        )
+                        if (actionLabels.size > 1) {
+                            Surface(
+                                color = AresCyan.copy(alpha = 0.25f),
+                                shape = RoundedCornerShape(3.dp),
+                            ) {
+                                Text(
+                                    text = "• ${actionLabels.size}",
+                                    color = AresCyan,
+                                    fontSize = 8.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 3.dp, vertical = 1.dp),
+                                )
+                            }
+                        }
+                    }
+
+                    if (actionLabels.isNotEmpty()) {
+                        val firstAction = actionLabels.first()
+                        Text(
+                            text = firstAction.take(14),
+                            color = AresCyan,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                        )
+                    }
+                }
             }
         }
     }

@@ -15,25 +15,6 @@ import org.lwjgl.glfw.GLFW.*
 
 /**
  * Immutable data snapshot representing active USB gamepad joystick axes and digital button states.
- *
- * @property connected `true` if a physical gamepad is detected and active.
- * @property name Human-readable controller device name returned by GLFW.
- * @property leftStickX Normalized left stick horizontal axis $[-1.0, 1.0]$ (+1 = Right).
- * @property leftStickY Normalized left stick vertical axis $[-1.0, 1.0]$ (+1 = Down).
- * @property rightStickX Normalized right stick horizontal axis $[-1.0, 1.0]$ (+1 = Right).
- * @property rightStickY Normalized right stick vertical axis $[-1.0, 1.0]$ (+1 = Down).
- * @property leftTrigger Analog left trigger depth $[0.0, 1.0]$.
- * @property rightTrigger Analog right trigger depth $[0.0, 1.0]$.
- * @property a Digital A / Cross button state.
- * @property b Digital B / Circle button state.
- * @property x Digital X / Square button state.
- * @property y Digital Y / Triangle button state.
- * @property leftBumper Digital Left Bumper state.
- * @property rightBumper Digital Right Bumper state.
- * @property dpadUp Digital D-Pad Up state.
- * @property dpadDown Digital D-Pad Down state.
- * @property dpadLeft Digital D-Pad Left state.
- * @property dpadRight Digital D-Pad Right state.
  */
 data class GamepadState(
     val connected: Boolean = false,
@@ -105,23 +86,23 @@ class GamepadService {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     fun start() {
-        if (!isInitialized) {
-            try {
-                if (!glfwInit()) {
-                    println("[GamepadService] Failed to initialize GLFW. Gamepad support disabled.")
-                    return
-                }
-                isInitialized = true
-                println("[GamepadService] GLFW initialized successfully.")
-            } catch (e: Throwable) {
-                println("[GamepadService] GLFW init failed: ${e.message}")
-                return
-            }
-        }
-
         if (pollingJob?.isActive == true) return
 
         pollingJob = scope.launch {
+            if (!isInitialized) {
+                try {
+                    if (!glfwInit()) {
+                        println("[GamepadService] Failed to initialize GLFW. Gamepad support disabled.")
+                        return@launch
+                    }
+                    isInitialized = true
+                    println("[GamepadService] GLFW initialized successfully.")
+                } catch (e: Throwable) {
+                    println("[GamepadService] GLFW init failed: ${e.message}")
+                    return@launch
+                }
+            }
+
             val gamepadState = org.lwjgl.glfw.GLFWGamepadState.malloc()
             try {
                 while (isActive) {

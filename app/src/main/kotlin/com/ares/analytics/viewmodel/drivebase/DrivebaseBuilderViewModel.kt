@@ -20,7 +20,7 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
-enum class DrivebaseBuilderStep { DRIVE_TYPE, HARDWARE, GEOMETRY, LOCALIZATION, SAFETY, LABS, REVIEW }
+enum class DrivebaseBuilderStep { DRIVE_TYPE, HARDWARE, GEOMETRY, CONTROL, LOCALIZATION, REVIEW }
 enum class DrivebaseDiscardAction { RELOAD, CHANGE_KIND }
 
 data class DriveLabState(
@@ -85,11 +85,16 @@ sealed interface DrivebaseBuilderIntent {
     data object Reload : DrivebaseBuilderIntent
     data class SelectStep(val step: DrivebaseBuilderStep) : DrivebaseBuilderIntent
     data class SelectKind(val kind: DrivebaseKind) : DrivebaseBuilderIntent
-    data class SelectHardware(val id: String) : DrivebaseBuilderIntent
+    data class SelectHardware(val id: String?) : DrivebaseBuilderIntent
     data class UpdateHardware(val device: DriveHardwareDeclaration) : DrivebaseBuilderIntent
     data class AddHardware(val role: DriveHardwareRole) : DrivebaseBuilderIntent
     data class RemoveHardware(val id: String) : DrivebaseBuilderIntent
     data class UpdateGeometry(val geometry: DriveGeometry) : DrivebaseBuilderIntent
+    data class UpdateControl(
+        val supported: List<com.areslib.drivetrain.DrivetrainControlKind>,
+        val defaultMode: com.areslib.drivetrain.DrivetrainControlKind,
+        val fieldRelative: Boolean,
+    ) : DrivebaseBuilderIntent
     data class SetLocalization(val kind: LocalizationKind, val enabled: Boolean) : DrivebaseBuilderIntent
     data class UpdateSafety(val safety: DriveSafetyDeclaration) : DrivebaseBuilderIntent
     data class SetAdvanced(val enabled: Boolean) : DrivebaseBuilderIntent
@@ -135,6 +140,11 @@ class DrivebaseBuilderViewModel(
             is DrivebaseBuilderIntent.AddHardware -> addHardware(intent.role)
             is DrivebaseBuilderIntent.RemoveHardware -> removeHardware(intent.id)
             is DrivebaseBuilderIntent.UpdateGeometry -> edit(_state.value.draft.copy(geometry = intent.geometry))
+            is DrivebaseBuilderIntent.UpdateControl -> edit(_state.value.draft.copy(
+                supportedControlModes = intent.supported.distinct(),
+                defaultControlMode = intent.defaultMode,
+                fieldRelativeEnabled = intent.fieldRelative,
+            ))
             is DrivebaseBuilderIntent.SetLocalization -> {
                 val existing = _state.value.draft.localization
                 val updated = when {
@@ -175,7 +185,7 @@ class DrivebaseBuilderViewModel(
         result.fold(
             onSuccess = { saved ->
                 val draft = saved ?: defaultDrivebase(_state.value.projectId, defaultNoCodeDrivebaseKind(_state.value.league))
-                _state.update { it.copy(saved = saved, draft = draft, issues = validateDrivebaseForLeague(draft, it.league), loading = false, dirty = false, error = null, selectedHardwareId = draft.hardware.firstOrNull()?.id) }
+                _state.update { it.copy(saved = saved, draft = draft, issues = validateDrivebaseForLeague(draft, it.league), loading = false, dirty = false, error = null, selectedHardwareId = null) }
             },
             onFailure = { failure -> _state.update { it.copy(loading = false, error = failure.message ?: "Could not load the drivebase document.") } }
         )
@@ -260,7 +270,45 @@ class DrivebaseBuilderViewModel(
             DriveHardwareRole.RIGHT_FOLLOWER -> existing.firstOrNull { it.role == DriveHardwareRole.RIGHT_LEADER }?.id
             else -> null
         }
-        val device = DriveHardwareDeclaration(next, "New ${role.name.lowercase().replace('_', ' ')}", role, leaderId = leader)
+        val countOfSameRole = existing.count { it.role == role } + 1
+        val defaultName = when (role) {
+            DriveHardwareRole.LIMELIGHT -> if (countOfSameRole == 1) "Limelight Vision Camera" else "Limelight $countOfSameRole"
+            DriveHardwareRole.ODOMETRY -> if (countOfSameRole == 1) "goBILDA Pinpoint" else "Odometry Pod $countOfSameRole"
+            DriveHardwareRole.GYRO -> if (countOfSameRole == 1) "Control Hub IMU" else "IMU / Gyro $countOfSameRole"
+            DriveHardwareRole.DISTANCE_SENSOR -> if (countOfSameRole == 1) "Distance Sensor" else "Distance Sensor $countOfSameRole"
+            else -> "New ${role.name.lowercase().replace('_', ' ')}"
+        }
+        val defaultHwName = when (role) {
+            DriveHardwareRole.LIMELIGHT -> if (countOfSameRole == 1) "limelight" else "limelight$countOfSameRole"
+            DriveHardwareRole.ODOMETRY -> if (countOfSameRole == 1) "pinpoint" else "pinpoint$countOfSameRole"
+            DriveHardwareRole.GYRO -> if (countOfSameRole == 1) "imu" else "imu$countOfSameRole"
+            DriveHardwareRole.DISTANCE_SENSOR -> if (countOfSameRole == 1) "distance" else "distance$countOfSameRole"
+            else -> ""
+        }
+        val defaultX = when (role) {
+            DriveHardwareRole.LIMELIGHT -> 0.15
+            DriveHardwareRole.DISTANCE_SENSOR -> 0.18
+            else -> 0.0
+        }
+        val defaultZ = when (role) {
+            DriveHardwareRole.LIMELIGHT -> 0.20
+            DriveHardwareRole.DISTANCE_SENSOR -> 0.10
+            DriveHardwareRole.ODOMETRY -> 0.02
+            else -> 0.0
+        }
+        val device = DriveHardwareDeclaration(
+            id = next,
+            displayName = defaultName,
+            role = role,
+            hardwareName = defaultHwName,
+            leaderId = leader,
+            xMeters = defaultX,
+            yMeters = 0.0,
+            zMeters = defaultZ,
+            pitchDegrees = 0.0,
+            yawDegrees = 0.0,
+            rollDegrees = 0.0,
+        )
         edit(_state.value.draft.copy(hardware = existing + device))
         _state.update { it.copy(selectedHardwareId = next) }
     }
@@ -268,7 +316,7 @@ class DrivebaseBuilderViewModel(
     private fun removeHardware(id: String) {
         val remaining = _state.value.draft.hardware.filterNot { it.id == id }.map { if (it.leaderId == id) it.copy(leaderId = null) else it }
         edit(_state.value.draft.copy(hardware = remaining))
-        _state.update { it.copy(selectedHardwareId = remaining.firstOrNull()?.id) }
+        _state.update { it.copy(selectedHardwareId = null) }
     }
 
     private fun importCtre() = scope.launch {

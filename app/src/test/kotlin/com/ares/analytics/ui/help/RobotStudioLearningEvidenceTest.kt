@@ -17,8 +17,7 @@ class RobotStudioLearningEvidenceTest {
             projectName = "Practice robot",
             projectPath = "C:/practice",
             stages = listOf(
-                stage(RobotStudioStageId.WORKSPACE, RobotStudioStageStatus.READY),
-                stage(RobotStudioStageId.PLATFORM, RobotStudioStageStatus.READY),
+                stage(RobotStudioStageId.PROJECT_IDENTITY, RobotStudioStageStatus.READY),
                 stage(RobotStudioStageId.GENERATE_VERIFY, RobotStudioStageStatus.READY),
                 stage(RobotStudioStageId.SIMULATE, RobotStudioStageStatus.RUNNING),
                 stage(RobotStudioStageId.ANALYZE, RobotStudioStageStatus.READY),
@@ -42,8 +41,7 @@ class RobotStudioLearningEvidenceTest {
             projectName = "Practice robot",
             projectPath = "C:/practice",
             stages = listOf(
-                stage(RobotStudioStageId.WORKSPACE, RobotStudioStageStatus.READY),
-                stage(RobotStudioStageId.PLATFORM, RobotStudioStageStatus.READY),
+                stage(RobotStudioStageId.PROJECT_IDENTITY, RobotStudioStageStatus.READY),
                 stage(RobotStudioStageId.GENERATE_VERIFY, RobotStudioStageStatus.BLOCKED),
             ),
         ).toAcademyGraduationSnapshot()
@@ -62,8 +60,7 @@ class RobotStudioLearningEvidenceTest {
             projectName = "Practice robot",
             projectPath = "C:/practice",
             stages = listOf(
-                stage(RobotStudioStageId.WORKSPACE, RobotStudioStageStatus.READY),
-                stage(RobotStudioStageId.PLATFORM, RobotStudioStageStatus.READY),
+                stage(RobotStudioStageId.PROJECT_IDENTITY, RobotStudioStageStatus.READY),
             ),
         ).toAcademyGraduationSnapshot()
 

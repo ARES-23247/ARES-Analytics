@@ -14,6 +14,7 @@ import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.ares.analytics.desktop.AwtDesktopWindowPort
 import com.ares.analytics.desktop.DesktopCrashHandler
 import com.ares.analytics.desktop.DesktopInstanceLock
 import com.ares.analytics.desktop.DesktopShutdownCoordinator
@@ -90,7 +91,7 @@ private fun launchDesktopApplication() {
             DisposableEffect(window) {
                 window.minimumSize = java.awt.Dimension(1100, 700)
                 val presentationController = DesktopWindowPresentationController(
-                    window = window,
+                    windowPort = AwtDesktopWindowPort(window),
                     machine = startupMachine,
                     isShutdownStarted = shutdownCoordinator::isShutdownStarted,
                     onStartupAlwaysOnTopChange = { startupAlwaysOnTop = it },

@@ -33,6 +33,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class SubsystemGeneratorViewModelTest {
@@ -214,7 +215,7 @@ class SubsystemGeneratorViewModelTest {
         val state = viewModel.state.value
         assertFalse(state.showTemplatePicker)
         assertEquals(SubsystemTemplate.SENSOR_ONLY_SUBSYSTEM, state.draft?.document?.template)
-        assertEquals(state.draft?.document?.hardware?.firstOrNull()?.uid, state.selectedHardwareUid)
+        assertNull(state.selectedHardwareUid)
         viewModel.close()
     }
 
@@ -358,6 +359,24 @@ class SubsystemGeneratorViewModelTest {
         viewModel.undo()
         assertEquals(before, viewModel.state.value.draft?.document)
         assertTrue(viewModel.state.value.canRedo)
+        viewModel.close()
+    }
+
+    @Test
+    fun `controller rule can be documented and renamed without changing editor identity`() {
+        val root = Files.createTempDirectory("ares-subsystem-controller-identity").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        val original = viewModel.state.value.draft!!.document.controlLoops.first()
+
+        viewModel.updateControlLoop(original.loopId) { it.copy(description = "Holds the elevator position") }
+        viewModel.renameControlLoopId(original.loopId, "elevatorControl")
+
+        val renamed = viewModel.state.value.draft!!.document.controlLoops.single { it.uid == original.uid }
+        assertEquals("elevatorControl", renamed.loopId)
+        assertEquals("Holds the elevator position", renamed.description)
+        assertEquals(original.uid, renamed.uid)
+        viewModel.undo()
+        assertEquals(original.loopId, viewModel.state.value.draft!!.document.controlLoops.single { it.uid == original.uid }.loopId)
         viewModel.close()
     }
 

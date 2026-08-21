@@ -27,11 +27,21 @@ ARES writes `.ares/hardware-review.json` with the exact descriptor inventory has
 name. Any drivetrain or subsystem edit changes that hash and marks the review **stale**. Re-review the
 new mapping; do not edit the review JSON by hand.
 
+For FTC, each device card shows the exact name to enter in **Driver Station → Configure Robot →
+Hardware**. Copy the spelling and case exactly; drive motors conventionally use `fl`, `fr`, `rl`,
+and `rr` (rear, not back). For FRC, each card shows the CAN ID and bus. ARES blocks duplicate
+addresses, but students must still confirm the physical labels and vendor configuration.
+
 ## What the review does not prove
 
 A current review is not a powered hardware test, calibration result, inspection approval, or proof
 that a mechanism is safe to move. Follow your team's supervised bring-up procedure, test one device
 at a time at low output, and preserve logs.
+
+The current desktop app never pulses a physical actuator. A future active-identification flow must
+be implemented and acknowledged by the robot runtime with disabled/test-mode gates, a bounded
+output and duration, a lease/nonce, automatic neutral on communication loss, and physical test
+evidence. The offline drive-mixing lab is for checking intended direction and follower math only.
 
 Downloaded Team 23247 season starters remain **simulation/reference only** even after a review.
 Their hand-authored composition is not yet fully represented by GUI-owned descriptors, so the

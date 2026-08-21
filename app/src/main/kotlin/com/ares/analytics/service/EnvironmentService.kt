@@ -92,12 +92,17 @@ class EnvironmentService(
         val configuredRoot = runCatching { File(config.projectPath).canonicalFile }.getOrNull()
             ?: return config
         if (ProjectLayout.containsRobotSource(configuredRoot, config.league)) return config
+        if (!hasRelocationEvidence(configuredRoot, config.league)) return config
 
         val searchRoot = configuredRoot.parentFile?.parentFile ?: return config
         val matches = runCatching {
             searchRoot.walkTopDown()
                 .maxDepth(PROJECT_SEARCH_DEPTH)
                 .onFail { _, _ -> }
+                // Recovery is best-effort and runs while loading application state. Never let a
+                // stale path under a broad directory (for example AppData) turn startup into an
+                // unbounded filesystem crawl.
+                .take(MAX_PROJECT_SEARCH_ENTRIES)
                 .filter { it.isFile && it.name == ARES_ROBOT_FILE }
                 .mapNotNull { identityFile ->
                     val candidate = identityFile.parentFile?.canonicalFile ?: return@mapNotNull null
@@ -113,6 +118,12 @@ class EnvironmentService(
         }.getOrDefault(emptyList())
 
         return matches.singleOrNull()?.let { config.copy(projectPath = it.path) } ?: config
+    }
+
+    private fun hasRelocationEvidence(root: File, league: League): Boolean = when (league) {
+        League.FTC -> File(root, "src/main/assets").isDirectory ||
+            File(root, "TeamCode/src/main/assets").isDirectory
+        League.FRC -> File(root, "src/main/deploy").isDirectory
     }
 
     private fun AresRobotConfig.matches(config: WorkspaceConfig): Boolean =
@@ -260,6 +271,7 @@ data class AresRobotConfig(
 
 private const val ARES_ROBOT_FILE = ".ares-robot.json"
 private const val PROJECT_SEARCH_DEPTH = 4
+private const val MAX_PROJECT_SEARCH_ENTRIES = 5_000
 
 /**
  * Atomically writes [bytes] to [file] through a force-flushed sibling temporary file, then

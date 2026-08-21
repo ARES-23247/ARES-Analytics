@@ -27,8 +27,39 @@ data class DashboardHealthSnapshot(
     val replayCacheHitRatio: Double = 0.0,
     val replayTruncatedWindows: Long = 0,
     val reconnects: Long = 0,
-    val connected: Boolean = false
+    val connected: Boolean = false,
+    val robotLogProfile: String = "UNKNOWN",
+    val robotLogQueueDepth: Int = 0,
+    val robotLogCurrentFileBytes: Long = 0L,
+    val robotLogBytesPerSecond: Double = 0.0,
+    val robotLogDroppedFrames: Long = 0L,
+    val robotLogPrunedFiles: Long = 0L
 )
+
+internal data class RobotLoggingHealthSnapshot(
+    val profile: String,
+    val queueDepth: Int,
+    val currentFileBytes: Long,
+    val completedBytes: Long,
+    val droppedFrames: Long,
+    val prunedFiles: Long
+)
+
+internal fun readRobotLoggingHealth(store: TelemetryStore): RobotLoggingHealthSnapshot {
+    fun longValue(key: String): Long = store.latest(key)?.value
+        ?.takeIf(Double::isFinite)
+        ?.coerceAtLeast(0.0)
+        ?.toLong()
+        ?: 0L
+    return RobotLoggingHealthSnapshot(
+        profile = store.latest("Diagnostics/Logging/Profile")?.stringValue ?: "UNKNOWN",
+        queueDepth = longValue("Diagnostics/Logging/QueueDepth").coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+        currentFileBytes = longValue("Diagnostics/Logging/CurrentFileBytes"),
+        completedBytes = longValue("Diagnostics/Logging/CompletedBytes"),
+        droppedFrames = longValue("Diagnostics/Logging/DroppedFrames"),
+        prunedFiles = longValue("Diagnostics/Logging/PrunedFiles")
+    )
+}
 
 /** Aggregates the dashboard's own operational metrics into one observable health snapshot. */
 class DashboardHealthService(
@@ -46,6 +77,7 @@ class DashboardHealthService(
     init {
         samplerJob = scope.launch {
             var previousFrames = 0L
+            var previousRobotLogBytes = 0L
             var previousSampleNanos = clock.nowNanos()
             while (isActive) {
                 delay(SAMPLE_INTERVAL_MS)
@@ -59,11 +91,18 @@ class DashboardHealthService(
                 val database = databaseMetrics.snapshot()
                 val connection = nt4ClientService.connectionMetrics()
                 val replay = replayEngineService.cacheMetrics.value
+                val robotLogging = readRobotLoggingHealth(telemetryStore)
+                val robotLogBytes = robotLogging.currentFileBytes + robotLogging.completedBytes
+                val robotLogRate = (robotLogBytes - previousRobotLogBytes).coerceAtLeast(0L) / elapsedSeconds
+                previousRobotLogBytes = robotLogBytes
                 val cacheLookups = replay.windowLoads + replay.prefetchHits
                 val hitRatio = if (cacheLookups == 0L) 0.0 else replay.prefetchHits.toDouble() / cacheLookups
                 val status = when {
-                    replay.truncatedWindows > 0 || database.p95QueryMs >= CRITICAL_QUERY_P95_MS -> DashboardHealthStatus.CRITICAL
-                    replay.droppedEmissionFrames > 0 || database.p95QueryMs >= DEGRADED_QUERY_P95_MS || connection.reconnects >= DEGRADED_RECONNECTS -> DashboardHealthStatus.DEGRADED
+                    replay.truncatedWindows > 0 || database.p95QueryMs >= CRITICAL_QUERY_P95_MS ||
+                        robotLogging.queueDepth >= CRITICAL_LOG_QUEUE_DEPTH -> DashboardHealthStatus.CRITICAL
+                    replay.droppedEmissionFrames > 0 || database.p95QueryMs >= DEGRADED_QUERY_P95_MS ||
+                        connection.reconnects >= DEGRADED_RECONNECTS || robotLogging.droppedFrames > 0L ||
+                        robotLogging.queueDepth >= DEGRADED_LOG_QUEUE_DEPTH -> DashboardHealthStatus.DEGRADED
                     else -> DashboardHealthStatus.HEALTHY
                 }
                 mutableHealth.value = DashboardHealthSnapshot(
@@ -79,7 +118,13 @@ class DashboardHealthService(
                     replayCacheHitRatio = hitRatio,
                     replayTruncatedWindows = replay.truncatedWindows,
                     reconnects = connection.reconnects,
-                    connected = connection.connected
+                    connected = connection.connected,
+                    robotLogProfile = robotLogging.profile,
+                    robotLogQueueDepth = robotLogging.queueDepth,
+                    robotLogCurrentFileBytes = robotLogging.currentFileBytes,
+                    robotLogBytesPerSecond = robotLogRate,
+                    robotLogDroppedFrames = robotLogging.droppedFrames,
+                    robotLogPrunedFiles = robotLogging.prunedFiles
                 )
             }
         }
@@ -95,5 +140,7 @@ class DashboardHealthService(
         const val DEGRADED_QUERY_P95_MS = 75.0
         const val CRITICAL_QUERY_P95_MS = 250.0
         const val DEGRADED_RECONNECTS = 3L
+        const val DEGRADED_LOG_QUEUE_DEPTH = 500
+        const val CRITICAL_LOG_QUEUE_DEPTH = 900
     }
 }

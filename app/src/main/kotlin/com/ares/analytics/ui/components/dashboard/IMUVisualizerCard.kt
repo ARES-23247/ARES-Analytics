@@ -38,7 +38,7 @@ fun IMUVisualizerCard(
     var yaw by remember { mutableStateOf<Double?>(null) }
 
     LaunchedEffect(Unit) {
-        nt4ClientService.telemetryFlow.collect { frame ->
+        nt4ClientService.uiTelemetryFlow.collect { frame ->
             val key = frame.key
             val value = frame.value
 

@@ -95,6 +95,37 @@ If the UI connects but pose or controls do not move:
    flags field is element 7; red alliance is bit 5 (`1 << 5`, value `32`). Alliance is not sent on
    a separate scalar topic.
 
+### Runtime control soak
+
+The synthetic `dashboardSoak` test is useful for UI/service profiling, but it does not prove the
+real NT4 control path. The opt-in `simulatorControlSoak` task connects the actual Analytics client to
+a separately running FTC simulator, publishes the leased v2 drive frame at 50 Hz, and checks input
+scheduling gaps, atomic pose-frame cadence, motion authority, and EKF error.
+
+Terminal 1:
+
+```powershell
+cd ..\ARES-FTC
+$env:ARES_LOG_RETENTION_ENABLED = "false" # preserve an existing development archive during the test
+.\gradlew.bat :TeamCode:runSim "-ParesUseSiblingLib=true"
+```
+
+Terminal 2:
+
+```powershell
+cd ..\ARES-Analytics
+.\gradlew.bat :app:simulatorControlSoak "-PsimSoak.seconds=3600" "-ParesUseSiblingLib=true"
+```
+
+Use the sibling flag only while changing ARESLib source. Release validation must repeat against an
+isolated published candidate repository. The task fails if the simulator is absent; the ordinary
+unit suite skips this external dependency. Its JFR is written to
+`app/build/reports/simulator-control-soak/analytics-control-soak.jfr`. Clear the retention
+environment variable after the run. A one-hour pass requires zero control publications lost, no
+control scheduling gap over 100 ms, no pose stall over one second, at most one pose gap over 250 ms
+per hour, bounded EKF error, and two distinct packed poses reconstructed at the 25% and 75% rewind
+points.
+
 ### FTC Control Hub
 
 Common address: `192.168.43.1:5810` while connected to the Control Hub network.
@@ -124,6 +155,14 @@ Do not diagnose a disconnected robot from stale dashboard values. Target changes
 ## 5. Live data and persistent runs
 
 Live telemetry is stored under the reserved session ID `live-telemetry` in the in-memory database. It supports the live dashboard and live rewind, but it is not automatically a durable practice/match run.
+
+Live rewind has an explicit commit boundary. Loading `live-telemetry` first drains the lossless NT4
+persistence queue, then reads DuckDB. The durable live timeline uses monotonic laptop receipt time;
+robot timestamps remain available to the live UI but cannot introduce a pre-connection gap when a
+simulator or robot supplies an old retained value. While replay is active, packed live pose frames
+continue to be recorded but cannot overwrite the replayed field pose. Leaving replay resets the
+pose-frame accumulator before live packed frames regain display ownership. The live buffer retains
+the most recent five minutes.
 
 The current UI does not expose a general start/stop recording control. A persistent run is created when Analytics imports a completed robot or simulator log. The producing logger owns the start/stop boundary; Analytics waits for the file to stop changing, archives it, imports it into DuckDB, and writes an import report. Follow [Bring in a run](operate/BRING_IN_A_RUN.md) for the student workflow.
 
@@ -184,6 +223,7 @@ Imported local files are archived under the workspace's `logs/imported/` directo
 | `.hoot` conversion times out | `owlet` unavailable or blocked | verify `owlet` is on `PATH`; inspect conversion exit status |
 | `.revlog` conversion fails | converter missing or returned nonzero | inspect the reported converter failure; commands are launched as direct argv, not through a shell |
 | Same remote log appears repeatedly | import identity database/config was reset | preserve the application data directory; verify source identity metadata |
+| `.csv.gz` is rejected | old Analytics build or decompression exceeded the 512 MiB safety limit | update Analytics; validate the producer and do not raise the expansion limit for an untrusted file |
 
 Untrusted log lengths are bounded before memory allocation. Do not raise limits merely to make a corrupt file import; first validate the format and expected maximum.
 
@@ -293,8 +333,11 @@ If a previous Analytics JVM is still running, the root Gradle task checks Java p
 - [ ] Pin a published ARESLib version, or validate the matching isolated release repository.
 - [ ] Run `:shared:test :gateway:test :app:test`.
 - [ ] Test a live custom ARESLib NT4 server.
+- [ ] Pass the one-hour real FTC `:app:simulatorControlSoak` gate and archive its JFR/result.
 - [ ] Test a standards-compliant WPILib NT4 server.
 - [ ] Import at least one JSONL/CSV and one binary log.
+- [ ] Import and rewind one gzip-compressed simulator CSV (`.csv.gz`).
+- [ ] Rewind `live-telemetry` and confirm the packed pose sequence differs at the 25% and 75% playheads.
 - [ ] Seek replay beyond a sparse topic's last update.
 - [ ] Export/import a Parquet session containing string telemetry.
 - [ ] Verify target switching clears old robot state.

@@ -35,7 +35,7 @@ class AcademyClassroomPilotTest {
         val progressFile = File(root, "learning-progress.json")
         val progress = LearningProgressService(progressFile)
         progress.updateStudentDisplayName("Pilot Student")
-        progress.selectPath("first-mission")
+        progress.selectPath("drivetrains-odometry")
 
         progress.startLesson("start-simulator")
         progress.observeRuntime(
@@ -67,21 +67,19 @@ class AcademyClassroomPilotTest {
                 ),
             ),
         )
-        recordEveryReflection(progress, "bring-in-run")
-        progress.setPracticed("bring-in-run", true)
         recordEveryReflection(progress, "compare-run-evidence")
         progress.setPracticed("compare-run-evidence", true)
 
         val reportFile = File(root, "pilot-record.md")
-        progress.exportMentorReport(reportFile, "first-mission", "Pilot Mentor")
-        val summary = AcademyClassroomToolkit.pathSummary("first-mission", progress.progress.value)
+        progress.exportMentorReport(reportFile, "drivetrains-odometry", "Pilot Mentor")
+        val summary = AcademyClassroomToolkit.pathSummary("drivetrains-odometry", progress.progress.value)
 
         assertTrue(practiceImport.pack.files.any { it.name == "baseline-arm-run.csv" })
         assertEquals(2, practiceImport.importedCount)
         assertEquals(2, practiceRetry.reusedCount)
         assertEquals(2, database.getSessions().count { AcademyPracticeWorkflowService.ACADEMY_SYNTHETIC_TAG in it.tags })
         assertTrue(FirstMissionCheckpointIds.LOCAL_SIM_CONNECTED in progress.progress.value.completedCheckpointIds)
-        assertEquals("read-connection-state", summary.recommendedLesson?.id)
+        assertEquals("drivebase-blueprint", summary.recommendedLesson?.id)
         assertTrue(reportFile.readText().contains("synthetic").not())
         assertTrue(reportFile.readText().contains("not a grade, certification, code review, or proof of physical robot safety"))
         database.close()

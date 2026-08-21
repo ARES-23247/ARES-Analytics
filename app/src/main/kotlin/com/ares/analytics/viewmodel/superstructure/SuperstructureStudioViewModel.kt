@@ -34,12 +34,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class SuperstructureStudioStep {
-    OVERVIEW,
-    STATE_PRESETS,
+    POSTURES,
     TRANSITIONS,
-    INTERLOCKS,
-    LOOKUP_TABLES,
-    SIMULATION,
     REVIEW,
 }
 
@@ -68,7 +64,7 @@ data class SuperstructureStudioState(
     val subsystems: List<SubsystemDocument> = emptyList(),
     val actions: List<ActionDescriptor> = emptyList(),
     val diagnostics: List<ProjectDocumentDiagnostic> = emptyList(),
-    val step: SuperstructureStudioStep = SuperstructureStudioStep.OVERVIEW,
+    val step: SuperstructureStudioStep = SuperstructureStudioStep.POSTURES,
     val selectedStateId: String? = null,
     val validationErrors: List<String> = emptyList(),
     val validationWarnings: List<String> = emptyList(),
@@ -80,6 +76,10 @@ data class SuperstructureStudioState(
     val error: String? = null,
     val pendingSelectionId: String? = null,
     val preview: SuperstructurePreviewSnapshot? = null,
+    val stateflowGraphMode: Boolean = true,
+    val graphPanX: Float = 0f,
+    val graphPanY: Float = 0f,
+    val graphZoom: Float = 1f,
 ) {
     val generatedSubsystems: List<SubsystemDocument>
         get() = subsystems.filter { it.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER }
@@ -181,7 +181,7 @@ class SuperstructureStudioViewModel(
                 savedContentHash = null,
                 draft = draft,
                 selectedStateId = initial.stateId,
-                step = SuperstructureStudioStep.OVERVIEW,
+                step = SuperstructureStudioStep.POSTURES,
                 dirty = true,
                 status = "New draft created. Nothing has been written yet.",
                 error = null,
@@ -443,6 +443,20 @@ class SuperstructureStudioViewModel(
     fun removeTransition(id: String) {
         _state.update { state -> state.copy(editorErrors = state.editorErrors.filterKeys { !it.startsWith("transition:$id:") }) }
         edit { it.copy(transitions = it.transitions.filterNot { edge -> edge.transitionId == id }) }
+    }
+
+    fun moveStateNode(stateId: String, x: Double, y: Double) = edit { document ->
+        val updatedLayouts = document.nodeLayouts.toMutableMap()
+        updatedLayouts[stateId] = com.areslib.superstructure.StateNodeLayout(x = x, y = y)
+        document.copy(nodeLayouts = updatedLayouts)
+    }
+
+    fun setStateflowGraphMode(enabled: Boolean) {
+        _state.update { it.copy(stateflowGraphMode = enabled) }
+    }
+
+    fun updateGraphPanAndZoom(panX: Float, panY: Float, zoom: Float) {
+        _state.update { it.copy(graphPanX = panX, graphPanY = panY, graphZoom = zoom) }
     }
 
     fun addInterlock(source: SuperstructureFieldOption, constrained: SuperstructureFieldOption) = edit { document ->

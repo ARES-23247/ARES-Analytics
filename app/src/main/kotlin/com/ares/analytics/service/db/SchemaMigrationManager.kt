@@ -13,6 +13,8 @@ import java.sql.Connection
  * - `sessions`: `(session_id VARCHAR PRIMARY KEY, team_id, season_id, robot_id, created_at BIGINT, duration_ms BIGINT, tags VARCHAR, match_number BIGINT, alliance_color VARCHAR)`
  * - `session_summaries`: Aggregate performance KPIs (`min_battery_voltage` V, `max_ekf_drift` m, `avg_loop_time_ms` ms, `p95_loop_time_ms` ms, `vision_acceptance_rate` %, `avg_cross_track_error` m)
  * - `telemetry_frames`: Time-series data points `(timestamp_ms BIGINT, session_id VARCHAR, key VARCHAR, value DOUBLE, string_value VARCHAR)`
+ * - `analysis_diagnostics`: Replaceable derived metrics keyed by `(session_id, key)`
+ * - `session_import_reports`: Machine-readable source/import evidence retained with cloud bundles
  * - `session_annotations`, `alerts`, `console_messages`, `cached_topologies`, `robot_actions`
  *
  * ### Thread Safety & Performance Guarantees:
@@ -150,6 +152,22 @@ class SchemaMigrationManager(
                     PRIMARY KEY (session_id, key, timestamp_us, sample_order)
                 );
 
+                CREATE TABLE IF NOT EXISTS analysis_diagnostics (
+                    session_id VARCHAR NOT NULL,
+                    key VARCHAR NOT NULL,
+                    value DOUBLE NOT NULL,
+                    string_value VARCHAR,
+                    PRIMARY KEY (session_id, key)
+                );
+
+                CREATE TABLE IF NOT EXISTS session_import_reports (
+                    session_id VARCHAR NOT NULL,
+                    source_sha256 VARCHAR NOT NULL,
+                    source_name VARCHAR NOT NULL,
+                    report_json VARCHAR NOT NULL,
+                    PRIMARY KEY (session_id, source_sha256, source_name)
+                );
+
                 CREATE TABLE IF NOT EXISTS session_annotations (
                     annotation_id VARCHAR PRIMARY KEY,
                     session_id VARCHAR NOT NULL,
@@ -203,6 +221,8 @@ class SchemaMigrationManager(
             st.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_session_time ON telemetry_frames(session_id, timestamp_ms)")
             st.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_session_key_time ON telemetry_frames(session_id, key, timestamp_ms)")
             st.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_session_id ON telemetry_frames(session_id)")
+            st.execute("CREATE INDEX IF NOT EXISTS idx_analysis_diagnostics_session ON analysis_diagnostics(session_id)")
+            st.execute("CREATE INDEX IF NOT EXISTS idx_session_import_reports_session ON session_import_reports(session_id)")
 
             try {
                 st.execute("ALTER TABLE telemetry_frames ADD COLUMN string_value VARCHAR;")

@@ -45,18 +45,18 @@ object GlossaryCatalog {
         GlossaryTerm(
             term = "Cloud Sync",
             definition = "An optional desktop action that copies local artifacts to Google Drive or another cloud service. It is not the live robot connection, and a cloud failure does not erase local data.",
-            relatedLessonIds = setOf("understand-offline-sync"),
+            relatedLessonIds = setOf("compare-run-evidence"),
             relatedDeveloperReferenceIds = setOf("log-server"),
         ),
         GlossaryTerm(
             term = "Control Hub",
             definition = "The Android computer on an FTC robot. It runs the FTC app and may provide NT4 telemetry and logs.",
-            relatedLessonIds = setOf("read-connection-state"),
+            relatedLessonIds = setOf("start-simulator"),
         ),
         GlossaryTerm(
             term = "Dashboard",
             definition = "The main configurable screen showing live or replayed telemetry widgets. Always check its mode/target before interpreting a value.",
-            relatedLessonIds = setOf("read-connection-state"),
+            relatedLessonIds = setOf("start-simulator"),
         ),
         GlossaryTerm(
             term = "Drivetrain",
@@ -85,12 +85,12 @@ object GlossaryCatalog {
         GlossaryTerm(
             term = "Gateway",
             definition = "The small authenticated cloud service used for limited remote/AI operations. It is not in the robot-to-dashboard telemetry path.",
-            relatedLessonIds = setOf("understand-offline-sync"),
+            relatedLessonIds = setOf("compare-run-evidence"),
         ),
         GlossaryTerm(
             term = "Imported run",
             definition = "A completed log converted into a persistent local session. It can be replayed after the robot or simulator has stopped.",
-            relatedLessonIds = setOf("bring-in-run"),
+            relatedLessonIds = setOf("compare-run-evidence"),
             relatedDeveloperReferenceIds = setOf("log-server"),
         ),
         GlossaryTerm(
@@ -106,7 +106,7 @@ object GlossaryCatalog {
         GlossaryTerm(
             term = "Live robot",
             definition = "The physical FTC or FRC robot currently publishing NT4 data. Some explicit dashboard tools can send commands or tuning values, so use the team's hardware safety process.",
-            relatedLessonIds = setOf("read-connection-state"),
+            relatedLessonIds = setOf("start-simulator"),
         ),
         GlossaryTerm(
             term = "Local Sim / simulator",
@@ -116,13 +116,13 @@ object GlossaryCatalog {
         GlossaryTerm(
             term = "Log",
             definition = "A file of time-stamped robot or simulator evidence. A logger creates it; Analytics imports the completed file.",
-            relatedLessonIds = setOf("bring-in-run"),
+            relatedLessonIds = setOf("compare-run-evidence"),
             relatedDeveloperReferenceIds = setOf("log-server"),
         ),
         GlossaryTerm(
             term = "NT4 (NetworkTables 4)",
             definition = "The live topic protocol between the robot/simulator and Analytics. Default ARES traffic uses port 5810.",
-            relatedLessonIds = setOf("read-connection-state"),
+            relatedLessonIds = setOf("start-simulator"),
             relatedDeveloperReferenceIds = setOf("nt4-contract"),
         ),
         GlossaryTerm(
@@ -144,34 +144,34 @@ object GlossaryCatalog {
         GlossaryTerm(
             term = "Quarantine",
             definition = "The safe holding area for a log that automatic import could not decode. The evidence and error report are preserved for repair/retry.",
-            relatedLessonIds = setOf("bring-in-run"),
+            relatedLessonIds = setOf("compare-run-evidence"),
         ),
         GlossaryTerm(
             term = "Recording",
             definition = "Informal shorthand for a saved run. In the current workflow the robot or simulator logger creates a file; there is no required Dashboard start/stop recording button.",
-            relatedLessonIds = setOf("bring-in-run"),
+            relatedLessonIds = setOf("compare-run-evidence"),
         ),
         GlossaryTerm(
             term = "Replay",
             definition = "Historical playback of an imported session. Replay can drive Dashboard visualizations but cannot move robot hardware.",
-            relatedLessonIds = setOf("read-connection-state", "bring-in-run"),
+            relatedLessonIds = setOf("start-simulator", "compare-run-evidence"),
         ),
         GlossaryTerm(
             term = "RoboRIO",
             definition = "The real-time controller on an FRC robot. It can publish NT4 data and store logs that Analytics pulls over SSH/SCP.",
-            relatedLessonIds = setOf("why-documents"),
+            relatedLessonIds = setOf("robot-studio-tour"),
             relatedDeveloperReferenceIds = setOf("routine-documents"),
         ),
         GlossaryTerm(
             term = "RobotClock",
             definition = "The shared deterministic time source used in ARES library code so simulation and replay follow the same timing model.",
-            relatedLessonIds = setOf("why-immutability"),
+            relatedLessonIds = setOf("state-flow-lab"),
             relatedDeveloperReferenceIds = setOf("robot-clock"),
         ),
         GlossaryTerm(
             term = "Session",
             definition = "A group of telemetry and metadata treated as one run. live-telemetry is the reserved live buffer; imported runs receive persistent session IDs.",
-            relatedLessonIds = setOf("bring-in-run"),
+            relatedLessonIds = setOf("compare-run-evidence"),
             relatedDeveloperReferenceIds = setOf("log-server"),
         ),
         GlossaryTerm(
@@ -188,7 +188,7 @@ object GlossaryCatalog {
         GlossaryTerm(
             term = "Timestamp",
             definition = "The time attached to a telemetry value. Replay order and alignment depend on timestamps increasing correctly.",
-            relatedLessonIds = setOf("why-immutability"),
+            relatedLessonIds = setOf("state-flow-lab"),
             relatedDeveloperReferenceIds = setOf("robot-clock"),
         ),
         GlossaryTerm(

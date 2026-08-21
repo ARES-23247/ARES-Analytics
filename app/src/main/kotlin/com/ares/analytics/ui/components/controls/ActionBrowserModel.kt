@@ -66,7 +66,7 @@ internal fun actionAccessibleLabel(action: ActionDescriptor): String = buildStri
     append(action.displayName)
     append(". Category: ")
     append(action.category.ifBlank { "General" })
-    if (action.description.isNotBlank()) {
+    if (!action.description.isNullOrBlank()) {
         append(". ")
         append(action.description)
     }

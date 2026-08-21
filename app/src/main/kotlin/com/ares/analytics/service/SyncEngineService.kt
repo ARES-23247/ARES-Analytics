@@ -124,6 +124,7 @@ class SyncEngineService(
     }
 ) {
     private val subsystemDocumentGson = GsonBuilder().create()
+    private val sessionBundleService = SessionBundleService(databaseService, environmentService)
 
     private fun safeFileComponent(value: String): String = value
         .map { character ->
@@ -149,7 +150,12 @@ class SyncEngineService(
             "TeleOp" in summary.tags -> "TeleOp"
             else -> "Init"
         }
-        return "ARES_Telemetry_${date}_${safeFileComponent(summary.robotId)}$match${alliance}_${mode}_${safeFileComponent(summary.sessionId)}.parquet"
+        val extension = if (summary.cloudBundleVersion >= CURRENT_SESSION_BUNDLE_VERSION) {
+            ".ares-session.zip"
+        } else {
+            ".parquet"
+        }
+        return "ARES_Telemetry_${date}_${safeFileComponent(summary.robotId)}$match${alliance}_${mode}_${safeFileComponent(summary.sessionId)}$extension"
     }
 
     private fun sha256(file: File): String {
@@ -170,7 +176,8 @@ class SyncEngineService(
     private suspend fun createImmutableSessionObject(
         name: String,
         file: File,
-        parentId: String
+        parentId: String,
+        mimeType: String,
     ): String {
         var attempt = 0
         var delayMs = CLOUD_UPLOAD_RETRY_DELAY_MS
@@ -180,7 +187,7 @@ class SyncEngineService(
                     name = name,
                     file = file,
                     parentId = parentId,
-                    mimeType = "application/octet-stream"
+                    mimeType = mimeType,
                 )
             } catch (failure: Exception) {
                 attempt++
@@ -222,6 +229,14 @@ class SyncEngineService(
         require(summary.fileSizeBytes in 1L..MAX_CLOUD_SESSION_BYTES) { "Cloud session size is invalid" }
         require(summary.cloudSha256?.matches(Regex("[0-9a-f]{64}")) == true) {
             "Cloud session SHA-256 is invalid"
+        }
+        require(summary.cloudBundleVersion in 0..CURRENT_SESSION_BUNDLE_VERSION) {
+            "Cloud session bundle version is unsupported"
+        }
+        if (summary.cloudBundleVersion >= CURRENT_SESSION_BUNDLE_VERSION) {
+            require(summary.cloudWorkspaceKey?.matches(Regex("[A-Za-z0-9._:-]{1,320}")) == true) {
+                "Cloud session workspace identity is invalid"
+            }
         }
     }
 
@@ -371,24 +386,32 @@ class SyncEngineService(
                 generated
             }
 
-        // 1. Export local session to temporary Parquet file
+        val workspace = requireNotNull(environmentService.loadConfig()) {
+            "Choose an active workspace before uploading a session"
+        }
+        val bundleSummary = summary.copy(
+            cloudBundleVersion = CURRENT_SESSION_BUNDLE_VERSION,
+            cloudWorkspaceKey = workspace.cloudWorkspaceKey(),
+        )
+
+        // 1. Export a complete, versioned session bundle to a unique temporary file.
         val tempDir = File(System.getProperty("java.io.tmpdir"), "ares-sync")
         tempDir.mkdirs()
-        val descriptiveName = cloudFileName(summary)
-        val tempFile = File(tempDir, descriptiveName)
+        val descriptiveName = cloudFileName(bundleSummary)
+        val tempFile = File.createTempFile("ares-session-upload-", ".ares-session.zip", tempDir)
         try {
-            parquetExporterService.exportSessionToParquet(sessionId, tempFile)
+            sessionBundleService.createBundle(sessionId, bundleSummary, tempFile)
             // 2. Locate or create folder structure in Google Drive
             val rootFolderId = googleDriveService.workspaceRootId()
             val sessionsFolderId = googleDriveService.findOrCreateFolder("sessions", rootFolderId)
 
-            val uploadSummary = summary.copy(
+            val uploadSummary = bundleSummary.copy(
                 fileSizeBytes = tempFile.length(),
                 cloudFileName = descriptiveName,
                 cloudSha256 = sha256(tempFile)
             )
 
-            // 3. Always create immutable Parquet bytes. The currently indexed object is never
+            // 3. Always create immutable bundle bytes. The currently indexed object is never
             // passed to the writer and therefore can never be overwritten before the manifest
             // transaction commits.
             installImmutableCloudObject(
@@ -396,7 +419,8 @@ class SyncEngineService(
                     createImmutableSessionObject(
                         name = descriptiveName,
                         file = tempFile,
-                        parentId = sessionsFolderId
+                        parentId = sessionsFolderId,
+                        mimeType = "application/zip",
                     )
                 },
                 swapManifest = { newObjectId, recordPriorObjectIds ->
@@ -421,18 +445,6 @@ class SyncEngineService(
         } finally {
             tempFile.delete()
         }
-    }
-
-    /**
-     * Unused in Google Drive local-first sync.
-     */
-    suspend fun uploadRawFiles(
-        teamId: String,
-        runTimestamp: String,
-        files: List<File>,
-        authToken: String? = null
-    ): String {
-        return "raw/$teamId/$runTimestamp"
     }
 
     /**
@@ -506,26 +518,32 @@ class SyncEngineService(
     }
 
     /**
-     * Downloads a single session's Parquet file from Google Drive and imports it into DuckDB.
+     * Downloads a session object from Google Drive. Versioned bundles restore ancillary records;
+     * legacy telemetry-only Parquet objects remain readable for backward compatibility.
      */
     suspend fun downloadSession(summary: SessionSummary) = withContext(Dispatchers.IO) {
-        val parquetFileId = requireNotNull(summary.cloudFileId) { "Cloud manifest is missing its immutable file id" }
-        val parquetFileName = requireNotNull(summary.cloudFileName) { "Cloud manifest is missing its canonical filename" }
-        val parquetSha256 = requireNotNull(summary.cloudSha256) { "Cloud manifest is missing its SHA-256" }
-        require(parquetFileName == cloudFileName(summary)) { "Cloud manifest filename is not canonical" }
+        validateCloudSummary(summary)
+        val cloudFileId = requireNotNull(summary.cloudFileId) { "Cloud manifest is missing its immutable file id" }
+        val cloudFileName = requireNotNull(summary.cloudFileName) { "Cloud manifest is missing its canonical filename" }
+        val cloudSha256 = requireNotNull(summary.cloudSha256) { "Cloud manifest is missing its SHA-256" }
         require(summary.fileSizeBytes > 0L) { "Cloud manifest file size is invalid" }
-        val tempFile = File.createTempFile("cloud_sync_${summary.sessionId}_", ".parquet")
+        val suffix = if (summary.cloudBundleVersion >= CURRENT_SESSION_BUNDLE_VERSION) {
+            ".ares-session.zip"
+        } else {
+            ".parquet"
+        }
+        val tempFile = File.createTempFile("cloud_sync_${summary.sessionId}_", suffix)
         var attempt = 0
         var success = false
         var delayMs = 1000L
         while (attempt < 3 && !success) {
             try {
                 googleDriveService.readFileStreaming(
-                    fileId = parquetFileId,
+                    fileId = cloudFileId,
                     destination = tempFile,
-                    expectedName = parquetFileName,
+                    expectedName = cloudFileName,
                     expectedBytes = summary.fileSizeBytes,
-                    expectedSha256 = parquetSha256
+                    expectedSha256 = cloudSha256
                 )
                 success = true
             } catch (e: Exception) {
@@ -537,6 +555,23 @@ class SyncEngineService(
         }
 
         try {
+            if (summary.cloudBundleVersion >= CURRENT_SESSION_BUNDLE_VERSION) {
+                sessionBundleService.extractAndValidate(tempFile, summary).use { extracted ->
+                    val manifest = extracted.manifest
+                    databaseService.importCloudSessionBundleAtomically(
+                        file = extracted.telemetryFile,
+                        summary = manifest.summary,
+                        session = manifest.session,
+                        actions = manifest.actions,
+                        annotations = manifest.annotations,
+                        alerts = manifest.alerts,
+                        consoleMessages = manifest.consoleMessages,
+                        analysisDiagnostics = manifest.analysisDiagnostics,
+                        importReports = manifest.importReports,
+                    )
+                }
+                return@withContext
+            }
             val session = Session(
                 sessionId = summary.sessionId,
                 teamId = summary.teamId,

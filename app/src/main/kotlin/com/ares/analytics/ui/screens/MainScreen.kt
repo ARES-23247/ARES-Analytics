@@ -24,8 +24,10 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import com.ares.analytics.di.ServiceRegistry
 import com.ares.analytics.service.AutoImportService
+import com.ares.analytics.service.BuildExecutionPhase
 import com.ares.analytics.service.MatchInfo
 import com.ares.analytics.service.UpdateCheckerService
+import com.ares.analytics.service.isLoopbackDriveControlHost
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.CommandPalette
 import com.ares.analytics.ui.components.LearningCoachDrawer
@@ -41,25 +43,28 @@ import com.ares.analytics.ui.components.QuickNavigationMenu
 import com.ares.analytics.ui.components.SectionNavigationBar
 import com.ares.analytics.ui.components.Sidebar
 import com.ares.analytics.ui.components.core.TargetSelection
+import com.ares.analytics.ui.input.DesktopDriveInputPublisher
+import com.ares.analytics.ui.input.DesktopDriveKeyDispatcher
 import com.ares.analytics.ui.components.core.ExecutionToolbar
 import com.ares.analytics.ui.components.core.OneClickDeployDialog
 import com.ares.analytics.ui.components.dashboard.DashboardCommandBar
 import com.ares.analytics.ui.components.dashboard.DashboardMissionHeader
 import com.ares.analytics.ui.components.dashboard.DashboardMissionSnapshot
+import com.ares.analytics.ui.components.dashboard.LocalSimulatorLaunchRequest
+import com.ares.analytics.ui.components.dashboard.localSimulatorLaunchRequest
 import com.ares.analytics.ui.components.terminal.TerminalDrawer
-import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.help.AcademyRuntimeSnapshot
+import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.*
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
 import com.ares.analytics.viewmodel.hardware.HardwareSetupViewModel
 import com.ares.analytics.viewmodel.project.ProjectIdentityViewModel
-import com.ares.analytics.viewmodel.robotstudio.RobotStudioAction
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioRuntimeEvidence
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioViewModel
 import com.ares.analytics.viewmodel.runanalysis.GuidedRunAnalysisViewModel
 import com.ares.analytics.viewmodel.superstructure.SuperstructureStudioViewModel
-import kotlinx.coroutines.*
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -140,98 +145,7 @@ fun MainScreen(services: ServiceRegistry) {
         }
     }
 
-    // Global 50Hz Drive Input Loop (Keyboard & Gamepad)
     val isNt4Connected by services.nt4ClientService.isConnected.collectAsState()
-    LaunchedEffect(isNt4Connected, activeNav) {
-        if (isNt4Connected) {
-            val driveFrame = DoubleArray(8)
-            val driveSessionNonce = services.nt4ClientService.nextDriveSessionNonce()
-            var driveSequence = 0L
-            var sentNeutralHandshake = false
-
-            while (true) {
-                val ks = services.keyboardDriveState
-                val g1 = services.gamepadService.gamepad1State.value
-                val controlSurfaceActive = activeNav == NavigationTarget.DASHBOARD && ks.enabled
-                val deadmanActive = if (ks.useGamepad) {
-                    g1.connected && g1.leftTrigger > 0.5f
-                } else {
-                    ks.deadmanPressed
-                }
-                val localInputActive = controlSurfaceActive && deadmanActive
-
-                val (vx, vy, omega) = if (localInputActive && ks.useGamepad && g1.connected) {
-                    val rawY = com.areslib.math.InputMath.applyDeadband(g1.leftStickY.toDouble(), 0.02)
-                    val rawX = com.areslib.math.InputMath.applyDeadband(g1.leftStickX.toDouble(), 0.02)
-                    val rawRot = com.areslib.math.InputMath.applyDeadband(g1.rightStickX.toDouble(), 0.02)
-                    val activeVx = com.areslib.math.InputMath.applyCurve(rawY, 1.2) * 4.0
-                    val activeVy = com.areslib.math.InputMath.applyCurve(rawX, 1.2) * -4.0
-                    val activeOmega = com.areslib.math.InputMath.applyCurve(rawRot, 1.2) * -4.0
-                    Triple(activeVx, activeVy, activeOmega)
-                } else if (localInputActive) {
-                    val activeVx = when {
-                        ks.isWPressed || ks.isUpPressed -> 4.0
-                        ks.isSPressed || ks.isDownPressed -> -4.0
-                        else -> 0.0
-                    }
-                    val activeVy = when {
-                        ks.isAPressed -> 4.0
-                        ks.isDPressed -> -4.0
-                        else -> 0.0
-                    }
-                    val activeOmega = when {
-                        ks.isLeftPressed -> 4.0
-                        ks.isRightPressed -> -4.0
-                        else -> 0.0
-                    }
-                    Triple(activeVx, activeVy, activeOmega)
-                } else {
-                    Triple(0.0, 0.0, 0.0)
-                }
-
-                val qPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.leftBumper else ks.isQPressed
-                val ePressed = localInputActive && if (ks.useGamepad && g1.connected) g1.rightBumper else ks.isEPressed
-                val shiftPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.rightTrigger > 0.5f else ks.isShiftPressed
-                val jPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.a else ks.isJPressed
-                val lPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.b else ks.isLPressed
-                val uPressed = localInputActive && if (ks.useGamepad && g1.connected) g1.x else ks.isUPressed
-
-                // Complete v2 command contract. Every new connection starts with a neutral
-                // actuation frame; consumers may arm only on a later sequence in this session.
-                var flags = 0L
-                if (sentNeutralHandshake && qPressed) flags = flags or (1L shl 0)
-                if (sentNeutralHandshake && ePressed) flags = flags or (1L shl 1)
-                if (sentNeutralHandshake && shiftPressed) flags = flags or (1L shl 2)
-                flags = flags or (1L shl 3) // teleop mode
-                // Bit 4 (field-centric) remains clear until the UI exposes an explicit setting.
-                if (services.nt4ClientService.selectedRedAlliance.value) flags = flags or (1L shl 5)
-                if (sentNeutralHandshake && jPressed) flags = flags or (1L shl 6)
-                if (sentNeutralHandshake && lPressed) flags = flags or (1L shl 7)
-                if (sentNeutralHandshake && uPressed) flags = flags or (1L shl 8)
-                // Bit 9 (pose reset) is edge-triggered and currently has no global shortcut.
-
-                driveFrame[0] = 2.0
-                driveFrame[1] = driveSessionNonce
-                driveFrame[2] = driveSequence.toDouble()
-                driveFrame[3] = (System.nanoTime() / 1_000_000L).toDouble()
-                driveFrame[4] = if (sentNeutralHandshake) vx else 0.0
-                driveFrame[5] = if (sentNeutralHandshake) vy else 0.0
-                driveFrame[6] = if (sentNeutralHandshake) omega else 0.0
-                driveFrame[7] = flags.toDouble()
-                val driveFrameTransmitted = services.nt4ClientService.publishDriveFrame(driveFrame)
-                if (!driveFrameTransmitted) {
-                    // isConnected becomes true before the NT4 clock offset is established. Keep
-                    // retrying the neutral sequence and do not emit legacy motion in that window.
-                    delay(20)
-                    continue
-                }
-                sentNeutralHandshake = true
-                driveSequence++
-
-                delay(20)
-            }
-        }
-    }
 
     if (currentConfig == null) {
         val onboardingViewModel = remember {
@@ -330,7 +244,8 @@ fun MainScreen(services: ServiceRegistry) {
             syncEngineService = services.syncEngineService,
             oauthService = services.oauthService,
             nt4ClientService = services.nt4ClientService,
-            logParserService = services.logParserService,
+            robotLogIngestionService = services.robotLogIngestionService,
+            workspaceConfig = currentConfig,
             scope = scope
         )
     }
@@ -445,6 +360,7 @@ fun MainScreen(services: ServiceRegistry) {
     val deployExecutionState by services.processManagerService.deployState.collectAsState()
     var deployDialogOpen by remember { mutableStateOf(false) }
     var deployAwaitingConfirmation by remember { mutableStateOf(false) }
+    var hardwareStudioInitialTab by remember { mutableStateOf(HardwareStudioTab.DRIVETRAIN) }
     var targetSelection by remember { mutableStateOf(TargetSelection.LIVE_ROBOT) }
     var liveRobotIp by remember(currentConfig.nt4Host) {
         mutableStateOf(currentConfig.nt4Host ?: "192.168.43.1")
@@ -458,6 +374,64 @@ fun MainScreen(services: ServiceRegistry) {
     }
     val isLiveRobotOnline by services.targetScannerService.isLiveRobotOnline.collectAsState()
     val isLocalSimOnline by services.targetScannerService.isLocalSimOnline.collectAsState()
+    val localSimulatorControlAuthorized =
+        activeNav == NavigationTarget.DASHBOARD &&
+            targetSelection == TargetSelection.LOCAL_SIM &&
+            isNt4Connected &&
+            isLoopbackDriveControlHost(services.nt4ClientService.serverIp)
+    DesktopDriveInputPublisher(
+        nt4ClientService = services.nt4ClientService,
+        keyboardState = services.keyboardDriveState,
+        gamepadState = services.gamepadService.gamepad1State,
+        connected = localSimulatorControlAuthorized,
+        controlSurfaceActive = localSimulatorControlAuthorized,
+        league = currentConfig.league,
+    )
+    val unmanagedSimulatorOnline = isLocalSimOnline && !isSimRunning
+    val simulatorLaunchEnabled = robotStudioState.canRunSimulation && !unmanagedSimulatorOnline
+    var pendingSimulatorLaunch by remember(currentConfig.id) { mutableStateOf(false) }
+    val simulatorLaunchRequest = localSimulatorLaunchRequest(
+        canRunSimulation = simulatorLaunchEnabled,
+        canRunBuild = robotStudioState.canRunBuild,
+        isBuildRunning = isBuildRunning,
+        isSimulatorRunning = isSimRunning,
+        isSimulatorOnline = isLocalSimOnline,
+        isLaunchPending = pendingSimulatorLaunch,
+    )
+    val simulatorLaunchRequiresVerification = simulatorLaunchRequest == LocalSimulatorLaunchRequest.VERIFY_THEN_START
+    val simulatorLaunchRequestEnabled = simulatorLaunchRequest != LocalSimulatorLaunchRequest.NONE
+    val simulatorLaunchDisabledReason = if (unmanagedSimulatorOnline) {
+        "A simulator is already online on port 5810. Use it from Dashboard, or stop it from the process that launched it."
+    } else {
+        robotStudioState.simulationDisabledReason
+    }
+    val startSimulatorProcess = {
+        if (simulatorLaunchEnabled && !isSimRunning && !isLocalSimOnline) {
+            targetSelection = TargetSelection.LOCAL_SIM
+            services.processManagerService.runSimulation(
+                currentConfig.projectPath,
+                currentConfig.league,
+                currentConfig.simulatorCommand,
+            )
+            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+        }
+    }
+    val requestSimulatorLaunch = {
+        when (simulatorLaunchRequest) {
+            LocalSimulatorLaunchRequest.START_SIMULATOR -> startSimulatorProcess()
+            LocalSimulatorLaunchRequest.VERIFY_THEN_START -> {
+                pendingSimulatorLaunch = true
+                targetSelection = TargetSelection.LOCAL_SIM
+                services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
+                mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+            }
+            LocalSimulatorLaunchRequest.NONE -> Unit
+        }
+    }
+    DesktopDriveKeyDispatcher(
+        state = services.keyboardDriveState,
+        controlSurfaceActive = localSimulatorControlAuthorized,
+    )
 
     LaunchedEffect(currentConfig, runsIndexReloadTrigger) {
         robotStudioViewModel.load(currentConfig)
@@ -483,6 +457,37 @@ fun MainScreen(services: ServiceRegistry) {
                 nt4Connected = isNt4Connected,
             )
         )
+    }
+    LaunchedEffect(
+        pendingSimulatorLaunch,
+        buildExecutionState.phase,
+        simulatorLaunchEnabled,
+        isSimRunning,
+        isLocalSimOnline,
+    ) {
+        if (!pendingSimulatorLaunch) return@LaunchedEffect
+        when (buildExecutionState.phase) {
+            BuildExecutionPhase.FAILED,
+            BuildExecutionPhase.CANCELED -> pendingSimulatorLaunch = false
+            BuildExecutionPhase.SUCCEEDED -> {
+                if (simulatorLaunchEnabled && !isSimRunning && !isLocalSimOnline) {
+                    pendingSimulatorLaunch = false
+                    startSimulatorProcess()
+                }
+            }
+            else -> Unit
+        }
+    }
+    LaunchedEffect(buildExecutionState.requestId, buildExecutionState.phase) {
+        if (
+            buildExecutionState.requestId > 0L && buildExecutionState.phase in setOf(
+                BuildExecutionPhase.SUCCEEDED,
+                BuildExecutionPhase.FAILED,
+                BuildExecutionPhase.CANCELED,
+            )
+        ) {
+            robotStudioViewModel.refresh()
+        }
     }
     val academyRuntime = AcademyRuntimeSnapshot(
         isAvailable = true,
@@ -547,18 +552,18 @@ fun MainScreen(services: ServiceRegistry) {
             .focusRequester(focusRequester)
             .focusable()
             .onPreviewKeyEvent { keyEvent ->
-                val ks = services.keyboardDriveState
                 val isCtrl = keyEvent.isCtrlPressed
                 if (keyEvent.type == KeyEventType.KeyDown && isCtrl) {
                     when (keyEvent.key) {
                         Key.B -> {
-                            services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
-                            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                            if (robotStudioState.canRunBuild && !isBuildRunning) {
+                                services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
+                                mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                            }
                             true
                         }
                         Key.D -> {
-                            services.processManagerService.runSimulation(currentConfig.projectPath, currentConfig.league, currentConfig.simulatorCommand)
-                            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                            requestSimulatorLaunch()
                             true
                         }
                         Key.K -> {
@@ -576,32 +581,6 @@ fun MainScreen(services: ServiceRegistry) {
                     when {
                         commandPaletteOpen -> { commandPaletteOpen = false; true }
                         isTerminalOpen -> { mainViewModel.onIntent(MainIntent.SetTerminalOpen(false)); true }
-                        else -> false
-                    }
-                } else if (ks.enabled && activeNav == NavigationTarget.DASHBOARD) {
-                    val isPressed = keyEvent.type == KeyEventType.KeyDown
-                    if (keyEvent.key == Key.Spacebar) {
-                        ks.deadmanPressed = isPressed
-                        if (!isPressed) ks.releaseAll()
-                        true
-                    } else if (!ks.deadmanPressed) {
-                        false
-                    } else when (keyEvent.key) {
-                        Key.W -> { ks.isWPressed = isPressed; true }
-                        Key.S -> { ks.isSPressed = isPressed; true }
-                        Key.A -> { ks.isAPressed = isPressed; true }
-                        Key.D -> { ks.isDPressed = isPressed; true }
-                        Key.DirectionUp -> { ks.isWPressed = isPressed; true }
-                        Key.DirectionDown -> { ks.isSPressed = isPressed; true }
-                        Key.DirectionLeft -> { ks.isLeftPressed = isPressed; true }
-                        Key.DirectionRight -> { ks.isRightPressed = isPressed; true }
-                        Key.Q -> { ks.isQPressed = isPressed; true }
-                        Key.E -> { ks.isEPressed = isPressed; true }
-                        Key.J -> { ks.isJPressed = isPressed; true }
-                        Key.L -> { ks.isLPressed = isPressed; true }
-                        Key.U -> { ks.isUPressed = isPressed; true }
-                        Key.I -> { ks.isIPressed = isPressed; true }
-                        Key.ShiftLeft, Key.ShiftRight -> { ks.isShiftPressed = isPressed; true }
                         else -> false
                     }
                 } else false
@@ -803,6 +782,10 @@ fun MainScreen(services: ServiceRegistry) {
                             isLocalSimOnline = isLocalSimOnline,
                             isBuildRunning = isBuildRunning,
                             isSimRunning = isSimRunning,
+                            buildEnabled = robotStudioState.canRunBuild,
+                            buildDisabledReason = robotStudioState.buildDisabledReason,
+                            simulationEnabled = simulatorLaunchRequestEnabled,
+                            simulationDisabledReason = simulatorLaunchDisabledReason,
                             onTargetChanged = { targetSelection = it },
                             onTargetIpChanged = { ip ->
                                 if (targetSelection == TargetSelection.LIVE_ROBOT) {
@@ -810,14 +793,14 @@ fun MainScreen(services: ServiceRegistry) {
                                 }
                             },
                             onRunBuild = {
-                                services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
-                                mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                if (robotStudioState.canRunBuild) {
+                                    services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
+                                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                }
                             },
-                            onRunSim = {
-                                services.processManagerService.runSimulation(currentConfig.projectPath, currentConfig.league, currentConfig.simulatorCommand)
-                                mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
-                            },
+                            onRunSim = requestSimulatorLaunch,
                             onStopAll = {
+                                pendingSimulatorLaunch = false
                                 services.processManagerService.killActiveBuild()
                                 services.processManagerService.killActiveSim()
                             },
@@ -869,6 +852,11 @@ fun MainScreen(services: ServiceRegistry) {
                                 services = services,
                                 currentConfig = currentConfig,
                                 isLocalSimulatorSelected = targetSelection == TargetSelection.LOCAL_SIM,
+                                isSimulatorLaunchPreparationRunning = pendingSimulatorLaunch,
+                                simulatorLaunchRequiresVerification = simulatorLaunchRequiresVerification,
+                                canLaunchSimulator = simulatorLaunchRequestEnabled && !isSimRunning,
+                                simulatorLaunchDisabledReason = simulatorLaunchDisabledReason,
+                                onLaunchSimulator = requestSimulatorLaunch,
                                 matches = matches,
                                 onForensicsCompleted = { mainViewModel.onIntent(MainIntent.SetDiagnosticsResponse(it)) },
                                 onSelectMatch = { match, allianceColor ->
@@ -931,7 +919,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 viewModel = importCenterViewModel,
                                 projectPath = currentConfig.projectPath.orEmpty(),
                                 onOpenHelp = {
-                                    requestedLessonId = "bring-in-run"
+                                    requestedLessonId = "compare-run-evidence"
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
                                 }
                             )
@@ -948,12 +936,15 @@ fun MainScreen(services: ServiceRegistry) {
                                 },
                                 onStartSimulator = {
                                     coachDrawerOpen = true
-                                    services.processManagerService.runSimulation(
-                                        currentConfig.projectPath,
-                                        currentConfig.league,
-                                        currentConfig.simulatorCommand
-                                    )
-                                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                    targetSelection = TargetSelection.LOCAL_SIM
+                                    if (!isLocalSimOnline && !isSimRunning) {
+                                        services.processManagerService.runSimulation(
+                                            currentConfig.projectPath,
+                                            currentConfig.league,
+                                            currentConfig.simulatorCommand
+                                        )
+                                        mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                    }
                                 },
                                 onCreatePracticeProject = {
                                     academyCreateWorkspaceRequested = true
@@ -1030,51 +1021,17 @@ fun MainScreen(services: ServiceRegistry) {
                             )
                             NavigationTarget.ROBOT_STUDIO -> RobotStudioScreen(
                                 viewModel = robotStudioViewModel,
-                                onAction = { action ->
-                                    when (action) {
-                                        RobotStudioAction.OPEN_PROJECT_IDENTITY ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PROJECT_IDENTITY))
-                                        RobotStudioAction.OPEN_DRIVEBASE ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
-                                        RobotStudioAction.OPEN_SUBSYSTEMS ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
-                                        RobotStudioAction.OPEN_SUPERSTRUCTURES ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUPERSTRUCTURE_STUDIO))
-                                        RobotStudioAction.OPEN_HARDWARE_SETUP ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.HARDWARE_SETUP))
-                                        RobotStudioAction.OPEN_CONTROLS ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.CONTROLS))
-                                        RobotStudioAction.OPEN_AUTONOMOUS ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PATH_PLANNER))
-                                        RobotStudioAction.OPEN_TUNING ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.TUNING))
-                                        RobotStudioAction.OPEN_IMPORTS ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.IMPORT_CENTER))
-                                        RobotStudioAction.OPEN_GUIDED_ANALYSIS ->
-                                            mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.GUIDED_RUN_ANALYSIS))
-                                        RobotStudioAction.RUN_BUILD -> {
-                                            services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
-                                            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
-                                        }
-                                        RobotStudioAction.RUN_SIMULATOR -> {
-                                            targetSelection = TargetSelection.LOCAL_SIM
-                                            services.processManagerService.runSimulation(
-                                                currentConfig.projectPath,
-                                                currentConfig.league,
-                                                currentConfig.simulatorCommand,
-                                            )
-                                            mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
-                                        }
-                                        RobotStudioAction.DEPLOY_ROBOT -> {
-                                            deployAwaitingConfirmation = true
-                                            deployDialogOpen = true
-                                        }
-                                    }
-                                },
-                                onOpenAcademy = {
-                                    requestedLessonId = "robot-studio-tour"
-                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
-                                },
+                                drivebaseViewModel = drivebaseBuilderViewModel,
+                                subsystemViewModel = subsystemGeneratorViewModel,
+                                superstructureViewModel = superstructureStudioViewModel,
+                                pathPlannerViewModel = pathPlannerViewModel,
+                                controlsViewModel = controlsEditorViewModel,
+                                controlsState = controlsEditorState,
+                                gamepad1State = gamepad1State,
+                                gamepad2State = gamepad2State,
+                                hardwareSetupViewModel = hardwareSetupViewModel,
+                                projectIdentityViewModel = projectIdentityViewModel,
+                                config = currentConfig,
                             )
                             NavigationTarget.CONTROLS -> com.ares.analytics.ui.components.controls.ControlsEditorPanel(
                                 state = controlsEditorState,
@@ -1083,22 +1040,16 @@ fun MainScreen(services: ServiceRegistry) {
                                 gamepad2State = gamepad2State,
                                 modifier = Modifier.fillMaxSize()
                             )
-                            NavigationTarget.SUBSYSTEM_GEN -> SubsystemGeneratorScreen(subsystemGeneratorViewModel)
                             NavigationTarget.SUPERSTRUCTURE_STUDIO -> SuperstructureStudioScreen(superstructureStudioViewModel)
-                            NavigationTarget.DRIVEBASE_BUILDER -> DrivebaseBuilderScreen(
-                                viewModel = drivebaseBuilderViewModel,
-                                onBackToStudio = {
-                                    robotStudioViewModel.refresh()
-                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ROBOT_STUDIO))
-                                },
-                            )
-                            NavigationTarget.HARDWARE_SETUP -> HardwareSetupScreen(
-                                viewModel = hardwareSetupViewModel,
-                                onOpenDrivebase = {
-                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DRIVEBASE_BUILDER))
-                                },
-                                onOpenSubsystems = {
-                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.SUBSYSTEM_GEN))
+                            NavigationTarget.HARDWARE_STUDIO, NavigationTarget.HARDWARE_SETUP, NavigationTarget.DRIVEBASE_BUILDER, NavigationTarget.SUBSYSTEM_GEN -> HardwareStudioScreen(
+                                drivebaseViewModel = drivebaseBuilderViewModel,
+                                subsystemViewModel = subsystemGeneratorViewModel,
+                                hardwareSetupViewModel = hardwareSetupViewModel,
+                                initialTab = when (activeNav) {
+                                    NavigationTarget.DRIVEBASE_BUILDER -> HardwareStudioTab.DRIVETRAIN
+                                    NavigationTarget.SUBSYSTEM_GEN -> HardwareStudioTab.MECHANISMS
+                                    NavigationTarget.HARDWARE_SETUP -> HardwareStudioTab.PORT_MAP
+                                    else -> hardwareStudioInitialTab
                                 },
                                 onBackToStudio = {
                                     robotStudioViewModel.refresh()
@@ -1166,12 +1117,14 @@ fun MainScreen(services: ServiceRegistry) {
                 onSelectLocalSimulator = { targetSelection = TargetSelection.LOCAL_SIM },
                 onStartSimulator = {
                     targetSelection = TargetSelection.LOCAL_SIM
-                    services.processManagerService.runSimulation(
-                        currentConfig.projectPath,
-                        currentConfig.league,
-                        currentConfig.simulatorCommand,
-                    )
-                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                    if (!isLocalSimOnline && !isSimRunning) {
+                        services.processManagerService.runSimulation(
+                            currentConfig.projectPath,
+                            currentConfig.league,
+                            currentConfig.simulatorCommand,
+                        )
+                        mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                    }
                 },
                 onOpenDashboard = {
                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DASHBOARD))

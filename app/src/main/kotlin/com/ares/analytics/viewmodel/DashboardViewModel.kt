@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.UUID
 
 data class DashboardState(
     val currentRoleProfile: String = "Standard",
@@ -80,6 +81,7 @@ class DashboardViewModel(
 ) {
     private val _state = MutableStateFlow(DashboardState())
     val state: StateFlow<DashboardState> = _state.asStateFlow()
+    private val layoutTransactions = DashboardLayoutTransactionQueue()
 
     init {
         // Collect alerts
@@ -96,8 +98,12 @@ class DashboardViewModel(
                 _state.update { it.copy(isConnected = connected) }
             }
         }
-        // Load initial layout
-        loadLayoutForProfile(_state.value.currentRoleProfile)
+        // Load initial layout through the same transaction boundary used by edits.
+        scope.launch {
+            layoutTransactions.transact {
+                loadLayoutForProfile(_state.value.currentRoleProfile)
+            }
+        }
         refreshAvailableProfiles()
     }
 
@@ -105,8 +111,10 @@ class DashboardViewModel(
         scope.launch {
             when (intent) {
                 is DashboardIntent.ChangeProfile -> {
-                    _state.update { it.copy(currentRoleProfile = intent.profile, isLayoutEditing = false) }
-                    loadLayoutForProfile(intent.profile)
+                    layoutTransactions.transact {
+                        _state.update { it.copy(currentRoleProfile = intent.profile, isLayoutEditing = false) }
+                        loadLayoutForProfile(intent.profile)
+                    }
                 }
                 is DashboardIntent.SetPickerOpen -> {
                     _state.update { it.copy(isPickerOpen = intent.isOpen) }
@@ -117,41 +125,50 @@ class DashboardViewModel(
                 is DashboardIntent.SelectPrimarySession -> {
                     val newMode = if (intent.sessionId == null) SessionMode.LIVE_STREAMING else SessionMode.HISTORICAL_REPLAY
 
-                    if (intent.sessionId != null) {
-                        scope.launch {
-                            val historicalAlerts = databaseService.getAlerts(intent.sessionId)
-                            _state.update { it.copy(alerts = historicalAlerts) }
-                        }
-                    } else {
+                    if (intent.sessionId == null) {
                         _state.update { it.copy(alerts = alertEngineService.alerts.value) }
                     }
 
-                    when {
-                        newMode == SessionMode.HISTORICAL_REPLAY && _state.value.sessionMode == SessionMode.LIVE_STREAMING -> {
-                            // Going into replay, save the current live layout profile
-                            val currentLiveProfile = _state.value.currentRoleProfile
-                            _state.update { it.copy(
-                                primarySessionId = intent.sessionId,
-                                sessionMode = newMode,
-                                savedLiveProfile = currentLiveProfile,
-                                currentRoleProfile = "Replay"
-                            ) }
-                            loadLayoutForProfile("Replay")
+                    layoutTransactions.transact {
+                        when {
+                            newMode == SessionMode.HISTORICAL_REPLAY && _state.value.sessionMode == SessionMode.LIVE_STREAMING -> {
+                                // Going into replay, save the current live layout profile
+                                val currentLiveProfile = _state.value.currentRoleProfile
+                                _state.update { it.copy(
+                                    primarySessionId = intent.sessionId,
+                                    sessionMode = newMode,
+                                    savedLiveProfile = currentLiveProfile,
+                                    currentRoleProfile = "Replay"
+                                ) }
+                                loadLayoutForProfile("Replay")
+                            }
+                            newMode == SessionMode.LIVE_STREAMING && _state.value.sessionMode == SessionMode.HISTORICAL_REPLAY -> {
+                                // Returning to live, restore live layout profile
+                                val restoreProfile = _state.value.savedLiveProfile ?: "Standard"
+                                _state.update { it.copy(
+                                    primarySessionId = intent.sessionId,
+                                    sessionMode = newMode,
+                                    savedLiveProfile = null,
+                                    currentRoleProfile = restoreProfile
+                                ) }
+                                loadLayoutForProfile(restoreProfile)
+                            }
+                            else -> {
+                                // Standard update
+                                _state.update { it.copy(primarySessionId = intent.sessionId, sessionMode = newMode) }
+                            }
                         }
-                        newMode == SessionMode.LIVE_STREAMING && _state.value.sessionMode == SessionMode.HISTORICAL_REPLAY -> {
-                            // Returning to live, restore live layout profile
-                            val restoreProfile = _state.value.savedLiveProfile ?: "Standard"
-                            _state.update { it.copy(
-                                primarySessionId = intent.sessionId,
-                                sessionMode = newMode,
-                                savedLiveProfile = null,
-                                currentRoleProfile = restoreProfile
-                            ) }
-                            loadLayoutForProfile(restoreProfile)
-                        }
-                        else -> {
-                            // Standard update
-                            _state.update { it.copy(primarySessionId = intent.sessionId, sessionMode = newMode) }
+                    }
+                    intent.sessionId?.let { selectedSessionId ->
+                        scope.launch {
+                            val historicalAlerts = databaseService.getAlerts(selectedSessionId)
+                            _state.update { current ->
+                                if (current.primarySessionId == selectedSessionId) {
+                                    current.copy(alerts = historicalAlerts)
+                                } else {
+                                    current
+                                }
+                            }
                         }
                     }
                 }
@@ -162,42 +179,47 @@ class DashboardViewModel(
                     _state.update { it.copy(compareSessionId = intent.sessionId) }
                 }
                 is DashboardIntent.UpdateLayout -> {
-                    val profile = _state.value.currentRoleProfile
-                    val newLayout = DashboardLayoutConfig(intent.newWidgets)
-                    _state.update { it.copy(currentLayout = newLayout) }
-                    withContext(Dispatchers.IO) {
-                        layoutPreferenceService.saveLayout(profile, newLayout)
+                    layoutTransactions.transact {
+                        val profile = _state.value.currentRoleProfile
+                        persistLayout(profile, DashboardLayoutConfig(intent.newWidgets))
                     }
                 }
                 is DashboardIntent.AddWidget -> {
-                    val currentLayout = _state.value.currentLayout
-                    val currentList = currentLayout?.widgets ?: emptyList()
-                    val maxRow = currentList.maxOfOrNull { it.row + it.rowSpan } ?: 0
-                    val (defRowSpan, defColSpan) = getDefaultWidgetSize(intent.type)
-                    val newWidget = WidgetConfig(
-                        id = "${intent.type}_${System.currentTimeMillis()}",
-                        type = intent.type,
-                        row = maxRow,
-                        col = 0,
-                        rowSpan = defRowSpan,
-                        colSpan = defColSpan
-                    )
-                    val newWidgets = currentList + newWidget
-                    onIntent(DashboardIntent.UpdateLayout(newWidgets))
-                    _state.update { it.copy(isPickerOpen = false) }
+                    layoutTransactions.transact {
+                        val spec = DashboardWidgetCatalog.find(intent.type)
+                        if (spec == null) {
+                            _state.update { it.copy(errorMessage = "Unknown dashboard widget type: ${intent.type}") }
+                        } else {
+                            val profile = _state.value.currentRoleProfile
+                            val currentList = _state.value.currentLayout?.widgets.orEmpty()
+                            val maxRow = currentList.maxOfOrNull { it.row + it.rowSpan } ?: 0
+                            val newWidget = WidgetConfig(
+                                id = "${intent.type}_${UUID.randomUUID()}",
+                                type = intent.type,
+                                row = maxRow,
+                                col = 0,
+                                rowSpan = spec.defaultRowSpan,
+                                colSpan = spec.defaultColSpan
+                            )
+                            persistLayout(
+                                profile = profile,
+                                layout = DashboardLayoutConfig(currentList + newWidget),
+                                stateTransform = { it.copy(isPickerOpen = false) },
+                            )
+                        }
+                    }
                 }
                 is DashboardIntent.RemoveWidget -> {
-                    val currentLayout = _state.value.currentLayout
-                    val currentList = currentLayout?.widgets ?: emptyList()
-                    val newWidgets = currentList.filter { it.id != intent.widgetId }
-                    onIntent(DashboardIntent.UpdateLayout(newWidgets))
+                    layoutTransactions.transact {
+                        val profile = _state.value.currentRoleProfile
+                        val currentList = _state.value.currentLayout?.widgets.orEmpty()
+                        persistLayout(profile, DashboardLayoutConfig(currentList.filter { it.id != intent.widgetId }))
+                    }
                 }
                 is DashboardIntent.ResetProfile -> {
-                    val profile = _state.value.currentRoleProfile
-                    val defaultConf = layoutPreferenceService.getDefaultLayout(profile)
-                    _state.update { it.copy(currentLayout = defaultConf) }
-                    withContext(Dispatchers.IO) {
-                        layoutPreferenceService.saveLayout(profile, defaultConf)
+                    layoutTransactions.transact {
+                        val profile = _state.value.currentRoleProfile
+                        persistLayout(profile, layoutPreferenceService.getDefaultLayout(profile))
                     }
                 }
                 is DashboardIntent.ImportLogFiles -> {
@@ -244,61 +266,85 @@ class DashboardViewModel(
                     _state.update { it.copy(importSuccess = false) }
                 }
                 is DashboardIntent.SaveLayoutAs -> {
-                    val currentLayout = _state.value.currentLayout
-                    if (currentLayout != null) {
-                        try {
-                            withContext(Dispatchers.IO) {
+                    layoutTransactions.transact {
+                        val currentLayout = _state.value.currentLayout
+                        if (currentLayout != null) {
+                            try {
                                 layoutPreferenceService.saveLayout(intent.profileName, currentLayout)
-                            }
-                            _state.update {
-                                it.copy(currentRoleProfile = intent.profileName, errorMessage = null)
-                            }
-                            refreshAvailableProfiles()
-                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                            throw cancelled
-                        } catch (error: Exception) {
-                            _state.update {
-                                it.copy(errorMessage = error.message ?: "Failed to save dashboard layout")
+                                _state.update {
+                                    it.copy(currentRoleProfile = intent.profileName, errorMessage = null)
+                                }
+                                refreshAvailableProfiles()
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                _state.update {
+                                    it.copy(errorMessage = error.message ?: "Failed to save dashboard layout")
+                                }
                             }
                         }
                     }
                 }
                 is DashboardIntent.DeleteLayout -> {
-                    val currentProfile = _state.value.currentRoleProfile
-                    withContext(Dispatchers.IO) {
-                        layoutPreferenceService.deleteLayout(intent.profileName)
+                    layoutTransactions.transact {
+                        try {
+                            val currentProfile = _state.value.currentRoleProfile
+                            layoutPreferenceService.deleteLayout(intent.profileName)
+                            if (currentProfile == intent.profileName) {
+                                _state.update { it.copy(currentRoleProfile = "Standard", isLayoutEditing = false) }
+                                loadLayoutForProfile("Standard")
+                            }
+                            refreshAvailableProfiles()
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            _state.update { it.copy(errorMessage = error.message ?: "Failed to delete dashboard layout") }
+                        }
                     }
-                    if (currentProfile == intent.profileName) {
-                        onIntent(DashboardIntent.ChangeProfile("Standard"))
-                    }
-                    refreshAvailableProfiles()
                 }
             }
         }
     }
 
-    private fun getDefaultWidgetSize(type: String): Pair<Int, Int> {
-        return when (type) {
-            // Pair is (rowSpan, colSpan)
-            "field_viewer", "camera_stream", "telemetry_chart", "pose_viewer" -> Pair(6, 6)
-            "autonomous_selector" -> Pair(3, 5)
-            "console_viewer" -> Pair(6, 9)
-            "runs_index", "match_schedule" -> Pair(4, 9)
-            "mecanum_visualizer", "swerve_animator", "joystick_visualizer", "mechanism_visualizer" -> Pair(4, 6)
-            "ai_coach", "driver_motion_review", "pit_evidence_checklist" -> Pair(5, 6)
-            "advanced_analytics" -> Pair(5, 6)
-            "alerts", "motor_health", "vision_quality", "battery_health", "system_health", "power_distribution", "indicator_lights" -> Pair(3, 4)
-            "statistics_panel", "trends_card", "control_profiler", "state_tracker", "imu_visualizer", "ekf_telemetry", "path_tuning", "profiling_diagnostics" -> Pair(4, 5)
-            else -> Pair(3, 3)
-        }
-    }
-
-    private fun loadLayoutForProfile(profileName: String) {
-        scope.launch {
+    private suspend fun loadLayoutForProfile(profileName: String) {
+        try {
             val layout = withContext(Dispatchers.IO) {
                 layoutPreferenceService.loadLayout(profileName)
             }
-            _state.update { it.copy(currentLayout = layout) }
+            _state.update { state ->
+                if (state.currentRoleProfile == profileName) {
+                    state.copy(currentLayout = layout, errorMessage = null)
+                } else {
+                    state
+                }
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _state.update { it.copy(errorMessage = error.message ?: "Failed to load dashboard layout") }
+        }
+    }
+
+    private suspend fun persistLayout(
+        profile: String,
+        layout: DashboardLayoutConfig,
+        stateTransform: (DashboardState) -> DashboardState = { it },
+    ): Boolean {
+        return try {
+            layoutPreferenceService.saveLayout(profile, layout)
+            _state.update { state ->
+                if (state.currentRoleProfile == profile) {
+                    stateTransform(state.copy(currentLayout = layout, errorMessage = null))
+                } else {
+                    state
+                }
+            }
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            _state.update { it.copy(errorMessage = error.message ?: "Failed to save dashboard layout") }
+            false
         }
     }
 
