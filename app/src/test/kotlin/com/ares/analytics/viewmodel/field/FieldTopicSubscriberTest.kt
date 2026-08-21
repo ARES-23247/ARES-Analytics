@@ -267,6 +267,43 @@ class FieldTopicSubscriberTest {
     }
 
     @Test
+    fun `atomic game-piece frame preserves stable identity type and visuals`() = runTest {
+        val databaseFile = File.createTempFile("field-game-piece-frame", ".duckdb")
+        val database = DatabaseService(databaseFile.absolutePath)
+        val nt4 = Nt4ClientService(database)
+        try {
+            val state = MutableStateFlow(FieldViewerState())
+            val livePose = MutableStateFlow(LivePoseState())
+            FieldTopicSubscriber(nt4, backgroundScope, state, livePose, UnconfinedTestDispatcher(testScheduler))
+            runCurrent()
+
+            nt4.handleIncomingText(
+                """[{"method":"announce","params":{"name":"/ARES/GamePiecesFrame","id":22,"type":"double[]"}}]""",
+                "team", "season", "robot"
+            )
+            nt4.handleIncomingText(
+                """[{"topic":22,"time":1000,"value":[2.0,1.0,101.0,202.0,1.25,2.5,0.4,0.30,0.10,1.0,65280.0,7.0]}]""",
+                "team", "season", "robot"
+            )
+            runCurrent()
+
+            val piece = livePose.value.liveGamePieces.values.single()
+            assertEquals("sim-101", piece.id)
+            assertEquals("sim-type-202", piece.typeId)
+            assertEquals(1.25, piece.x)
+            assertEquals(2.5, piece.y)
+            assertEquals(0.30, piece.widthMeters)
+            assertEquals(0.10, piece.heightMeters)
+            assertEquals("box", piece.simulationShape)
+            assertEquals(0x00FF00, piece.colorRgb)
+        } finally {
+            nt4.stop()
+            database.closeAndJoin()
+            databaseFile.delete()
+        }
+    }
+
+    @Test
     fun `simulator estimate alias cannot be overwritten by duplicate robot pose topics`() = runTest {
         val databaseFile = File.createTempFile("field-pose-source-priority", ".duckdb")
         val database = DatabaseService(databaseFile.absolutePath)

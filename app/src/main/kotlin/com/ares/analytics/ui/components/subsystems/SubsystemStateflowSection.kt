@@ -19,6 +19,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
+import com.ares.analytics.ui.screens.ConceptHelp
+import com.ares.analytics.ui.screens.ControlTheorySandboxLab
+import com.ares.analytics.ui.screens.FeedforwardConceptLab
+import com.ares.analytics.ui.screens.HomingConceptLab
 import com.ares.analytics.viewmodel.SubsystemGeneratorState
 import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
 import com.areslib.subsystem.*
@@ -120,7 +124,7 @@ fun StateFieldInspectorBody(field: SubsystemStateFieldDocument, viewModel: Subsy
             viewModel.updateStateField(field.fieldId) { it.copy(role = role) }
         }
         EnumSelector("Value Type", field.type, SubsystemValueType.entries) { type ->
-            viewModel.updateStateField(field.fieldId) { it.copy(type = type) }
+            viewModel.changeStateFieldType(field.fieldId, type)
         }
         when (field.type) {
             SubsystemValueType.DOUBLE -> DoubleInput("Default number", field.defaultNumber ?: 0.0) { value ->
@@ -159,18 +163,57 @@ fun ControlInspectorBody(
     val document = state.draft?.document ?: return
     val actuators = document.hardware.filter { it.kind.isActuator() }.map { it.hardwareId }
     val numericFields = document.stateFields.filter { it.type == SubsystemValueType.DOUBLE || it.type == SubsystemValueType.INT }
+    val actuator = document.hardware.firstOrNull { it.hardwareId == loop.actuatorId }
+    val allowedStrategies = when (actuator?.kind) {
+        SubsystemHardwareKind.POSITIONAL_SERVO -> listOf(SubsystemControlStrategy.SERVO_POSITION)
+        SubsystemHardwareKind.MOTOR -> listOf(
+            SubsystemControlStrategy.DIRECT,
+            SubsystemControlStrategy.POSITION_PID,
+            SubsystemControlStrategy.PROFILED_POSITION_PID,
+            SubsystemControlStrategy.VELOCITY_PID,
+            SubsystemControlStrategy.BANG_BANG,
+        )
+        else -> listOf(SubsystemControlStrategy.DIRECT, SubsystemControlStrategy.BANG_BANG)
+    }
+    val supportsPid = loop.strategy in setOf(
+        SubsystemControlStrategy.POSITION_PID,
+        SubsystemControlStrategy.PROFILED_POSITION_PID,
+        SubsystemControlStrategy.VELOCITY_PID,
+    )
+    val outputUnit = when (actuator?.kind) {
+        SubsystemHardwareKind.MOTOR -> "V"
+        SubsystemHardwareKind.PRISM_DRIVER -> "µs"
+        else -> "normalized"
+    }
+    var showControlLab by remember(loop.uid) { mutableStateOf(false) }
+    var showFeedforwardLab by remember(loop.uid) { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Configure control strategy, PID feedback gains, and feedforward dynamics.", color = AresTextSecondary, fontSize = 11.sp)
         TextInput("Controller rule name", loop.displayName) { value ->
             viewModel.updateControlLoop(loop.loopId) { it.copy(displayName = value) }
         }
-        StableIdLabel("Code ID", loop.loopId, "Used by generated controller code.")
-        EnumSelector("Strategy", loop.strategy, SubsystemControlStrategy.entries) { strategy ->
-            viewModel.updateControlLoop(loop.loopId) {
-                it.copy(strategy = strategy, measurementFieldId = it.measurementFieldId.takeIf { strategy.requiresMeasurement() })
-            }
+        TextInput("What this controller does", loop.description) { value ->
+            viewModel.updateControlLoop(loop.loopId) { it.copy(description = value) }
         }
+        StableIdLabel("Code ID", loop.loopId, "Used by generated controller code.")
+        TextInput("Rename code ID (advanced)", loop.loopId) { value ->
+            viewModel.renameControlLoopId(loop.loopId, value)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                EnumSelector("Strategy", loop.strategy, allowedStrategies) { strategy ->
+                    viewModel.changeControlLoopStrategy(loop.loopId, strategy)
+                }
+            }
+            ConceptHelp(
+                "Control strategy",
+                "Direct output is simplest. PID corrects measured error. Profiled PID also limits requested velocity and acceleration before feedback.",
+                "control-strategies",
+                compact = true,
+            )
+        }
+        FieldGuidance(controlStrategyGuidance(loop.strategy))
         if (actuators.isNotEmpty()) {
             DropdownSelector("Actuator", loop.actuatorId, actuators) { value ->
                 viewModel.updateControlLoop(loop.loopId) { it.copy(actuatorId = value) }
@@ -189,7 +232,7 @@ fun ControlInspectorBody(
                 }
             }
         }
-        if (loop.strategy == SubsystemControlStrategy.POSITION_PID || loop.strategy == SubsystemControlStrategy.VELOCITY_PID) {
+        if (supportsPid) {
             Text("PID FEEDBACK GAINS", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             DoubleInput("kP (Proportional)", loop.kP) { value -> viewModel.updateControlLoop(loop.loopId) { it.copy(kP = value) } }
             DoubleInput("kI (Integral)", loop.kI) { value -> viewModel.updateControlLoop(loop.loopId) { it.copy(kI = value) } }
@@ -197,12 +240,90 @@ fun ControlInspectorBody(
             DoubleInput("Derivative filter (seconds)", loop.derivativeFilterTimeConstantSeconds) { value ->
                 viewModel.updateControlLoop(loop.loopId) { it.copy(derivativeFilterTimeConstantSeconds = value) }
             }
+            DoubleInput("Ready tolerance (${numericFields.firstOrNull { it.fieldId == loop.targetFieldId }?.unit ?: "state units"})", loop.tolerance) { value ->
+                viewModel.updateControlLoop(loop.loopId) { it.copy(tolerance = value) }
+            }
+        } else if (loop.strategy == SubsystemControlStrategy.BANG_BANG) {
+            DoubleInput("Stop band / tolerance", loop.tolerance) { value ->
+                viewModel.updateControlLoop(loop.loopId) { it.copy(tolerance = value) }
+            }
         }
-        DoubleInput("Minimum output", loop.minimumOutput) { value ->
+        if (loop.strategy == SubsystemControlStrategy.PROFILED_POSITION_PID) {
+            Text("MOTION PROFILE", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            DoubleInput("Maximum velocity (target units/s)", loop.motionProfile.maximumVelocity) { value ->
+                viewModel.updateControlLoop(loop.loopId) { it.copy(motionProfile = it.motionProfile.copy(maximumVelocity = value)) }
+            }
+            DoubleInput("Maximum acceleration (target units/s²)", loop.motionProfile.maximumAcceleration) { value ->
+                viewModel.updateControlLoop(loop.loopId) { it.copy(motionProfile = it.motionProfile.copy(maximumAcceleration = value)) }
+            }
+            FieldGuidance("The generated controller moves an internal setpoint toward the goal without exceeding these constraints.")
+        }
+        if (supportsPid) {
+            Text("FEEDFORWARD", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            EnumSelector(
+                "Model",
+                loop.feedforward.kind,
+                SubsystemFeedforwardKind.entries.filterNot { it == SubsystemFeedforwardKind.FOUR_BAR_LINKAGE },
+            ) { kind ->
+                viewModel.updateControlLoop(loop.loopId) { current ->
+                    val angle = if (kind == SubsystemFeedforwardKind.ARM) {
+                        current.feedforward.gravityAngleFieldId
+                            ?: document.stateFields.firstOrNull { it.role == SubsystemFieldRole.MEASUREMENT && it.unit == "rad" }?.fieldId
+                    } else null
+                    current.copy(feedforward = current.feedforward.copy(kind = kind, gravityAngleFieldId = angle, linkageJoint = if (kind == SubsystemFeedforwardKind.TWO_DOF_ARM) current.feedforward.linkageJoint ?: 1 else null))
+                }
+            }
+            if (loop.feedforward.kind != SubsystemFeedforwardKind.NONE) {
+                DoubleInput("kS (static volts)", loop.feedforward.kS) { value ->
+                    viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(kS = value)) }
+                }
+                DoubleInput("kV (volts per velocity unit/s)", loop.feedforward.kV) { value ->
+                    viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(kV = value)) }
+                }
+                DoubleInput("kA (volts per acceleration unit/s²)", loop.feedforward.kA) { value ->
+                    viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(kA = value)) }
+                }
+                if (loop.feedforward.kind in setOf(SubsystemFeedforwardKind.ELEVATOR, SubsystemFeedforwardKind.ARM, SubsystemFeedforwardKind.TWO_DOF_ARM)) {
+                    DoubleInput("kG (gravity compensation)", loop.feedforward.kG) { value ->
+                        viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(kG = value)) }
+                    }
+                }
+                val numericIds = numericFields.map { it.fieldId }
+                DropdownSelector("Desired velocity source", loop.feedforward.velocityFieldId ?: "Use controller setpoint", listOf("Use controller setpoint") + numericIds) { selected ->
+                    viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(velocityFieldId = selected.takeUnless { value -> value == "Use controller setpoint" })) }
+                }
+                DropdownSelector("Desired acceleration source", loop.feedforward.accelerationFieldId ?: "Use zero/profile acceleration", listOf("Use zero/profile acceleration") + numericIds) { selected ->
+                    viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(accelerationFieldId = selected.takeUnless { value -> value == "Use zero/profile acceleration" })) }
+                }
+                if (loop.feedforward.kind == SubsystemFeedforwardKind.ARM && numericIds.isNotEmpty()) {
+                    DropdownSelector("Arm angle measurement (rad)", loop.feedforward.gravityAngleFieldId ?: numericIds.first(), numericIds) { selected ->
+                        viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(gravityAngleFieldId = selected)) }
+                    }
+                }
+                if (loop.feedforward.kind == SubsystemFeedforwardKind.TWO_DOF_ARM) {
+                    DropdownSelector("Linkage joint", (loop.feedforward.linkageJoint ?: 1).toString(), listOf("1", "2")) { selected ->
+                        viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(linkageJoint = selected.toInt())) }
+                    }
+                }
+                OutlinedButton(onClick = { showFeedforwardLab = !showFeedforwardLab }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (showFeedforwardLab) "Hide feedforward lab" else "Try feedforward without hardware")
+                }
+                if (showFeedforwardLab) FeedforwardConceptLab(loop)
+            }
+        }
+        DoubleInput("Minimum output ($outputUnit)", loop.minimumOutput) { value ->
             viewModel.updateControlLoop(loop.loopId) { it.copy(minimumOutput = value) }
         }
-        DoubleInput("Maximum output", loop.maximumOutput) { value ->
+        DoubleInput("Maximum output ($outputUnit)", loop.maximumOutput) { value ->
             viewModel.updateControlLoop(loop.loopId) { it.copy(maximumOutput = value) }
+        }
+        OutlinedButton(onClick = { showControlLab = !showControlLab }, modifier = Modifier.fillMaxWidth()) {
+            Text(if (showControlLab) "Hide educational control lab" else "Try this controller in a safe model")
+        }
+        if (showControlLab) {
+            ControlTheorySandboxLab(loop) { kp, ki, kd, ks, kv, kg ->
+                viewModel.applyControlLoopGains(loop.loopId, kp, ki, kd, ks, kv, kg)
+            }
         }
     }
 }
@@ -212,11 +333,103 @@ fun SafetyInspector(state: SubsystemGeneratorState, viewModel: SubsystemGenerato
     val document = state.draft?.document ?: return
     val safety = document.safety
     var showAdvanced by remember { mutableStateOf(false) }
+    var showHomingLab by remember { mutableStateOf(false) }
+    val motorIds = document.hardware.filter { it.kind == SubsystemHardwareKind.MOTOR && it.following == null }.map { it.hardwareId }
+    val cachedFields = document.hardware.flatMap { device -> device.measurements.map { it.fieldId } }.distinct()
 
     EditorCard("Safety & Health Protections", Icons.Default.Warning) {
         Text("Outputs are held in safe neutral if feedback is stale, current is unsafe, or writes fail.", color = AresTextSecondary, fontSize = 11.sp)
         NullableDoubleInput("Feedback timeout (ms)", safety.feedbackTimeoutMs?.toDouble()) { value ->
             viewModel.edit { it.copy(safety = it.safety.copy(feedbackTimeoutMs = value?.toLong())) }
+        }
+        FieldGuidance("Closed-loop output stops when the newest complete cached snapshot is older than this lease.")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                EnumSelector("Homing method", safety.homing.method, SubsystemHomingMethod.entries) { method ->
+                    viewModel.setHomingMethod(method)
+                }
+            }
+            ConceptHelp(
+                "Homing",
+                "Homing establishes a physical zero using a switch, current stall, velocity stall, combined evidence, or another cached signal.",
+                "homing",
+                compact = true,
+            )
+        }
+        if (safety.homing.method != SubsystemHomingMethod.NONE) {
+            if (motorIds.isNotEmpty()) {
+                DropdownSelector("Homing motor", safety.homing.actuatorId ?: motorIds.first(), motorIds) { selected ->
+                    viewModel.edit { it.copy(safety = it.safety.copy(homing = it.safety.homing.copy(actuatorId = selected))) }
+                }
+            }
+            DoubleInput("Search output (V, limited to ±4)", safety.homing.searchOutput ?: -2.0) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(homing = it.safety.homing.copy(searchOutput = value))) }
+            }
+            LongInput("Evidence dwell (ms)", safety.homing.dwellMs) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(homing = it.safety.homing.copy(dwellMs = value))) }
+            }
+            LongInput("Hard timeout (ms)", safety.homing.timeoutMs) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(homing = it.safety.homing.copy(timeoutMs = value))) }
+            }
+            DoubleInput("Position assigned after neutral succeeds", safety.homing.zeroPosition) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(homing = it.safety.homing.copy(zeroPosition = value))) }
+            }
+            Text("HOMING EVIDENCE", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            safety.homing.evidence.forEachIndexed { index, evidence ->
+                Surface(color = AresSurface, border = BorderStroke(1.dp, AresBorder), shape = RoundedCornerShape(6.dp)) {
+                    Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (cachedFields.isNotEmpty()) {
+                            DropdownSelector("Cached signal", evidence.fieldId, cachedFields) { selected ->
+                                viewModel.edit { doc ->
+                                    doc.copy(safety = doc.safety.copy(homing = doc.safety.homing.copy(
+                                        evidence = doc.safety.homing.evidence.mapIndexed { i, item -> if (i == index) item.copy(fieldId = selected) else item }
+                                    )))
+                                }
+                            }
+                        }
+                        EnumSelector("Condition", evidence.comparison, SubsystemHomingComparison.entries) { comparison ->
+                            viewModel.edit { doc ->
+                                doc.copy(safety = doc.safety.copy(homing = doc.safety.homing.copy(
+                                    evidence = doc.safety.homing.evidence.mapIndexed { i, item ->
+                                        if (i == index) item.copy(
+                                            comparison = comparison,
+                                            threshold = item.threshold.takeUnless { comparison in setOf(SubsystemHomingComparison.TRUE, SubsystemHomingComparison.FALSE) },
+                                        ) else item
+                                    }
+                                )))
+                            }
+                        }
+                        if (evidence.comparison !in setOf(SubsystemHomingComparison.TRUE, SubsystemHomingComparison.FALSE)) {
+                            DoubleInput("Threshold", evidence.threshold ?: 0.0) { value ->
+                                viewModel.edit { doc ->
+                                    doc.copy(safety = doc.safety.copy(homing = doc.safety.homing.copy(
+                                        evidence = doc.safety.homing.evidence.mapIndexed { i, item -> if (i == index) item.copy(threshold = value) else item }
+                                    )))
+                                }
+                            }
+                        }
+                        if (safety.homing.method == SubsystemHomingMethod.CUSTOM_MEASUREMENT) {
+                            TextButton(onClick = {
+                                viewModel.edit { doc -> doc.copy(safety = doc.safety.copy(homing = doc.safety.homing.copy(evidence = doc.safety.homing.evidence.filterIndexed { i, _ -> i != index }))) }
+                            }) { Text("Remove evidence") }
+                        }
+                    }
+                }
+            }
+            if (safety.homing.method == SubsystemHomingMethod.CUSTOM_MEASUREMENT && cachedFields.isNotEmpty()) {
+                OutlinedButton(onClick = {
+                    viewModel.edit { doc -> doc.copy(safety = doc.safety.copy(homing = doc.safety.homing.copy(
+                        evidence = doc.safety.homing.evidence + SubsystemHomingEvidenceDocument(cachedFields.first(), SubsystemHomingComparison.AT_OR_ABOVE, 0.0)
+                    ))) }
+                }, modifier = Modifier.fillMaxWidth()) { Text("+ Add cached evidence") }
+            }
+            FieldGuidance("ARES requires fresh evidence for the full dwell, then commands neutral before assigning zero. A timeout latches a homing fault.")
+            if (safety.homing.evidence.isNotEmpty()) {
+                OutlinedButton(onClick = { showHomingLab = !showHomingLab }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (showHomingLab) "Hide homing lab" else "Try the homing evidence without hardware")
+                }
+                if (showHomingLab) HomingConceptLab(safety.homing)
+            }
         }
         ToggleRow("Latch failed output writes", safety.latchOutputFaults) { value ->
             viewModel.edit { it.copy(safety = it.safety.copy(latchOutputFaults = value)) }
@@ -237,6 +450,12 @@ fun SafetyInspector(state: SubsystemGeneratorState, viewModel: SubsystemGenerato
             ToggleRow("Require valid current monitoring", safety.requiresCurrentMonitoring) { value ->
                 viewModel.edit { it.copy(safety = it.safety.copy(requiresCurrentMonitoring = value)) }
             }
+            ToggleRow("Require explicit successful neutral recovery", safety.requiresExplicitNeutralRecovery) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(requiresExplicitNeutralRecovery = value)) }
+            }
+            ToggleRow("Publish subsystem telemetry", safety.telemetryEnabled) { value ->
+                viewModel.edit { it.copy(safety = it.safety.copy(telemetryEnabled = value)) }
+            }
         }
     }
 }
@@ -253,8 +472,59 @@ fun FaultRecoveryCard(document: SubsystemDocument, viewModel: SubsystemGenerator
         if (eligibleActuators.isNotEmpty()) {
             ToggleRow("Enable anti-jam pulse", recovery.enabled) { value ->
                 viewModel.edit { doc ->
-                    doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(enabled = value)))
+                    val actuator = eligibleActuators.firstOrNull { it.hardwareId == doc.safety.faultRecovery.actuatorId }
+                        ?: eligibleActuators.first()
+                    val current = actuator.measurements.firstOrNull { it.source == SubsystemMeasurementSource.MOTOR_CURRENT_AMPS }
+                    doc.copy(safety = doc.safety.copy(
+                        faultRecovery = doc.safety.faultRecovery.copy(
+                            enabled = value,
+                            actuatorId = actuator.hardwareId.takeIf { value },
+                            currentFieldId = current?.fieldId.takeIf { value },
+                        ),
+                        requiresCurrentMonitoring = doc.safety.requiresCurrentMonitoring || value,
+                    ))
                 }
+            }
+            if (recovery.enabled) {
+                DropdownSelector("Actuator to recover", recovery.actuatorId ?: eligibleActuators.first().hardwareId, eligibleActuators.map { it.hardwareId }) { selected ->
+                    val current = eligibleActuators.first { it.hardwareId == selected }.measurements
+                        .firstOrNull { it.source == SubsystemMeasurementSource.MOTOR_CURRENT_AMPS }?.fieldId
+                    viewModel.edit { doc -> doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(actuatorId = selected, currentFieldId = current))) }
+                }
+                val currentOptions = document.hardware.firstOrNull { it.hardwareId == recovery.actuatorId }?.measurements
+                    .orEmpty().filter { it.source == SubsystemMeasurementSource.MOTOR_CURRENT_AMPS }.map { it.fieldId }
+                if (currentOptions.isNotEmpty()) {
+                    DropdownSelector("Cached current signal", recovery.currentFieldId ?: currentOptions.first(), currentOptions) { selected ->
+                        viewModel.edit { doc -> doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(currentFieldId = selected))) }
+                    }
+                } else {
+                    Text("The selected actuator needs a cached motor-current signal before recovery can be saved.", color = AresGold, fontSize = 10.sp)
+                }
+                DoubleInput("Jam current threshold (A)", recovery.currentThresholdAmps) { value ->
+                    viewModel.edit { doc -> doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(currentThresholdAmps = value))) }
+                }
+                LongInput("Jam evidence duration (ms)", recovery.currentDurationMs) { value ->
+                    viewModel.edit { doc -> doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(currentDurationMs = value))) }
+                }
+                EnumSelector(
+                    "Recovery action",
+                    recovery.recoveryAction,
+                    listOf(FaultRecoveryActionKind.REVERSE_BRIEFLY, FaultRecoveryActionKind.NEUTRAL_STOP),
+                ) { action ->
+                    viewModel.edit { doc -> doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(recoveryAction = action))) }
+                }
+                if (recovery.recoveryAction == FaultRecoveryActionKind.REVERSE_BRIEFLY) {
+                    DoubleInput("Reverse output (normalized -1 to 1)", recovery.reverseDutyCycle) { value ->
+                        viewModel.edit { doc -> doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(reverseDutyCycle = value))) }
+                    }
+                    LongInput("Reverse duration (ms)", recovery.reverseDurationMs) { value ->
+                        viewModel.edit { doc -> doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(reverseDurationMs = value))) }
+                    }
+                    IntInput("Maximum automatic retries", recovery.maxRetries) { value ->
+                        viewModel.edit { doc -> doc.copy(safety = doc.safety.copy(faultRecovery = doc.safety.faultRecovery.copy(maxRetries = value))) }
+                    }
+                }
+                FieldGuidance("Recovery is bounded and uses cached current only. Exhausted retries or a failed write leave the subsystem neutral and fault-latched.")
             }
         } else {
             Text("Add an independently controlled motor before enabling anti-jam protection.", color = AresTextTertiary, fontSize = 10.sp)
@@ -264,10 +534,99 @@ fun FaultRecoveryCard(document: SubsystemDocument, viewModel: SubsystemGenerator
 
 @Composable
 fun InterlockMatrixCard(document: SubsystemDocument, state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
+    val targets = state.documents.filter {
+        it.uid != document.uid && it.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER && it.stateFields.isNotEmpty()
+    }.sortedBy { it.displayName.lowercase() }
     EditorCard("Positional Interlocks (${document.interlocks.size})", Icons.Default.Lock) {
-        Text("Software interlocks prevent mechanical collisions between mechanism parts.", color = AresTextSecondary, fontSize = 11.sp)
+        Text("Interlocks read another generated subsystem's immutable state and force this mechanism to a declared safe fallback when a rule is not satisfied.", color = AresTextSecondary, fontSize = 11.sp)
         if (document.interlocks.isEmpty()) {
             Text("No positional interlocks configured.", color = AresTextTertiary, fontSize = 10.sp)
         }
+        document.interlocks.forEach { interlock ->
+            val target = targets.firstOrNull { it.uid == interlock.targetSubsystemUid }
+            val targetOptions = targets.map { it.displayName }
+            Surface(color = AresSurface, border = BorderStroke(1.dp, AresBorder), shape = RoundedCornerShape(6.dp)) {
+                Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(interlock.interlockId, color = AresCyan, fontFamily = FontFamily.Monospace, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    if (targetOptions.isNotEmpty()) {
+                        DropdownSelector("Other subsystem", target?.displayName ?: targetOptions.first(), targetOptions) { selectedName ->
+                            val selected = targets.first { it.displayName == selectedName }
+                            val field = selected.stateFields.first()
+                            viewModel.updateInterlock(interlock.interlockId) {
+                                it.copy(
+                                    targetSubsystemUid = selected.uid,
+                                    targetFieldId = field.fieldId,
+                                    comparison = if (field.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT)) InterlockComparison.LESS_THAN else InterlockComparison.EQUALS_STATE,
+                                    targetStateName = if (field.type == SubsystemValueType.BOOLEAN) "false" else null,
+                                )
+                            }
+                        }
+                    }
+                    val fields = target?.stateFields.orEmpty()
+                    if (fields.isNotEmpty()) {
+                        DropdownSelector("Observed state value", interlock.targetFieldId, fields.map { it.fieldId }) { selected ->
+                            val field = fields.first { it.fieldId == selected }
+                            viewModel.updateInterlock(interlock.interlockId) {
+                                it.copy(
+                                    targetFieldId = selected,
+                                    comparison = if (field.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT)) InterlockComparison.LESS_THAN else InterlockComparison.EQUALS_STATE,
+                                    targetStateName = if (field.type == SubsystemValueType.BOOLEAN) "false" else null,
+                                )
+                            }
+                        }
+                        val field = fields.firstOrNull { it.fieldId == interlock.targetFieldId }
+                        val comparisons = if (field?.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT)) {
+                            InterlockComparison.entries
+                        } else {
+                            listOf(InterlockComparison.EQUALS_STATE, InterlockComparison.NOT_EQUALS_STATE)
+                        }
+                        EnumSelector("Permit movement when", interlock.comparison, comparisons) { comparison ->
+                            viewModel.updateInterlock(interlock.interlockId) { it.copy(comparison = comparison) }
+                        }
+                        if (interlock.comparison in setOf(InterlockComparison.LESS_THAN, InterlockComparison.GREATER_THAN)) {
+                            DoubleInput("Threshold (${field?.unit ?: "state units"})", interlock.thresholdValue) { value ->
+                                viewModel.updateInterlock(interlock.interlockId) { it.copy(thresholdValue = value) }
+                            }
+                        } else {
+                            TextInput("Expected state", interlock.targetStateName.orEmpty()) { value ->
+                                viewModel.updateInterlock(interlock.interlockId) { it.copy(targetStateName = value) }
+                            }
+                        }
+                    }
+                    TextInput("Student-facing reason", interlock.forbiddenZoneDescription) { value ->
+                        viewModel.updateInterlock(interlock.interlockId) { it.copy(forbiddenZoneDescription = value) }
+                    }
+                    NullableDoubleInput("Safe fallback output (optional)", interlock.safeFallbackValue) { value ->
+                        viewModel.updateInterlock(interlock.interlockId) { it.copy(safeFallbackValue = value) }
+                    }
+                    TextButton(onClick = { viewModel.removeInterlock(interlock.interlockId) }) {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("Remove interlock")
+                    }
+                }
+            }
+        }
+        OutlinedButton(onClick = viewModel::addInterlock, enabled = targets.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
+            Text("+ Add cross-mechanism interlock")
+        }
+        if (targets.isEmpty()) {
+            FieldGuidance("Add another generated subsystem with state values before creating a cross-mechanism interlock.")
+        }
     }
+}
+
+private fun controlStrategyGuidance(strategy: SubsystemControlStrategy): String = when (strategy) {
+    SubsystemControlStrategy.DIRECT ->
+        "Direct output sends the bounded target to the actuator. Use it for percent/voltage commands that do not require sensor feedback."
+    SubsystemControlStrategy.POSITION_PID ->
+        "Position PID holds a measured position. Add a position measurement, physical units, output limits, and appropriate feedforward before hardware testing."
+    SubsystemControlStrategy.PROFILED_POSITION_PID ->
+        "Profiled position PID limits the internal setpoint's velocity and acceleration, then applies position feedback and optional feedforward."
+    SubsystemControlStrategy.VELOCITY_PID ->
+        "Velocity PID regulates measured speed. A simple-motor feedforward (kS/kV/kA) usually supplies most of the required voltage."
+    SubsystemControlStrategy.BANG_BANG ->
+        "Bang-bang control switches between bounded outputs around a tolerance. It is simple but abrupt; use it only where that behavior is mechanically appropriate."
+    SubsystemControlStrategy.SERVO_POSITION ->
+        "Servo position maps a normalized target to the positional-servo command and applies the declared safe neutral when motion is not permitted."
 }

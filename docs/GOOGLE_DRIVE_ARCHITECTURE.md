@@ -46,6 +46,24 @@ The stored root ID is a security boundary. Sync no longer searches My Drive for 
 is the root or a descendant. Manifest file IDs are checked the same way before bytes are read or
 deleted. A workspace/account mismatch fails before a network file operation.
 
+Each new session object also embeds a stable league/team/season/robot workspace key. This is
+checked against the active workspace after download, so moving or copying an index entry across
+workspace roots cannot relabel another robot's data as local evidence.
+
+## Session object format
+
+New uploads are immutable versioned `.ares-session.zip` bundles rather than telemetry-only files.
+The bundle contains a Parquet telemetry entry and a bounded JSON manifest with session metadata,
+Redux actions, annotations, alerts, console messages, derived analysis diagnostics, and import
+reports. The Drive index records the bundle version, exact object name, byte count, SHA-256, and
+workspace key. The bundle separately records and verifies the inner telemetry byte count and
+SHA-256 before DuckDB sees it.
+
+Download/import is one database transaction across the raw timeline, session/summary, and all
+ancillary records. A failure cannot leave a session that looks complete while actions or notes are
+missing. Existing legacy `.parquet` objects remain downloadable for backward compatibility; new
+uploads always use the complete bundle.
+
 ARES does not call `drives.list`, because that endpoint requires a broader Drive scope. Google
 Picker is a second PKCE authorization requesting only `drive.file`; it returns the one folder the
 user selected. Its code exchange uses the same broker, but the desktop calls Drive directly with
@@ -95,8 +113,9 @@ Changing or disconnecting a destination never deletes remote files. The recommen
 4. Explicitly sync local sessions to the new destination.
 5. Let the Google owner archive or delete the old folder after independent review.
 
-Local DuckDB data and exported Parquet/CSV/WPILOG files remain independent of Google Drive, so a
-team is never locked into cloud synchronization.
+Local DuckDB data, archived robot logs, and exported Parquet/CSV/WPILOG files remain independent of
+Google Drive, so a team is never locked into cloud synchronization. A Drive session bundle is a
+portable analyzed-session backup, not the only copy of the original robot log.
 
 ## Production release gate
 

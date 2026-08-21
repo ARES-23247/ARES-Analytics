@@ -102,6 +102,9 @@ class ServiceRegistry {
             configProvider = autoImportConfig::get
         )
     }
+    val robotLogIngestionService by lazy {
+        RobotLogIngestionService(databaseService, logParserService, autoImportService)
+    }
     val googleDriveService by lazy { GoogleDriveService(oauthService, environmentService) }
     val syncEngineService by lazy { SyncEngineService(databaseService, parquetExporterService, environmentService, summaryEngineService, googleDriveService) }
     val phoenixDiagnosticsService by lazy { PhoenixDiagnosticsService(nt4ClientService) }
@@ -166,6 +169,9 @@ class ServiceRegistry {
                 }
                 if (lazyFieldInitialized(::syncEngineService)) {
                     syncEngineService.close()
+                }
+                if (lazyFieldInitialized(::robotLogIngestionService)) {
+                    robotLogIngestionService.close()
                 }
                 if (lazyFieldInitialized(::googleDriveService)) {
                     googleDriveService.dispose()

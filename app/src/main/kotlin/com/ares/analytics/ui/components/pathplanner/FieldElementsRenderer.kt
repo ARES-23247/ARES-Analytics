@@ -292,6 +292,35 @@ fun DrawScope.drawGamePieces(
 ) {
     activeGamePieces.forEach { gp ->
         val gpOffset = getCanvasOffsetBase(Waypoint(gp.x, gp.y), w, h, fieldWidthM, fieldHeightM, league)
+        val simulationShape = gp.simulationShape
+        if (simulationShape != null) {
+            val pieceColor = Color(0xFF000000L or (gp.colorRgb ?: 0x9C27B0).toLong())
+            val pieceWidth = gp.widthMeters ?: 0.15
+            val pieceHeight = gp.heightMeters ?: pieceWidth
+            if (simulationShape == "box") {
+                val rw = (pieceWidth / fieldWidthM * w).toFloat()
+                val rh = (pieceHeight / fieldHeightM * h).toFloat()
+                drawContext.canvas.save()
+                drawContext.transform.rotate(Math.toDegrees(gp.rotationRadians).toFloat(), gpOffset)
+                drawRect(
+                    color = pieceColor.copy(alpha = 0.6f),
+                    topLeft = Offset(gpOffset.x - rw / 2f, gpOffset.y - rh / 2f),
+                    size = Size(rw, rh),
+                )
+                drawRect(
+                    color = pieceColor,
+                    topLeft = Offset(gpOffset.x - rw / 2f, gpOffset.y - rh / 2f),
+                    size = Size(rw, rh),
+                    style = Stroke(width = 2f),
+                )
+                drawContext.canvas.restore()
+            } else {
+                val radius = (pieceWidth / 2.0 / fieldWidthM * w).toFloat()
+                drawCircle(pieceColor.copy(alpha = 0.6f), radius, gpOffset)
+                drawCircle(pieceColor, radius, gpOffset, style = Stroke(width = 2f))
+            }
+            return@forEach
+        }
         when (gp.type) {
             "Note", "High Note" -> {
                 val outerRadiusPx = (0.175 / fieldWidthM) * w

@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import org.duckdb.DuckDBAppender
 import org.duckdb.DuckDBConnection
@@ -325,6 +326,8 @@ class MatchLogRepository(
             val sessionOwnedTables = arrayOf(
                 "session_summaries",
                 "telemetry_frames",
+                "analysis_diagnostics",
+                "session_import_reports",
                 "session_annotations",
                 "alerts",
                 "console_messages",
@@ -866,7 +869,145 @@ class MatchLogRepository(
                 while (rs.next()) list.add(rs.toTelemetryFrame())
             }
         }
+        val displayTimestamp = conn.prepareStatement(
+            "SELECT COALESCE(MAX(timestamp_ms), (SELECT created_at FROM sessions WHERE session_id = ?), 0) " +
+                "FROM telemetry_frames WHERE session_id = ?"
+        ).use { ps ->
+            ps.setString(1, sessionId)
+            ps.setString(2, sessionId)
+            ps.executeQuery().use { rows -> if (rows.next()) rows.getLong(1) else 0L }
+        }
+        conn.prepareStatement(
+            "SELECT session_id, key, value, string_value FROM analysis_diagnostics WHERE session_id = ? ORDER BY key"
+        ).use { ps ->
+            ps.setString(1, sessionId)
+            ps.executeQuery().use { rows ->
+                var sampleOrder = 1L
+                while (rows.next()) {
+                    list.add(
+                        TelemetryFrame(
+                            timestampMs = displayTimestamp,
+                            sessionId = rows.getString("session_id"),
+                            key = rows.getString("key"),
+                            value = rows.getDouble("value"),
+                            stringValue = rows.getString("string_value"),
+                            sampleOrder = sampleOrder++,
+                        )
+                    )
+                }
+            }
+        }
         list
+    }
+
+    /** Atomically replaces analyzer-owned results without modifying the raw telemetry timeline. */
+    suspend fun replaceAnalysisDiagnostics(
+        sessionId: String,
+        diagnostics: List<AnalysisDiagnostic>,
+    ) = withDbLock {
+        require(diagnostics.all { it.sessionId == sessionId }) {
+            "Every analysis diagnostic must belong to the replaced session"
+        }
+        val previousAutoCommit = conn.autoCommit
+        try {
+            conn.autoCommit = false
+            conn.prepareStatement("DELETE FROM analysis_diagnostics WHERE session_id = ?").use { statement ->
+                statement.setString(1, sessionId)
+                statement.executeUpdate()
+            }
+            conn.prepareStatement(
+                "INSERT INTO analysis_diagnostics (session_id, key, value, string_value) VALUES (?, ?, ?, ?)"
+            ).use { statement ->
+                diagnostics.distinctBy { TelemetryMetricCatalog.normalizeTopic(it.key) }.forEach { diagnostic ->
+                    statement.setString(1, sessionId)
+                    statement.setString(2, TelemetryMetricCatalog.normalizeTopic(diagnostic.key))
+                    statement.setDouble(3, diagnostic.value)
+                    statement.setString(4, diagnostic.stringValue)
+                    statement.addBatch()
+                }
+                statement.executeBatch()
+            }
+            conn.commit()
+        } catch (failure: Throwable) {
+            conn.rollback()
+            throw failure
+        } finally {
+            conn.autoCommit = previousAutoCommit
+        }
+    }
+
+    suspend fun getAnalysisDiagnostics(sessionId: String): List<AnalysisDiagnostic> = withReadLock {
+        val diagnostics = mutableListOf<AnalysisDiagnostic>()
+        readConn.prepareStatement(
+            "SELECT session_id, key, value, string_value FROM analysis_diagnostics WHERE session_id = ? ORDER BY key"
+        ).use { statement ->
+            statement.setString(1, sessionId)
+            statement.executeQuery().use { rows ->
+                while (rows.next()) {
+                    diagnostics.add(
+                        AnalysisDiagnostic(
+                            sessionId = rows.getString("session_id"),
+                            key = rows.getString("key"),
+                            value = rows.getDouble("value"),
+                            stringValue = rows.getString("string_value"),
+                        )
+                    )
+                }
+            }
+        }
+        diagnostics
+    }
+
+    suspend fun replaceSessionImportReports(
+        sessionId: String,
+        reports: List<com.ares.analytics.service.ImportReport>,
+    ) = withDbLock {
+        require(reports.all { it.sessionId == sessionId }) {
+            "Every import report must belong to the replaced session"
+        }
+        val previousAutoCommit = conn.autoCommit
+        try {
+            conn.autoCommit = false
+            conn.prepareStatement("DELETE FROM session_import_reports WHERE session_id = ?").use { statement ->
+                statement.setString(1, sessionId)
+                statement.executeUpdate()
+            }
+            conn.prepareStatement(
+                "INSERT INTO session_import_reports (session_id, source_sha256, source_name, report_json) VALUES (?, ?, ?, ?)"
+            ).use { statement ->
+                reports.distinctBy { it.sourceSha256 to it.sourceName }.forEach { report ->
+                    statement.setString(1, sessionId)
+                    statement.setString(2, report.sourceSha256)
+                    statement.setString(3, report.sourceName)
+                    statement.setString(4, AppJson.encodeToString(report))
+                    statement.addBatch()
+                }
+                statement.executeBatch()
+            }
+            conn.commit()
+        } catch (failure: Throwable) {
+            conn.rollback()
+            throw failure
+        } finally {
+            conn.autoCommit = previousAutoCommit
+        }
+    }
+
+    suspend fun getSessionImportReports(
+        sessionId: String,
+    ): List<com.ares.analytics.service.ImportReport> = withReadLock {
+        val reports = mutableListOf<com.ares.analytics.service.ImportReport>()
+        readConn.prepareStatement(
+            "SELECT report_json FROM session_import_reports WHERE session_id = ? ORDER BY source_name, source_sha256"
+        ).use { statement ->
+            statement.setString(1, sessionId)
+            statement.executeQuery().use { rows ->
+                while (rows.next()) {
+                    reports.add(AppJson.decodeFromString(rows.getString("report_json")))
+                }
+            }
+        }
+        reports
     }
     suspend fun getTelemetryForFilters(sessionId: String, keys: List<String>, prefixes: List<String>): List<TelemetryFrame> = withReadLock {
         val list = mutableListOf<TelemetryFrame>()

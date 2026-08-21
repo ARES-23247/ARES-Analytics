@@ -52,6 +52,7 @@ The dashboard canvas uses `canvasX = -fieldY` and `canvasY = -fieldX`. The robot
 | `ARES/TruePose/1` | `double` | simulator-only Dyn4j truth Y |
 | `ARES/TruePose/2` | `double` | simulator-only Dyn4j truth heading |
 | `ARES/SimulatorPoseFrame` | `double[10]` | atomic simulator render frame: truth x/y/h, EKF x/y/h, odom x/y/h, sequence |
+| `ARES/GamePiecesFrame` | `double[]` | atomic typed frame: version, count, nine-value records, sequence |
 | `Drive/Odom_X` | `double` | raw odometry X |
 | `Drive/Odom_Y` | `double` | raw odometry Y |
 | `Drive/Odom_Heading` | `double` | raw odometry heading |
@@ -64,6 +65,11 @@ Although the values describe one observation cycle, NT4 transports scalar compon
 and suppresses unchanged values. The field viewer therefore stages `ARES/SimulatorPoseFrame` and
 commits once at its changing final sequence element. A coordinate or heading is not a valid frame
 marker. The viewer must not expose intermediate simulator scalars or replace the EKF with truth.
+
+The field viewer likewise commits `ARES/GamePiecesFrame` only when its final sequence element
+arrives. Each record is `[instanceKey, typeKey, x, y, rotation, width, height, shapeCode,
+colorRgb]`; meters and CCW-positive radians are used throughout. This preserves identity and visual
+properties across intake, inventory, ejection, FRC flight, landing, and scoring transitions.
 
 For `live-telemetry` persistence, Analytics records the packed frame on a monotonic laptop receipt
 timeline while preserving the source timestamp in the live transport state. This is intentional:
@@ -179,8 +185,8 @@ The Analytics client publishes one atomic, leased control frame. Receivers depen
 | Topic | Type | Meaning/default |
 | --- | --- | --- |
 | `ARES/Input/driveFrame` | `double[8]` | protocol-v2 atomic control frame described below |
-| `ARES/Input/obstacles` | `string` | serialized simulator obstacle update |
-| `ARES/Input/fieldConfig` | `string` | serialized simulator field configuration update |
+| `ARES/Input/obstacles` | `string` | legacy obstacle-only compatibility update |
+| `ARES/Input/fieldConfig` | `string` | single authoritative canonical field-document update |
 | `ARES/DriverStation/Command` | `string` | driver-station command |
 | `ARES/DriverStation/SelectedOpMode` | `string` | selected OpMode |
 | `ARES/DriverStation/MatchTime` | `double` | current match time |

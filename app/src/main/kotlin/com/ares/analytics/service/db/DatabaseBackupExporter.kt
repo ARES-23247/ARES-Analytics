@@ -1,10 +1,10 @@
 package com.ares.analytics.service.db
 
 import com.ares.analytics.service.BeforeAtomicReplace
+import com.ares.analytics.service.ImportReport
 import com.ares.analytics.service.NO_OP_BEFORE_ATOMIC_REPLACE
 import com.ares.analytics.service.writeFileAtomically
-import com.ares.analytics.shared.Session
-import com.ares.analytics.shared.SessionSummary
+import com.ares.analytics.shared.*
 import com.ares.analytics.shared.models.MAX_SUPPORTED_TIMESTAMP_MS
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -16,7 +16,16 @@ import java.io.File
 import java.nio.file.Files
 import java.sql.Connection
 
-internal enum class CloudImportStage { TELEMETRY, SUMMARY, SESSION }
+internal enum class CloudImportStage { TELEMETRY, SUMMARY, SESSION, ANCILLARY }
+
+internal data class CloudSessionAncillaryData(
+    val actions: List<RobotActionRecord>,
+    val annotations: List<SessionAnnotation>,
+    val alerts: List<AlertRecord>,
+    val consoleMessages: List<ConsoleMessage>,
+    val analysisDiagnostics: List<AnalysisDiagnostic>,
+    val importReports: List<ImportReport>,
+)
 
 /**
  * Service managing database import and export operations for historical telemetry log persistence.
@@ -140,14 +149,40 @@ class DatabaseBackupExporter(
         session: Session
     ): ParquetImportResult {
         require(summary.sessionId == session.sessionId) { "Cloud session and summary identities differ" }
-        return importParquetBundle(file, session.sessionId, summary, session)
+        return importParquetBundle(file, session.sessionId, summary, session, null)
+    }
+
+    internal suspend fun importCloudSessionBundleAtomically(
+        file: File,
+        summary: SessionSummary,
+        session: Session,
+        ancillaryData: CloudSessionAncillaryData,
+    ): ParquetImportResult {
+        require(summary.sessionId == session.sessionId) { "Cloud session and summary identities differ" }
+        require(ancillaryData.actions.all { it.sessionId == session.sessionId }) {
+            "Cloud bundle contains actions from another session"
+        }
+        require(ancillaryData.annotations.all { it.sessionId == session.sessionId }) {
+            "Cloud bundle contains annotations from another session"
+        }
+        require(ancillaryData.alerts.all { it.sessionId == session.sessionId }) {
+            "Cloud bundle contains alerts from another session"
+        }
+        require(ancillaryData.analysisDiagnostics.all { it.sessionId == session.sessionId }) {
+            "Cloud bundle contains diagnostics from another session"
+        }
+        require(ancillaryData.importReports.all { it.sessionId == session.sessionId }) {
+            "Cloud bundle contains import reports from another session"
+        }
+        return importParquetBundle(file, session.sessionId, summary, session, ancillaryData)
     }
 
     private suspend fun importParquetBundle(
         file: File,
         sessionId: String,
         summary: SessionSummary?,
-        session: Session?
+        session: Session?,
+        ancillaryData: CloudSessionAncillaryData? = null,
     ): ParquetImportResult = withDbLock {
         require(file.isFile) { "Parquet log does not exist: ${file.absolutePath}" }
         require(file.extension.equals("parquet", ignoreCase = true)) {
@@ -177,6 +212,25 @@ class DatabaseBackupExporter(
         conn.autoCommit = false
         try {
             validateParquetFrames(safePath, columns, requireSourceSession = false)
+            if (ancillaryData != null) {
+                val tables = arrayOf(
+                    "telemetry_frames",
+                    "analysis_diagnostics",
+                    "session_annotations",
+                    "alerts",
+                    "console_messages",
+                    "robot_actions",
+                    "session_import_reports",
+                    "session_summaries",
+                    "sessions",
+                )
+                tables.forEach { table ->
+                    conn.prepareStatement("DELETE FROM $table WHERE session_id = ?").use { statement ->
+                        statement.setString(1, sessionId)
+                        statement.executeUpdate()
+                    }
+                }
+            }
             conn.createStatement().use { statement ->
                 statement.execute(
                     """
@@ -215,6 +269,10 @@ class DatabaseBackupExporter(
                 cloudImportFailureInjector?.invoke(CloudImportStage.SUMMARY)
                 insertSessionLocked(session)
                 cloudImportFailureInjector?.invoke(CloudImportStage.SESSION)
+                if (ancillaryData != null) {
+                    insertAncillaryLocked(sessionId, ancillaryData)
+                }
+                cloudImportFailureInjector?.invoke(CloudImportStage.ANCILLARY)
             }
             conn.commit()
             result
@@ -269,6 +327,93 @@ class DatabaseBackupExporter(
                 ?: statement.setNull(18, java.sql.Types.BIGINT)
             statement.setString(19, summary.allianceColor)
             statement.executeUpdate()
+        }
+    }
+
+    private fun insertAncillaryLocked(sessionId: String, data: CloudSessionAncillaryData) {
+        conn.prepareStatement(
+            "INSERT INTO robot_actions (timestamp_ms, session_id, run_id, robot_id, match_number, alliance, action_type, payload_json) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).use { statement ->
+            data.actions.forEach { action ->
+                statement.setLong(1, action.timestampMs)
+                statement.setString(2, sessionId)
+                statement.setString(3, action.runId)
+                statement.setString(4, action.robotId)
+                statement.setInt(5, action.matchNumber)
+                statement.setString(6, action.alliance)
+                statement.setString(7, action.actionType)
+                statement.setString(8, action.payloadJson)
+                statement.addBatch()
+            }
+            statement.executeBatch()
+        }
+        conn.prepareStatement(
+            "INSERT INTO session_annotations (annotation_id, session_id, text, created_at, author_id) VALUES (?, ?, ?, ?, ?)"
+        ).use { statement ->
+            data.annotations.forEach { annotation ->
+                statement.setString(1, annotation.annotationId)
+                statement.setString(2, sessionId)
+                statement.setString(3, annotation.text)
+                statement.setLong(4, annotation.createdAt)
+                statement.setString(5, annotation.authorId)
+                statement.addBatch()
+            }
+            statement.executeBatch()
+        }
+        conn.prepareStatement(
+            "INSERT INTO alerts (alert_id, session_id, rule_key, trigger_timestamp_ms, resolve_timestamp_ms, duration_ms, peak_value, triaged) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).use { statement ->
+            data.alerts.forEach { alert ->
+                statement.setString(1, alert.alertId)
+                statement.setString(2, sessionId)
+                statement.setString(3, alert.ruleKey)
+                statement.setLong(4, alert.triggerTimestampMs)
+                alert.resolveTimestampMs?.let { statement.setLong(5, it) }
+                    ?: statement.setNull(5, java.sql.Types.BIGINT)
+                statement.setLong(6, alert.durationMs)
+                statement.setDouble(7, alert.peakValue)
+                statement.setLong(8, if (alert.triaged) 1L else 0L)
+                statement.addBatch()
+            }
+            statement.executeBatch()
+        }
+        conn.prepareStatement(
+            "INSERT INTO console_messages (timestamp_ms, session_id, text, severity) VALUES (?, ?, ?, ?)"
+        ).use { statement ->
+            data.consoleMessages.forEach { message ->
+                statement.setLong(1, message.timestampMs)
+                statement.setString(2, sessionId)
+                statement.setString(3, message.text)
+                statement.setString(4, message.severity)
+                statement.addBatch()
+            }
+            statement.executeBatch()
+        }
+        conn.prepareStatement(
+            "INSERT INTO analysis_diagnostics (session_id, key, value, string_value) VALUES (?, ?, ?, ?)"
+        ).use { statement ->
+            data.analysisDiagnostics.distinctBy { it.key.removePrefix("/") }.forEach { diagnostic ->
+                statement.setString(1, sessionId)
+                statement.setString(2, diagnostic.key.removePrefix("/"))
+                statement.setDouble(3, diagnostic.value)
+                statement.setString(4, diagnostic.stringValue)
+                statement.addBatch()
+            }
+            statement.executeBatch()
+        }
+        conn.prepareStatement(
+            "INSERT INTO session_import_reports (session_id, source_sha256, source_name, report_json) VALUES (?, ?, ?, ?)"
+        ).use { statement ->
+            data.importReports.distinctBy { it.sourceSha256 to it.sourceName }.forEach { report ->
+                statement.setString(1, sessionId)
+                statement.setString(2, report.sourceSha256)
+                statement.setString(3, report.sourceName)
+                statement.setString(4, AppJson.encodeToString(report))
+                statement.addBatch()
+            }
+            statement.executeBatch()
         }
     }
 

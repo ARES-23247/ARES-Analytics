@@ -80,8 +80,9 @@ fun DrivebaseBuilderScreen(
                             DrivebaseBuilderStep.DRIVE_TYPE -> "1. Drive Type"
                             DrivebaseBuilderStep.HARDWARE -> "2. Hardware"
                             DrivebaseBuilderStep.GEOMETRY -> "3. Geometry"
-                            DrivebaseBuilderStep.LOCALIZATION -> "4. Localization"
-                            DrivebaseBuilderStep.REVIEW -> "5. Safety & Review"
+                            DrivebaseBuilderStep.CONTROL -> "4. Controls"
+                            DrivebaseBuilderStep.LOCALIZATION -> "5. Localization"
+                            DrivebaseBuilderStep.REVIEW -> "6. Safety & Review"
                         }
                         FilterChip(
                             selected = selected,
@@ -178,6 +179,7 @@ fun DrivebaseBuilderScreen(
                         DrivebaseBuilderStep.DRIVE_TYPE -> DriveTypeStep(state, viewModel)
                         DrivebaseBuilderStep.HARDWARE -> HardwareStep(state, viewModel)
                         DrivebaseBuilderStep.GEOMETRY -> GeometryStep(state, viewModel)
+                        DrivebaseBuilderStep.CONTROL -> ControlStep(state, viewModel)
                         DrivebaseBuilderStep.LOCALIZATION -> LocalizationStep(state, viewModel)
                         DrivebaseBuilderStep.REVIEW -> SafetyAndReviewStep(state, viewModel, onContinueToSubsystems, onBackToStudio)
                     }

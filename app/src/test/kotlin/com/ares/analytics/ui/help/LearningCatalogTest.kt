@@ -117,7 +117,7 @@ class LearningCatalogTest {
     fun `subsystem mission uses real builder evidence`() {
         val lesson = LearningCatalog.lesson("safe-subsystem") ?: error("Missing subsystem mission")
 
-        assertEquals("Scaffold Decoupled Subsystem Contracts", lesson.title)
+        assertEquals("Build a Safe Mechanism Subsystem", lesson.title)
         assertEquals(NavigationTarget.SUBSYSTEM_GEN, lesson.destination)
         assertFalse(lesson.requiresRobot)
         assertTrue("start-simulator" in lesson.prerequisiteLessonIds)

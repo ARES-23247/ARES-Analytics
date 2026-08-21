@@ -20,11 +20,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.GridOn
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -83,9 +80,6 @@ fun FieldEditorCommandBar(
     onGridSpacingChanged: (Double) -> Unit,
     onUnitChanged: (FieldMeasurementUnit) -> Unit,
     onPushToSimulator: () -> Unit,
-    onStartSimulator: () -> Unit,
-    onPauseSimulator: () -> Unit,
-    onResetSimulator: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -138,13 +132,11 @@ fun FieldEditorCommandBar(
                     Spacer(Modifier.width(4.dp))
                     Text("Push to Sim", fontSize = 11.sp)
                 }
-                IconButton(onClick = onStartSimulator) { Icon(Icons.Default.PlayArrow, "Start simulator") }
-                IconButton(onClick = onPauseSimulator) { Icon(Icons.Default.Pause, "Pause simulator") }
-                IconButton(onClick = onResetSimulator) { Icon(Icons.Default.RestartAlt, "Reset simulator") }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("$selectionCount selected", color = if (selectionCount > 0) AresCyan else AresTextSecondary, fontSize = 10.sp)
                 Text("Ctrl/Cmd-Z undo · Shift-click add · drag empty space for box select · arrows nudge", color = AresTextSecondary, fontSize = 10.sp)
+                Text("OpMode lifecycle is controlled from the Dashboard simulator strip", color = AresTextSecondary, fontSize = 10.sp)
                 if (simulatorStatus.isNotBlank()) Text(simulatorStatus, color = AresTextSecondary, fontSize = 10.sp)
             }
         }

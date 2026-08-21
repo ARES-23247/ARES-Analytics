@@ -195,13 +195,24 @@ class SummaryEngineServiceTest {
 
         assertTrue(summary.tags.contains("EKFOptimal"), "Expected EKFOptimal tag in summary.tags: ${summary.tags}")
 
-        val avgNisFrame = databaseService.getTelemetryForKey(session.sessionId, "Diagnostics/EKF/AvgNIS").firstOrNull()
+        val rawFrameCount = databaseService.countTelemetryFrames(session.sessionId)
+        val avgNisFrame = databaseService.getAnalysisDiagnostics(session.sessionId)
+            .firstOrNull { it.key == "Diagnostics/EKF/AvgNIS" }
         assertTrue(avgNisFrame != null, "Expected Diagnostics/EKF/AvgNIS frame to be inserted")
         assertEquals(1.966, avgNisFrame.value, 0.01)
 
-        val crossTrackRmseFrame = databaseService.getTelemetryForKey(session.sessionId, "Diagnostics/Auto/CrossTrackRMSE").firstOrNull()
+        val crossTrackRmseFrame = databaseService.getAnalysisDiagnostics(session.sessionId)
+            .firstOrNull { it.key == "Diagnostics/Auto/CrossTrackRMSE" }
         assertTrue(crossTrackRmseFrame != null, "Expected Diagnostics/Auto/CrossTrackRMSE frame to be inserted")
         assertTrue(crossTrackRmseFrame.value < 0.05)
+
+        summaryEngine.generateSummary(session)
+        assertEquals(rawFrameCount, databaseService.countTelemetryFrames(session.sessionId))
+        assertEquals(
+            databaseService.getAnalysisDiagnostics(session.sessionId).map { it.key }.distinct().size,
+            databaseService.getAnalysisDiagnostics(session.sessionId).size,
+            "Regenerating a summary must replace derived diagnostics instead of appending duplicates",
+        )
 
         databaseService.close()
         tempDb.delete()

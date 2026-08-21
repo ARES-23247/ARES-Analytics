@@ -52,6 +52,11 @@ Templates select behavior and safety capabilities; they are not â€œfewer filesâ€
 | Composite mechanism | Multiple coordinated devices form one mechanism. | Atomic snapshots, coordinated neutral, partial-failure handling. |
 | Advanced/custom | The standard templates do not express the mechanism. | Every safety choice must be completed explicitly. |
 
+The picker also offers concrete teaching starters for elevators, pivoting arms, flywheels,
+intakes/conveyors, leader/follower motors, positional and continuous servos, current- or
+velocity-homed mechanisms, and two-joint arms. These are still the same explicit eight
+responsibilities; the template only supplies a safe, reviewable first draft.
+
 Applicable templates declare motors, servos, sensors, cached inputs, supported control modes,
 homing/calibration, soft limits, current monitoring and validity, safe neutral output, configuration
 health, fault latching with explicit neutral recovery, telemetry, and autonomous actions/resources.
@@ -139,6 +144,11 @@ voltage for velocity, acceleration, and angle; PID correction is added afterward
 arm angle is radians. Start with SysId data when possible and validate all gains in simulation before
 careful hardware testing.
 
+Position mechanisms may use ordinary position PID or **profiled position PID**. The latter moves an
+internal setpoint toward the requested goal using declared maximum velocity and acceleration,
+then supplies that velocity/acceleration to feedforward. This prevents a large goal change from
+becoming an instantaneous control step while retaining the same stale-feedback and neutral gates.
+
 For a serial two-joint arm, choose **2-DOF arm** on each joint controller and select the joint it
 owns. The linkage contract records both independent actuators, both cached joint-angle measurements,
 link lengths, masses, centers of mass, limits, output torque per volt, and damping. The generated
@@ -172,7 +182,7 @@ mass, friction, restitution, and accessible display color for every placed piece
 
 ## Typed tuning parameters
 
-Schema-8 subsystem documents may declare `tuningParameters`. A declaration is not a loose mutable
+Schema-9 subsystem documents may declare `tuningParameters`. A declaration is not a loose mutable
 constant: it gives the value a stable UID, a project-wide key, a component owner, a novice-facing
 name and explanation, a type, optional units/bounds/options, a default, and an apply policy. Named
 robot profiles own authoritative values; the subsystem only owns their meaning and constraints.

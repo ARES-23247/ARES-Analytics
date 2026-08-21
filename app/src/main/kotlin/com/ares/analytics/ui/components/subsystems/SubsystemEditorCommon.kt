@@ -38,7 +38,12 @@ fun SubsystemHardwareDocument.connectionLabel(platform: SubsystemPlatform): Stri
 }
 
 fun SubsystemControlStrategy.requiresMeasurement(): Boolean =
-    this in setOf(SubsystemControlStrategy.POSITION_PID, SubsystemControlStrategy.VELOCITY_PID, SubsystemControlStrategy.BANG_BANG)
+    this in setOf(
+        SubsystemControlStrategy.POSITION_PID,
+        SubsystemControlStrategy.PROFILED_POSITION_PID,
+        SubsystemControlStrategy.VELOCITY_PID,
+        SubsystemControlStrategy.BANG_BANG,
+    )
 
 @Composable
 fun EditorCard(
@@ -174,6 +179,49 @@ fun IntInput(
         modifier = Modifier.fillMaxWidth(),
         singleLine = true,
     )
+}
+
+@Composable
+fun LongInput(
+    label: String,
+    value: Long,
+    onValueChange: (Long) -> Unit,
+) {
+    var text by remember(value) { mutableStateOf(value.toString()) }
+    OutlinedTextField(
+        value = text,
+        onValueChange = {
+            text = it
+            it.toLongOrNull()?.let(onValueChange)
+        },
+        label = { Text(label, fontSize = 11.sp) },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+    )
+}
+
+@Composable
+fun NullableLongInput(
+    label: String,
+    value: Long?,
+    onValueChange: (Long?) -> Unit,
+) {
+    var text by remember(value) { mutableStateOf(value?.toString().orEmpty()) }
+    OutlinedTextField(
+        value = text,
+        onValueChange = {
+            text = it
+            if (it.isBlank()) onValueChange(null) else it.toLongOrNull()?.let(onValueChange)
+        },
+        label = { Text(label, fontSize = 11.sp) },
+        modifier = Modifier.fillMaxWidth(),
+        singleLine = true,
+    )
+}
+
+@Composable
+fun FieldGuidance(text: String) {
+    Text(text, color = AresTextTertiary, fontSize = 10.sp, lineHeight = 14.sp)
 }
 
 @Composable

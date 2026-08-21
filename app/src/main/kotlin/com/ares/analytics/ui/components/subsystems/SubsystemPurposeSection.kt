@@ -19,6 +19,7 @@ import com.ares.analytics.viewmodel.SubsystemGeneratorState
 import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
 import com.ares.analytics.viewmodel.subsystemTemplateOptions
 import com.areslib.subsystem.SubsystemImplementationKind
+import com.areslib.subsystem.SubsystemTemplate
 
 @Composable
 fun SubsystemPurposeSection(
@@ -27,6 +28,7 @@ fun SubsystemPurposeSection(
     modifier: Modifier = Modifier,
 ) {
     val document = state.draft?.document ?: return
+    var pendingTemplate by remember(document.uid) { mutableStateOf<SubsystemTemplate?>(null) }
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Purpose & Naming
@@ -105,7 +107,7 @@ fun SubsystemPurposeSection(
                                                 color = if (isSelected) AresCyan else AresBorder,
                                                 shape = RoundedCornerShape(8.dp),
                                             )
-                                            .clickable { viewModel.applyTemplate(tplOption.template) },
+                                            .clickable(enabled = !isSelected) { pendingTemplate = tplOption.template },
                                         color = if (isSelected) AresCyan.copy(alpha = 0.08f) else AresSurfaceElevated,
                                         shape = RoundedCornerShape(8.dp),
                                     ) {
@@ -157,7 +159,7 @@ fun SubsystemPurposeSection(
                         }
                         OutlinedButton(
                             onClick = {
-                                viewModel.applyTemplate(com.areslib.subsystem.SubsystemTemplate.SIMPLE_ACTUATOR)
+                                pendingTemplate = SubsystemTemplate.SIMPLE_ACTUATOR
                             },
                         ) {
                             Text("Reset to Blank Starter", fontSize = 11.sp)
@@ -186,9 +188,36 @@ fun SubsystemPurposeSection(
                         "Hardware IO (sensors cached once/loop) → Reducer (pure state transforms) → Subsystem Controller (pure math outputs) → IO writeOutputs.",
                         color = AresTextSecondary,
                         fontSize = 10.sp,
+        )
+    }
+
+    pendingTemplate?.let { template ->
+        val option = subsystemTemplateOptions.firstOrNull { it.template == template }
+        AlertDialog(
+            onDismissRequest = { pendingTemplate = null },
+            title = { Text(if (document.implementation.kind == SubsystemImplementationKind.HAND_AUTHORED) "Replace registration with generated starter?" else "Replace this subsystem draft?") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(option?.label ?: template.name.replace('_', ' ').lowercase().replaceFirstChar(Char::uppercase))
+                    Text(option?.description.orEmpty(), color = AresTextSecondary)
+                    Text(
+                        "This replaces the draft hardware, state values, controllers, tuning, and safety settings. It does not write files yet, and Undo can restore the current draft.",
+                        color = AresGold,
                     )
                 }
-            }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.applyTemplate(template)
+                    pendingTemplate = null
+                }) { Text("Replace draft") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingTemplate = null }) { Text("Keep current draft") }
+            },
+        )
+    }
+}
         }
     }
 }

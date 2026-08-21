@@ -9,6 +9,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Redo
+import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Build
@@ -137,6 +139,20 @@ fun SubsystemGeneratorScreen(
                         Text("AI Assistant", fontSize = 11.sp)
                     }
                     if (state.draft != null) {
+                        IconButton(
+                            onClick = viewModel::undo,
+                            enabled = state.canUndo,
+                            modifier = Modifier.size(headerControlHeight),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Undo last subsystem edit", modifier = Modifier.size(18.dp))
+                        }
+                        IconButton(
+                            onClick = viewModel::redo,
+                            enabled = state.canRedo,
+                            modifier = Modifier.size(headerControlHeight),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Redo, contentDescription = "Redo subsystem edit", modifier = Modifier.size(18.dp))
+                        }
                         OutlinedButton(
                             onClick = { showSpecSummaryModal = true },
                             modifier = Modifier.height(headerControlHeight),
@@ -461,13 +477,14 @@ private fun SubsystemTemplatePickerDialog(
     onApplyTemplate: (com.areslib.subsystem.SubsystemTemplate) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    var pendingTemplate by remember(currentTemplate) { mutableStateOf(currentTemplate) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
                 Text("Select Subsystem Starter Template", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 Text(
-                    "Choose an archetype to configure default hardware, state fields, and control loops.",
+                    "Choose an archetype to preview. Applying it replaces the current draft, but you can immediately Undo after closing this dialog.",
                     color = AresTextSecondary,
                     fontSize = 12.sp,
                 )
@@ -481,8 +498,10 @@ private fun SubsystemTemplatePickerDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                com.ares.analytics.viewmodel.subsystemTemplateOptions.forEach { tplOption ->
-                    val isSelected = currentTemplate == tplOption.template
+                com.ares.analytics.viewmodel.subsystemTemplateOptions.groupBy { it.category }.forEach { (category, options) ->
+                    Text(category.uppercase(), color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    options.forEach { tplOption ->
+                    val isSelected = pendingTemplate == tplOption.template
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -492,7 +511,7 @@ private fun SubsystemTemplatePickerDialog(
                                 shape = RoundedCornerShape(8.dp),
                             )
                             .clickable {
-                                onApplyTemplate(tplOption.template)
+                                pendingTemplate = tplOption.template
                             },
                         color = if (isSelected) AresCyan.copy(alpha = 0.08f) else AresSurfaceElevated,
                         shape = RoundedCornerShape(8.dp),
@@ -514,6 +533,9 @@ private fun SubsystemTemplatePickerDialog(
                                     color = AresTextSecondary,
                                     fontSize = 11.sp,
                                 )
+                                if (tplOption.beginnerRecommended) {
+                                    Text("Recommended starting point", color = AresGreen, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                                }
                             }
                             if (isSelected) {
                                 Surface(
@@ -531,15 +553,17 @@ private fun SubsystemTemplatePickerDialog(
                             }
                         }
                     }
+                    }
                 }
             }
         },
         confirmButton = {
             Button(
-                onClick = onDismiss,
+                onClick = { onApplyTemplate(pendingTemplate) },
+                enabled = pendingTemplate != currentTemplate,
                 colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
             ) {
-                Text("Done")
+                Text("Replace draft with selected starter")
             }
         },
         dismissButton = {

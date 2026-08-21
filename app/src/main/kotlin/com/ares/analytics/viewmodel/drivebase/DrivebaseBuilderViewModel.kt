@@ -20,7 +20,7 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
-enum class DrivebaseBuilderStep { DRIVE_TYPE, HARDWARE, GEOMETRY, LOCALIZATION, REVIEW }
+enum class DrivebaseBuilderStep { DRIVE_TYPE, HARDWARE, GEOMETRY, CONTROL, LOCALIZATION, REVIEW }
 enum class DrivebaseDiscardAction { RELOAD, CHANGE_KIND }
 
 data class DriveLabState(
@@ -90,6 +90,11 @@ sealed interface DrivebaseBuilderIntent {
     data class AddHardware(val role: DriveHardwareRole) : DrivebaseBuilderIntent
     data class RemoveHardware(val id: String) : DrivebaseBuilderIntent
     data class UpdateGeometry(val geometry: DriveGeometry) : DrivebaseBuilderIntent
+    data class UpdateControl(
+        val supported: List<com.areslib.drivetrain.DrivetrainControlKind>,
+        val defaultMode: com.areslib.drivetrain.DrivetrainControlKind,
+        val fieldRelative: Boolean,
+    ) : DrivebaseBuilderIntent
     data class SetLocalization(val kind: LocalizationKind, val enabled: Boolean) : DrivebaseBuilderIntent
     data class UpdateSafety(val safety: DriveSafetyDeclaration) : DrivebaseBuilderIntent
     data class SetAdvanced(val enabled: Boolean) : DrivebaseBuilderIntent
@@ -135,6 +140,11 @@ class DrivebaseBuilderViewModel(
             is DrivebaseBuilderIntent.AddHardware -> addHardware(intent.role)
             is DrivebaseBuilderIntent.RemoveHardware -> removeHardware(intent.id)
             is DrivebaseBuilderIntent.UpdateGeometry -> edit(_state.value.draft.copy(geometry = intent.geometry))
+            is DrivebaseBuilderIntent.UpdateControl -> edit(_state.value.draft.copy(
+                supportedControlModes = intent.supported.distinct(),
+                defaultControlMode = intent.defaultMode,
+                fieldRelativeEnabled = intent.fieldRelative,
+            ))
             is DrivebaseBuilderIntent.SetLocalization -> {
                 val existing = _state.value.draft.localization
                 val updated = when {

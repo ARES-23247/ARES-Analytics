@@ -64,8 +64,12 @@ data class SessionSummary(
     val cloudFileId: String? = null,
     /** Exact canonical Drive filename; substring lookup is intentionally unsupported. */
     val cloudFileName: String? = null,
-    /** Lowercase SHA-256 of the uploaded Parquet bytes. */
-    val cloudSha256: String? = null
+    /** Lowercase SHA-256 of the uploaded cloud object bytes. */
+    val cloudSha256: String? = null,
+    /** Zero identifies a legacy telemetry-only Parquet object; newer values are session bundles. */
+    val cloudBundleVersion: Int = 0,
+    /** Stable league/team/season/robot boundary that owns the cloud object. */
+    val cloudWorkspaceKey: String? = null,
 )
 
 @Serializable
@@ -103,6 +107,21 @@ data class TelemetryFrame(
             "timestampUs is inconsistent with timestampMs"
         }
         require(sampleOrder >= 0L) { "sampleOrder must be non-negative" }
+    }
+}
+
+/** A replaceable analysis result derived from raw session telemetry, not a robot timeline sample. */
+@Serializable
+data class AnalysisDiagnostic(
+    val sessionId: String,
+    val key: String,
+    val value: Double,
+    val stringValue: String? = null,
+) {
+    init {
+        require(sessionId.isNotBlank()) { "Analysis diagnostic sessionId must not be blank" }
+        require(key.removePrefix("/").isNotBlank()) { "Analysis diagnostic key must not be blank" }
+        require(value.isFinite()) { "Analysis diagnostic value must be finite" }
     }
 }
 

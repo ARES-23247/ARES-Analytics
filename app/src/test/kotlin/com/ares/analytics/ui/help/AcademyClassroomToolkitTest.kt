@@ -58,7 +58,7 @@ class AcademyClassroomToolkitTest {
         )
 
         assertTrue(worksheet.contains("Student A"))
-        assertTrue(worksheet.contains("Scaffold Decoupled Subsystem Contracts"))
+        assertTrue(worksheet.contains("Build a Safe Mechanism Subsystem"))
         assertTrue(worksheet.contains("Evidence source and units"))
         assertTrue(worksheet.contains("What this does **not** prove"))
         assertTrue(worksheet.contains("not a grade, certification, code review, or proof of physical robot safety"))

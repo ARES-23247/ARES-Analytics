@@ -45,6 +45,14 @@ The importer checks locations including `/sdcard/FIRST/telemetry_logs/`, `/sdcar
 
 Analytics refuses unknown or changed SSH host keys. Ask a mentor to verify the fingerprint; do not bypass that protection.
 
+For Driver Station evidence, keep the same-basename `.dslog` and `.dsevents` files together. Analytics treats them as one stable import, archives both, and changes the durable fingerprint if either companion changes.
+
+### Robot log server / Cloud screen
+
+Selecting a robot run in the Cloud screen downloads through port `5002` into the active workspace archive before parsing. Analytics validates each basename and declared size, enforces a bounded exact-length transfer, and groups telemetry/action files by their shared run UUID. Retrying after a cloud outage reuses the already imported local session.
+
+Robot files remain on the robot after a successful pull. Deletion is a separate confirmation that requires the robot's log-delete token; do it only after the archive, import report, and replay have been verified.
+
 ## Confirm the import
 
 1. Open **Data → Log Imports**.

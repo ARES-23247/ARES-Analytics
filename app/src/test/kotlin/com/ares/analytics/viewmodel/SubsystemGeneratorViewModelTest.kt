@@ -363,6 +363,24 @@ class SubsystemGeneratorViewModelTest {
     }
 
     @Test
+    fun `controller rule can be documented and renamed without changing editor identity`() {
+        val root = Files.createTempDirectory("ares-subsystem-controller-identity").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        val original = viewModel.state.value.draft!!.document.controlLoops.first()
+
+        viewModel.updateControlLoop(original.loopId) { it.copy(description = "Holds the elevator position") }
+        viewModel.renameControlLoopId(original.loopId, "elevatorControl")
+
+        val renamed = viewModel.state.value.draft!!.document.controlLoops.single { it.uid == original.uid }
+        assertEquals("elevatorControl", renamed.loopId)
+        assertEquals("Holds the elevator position", renamed.description)
+        assertEquals(original.uid, renamed.uid)
+        viewModel.undo()
+        assertEquals(original.loopId, viewModel.state.value.draft!!.document.controlLoops.single { it.uid == original.uid }.loopId)
+        viewModel.close()
+    }
+
+    @Test
     fun `invalid AI proposal remains review only and cannot be applied`() {
         val root = Files.createTempDirectory("ares-subsystem-ai-invalid-").toFile()
         File(root, ".ares/subsystems").mkdirs()

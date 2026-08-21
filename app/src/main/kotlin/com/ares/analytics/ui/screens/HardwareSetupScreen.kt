@@ -238,6 +238,23 @@ private fun HardwareItemCard(item: HardwareInventoryItem) {
             Text("${item.ownerDisplayName} · ${item.role}", color = AresTextSecondary, fontSize = 12.sp)
             Text(item.addressDescription, color = AresTextPrimary, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
             Text(
+                when (item.addressKind) {
+                    com.ares.analytics.service.hardware.HardwareAddressKind.FTC_HARDWARE_MAP ->
+                        if (item.address.isBlank()) "Add this device in Configure Robot → Hardware on the Driver Station, then enter the exact same name here."
+                        else "In Configure Robot → Hardware on the Driver Station, name this device exactly: ${item.address}"
+                    com.ares.analytics.service.hardware.HardwareAddressKind.CAN ->
+                        "Set this device to ${item.addressDescription}; CAN IDs must be unique on each bus."
+                    com.ares.analytics.service.hardware.HardwareAddressKind.PWM -> "Connect this device to ${item.addressDescription}."
+                    com.ares.analytics.service.hardware.HardwareAddressKind.I2C -> "Confirm the configured I²C device and address match ${item.addressDescription}."
+                    com.ares.analytics.service.hardware.HardwareAddressKind.DIO,
+                    com.ares.analytics.service.hardware.HardwareAddressKind.ANALOG,
+                    com.ares.analytics.service.hardware.HardwareAddressKind.UNKNOWN -> "Match the controller configuration to ${item.addressDescription}."
+                },
+                color = AresCyan,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+            )
+            Text(
                 if (item.inverted) "Direction: reversed at the hardware boundary" else "Direction: normal at the hardware boundary",
                 color = AresTextSecondary,
                 fontSize = 11.sp,

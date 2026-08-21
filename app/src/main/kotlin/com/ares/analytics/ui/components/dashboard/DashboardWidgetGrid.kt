@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -33,19 +34,26 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.WidgetConfig
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
 import com.ares.analytics.ui.theme.AresError
 import com.ares.analytics.ui.theme.AresSurface
+import com.ares.analytics.ui.theme.AresSurfaceElevated
+import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextTertiary
 import kotlin.math.roundToInt
+
+internal fun isDashboardLayoutEditingSupported(columns: Int): Boolean =
+    columns == DashboardLayoutEngine.EXPANDED_COLUMNS
 
 @Composable
 fun DashboardWidgetGrid(
@@ -58,6 +66,7 @@ fun DashboardWidgetGrid(
 ) {
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val columns = DashboardLayoutEngine.columnsForWidth(maxWidth.value)
+        val effectiveEditing = isEditing && isDashboardLayoutEditingSupported(columns)
         val displayWidgets = remember(widgets, columns) { DashboardLayoutEngine.reflow(widgets, columns) }
         val spacing = 12.dp
         val colWidth = (maxWidth - spacing * (columns - 1)) / columns
@@ -70,7 +79,7 @@ fun DashboardWidgetGrid(
         Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
             Box(Modifier.fillMaxWidth().height(gridHeight)) {
                 for (widget in displayWidgets) {
-                    val builder = widgetBuilders[widget.type] ?: continue
+                    val builder = widgetBuilders[widget.type]
                     key(widget.id) {
                         var offsetX by remember { mutableStateOf(0f) }
                         var offsetY by remember { mutableStateOf(0f) }
@@ -92,16 +101,16 @@ fun DashboardWidgetGrid(
                                     layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
                                 }
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(if (isEditing) AresSurface else androidx.compose.ui.graphics.Color.Transparent)
+                                .background(if (effectiveEditing) AresSurface else androidx.compose.ui.graphics.Color.Transparent)
                                 .then(
-                                    if (isEditing) Modifier.border(
+                                    if (effectiveEditing) Modifier.border(
                                         if (active) 2.dp else 1.dp,
                                         if (active) AresCyan else AresBorder,
                                         RoundedCornerShape(12.dp)
                                     ) else Modifier
                                 )
                         ) {
-                            if (isEditing) {
+                            if (effectiveEditing) {
                                 Row(
                                     Modifier
                                         .fillMaxWidth()
@@ -148,11 +157,15 @@ fun DashboardWidgetGrid(
                                 }
                             }
 
-                            Box(Modifier.fillMaxSize().padding(top = if (isEditing) 40.dp else 0.dp)) {
-                                builder(widget, Modifier.fillMaxSize())
+                            Box(Modifier.fillMaxSize().padding(top = if (effectiveEditing) 40.dp else 0.dp)) {
+                                if (builder != null) {
+                                    builder(widget, Modifier.fillMaxSize())
+                                } else {
+                                    UnknownDashboardWidget(widget, Modifier.fillMaxSize())
+                                }
                             }
 
-                            if (isEditing && !widget.isLocked) {
+                            if (effectiveEditing && !widget.isLocked) {
                                 Box(
                                     Modifier
                                         .size(32.dp)
@@ -186,5 +199,37 @@ fun DashboardWidgetGrid(
                 }
             }
         }
+
+        if (isEditing && !effectiveEditing) {
+            Text(
+                text = "Expand the dashboard to edit its 12-column layout",
+                color = AresTextTertiary,
+                fontSize = 12.sp,
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(8.dp)
+                    .shadow(6.dp, RoundedCornerShape(8.dp))
+                    .background(AresSurface, RoundedCornerShape(8.dp))
+                    .border(1.dp, AresBorder, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun UnknownDashboardWidget(widget: WidgetConfig, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(AresSurfaceElevated)
+            .border(1.dp, AresError, RoundedCornerShape(12.dp))
+            .padding(16.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = "Unavailable widget: ${widget.type}\nEdit this layout to remove it.",
+            color = AresTextPrimary,
+            fontSize = 12.sp,
+        )
     }
 }

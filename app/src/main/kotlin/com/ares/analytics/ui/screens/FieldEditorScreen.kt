@@ -678,9 +678,6 @@ fun FieldEditorScreen(
                 onGridSpacingChanged = { viewModel.onIntent(FieldEditorIntent.SetGridSpacing(it)) },
                 onUnitChanged = { viewModel.onIntent(FieldEditorIntent.SetMeasurementUnit(it)) },
                 onPushToSimulator = { viewModel.onIntent(FieldEditorIntent.PushToSimulator) },
-                onStartSimulator = { viewModel.onIntent(FieldEditorIntent.StartSimulator) },
-                onPauseSimulator = { viewModel.onIntent(FieldEditorIntent.PauseSimulator) },
-                onResetSimulator = { viewModel.onIntent(FieldEditorIntent.ResetSimulator) }
             )
             Box(
                 modifier = Modifier.weight(1f).fillMaxWidth().border(1.dp, AresBorder, RoundedCornerShape(12.dp)).clip(RoundedCornerShape(12.dp))

@@ -179,6 +179,8 @@ class DrivebaseAuthoringTest {
                 role = DriveHardwareRole.LEFT_FOLLOWER,
                 hardwareName = "leftFollower",
                 leaderId = "drive.left",
+                currentMeasurementRequired = true,
+                currentMeasurementAvailable = true,
             ),
             DriveHardwareDeclaration(
                 id = "drive.right-follower",
@@ -187,9 +189,12 @@ class DrivebaseAuthoringTest {
                 hardwareName = "rightFollower",
                 inverted = true,
                 leaderId = "drive.right",
+                currentMeasurementRequired = true,
+                currentMeasurementAvailable = true,
             ),
         ))
-        assertTrue(validateDrivebase(withFollowers).none { it.severity == DrivebaseIssueSeverity.ERROR })
+        val followerIssues = validateDrivebase(withFollowers)
+        assertTrue(followerIssues.none { it.severity == DrivebaseIssueSeverity.ERROR }, followerIssues.toString())
 
         val roundTrip = withFollowers.toCanonicalDrivebase().toUiDrivebase()
         assertEquals("drive.left", roundTrip.hardware.first { it.id == "drive.left-follower" }.leaderId)

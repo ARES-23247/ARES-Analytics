@@ -12,74 +12,94 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.merge
 import com.ares.analytics.ui.components.core.CardHeader
 import com.ares.analytics.ui.components.core.GlassCard
 import com.ares.analytics.ui.components.core.MetricValueBadge
 import com.ares.analytics.ui.theme.*
+import com.ares.analytics.viewmodel.LivePoseState
+import com.ares.analytics.viewmodel.field.FieldPoseFrameAccumulator
+import com.ares.analytics.viewmodel.field.isFieldPoseTopic
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun PoseViewerCard(
     nt4ClientService: Nt4ClientService,
     modifier: Modifier = Modifier
 ) {
-    // Simulator ground truth uses ARES/EstimatedPose; the robot EKF uses Drive/Pose_*.
-    val trueXSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/0") }
-    val trueXSim by trueXSimFlow.collectAsState(initial = null)
-
-    val trueYSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/1") }
-    val trueYSim by trueYSimFlow.collectAsState(initial = null)
-
-    val trueHeadingSimFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("ARES/EstimatedPose/2") }
-    val trueHeadingSim by trueHeadingSimFlow.collectAsState(initial = null)
-
-    val ekxXFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Pose_X") }
-    val ekfX by ekxXFlow.collectAsState(initial = null)
-
-    val ekfYFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Pose_Y") }
-    val ekfY by ekfYFlow.collectAsState(initial = null)
-
-    val ekfHeadingFlow = remember<Flow<Double>>(nt4ClientService) {
-        merge(
-            nt4ClientService.subscribeDouble("Drive/Pose_Heading"),
-            nt4ClientService.subscribeDouble("Drive/Drive_Heading")
-        )
-    }
-    val ekfHeading by ekfHeadingFlow.collectAsState(initial = null)
-
-    val trueX = trueXSim
-    val trueY = trueYSim
-    val trueHeading = trueHeadingSim
-
-    val pinpointXFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Odom_X") }
-    val pinpointX by pinpointXFlow.collectAsState(initial = null)
-
-    val pinpointYFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Odom_Y") }
-    val pinpointY by pinpointYFlow.collectAsState(initial = null)
-
-    val pinpointHeadingFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Drive/Odom_Heading") }
-    val pinpointHeading by pinpointHeadingFlow.collectAsState(initial = null)
-
-    val visionXFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Vision/Pose_X") }
-    val visionX by visionXFlow.collectAsState(initial = null)
-
-    val visionYFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Vision/Pose_Y") }
-    val visionY by visionYFlow.collectAsState(initial = null)
-
-    val visionHeadingFlow = remember<Flow<Double>>(nt4ClientService) { nt4ClientService.subscribeDouble("Vision/Pose_Heading") }
-    val visionHeading by visionHeadingFlow.collectAsState(initial = null)
-    var lastUpdateMs by remember { mutableStateOf<Long?>(null) }
+    val poseAccumulator = remember(nt4ClientService) { FieldPoseFrameAccumulator() }
+    var pose by remember(nt4ClientService) { mutableStateOf(LivePoseState()) }
+    var visionX by remember(nt4ClientService) { mutableStateOf<Double?>(null) }
+    var visionY by remember(nt4ClientService) { mutableStateOf<Double?>(null) }
+    var visionHeading by remember(nt4ClientService) { mutableStateOf<Double?>(null) }
+    var visionHasTarget by remember(nt4ClientService) { mutableStateOf<Boolean?>(null) }
+    var connected by remember(nt4ClientService) { mutableStateOf(nt4ClientService.isConnected.value) }
+    var replayActive by remember(nt4ClientService) { mutableStateOf(nt4ClientService.isReplayActive.value) }
+    var lastUpdateMs by remember(nt4ClientService) { mutableStateOf<Long?>(null) }
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
     LaunchedEffect(nt4ClientService) {
-        nt4ClientService.uiTelemetryFlow.collect { frame ->
-            // Refresh on every received sample, even when a stationary robot repeatedly
-            // publishes the same numeric value and Compose suppresses equal state writes.
-            if (frame.key in POSE_STATUS_TOPICS) {
-                lastUpdateMs = System.currentTimeMillis()
+        launch {
+            nt4ClientService.isConnected.collect { isConnected ->
+                connected = isConnected
+                if (!isConnected) {
+                    poseAccumulator.reset()
+                    pose = LivePoseState()
+                    visionX = null
+                    visionY = null
+                    visionHeading = null
+                    visionHasTarget = null
+                    lastUpdateMs = null
+                }
+            }
+        }
+        launch {
+            nt4ClientService.isReplayActive.collect { isActive ->
+                replayActive = isActive
+                poseAccumulator.reset()
+                pose = LivePoseState(isConnected = connected)
+                visionX = null
+                visionY = null
+                visionHeading = null
+                visionHasTarget = null
+                lastUpdateMs = null
+            }
+        }
+        launch {
+            nt4ClientService.simulatorPoseFrame.collect { frame ->
+                if (frame != null && connected && !replayActive) {
+                    poseAccumulator.accept(frame)
+                    pose = poseAccumulator.snapshot(pose)
+                    lastUpdateMs = System.currentTimeMillis()
+                }
+            }
+        }
+        launch {
+            nt4ClientService.uiTelemetryFlow.collect { frame ->
+                when {
+                    isFieldPoseTopic(frame.key) -> {
+                        if (poseAccumulator.accept(frame.key, frame.value)) {
+                            pose = poseAccumulator.snapshot(pose)
+                        }
+                    }
+                    frame.key == "Vision/HasTarget" -> {
+                        visionHasTarget = frame.value > 0.5
+                        if (visionHasTarget == false) {
+                            visionX = null
+                            visionY = null
+                            visionHeading = null
+                        }
+                    }
+                    frame.key == "Vision/Pose_X" && visionHasTarget != false -> visionX = frame.value
+                    frame.key == "Vision/Pose_Y" && visionHasTarget != false -> visionY = frame.value
+                    frame.key == "Vision/Pose_Heading" && visionHasTarget != false -> visionHeading = frame.value
+                }
+
+                // Refresh on every received sample, even when a stationary robot repeatedly
+                // publishes the same numeric value and Compose suppresses equal state writes.
+                if (isPoseViewerTelemetryTopic(frame.key)) {
+                    lastUpdateMs = System.currentTimeMillis()
+                }
             }
         }
     }
@@ -92,6 +112,7 @@ fun PoseViewerCard(
 
     val elapsed = lastUpdateMs?.let { nowMs - it }
     val (statusText, statusColor) = when {
+        !connected && !replayActive -> "Offline" to AresError
         elapsed == null -> "No Data" to AresTextTertiary
         elapsed < 500 -> "Active" to AresGreen
         elapsed < 2000 -> "Stale" to AresAmber
@@ -113,11 +134,17 @@ fun PoseViewerCard(
             verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.weight(1f)
         ) {
-            PoseRow("True (Actual)", trueX, trueY, trueHeading, AresCyan)
+            PoseRow(
+                "True (Actual)",
+                pose.trueX.takeIf { pose.hasTruePoseData },
+                pose.trueY.takeIf { pose.hasTruePoseData },
+                pose.trueHeading.takeIf { pose.hasTruePoseData },
+                AresCyan
+            )
             HorizontalDivider(color = AresBorder.copy(alpha = 0.5f), thickness = 0.5.dp)
-            PoseRow("Estimated (EKF)", ekfX, ekfY, ekfHeading, AresAmber)
+            PoseRow("Estimated (EKF)", pose.ekfX, pose.ekfY, pose.ekfHeading, AresAmber)
             HorizontalDivider(color = AresBorder.copy(alpha = 0.5f), thickness = 0.5.dp)
-            PoseRow("Pinpoint (Odom)", pinpointX, pinpointY, pinpointHeading, AresGreen)
+            PoseRow("Pinpoint (Odom)", pose.odomX, pose.odomY, pose.odomHeading, AresGreen)
             HorizontalDivider(color = AresBorder.copy(alpha = 0.5f), thickness = 0.5.dp)
             PoseRow("Vision (Limelight)", visionX, visionY, visionHeading, AresGold)
         }
@@ -125,6 +152,9 @@ fun PoseViewerCard(
 }
 
 private val POSE_STATUS_TOPICS = setOf(
+    "ARES/TruePose/0",
+    "ARES/TruePose/1",
+    "ARES/TruePose/2",
     "ARES/EstimatedPose/0",
     "ARES/EstimatedPose/1",
     "ARES/EstimatedPose/2",
@@ -135,10 +165,14 @@ private val POSE_STATUS_TOPICS = setOf(
     "Drive/Odom_X",
     "Drive/Odom_Y",
     "Drive/Odom_Heading",
+    "Vision/HasTarget",
     "Vision/Pose_X",
     "Vision/Pose_Y",
     "Vision/Pose_Heading"
 )
+
+internal fun isPoseViewerTelemetryTopic(key: String): Boolean =
+    key in POSE_STATUS_TOPICS || key.startsWith("ARES/SimulatorPoseFrame/")
 
 @Composable
 private fun PoseRow(

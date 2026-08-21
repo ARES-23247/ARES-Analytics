@@ -219,6 +219,14 @@ fun DashboardScreen(
             )
         }
 
+        if (shouldShowDashboardOfflineGuide(state.isConnected, state.primarySessionId, offlineGuideDismissed)) {
+            DashboardOfflineGuide(
+                onOpenRunHistory = onOpenRunHistory,
+                onOpenHelp = onOpenHelp,
+                onDismiss = { offlineGuideDismissed = true },
+            )
+        }
+
         // Configurable widgets area
         val layout = state.currentLayout
         if (layout != null) {
@@ -379,6 +387,12 @@ fun DashboardScreen(
                     IndicatorLightsCard(services.nt4ClientService, mod)
                 }
             )
+            val rendererCatalogIssue = remember(builders.keys) {
+                DashboardWidgetCatalog.completenessError(builders.keys, "Dashboard renderer")
+            }
+            LaunchedEffect(rendererCatalogIssue) {
+                rendererCatalogIssue?.let { System.err.println("[Dashboard] $it") }
+            }
 
             DashboardWidgetGrid(
                 widgets = layout.widgets,

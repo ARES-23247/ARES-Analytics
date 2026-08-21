@@ -21,10 +21,86 @@ internal fun isFieldViewerTopic(key: String): Boolean = when (key) {
     "Vision/HasTarget", "Vision/Pose_X", "Vision/Pose_Y", "Vision/Pose_Heading",
     "ARES/GamePieces/Count" -> true
     else -> key.startsWith("ARES/SimulatorPoseFrame/") ||
+        key.startsWith("ARES/GamePiecesFrame/") ||
         key.startsWith("Superstructure/IndicatorLight/") ||
         key.startsWith("Vision/PoseArray/") ||
         key.startsWith("AdvantageScope/VisionPose/") ||
         key.startsWith("ARES/GamePieces/")
+}
+
+/** Stages one atomic typed game-piece frame and commits only at its final sequence element. */
+internal class GamePieceFrameAccumulator {
+    private var values = DoubleArray(0)
+    private var count = -1
+    var hasSeenFrame: Boolean = false
+        private set
+
+    fun reset() {
+        values = DoubleArray(0)
+        count = -1
+        hasSeenFrame = false
+    }
+
+    fun accept(key: String, value: Double): Map<Int, GamePiece>? {
+        val index = key.removePrefix(PREFIX).toIntOrNull() ?: return null
+        hasSeenFrame = true
+        when (index) {
+            0 -> {
+                if (value != VERSION) reset()
+                return null
+            }
+            1 -> {
+                val nextCount = value.toInt()
+                if (!value.isFinite() || nextCount < 0 || nextCount > MAX_PIECES || nextCount.toDouble() != value) {
+                    reset()
+                    return null
+                }
+                count = nextCount
+                val required = HEADER_WIDTH + count * RECORD_WIDTH + SEQUENCE_WIDTH
+                if (values.size != required) values = DoubleArray(required)
+                values[0] = VERSION
+                values[1] = value
+                return null
+            }
+        }
+        if (count < 0 || index !in values.indices) return null
+        values[index] = value
+        if (index != values.lastIndex) return null
+
+        val decoded = linkedMapOf<Int, GamePiece>()
+        for (recordIndex in 0 until count) {
+            val base = HEADER_WIDTH + recordIndex * RECORD_WIDTH
+            val instanceKey = values[base + 0].toLong()
+            val typeKey = values[base + 1].toLong()
+            val shape = if (values[base + 7].toInt() == SHAPE_BOX) "box" else "circle"
+            var mapKey = (instanceKey xor (instanceKey ushr 32)).toInt()
+            while (mapKey in decoded) mapKey++
+            decoded[mapKey] = GamePiece(
+                id = "sim-$instanceKey",
+                name = "Simulated ${shape.replaceFirstChar(Char::uppercase)}",
+                x = values[base + 2],
+                y = values[base + 3],
+                type = "Simulated ${shape.replaceFirstChar(Char::uppercase)}",
+                typeId = "sim-type-$typeKey",
+                rotationRadians = values[base + 4],
+                widthMeters = values[base + 5].takeIf { it.isFinite() && it > 0.0 },
+                heightMeters = values[base + 6].takeIf { it.isFinite() && it > 0.0 },
+                simulationShape = shape,
+                colorRgb = values[base + 8].toInt().coerceIn(0, 0xFFFFFF),
+            )
+        }
+        return decoded
+    }
+
+    private companion object {
+        const val PREFIX = "ARES/GamePiecesFrame/"
+        const val VERSION = 2.0
+        const val HEADER_WIDTH = 2
+        const val RECORD_WIDTH = 9
+        const val SEQUENCE_WIDTH = 1
+        const val SHAPE_BOX = 1
+        const val MAX_PIECES = 10_000
+    }
 }
 
 internal fun isFieldPoseTopic(key: String): Boolean = when (key) {
@@ -197,11 +273,15 @@ class FieldTopicSubscriber(
     private val processingDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
     private val poseAccumulator = FieldPoseFrameAccumulator()
+    private val gamePieceAccumulator = GamePieceFrameAccumulator()
 
     init {
         scope.launch {
             nt4ClientService.isConnected.collect { connected ->
-                if (!connected) poseAccumulator.reset()
+                if (!connected) {
+                    poseAccumulator.reset()
+                    gamePieceAccumulator.reset()
+                }
                 livePoseFlow.update { currentState ->
                     currentState.copy(
                         isConnected = connected,
@@ -253,6 +333,13 @@ class FieldTopicSubscriber(
                     return@collect
                 }
 
+                if (key.startsWith("ARES/GamePiecesFrame/")) {
+                    gamePieceAccumulator.accept(key, value)?.let { pieces ->
+                        livePoseFlow.update { current -> current.copy(liveGamePieces = pieces) }
+                    }
+                    return@collect
+                }
+
                 livePoseFlow.update { current ->
                     var next = current
 
@@ -298,13 +385,13 @@ class FieldTopicSubscriber(
                             }
                     }
 
-                    if (key == "ARES/GamePieces/Count") {
+                    if (!gamePieceAccumulator.hasSeenFrame && key == "ARES/GamePieces/Count") {
                         val count = value.toInt().coerceAtLeast(0)
                         val retained = next.liveGamePieces.filterKeys { it in 0 until count }
                         if (retained.size != next.liveGamePieces.size) {
                             next = next.copy(liveGamePieces = retained)
                         }
-                    } else if (key.startsWith("ARES/GamePieces/")) {
+                    } else if (!gamePieceAccumulator.hasSeenFrame && key.startsWith("ARES/GamePieces/")) {
                         val arrayIdx = key.substringAfterLast("/").toIntOrNull()
                         if (arrayIdx != null) {
                             val pieceIdx = arrayIdx / 7

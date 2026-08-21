@@ -18,7 +18,10 @@ fun SubsystemGeneratorState.toAcademySubsystemSnapshot(): AcademySubsystemSnapsh
     val motor = document.hardware.firstOrNull { it.kind == SubsystemHardwareKind.MOTOR && it.following == null }
     val motorMeasurements = motor?.measurements.orEmpty()
     val positionLoop = document.controlLoops.firstOrNull {
-        it.strategy == SubsystemControlStrategy.POSITION_PID && it.actuatorId == motor?.hardwareId
+        it.strategy in setOf(
+            SubsystemControlStrategy.POSITION_PID,
+            SubsystemControlStrategy.PROFILED_POSITION_PID,
+        ) && it.actuatorId == motor?.hardwareId
     }
     val target = positionLoop?.targetFieldId?.let { id -> document.stateFields.firstOrNull { it.fieldId == id } }
     val measuredPosition = positionLoop?.measurementFieldId?.let { id ->
@@ -68,6 +71,10 @@ fun SubsystemGeneratorState.toAcademySubsystemSnapshot(): AcademySubsystemSnapsh
             document.template in setOf(
                 SubsystemTemplate.POSITION_CONTROLLED_MECHANISM,
                 SubsystemTemplate.HOMED_MECHANISM,
+                SubsystemTemplate.ELEVATOR_LIFT,
+                SubsystemTemplate.ARM_PIVOT,
+                SubsystemTemplate.CURRENT_HOMED_MECHANISM,
+                SubsystemTemplate.VELOCITY_HOMED_MECHANISM,
             ) && positionLoop != null,
         hasNaturalStateContract = errorsAbsent && naturalStateReady &&
             SubsystemBuilderStage.STATE_AND_BEHAVIOR in visitedStages,

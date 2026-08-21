@@ -30,6 +30,7 @@ import com.areslib.subsystem.SubsystemFieldRole
 import com.areslib.tuning.TuningApplyPolicy
 import com.areslib.tuning.TuningParameterDeclaration
 import com.areslib.tuning.TuningParameterType
+import com.areslib.tuning.TuningValue
 
 @Composable
 fun SubsystemTuningReviewSection(
@@ -196,15 +197,63 @@ fun TuningParameterInspectorBody(
         TextInput("Parameter name", declaration.displayName) { value ->
             viewModel.updateTuningParameter(declaration.uid) { it.copy(displayName = value) }
         }
-        StableIdLabel("Parameter Key", declaration.key, "Used in .arestuning profile documents.")
+        TextInput("What changing this value does", declaration.description) { value ->
+            viewModel.updateTuningParameter(declaration.uid) { it.copy(description = value) }
+        }
+        StableIdLabel("Parameter key", declaration.key, "Stable key used in .arestuning profile documents and robot callbacks.")
+        TextInput("Rename parameter key (advanced)", declaration.key) { value ->
+            viewModel.updateTuningParameter(declaration.uid) { it.copy(key = value) }
+        }
         TextInput("Component UID", declaration.componentUid) { value ->
             viewModel.updateTuningParameter(declaration.uid) { it.copy(componentUid = value) }
         }
         EnumSelector("Parameter Type", declaration.type, TuningParameterType.entries) { type ->
-            viewModel.updateTuningParameter(declaration.uid) { it.copy(type = type) }
+            viewModel.changeTuningParameterType(declaration.uid, type)
+        }
+        if (declaration.type in setOf(TuningParameterType.DOUBLE, TuningParameterType.INT)) {
+            TextInput("Physical unit (optional)", declaration.unit.orEmpty()) { value ->
+                viewModel.updateTuningParameter(declaration.uid) { it.copy(unit = value.ifBlank { null }) }
+            }
+            NullableDoubleInput("Minimum allowed value", declaration.minimum) { value ->
+                viewModel.updateTuningParameter(declaration.uid) { it.copy(minimum = value) }
+            }
+            NullableDoubleInput("Maximum allowed value", declaration.maximum) { value ->
+                viewModel.updateTuningParameter(declaration.uid) { it.copy(maximum = value) }
+            }
+        }
+        when (declaration.type) {
+            TuningParameterType.DOUBLE -> DoubleInput("Default value", declaration.defaultValue.doubleValue ?: 0.0) { value ->
+                viewModel.updateTuningParameter(declaration.uid) { it.copy(defaultValue = TuningValue(doubleValue = value)) }
+            }
+            TuningParameterType.INT -> IntInput("Default value", declaration.defaultValue.intValue ?: 0) { value ->
+                viewModel.updateTuningParameter(declaration.uid) { it.copy(defaultValue = TuningValue(intValue = value)) }
+            }
+            TuningParameterType.BOOLEAN -> ToggleRow("Default value", declaration.defaultValue.booleanValue ?: false) { value ->
+                viewModel.updateTuningParameter(declaration.uid) { it.copy(defaultValue = TuningValue(booleanValue = value)) }
+            }
+            TuningParameterType.TEXT -> TextInput("Default value", declaration.defaultValue.textValue.orEmpty()) { value ->
+                viewModel.updateTuningParameter(declaration.uid) { it.copy(defaultValue = TuningValue(textValue = value)) }
+            }
+            TuningParameterType.ENUM -> {
+                TextInput("Allowed choices (comma-separated)", declaration.enumOptions.joinToString(", ")) { raw ->
+                    val options = com.ares.analytics.viewmodel.SubsystemTuningAuthoring.parseEnumOptions(raw)
+                    viewModel.updateTuningParameter(declaration.uid) { current ->
+                        current.copy(
+                            enumOptions = options,
+                            defaultValue = TuningValue(textValue = current.defaultValue.textValue?.takeIf { it in options } ?: options.firstOrNull().orEmpty()),
+                        )
+                    }
+                }
+                if (declaration.enumOptions.isNotEmpty()) {
+                    DropdownSelector("Default choice", declaration.defaultValue.textValue ?: declaration.enumOptions.first(), declaration.enumOptions) { selected ->
+                        viewModel.updateTuningParameter(declaration.uid) { it.copy(defaultValue = TuningValue(textValue = selected)) }
+                    }
+                }
+            }
         }
         EnumSelector("Apply Policy", declaration.applyPolicy, TuningApplyPolicy.entries) { policy ->
             viewModel.updateTuningParameter(declaration.uid) { it.copy(applyPolicy = policy) }
         }
+        FieldGuidance("LIVE_SAFE values may change while enabled only when the robot callback explicitly accepts them. DISABLED_ONLY is the safer default; REBUILD_REQUIRED changes generated or startup configuration.")
     }
 }

@@ -7,6 +7,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -117,6 +118,18 @@ class TelemetryStoreTest {
         assertEquals(4_999.0, store.latest("Drive/Live")?.value)
         releaseCollector.complete(Unit)
         collector.cancel()
+    }
+
+    @Test
+    fun `clear removes replayed frames from the previous target`() = runTest {
+        val store = TelemetryStore()
+        store.accept(frame("Drive/Pose_X", 1_000, 1.0))
+
+        store.clear()
+
+        assertNull(withTimeoutOrNull(50) { store.updates.first() })
+        store.accept(frame("Drive/Pose_X", 1_001, 2.0))
+        assertEquals(2.0, store.updates.first().value)
     }
 
     private fun frame(key: String, timestampMs: Long, value: Double) = TelemetryFrame(

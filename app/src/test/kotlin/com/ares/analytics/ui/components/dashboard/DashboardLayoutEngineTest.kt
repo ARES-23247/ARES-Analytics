@@ -14,6 +14,13 @@ class DashboardLayoutEngineTest {
     }
 
     @Test
+    fun `only canonical twelve column projection can be persisted through editing`() {
+        assertTrue(!isDashboardLayoutEditingSupported(DashboardLayoutEngine.COMPACT_COLUMNS))
+        assertTrue(!isDashboardLayoutEditingSupported(DashboardLayoutEngine.MEDIUM_COLUMNS))
+        assertTrue(isDashboardLayoutEditingSupported(DashboardLayoutEngine.EXPANDED_COLUMNS))
+    }
+
+    @Test
     fun `reflow clamps spans and removes collisions`() {
         val widgets = listOf(
             WidgetConfig("a", "field_viewer", 0, 0, 3, 8),

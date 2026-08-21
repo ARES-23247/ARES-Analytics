@@ -137,7 +137,12 @@ open class Nt4ClientService(
 
     init {
         serviceScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            telemetryStore.updates.collect(uiTelemetryFanout::offer)
+            telemetryStore.updates.collect { frame ->
+                val frameTargetEpoch = telemetryStore.currentTargetEpoch()
+                if (telemetryStore.isCurrentNotifiedFrame(frame)) {
+                    uiTelemetryFanout.offer(frame, frameTargetEpoch)
+                }
+            }
         }
     }
 
@@ -272,7 +277,8 @@ open class Nt4ClientService(
 
     internal fun clearLiveTargetState() {
         inboundRouter.clear()
-        telemetryStore.clear()
+        val nextTargetEpoch = telemetryStore.clear()
+        uiTelemetryFanout.reset(nextTargetEpoch)
         _simulatorPoseFrame.value = null
     }
 
@@ -589,6 +595,7 @@ open class Nt4ClientService(
         require(!cleanKey.startsWith("ARES/Input/") || cleanKey in ALLOWED_INPUT_STRING_TOPICS) {
             "ARES/Input controls must use driveFrame; only field-configuration strings are separate"
         }
+        if (!isDashboardDriverStationCommandAllowed(serverIp, cleanKey)) return false
         val frame = TelemetryFrame(
             timestampMs = System.currentTimeMillis(),
             sessionId = _currentSession.value?.sessionId ?: "live-telemetry",
@@ -679,6 +686,16 @@ internal fun isLoopbackDriveControlHost(host: String): Boolean = when (
     "127.0.0.1", "localhost", "::1" -> true
     else -> false
 }
+
+private val SIMULATOR_ONLY_DRIVER_STATION_TOPICS = setOf(
+    "ARES/DriverStation/SelectedOpMode",
+    "ARES/DriverStation/Command",
+    "ARES/DriverStation/MatchState",
+)
+
+/** Prevents dashboard OpMode orchestration from reaching a physical robot target. */
+internal fun isDashboardDriverStationCommandAllowed(host: String, key: String): Boolean =
+    key.removePrefix("/") !in SIMULATOR_ONLY_DRIVER_STATION_TOPICS || isLoopbackDriveControlHost(host)
 
 internal data class DriveFrameSendState(
     val sessionNonce: Double,

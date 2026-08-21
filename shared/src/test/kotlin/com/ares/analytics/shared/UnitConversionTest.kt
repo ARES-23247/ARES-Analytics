@@ -20,5 +20,8 @@ class UnitConversionTest {
         assertEquals(RobotUnit.RADIAN, UnitConversion.detectUnitFromKey("Drive/Pose_Heading"))
         assertEquals(RobotUnit.RADIAN, UnitConversion.detectUnitFromKey("Vision/YawRad"))
         assertEquals(RobotUnit.MILLISECOND, UnitConversion.detectUnitFromKey("Profiling/LoopTimeMs"))
+        assertEquals(RobotUnit.METER, UnitConversion.detectUnitFromKey("Drive/Pose_X"))
+        assertEquals(null, UnitConversion.detectUnitFromKey("SysId/Command"))
+        assertEquals(null, UnitConversion.detectUnitFromKey("System/Status"))
     }
 }

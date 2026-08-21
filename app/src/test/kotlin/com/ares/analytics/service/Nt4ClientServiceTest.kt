@@ -37,6 +37,15 @@ class Nt4ClientServiceTest {
         assertFalse(isLoopbackDriveControlHost("robot.local"))
     }
 
+    @Test
+    fun `dashboard driver station commands are rejected for physical targets`() {
+        assertTrue(isDashboardDriverStationCommandAllowed("127.0.0.1", "ARES/DriverStation/Command"))
+        assertTrue(isDashboardDriverStationCommandAllowed("localhost", "/ARES/DriverStation/SelectedOpMode"))
+        assertFalse(isDashboardDriverStationCommandAllowed("192.168.43.1", "ARES/DriverStation/Command"))
+        assertFalse(isDashboardDriverStationCommandAllowed("10.23.247.2", "ARES/DriverStation/MatchState"))
+        assertTrue(isDashboardDriverStationCommandAllowed("192.168.43.1", "Camera/SelectedPipeline"))
+    }
+
     private lateinit var tempDb: File
     private lateinit var databaseService: DatabaseService
     private lateinit var nt4ClientService: Nt4ClientService
@@ -492,6 +501,7 @@ class Nt4ClientServiceTest {
         nt4ClientService.topicMap[1] = com.ares.analytics.service.nt4.Nt4Topic(1, "/Old/Value", "double")
         val frame = com.ares.analytics.shared.TelemetryFrame(1L, "live-telemetry", "Old/Value", 2.0)
         nt4ClientService.telemetryStore.accept(frame)
+        assertEquals(2.0, withTimeout(1_000) { nt4ClientService.uiTelemetryFlow.first() }.value)
 
         nt4ClientService.clearLiveTargetState()
 
@@ -499,5 +509,6 @@ class Nt4ClientServiceTest {
         assertNull(nt4ClientService.telemetryStore.latest(frame.key))
         assertTrue(nt4ClientService.telemetryStore.history(frame.key).isEmpty())
         assertTrue(nt4ClientService.getActiveTopics().isEmpty())
+        assertNull(withTimeoutOrNull(100) { nt4ClientService.uiTelemetryFlow.first() })
     }
 }

@@ -81,9 +81,15 @@ object UnitConversion {
     /** Infers a display unit from a telemetry key, or returns `null` when the key is ambiguous. */
     fun detectUnitFromKey(key: String): RobotUnit? {
         val lowerKey = key.lowercase()
+        val leaf = lowerKey.substringAfterLast('/')
         val isAngular = lowerKey.contains("rot") ||
             lowerKey.contains("ang") ||
             lowerKey.contains("omega")
+        val isCartesianAxis = leaf in setOf(
+            "x", "y", "z",
+            "pose_x", "pose_y", "pose_z",
+            "position_x", "position_y", "position_z",
+        )
         return when {
             lowerKey.contains("voltage") || lowerKey.contains("volt") -> RobotUnit.VOLT
             lowerKey.contains("current") || lowerKey.contains("amp") -> RobotUnit.AMPERE
@@ -98,7 +104,7 @@ object UnitConversion {
             lowerKey.contains("angle") || lowerKey.contains("heading") || lowerKey.contains("yaw") || lowerKey.contains("pitch") || lowerKey.contains("roll") -> RobotUnit.RADIAN
             lowerKey.contains("ms") || lowerKey.contains("millis") || lowerKey.contains("latency") || lowerKey.contains("looptime") -> RobotUnit.MILLISECOND
             lowerKey.contains("time") || lowerKey.contains("sec") -> RobotUnit.SECOND
-            lowerKey.contains("distance") || lowerKey.contains("pos") || lowerKey.contains("x") || lowerKey.contains("y") || lowerKey.contains("z") -> RobotUnit.METER
+            lowerKey.contains("distance") || lowerKey.contains("position") || lowerKey.contains("pose") || isCartesianAxis -> RobotUnit.METER
             else -> null
         }
     }

@@ -85,6 +85,9 @@ fun HardwareInspectorBody(
         TextInput("Hardware name", device.displayName) { value ->
             viewModel.updateHardware(device.hardwareId) { it.copy(displayName = value) }
         }
+        TextInput("What this device does", device.description) { value ->
+            viewModel.updateHardware(device.hardwareId) { it.copy(description = value) }
+        }
         StableIdLabel("Code ID", device.hardwareId, "Used by controller rules and generated Kotlin.")
         TextInput("Rename code ID (advanced)", device.hardwareId) { value ->
             viewModel.renameHardwareId(device.hardwareId, value)
@@ -140,6 +143,13 @@ fun HardwareInspectorBody(
                 }
             }
         }
+        FieldGuidance(
+            if (document.platform == SubsystemPlatform.FTC) {
+                "Use this exact name in the FTC Robot Controller configuration. Names are case-sensitive."
+            } else {
+                "Use the device ID and CAN bus configured in the vendor hardware tools."
+            }
+        )
 
         val measurementSources = device.kind.compatibleMeasurementSources()
         if (measurementSources.isNotEmpty()) {
@@ -241,6 +251,44 @@ private fun CachedMeasurementEditor(
                     }
                 }
             }
+            if (measurement.source.valueType() == SubsystemValueType.DOUBLE) {
+                DoubleInput("Scale (state units per hardware unit)", measurement.scale) { value ->
+                    viewModel.updateHardware(device.hardwareId) { hardware ->
+                        hardware.copy(measurements = hardware.measurements.mapIndexed { i, current ->
+                            if (i == index) current.copy(scale = value) else current
+                        })
+                    }
+                }
+                DoubleInput("Offset (state units)", measurement.offset) { value ->
+                    viewModel.updateHardware(device.hardwareId) { hardware ->
+                        hardware.copy(measurements = hardware.measurements.mapIndexed { i, current ->
+                            if (i == index) current.copy(offset = value) else current
+                        })
+                    }
+                }
+                NullableDoubleInput("Valid minimum (optional)", measurement.validMinimum) { value ->
+                    viewModel.updateHardware(device.hardwareId) { hardware ->
+                        hardware.copy(measurements = hardware.measurements.mapIndexed { i, current ->
+                            if (i == index) current.copy(validMinimum = value) else current
+                        })
+                    }
+                }
+                NullableDoubleInput("Valid maximum (optional)", measurement.validMaximum) { value ->
+                    viewModel.updateHardware(device.hardwareId) { hardware ->
+                        hardware.copy(measurements = hardware.measurements.mapIndexed { i, current ->
+                            if (i == index) current.copy(validMaximum = value) else current
+                        })
+                    }
+                }
+            }
+            NullableLongInput("Freshness timeout (ms; blank inherits subsystem)", measurement.maxAgeMs) { value ->
+                viewModel.updateHardware(device.hardwareId) { hardware ->
+                    hardware.copy(measurements = hardware.measurements.mapIndexed { i, current ->
+                        if (i == index) current.copy(maxAgeMs = value) else current
+                    })
+                }
+            }
+            FieldGuidance("ARES reads this signal once per robot loop. Scale and offset convert it into the state field's documented unit before validity checks.")
             IconButton(
                 onClick = {
                     viewModel.updateHardware(device.hardwareId) { hardware ->

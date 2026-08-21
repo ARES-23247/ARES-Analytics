@@ -244,7 +244,8 @@ fun MainScreen(services: ServiceRegistry) {
             syncEngineService = services.syncEngineService,
             oauthService = services.oauthService,
             nt4ClientService = services.nt4ClientService,
-            logParserService = services.logParserService,
+            robotLogIngestionService = services.robotLogIngestionService,
+            workspaceConfig = currentConfig,
             scope = scope
         )
     }

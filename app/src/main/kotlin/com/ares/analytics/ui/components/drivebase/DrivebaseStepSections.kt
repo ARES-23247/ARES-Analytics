@@ -25,6 +25,9 @@ import com.ares.analytics.service.drivebase.*
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.drivebase.*
+import com.areslib.drivetrain.DisabledDrivePolicy
+import com.areslib.drivetrain.DrivetrainControlKind
+import com.areslib.drivetrain.DrivetrainNeutralMode
 
 @Composable
 fun DriveTypeStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
@@ -420,8 +423,145 @@ fun GeometryStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewMo
 }
 
 @Composable
+fun ControlStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+    SectionHeading(
+        "4 · Choose drive control systems",
+        "Enable only the command layers this robot actually supports. Open-loop is easiest to learn; closed-loop modes require measured feedback and reviewed tuning.",
+    )
+    val modes = DrivetrainControlKind.entries
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        modes.forEach { mode ->
+            val enabled = mode in state.draft.supportedControlModes
+            val isDefault = state.draft.defaultControlMode == mode
+            val explanation = when (mode) {
+                DrivetrainControlKind.OPEN_LOOP -> "Driver demand is converted directly to bounded motor output. Useful for first motion and hardware verification."
+                DrivetrainControlKind.WHEEL_VELOCITY -> "Each wheel or module drive motor closes a velocity loop using cached encoder feedback, PID, and feedforward."
+                DrivetrainControlKind.CHASSIS_VELOCITY -> "The robot tracks forward, strafe, and turn velocity commands through drivetrain kinematics and wheel feedback."
+                DrivetrainControlKind.TRAJECTORY -> "A path follower generates chassis targets; localization, velocity feedback, and tuned translation/heading loops are required."
+            }
+            Surface(
+                color = if (enabled) AresCyan.copy(alpha = 0.08f) else AresSurface,
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(if (enabled) 1.5.dp else 1.dp, if (enabled) AresCyan else AresBorder),
+            ) {
+                Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(
+                        checked = enabled,
+                        onCheckedChange = { checked ->
+                            val next = if (checked) (state.draft.supportedControlModes + mode).distinct() else state.draft.supportedControlModes - mode
+                            val nextDefault = if (state.draft.defaultControlMode in next) state.draft.defaultControlMode else next.firstOrNull() ?: mode
+                            viewModel.onIntent(DrivebaseBuilderIntent.UpdateControl(next, nextDefault, state.draft.fieldRelativeEnabled))
+                        },
+                    )
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(mode.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase), color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Text(explanation, color = AresTextSecondary, fontSize = 10.sp, lineHeight = 14.sp)
+                    }
+                    RadioButton(
+                        selected = isDefault,
+                        enabled = enabled,
+                        onClick = { viewModel.onIntent(DrivebaseBuilderIntent.UpdateControl(state.draft.supportedControlModes, mode, state.draft.fieldRelativeEnabled)) },
+                    )
+                    Text(if (isDefault) "Default" else "Make default", color = if (isDefault) AresCyan else AresTextTertiary, fontSize = 10.sp)
+                }
+            }
+        }
+        Surface(color = AresSurface, shape = RoundedCornerShape(8.dp), border = BorderStroke(1.dp, AresBorder)) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Switch(
+                        checked = state.draft.fieldRelativeEnabled,
+                        onCheckedChange = { viewModel.onIntent(DrivebaseBuilderIntent.UpdateControl(state.draft.supportedControlModes, state.draft.defaultControlMode, it)) },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text("Field-relative driving", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Text("Forward follows the field instead of the robot. Requires a fresh, valid CCW-positive heading.", color = AresTextSecondary, fontSize = 10.sp)
+                    }
+                }
+                Text(
+                    "PID and feedforward values are calibrated in Tuning Studio so measured experiments, history, and promotion evidence stay separate from physical hardware identity.",
+                    color = AresGold,
+                    fontSize = 10.sp,
+                )
+            }
+        }
+        DriveControlLab(state, viewModel)
+    }
+}
+
+@Composable
+private fun DriveControlLab(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
+    val lab = state.lab.copy(fieldRelative = state.draft.fieldRelativeEnabled)
+    val result = evaluateDriveLab(state.draft.kind, lab, state.draft.geometry, state.draft.hardware)
+    Surface(
+        color = AresSurface,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, AresBorder),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("SAFE DRIVE MIXING LAB", color = AresCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Move the sliders to see the command each declared motor would receive. This model never connects to or pulses physical hardware.",
+                color = AresTextSecondary,
+                fontSize = 11.sp,
+            )
+            LabSlider("Forward", lab.forward) { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(forward = it))) }
+            if (state.draft.kind != DrivebaseKind.DIFFERENTIAL) {
+                LabSlider("Strafe", lab.strafe) { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(strafe = it))) }
+            }
+            LabSlider("Turn", lab.rotate) { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(rotate = it))) }
+            if (state.draft.fieldRelativeEnabled) {
+                Text("Robot heading: ${"%.0f".format(lab.headingDegrees)}°", color = AresTextPrimary, fontSize = 11.sp)
+                Slider(
+                    value = lab.headingDegrees.toFloat(),
+                    onValueChange = { viewModel.onIntent(DrivebaseBuilderIntent.UpdateLab(lab.copy(headingDegrees = it.toDouble()))) },
+                    valueRange = -180f..180f,
+                    modifier = Modifier.semantics { contentDescription = "Simulated robot heading in degrees" },
+                )
+            }
+            Text(result.explanation, color = AresTextTertiary, fontSize = 10.sp)
+            result.wheelOutputs.entries.chunked(2).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { (id, output) ->
+                        Surface(
+                            modifier = Modifier.weight(1f),
+                            color = AresSurfaceElevated,
+                            border = BorderStroke(1.dp, AresBorder),
+                            shape = RoundedCornerShape(7.dp),
+                        ) {
+                            Column(Modifier.padding(9.dp)) {
+                                Text(id.replaceFirstChar(Char::uppercase), color = AresTextSecondary, fontSize = 10.sp)
+                                Text("%+.2f".format(output), color = if (kotlin.math.abs(output) > 1e-9) AresCyan else AresTextPrimary, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LabSlider(label: String, value: Double, onValueChange: (Double) -> Unit) {
+    Column {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(label, color = AresTextPrimary, fontSize = 11.sp)
+            Text("%+.2f".format(value), color = AresCyan, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontSize = 11.sp)
+        }
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onValueChange(it.toDouble()) },
+            valueRange = -1f..1f,
+            modifier = Modifier.semantics { contentDescription = "$label command preview" },
+        )
+    }
+}
+
+@Composable
 fun LocalizationStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
-    SectionHeading("4 · Choose localization", "Localization estimates robot pose on the field. Multiple sources can be fused with CCW-positive standard.")
+    SectionHeading("5 · Choose localization", "Localization estimates robot pose on the field. Choose one primary source and optionally add vision correction.")
     val kinds = LocalizationKind.entries
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         kinds.chunked(2).forEach { row ->
@@ -482,7 +622,7 @@ fun SafetyAndReviewStep(
     onContinueToSubsystems: (() -> Unit)? = null,
     onBackToStudio: (() -> Unit)? = null,
 ) {
-    SectionHeading("5 · Safety rules & save review", "Review fail-closed safety contracts, validate the draft diff, and save the canonical drivebase.")
+    SectionHeading("6 · Safety rules & save review", "Review fail-closed safety contracts, validate the draft diff, and save the canonical drivebase.")
     val safety = state.draft.safety
     val review = state.saveReview
     val noCodeRunnable = state.draft.kind.runtimeSupport(state.league) == DrivebaseRuntimeSupport.NO_CODE_RUNNABLE
@@ -508,6 +648,19 @@ fun SafetyAndReviewStep(
                     SafetySwitch("Configuration health required", safety.configurationHealthRequired, "Nonzero motion is blocked until all required devices report healthy configuration.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(configurationHealthRequired = it))) }
                     SafetySwitch("Explicit neutral recovery", safety.explicitNeutralRecoveryRequired, "Motion resumes only after a successful neutral write is confirmed.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(explicitNeutralRecoveryRequired = it))) }
                     SafetySwitch("Current monitoring required", safety.currentMonitoringRequired, "Monitoring must report validity for continuous current protection.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(currentMonitoringRequired = it))) }
+                    SafetySwitch("Latch drive faults", safety.faultLatchingRequired, "A transient output or feedback failure stays faulted until explicit neutral recovery succeeds.") { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(faultLatchingRequired = it))) }
+                    SimpleChoice(
+                        label = "Enabled neutral mode",
+                        selected = safety.enabledNeutralMode.name,
+                        options = DrivetrainNeutralMode.entries.map { it.name },
+                        onSelect = { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(enabledNeutralMode = DrivetrainNeutralMode.valueOf(it)))) },
+                    )
+                    SimpleChoice(
+                        label = "Disabled behavior",
+                        selected = safety.disabledPolicy.name,
+                        options = DisabledDrivePolicy.entries.map { it.name },
+                        onSelect = { viewModel.onIntent(DrivebaseBuilderIntent.UpdateSafety(safety.copy(disabledPolicy = DisabledDrivePolicy.valueOf(it)))) },
+                    )
                 }
             }
 
@@ -653,6 +806,22 @@ fun HardwareEditor(
     if (advanced || device.canId != null) {
         HelpedTextField("CAN ID", device.canId?.toString().orEmpty(), "The unique numeric CAN address. Valid ARES range: 0–62.") { onUpdate(device.copy(canId = it.toIntOrNull())) }
         HelpedTextField("CAN bus", device.canBus.orEmpty(), "The named CAN network, for example rio or CANivore name.") { onUpdate(device.copy(canBus = it.ifBlank { null })) }
+    }
+    val motorRoles = setOf(
+        DriveHardwareRole.FRONT_LEFT, DriveHardwareRole.FRONT_RIGHT, DriveHardwareRole.REAR_LEFT, DriveHardwareRole.REAR_RIGHT,
+        DriveHardwareRole.LEFT_LEADER, DriveHardwareRole.LEFT_FOLLOWER, DriveHardwareRole.RIGHT_LEADER, DriveHardwareRole.RIGHT_FOLLOWER,
+        DriveHardwareRole.FRONT_LEFT_DRIVE, DriveHardwareRole.FRONT_RIGHT_DRIVE, DriveHardwareRole.REAR_LEFT_DRIVE, DriveHardwareRole.REAR_RIGHT_DRIVE,
+        DriveHardwareRole.FRONT_LEFT_STEER, DriveHardwareRole.FRONT_RIGHT_STEER, DriveHardwareRole.REAR_LEFT_STEER, DriveHardwareRole.REAR_RIGHT_STEER,
+        DriveHardwareRole.DRIVE_MOTOR,
+    )
+    if (device.role in motorRoles || advanced) {
+        HelpedTextField("Motor controller model", device.controllerModel.orEmpty(), "Examples: goBILDA 5203 through REV Hub, TalonFX. Used for documentation and adapter validation; it does not guess gains.") { onUpdate(device.copy(controllerModel = it.ifBlank { null })) }
+        if (device.role.name.endsWith("ENCODER") || advanced) {
+            HelpedTextField("Encoder model", device.encoderModel.orEmpty(), "Examples: built-in quadrature encoder or CANcoder. Choose the adapter that owns cached position and velocity.") { onUpdate(device.copy(encoderModel = it.ifBlank { null })) }
+        }
+        SafetySwitch("Current sample required", device.currentMeasurementRequired, "Nonzero output is blocked if this motor's cached current reading is unavailable or invalid.") { onUpdate(device.copy(currentMeasurementRequired = it)) }
+        SafetySwitch("Adapter provides current", device.currentMeasurementAvailable, "Only enable this when the selected hardware adapter supplies a cached, validity-checked current reading.") { onUpdate(device.copy(currentMeasurementAvailable = it)) }
+        NullableNumberField("Controller-enforced current limit", device.currentLimitAmps, "A", "Leave blank if this is only a reviewed operating threshold and is not actually enforced by the motor controller.") { onUpdate(device.copy(currentLimitAmps = it)) }
     }
     val isAuxiliaryOrSensors = device.role in setOf(
         DriveHardwareRole.ODOMETRY,
@@ -801,6 +970,53 @@ fun SafetySwitch(label: String, checked: Boolean, explanation: String, onChecked
             Text(explanation, color = AresTextSecondary, fontSize = 10.sp)
         }
         Switch(checked, onCheckedChange)
+    }
+}
+
+@Composable
+private fun SimpleChoice(label: String, selected: String, options: List<String>, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("$label · ${selected.lowercase().replace('_', ' ')}", fontSize = 10.sp)
+        }
+        DropdownMenu(expanded, { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase)) },
+                    onClick = { expanded = false; onSelect(option) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NullableNumberField(
+    label: String,
+    value: Double?,
+    unit: String,
+    explanation: String,
+    onValueChange: (Double?) -> Unit,
+) {
+    var raw by remember(value) { mutableStateOf(value?.toString().orEmpty()) }
+    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(4.dp)); HelpButton(explanation)
+        }
+        OutlinedTextField(
+            value = raw,
+            onValueChange = { next ->
+                raw = next
+                if (next.isBlank()) onValueChange(null) else next.toDoubleOrNull()?.let(onValueChange)
+            },
+            isError = raw.isNotBlank() && raw.toDoubleOrNull() == null,
+            supportingText = { Text(if (raw.isBlank()) "Not claimed as controller-enforced" else "Must be a positive finite value") },
+            trailingIcon = { Text(unit, color = AresCyan, fontSize = 11.sp, modifier = Modifier.padding(end = 8.dp)) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
     }
 }
 

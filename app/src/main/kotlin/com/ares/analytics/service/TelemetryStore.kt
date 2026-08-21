@@ -3,6 +3,7 @@ package com.ares.analytics.service
 import com.ares.analytics.shared.TelemetryFrame
 import com.ares.analytics.shared.TelemetryMetricCatalog
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,6 +59,7 @@ class TelemetryStore(
 
     private val acceptedFrameCount = AtomicLong()
     private val lastAcceptedAtMs = AtomicLong()
+    private val targetEpoch = AtomicLong()
 
     suspend fun accept(frame: TelemetryFrame, notifyConsumers: Boolean = true): TelemetryFrame {
         val canonicalKey = canonical(frame.key)
@@ -113,6 +115,18 @@ class TelemetryStore(
         return canonicalFrame
     }
 
+    /**
+     * Monotonic identity for the currently selected live target.
+     *
+     * UI fan-out tags pending work with this value so a frame already queued by the previous
+     * robot or simulator cannot be rendered after a target switch.
+     */
+    internal fun currentTargetEpoch(): Long = targetEpoch.get()
+
+    /** True only while [frame] is still the newest consumer-visible value for this target. */
+    internal fun isCurrentNotifiedFrame(frame: TelemetryFrame): Boolean =
+        lastNotifiedFrames[canonical(frame.key)] === frame
+
     fun latest(topic: String): TelemetryFrame? = latestFrames[canonical(topic)]
 
     fun history(topic: String): List<TelemetryFrame> {
@@ -135,8 +149,11 @@ class TelemetryStore(
         lastAcceptedAtMs = lastAcceptedAtMs.get()
     )
 
-    fun clear() {
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun clear(): Long {
+        val nextEpoch: Long
         synchronized(topicIndexLock) {
+            nextEpoch = targetEpoch.incrementAndGet()
             latestFrames.clear()
             frameHistory.clear()
             lastNotifiedFrames.clear()
@@ -144,8 +161,11 @@ class TelemetryStore(
             // Explicit observers survive a session reset so existing UI collectors remain wired.
             topicFlows.values.forEach { it.value = null }
         }
+        // A new collector must never receive frames retained for the previous live target.
+        mutableUpdates.resetReplayCache()
         acceptedFrameCount.set(0)
         lastAcceptedAtMs.set(0)
+        return nextEpoch
     }
 
     private fun canonical(topic: String): String = TelemetryMetricCatalog.normalizeTopic(topic)
