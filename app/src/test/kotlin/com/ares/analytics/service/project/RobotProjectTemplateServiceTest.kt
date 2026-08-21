@@ -44,7 +44,7 @@ class RobotProjectTemplateServiceTest {
         val service = RobotProjectTemplateService()
 
         League.entries.forEach { league ->
-            assertEquals("9.4.0", service.templateFor(league).aresVersion)
+            assertEquals("9.6.0", service.templateFor(league).aresVersion)
             assertEquals(
                 RobotProjectDeploymentPolicy.SIMULATION_ONLY_REFERENCE,
                 service.templateFor(league).deploymentPolicy,
@@ -229,6 +229,26 @@ class RobotProjectTemplateServiceTest {
     }
 
     @Test
+    fun `starter dependency version must match its pinned template identity`() = runBlocking {
+        val root = Files.createTempDirectory("ares-project-version-mismatch-test").toFile()
+        try {
+            val archive = validFtcArchive(aresVersion = "different-version")
+            val service = service(root, archive)
+            val parent = File(root, "robots").apply { mkdirs() }
+
+            val failure = assertFailsWith<IllegalStateException> {
+                service.create(request(parent, "mismatched-starter"))
+            }
+
+            assertTrue(failure.message.orEmpty().contains("declares ARES different-version"))
+            assertFalse(File(parent, "mismatched-starter").exists())
+            assertFalse(parent.listFiles().orEmpty().any { it.name.contains("ares-partial") })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `plan rejects traversal reserved names and existing destinations`() {
         val root = Files.createTempDirectory("ares-project-plan-test").toFile()
         try {
@@ -333,7 +353,7 @@ class RobotProjectTemplateServiceTest {
         archiveSha256 = sha256(archive),
     )
 
-    private fun validFtcArchive(): ByteArray {
+    private fun validFtcArchive(aresVersion: String = "test"): ByteArray {
         val metadata = AresProjectMetadataCodec.encode(
             AresProjectMetadataDocument(
                 projectId = "template-project",
@@ -358,6 +378,7 @@ class RobotProjectTemplateServiceTest {
         )
         return zipOf(
             "fixture-root/settings.gradle" to "include ':TeamCode'\n",
+            "fixture-root/gradle.properties" to "aresVersion=$aresVersion\n",
             "fixture-root/TeamCode/src/main/java/example/Robot.kt" to "package example\nclass Robot\n",
             "fixture-root/.ares/project.json" to metadata,
             "fixture-root/.ares/action-catalog.json" to CapabilityCatalogCodec.encode(

@@ -152,6 +152,7 @@ val nestedAresRepositoryUri = providers.gradleProperty("aresRepository").map { c
     configuredUri.toASCIIString()
 }
 tasks.withType<JavaExec>().configureEach {
+    systemProperty("ares.version", rootProject.extra["aresVersion"] as String)
     nestedAresRepositoryUri.orNull?.let { uri ->
         systemProperty("ares.repository.uri", uri)
     }

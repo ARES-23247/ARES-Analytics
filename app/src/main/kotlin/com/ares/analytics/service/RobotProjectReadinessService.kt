@@ -15,6 +15,7 @@ import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentKind
 import com.areslib.project.AresLeague
+import com.ares.analytics.viewmodel.controls.controlsCoverage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -46,6 +47,10 @@ data class RobotProjectReadinessEvidence(
     val controlSchemeCount: Int = 0,
     val controllerProfileCount: Int = 0,
     val controlErrors: List<String> = emptyList(),
+    val controlTeleopActionCount: Int = 0,
+    val controlBoundActionCount: Int = 0,
+    val controlSafetyActionCount: Int = 0,
+    val controlBoundSafetyActionCount: Int = 0,
     val routineCount: Int = 0,
     val autonomousCatalogPresent: Boolean = false,
     val autonomousErrors: List<String> = emptyList(),
@@ -123,6 +128,10 @@ class RobotProjectReadinessService(
         val autonomousErrors = diagnostics.filter {
             it.kind == ProjectDocumentKind.ROUTINE || it.kind == ProjectDocumentKind.AUTONOMOUS_CATALOG
         }.map { "${it.file.name}: ${it.message}" }
+        val catalogActions = snapshot?.capabilityCatalog?.actions.orEmpty()
+        val controlCoverages = snapshot?.controlSchemes.orEmpty().map { scheme ->
+            controlsCoverage(catalogActions, scheme)
+        }
 
         RobotProjectReadinessEvidence(
             projectPath = config.projectPath,
@@ -154,6 +163,14 @@ class RobotProjectReadinessService(
             controlSchemeCount = snapshot?.controlSchemes?.size ?: 0,
             controllerProfileCount = snapshot?.controllerProfiles?.size ?: 0,
             controlErrors = controlErrors,
+            controlTeleopActionCount = controlCoverages.sumOf { it.totalCount },
+            controlBoundActionCount = controlCoverages.sumOf { it.boundCount },
+            // Count each safety action once per scheme: every selectable TeleOp scheme needs its
+            // own direct recovery path, not merely a binding that happens to exist elsewhere.
+            controlSafetyActionCount = controlCoverages.sumOf { it.safetyActions.size },
+            controlBoundSafetyActionCount = controlCoverages.sumOf {
+                it.safetyActions.size - it.missingSafetyActions.size
+            },
             routineCount = snapshot?.routines?.size ?: 0,
             autonomousCatalogPresent = snapshot?.autonomousCatalog != null,
             autonomousErrors = autonomousErrors,

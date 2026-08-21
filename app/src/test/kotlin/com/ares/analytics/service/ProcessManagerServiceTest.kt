@@ -25,14 +25,17 @@ class ProcessManagerServiceTest {
         val service = ProcessManagerService(
             monitorAdbConnection = false,
             aresRepositoryUri = repository.toURI().toASCIIString(),
+            aresVersion = "9.6.0-rc.guided1",
         )
         try {
-            val expected = "-ParesRepository=${repository.canonicalFile.toURI().toASCIIString()}"
+            val expectedRepository = "-ParesRepository=${repository.canonicalFile.toURI().toASCIIString()}"
+            val expectedVersion = "-ParesVersion=9.6.0-rc.guided1"
             assertEquals(
                 repository.canonicalFile.toURI().toASCIIString(),
                 service.configuredAresRepositoryEnvironmentForTest(),
                 "Arbitrary child simulator commands must inherit the equivalent Gradle project property without shell mutation",
             )
+            assertEquals("9.6.0-rc.guided1", service.configuredAresVersionEnvironmentForTest())
             val representativeCommands = listOf(
                 listOf("gradlew.bat", ":TeamCode:assembleDebug"),
                 listOf("java", "org.gradle.wrapper.GradleWrapperMain", "generateAresProject"),
@@ -41,7 +44,7 @@ class ProcessManagerServiceTest {
 
             representativeCommands.forEach { base ->
                 val configured = service.configuredGradleCommandForTest(base)
-                assertEquals(base + expected, configured)
+                assertEquals(base + expectedRepository + expectedVersion, configured)
                 assertFalse(configured.any { it.contains("mavenLocal", ignoreCase = true) })
             }
         } finally {
@@ -59,6 +62,9 @@ class ProcessManagerServiceTest {
         assertFailsWith<IllegalArgumentException> {
             ProcessManagerService(false, missing.toURI().toASCIIString())
         }
+        assertFailsWith<IllegalArgumentException> {
+            ProcessManagerService(false, null, "9.6.0 invalid")
+        }
     }
 
     @Test
@@ -70,6 +76,7 @@ class ProcessManagerServiceTest {
                 service.configuredGradleCommandForTest(listOf("./gradlew", "assemble")),
             )
             assertEquals(null, service.configuredAresRepositoryEnvironmentForTest())
+            assertEquals(null, service.configuredAresVersionEnvironmentForTest())
         } finally {
             service.shutdown()
         }

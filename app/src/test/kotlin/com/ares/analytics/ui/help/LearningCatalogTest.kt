@@ -125,6 +125,37 @@ class LearningCatalogTest {
     }
 
     @Test
+    fun `controls mission follows the complete saved and generated evidence chain`() {
+        val lesson = LearningCatalog.lesson("map-one-control") ?: error("Missing controls mission")
+
+        assertFalse(lesson.requiresRobot)
+        assertEquals(
+            setOf(
+                ControlsMissionCheckpointIds.ACTION_CATALOG,
+                ControlsMissionCheckpointIds.SUBSYSTEM_CAPABILITY,
+                ControlsMissionCheckpointIds.PLATFORM_MAPPING,
+                ControlsMissionCheckpointIds.BINDING_APPLIED,
+                ControlsMissionCheckpointIds.BINDING_POLICY,
+                ControlsMissionCheckpointIds.SCHEME_SAVED,
+                ControlsMissionCheckpointIds.BINDINGS_GENERATED,
+                ControlsMissionCheckpointIds.RUNTIME_FLOW,
+            ),
+            lesson.checkpoints.map { it.id }.toSet(),
+        )
+        assertTrue(lesson.safetyNote?.contains("restrained") == true)
+    }
+
+    @Test
+    fun `pit lesson treats telemetry as evidence rather than hardware certification`() {
+        val lesson = LearningCatalog.lesson("pit-readiness") ?: error("Missing pit lesson")
+
+        assertTrue(lesson.steps.any { it.contains("STREAM LIVE") })
+        assertTrue(lesson.steps.any { it.contains("read-only") })
+        assertTrue(lesson.safetyNote?.contains("cannot certify") == true)
+        assertFalse(lesson.successLooksLike.contains("report green", ignoreCase = true))
+    }
+
+    @Test
     fun `tuning mission is offline project backed and separates review from hardware validation`() {
         val lesson = LearningCatalog.lesson("tuning-evidence") ?: error("Missing tuning mission")
 

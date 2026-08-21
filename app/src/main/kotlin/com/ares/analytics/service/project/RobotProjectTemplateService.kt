@@ -171,6 +171,7 @@ class RobotProjectTemplateService(
             val (archive, source) = obtainVerifiedArchive(initialPlan.template, onProgress)
             onProgress("Unpacking the starter into a protected staging folder…")
             extractArchive(archive, staging)
+            validateTemplateAresVersion(staging, initialPlan.template)
             personalizeProject(staging, request, initialPlan.template)
 
             ProjectLayout.validationError(staging.path, request.league)?.let { validationError -> error(validationError) }
@@ -262,6 +263,36 @@ class RobotProjectTemplateService(
             deploymentPolicy = template.deploymentPolicy,
         )
         writeTextAtomically(File(root, ".ares/template-provenance.json"), PROJECT_TEMPLATE_JSON.encodeToString(provenance))
+    }
+
+    private fun validateTemplateAresVersion(root: File, template: RobotProjectTemplate) {
+        val propertiesVersion = File(root, "gradle.properties")
+            .takeIf(File::isFile)
+            ?.useLines { lines ->
+                lines.map(String::trim)
+                    .firstOrNull { line -> line.startsWith("aresVersion=") }
+                    ?.substringAfter('=')
+                    ?.trim()
+                    ?.takeIf(String::isNotBlank)
+            }
+        val buildVersion = if (propertiesVersion == null) {
+            val pattern = Regex(
+                """gradleProperty\s*\(\s*['\"]aresVersion['\"]\s*\)\s*\.getOrElse\s*\(\s*['\"]([^'\"]+)['\"]\s*\)""",
+            )
+            sequenceOf(File(root, "build.gradle"), File(root, "build.gradle.kts"))
+                .filter(File::isFile)
+                .mapNotNull { file -> pattern.find(file.readText())?.groupValues?.get(1) }
+                .firstOrNull()
+        } else {
+            null
+        }
+        val declaredVersion = propertiesVersion ?: buildVersion
+        check(declaredVersion != null) {
+            "The reviewed starter does not declare its ARES dependency version."
+        }
+        check(declaredVersion == template.aresVersion) {
+            "The reviewed starter declares ARES $declaredVersion, but its pinned template requires ${template.aresVersion}."
+        }
     }
 
     /**
@@ -390,22 +421,22 @@ class RobotProjectTemplateService(
 
         val OFFICIAL_PROJECT_TEMPLATES: List<RobotProjectTemplate> = listOf(
             RobotProjectTemplate(
-                id = "ares-ftc-9.4.0",
+                id = "ares-ftc-9.6.0",
                 displayName = "ARES FTC",
                 league = League.FTC,
-                aresVersion = "9.4.0",
-                revision = "c608fc1436e1fa845f7cdf73ba55467e410e0f45",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FTC/archive/c608fc1436e1fa845f7cdf73ba55467e410e0f45.zip",
-                archiveSha256 = "45997a9650330776d3c9317bf70b80b838ab666314cb8deb66700ae99e051df7",
+                aresVersion = "9.6.0",
+                revision = "1a3458ac7d3cc99280658fe136aec6e3101842cb",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FTC/archive/1a3458ac7d3cc99280658fe136aec6e3101842cb.zip",
+                archiveSha256 = "a0a606a18a0ed92ae23b74f7b1284d8d6b8b9df38a54f73ed21770f9211ba856",
             ),
             RobotProjectTemplate(
-                id = "ares-frc-9.4.0",
+                id = "ares-frc-9.6.0",
                 displayName = "ARES FRC",
                 league = League.FRC,
-                aresVersion = "9.4.0",
-                revision = "2c78513e3e39fa89b267871fc020fa4ed6b54b7f",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FRC/archive/2c78513e3e39fa89b267871fc020fa4ed6b54b7f.zip",
-                archiveSha256 = "dd080cdee3d76b4537de9ddb0ca3cd4d09669f6006ef7b22dca949116212f7be",
+                aresVersion = "9.6.0",
+                revision = "8c3ab98c86c459d3d842fc846f4740114cc55b6c",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FRC/archive/8c3ab98c86c459d3d842fc846f4740114cc55b6c.zip",
+                archiveSha256 = "80039b3a5fb182b27795355f9817d2d7e9d3a4e89142048c808635ac481be0b9",
             ),
         )
 

@@ -222,6 +222,8 @@ internal fun evaluateRobotStudioStages(
         evidence.controlErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
         evidence.controlSchemeCount == 0 && evidence.controllerProfileCount == 0 -> RobotStudioStageStatus.OPTIONAL
         evidence.controlSchemeCount == 0 || evidence.controllerProfileCount == 0 -> RobotStudioStageStatus.NEEDS_ACTION
+        evidence.controlSafetyActionCount > evidence.controlBoundSafetyActionCount -> RobotStudioStageStatus.NEEDS_ACTION
+        evidence.controlTeleopActionCount > 0 && evidence.controlBoundActionCount == 0 -> RobotStudioStageStatus.NEEDS_ACTION
         else -> RobotStudioStageStatus.READY
     }
     val tuningStatus = when {
@@ -372,7 +374,13 @@ internal fun evaluateRobotStudioStages(
             when (controlsStatus) {
                 RobotStudioStageStatus.READY -> "${evidence.controlSchemeCount} control scheme(s) and ${evidence.controllerProfileCount} controller profile(s) loaded."
                 RobotStudioStageStatus.OPTIONAL -> "The reviewed season project supplies safe baseline driving controls. Add GUI bindings when you want controller buttons to run named mechanism actions or auto-routines."
-                else -> "A controller profile and control scheme must be created together; finish or remove the incomplete pair."
+                else -> when {
+                    evidence.controlSchemeCount == 0 || evidence.controllerProfileCount == 0 ->
+                        "A controller profile and control scheme must be created together; finish or remove the incomplete pair."
+                    evidence.controlSafetyActionCount > evidence.controlBoundSafetyActionCount ->
+                        "${evidence.controlBoundSafetyActionCount} of ${evidence.controlSafetyActionCount} safety/recovery actions are directly reachable. Bind the remaining safety actions before relying on TeleOp recovery."
+                    else -> "${evidence.controlBoundActionCount} of ${evidence.controlTeleopActionCount} TeleOp actions are directly reachable. Add at least one mechanism or safety binding."
+                }
             },
             evidence.controlErrors,
             ".ares/controllers/*.arescontroller and .ares/controls/*.arescontrols",

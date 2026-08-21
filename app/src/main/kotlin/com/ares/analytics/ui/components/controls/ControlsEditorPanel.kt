@@ -192,6 +192,7 @@ fun ControlsEditorPanel(
                     Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    CapabilityCoverageCard(state, viewModel)
                     BindingList(state, viewModel)
                     BindingLearningTraceCard(state)
                     ProblemsCard(state)
@@ -248,6 +249,74 @@ fun ControlsEditorPanel(
             onDismiss = { showKeymapSummary = false },
             rawMarkdownGenerator = { generateKeymapMarkdown(state) },
         )
+    }
+}
+
+@Composable
+private fun CapabilityCoverageCard(state: ControlsEditorState, viewModel: ControlsEditorViewModel) {
+    val coverage = state.coverage
+    var expanded by remember(state.selectedSchemeId) { mutableStateOf(coverage.missingSafetyActions.isNotEmpty()) }
+    Column(cardModifier(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("TeleOp capability reachability", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                Text(
+                    "${coverage.boundCount} of ${coverage.totalCount} catalog actions have a direct enabled binding in this scheme.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                )
+            }
+            IconButton(onClick = { expanded = !expanded }) {
+                Icon(
+                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    if (expanded) "Collapse missing capabilities" else "Expand missing capabilities",
+                    tint = AresCyan,
+                )
+            }
+        }
+        if (coverage.missingSafetyActions.isNotEmpty()) {
+            Text(
+                "${coverage.missingSafetyActions.size} safety/recovery action${if (coverage.missingSafetyActions.size == 1) " is" else "s are"} not directly reachable.",
+                color = AresGold,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Text(
+            "Choose a controller button first. Bind opens a normal draft for review; it never changes the project automatically.",
+            color = AresTextTertiary,
+            fontSize = 10.sp,
+        )
+        if (expanded) {
+            val missing = (coverage.missingSafetyActions + coverage.missingActions)
+                .distinctBy { it.key }
+                .take(6)
+            if (missing.isEmpty()) {
+                Text("Every TeleOp catalog action is directly reachable in this scheme.", color = AresGreen, fontSize = 11.sp)
+            } else {
+                missing.forEach { action ->
+                    Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(action.displayName, color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text("${action.category} · ${action.key}", color = AresTextSecondary, fontSize = 9.sp)
+                        }
+                        OutlinedButton(onClick = { viewModel.createBindingForAction(action.key) }) {
+                            Text(
+                                state.selectedControl?.let { "Bind to ${it.displayName}" } ?: "Choose button",
+                                fontSize = 10.sp,
+                            )
+                        }
+                    }
+                }
+                if (coverage.missingActions.size > missing.size) {
+                    Text(
+                        "+ ${coverage.missingActions.size - missing.size} more; use the action picker or search to bind them.",
+                        color = AresTextSecondary,
+                        fontSize = 10.sp,
+                    )
+                }
+            }
+        }
     }
 }
 

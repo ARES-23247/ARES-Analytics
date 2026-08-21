@@ -54,6 +54,11 @@ import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlin.time.TimeMark
+import kotlin.time.TimeSource
+
+internal const val ARES_TELEMETRY_HEARTBEAT_TOPIC = "ARES/Telemetry/FrameSequence"
+internal const val HARDWARE_READINESS_HEARTBEAT_TIMEOUT_MS = 1_500L
 
 internal enum class SelfTestStatus {
     WAITING,
@@ -78,7 +83,8 @@ internal data class SelfTestStep(
  */
 internal fun evaluateHardwareReadiness(
     connected: Boolean,
-    frames: Map<String, TelemetryFrame>
+    frames: Map<String, TelemetryFrame>,
+    heartbeatAgeMs: Long?,
 ): List<SelfTestStep> {
     data class Definition(val id: String, val name: String, val description: String)
     val definitions = listOf(
@@ -111,6 +117,16 @@ internal fun evaluateHardwareReadiness(
         battery == null || !battery.isFinite() -> waiting(batteryDefinition, "No finite battery-voltage topic received.")
         battery < 11.5 -> warning(batteryDefinition, "${"%.2f".format(battery)} V observed; charge or inspect the battery before a match.")
         else -> observed(batteryDefinition, "${"%.2f".format(battery)} V observed.")
+    }
+    if (heartbeatAgeMs == null || heartbeatAgeMs !in 0L..HARDWARE_READINESS_HEARTBEAT_TIMEOUT_MS) {
+        val details = if (heartbeatAgeMs == null) {
+            "The network socket is connected, but no ARES telemetry-loop heartbeat has arrived."
+        } else {
+            "The last ARES telemetry-loop heartbeat is ${heartbeatAgeMs} ms old. Treat displayed values as stale."
+        }
+        return definitions.map { definition ->
+            SelfTestStep(definition.id, definition.name, definition.description, SelfTestStatus.WAITING, details)
+        }
     }
 
     listOf("fl" to definitions[1], "fr" to definitions[2], "rl" to definitions[3], "rr" to definitions[4]).forEach { (name, definition) ->
@@ -157,11 +173,27 @@ internal fun evaluateHardwareReadiness(
 @Composable
 fun HardwareSelfTestWizard(nt4ClientService: Nt4ClientService) {
     val connected by nt4ClientService.isConnected.collectAsState()
-    var steps by remember { mutableStateOf(evaluateHardwareReadiness(connected, nt4ClientService.latestValues)) }
+    var lastHeartbeatReceipt by remember { mutableStateOf<TimeMark?>(null) }
+    var streamLive by remember { mutableStateOf(false) }
+    var steps by remember { mutableStateOf(evaluateHardwareReadiness(connected, nt4ClientService.latestValues, null)) }
+
+    LaunchedEffect(nt4ClientService) {
+        nt4ClientService.uiTelemetryFlow.collect { frame ->
+            if (frame.key == ARES_TELEMETRY_HEARTBEAT_TOPIC) {
+                lastHeartbeatReceipt = TimeSource.Monotonic.markNow()
+            }
+        }
+    }
 
     LaunchedEffect(connected, nt4ClientService) {
+        if (!connected) {
+            lastHeartbeatReceipt = null
+            streamLive = false
+        }
         while (isActive) {
-            steps = evaluateHardwareReadiness(connected, nt4ClientService.latestValues)
+            val heartbeatAgeMs = lastHeartbeatReceipt?.elapsedNow()?.inWholeMilliseconds
+            streamLive = connected && heartbeatAgeMs != null && heartbeatAgeMs <= HARDWARE_READINESS_HEARTBEAT_TIMEOUT_MS
+            steps = evaluateHardwareReadiness(connected, nt4ClientService.latestValues, heartbeatAgeMs)
             delay(250)
         }
     }
@@ -186,9 +218,20 @@ fun HardwareSelfTestWizard(nt4ClientService: Nt4ClientService) {
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusPill(if (connected) "CONNECTED" else "OFFLINE", if (connected) AresGreen else AresRed)
+                        StatusPill(
+                            when {
+                                !connected -> "OFFLINE"
+                                streamLive -> "STREAM LIVE"
+                                else -> "STREAM STALE"
+                            },
+                            if (streamLive) AresGreen else AresRed,
+                        )
                         StatusPill("$observedCount/${steps.size} CONFIRMED", AresCyan)
-                        IconButton(onClick = { steps = evaluateHardwareReadiness(connected, nt4ClientService.latestValues) }) {
+                        IconButton(onClick = {
+                            val heartbeatAgeMs = lastHeartbeatReceipt?.elapsedNow()?.inWholeMilliseconds
+                            streamLive = connected && heartbeatAgeMs != null && heartbeatAgeMs <= HARDWARE_READINESS_HEARTBEAT_TIMEOUT_MS
+                            steps = evaluateHardwareReadiness(connected, nt4ClientService.latestValues, heartbeatAgeMs)
+                        }) {
                             Icon(Icons.Default.Refresh, "Refresh readiness signals", tint = AresTextSecondary)
                         }
                     }
