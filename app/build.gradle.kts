@@ -421,6 +421,29 @@ tasks.register<Test>("dashboardSoak") {
     }
 }
 
+tasks.register<Test>("simulatorControlSoak") {
+    group = "verification"
+    description = "Runs a required wall-clock Analytics -> NT4 -> FTC simulator control soak with JFR. Start :TeamCode:runSim first."
+    maxParallelForks = 1
+    maxHeapSize = "2g"
+    outputs.upToDateWhen { false }
+    systemProperty("java.awt.headless", "true")
+    systemProperty("ares.simSoak.required", "true")
+    systemProperty("ares.simSoak.seconds", providers.gradleProperty("simSoak.seconds").orElse("3600").get())
+    listOf("host", "port", "opMode").forEach { name ->
+        providers.gradleProperty("simSoak.$name").orNull?.let { value ->
+            systemProperty("ares.simSoak.$name", value)
+        }
+    }
+    val jfrDirectory = layout.buildDirectory.dir("reports/simulator-control-soak").get().asFile
+    jfrDirectory.mkdirs()
+    val jfrPath = jfrDirectory.resolve("analytics-control-soak.jfr").absolutePath.replace('\\', '/')
+    jvmArgs("-XX:StartFlightRecording=filename=$jfrPath,settings=default,dumponexit=true,maxsize=256m")
+    filter {
+        includeTestsMatching("com.ares.analytics.service.SimulatorControlSoakTest")
+    }
+}
+
 tasks.register<Test>("dashboardPerformanceBaseline") {
     configureDashboardValidation("baseline")
     description = "Compares the generated smoke report with the checked-in performance baseline."

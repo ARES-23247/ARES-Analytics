@@ -12,7 +12,12 @@ import java.math.RoundingMode
 import java.io.BufferedReader
 import java.io.Closeable
 import java.io.File
+import java.io.FileInputStream
+import java.io.FilterInputStream
+import java.io.InputStream
+import java.io.InputStreamReader
 import java.io.Reader
+import java.util.zip.GZIPInputStream
 
 /**
  * Service for decoding CSV-formatted telemetry log files into DuckDB database frames.
@@ -120,10 +125,13 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
     suspend fun parseCsvLogNative(file: File, sessionId: String) {
         require(file.isFile) { "CSV log does not exist: ${file.absolutePath}" }
         require(file.length() in 1L..MAX_CSV_BYTES) { "CSV log size is outside the supported range" }
+        require(!file.name.endsWith(".gz", ignoreCase = true)) {
+            "Compressed CSV logs use the bounded streaming importer"
+        }
         val absolutePath = file.absolutePath.replace("\\", "/").replace("'", "''")
 
         // Detect the timestamp column name from the header
-        val headers = BoundedCsvReader(file.bufferedReader(Charsets.UTF_8)).use { it.readRecord() }
+        val headers = boundedCsvReader(file).use { it.readRecord() }
             ?: throw IllegalArgumentException("CSV log ${file.name} is empty")
         if (detectSchema(headers, file.name) == CsvSchema.CANONICAL_LONG) {
             parseCanonicalLongFormNative(file, sessionId, absolutePath)
@@ -264,7 +272,7 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
         require(file.isFile && file.length() in 1L..MAX_CSV_BYTES) {
             "CSV log size is outside the supported range"
         }
-        BoundedCsvReader(file.bufferedReader(Charsets.UTF_8)).use { reader ->
+        boundedCsvReader(file).use { reader ->
             val headers = reader.readRecord()?.map { it.trim() } ?: return
             require(detectSchema(headers, file.name) == CsvSchema.WIDE) {
                 "Canonical lossless CSV must be imported through parseCsvLogNative"
@@ -439,6 +447,45 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
             "CSV timestamp is outside the supported domain"
         }
         return timestampUs / 1_000L to timestampUs
+    }
+
+    /** Opens plain or gzip CSV through the same decompressed-byte and record-size bounds. */
+    private fun boundedCsvReader(file: File): BoundedCsvReader {
+        require(file.isFile) { "CSV log does not exist: ${file.absolutePath}" }
+        require(file.length() in 1L..MAX_CSV_BYTES) { "CSV log size is outside the supported range" }
+        val raw = FileInputStream(file)
+        val decoded: InputStream = try {
+            if (file.name.endsWith(".csv.gz", ignoreCase = true)) GZIPInputStream(raw, 64 * 1024) else raw
+        } catch (failure: Throwable) {
+            raw.close()
+            throw failure
+        }
+        val bounded = ExpandedSizeInputStream(decoded, MAX_CSV_BYTES)
+        return BoundedCsvReader(InputStreamReader(bounded, Charsets.UTF_8))
+    }
+
+    private class ExpandedSizeInputStream(
+        input: InputStream,
+        private val limit: Long
+    ) : FilterInputStream(input) {
+        private var count = 0L
+
+        override fun read(): Int {
+            val value = super.read()
+            if (value >= 0) record(1L)
+            return value
+        }
+
+        override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+            val read = super.read(bytes, offset, length)
+            if (read > 0) record(read.toLong())
+            return read
+        }
+
+        private fun record(bytes: Long) {
+            count = Math.addExact(count, bytes)
+            require(count <= limit) { "Expanded CSV exceeds the ${limit / (1024L * 1024L)} MiB safety limit" }
+        }
     }
 
     private class BoundedCsvReader(reader: Reader) : Closeable {

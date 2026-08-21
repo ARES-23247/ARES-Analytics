@@ -65,6 +65,13 @@ and suppresses unchanged values. The field viewer therefore stages `ARES/Simulat
 commits once at its changing final sequence element. A coordinate or heading is not a valid frame
 marker. The viewer must not expose intermediate simulator scalars or replace the EKF with truth.
 
+For `live-telemetry` persistence, Analytics records the packed frame on a monotonic laptop receipt
+timeline while preserving the source timestamp in the live transport state. This is intentional:
+an NT4 retained sample can predate the current connection, and a simulator clock can restart at
+zero. Neither event may stretch a newly opened rewind timeline. Replay owns the field pose while it
+is active; live packed frames resume ownership only after the replay boundary resets the frame
+accumulator.
+
 ## Drive and estimator diagnostics
 
 | Topic | Type | Meaning |
@@ -94,6 +101,24 @@ Do not derive “drift” summary metrics from every key containing `EKF`; pose 
 | `Diagnostics/Power/BrownoutCount` | `double` | cumulative trip count |
 
 Summary code treats only explicit battery-voltage topics as battery voltage. Per-motor voltage is not a battery minimum.
+
+### Robot logging health
+
+| Topic | Type | Meaning |
+| --- | --- | --- |
+| `Diagnostics/Logging/Profile` | `string` | `COMPETITION`, `SIMULATION`, or `FORENSIC` |
+| `Diagnostics/Logging/AcceptedFrames` | `double` | cumulative frames accepted by the bounded queue |
+| `Diagnostics/Logging/WrittenFrames` | `double` | cumulative frames durably written |
+| `Diagnostics/Logging/DroppedFrames` | `double` | cumulative frames rejected or lost after a sink failure |
+| `Diagnostics/Logging/QueueDepth` | `double` | current asynchronous writer queue depth |
+| `Diagnostics/Logging/CurrentFileBytes` | `double` | compressed bytes in the active file |
+| `Diagnostics/Logging/CompletedBytes` | `double` | compressed bytes finalized during this logger lifetime |
+| `Diagnostics/Logging/Rotations` | `double` | completed automatic file rotations |
+| `Diagnostics/Logging/PrunedFiles` | `double` | completed files removed by retention |
+
+Dashboard health derives log throughput from the change in current plus completed bytes. A rotation
+must therefore not appear as a negative write rate. Drops and a sustained high queue are degraded
+health; a normal size-based rotation is not.
 
 ## Hardware and topology
 

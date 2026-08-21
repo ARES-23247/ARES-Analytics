@@ -133,6 +133,38 @@ class Nt4ClientServiceTest {
     }
 
     @Test
+    fun `live rewind persists receipt time instead of a stale retained source timestamp`() = runBlocking {
+        nt4ClientService.handleIncomingText(
+            """[{"method":"announce","params":{"name":"/Drive/Pose_X","id":10,"type":"double"}}]""",
+            "team-1",
+            "season-1",
+            "robot-1"
+        )
+        nt4ClientService.handleIncomingText(
+            """[{"topic":10,"time":1000000,"value":1.25}]""",
+            "team-1",
+            "season-1",
+            "robot-1"
+        )
+        assertTrue(nt4ClientService.flushPendingFrames())
+
+        val persisted = databaseService.getTelemetryForKey(
+            Nt4ClientService.LIVE_SESSION_ID,
+            "Drive/Pose_X"
+        ).single()
+        val receiptAgeMs = System.currentTimeMillis() - persisted.timestampMs
+        assertTrue(
+            persisted.timestampMs > 1_000_000_000_000L,
+            "Live persistence kept the stale source timestamp ${persisted.timestampMs}"
+        )
+        assertTrue(
+            receiptAgeMs in 0L..5_000L,
+            "Live persistence receipt time is outside the test window: age=$receiptAgeMs ms"
+        )
+        assertEquals(1.25, persisted.value)
+    }
+
+    @Test
     /**
      * testArrayValueDataUpdate fun.
      */

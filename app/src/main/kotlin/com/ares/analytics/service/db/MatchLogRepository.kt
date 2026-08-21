@@ -407,13 +407,11 @@ class MatchLogRepository(
         val previousAutoCommit = targetConn.autoCommit
         if (previousAutoCommit) targetConn.autoCommit = false
         try {
-            if (targetConn === conn) {
-                // Use DuckDB Appender for persistent storage — bypasses SQL parser entirely
-                insertTelemetryFramesAppender(frames)
-            } else {
-                // Ephemeral connection (live telemetry) uses JDBC batch for INSERT OR REPLACE
-                insertTelemetryFramesJdbc(targetConn, frames)
-            }
+            // Both persistent imports and the ephemeral live timeline are append-only. The schema
+            // includes sample_order in its identity, so repeated source timestamps remain distinct
+            // without INSERT OR REPLACE. Using the native Appender avoids thousands of parsed JDBC
+            // transactions during dense simulator sessions.
+            insertTelemetryFramesAppender(targetConn, frames)
             if (previousAutoCommit) targetConn.commit()
         } catch (e: Exception) {
             if (previousAutoCommit) runCatching { targetConn.rollback() }
@@ -431,8 +429,8 @@ class MatchLogRepository(
      * IMPORTANT: Must be called under withDbLock or from a single-writer context.
      * Does not support INSERT OR REPLACE — assumes no duplicate keys (safe for imports).
      */
-    private fun insertTelemetryFramesAppender(frames: List<TelemetryFrame>) {
-        val duckConn = conn.unwrap(DuckDBConnection::class.java)
+    private fun insertTelemetryFramesAppender(targetConn: Connection, frames: List<TelemetryFrame>) {
+        val duckConn = targetConn.unwrap(DuckDBConnection::class.java)
         val appender = duckConn.createAppender(DuckDBConnection.DEFAULT_SCHEMA, "telemetry_frames")
         try {
             for (frame in frames) {
@@ -517,39 +515,6 @@ class MatchLogRepository(
             }
         }
         list
-    }
-
-    /**
-     * JDBC PreparedStatement batch insert with INSERT OR REPLACE.
-     * Used for live-telemetry on the ephemeral connection where deduplication matters.
-     */
-    private fun insertTelemetryFramesJdbc(targetConn: Connection, frames: List<TelemetryFrame>) {
-        targetConn.prepareStatement(
-            """
-                INSERT OR REPLACE INTO telemetry_frames
-                    (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """.trimIndent()
-        ).use { statement ->
-            frames.forEachIndexed { index, frame ->
-                statement.setLong(1, frame.timestampMs)
-                statement.setString(2, frame.sessionId)
-                statement.setString(3, TelemetryMetricCatalog.normalizeTopic(frame.key))
-                statement.setDouble(4, frame.value)
-                if (frame.stringValue == null) {
-                    statement.setNull(5, java.sql.Types.VARCHAR)
-                } else {
-                    statement.setString(5, frame.stringValue)
-                }
-                statement.setLong(6, frame.timestampUs)
-                statement.setLong(7, storageOrder(frame))
-                statement.addBatch()
-
-                // Bound driver-side batch memory during sustained live telemetry.
-                if ((index + 1) % 1_000 == 0) statement.executeBatch()
-            }
-            statement.executeBatch()
-        }
     }
 
     /**

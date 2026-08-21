@@ -118,6 +118,8 @@ open class Nt4ClientService(
     private val databaseService: DatabaseService
 ) {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, e -> e.printStackTrace() })
+    private val liveTimelineEpochUs = System.currentTimeMillis() * 1_000L
+    private val liveTimelineMonotonicOriginNs = System.nanoTime()
     private val _selectedRedAlliance = MutableStateFlow(true)
     /** Dashboard-owned alliance selection; survives view/navigation and NT4 reconnect lifecycles. */
     val selectedRedAlliance: StateFlow<Boolean> = _selectedRedAlliance.asStateFlow()
@@ -224,9 +226,9 @@ open class Nt4ClientService(
         var latestLiveTimestamp: Long? = null
         while (retryFrames.isNotEmpty()) {
             val liveBatch = retryFrames.first().sessionId == LIVE_SESSION_ID
-            val chunk = ArrayList<TelemetryFrame>(100)
+            val chunk = ArrayList<TelemetryFrame>(PERSISTENCE_BATCH_SIZE)
             val iterator = retryFrames.iterator()
-            while (iterator.hasNext() && chunk.size < 100) {
+            while (iterator.hasNext() && chunk.size < PERSISTENCE_BATCH_SIZE) {
                 val frame = iterator.next()
                 if ((frame.sessionId == LIVE_SESSION_ID) != liveBatch) break
                 chunk.add(frame)
@@ -258,6 +260,15 @@ open class Nt4ClientService(
     }
 
     internal suspend fun retainedRetryFrameCount(): Int = flushMutex.withLock { retryFrames.size }
+
+    /**
+     * Live rewind is a laptop-observed session, so its durable timeline uses monotonic receipt
+     * time. Robot/server timestamps can begin at zero, reset across simulator OpModes, or describe
+     * a retained value from before this client connected. Keeping those timestamps in the raw UI
+     * frame is useful, but using them as DuckDB's live timeline creates gaps and broken scrubbing.
+     */
+    private fun liveReceiptTimestampUs(): Long =
+        liveTimelineEpochUs + (System.nanoTime() - liveTimelineMonotonicOriginNs) / 1_000L
 
     internal fun clearLiveTargetState() {
         inboundRouter.clear()
@@ -370,7 +381,7 @@ open class Nt4ClientService(
 
         inboundRouter.markDiscovered(normalizedName, ntTopic.type)
 
-        if (normalizedName == SIMULATOR_POSE_FRAME_TOPIC) {
+        if (normalizedName == SIMULATOR_POSE_FRAME_TOPIC && !isReplayActive.value) {
             decodeSimulatorPoseFrame(valueElement, timestampMs, timestampUs)?.let { frame ->
                 logSimulatorPoseDivergence(frame)
                 _simulatorPoseFrame.value = frame
@@ -430,6 +441,8 @@ open class Nt4ClientService(
             return
         }
 
+        val liveReceiptUs = liveReceiptTimestampUs()
+
         if (valueElement is JsonArray || valueElement is List<*> || valueElement is DoubleArray || valueElement is FloatArray || valueElement is Array<*>) {
             val size = when (valueElement) {
                 is JsonArray -> valueElement.size
@@ -461,14 +474,26 @@ open class Nt4ClientService(
                 sb.setLength(baseLen)
                 val frameKey = sb.append(idx).toString()
                 val frame = sessionMutex.withLock {
+                    val sessionId = _currentSession.value?.sessionId ?: LIVE_SESSION_ID
                     TelemetryFrame(
                         timestampMs = timestampMs,
-                        sessionId = _currentSession.value?.sessionId ?: LIVE_SESSION_ID,
+                        sessionId = sessionId,
                         key = frameKey,
                         value = doubleValue,
                         stringValue = stringValue,
                         timestampUs = timestampUs
-                    ).also { pendingFrames.send(it) }
+                    ).also { sourceFrame ->
+                        pendingFrames.send(
+                            if (sessionId == LIVE_SESSION_ID) {
+                                sourceFrame.copy(
+                                    timestampMs = liveReceiptUs / 1_000L,
+                                    timestampUs = liveReceiptUs
+                                )
+                            } else {
+                                sourceFrame
+                            }
+                        )
+                    }
                 }
                 telemetryStore.accept(frame, notifyConsumers = !isReplayActive.value)
             }
@@ -478,14 +503,26 @@ open class Nt4ClientService(
         // Extract double value and string value
         val (doubleValue, stringValue) = coerceTelemetryValue(valueElement)
         val frame = sessionMutex.withLock {
+            val sessionId = _currentSession.value?.sessionId ?: LIVE_SESSION_ID
             TelemetryFrame(
                 timestampMs = timestampMs,
-                sessionId = _currentSession.value?.sessionId ?: LIVE_SESSION_ID,
+                sessionId = sessionId,
                 key = normalizedName,
                 value = doubleValue,
                 stringValue = stringValue,
                 timestampUs = timestampUs
-            ).also { pendingFrames.send(it) }
+            ).also { sourceFrame ->
+                pendingFrames.send(
+                    if (sessionId == LIVE_SESSION_ID) {
+                        sourceFrame.copy(
+                            timestampMs = liveReceiptUs / 1_000L,
+                            timestampUs = liveReceiptUs
+                        )
+                    } else {
+                        sourceFrame
+                    }
+                )
+            }
         }
         telemetryStore.accept(frame, notifyConsumers = !isReplayActive.value)
     }
@@ -539,7 +576,15 @@ open class Nt4ClientService(
         outboundPublisher.publishBoolean(cleanKey, value)
     }
 
-    suspend fun publishString(key: String, value: String) {
+    /**
+     * Publishes a one-shot string after the NT4 clock handshake makes outbound timestamps valid.
+     *
+     * `isConnected` becomes true as soon as the WebSocket opens, slightly before publisher
+     * declarations and time synchronization finish. Driver-station commands are not periodic, so
+     * silently dropping one in that window can leave the simulator disabled. Retry only while the
+     * same connection remains live, then report the delivery attempt to the caller.
+     */
+    suspend fun publishString(key: String, value: String): Boolean {
         val cleanKey = key.removePrefix("/")
         require(!cleanKey.startsWith("ARES/Input/") || cleanKey in ALLOWED_INPUT_STRING_TOPICS) {
             "ARES/Input controls must use driveFrame; only field-configuration strings are separate"
@@ -551,8 +596,15 @@ open class Nt4ClientService(
             value = 0.0,
             stringValue = value
         )
-        telemetryStore.accept(frame)
-        outboundPublisher.publishString(cleanKey, value)
+        repeat(100) {
+            if (outboundPublisher.publishString(cleanKey, value)) {
+                telemetryStore.accept(frame)
+                return true
+            }
+            if (!isConnected.value) return false
+            delay(20L)
+        }
+        return false
     }
 
     /** Selects the alliance encoded into every subsequent atomic control frame. */
@@ -601,6 +653,7 @@ open class Nt4ClientService(
         private const val MAX_INCOMING_ARRAY_ELEMENTS = 4_096
         private const val SHUTDOWN_FLUSH_ATTEMPTS = 5
         private const val SHUTDOWN_FLUSH_RETRY_MS = 100L
+        private const val PERSISTENCE_BATCH_SIZE = 5_000
         private const val SIMULATOR_POSE_DIVERGENCE_LOG_THRESHOLD_M = 0.05
         private const val SIMULATOR_POSE_DIVERGENCE_LOG_INTERVAL_NS = 500_000_000L
         private val ALLOWED_INPUT_STRING_TOPICS = setOf(

@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit
  *
  * Polling service executing on `Dispatchers.IO` to continuously discover and import new robot log files.
  * Supports FTC Control Hub log pulling via ADB (`adb pull /sdcard/FIRST/logs/` on port 5555) and FRC RoboRIO SCP pulling (`rio@10.TE.AM.2`).
- * Interoperates with [LogParserService] to automatically ingest `.wpilog`, `.rlog`, `.hoot`, `.dslog`, `.revlog`, `.jsonl`, and `.csv` files.
+ * Interoperates with [LogParserService] to automatically ingest `.wpilog`, `.rlog`, `.hoot`, `.dslog`, `.revlog`, `.jsonl`, `.csv`, and `.csv.gz` files.
  *
  * ### Import Pipelines:
  * 1. **Local Disk Watcher**: Scans active workspace project directory for newly created `.jsonl` or `.wpilog` files.
@@ -812,7 +812,7 @@ class AutoImportService(
         private const val TRANSFER_PROCESS_TIMEOUT_MS = 60_000L
         private const val PROCESS_KILL_GRACE_MS = 1_000L
         internal val SUPPORTED_EXTENSIONS = setOf(
-            ".wpilog", ".wpilogxz", ".jsonl", ".csv", ".parquet", ".hoot",
+            ".wpilog", ".wpilogxz", ".jsonl", ".csv.gz", ".csv", ".parquet", ".hoot",
             ".dslog", ".rlog", ".revlog", ".log"
         )
     }

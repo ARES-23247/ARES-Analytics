@@ -183,6 +183,17 @@ class ReplayEngineService(
         stop()
         resetReplayCache()
         currentSessionId = sessionId
+
+        // The live timeline is fed by a lossless asynchronous persistence queue. Loading DuckDB
+        // without first draining that queue can make rewind appear to stop several seconds before
+        // the point where the operator clicked it, especially under dense simulator telemetry.
+        // Treat a successful drain as the commit boundary for a live rewind operation.
+        if (sessionId == Nt4ClientService.LIVE_SESSION_ID && nt4ClientService != null) {
+            check(nt4ClientService.flushPendingFrames()) {
+                "Cannot rewind live telemetry because pending frames could not be persisted"
+            }
+        }
+
         val frameTimestamps = databaseService.getDistinctTimestamps(sessionId)
         val allActions = databaseService.getActionsForSession(sessionId)
         _sessionActions.value = allActions
@@ -360,10 +371,14 @@ class ReplayEngineService(
                 if (!ensureReplayWindow(emitTelemetry, broadcast)) return
             }
 
-            // 1. Calculate progress percent
+            // 1. Calculate progress percent, but publish it only after currentFrame. UI code uses
+            // progress as the visible commit marker; publishing it first lets the slider jump to a
+            // new playhead while widgets still render the previous reconstructed state.
             val totalDuration = endTimestampMs - startTimestampMs
-            if (totalDuration > 0) {
-                _progress.value = (currentPlayheadMs - startTimestampMs).toDouble() / totalDuration.toDouble()
+            val committedProgress = if (totalDuration > 0) {
+                (currentPlayheadMs - startTimestampMs).toDouble() / totalDuration.toDouble()
+            } else {
+                _progress.value
             }
 
             // 2. Fetch or compute the current frame values (all values up to currentPlayheadMs)
@@ -457,6 +472,7 @@ class ReplayEngineService(
             val currentStringValuesMap = stringValuesMap.toMap()
             val frame = ReplayFrame(targetTimestamp, currentValuesMap, currentStringValuesMap)
             _currentFrame.value = frame
+            _progress.value = committedProgress
 
             // 3. Emit individual TelemetryFrame objects for dashboard widget consumption
             if (emitTelemetry) {

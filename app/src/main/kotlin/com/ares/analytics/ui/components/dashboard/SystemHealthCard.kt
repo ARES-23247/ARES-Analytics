@@ -160,6 +160,18 @@ fun SystemHealthCard(
                     RuntimeMetric("RECONNECTS", runtimeHealth.reconnects.toString())
                     RuntimeMetric("DROPS", runtimeHealth.droppedFrames.toString())
                 }
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    RuntimeMetric("LOG PROFILE", runtimeHealth.robotLogProfile)
+                    RuntimeMetric("LOG FILE", formatRuntimeBytes(runtimeHealth.robotLogCurrentFileBytes))
+                    RuntimeMetric("LOG RATE", "${formatRuntimeBytes(runtimeHealth.robotLogBytesPerSecond.toLong())}/s")
+                    RuntimeMetric("LOG QUEUE", runtimeHealth.robotLogQueueDepth.toString())
+                    RuntimeMetric("LOG DROPS", runtimeHealth.robotLogDroppedFrames.toString())
+                    RuntimeMetric("LOG PRUNED", runtimeHealth.robotLogPrunedFiles.toString())
+                }
             }
         }
     }
@@ -170,5 +182,11 @@ private fun RuntimeMetric(label: String, value: String) {
         Text(label, color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
         Text(value, color = AresCyan, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
     }
+}
+
+private fun formatRuntimeBytes(bytes: Long): String = when {
+    bytes >= 1024L * 1024L -> "%.1f MiB".format(bytes / (1024.0 * 1024.0))
+    bytes >= 1024L -> "%.1f KiB".format(bytes / 1024.0)
+    else -> "$bytes B"
 }
 

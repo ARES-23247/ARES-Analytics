@@ -217,6 +217,15 @@ class FieldTopicSubscriber(
             }
         }
 
+        // Live simulator poses arrive atomically through simulatorPoseFrame, while replay persists
+        // and emits the ten flattened array elements. Reset source ownership at each mode boundary
+        // so live frames cannot overwrite rewind and replay frames are not rejected as legacy data.
+        scope.launch {
+            nt4ClientService.isReplayActive.collect {
+                poseAccumulator.reset()
+            }
+        }
+
         // The parent double[] is decoded before it is flattened onto the lossy global telemetry
         // bus. Consuming this StateFlow prevents startup bursts from dropping one array element
         // and committing a new sequence marker with an older staged coordinate.

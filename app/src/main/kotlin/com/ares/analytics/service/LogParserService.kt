@@ -23,7 +23,7 @@ import java.util.UUID
  * ### Supported Formats:
  * - `.wpilog` / `.rlog` / `.revlog`: WPILib, AdvantageKit, REV binary logs
  * - `.jsonl`: Line-delimited JSON Redux action and telemetry streams
- * - `.csv`: Wide or long tabular CSV log recordings
+ * - `.csv` / `.csv.gz`: Wide or long tabular CSV log recordings
  * - `.parquet`: Native columnar telemetry backups with timestamp/key/value columns
  *
  * ### Thread Safety & Performance Guarantees:
@@ -139,6 +139,9 @@ class LogParserService(
                 } else {
                     jsonlDecoder.parseJsonlLog(file, sessionId, batcher)
                 }
+            }
+            lowerName.endsWith(".csv.gz") -> {
+                csvLogDecoder.parseCsvLogStreaming(file, sessionId, batcher)
             }
             lowerName.endsWith(".csv") -> {
                 databaseService.insertSession(session)
@@ -308,7 +311,7 @@ class LogParserService(
                         jsonlDecoder.parseJsonlLog(file, sessionId, batcher)
                     }
                 }
-                lowerName.endsWith(".csv") -> {
+                lowerName.endsWith(".csv.gz") || lowerName.endsWith(".csv") -> {
                     // Native CSV import numbers duplicate samples from zero for each file.
                     // Multi-file sessions instead share this streaming batcher so overlapping
                     // timestamp/topic samples receive repository-wide stable storage order.
@@ -383,6 +386,7 @@ class LogParserService(
             name.startsWith("action_log_") && name.endsWith(".jsonl") -> "action-jsonl"
             name.endsWith(".wpilog") -> "wpilog"
             name.endsWith(".jsonl") -> "jsonl"
+            name.endsWith(".csv.gz") -> "csv-gzip"
             name.endsWith(".csv") -> "csv"
             name.endsWith(".parquet") -> "parquet"
             name.endsWith(".dslog") || name.endsWith(".dsevents") -> "driver-station"

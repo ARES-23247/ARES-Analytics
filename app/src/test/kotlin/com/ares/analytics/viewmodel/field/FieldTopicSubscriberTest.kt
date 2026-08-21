@@ -106,6 +106,74 @@ class FieldTopicSubscriberTest {
     }
 
     @Test
+    fun `simulator rewind owns field pose until returning to realtime`() = runTest {
+        val databaseFile = File.createTempFile("field-simulator-rewind", ".duckdb")
+        val database = DatabaseService(databaseFile.absolutePath)
+        val nt4 = Nt4ClientService(database)
+        try {
+            val state = MutableStateFlow(FieldViewerState())
+            val livePose = MutableStateFlow(LivePoseState())
+            FieldTopicSubscriber(nt4, backgroundScope, state, livePose, UnconfinedTestDispatcher(testScheduler))
+            runCurrent()
+
+            nt4.handleIncomingText(
+                """[{"method":"announce","params":{"name":"/ARES/SimulatorPoseFrame","id":40,"type":"double[]"}}]""",
+                "team", "season", "robot"
+            )
+            nt4.handleIncomingText(
+                """[{"topic":40,"time":123000,"value":[5.0,6.0,0.3,5.1,6.1,0.31,4.9,5.9,0.29,42.0]}]""",
+                "team", "season", "robot"
+            )
+            runCurrent()
+            assertEquals(5.0, livePose.value.trueX)
+            assertEquals(5.1, livePose.value.ekfX)
+
+            nt4.isReplayActive.value = true
+            runCurrent()
+            val replayValues = doubleArrayOf(1.0, 2.0, -0.2, 1.1, 2.1, -0.19, 0.9, 1.9, -0.21, 7.0)
+            replayValues.forEachIndexed { index, value ->
+                nt4.emitReplayFrame(
+                    com.ares.analytics.shared.TelemetryFrame(
+                        timestampMs = 1000L,
+                        sessionId = "replay",
+                        key = "ARES/SimulatorPoseFrame/$index",
+                        value = value
+                    )
+                )
+            }
+            runCurrent()
+            assertEquals(1.0, livePose.value.trueX)
+            assertEquals(2.0, livePose.value.trueY)
+            assertEquals(1.1, livePose.value.ekfX)
+            assertEquals(0.9, livePose.value.odomX)
+
+            // Fresh network traffic continues to be persisted while rewinding, but it must not
+            // seize the displayed field pose from replay.
+            nt4.handleIncomingText(
+                """[{"topic":40,"time":124000,"value":[9.0,9.0,0.9,9.1,9.1,0.91,8.9,8.9,0.89,43.0]}]""",
+                "team", "season", "robot"
+            )
+            runCurrent()
+            assertEquals(1.0, livePose.value.trueX)
+            assertEquals(1.1, livePose.value.ekfX)
+
+            nt4.isReplayActive.value = false
+            runCurrent()
+            nt4.handleIncomingText(
+                """[{"topic":40,"time":125000,"value":[9.0,9.0,0.9,9.1,9.1,0.91,8.9,8.9,0.89,44.0]}]""",
+                "team", "season", "robot"
+            )
+            runCurrent()
+            assertEquals(9.0, livePose.value.trueX)
+            assertEquals(9.1, livePose.value.ekfX)
+        } finally {
+            nt4.stop()
+            database.closeAndJoin()
+            databaseFile.delete()
+        }
+    }
+
+    @Test
     fun `field reducer rejects unrelated high-rate telemetry before state work`() {
         assertTrue(isFieldViewerTopic("ARES/TruePose/0"))
         assertTrue(isFieldViewerTopic("Vision/PoseArray/3"))
