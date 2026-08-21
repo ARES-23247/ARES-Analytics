@@ -328,6 +328,9 @@ private fun HardwareItemCard(item: HardwareInventoryItem) {
             }
             Text("${item.ownerDisplayName} · ${item.role}", color = AresTextSecondary, fontSize = 12.sp)
             Text(item.addressDescription, color = AresTextPrimary, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+            item.configurationDetails.forEach { detail ->
+                Text("• $detail", color = AresTextSecondary, fontSize = 11.sp, lineHeight = 16.sp)
+            }
             Text(
                 when (item.addressKind) {
                     com.ares.analytics.service.hardware.HardwareAddressKind.FTC_HARDWARE_MAP ->
@@ -337,6 +340,8 @@ private fun HardwareItemCard(item: HardwareInventoryItem) {
                         "Set this device to ${item.addressDescription}; CAN IDs must be unique on each bus."
                     com.ares.analytics.service.hardware.HardwareAddressKind.PWM -> "Connect this device to ${item.addressDescription}."
                     com.ares.analytics.service.hardware.HardwareAddressKind.I2C -> "Confirm the configured I²C device and address match ${item.addressDescription}."
+                    com.ares.analytics.service.hardware.HardwareAddressKind.SPI -> "Confirm the onboard SPI device is present and its orientation matches the robot descriptor."
+                    com.ares.analytics.service.hardware.HardwareAddressKind.PNEUMATICS -> "Match both the pneumatics module CAN ID/type and solenoid channel shown in ${item.addressDescription}."
                     com.ares.analytics.service.hardware.HardwareAddressKind.DIO,
                     com.ares.analytics.service.hardware.HardwareAddressKind.ANALOG,
                     com.ares.analytics.service.hardware.HardwareAddressKind.UNKNOWN -> "Match the controller configuration to ${item.addressDescription}."

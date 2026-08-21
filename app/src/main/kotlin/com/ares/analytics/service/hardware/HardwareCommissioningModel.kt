@@ -29,6 +29,9 @@ data class HardwareCommissioningPlan(
                 append(item.address.ifBlank { "NOT CONFIGURED" })
                 append(" (").append(item.role).append(')')
                 appendLine()
+                item.configurationDetails.forEach { detail ->
+                    append("    • ").appendLine(detail)
+                }
             }
             if (ftcMotorChecks.isNotEmpty()) {
                 appendLine()

@@ -38,6 +38,7 @@ import com.ares.analytics.viewmodel.SubsystemBuilderStage
 import com.ares.analytics.viewmodel.SubsystemGeneratorState
 import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
 import com.areslib.subsystem.SubsystemDocument
+import com.areslib.subsystem.supportsPlatform
 
 /** Modular visual editor for project-backed subsystem DSL documents and generated Kotlin. */
 @Composable
@@ -306,6 +307,7 @@ fun SubsystemGeneratorScreen(
             if (state.showTemplatePicker) {
                 SubsystemTemplatePickerDialog(
                     currentTemplate = doc.template,
+                    platform = doc.platform,
                     onApplyTemplate = { tpl ->
                         viewModel.applyTemplate(tpl)
                         viewModel.setTemplatePickerVisible(false)
@@ -474,6 +476,7 @@ private fun SubsystemAiProposalDialog(
 @Composable
 private fun SubsystemTemplatePickerDialog(
     currentTemplate: com.areslib.subsystem.SubsystemTemplate,
+    platform: com.areslib.subsystem.SubsystemPlatform,
     onApplyTemplate: (com.areslib.subsystem.SubsystemTemplate) -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -498,7 +501,10 @@ private fun SubsystemTemplatePickerDialog(
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                com.ares.analytics.viewmodel.subsystemTemplateOptions.groupBy { it.category }.forEach { (category, options) ->
+                com.ares.analytics.viewmodel.subsystemTemplateOptions
+                    .filter { it.template.supportsPlatform(platform) }
+                    .groupBy { it.category }
+                    .forEach { (category, options) ->
                     Text(category.uppercase(), color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     options.forEach { tplOption ->
                     val isSelected = pendingTemplate == tplOption.template

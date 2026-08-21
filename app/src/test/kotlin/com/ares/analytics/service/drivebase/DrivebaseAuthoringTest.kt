@@ -40,6 +40,22 @@ class DrivebaseAuthoringTest {
         assertEquals(DrivebaseRuntimeSupport.CODE_REQUIRED, DrivebaseKind.DIFFERENTIAL.runtimeSupport(League.FTC))
         assertEquals(DrivebaseRuntimeSupport.CODE_REQUIRED, DrivebaseKind.CUSTOM.runtimeSupport(League.FRC))
         assertEquals(DrivebaseRuntimeSupport.UNAVAILABLE_FOR_LEAGUE, DrivebaseKind.FRC_CTRE_SWERVE.runtimeSupport(League.FTC))
+        assertEquals(
+            listOf(DrivebaseKind.FTC_MECANUM),
+            visibleDrivebaseKinds(League.FTC, advanced = false, selected = DrivebaseKind.FTC_MECANUM),
+        )
+        assertEquals(
+            listOf(DrivebaseKind.FRC_CTRE_SWERVE, DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM),
+            visibleDrivebaseKinds(League.FRC, advanced = true, selected = DrivebaseKind.FRC_CTRE_SWERVE),
+        )
+        assertTrue(
+            DrivebaseKind.DIFFERENTIAL in visibleDrivebaseKinds(
+                League.FTC,
+                advanced = false,
+                selected = DrivebaseKind.DIFFERENTIAL,
+            ),
+            "An already-open advanced draft must stay visible when Advanced is switched off",
+        )
     }
 
     @Test

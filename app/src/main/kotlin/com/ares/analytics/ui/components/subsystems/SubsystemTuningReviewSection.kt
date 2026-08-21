@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.SubsystemGeneratorState
 import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
+import com.ares.analytics.viewmodel.SubsystemBuilderStage
 import com.ares.analytics.viewmodel.SubsystemProblemSeverity
 import com.areslib.codegen.SubsystemArtifactGroup
 import com.areslib.codegen.SubsystemArtifactOwnership
@@ -41,7 +42,26 @@ fun SubsystemTuningReviewSection(
     val document = state.draft?.document ?: return
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Tuning Parameters Card
+        when (state.activeStage) {
+            SubsystemBuilderStage.TUNING -> TuningParametersCard(document, state.selectedTuningParameterUid, viewModel)
+            SubsystemBuilderStage.CAPABILITIES -> CapabilityInspectorCard(document)
+            SubsystemBuilderStage.SIMULATION_AND_TESTING -> VerificationInspectorCard(document, viewModel)
+            SubsystemBuilderStage.REVIEW -> {
+                ProblemsCard(state, viewModel)
+                ReviewSummaryCard(document, state)
+                ArtifactPlanCard(state, viewModel)
+            }
+            else -> Unit
+        }
+    }
+}
+
+@Composable
+private fun TuningParametersCard(
+    document: SubsystemDocument,
+    selectedTuningParameterUid: String?,
+    viewModel: SubsystemGeneratorViewModel,
+) {
         EditorCard("Live Tunable Parameters (${document.tuningParameters.size})", Icons.Default.Tune) {
             Text(
                 "Declare typed parameters that students can adjust live via named robot profiles (.arestuning).",
@@ -52,7 +72,7 @@ fun SubsystemTuningReviewSection(
                 SelectableRow(
                     title = param.displayName,
                     subtitle = "${param.type.name.lowercase()} · ${param.applyPolicy.name.replace('_', ' ').lowercase()} · ${param.componentUid}",
-                    selected = state.selectedTuningParameterUid == param.uid,
+                    selected = selectedTuningParameterUid == param.uid,
                     onClick = { viewModel.selectTuningParameter(param.uid) },
                 )
             }
@@ -60,19 +80,6 @@ fun SubsystemTuningReviewSection(
                 Text("+ Add Tunable Parameter", fontSize = 11.sp)
             }
         }
-
-        // Capabilities & Driver Actions
-        CapabilityInspectorCard(document)
-
-        // Simulation & Testing Card
-        VerificationInspectorCard(document, viewModel)
-
-        // Problems & Validation Notices
-        ProblemsCard(state, viewModel)
-
-        // Artifact Plan
-        ArtifactPlanCard(state, viewModel)
-    }
 }
 
 @Composable
@@ -114,7 +121,73 @@ private fun VerificationInspectorCard(document: SubsystemDocument, viewModel: Su
             viewModel.edit { it.copy(generateTest = value) }
         }
         Text(
-            "Contract verification covers startup, stop, stale feedback, and write failure recovery.",
+            "Generated contract verification covers startup, stop, stale feedback, write failures, homing, current validity, parity, cleanup, and the declared allocation policy where applicable.",
+            color = AresTextSecondary,
+            fontSize = 10.sp,
+        )
+    }
+    SubsystemFaultInjectionLab(document)
+}
+
+@Composable
+private fun SubsystemFaultInjectionLab(document: SubsystemDocument) {
+    var scenario by remember(document.documentId) { mutableStateOf(SubsystemFaultScenario.HEALTHY) }
+    val result = evaluateSubsystemFaultScenario(document, scenario)
+    EditorCard("Interactive Safety Preview", Icons.Default.Warning) {
+        Text(
+            "Choose a condition to see how the generated controller and IO safety boundary should respond. This preview never connects to or commands hardware.",
+            color = AresTextSecondary,
+            fontSize = 11.sp,
+        )
+        DropdownSelector(
+            label = "Injected condition",
+            selected = scenario.label,
+            options = SubsystemFaultScenario.entries.map { it.label },
+        ) { label -> scenario = SubsystemFaultScenario.entries.first { it.label == label } }
+        Text(scenario.explanation, color = AresTextSecondary, fontSize = 10.sp)
+        Surface(
+            color = if (result.outputPermitted) AresGreen.copy(alpha = 0.12f) else AresError.copy(alpha = 0.12f),
+            border = BorderStroke(1.dp, if (result.outputPermitted) AresGreen else AresError),
+            shape = RoundedCornerShape(6.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    if (result.outputPermitted) "OUTPUT PERMITTED" else "SAFE NEUTRAL REQUIRED",
+                    color = if (result.outputPermitted) AresGreen else AresError,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(result.status, color = AresTextPrimary, fontSize = 11.sp)
+                Text("Recovery: ${result.recovery}", color = AresTextSecondary, fontSize = 10.sp)
+            }
+        }
+        Text(
+            "Evidence boundary: this explains the generated contract. Passing desktop tests is simulation evidence, not physical hardware validation.",
+            color = AresGold,
+            fontSize = 10.sp,
+        )
+    }
+}
+
+@Composable
+private fun ReviewSummaryCard(document: SubsystemDocument, state: SubsystemGeneratorState) {
+    val errors = state.problems.count { it.severity == SubsystemProblemSeverity.ERROR }
+    EditorCard("Ready-to-build Summary", Icons.Default.Build) {
+        Text(
+            if (errors == 0) "Descriptor validation passed. Review the generated file ownership and destination plan before saving."
+            else "$errors blocking validation ${if (errors == 1) "error remains" else "errors remain"}; select a validation card to fix it.",
+            color = if (errors == 0) AresGreen else AresError,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            "${document.hardware.size} devices · ${document.stateFields.size} immutable values · ${document.controlLoops.size} controller rules · ${document.tuningParameters.size} tunable parameters",
+            color = AresTextSecondary,
+            fontSize = 10.sp,
+        )
+        Text(
+            "Runtime flow: cached hardware inputs → immutable Redux state → generated controller → IO contract → physical or simulated adapter",
             color = AresTextSecondary,
             fontSize = 10.sp,
         )

@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
+import com.ares.analytics.ui.screens.ConceptHelp
 import com.ares.analytics.viewmodel.SubsystemGeneratorState
 import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
 import com.ares.analytics.viewmodel.SubsystemProblemSeverity
@@ -64,7 +65,7 @@ fun SubsystemHardwareSection(
                     onClick = { viewModel.selectHardware(device.uid) },
                 )
             }
-            AddHardwareButton(viewModel, "+ Add Hardware Device")
+            AddHardwareButton(viewModel, document.platform, "+ Add Hardware Device")
         }
 
         if (document.hardware.isEmpty()) {
@@ -92,8 +93,18 @@ fun HardwareInspectorBody(
         TextInput("Rename code ID (advanced)", device.hardwareId) { value ->
             viewModel.renameHardwareId(device.hardwareId, value)
         }
-        EnumSelector("Device Type", device.kind, SubsystemHardwareKind.entries) { kind ->
-            viewModel.changeHardwareKind(device.hardwareId, kind)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                EnumSelector("Device Type", device.kind, supportedHardwareKinds(document.platform)) { kind ->
+                    viewModel.changeHardwareKind(device.hardwareId, kind)
+                }
+            }
+            ConceptHelp(
+                "hardware device types",
+                "Choose the physical device ARES will own. The choice determines generated wiring, cached signals, safe outputs, and simulator behavior.",
+                "hardware-devices",
+                compact = true,
+            )
         }
 
         if (device.kind.isActuator()) {
@@ -125,35 +136,99 @@ fun HardwareInspectorBody(
         }
 
         when (document.platform) {
-            SubsystemPlatform.FTC -> TextInput("Hardware-map name", device.connection.hardwareMapName.orEmpty()) { value ->
-                viewModel.updateHardware(device.hardwareId) {
-                    it.copy(connection = SubsystemHardwareConnection(hardwareMapName = value))
+            SubsystemPlatform.FTC -> {
+                TextInput("Hardware-map name", device.connection.hardwareMapName.orEmpty()) { value ->
+                    viewModel.updateHardware(device.hardwareId) {
+                        it.copy(connection = SubsystemHardwareConnection(hardwareMapName = value))
+                    }
+                }
+                if (device.kind == SubsystemHardwareKind.IMU) {
+                    EnumSelector(
+                        "Control Hub logo points",
+                        device.imuLogoFacingDirection ?: SubsystemHubFacingDirection.UP,
+                        SubsystemHubFacingDirection.entries,
+                    ) { value ->
+                        viewModel.updateHardware(device.hardwareId) { it.copy(imuLogoFacingDirection = value) }
+                    }
+                    val logo = device.imuLogoFacingDirection ?: SubsystemHubFacingDirection.UP
+                    EnumSelector(
+                        "Control Hub USB port points",
+                        device.imuUsbFacingDirection ?: SubsystemHubFacingDirection.FORWARD,
+                        SubsystemHubFacingDirection.entries.filter { it.axisGroupForUi() != logo.axisGroupForUi() },
+                    ) { value ->
+                        viewModel.updateHardware(device.hardwareId) { it.copy(imuUsbFacingDirection = value) }
+                    }
+                    FieldGuidance("Describe the Control Hub's physical mounting. ARES uses this to make yaw CCW-positive and initialize the IMU correctly.")
                 }
             }
-            SubsystemPlatform.FRC -> if (device.kind == SubsystemHardwareKind.MOTOR) {
-                IntInput("CAN ID", device.connection.canId ?: 0) { value ->
-                    viewModel.updateHardware(device.hardwareId) { it.copy(connection = it.connection.copy(canId = value, channel = null)) }
+            SubsystemPlatform.FRC -> when (device.kind) {
+                SubsystemHardwareKind.MOTOR -> {
+                    IntInput("CAN ID", device.connection.canId ?: 0) { value ->
+                        viewModel.updateHardware(device.hardwareId) { it.copy(connection = it.connection.copy(canId = value, channel = null)) }
+                    }
+                    TextInput("CAN bus", device.connection.canBus) { value ->
+                        viewModel.updateHardware(device.hardwareId) { it.copy(connection = it.connection.copy(canBus = value)) }
+                    }
                 }
-                TextInput("CAN bus", device.connection.canBus) { value ->
-                    viewModel.updateHardware(device.hardwareId) { it.copy(connection = it.connection.copy(canBus = value)) }
+                SubsystemHardwareKind.SOLENOID -> {
+                    EnumSelector(
+                        "Pneumatics module",
+                        device.connection.pneumaticsModuleType ?: SubsystemPneumaticsModuleType.REV_PH,
+                        SubsystemPneumaticsModuleType.entries,
+                    ) { value ->
+                        viewModel.updateHardware(device.hardwareId) {
+                            it.copy(connection = it.connection.copy(pneumaticsModuleType = value))
+                        }
+                    }
+                    IntInput("Pneumatics module CAN ID", device.connection.canId ?: 1) { value ->
+                        viewModel.updateHardware(device.hardwareId) { it.copy(connection = it.connection.copy(canId = value)) }
+                    }
+                    IntInput("Solenoid channel", device.connection.channel ?: 0) { value ->
+                        viewModel.updateHardware(device.hardwareId) { it.copy(connection = it.connection.copy(channel = value)) }
+                    }
                 }
-            } else {
-                IntInput("Channel", device.connection.channel ?: 0) { value ->
+                SubsystemHardwareKind.QUADRATURE_ENCODER -> {
+                    IntInput("DIO channel A", device.connection.channel ?: 0) { value ->
+                        viewModel.updateHardware(device.hardwareId) { it.copy(connection = it.connection.copy(channel = value, canId = null)) }
+                    }
+                    IntInput("DIO channel B", device.connection.secondaryChannel ?: 1) { value ->
+                        viewModel.updateHardware(device.hardwareId) { it.copy(connection = it.connection.copy(secondaryChannel = value, canId = null)) }
+                    }
+                }
+                SubsystemHardwareKind.IMU -> FieldGuidance("The generated FRC adapter uses the RoboRIO onboard SPI gyroscope. No channel is required.")
+                else -> IntInput("Channel", device.connection.channel ?: 0) { value ->
                     viewModel.updateHardware(device.hardwareId) { it.copy(connection = it.connection.copy(channel = value, canId = null)) }
                 }
             }
         }
-        FieldGuidance(
-            if (document.platform == SubsystemPlatform.FTC) {
-                "Use this exact name in the FTC Robot Controller configuration. Names are case-sensitive."
-            } else {
-                "Use the device ID and CAN bus configured in the vendor hardware tools."
-            }
-        )
+        Row(verticalAlignment = Alignment.Top) {
+            FieldGuidance(
+                if (document.platform == SubsystemPlatform.FTC) {
+                    "Use this exact name in the FTC Robot Controller configuration. Names are case-sensitive."
+                } else {
+                    "Use the device ID, bus, or channel configured in the matching vendor hardware tools."
+                }
+            )
+            Spacer(Modifier.weight(1f))
+            ConceptHelp(
+                "hardware connections",
+                "A hardware connection is the exact controller name, CAN identity, I/O channel, or pneumatics address used by the generated physical adapter.",
+                "hardware-connections",
+                compact = true,
+            )
+        }
 
         val measurementSources = device.kind.compatibleMeasurementSources()
         if (measurementSources.isNotEmpty()) {
-            Text("CACHED INPUT SIGNALS", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("CACHED INPUT SIGNALS", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                ConceptHelp(
+                    "cached input signals",
+                    "ARES reads each physical signal once per loop, converts it to canonical units, validates it, and then publishes the immutable state snapshot used by control and simulation.",
+                    "cached-inputs",
+                    compact = true,
+                )
+            }
             device.measurements.forEachIndexed { index, measurement ->
                 CachedMeasurementEditor(document, device, index, measurement, measurementSources, viewModel)
             }
@@ -181,6 +256,19 @@ fun HardwareInspectorBody(
             ) { Text("+ Cached Measurement") }
         }
 
+        if (device.kind == SubsystemHardwareKind.QUADRATURE_ENCODER) {
+            DoubleInput("Encoder counts per revolution", device.encoderCountsPerRevolution ?: 1.0) { value ->
+                viewModel.updateHardware(device.hardwareId) { it.copy(encoderCountsPerRevolution = value) }
+            }
+            FieldGuidance("Enter the encoder's effective counts after any decoding and gearing. Generated state values remain radians and radians/second.")
+        }
+        if (device.kind == SubsystemHardwareKind.DISTANCE_SENSOR && document.platform == SubsystemPlatform.FRC) {
+            DoubleInput("Distance scale (meters per volt)", device.distanceMetersPerVolt ?: 1.0) { value ->
+                viewModel.updateHardware(device.hardwareId) { it.copy(distanceMetersPerVolt = value) }
+            }
+            FieldGuidance("The generated FRC adapter reads an analog voltage and converts it to meters at this boundary.")
+        }
+
         if (device.kind == SubsystemHardwareKind.MOTOR && document.platform == SubsystemPlatform.FRC) {
             NullableDoubleInput("Current limit (A)", device.currentLimitAmps) { value ->
                 viewModel.updateHardware(device.hardwareId) { it.copy(currentLimitAmps = value) }
@@ -198,6 +286,12 @@ fun HardwareInspectorBody(
             }
         }
     }
+}
+
+private fun SubsystemHubFacingDirection.axisGroupForUi(): Int = when (this) {
+    SubsystemHubFacingDirection.UP, SubsystemHubFacingDirection.DOWN -> 0
+    SubsystemHubFacingDirection.FORWARD, SubsystemHubFacingDirection.BACKWARD -> 1
+    SubsystemHubFacingDirection.LEFT, SubsystemHubFacingDirection.RIGHT -> 2
 }
 
 @Composable

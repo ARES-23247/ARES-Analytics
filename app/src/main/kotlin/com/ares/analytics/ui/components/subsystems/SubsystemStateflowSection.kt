@@ -120,8 +120,18 @@ fun StateFieldInspectorBody(field: SubsystemStateFieldDocument, viewModel: Subsy
         TextInput("Rename code ID (advanced)", field.fieldId) { value ->
             viewModel.renameStateFieldId(field.fieldId, value)
         }
-        EnumSelector("Role", field.role, SubsystemFieldRole.entries) { role ->
-            viewModel.updateStateField(field.fieldId) { it.copy(role = role) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.weight(1f)) {
+                EnumSelector("Role", field.role, SubsystemFieldRole.entries) { role ->
+                    viewModel.updateStateField(field.fieldId) { it.copy(role = role) }
+                }
+            }
+            ConceptHelp(
+                "state roles",
+                "Targets describe what the robot should do; measurements describe cached hardware observations; status reports derived conditions; configuration stores reviewed constants.",
+                "state-roles",
+                compact = true,
+            )
         }
         EnumSelector("Value Type", field.type, SubsystemValueType.entries) { type ->
             viewModel.changeStateFieldType(field.fieldId, type)
@@ -202,8 +212,9 @@ fun ControlInspectorBody(
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) {
-                EnumSelector("Strategy", loop.strategy, allowedStrategies) { strategy ->
-                    viewModel.changeControlLoopStrategy(loop.loopId, strategy)
+                val strategyLabels = allowedStrategies.associateBy { it.controlStrategyLabel() }
+                DropdownSelector("Strategy", loop.strategy.controlStrategyLabel(), strategyLabels.keys.toList()) { label ->
+                    viewModel.changeControlLoopStrategy(loop.loopId, requireNotNull(strategyLabels[label]))
                 }
             }
             ConceptHelp(
@@ -260,11 +271,14 @@ fun ControlInspectorBody(
         }
         if (supportsPid) {
             Text("FEEDFORWARD", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            EnumSelector(
+            val feedforwardKinds = SubsystemFeedforwardKind.entries.filterNot { it == SubsystemFeedforwardKind.FOUR_BAR_LINKAGE }
+            val feedforwardLabels = feedforwardKinds.associateBy { it.feedforwardLabel() }
+            DropdownSelector(
                 "Model",
-                loop.feedforward.kind,
-                SubsystemFeedforwardKind.entries.filterNot { it == SubsystemFeedforwardKind.FOUR_BAR_LINKAGE },
-            ) { kind ->
+                loop.feedforward.kind.feedforwardLabel(),
+                feedforwardLabels.keys.toList(),
+            ) { label ->
+                val kind = requireNotNull(feedforwardLabels[label])
                 viewModel.updateControlLoop(loop.loopId) { current ->
                     val angle = if (kind == SubsystemFeedforwardKind.ARM) {
                         current.feedforward.gravityAngleFieldId
@@ -273,6 +287,7 @@ fun ControlInspectorBody(
                     current.copy(feedforward = current.feedforward.copy(kind = kind, gravityAngleFieldId = angle, linkageJoint = if (kind == SubsystemFeedforwardKind.TWO_DOF_ARM) current.feedforward.linkageJoint ?: 1 else null))
                 }
             }
+            FieldGuidance(feedforwardGuidance(loop.feedforward.kind))
             if (loop.feedforward.kind != SubsystemFeedforwardKind.NONE) {
                 DoubleInput("kS (static volts)", loop.feedforward.kS) { value ->
                     viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(kS = value)) }
@@ -326,6 +341,33 @@ fun ControlInspectorBody(
             }
         }
     }
+}
+
+private fun SubsystemControlStrategy.controlStrategyLabel(): String = when (this) {
+    SubsystemControlStrategy.DIRECT -> "Direct bounded output"
+    SubsystemControlStrategy.POSITION_PID -> "Position PID"
+    SubsystemControlStrategy.PROFILED_POSITION_PID -> "Profiled position PID"
+    SubsystemControlStrategy.VELOCITY_PID -> "Velocity PID"
+    SubsystemControlStrategy.BANG_BANG -> "Bang-bang / on-off"
+    SubsystemControlStrategy.SERVO_POSITION -> "Positional servo"
+}
+
+private fun SubsystemFeedforwardKind.feedforwardLabel(): String = when (this) {
+    SubsystemFeedforwardKind.NONE -> "No feedforward"
+    SubsystemFeedforwardKind.SIMPLE_MOTOR -> "Simple motor (kS + kV + kA)"
+    SubsystemFeedforwardKind.ELEVATOR -> "Elevator / lift gravity"
+    SubsystemFeedforwardKind.ARM -> "Single-joint arm gravity"
+    SubsystemFeedforwardKind.TWO_DOF_ARM -> "Two-joint arm coupling"
+    SubsystemFeedforwardKind.FOUR_BAR_LINKAGE -> "Four-bar linkage (not generated)"
+}
+
+private fun feedforwardGuidance(kind: SubsystemFeedforwardKind): String = when (kind) {
+    SubsystemFeedforwardKind.NONE -> "Start here when feedback alone is enough for a teaching draft. Add a model only when its units and physical meaning are understood."
+    SubsystemFeedforwardKind.SIMPLE_MOTOR -> "Predicts voltage for static friction, desired velocity, and desired acceleration. Useful for flywheels and linear mechanisms without gravity loading."
+    SubsystemFeedforwardKind.ELEVATOR -> "Adds constant gravity compensation to the simple motor model. Use for vertical linear lifts."
+    SubsystemFeedforwardKind.ARM -> "Adds cosine gravity compensation from a cached arm angle in radians. Use for one pivoting link."
+    SubsystemFeedforwardKind.TWO_DOF_ARM -> "Uses both joint angles and the declared linkage model to compensate coupled gravity. Configure each joint controller deliberately."
+    SubsystemFeedforwardKind.FOUR_BAR_LINKAGE -> "Generation remains blocked until a constrained four-bar model and hardware contract are available."
 }
 
 @Composable

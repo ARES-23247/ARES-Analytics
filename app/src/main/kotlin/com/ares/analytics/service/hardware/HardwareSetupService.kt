@@ -27,6 +27,8 @@ enum class HardwareAddressKind(val label: String) {
     I2C("I2C device"),
     DIO("digital-input channel"),
     ANALOG("analog-input channel"),
+    SPI("SPI device"),
+    PNEUMATICS("pneumatics module/channel"),
     UNKNOWN("unclassified address"),
 }
 
@@ -52,6 +54,8 @@ data class HardwareInventoryItem(
     val bus: String? = null,
     val required: Boolean,
     val inverted: Boolean,
+    /** Descriptor-owned details students must transfer or verify during physical setup. */
+    val configurationDetails: List<String> = emptyList(),
 ) {
     val addressDescription: String
         get() = when {
@@ -186,6 +190,7 @@ class HardwareSetupService(
                                 bus = device.canBus?.takeIf(String::isNotBlank),
                                 required = device.required,
                                 inverted = device.inverted,
+                                configurationDetails = emptyList(),
                             )
                         }
                 }
@@ -211,9 +216,20 @@ class HardwareSetupService(
             subsystem.hardware.forEach { device ->
                 val address = when (league) {
                     League.FTC -> device.connection.hardwareMapName.orEmpty().trim()
-                    League.FRC -> device.connection.canId?.toString()
-                        ?: device.connection.channel?.toString()
-                        ?: ""
+                    League.FRC -> when (device.kind) {
+                        SubsystemHardwareKind.QUADRATURE_ENCODER -> listOfNotNull(
+                            device.connection.channel,
+                            device.connection.secondaryChannel,
+                        ).joinToString("/")
+                        SubsystemHardwareKind.SOLENOID -> listOfNotNull(
+                            device.connection.canId,
+                            device.connection.channel,
+                        ).joinToString("/")
+                        SubsystemHardwareKind.IMU -> "onboard"
+                        else -> device.connection.canId?.toString()
+                            ?: device.connection.channel?.toString()
+                            ?: ""
+                    }
                 }
                 val addressKind = when (league) {
                     League.FTC -> HardwareAddressKind.FTC_HARDWARE_MAP
@@ -221,6 +237,8 @@ class HardwareSetupService(
                 }
                 val bus = when {
                     league == League.FRC && addressKind == HardwareAddressKind.CAN -> device.connection.canBus
+                    league == League.FRC && addressKind == HardwareAddressKind.PNEUMATICS ->
+                        device.connection.pneumaticsModuleType?.name
                     else -> null
                 }
                 items += HardwareInventoryItem(
@@ -236,6 +254,7 @@ class HardwareSetupService(
                     bus = bus?.takeIf(String::isNotBlank),
                     required = device.required,
                     inverted = device.inverted,
+                    configurationDetails = device.configurationDetails(),
                 )
             }
         }
@@ -392,6 +411,8 @@ class HardwareSetupService(
         HardwareAddressKind.I2C -> "i2c:${item.address.lowercase()}"
         HardwareAddressKind.DIO -> "dio:${item.address}"
         HardwareAddressKind.ANALOG -> "analog:${item.address}"
+        HardwareAddressKind.SPI -> "spi:${item.address.lowercase()}"
+        HardwareAddressKind.PNEUMATICS -> "pneumatics:${item.bus.orEmpty().lowercase()}:${item.address}"
         HardwareAddressKind.UNKNOWN -> "unknown:${item.address.lowercase()}"
     }
 
@@ -412,7 +433,8 @@ class HardwareSetupService(
                 append(item.address).append('|')
                 append(item.bus.orEmpty()).append('|')
                 append(item.required).append('|')
-                append(item.inverted).append('\n')
+                append(item.inverted).append('|')
+                append(item.configurationDetails.joinToString(";")).append('\n')
             }
         }
         return sha256(canonical.toByteArray())
@@ -445,9 +467,42 @@ private fun com.areslib.subsystem.SubsystemHardwareDocument.addressKind(): Hardw
     SubsystemHardwareKind.MOTOR -> HardwareAddressKind.CAN
     SubsystemHardwareKind.POSITIONAL_SERVO,
     SubsystemHardwareKind.CONTINUOUS_SERVO,
-    SubsystemHardwareKind.INDICATOR_LIGHT -> HardwareAddressKind.PWM
-    SubsystemHardwareKind.PRISM_DRIVER,
+    SubsystemHardwareKind.INDICATOR_LIGHT,
+    SubsystemHardwareKind.PRISM_DRIVER -> HardwareAddressKind.PWM
     SubsystemHardwareKind.COLOR_SENSOR -> HardwareAddressKind.I2C
-    SubsystemHardwareKind.DIGITAL_INPUT -> HardwareAddressKind.DIO
-    SubsystemHardwareKind.ANALOG_INPUT -> HardwareAddressKind.ANALOG
+    SubsystemHardwareKind.DIGITAL_INPUT,
+    SubsystemHardwareKind.QUADRATURE_ENCODER -> HardwareAddressKind.DIO
+    SubsystemHardwareKind.ANALOG_INPUT,
+    SubsystemHardwareKind.ABSOLUTE_ENCODER,
+    SubsystemHardwareKind.DISTANCE_SENSOR -> HardwareAddressKind.ANALOG
+    SubsystemHardwareKind.IMU -> HardwareAddressKind.SPI
+    SubsystemHardwareKind.SOLENOID -> HardwareAddressKind.PNEUMATICS
+}
+
+private fun com.areslib.subsystem.SubsystemHardwareDocument.configurationDetails(): List<String> = buildList {
+    val follower = following
+    follower?.leaderId?.takeIf(String::isNotBlank)?.let { leaderId ->
+        add("Follower of hardware ID: $leaderId (${follower.transform.name.lowercase().replace('_', ' ')})")
+    }
+    encoderCountsPerRevolution?.let { add("Encoder resolution: ${formatSetupNumber(it)} counts/revolution") }
+    distanceMetersPerVolt?.let { add("Distance calibration: ${formatSetupNumber(it)} meters/volt") }
+    if (kind == SubsystemHardwareKind.IMU) {
+        val logo = imuLogoFacingDirection
+        val usb = imuUsbFacingDirection
+        when {
+            logo != null && usb != null ->
+                add("Control Hub mounting: logo faces ${logo.name.lowercase()}, USB faces ${usb.name.lowercase()}")
+            logo == null && usb == null ->
+                add("Onboard SPI gyro; ARES converts the raw heading to CCW-positive radians")
+            else -> error("${displayName} has an incomplete IMU orientation declaration.")
+        }
+    }
+    safeOutput?.let { add("Safe neutral output: ${formatSetupNumber(it)}") }
+    currentLimitAmps?.let { add("Configured current limit: ${formatSetupNumber(it)} A") }
+}
+
+private fun formatSetupNumber(value: Double): String = if (value == value.toLong().toDouble()) {
+    value.toLong().toString()
+} else {
+    value.toString()
 }
