@@ -8,6 +8,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.File
+import java.nio.file.Files
 import org.tukaani.xz.LZMA2Options
 import org.tukaani.xz.XZOutputStream
 import java.util.zip.GZIPOutputStream
@@ -21,6 +22,27 @@ import kotlin.test.assertTrue
  * LogParserServiceTest class.
  */
 class LogParserServiceTest {
+
+    @Test
+    fun `Driver Station events selections resolve to one dslog primary`() {
+        val directory = Files.createTempDirectory("driver-station-primary").toFile()
+        try {
+            val dslog = File(directory, "FRC_20260401_120000.dslog").apply { writeBytes(byteArrayOf(4)) }
+            val events = File(directory, "FRC_20260401_120000.dsevents").apply { writeBytes(byteArrayOf(4)) }
+
+            assertTrue(isDriverStationEventCompanionName(events.name))
+            assertEquals(
+                listOf(dslog.canonicalFile),
+                canonicalLogImportFiles(listOf(dslog, events)),
+            )
+            assertEquals(
+                listOf(dslog.canonicalFile),
+                canonicalLogImportFiles(listOf(events)),
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
 
     @Test
     /**

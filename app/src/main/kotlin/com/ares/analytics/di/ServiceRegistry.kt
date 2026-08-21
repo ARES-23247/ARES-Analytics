@@ -39,7 +39,6 @@ class ServiceRegistry {
     val processManagerService by lazy { ProcessManagerService() }
     val targetScannerService by lazy { TargetScannerService() }
     val keybindingParserService by lazy { KeybindingParserService() }
-    val simulationService by lazy { SimulationService() }
     val eventApiService by lazy { EventApiService() }
     val layoutPreferenceService by lazy { LayoutPreferenceService() }
     val updateCheckerService by lazy { UpdateCheckerService() }

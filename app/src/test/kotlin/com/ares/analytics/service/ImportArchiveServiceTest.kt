@@ -58,6 +58,38 @@ class ImportArchiveServiceTest {
     }
 
     @Test
+    fun `retry requeues Driver Station log and events companion together`() {
+        val project = createTempDirectory("import-archive-ds-retry").toFile()
+        val quarantine = File(project, "logs/quarantine").apply { mkdirs() }
+        val dslogBytes = byteArrayOf(4, 1, 2, 3)
+        val eventsBytes = byteArrayOf(4, 5, 6, 7)
+        val entry = writeEvidence(
+            quarantine,
+            "abc123_match.dslog",
+            ImportStatus.REJECTED,
+            sourceName = "match.dslog",
+            contents = dslogBytes,
+        )
+        val quarantinedEvents = File(quarantine, "abc123_match.dsevents").apply {
+            writeBytes(eventsBytes)
+        }
+
+        val loaded = ImportArchiveService().load(project.absolutePath).quarantined.single()
+        val requeued = ImportArchiveService().retry(project.absolutePath, loaded)
+        val requeuedEvents = File(
+            requeued.parentFile,
+            requeued.name.substringBeforeLast('.') + ".dsevents",
+        )
+
+        assertContentEquals(dslogBytes, requeued.readBytes())
+        assertContentEquals(eventsBytes, requeuedEvents.readBytes())
+        assertTrue(File(entry.logPath).isFile, "quarantined dslog evidence was removed")
+        assertTrue(quarantinedEvents.isFile, "quarantined dsevents evidence was removed")
+        assertTrue(File(project, "logs").listFiles().orEmpty().none { it.name.endsWith(".partial") })
+        project.deleteRecursively()
+    }
+
+    @Test
     fun `retry rejects paths outside quarantine`() {
         val project = createTempDirectory("import-archive-escape").toFile()
         val outside = File(project, "outside.csv").apply { writeText("timestamp,value\n1,1") }

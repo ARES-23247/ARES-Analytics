@@ -66,15 +66,15 @@ class LogParserService(
         allianceColor: String? = null,
         tags: List<String> = emptyList()
     ): LogImportResult = withContext(Dispatchers.IO) {
-        require(file.isFile) { "Log file does not exist: ${file.absolutePath}" }
-        val sourceSize = file.length()
-        val sourceSha256 = sha256(file)
+        val primaryFile = canonicalLogImportFiles(listOf(file)).single()
+        val sourceSize = primaryFile.length()
+        val sourceSha256 = sha256(primaryFile)
         val session = parseLogFileInternal(
-            file, teamId, seasonId, robotId, matchNumber, allianceColor, tags
+            primaryFile, teamId, seasonId, robotId, matchNumber, allianceColor, tags
         )
-        val report = buildImportReport(file, session.sessionId, sourceSize, sourceSha256)
+        val report = buildImportReport(primaryFile, session.sessionId, sourceSize, sourceSha256)
         if (report.acceptedRecords == 0L) {
-            val failure = IllegalArgumentException("Log contained no importable records: ${file.name}")
+            val failure = IllegalArgumentException("Log contained no importable records: ${primaryFile.name}")
             cleanupFailedImport(session.sessionId, failure)
             throw failure
         }
@@ -269,12 +269,12 @@ class LogParserService(
         allianceColor: String? = null,
         tags: List<String> = emptyList()
     ): Session = withContext(Dispatchers.IO) {
-        if (files.isEmpty()) throw IllegalArgumentException("No log files provided")
-        if (files.size == 1) {
-            return@withContext parseLogFile(files.first(), teamId, seasonId, robotId, matchNumber, allianceColor, tags)
+        val primaryFiles = canonicalLogImportFiles(files)
+        if (primaryFiles.size == 1) {
+            return@withContext parseLogFile(primaryFiles.first(), teamId, seasonId, robotId, matchNumber, allianceColor, tags)
         }
         val sessionId = UUID.randomUUID().toString()
-        val createdAt = files.first().lastModified()
+        val createdAt = primaryFiles.first().lastModified()
         var currentMatchNumber = matchNumber
         var currentAlliance = allianceColor
         var currentTags = tags
@@ -282,7 +282,7 @@ class LogParserService(
             key.removePrefix("/")
         })
         try {
-            files.forEach { file ->
+            primaryFiles.forEach { file ->
             val lowerName = file.name.lowercase()
             when {
                 lowerName.endsWith(".wpilog") -> wpiLogDecoder.parseWpiLog(file, sessionId, batcher)
@@ -445,3 +445,31 @@ private fun isActionLogName(lowerName: String): Boolean =
     lowerName.startsWith("action_log_") || HASH_PREFIXED_ACTION_LOG.matches(lowerName)
 
 private val HASH_PREFIXED_ACTION_LOG = Regex("^[0-9a-f]{12}_action_log_.*\\.jsonl$")
+
+/** `.dsevents` files are metadata companions and must never become independent import sessions. */
+internal fun isDriverStationEventCompanionName(fileName: String): Boolean =
+    fileName.endsWith(".dsevents", ignoreCase = true)
+
+/** Resolves companion selections to their `.dslog` primary and removes duplicate primary inputs. */
+internal fun canonicalLogImportFiles(files: List<File>): List<File> {
+    require(files.isNotEmpty()) { "No log files provided" }
+    require(files.all(File::isFile)) {
+        "One or more selected log files do not exist"
+    }
+    return files.map { file ->
+        if (!isDriverStationEventCompanionName(file.name)) {
+            file.canonicalFile
+        } else {
+            val baseName = file.name.substringBeforeLast('.')
+            val primary = file.parentFile?.listFiles()?.firstOrNull { candidate ->
+                candidate.isFile &&
+                    candidate.name.endsWith(".dslog", ignoreCase = true) &&
+                    candidate.name.substringBeforeLast('.').equals(baseName, ignoreCase = true)
+            } ?: File(file.parentFile, "$baseName.dslog")
+            require(primary.isFile) {
+                "Driver Station events file ${file.name} has no matching .dslog primary"
+            }
+            primary.canonicalFile
+        }
+    }.distinctBy { it.toPath() }
+}

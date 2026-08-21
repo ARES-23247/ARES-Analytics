@@ -158,7 +158,9 @@ class AutoImportService(
 
         for (dir in logsDirs) {
             if (!dir.exists() || !dir.isDirectory) continue
-            val files = dir.listFiles { _, name -> isSupportedLog(name) } ?: continue
+            val files = dir.listFiles { _, name ->
+                isSupportedLog(name) && !isDriverStationEventCompanionName(name)
+            } ?: continue
             for (file in files) {
                 if (file.isDirectory) continue
 
@@ -271,7 +273,7 @@ class AutoImportService(
             val filesOnRobot = listFilesOnFtcRobot(adbPath, robotDir)
             for (filename in filesOnRobot) {
                 val lower = filename.lowercase()
-                if (isSupportedLog(lower)) {
+                if (isSupportedLog(lower) && !isDriverStationEventCompanionName(lower)) {
                     val remotePath = "$robotDir$filename"
                     val sourceId = "ftc:$remotePath"
                     val snapshot = getFtcFileSnapshot(adbPath, remotePath) ?: continue
@@ -360,7 +362,7 @@ class AutoImportService(
             val remoteNamesByLowercase = filesOnRobot.associateBy { it.lowercase() }
             for (filename in filesOnRobot) {
                 val lower = filename.lowercase()
-                if (isSupportedLog(lower)) {
+                if (isSupportedLog(lower) && !isDriverStationEventCompanionName(lower)) {
                     val remotePath = "$robotDir$filename"
                     val sourceId = "frc:$host:$remotePath"
                     val snapshot = getFrcFileSnapshot(host, remotePath) ?: continue

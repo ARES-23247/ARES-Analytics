@@ -19,6 +19,7 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.withLock
@@ -79,26 +80,49 @@ internal suspend fun installImmutableCloudObject(
 }
 
 /**
- * Cloud Gateway Delta-Synchronization Service for uploading historical telemetry match logs.
+ * Removes a cloud object from the authoritative manifest before retiring its immutable payload.
  *
- * Implements the **Desktop Pull & Push Architecture**, uploading local DuckDB telemetry logs to the Google Cloud Run gateway
- * (`ares-analytics-gateway`) via secure GCS Signed URLs. Compares local match session hashes against remote server manifests,
- * performing efficient incremental delta syncs.
+ * A failed manifest update must leave the payload intact because readers may still reference it.
+ * Once the manifest update succeeds, payload deletion is only garbage collection: surfacing that
+ * cleanup failure as a failed session deletion would invite a retry that can no longer find the
+ * manifest entry.
+ */
+internal suspend fun removeImmutableCloudObject(
+    removeManifestReference: suspend () -> Unit,
+    deleteObject: suspend () -> Unit,
+    onCleanupFailure: (Throwable) -> Unit = {}
+) {
+    removeManifestReference()
+    try {
+        deleteObject()
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (failure: Exception) {
+        onCleanupFailure(failure)
+    }
+}
+
+/**
+ * Desktop-owned synchronization service for historical telemetry sessions.
  *
- * ### Gateway & Sync Protocol:
- * - Gateway Endpoint: the protected production ARES Analytics gateway configured at build time
- * - GCS Ingestion: Acquires pre-signed PUT URLs from the gateway and streams binary Apache Parquet session files directly to Google Cloud Storage.
+ * The robot remains offline-first. Analytics packages a complete session as an immutable
+ * `.ares-session.zip` bundle, uploads it to the active workspace's Google Drive folder, and then
+ * atomically updates the Drive-hosted session index. Content hashes provide incremental sync and
+ * download-integrity checks.
+ *
+ * The Cloud Run gateway is used for protected diagnostics and AI requests; it is not in the
+ * telemetry upload path.
  *
  * ### Thread Safety & Performance Guarantees:
- * All cloud HTTP requests and GCS binary uploads execute asynchronously on `Dispatchers.IO`.
+ * All Google Drive and gateway requests execute asynchronously on `Dispatchers.IO`.
  *
  * @param databaseService Primary DuckDB telemetry database service.
- * @param parquetExporterService Service converting DuckDB session tables into Parquet binary format.
+ * @param parquetExporterService Legacy constructor dependency; Drive sync uses complete session bundles.
  * @param firebaseClientService Firebase auth service supplying bearer tokens.
  * @param environmentService Workspace environment settings provider.
  * @param teamApiService FIRST team metadata API service.
  * @param summaryEngineService Match KPI summary calculator.
- * @param googleDriveService Auxiliary Google Drive backup service.
+ * @param googleDriveService Authoritative workspace session storage service.
  * @param gatewayUrl Base URL for the Ktor Cloud Run gateway.
  * @param httpClient Ktor HTTP client configured with JSON serialization.
  *
@@ -1308,14 +1332,28 @@ class SyncEngineService(
                 ?: throw IllegalStateException("Cloud session index is unavailable")
             val removedSummary = indexState.summaries.singleOrNull { it.sessionId == sessionId }
                 ?: throw IllegalArgumentException("Cloud session $sessionId is not indexed")
-            val parquetFileId = requireNotNull(removedSummary.cloudFileId) {
+            val cloudObjectFileId = requireNotNull(removedSummary.cloudFileId) {
                 "Cloud session manifest is missing its immutable file id"
             }
             val rootFolderId = googleDriveService.workspaceRootId()
-            mutateRemoteIndex(rootFolderId) { indexList ->
-                indexList.filter { it.sessionId != sessionId }
-            }
-            googleDriveService.deleteFile(parquetFileId)
+            removeImmutableCloudObject(
+                removeManifestReference = {
+                    mutateRemoteIndex(rootFolderId) { indexList ->
+                        indexList.filter { it.sessionId != sessionId }
+                    }
+                },
+                deleteObject = {
+                    googleDriveService.deleteFile(cloudObjectFileId)
+                },
+                onCleanupFailure = { cleanupFailure ->
+                    System.err.println(
+                        "[SyncEngineService] Cloud session $sessionId was removed from the index, " +
+                            "but orphan object $cloudObjectFileId could not be deleted: ${cleanupFailure.message}"
+                    )
+                }
+            )
+        } catch (cancellation: CancellationException) {
+            throw cancellation
         } catch (e: Exception) {
             throw IllegalStateException("Cloud session $sessionId could not be deleted", e)
         }
