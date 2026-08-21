@@ -5,6 +5,9 @@ import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
 import com.ares.analytics.service.drivebase.defaultDrivebase
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.project.SubsystemProjectRepository
+import com.areslib.drivetrain.DrivetrainComponentDocument
+import com.areslib.drivetrain.DrivetrainComponentRole
+import com.areslib.drivetrain.DrivetrainDocumentCodec
 import com.areslib.subsystem.SubsystemHardwareConnection
 import com.areslib.subsystem.SubsystemPlatform
 import com.areslib.subsystem.SubsystemTemplate
@@ -82,12 +85,69 @@ class HardwareSetupServiceTest {
         }
     }
 
-    private fun seedDrivebase(root: java.io.File) {
+    @Test
+    fun `FTC commissioning plan includes rear motors exact names and hold-to-run controls`() {
+        val root = Files.createTempDirectory("ares-hardware-commissioning").toFile()
+        try {
+            seedDrivebase(root, includeLogicalWheelModule = true)
+            val snapshot = HardwareSetupService().inspect(root.path, League.FTC)
+
+            val plan = snapshot.commissioningPlan()
+
+            assertTrue(plan.ftcDiagnosticAvailable)
+            assertEquals(listOf("A / Cross", "B / Circle", "X / Square", "Y / Triangle"), plan.ftcMotorChecks.map { it.gamepadControl })
+            assertEquals(listOf("fl", "fr", "rl", "rr"), plan.ftcMotorChecks.map { it.hardwareMapName })
+            assertTrue(plan.hardwareMapEntries.none { it.displayName == "Mecanum drivebase" })
+            assertTrue(!plan.clipboardText.contains("Mecanum drivebase"))
+            assertTrue(plan.clipboardText.contains("Rear left: rl"))
+            assertTrue(plan.clipboardText.contains("Rear right: rr"))
+            assertTrue(plan.clipboardText.contains("release to stop"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `FTC motor diagnostic fails closed when a canonical wheel role is absent`() {
+        val root = Files.createTempDirectory("ares-hardware-incomplete-diagnostic").toFile()
+        try {
+            seedDrivebase(root)
+            val snapshot = HardwareSetupService().inspect(root.path, League.FTC)
+            val incomplete = snapshot.copy(items = snapshot.items.filterNot { it.roleKey == "REAR_RIGHT_DRIVE" })
+
+            val plan = incomplete.commissioningPlan()
+
+            assertTrue(!plan.ftcDiagnosticAvailable)
+            assertTrue(plan.ftcDiagnosticBlockReason!!.contains("exactly one"))
+            assertEquals(listOf("fl", "fr", "rl"), plan.ftcMotorChecks.map { it.hardwareMapName })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    private fun seedDrivebase(root: java.io.File, includeLogicalWheelModule: Boolean = false) {
+        val base = defaultDrivebase("team1-robot", DrivebaseKind.FTC_MECANUM)
         DrivebaseProjectRepository().saveReviewed(
             root.path,
             expectedContentHash = null,
-            document = defaultDrivebase("team1-robot", DrivebaseKind.FTC_MECANUM),
+            document = base,
         )
+        if (includeLogicalWheelModule) {
+            val source = java.io.File(root, ".ares/drivetrains").listFiles().orEmpty().single()
+            val canonical = DrivetrainDocumentCodec.decode(source.readText())
+            source.writeText(
+                DrivetrainDocumentCodec.encode(
+                    canonical.copy(
+                        components = canonical.components + DrivetrainComponentDocument(
+                            uid = "drive.mecanum",
+                            displayName = "Mecanum drivebase",
+                            role = DrivetrainComponentRole.WHEEL_MODULE,
+                            hardwareId = "mecanum",
+                        ),
+                    ),
+                ),
+            )
+        }
     }
 
     private fun lift(hardwareMapName: String) = SubsystemTemplates.create(

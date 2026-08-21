@@ -70,6 +70,7 @@ fun RobotStudioScreen(
     hardwareSetupViewModel: HardwareSetupViewModel,
     projectIdentityViewModel: ProjectIdentityViewModel,
     config: WorkspaceConfig,
+    onOpenPitDiagnostics: () -> Unit,
     initialSelection: RobotStudioSelection = RobotStudioSelection.Identity,
 ) {
     val state by viewModel.state.collectAsState()
@@ -223,6 +224,7 @@ fun RobotStudioScreen(
                 onOpenSubsystems = {
                     selection = RobotStudioSelection.Subsystem(subsystemTreeItems.firstOrNull()?.documentId.orEmpty())
                 },
+                onOpenPitDiagnostics = onOpenPitDiagnostics,
                 onBackToStudio = null,
             )
         }

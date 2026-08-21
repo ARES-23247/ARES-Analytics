@@ -5,6 +5,7 @@ import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
 import com.ares.analytics.service.writeFileAtomically
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.project.SubsystemProjectRepository
+import com.areslib.drivetrain.DrivetrainComponentRole
 import com.areslib.drivetrain.DrivetrainDocumentCodec
 import com.areslib.subsystem.SubsystemDocumentCodec
 import com.areslib.subsystem.SubsystemHardwareKind
@@ -44,6 +45,8 @@ data class HardwareInventoryItem(
     val ownerDisplayName: String,
     val sourcePath: String,
     val role: String,
+    /** Stable enum name used by commissioning tools; [role] remains the student-facing label. */
+    val roleKey: String,
     val addressKind: HardwareAddressKind,
     val address: String,
     val bus: String? = null,
@@ -158,8 +161,11 @@ class HardwareSetupService(
                     }
                     val sourcePath = ".ares/drivetrains/${sourceFile.name}"
                     sources += HardwareSourceFingerprint(sourcePath, DrivetrainDocumentCodec.contentHash(canonical))
+                    val physicalComponentIds = canonical.components
+                        .filterNot { it.role == DrivetrainComponentRole.WHEEL_MODULE }
+                        .mapTo(mutableSetOf()) { it.uid }
                     drivebase.hardware
-                        .filterNot { it.id == canonical.uid }
+                        .filter { it.id in physicalComponentIds }
                         .forEach { device ->
                             val address = device.canId?.toString() ?: device.hardwareName.trim()
                             val addressKind = if (league == League.FTC) {
@@ -174,6 +180,7 @@ class HardwareSetupService(
                                 ownerDisplayName = drivebase.displayName,
                                 sourcePath = sourcePath,
                                 role = device.role.readableName(),
+                                roleKey = device.role.name,
                                 addressKind = addressKind,
                                 address = address,
                                 bus = device.canBus?.takeIf(String::isNotBlank),
@@ -223,6 +230,7 @@ class HardwareSetupService(
                     ownerDisplayName = subsystem.displayName,
                     sourcePath = sourcePath,
                     role = device.kind.readableName(),
+                    roleKey = device.kind.name,
                     addressKind = addressKind,
                     address = address,
                     bus = bus?.takeIf(String::isNotBlank),
@@ -400,6 +408,7 @@ class HardwareSetupService(
                 append(item.uid).append('|')
                 append(item.owner.name).append('|')
                 append(item.addressKind.name).append('|')
+                append(item.roleKey).append('|')
                 append(item.address).append('|')
                 append(item.bus.orEmpty()).append('|')
                 append(item.required).append('|')
@@ -429,6 +438,7 @@ class HardwareSetupService(
 
 private fun DriveHardwareRole.readableName(): String = name.lowercase().replace('_', ' ')
 
+/** Logical drivebase/module grouping nodes are not devices students configure on a controller. */
 private fun SubsystemHardwareKind.readableName(): String = name.lowercase().replace('_', ' ')
 
 private fun com.areslib.subsystem.SubsystemHardwareDocument.addressKind(): HardwareAddressKind = when (kind) {

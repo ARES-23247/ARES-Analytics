@@ -16,7 +16,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
@@ -34,10 +36,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.hardware.HardwareInventoryItem
@@ -45,6 +50,7 @@ import com.ares.analytics.service.hardware.HardwareInventoryOwner
 import com.ares.analytics.service.hardware.HardwareIssueSeverity
 import com.ares.analytics.service.hardware.HardwareReviewStatus
 import com.ares.analytics.service.hardware.HardwareSetupSnapshot
+import com.ares.analytics.service.hardware.commissioningPlan
 import com.ares.analytics.ui.theme.AresAmber
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
@@ -65,6 +71,7 @@ fun HardwareSetupScreen(
     viewModel: HardwareSetupViewModel,
     onOpenDrivebase: () -> Unit,
     onOpenSubsystems: () -> Unit,
+    onOpenPitDiagnostics: (() -> Unit)? = null,
     onBackToStudio: (() -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsState()
@@ -97,6 +104,9 @@ fun HardwareSetupScreen(
                 item {
                     SourceActions(onOpenDrivebase, onOpenSubsystems)
                 }
+                item {
+                    CommissioningGuide(snapshot, onOpenPitDiagnostics)
+                }
                 HardwareInventoryOwner.entries.forEach { owner ->
                     val owned = snapshot.items.filter { it.owner == owner }
                     if (owned.isNotEmpty()) {
@@ -113,6 +123,87 @@ fun HardwareSetupScreen(
                 }
                 item {
                     ReviewChecklist(state, viewModel, onBackToStudio)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommissioningGuide(
+    snapshot: HardwareSetupSnapshot,
+    onOpenPitDiagnostics: (() -> Unit)?,
+) {
+    val plan = remember(snapshot.inventoryHash) { snapshot.commissioningPlan() }
+    @Suppress("DEPRECATION") val clipboard = LocalClipboardManager.current
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AresSurface),
+        border = BorderStroke(1.dp, AresBorder),
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Configure and identify the real robot", color = AresTextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "These names come from the canonical robot description. Enter them exactly in Driver Station → Configure Robot → Hardware; capitalization matters.",
+                color = AresTextSecondary,
+                lineHeight = 19.sp,
+            )
+            if (plan.hardwareMapEntries.isNotEmpty()) {
+                Surface(color = AresSurfaceElevated, shape = RoundedCornerShape(9.dp), border = BorderStroke(1.dp, AresBorder)) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        plan.hardwareMapEntries.forEach { item ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text(item.displayName, color = AresTextPrimary, modifier = Modifier.weight(1f), fontSize = 12.sp)
+                                Text(item.address.ifBlank { "NOT CONFIGURED" }, color = if (item.address.isBlank()) AresRed else AresCyan, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+                OutlinedButton(onClick = { clipboard.setText(AnnotatedString(plan.clipboardText)) }) {
+                    Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Copy exact hardware names")
+                }
+            }
+
+            HorizontalDivider(color = AresBorder)
+            Text("Safely check motor position and direction", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+            Text(
+                "ARES Analytics never pulses a physical motor from this screen. On the Driver Station, select the TeleOp named ARES Drivetrain Diagnostic. It is hold-to-run and uses the generated names and directions below.",
+                color = AresTextSecondary,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
+            Surface(color = AresAmber.copy(alpha = 0.10f), border = BorderStroke(1.dp, AresAmber), shape = RoundedCornerShape(9.dp)) {
+                Text(
+                    "Before Play: put the robot on secure blocks so every wheel is clear of the floor, remove game pieces, keep hands and clothing away, and have one person ready to press Stop. Release the button immediately if the wrong wheel or direction moves.",
+                    color = AresTextPrimary,
+                    modifier = Modifier.fillMaxWidth().padding(11.dp),
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                )
+            }
+            if (plan.ftcDiagnosticAvailable) {
+                plan.ftcMotorChecks.forEach { check ->
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(check.gamepadControl, color = AresCyan, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, modifier = Modifier.width(100.dp))
+                        Text("${check.displayName}  [${check.hardwareMapName}]  · ${check.configuredDirection}", color = AresTextPrimary, fontSize = 12.sp)
+                    }
+                }
+            } else {
+                Text(plan.ftcDiagnosticBlockReason.orEmpty(), color = AresAmber, fontSize = 12.sp, lineHeight = 18.sp)
+            }
+            Text(
+                "The diagnostic proves only motor identity and configured direction. It does not validate odometry, closed-loop tuning, current limits, mechanisms, or match readiness.",
+                color = AresTextTertiary,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+            )
+            if (onOpenPitDiagnostics != null) {
+                OutlinedButton(onClick = onOpenPitDiagnostics) {
+                    Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Open live read-only self-test")
                 }
             }
         }
