@@ -106,16 +106,19 @@ private data class SubsystemStarterInputs(
 class ProcessManagerService internal constructor(
     private val monitorAdbConnection: Boolean,
     aresRepositoryUri: String?,
+    aresVersion: String? = null,
 ) : AresProjectGenerator {
 
     constructor() : this(
         monitorAdbConnection = true,
         aresRepositoryUri = System.getProperty(ARES_REPOSITORY_URI_PROPERTY),
+        aresVersion = System.getProperty(ARES_VERSION_PROPERTY),
     )
 
     internal constructor(monitorAdbConnection: Boolean) : this(
         monitorAdbConnection = monitorAdbConnection,
         aresRepositoryUri = null,
+        aresVersion = null,
     )
 
     private val aresRepositoryFileUri = aresRepositoryUri
@@ -123,6 +126,11 @@ class ProcessManagerService internal constructor(
         ?.let(::validatedAresRepositoryUri)
     private val aresRepositoryArgument = aresRepositoryFileUri
         ?.let { "-ParesRepository=$it" }
+    private val explicitAresVersion = aresVersion
+        ?.takeIf(String::isNotBlank)
+        ?.let(::validatedAresVersion)
+    private val aresVersionArgument = explicitAresVersion
+        ?.let { "-ParesVersion=$it" }
 
     private val _buildOutput = MutableSharedFlow<String>(replay = 200)
     val buildOutput: SharedFlow<String> = _buildOutput.asSharedFlow()
@@ -1143,15 +1151,29 @@ class ProcessManagerService internal constructor(
         return root
     }
 
-    private fun withAresRepository(command: List<String>): List<String> =
-        aresRepositoryArgument?.let { argument -> command + argument } ?: command
+    private fun withAresRepository(command: List<String>): List<String> = buildList {
+        addAll(command)
+        aresRepositoryArgument?.let(::add)
+        aresVersionArgument?.let(::add)
+    }
 
     private fun withAresRepositoryEnvironment(processBuilder: ProcessBuilder): ProcessBuilder =
         processBuilder.also { builder ->
             aresRepositoryFileUri?.let { uri ->
                 builder.environment()[ARES_REPOSITORY_GRADLE_ENVIRONMENT] = uri
             }
+            explicitAresVersion?.let { version ->
+                builder.environment()[ARES_VERSION_GRADLE_ENVIRONMENT] = version
+            }
         }
+
+    private fun validatedAresVersion(rawVersion: String): String {
+        val version = rawVersion.trim()
+        require(ARES_VERSION_PATTERN.matches(version)) {
+            "ARES version override must be a semantic version or release candidate without whitespace"
+        }
+        return version
+    }
 
     /** Focused test seam for the shared command decoration used by build, generation, and sim. */
     internal fun configuredGradleCommandForTest(command: List<String>): List<String> =
@@ -1213,6 +1235,10 @@ class ProcessManagerService internal constructor(
         withAresRepositoryEnvironment(ProcessBuilder("ares-environment-test"))
             .environment()[ARES_REPOSITORY_GRADLE_ENVIRONMENT]
 
+    internal fun configuredAresVersionEnvironmentForTest(): String? =
+        withAresRepositoryEnvironment(ProcessBuilder("ares-version-environment-test"))
+            .environment()[ARES_VERSION_GRADLE_ENVIRONMENT]
+
     private fun validatedAresRepositoryUri(rawUri: String): String {
         val uri = runCatching { URI.create(rawUri) }.getOrElse {
             throw IllegalArgumentException("ARES repository override must be a valid file URI", it)
@@ -1245,13 +1271,16 @@ class ProcessManagerService internal constructor(
         const val FTC_ADB_TARGET = "192.168.43.1:5555"
         const val FTC_ROBOT_CONTROLLER_PACKAGE = "com.qualcomm.ftcrobotcontroller"
         const val ARES_REPOSITORY_URI_PROPERTY = "ares.repository.uri"
+        const val ARES_VERSION_PROPERTY = "ares.version"
         const val ARES_REPOSITORY_GRADLE_ENVIRONMENT = "ORG_GRADLE_PROJECT_aresRepository"
+        const val ARES_VERSION_GRADLE_ENVIRONMENT = "ORG_GRADLE_PROJECT_aresVersion"
         const val GENERATION_DIAGNOSTIC_LINE_LIMIT = 24
         const val GENERATION_DIAGNOSTIC_CHARACTER_LIMIT = 4_000
         const val MAX_MONITOR_OUTPUT_CHARS = 64 * 1024
         const val PROCESS_TREE_KILL_GRACE_MS = 2_000L
         const val PROCESS_TREE_POLL_MS = 10L
         val GENERATED_CONTENT_HASH = Regex("CONTENT_SHA256:\\s*String\\s*=\\s*\"([0-9a-fA-F]{64})\"")
+        val ARES_VERSION_PATTERN = Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?")
     }
 }
 

@@ -43,6 +43,31 @@ import kotlin.test.assertTrue
 
 class ControlsEditorViewModelTest {
     @Test
+    fun `missing capability starts a reviewed draft on the explicitly selected button`() = withProject { project ->
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, seededDocuments(project))
+
+        assertEquals(1, viewModel.state.value.coverage.totalCount)
+        assertEquals(0, viewModel.state.value.coverage.boundCount)
+        viewModel.createBindingForAction("intake.run")
+        assertNull(viewModel.state.value.draftBinding)
+        assertTrue(viewModel.state.value.status.orEmpty().contains("Select the button"))
+
+        viewModel.selectControl("a")
+        viewModel.createBindingForAction("intake.run")
+
+        val draft = assertNotNull(viewModel.state.value.draftBinding)
+        assertEquals(listOf("a"), draft.source.controlIds)
+        assertEquals(ControlTargetKind.ACTION, draft.target.kind)
+        assertEquals("intake.run", draft.target.key)
+        assertTrue(viewModel.state.value.draftHasUnappliedChanges)
+        assertEquals(0, viewModel.state.value.coverage.boundCount)
+
+        viewModel.applyDraft()
+        assertEquals(1, viewModel.state.value.coverage.boundCount)
+        assertTrue(viewModel.state.value.dirty)
+    }
+
+    @Test
     fun `editor is explicitly project backed and does not require a robot`() {
         val viewModel = ControlsEditorViewModel("", League.FTC)
 

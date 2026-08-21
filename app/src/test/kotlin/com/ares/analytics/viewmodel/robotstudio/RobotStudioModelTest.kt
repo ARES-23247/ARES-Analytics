@@ -13,6 +13,25 @@ import kotlin.test.assertTrue
 
 class RobotStudioModelTest {
     @Test
+    fun `unreachable safety recovery keeps controls visibly incomplete`() {
+        val stages = evaluateRobotStudioStages(
+            completeEvidence().copy(
+                capabilityActionCount = 4,
+                controlTeleopActionCount = 4,
+                controlBoundActionCount = 2,
+                controlSafetyActionCount = 1,
+                controlBoundSafetyActionCount = 0,
+            ),
+            RobotStudioRuntimeEvidence(),
+        )
+
+        val controls = stages.first { it.id == RobotStudioStageId.CONTROLS }
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, controls.status)
+        assertTrue(controls.explanation.contains("safety/recovery"))
+        assertEquals(RobotStudioStageStatus.BLOCKED, stages.status(RobotStudioStageId.GENERATE_VERIFY))
+    }
+
+    @Test
     fun `partial readiness cannot enable global execution controls`() {
         val buildOnly = RobotStudioStage(
             id = RobotStudioStageId.GENERATE_VERIFY,

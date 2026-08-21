@@ -247,3 +247,11 @@ When adding or changing a topic:
 - [ ] Numeric/string replay behavior is tested.
 - [ ] Dashboard input has a safe default.
 - [ ] A standards-compliant NT4 peer can publish/subscribe successfully.
+
+## Telemetry liveness
+
+`ARES/Telemetry/FrameSequence` is a monotonically changing numeric heartbeat emitted once per
+published robot-state frame. A connected NT4 socket is not proof that the robot loop is alive;
+commissioning and readiness UI must observe this changing topic locally before presenting cached
+hardware values as live. The counter is transport evidence only: it does not certify any sensor,
+actuator, wiring, or physical safety check.

@@ -120,6 +120,9 @@ data class ControlsEditorState(
         get() = draftBinding?.target?.takeIf { it.kind == ControlTargetKind.ACTION }
             ?.let { target -> actions.firstOrNull { it.key == target.key } }
 
+    val coverage: ControlsCoverage
+        get() = controlsCoverage(actions, selectedScheme)
+
     val canSave: Boolean
         get() = dirty && !draftHasUnappliedChanges && canGenerate
 
@@ -336,6 +339,40 @@ class ControlsEditorViewModel(
                 target = target
             ),
             draftHasUnappliedChanges = true
+        ).revalidated()
+    }
+
+    /**
+     * Starts a normal reviewed binding draft for a missing catalog action on the selected control.
+     * It never chooses a physical control, applies the draft, saves a file, or runs generation.
+     */
+    fun createBindingForAction(actionKey: String) = mutateSelection { current ->
+        if (current.draftHasUnappliedChanges) {
+            return@mutateSelection current.copy(status = "Apply or discard the current binding draft first.")
+        }
+        val action = current.actions.firstOrNull { it.key == actionKey }
+            ?: return@mutateSelection current.copy(status = "That action is no longer in the project catalog. Reload controls.")
+        val control = current.selectedControl
+            ?: return@mutateSelection current.copy(status = "Select the button or axis that should run '${action.displayName}', then choose Bind.")
+        if (control.type != ControllerControlTypeDocument.BUTTON) {
+            return@mutateSelection current.copy(
+                status = "Select a button for '${action.displayName}'. Continuous axis actions require an explicit value contract.",
+            )
+        }
+        val scheme = current.selectedScheme ?: return@mutateSelection current
+        val slot = current.selectedControllerSlot ?: return@mutateSelection current
+        val draft = ControlBindingDocument(
+            bindingId = uniqueBindingId(scheme, "${control.controlId}-${action.key}"),
+            displayName = action.displayName,
+            source = ControlSourceDocument(ControlSourceKind.BUTTON, slot, listOf(control.controlId)),
+            event = ControlEvent.PRESS,
+            target = ControlTargetDocument(ControlTargetKind.ACTION, action.key, defaultArguments(action)),
+        )
+        current.copy(
+            selectedBindingId = null,
+            draftBinding = draft,
+            draftHasUnappliedChanges = true,
+            status = "Review the input event and arguments, then add the binding. Nothing has been saved yet.",
         ).revalidated()
     }
 
