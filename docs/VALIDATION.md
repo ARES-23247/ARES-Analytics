@@ -115,6 +115,14 @@ Supported properties are:
 
 The workflow checks out `ARESLib-Kotlin` beside `ARES-Analytics`, matching the composite-build layout used by local development.
 
+`.github/workflows/build-distributions.yml` gates every installer build on the official-template
+acceptance test. It creates fresh FTC and FRC projects from the same hash-pinned archives used by
+onboarding, personalizes their canonical ARES identities, and then generates, verifies, tests, and
+packages both projects through their normal immutable dependency repositories. The FTC project also
+runs the headless drivetrain verifier, which must demonstrate translation, field-centric control,
+and rotation before an installer can be produced. This is simulator evidence, not physical-hardware
+validation.
+
 ## Optional physical hardware check
 
 The hosted pipeline cannot reproduce radio congestion, Control Hub storage pressure, RoboRIO CPU contention, or field-network policies. Run `dashboardHardware` manually from the driver-station laptop while it is connected to the robot network. The task observes live NT4 traffic for 30 seconds by default, checks frame/topic minimums and required keys, persists the received data, and writes its report locally. No self-hosted GitHub runner is required.

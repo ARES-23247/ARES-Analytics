@@ -15,11 +15,63 @@ permissions:
   contents: write
 
 env:
-  ARES_VERSION: 9.2.2
+  ARES_VERSION: 9.4.0
 
 jobs:
+  zero-code-project-acceptance:
+    name: Verify fresh zero-code robot projects
+    runs-on: windows-latest
+    steps:
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Checkout ARES-Analytics
+        uses: actions/checkout@v4
+        with:
+          path: 'ARES-Analytics'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Download hash-pinned robot templates
+        shell: pwsh
+        run: |
+          $archiveDirectory = Join-Path $env:RUNNER_TEMP 'ares-official-templates'
+          New-Item -ItemType Directory -Force -Path $archiveDirectory | Out-Null
+          Invoke-WebRequest -UseBasicParsing `
+            -Uri 'https://github.com/ARES-23247/ARES-FTC/archive/c608fc1436e1fa845f7cdf73ba55467e410e0f45.zip' `
+            -OutFile (Join-Path $archiveDirectory 'ftc.zip')
+          Invoke-WebRequest -UseBasicParsing `
+            -Uri 'https://github.com/ARES-23247/ARES-FRC/archive/2c78513e3e39fa89b267871fc020fa4ed6b54b7f.zip' `
+            -OutFile (Join-Path $archiveDirectory 'frc.zip')
+
+      - name: Create, generate, test, simulate, and package fresh projects
+        shell: pwsh
+        run: |
+          $archiveDirectory = Join-Path $env:RUNNER_TEMP 'ares-official-templates'
+          $outputDirectory = Join-Path $env:RUNNER_TEMP 'ares-zero-code-acceptance'
+          Set-Location ARES-Analytics
+          .\gradlew.bat :app:test `
+            --tests 'com.ares.analytics.service.project.OfficialProjectTemplateIntegrationTest' `
+            "-Dares.officialTemplateArchiveDir=$archiveDirectory" `
+            "-Dares.officialTemplateOutputDir=$outputDirectory" `
+            '-Dares.officialTemplateValidateProjects=true' `
+            --no-daemon --console=plain
+
+      - name: Upload zero-code project logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zero-code-project-acceptance-logs
+          path: ${{ runner.temp }}/ares-zero-code-acceptance/**/official-template-validation.log
+          if-no-files-found: warn
+
   build-packages:
     name: Build package for ${{ matrix.os }}
+    needs: zero-code-project-acceptance
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
