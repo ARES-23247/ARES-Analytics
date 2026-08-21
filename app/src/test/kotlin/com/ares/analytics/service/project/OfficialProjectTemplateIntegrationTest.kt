@@ -14,8 +14,11 @@ import kotlin.test.assertTrue
  *
  * Run with `ARES_OFFICIAL_TEMPLATE_ARCHIVE_DIR=<download-dir>` and
  * `ARES_OFFICIAL_TEMPLATE_OUTPUT_DIR=<empty-build-dir>` (or matching `-Dares.*` properties).
- * Set `ARES_OFFICIAL_TEMPLATE_VALIDATION_REPOSITORY=<release-repository>` to also run generation,
- * verification, tests, simulator tests, and packaging inside both emitted projects.
+ * Set `ARES_OFFICIAL_TEMPLATE_VALIDATE_PROJECTS=true` to also run generation, verification,
+ * tests, simulator tests, packaging, and the FTC headless drivetrain acceptance run inside the
+ * emitted projects using their normal immutable dependency repositories. A local validation
+ * repository can be supplied with `ARES_OFFICIAL_TEMPLATE_VALIDATION_REPOSITORY` while developing
+ * an unpublished ARESLib version; supplying it also enables project validation.
  * Normal unit runs skip this network/release-artifact boundary.
  */
 class OfficialProjectTemplateIntegrationTest {
@@ -33,6 +36,10 @@ class OfficialProjectTemplateIntegrationTest {
             System.getProperty("ares.officialTemplateValidationRepository")
                 ?: System.getenv("ARES_OFFICIAL_TEMPLATE_VALIDATION_REPOSITORY")
             )?.let(::validationRepositoryUri)
+        val validateProjects = validationRepository != null || (
+            System.getProperty("ares.officialTemplateValidateProjects")
+                ?: System.getenv("ARES_OFFICIAL_TEMPLATE_VALIDATE_PROJECTS")
+            ).toBoolean()
         assumeTrue(archiveDirectory?.isDirectory == true && outputDirectory != null)
 
         val archiveRoot = requireNotNull(archiveDirectory).canonicalFile
@@ -67,11 +74,11 @@ class OfficialProjectTemplateIntegrationTest {
             assertTrue(result.destination.isDirectory)
             assertTrue(File(result.destination, ".ares/template-provenance.json").isFile)
             if (league == League.FTC) assertTrue(File(result.destination, "local.properties").isFile)
-            validationRepository?.let { repository -> validateGeneratedProject(result.destination, league, repository) }
+            if (validateProjects) validateGeneratedProject(result.destination, league, validationRepository)
         }
     }
 
-    private fun validateGeneratedProject(project: File, league: League, repositoryUri: String) {
+    private fun validateGeneratedProject(project: File, league: League, repositoryUri: String?) {
         val windows = System.getProperty("os.name").contains("win", ignoreCase = true)
         val command = buildList {
             if (windows) addAll(listOf("cmd.exe", "/c", "gradlew.bat")) else add("./gradlew")
@@ -82,12 +89,13 @@ class OfficialProjectTemplateIntegrationTest {
                         ":TeamCode:verifyAresProject",
                         ":TeamCode:testDebugUnitTest",
                         ":simulator:test",
+                        ":TeamCode:runVerification",
                         ":TeamCode:assembleDebug",
                     ),
                 )
                 League.FRC -> addAll(listOf("generateAresProject", "verifyAresProject", "test", "build"))
             }
-            add("-ParesRepository=$repositoryUri")
+            repositoryUri?.let { add("-ParesRepository=$it") }
             addAll(listOf("--no-parallel", "--no-daemon", "--console=plain"))
         }
         val log = File(project, "build/official-template-validation.log")
