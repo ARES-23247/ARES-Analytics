@@ -59,19 +59,32 @@ class ImportArchiveService {
 
         val destination = File(logsRoot, "retry_${UUID.randomUUID()}_$originalName")
         val partial = File(logsRoot, ".${destination.name}.partial")
+        val companionSource = source.takeIf {
+            it.name.endsWith(".dslog", ignoreCase = true) && originalName.endsWith(".dslog", ignoreCase = true)
+        }?.let(::matchingDriverStationEvents)
+        val companionRetry = companionSource?.let { sourceFile ->
+            val destinationFile = File(logsRoot, destination.name.substringBeforeLast('.') + ".dsevents")
+            val partialFile = File(logsRoot, ".${destinationFile.name}.partial")
+            Triple(sourceFile, partialFile, destinationFile)
+        }
+        var destinationInstalled = false
         try {
             Files.copy(source.toPath(), partial.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            try {
-                Files.move(
-                    partial.toPath(),
-                    destination.toPath(),
-                    StandardCopyOption.ATOMIC_MOVE
-                )
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(partial.toPath(), destination.toPath())
+            companionRetry?.let { (sourceFile, partialFile, _) ->
+                Files.copy(sourceFile.toPath(), partialFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
+            moveStaged(partial, destination)
+            destinationInstalled = true
+            companionRetry?.let { (_, partialFile, destinationFile) ->
+                moveStaged(partialFile, destinationFile)
+            }
+        } catch (failure: Throwable) {
+            if (destinationInstalled) destination.delete()
+            companionRetry?.third?.delete()
+            throw failure
         } finally {
             partial.delete()
+            companionRetry?.second?.delete()
         }
         return destination
     }
@@ -116,5 +129,22 @@ class ImportArchiveService {
     private fun hasSupportedExtension(name: String): Boolean {
         val lower = name.lowercase()
         return AutoImportService.SUPPORTED_EXTENSIONS.any(lower::endsWith)
+    }
+
+    private fun matchingDriverStationEvents(dslog: File): File? {
+        val baseName = dslog.name.substringBeforeLast('.')
+        return dslog.parentFile?.listFiles()?.firstOrNull { candidate ->
+            candidate.isFile &&
+                candidate.name.endsWith(".dsevents", ignoreCase = true) &&
+                candidate.name.substringBeforeLast('.').equals(baseName, ignoreCase = true)
+        }
+    }
+
+    private fun moveStaged(source: File, destination: File) {
+        try {
+            Files.move(source.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE)
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(source.toPath(), destination.toPath())
+        }
     }
 }

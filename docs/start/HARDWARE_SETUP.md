@@ -27,10 +27,34 @@ ARES writes `.ares/hardware-review.json` with the exact descriptor inventory has
 name. Any drivetrain or subsystem edit changes that hash and marks the review **stale**. Re-review the
 new mapping; do not edit the review JSON by hand.
 
-For FTC, each device card shows the exact name to enter in **Driver Station → Configure Robot →
-Hardware**. Copy the spelling and case exactly; drive motors conventionally use `fl`, `fr`, `rl`,
-and `rr` (rear, not back). For FRC, each card shows the CAN ID and bus. ARES blocks duplicate
+For FTC, the commissioning card gathers every exact name to enter in **Driver Station → Configure
+Robot → Hardware** and can copy the complete checklist. Copy spelling and case exactly; the default
+drive motor names are `fl`, `fr`, `rl`, and `rr` (rear, not back). The individual device cards show
+the same source-owned values. For FRC, each card shows the CAN ID and bus. ARES blocks duplicate
 addresses, but students must still confirm the physical labels and vendor configuration.
+
+## Check FTC motor identity and direction
+
+ARES Analytics does not command a physical motor from the desktop. Instead, it shows the generated
+name, configured direction, and face-button mapping used by the **ARES Drivetrain Diagnostic**
+TeleOp on the Driver Station. This keeps enabled hardware control inside the normal FTC OpMode and
+Stop-button boundary.
+
+1. Put the robot on secure blocks so every wheel is clear of the floor. Remove game pieces and keep
+   hands, hair, clothing, and tools away from moving parts.
+2. In the Driver Station, select **ARES Drivetrain Diagnostic**. During INIT, confirm all four exact
+   generated hardware names report **FOUND**. One missing device blocks every motor.
+3. Press Play. Hold only one displayed face button at a time. Release it to command zero immediately.
+4. Confirm the named wheel moves in the expected forward direction. Press Stop immediately if a
+   different wheel or direction moves.
+5. Correct the canonical drivetrain name or inversion in Drivebase Builder, regenerate the project,
+   and repeat the check. Do not create an alias in the Robot Controller configuration.
+6. Return to Hardware Setup and complete the physical review. Optionally open the live read-only
+   self-test for sensor and telemetry evidence.
+
+This diagnostic checks only motor identity and the configured direction boundary. It does not prove
+odometry scale, localization, closed-loop gains, current limits, mechanism safety, or match readiness.
+Those require their own simulated and supervised physical checks.
 
 ## What the review does not prove
 
@@ -38,10 +62,12 @@ A current review is not a powered hardware test, calibration result, inspection 
 that a mechanism is safe to move. Follow your team's supervised bring-up procedure, test one device
 at a time at low output, and preserve logs.
 
-The current desktop app never pulses a physical actuator. A future active-identification flow must
-be implemented and acknowledged by the robot runtime with disabled/test-mode gates, a bounded
-output and duration, a lease/nonce, automatic neutral on communication loss, and physical test
-evidence. The offline drive-mixing lab is for checking intended direction and follower math only.
+The desktop app never pulses a physical actuator. Any future desktop-initiated identification flow
+would need robot-side mode gates, bounded output and duration, a lease/nonce, automatic neutral on
+communication loss, and physical test evidence. The current Driver Station diagnostic is local,
+hold-to-run, blocks partial mappings, uses 40% output, and attempts to neutralize every discovered
+motor on stop or failure. The offline drive-mixing lab still checks intended direction and follower
+math only.
 
 Downloaded Team 23247 season starters remain **simulation/reference only** even after a review.
 Their hand-authored composition is not yet fully represented by GUI-owned descriptors, so the

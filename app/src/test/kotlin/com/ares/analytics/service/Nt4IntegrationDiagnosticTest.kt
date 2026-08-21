@@ -6,6 +6,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import java.io.File
+import java.net.InetAddress
+import java.net.ServerSocket
 import kotlin.test.assertTrue
 
 class Nt4IntegrationDiagnosticTest {
@@ -14,8 +16,9 @@ class Nt4IntegrationDiagnosticTest {
     fun testNt4PipelineDiagnostic() = runBlocking {
         println("=== STARTING NT4 DIAGNOSTIC TEST ===")
 
-        // 1. Start Server on port 5810
-        val server = NT4Instance.defaultInstance.startServer("127.0.0.1", 5810)
+        // 1. Reserve a test-only loopback port so an active robot/simulator on 5810 is untouched.
+        val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
+        val server = NT4Instance.defaultInstance.startServer("127.0.0.1", port)
         println("NT4Server started: $server")
 
         // 2. Publish server topics
@@ -36,7 +39,7 @@ class Nt4IntegrationDiagnosticTest {
         val clientService = Nt4ClientService(dbService)
 
         // 4. Connect client to 127.0.0.1
-        clientService.start("127.0.0.1", "23247", "2026", "sim-robot")
+        clientService.start("127.0.0.1", "23247", "2026", "sim-robot", port)
         println("Client start requested")
 
         // 5. Wait for WebSocket handshake and announcements

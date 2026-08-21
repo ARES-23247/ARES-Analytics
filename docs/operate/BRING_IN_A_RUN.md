@@ -59,7 +59,7 @@ Robot files remain on the robot after a successful pull. Deletion is a separate 
 2. Select **Refresh import reports** if the screen has not updated.
 3. Find the file under **Successful imports**.
 4. Check that its decoder, record count, and topic count are plausible. A green row with zero or surprisingly few records still deserves investigation.
-5. If it is under **Quarantine**, read the error, preserve the source, correct the cause, and use **Retry** only after the decoder/tool problem is fixed.
+5. If it is under **Quarantine**, read the error, preserve the source, correct the cause, and use **Retry** only after the decoder/tool problem is fixed. Retrying a Driver Station `.dslog` automatically requeues its matching `.dsevents` companion as the same import.
 
 Successful automatic imports are archived under `<robot-project>/logs/imported/` with an import report. Failed evidence is kept under `<robot-project>/logs/quarantine/`. Content fingerprints prevent the same unchanged file from becoming duplicate sessions.
 

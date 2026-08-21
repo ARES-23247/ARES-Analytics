@@ -61,7 +61,7 @@ The dependency tiers are:
 ```text
 Tier 0
   DatabaseService, EnvironmentService, ProcessManagerService,
-  TargetScannerService, SimulationService, preferences
+  TargetScannerService, preferences
 
 Tier 1
   Nt4ClientService, LogParserService, ReplayEngineService,

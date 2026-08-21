@@ -1032,6 +1032,9 @@ fun MainScreen(services: ServiceRegistry) {
                                 hardwareSetupViewModel = hardwareSetupViewModel,
                                 projectIdentityViewModel = projectIdentityViewModel,
                                 config = currentConfig,
+                                onOpenPitDiagnostics = {
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PIT_DIAGNOSTICS))
+                                },
                             )
                             NavigationTarget.CONTROLS -> com.ares.analytics.ui.components.controls.ControlsEditorPanel(
                                 state = controlsEditorState,
