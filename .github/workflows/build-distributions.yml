@@ -15,7 +15,7 @@ permissions:
   contents: write
 
 env:
-  ARES_VERSION: 9.4.0
+  ARES_VERSION: 9.6.0
 
 jobs:
   zero-code-project-acceptance:
@@ -42,11 +42,21 @@ jobs:
           $archiveDirectory = Join-Path $env:RUNNER_TEMP 'ares-official-templates'
           New-Item -ItemType Directory -Force -Path $archiveDirectory | Out-Null
           Invoke-WebRequest -UseBasicParsing `
-            -Uri 'https://github.com/ARES-23247/ARES-FTC/archive/c608fc1436e1fa845f7cdf73ba55467e410e0f45.zip' `
+            -Uri 'https://github.com/ARES-23247/ARES-FTC/archive/1a3458ac7d3cc99280658fe136aec6e3101842cb.zip' `
             -OutFile (Join-Path $archiveDirectory 'ftc.zip')
           Invoke-WebRequest -UseBasicParsing `
-            -Uri 'https://github.com/ARES-23247/ARES-FRC/archive/2c78513e3e39fa89b267871fc020fa4ed6b54b7f.zip' `
+            -Uri 'https://github.com/ARES-23247/ARES-FRC/archive/8c3ab98c86c459d3d842fc846f4740114cc55b6c.zip' `
             -OutFile (Join-Path $archiveDirectory 'frc.zip')
+          $expectedHashes = @{
+            'ftc.zip' = 'a0a606a18a0ed92ae23b74f7b1284d8d6b8b9df38a54f73ed21770f9211ba856'
+            'frc.zip' = '80039b3a5fb182b27795355f9817d2d7e9d3a4e89142048c808635ac481be0b9'
+          }
+          foreach ($entry in $expectedHashes.GetEnumerator()) {
+            $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $archiveDirectory $entry.Key)).Hash.ToLowerInvariant()
+            if ($actual -ne $entry.Value) {
+              throw "Pinned $($entry.Key) hash mismatch: expected $($entry.Value), received $actual"
+            }
+          }
 
       - name: Create, generate, test, simulate, and package fresh projects
         shell: pwsh
@@ -77,11 +87,11 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            task: ':app:packageMsi'
-            artifact-path: 'app/build/compose/binaries/main/msi/'
+            task: ':app:packageReleaseMsi'
+            artifact-path: 'app/build/compose/binaries/main-release/msi/'
           - os: macos-latest
-            task: ':app:packageDmg'
-            artifact-path: 'app/build/compose/binaries/main/dmg/'
+            task: ':app:packageReleaseDmg'
+            artifact-path: 'app/build/compose/binaries/main-release/dmg/'
 
     steps:
       - name: Resolve package version
