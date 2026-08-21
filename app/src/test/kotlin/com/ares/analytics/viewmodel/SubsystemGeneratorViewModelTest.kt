@@ -220,6 +220,24 @@ class SubsystemGeneratorViewModelTest {
     }
 
     @Test
+    fun `builder rejects hardware without a generated adapter for the selected league`() {
+        val ftcRoot = Files.createTempDirectory("ares-ftc-hardware-support").toFile()
+        val frcRoot = Files.createTempDirectory("ares-frc-hardware-support").toFile()
+        val ftc = SubsystemGeneratorViewModel(ftcRoot.path, League.FTC)
+        val frc = SubsystemGeneratorViewModel(frcRoot.path, League.FRC)
+
+        assertFailsWith<IllegalArgumentException> { ftc.addHardware(SubsystemHardwareKind.SOLENOID) }
+        assertFailsWith<IllegalArgumentException> { frc.addHardware(SubsystemHardwareKind.COLOR_SENSOR) }
+        ftc.addHardware(SubsystemHardwareKind.IMU)
+        frc.addHardware(SubsystemHardwareKind.SOLENOID)
+
+        assertTrue(ftc.state.value.draft!!.document.hardware.any { it.kind == SubsystemHardwareKind.IMU })
+        assertTrue(frc.state.value.draft!!.document.hardware.any { it.kind == SubsystemHardwareKind.SOLENOID })
+        ftc.close()
+        frc.close()
+    }
+
+    @Test
     fun `sandbox gains update the selected controller and reject nonfinite input`() {
         val root = Files.createTempDirectory("ares-subsystem-gains").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)

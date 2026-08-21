@@ -24,18 +24,29 @@ import com.areslib.subsystem.SubsystemControlStrategy
 import com.areslib.subsystem.SubsystemHardwareDocument
 import com.areslib.subsystem.SubsystemHardwareKind
 import com.areslib.subsystem.SubsystemPlatform
+import com.areslib.subsystem.supportsPlatform
 
 fun SubsystemHardwareKind.isActuator(): Boolean =
     this == SubsystemHardwareKind.MOTOR ||
     this == SubsystemHardwareKind.POSITIONAL_SERVO ||
     this == SubsystemHardwareKind.CONTINUOUS_SERVO ||
     this == SubsystemHardwareKind.INDICATOR_LIGHT ||
-    this == SubsystemHardwareKind.PRISM_DRIVER
+    this == SubsystemHardwareKind.PRISM_DRIVER ||
+    this == SubsystemHardwareKind.SOLENOID
 
 fun SubsystemHardwareDocument.connectionLabel(platform: SubsystemPlatform): String = when (platform) {
     SubsystemPlatform.FTC -> connection.hardwareMapName?.let { "hwMap: $it" } ?: "unconfigured"
-    SubsystemPlatform.FRC -> if (kind == SubsystemHardwareKind.MOTOR) "CAN ${connection.canId ?: 0} (${connection.canBus})" else "channel ${connection.channel ?: 0}"
+    SubsystemPlatform.FRC -> when (kind) {
+        SubsystemHardwareKind.MOTOR -> "CAN ${connection.canId ?: 0} (${connection.canBus})"
+        SubsystemHardwareKind.SOLENOID -> "${connection.pneumaticsModuleType?.name ?: "pneumatics"} CAN ${connection.canId ?: 0}, channel ${connection.channel ?: 0}"
+        SubsystemHardwareKind.QUADRATURE_ENCODER -> "DIO ${connection.channel ?: 0}/${connection.secondaryChannel ?: 1}"
+        SubsystemHardwareKind.IMU -> "onboard SPI"
+        else -> "channel ${connection.channel ?: 0}"
+    }
 }
+
+fun supportedHardwareKinds(platform: SubsystemPlatform): List<SubsystemHardwareKind> =
+    SubsystemHardwareKind.entries.filter { it.supportsPlatform(platform) }
 
 fun SubsystemControlStrategy.requiresMeasurement(): Boolean =
     this in setOf(
@@ -320,12 +331,21 @@ fun SubsystemHardwareKind.uiLabel(): String = when (this) {
     SubsystemHardwareKind.DIGITAL_INPUT -> "Digital Input / Limit Switch"
     SubsystemHardwareKind.ANALOG_INPUT -> "Analog Sensor / Potentiometer"
     SubsystemHardwareKind.COLOR_SENSOR -> "Color / Proximity Sensor (I2C)"
+    SubsystemHardwareKind.ABSOLUTE_ENCODER -> "Absolute Encoder (angle)"
+    SubsystemHardwareKind.QUADRATURE_ENCODER -> "Quadrature Encoder (position + speed)"
+    SubsystemHardwareKind.DISTANCE_SENSOR -> "Distance Sensor"
+    SubsystemHardwareKind.IMU -> "IMU / Gyroscope"
+    SubsystemHardwareKind.SOLENOID -> "Pneumatic Solenoid (FRC)"
     SubsystemHardwareKind.INDICATOR_LIGHT -> "RGB Indicator Light (Servo PWM)"
-    SubsystemHardwareKind.PRISM_DRIVER -> "goBILDA Prism LED Driver (I2C)"
+    SubsystemHardwareKind.PRISM_DRIVER -> "goBILDA Prism LED Driver (PWM pulse width)"
 }
 
 @Composable
-fun AddHardwareButton(viewModel: SubsystemGeneratorViewModel, label: String = "+ Add hardware") {
+fun AddHardwareButton(
+    viewModel: SubsystemGeneratorViewModel,
+    platform: SubsystemPlatform,
+    label: String = "+ Add hardware",
+) {
     var expanded by remember { mutableStateOf(false) }
     Box(Modifier.fillMaxWidth()) {
         OutlinedButton(
@@ -337,7 +357,7 @@ fun AddHardwareButton(viewModel: SubsystemGeneratorViewModel, label: String = "+
             Text(label, fontSize = 11.sp)
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            SubsystemHardwareKind.entries.forEach { kind ->
+            supportedHardwareKinds(platform).forEach { kind ->
                 DropdownMenuItem(
                     text = { Text(kind.uiLabel(), fontSize = 11.sp) },
                     onClick = {

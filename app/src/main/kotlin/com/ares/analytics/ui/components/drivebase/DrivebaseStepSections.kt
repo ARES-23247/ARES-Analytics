@@ -37,7 +37,23 @@ fun DriveTypeStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewM
         Triple(DrivebaseKind.FRC_CTRE_SWERVE, "FRC CTRE Swerve", "Four independently steering and driving modules; supports read-only TunerConstants import."),
         Triple(DrivebaseKind.DIFFERENTIAL, "Differential / Tank", "Left and right wheel groups drive like a tank; no sideways strafing motion."),
         Triple(DrivebaseKind.CUSTOM, "Advanced / Custom", "Start with an example motor and gyro, then declare, configure, and classify custom hardware.")
-    ).filter { (kind, _, _) -> kind in drivebaseKindsForLeague(state.league) }
+    ).filter { (kind, _, _) -> kind in visibleDrivebaseKinds(state.league, state.advanced, state.draft.kind) }
+
+    if (!state.advanced) {
+        Surface(
+            color = AresGreen.copy(alpha = 0.10f),
+            border = BorderStroke(1.dp, AresGreen.copy(alpha = 0.55f)),
+            shape = RoundedCornerShape(8.dp),
+        ) {
+            Text(
+                "Showing the drivetrain that this ${state.league.name} project can generate, compile, and run without handwritten runtime code. Turn on Advanced to inspect descriptor-only architectures that require a programmer.",
+                color = AresTextPrimary,
+                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+            )
+        }
+    }
 
     cards.chunked(2).forEach { row ->
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -96,7 +112,13 @@ fun DriveTypeStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewM
 
 @Composable
 fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
-    SectionHeading("2 · Identify hardware", "Configure the 4 drive corner motors and any auxiliary sensors or odometry pods.")
+    val hardwareGuidance = when (state.draft.kind) {
+        DrivebaseKind.FTC_MECANUM -> "Configure all four wheel motors plus Pinpoint, IMU, vision, or other reviewed localization sensors."
+        DrivebaseKind.FRC_CTRE_SWERVE -> "Review all four drive/steer/encoder modules plus the gyro imported from the vendor configuration."
+        DrivebaseKind.DIFFERENTIAL -> "Describe left/right leaders, optional followers, and a gyro. This remains descriptor-only until a season runtime adapter is implemented."
+        DrivebaseKind.CUSTOM -> "Classify every custom drive device and sensor. This remains descriptor-only until a team-owned runtime adapter is implemented."
+    }
+    SectionHeading("2 · Identify hardware", hardwareGuidance)
 
     Row(
         modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 440.dp),

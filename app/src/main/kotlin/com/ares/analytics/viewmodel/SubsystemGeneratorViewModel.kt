@@ -49,6 +49,7 @@ import com.areslib.subsystem.SubsystemTemplate
 import com.areslib.subsystem.SubsystemTemplates
 import com.areslib.subsystem.SubsystemValueType
 import com.areslib.subsystem.validateSubsystemDocument
+import com.areslib.subsystem.supportsPlatform
 import com.areslib.tuning.TuningParameterDeclaration
 import com.areslib.tuning.TuningParameterType
 import com.google.gson.GsonBuilder
@@ -196,6 +197,14 @@ val subsystemTemplateOptions = listOf(
         "A cached, validity-aware input snapshot with telemetry and no actuator output.",
         "Sensors",
     ),
+    SubsystemTemplateOption(SubsystemTemplate.LIMIT_SWITCH_SENSOR, "Limit switch", "A cached digital end-stop with explicit active polarity and freshness.", "Sensors", true),
+    SubsystemTemplateOption(SubsystemTemplate.BEAM_BREAK_SENSOR, "Beam-break sensor", "A cached presence sensor for game pieces, indexing, and interlocks.", "Sensors", true),
+    SubsystemTemplateOption(SubsystemTemplate.POTENTIOMETER_SENSOR, "Potentiometer", "An analog position input with documented voltage-to-state conversion.", "Sensors"),
+    SubsystemTemplateOption(SubsystemTemplate.ABSOLUTE_ENCODER_SENSOR, "Absolute encoder", "A wrap-aware angular measurement published in canonical radians.", "Sensors"),
+    SubsystemTemplateOption(SubsystemTemplate.QUADRATURE_ENCODER_SENSOR, "Quadrature encoder", "Position and velocity feedback with explicit counts-per-revolution calibration.", "Sensors"),
+    SubsystemTemplateOption(SubsystemTemplate.DISTANCE_SENSOR, "Distance sensor", "A cached metric distance signal with validity bounds and freshness.", "Sensors"),
+    SubsystemTemplateOption(SubsystemTemplate.IMU_SENSOR, "IMU or gyroscope", "Cached yaw and yaw-rate feedback in radians for orientation-aware mechanisms.", "Sensors"),
+    SubsystemTemplateOption(SubsystemTemplate.PNEUMATIC_ACTUATOR, "Pneumatic actuator", "An FRC solenoid with explicit module, channel, safe-off output, and generated mock.", "Actuators"),
     SubsystemTemplateOption(
         SubsystemTemplate.HOMED_MECHANISM,
         "Homed mechanism",
@@ -400,6 +409,7 @@ class SubsystemGeneratorViewModel(
     }
 
     fun newSubsystem(template: SubsystemTemplate = _state.value.selectedTemplate) {
+        require(template.supportsPlatform(platform)) { "${template.name} is not supported for $platform projects" }
         aiProposalGeneration++
         val used = _state.value.documents.mapTo(hashSetOf()) { it.documentId }
         var suffix = 1
@@ -434,6 +444,7 @@ class SubsystemGeneratorViewModel(
     fun selectTemplate(template: SubsystemTemplate) = _state.update { it.copy(selectedTemplate = template) }
 
     fun applyTemplate(template: SubsystemTemplate) {
+        require(template.supportsPlatform(platform)) { "${template.name} is not supported for $platform projects" }
         val currentDocument = _state.value.draft?.document ?: return
         val templateDocument = SubsystemTemplates.create(
             template = template,
@@ -808,6 +819,9 @@ class SubsystemGeneratorViewModel(
     }
 
     fun addHardware(kind: SubsystemHardwareKind = SubsystemHardwareKind.MOTOR) {
+        require(kind.supportsPlatform(platform)) {
+            "Generated ${kind.name.lowercase().replace('_', ' ')} hardware is not supported for $platform projects"
+        }
         val id = uniqueId("device", _state.value.draft?.document?.hardware.orEmpty().map { it.hardwareId })
         edit { document ->
             val scaffold = SubsystemHardwareScaffolding.create(
@@ -861,6 +875,9 @@ class SubsystemGeneratorViewModel(
     }
 
     fun changeHardwareKind(id: String, kind: SubsystemHardwareKind) = edit { document ->
+        require(kind.supportsPlatform(platform)) {
+            "Generated ${kind.name.lowercase().replace('_', ' ')} hardware is not supported for $platform projects"
+        }
         val existing = document.hardware.firstOrNull { it.hardwareId == id } ?: return@edit document
         if (existing.kind == kind) return@edit document
         val ownedLoops = document.controlLoops.filter { it.actuatorId == id }
@@ -1352,7 +1369,8 @@ private fun safetyWarnings(document: SubsystemDocument): List<SubsystemProblem> 
 
 private fun SubsystemHardwareKind.isActuator(): Boolean = this == SubsystemHardwareKind.MOTOR ||
     this == SubsystemHardwareKind.POSITIONAL_SERVO || this == SubsystemHardwareKind.CONTINUOUS_SERVO ||
-    this == SubsystemHardwareKind.INDICATOR_LIGHT || this == SubsystemHardwareKind.PRISM_DRIVER
+    this == SubsystemHardwareKind.INDICATOR_LIGHT || this == SubsystemHardwareKind.PRISM_DRIVER ||
+    this == SubsystemHardwareKind.SOLENOID
 
 private fun SubsystemValueType.isNumeric(): Boolean = this == SubsystemValueType.DOUBLE || this == SubsystemValueType.INT
 

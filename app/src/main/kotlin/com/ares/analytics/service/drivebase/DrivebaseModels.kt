@@ -27,6 +27,15 @@ fun drivebaseKindsForLeague(league: League): List<DrivebaseKind> = when (league)
     League.FRC -> listOf(DrivebaseKind.FRC_CTRE_SWERVE, DrivebaseKind.DIFFERENTIAL, DrivebaseKind.CUSTOM)
 }
 
+/** Beginner mode shows only executable no-code choices; a selected advanced draft remains visible. */
+fun visibleDrivebaseKinds(
+    league: League,
+    advanced: Boolean,
+    selected: DrivebaseKind,
+): List<DrivebaseKind> = drivebaseKindsForLeague(league).filter { kind ->
+    advanced || kind == selected || kind.runtimeSupport(league) == DrivebaseRuntimeSupport.NO_CODE_RUNNABLE
+}
+
 fun defaultNoCodeDrivebaseKind(league: League): DrivebaseKind = when (league) {
     League.FTC -> DrivebaseKind.FTC_MECANUM
     League.FRC -> DrivebaseKind.FRC_CTRE_SWERVE

@@ -125,6 +125,76 @@ class HardwareSetupServiceTest {
         }
     }
 
+    @Test
+    fun `Prism driver is documented as PWM rather than I2C hardware`() {
+        val root = Files.createTempDirectory("ares-prism-address-kind").toFile()
+        try {
+            SubsystemProjectRepository().save(
+                root.path,
+                SubsystemTemplates.create(
+                    template = SubsystemTemplate.PRISM_LED_DRIVER,
+                    documentId = "lights",
+                    kotlinTypeName = "Lights",
+                    platform = SubsystemPlatform.FRC,
+                ),
+            )
+
+            val prism = HardwareSetupService().inspect(root.path, League.FRC).items.single {
+                it.owner == HardwareInventoryOwner.SUBSYSTEM
+            }
+            assertEquals(HardwareAddressKind.PWM, prism.addressKind)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `FTC IMU inventory shows the exact declared Control Hub orientation`() {
+        val root = Files.createTempDirectory("ares-imu-setup-details").toFile()
+        try {
+            SubsystemProjectRepository().save(
+                root.path,
+                SubsystemTemplates.create(
+                    template = SubsystemTemplate.IMU_SENSOR,
+                    documentId = "heading",
+                    kotlinTypeName = "Heading",
+                    platform = SubsystemPlatform.FTC,
+                ),
+            )
+
+            val imu = HardwareSetupService().inspect(root.path, League.FTC).items.single {
+                it.owner == HardwareInventoryOwner.SUBSYSTEM
+            }
+            assertTrue(imu.configurationDetails.any { it == "Control Hub mounting: logo faces up, USB faces forward" })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `FRC IMU inventory identifies the onboard SPI and CCW normalization boundary`() {
+        val root = Files.createTempDirectory("ares-frc-imu-setup-details").toFile()
+        try {
+            SubsystemProjectRepository().save(
+                root.path,
+                SubsystemTemplates.create(
+                    template = SubsystemTemplate.IMU_SENSOR,
+                    documentId = "heading",
+                    kotlinTypeName = "Heading",
+                    platform = SubsystemPlatform.FRC,
+                ),
+            )
+
+            val imu = HardwareSetupService().inspect(root.path, League.FRC).items.single {
+                it.owner == HardwareInventoryOwner.SUBSYSTEM
+            }
+            assertEquals(HardwareAddressKind.SPI, imu.addressKind)
+            assertTrue(imu.configurationDetails.any { it.contains("CCW-positive radians") })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     private fun seedDrivebase(root: java.io.File, includeLogicalWheelModule: Boolean = false) {
         val base = defaultDrivebase("team1-robot", DrivebaseKind.FTC_MECANUM)
         DrivebaseProjectRepository().saveReviewed(

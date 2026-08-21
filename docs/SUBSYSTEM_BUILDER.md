@@ -63,6 +63,76 @@ health, fault latching with explicit neutral recovery, telemetry, and autonomous
 The builder reports missing safety decisions before generation rather than inventing permissive
 defaults.
 
+## Hardware devices
+
+Choose the device that matches the electrical interface, not merely the mechanism's nickname. ARES
+uses this choice to generate physical wiring, cached reads, canonical units, mock behavior, and safe
+output handling.
+
+| Device | FTC generated adapter | FRC generated adapter | Natural immutable state |
+|---|---|---|---|
+| Motor | `DcMotorEx` by Robot Controller name | Talon FX by CAN ID and bus | target voltage, position, velocity, current |
+| Positional / continuous servo | Robot Controller name | roboRIO PWM `Servo` / `PWMSparkMax` | requested position or power |
+| Limit / beam-break input | digital channel by Robot Controller name | roboRIO DIO | Boolean active state |
+| Potentiometer / analog input | analog channel by Robot Controller name | roboRIO analog input | voltage, with explicit scale/offset |
+| Analog absolute encoder | analog voltage normalized to one turn | duty-cycle encoder | angle in radians |
+| Quadrature encoder | motor-port encoder | two reviewed DIO channels | position in radians and velocity in rad/s |
+| Distance sensor | FTC `DistanceSensor` | analog distance sensor with metres-per-volt conversion | distance in metres |
+| IMU / gyroscope | FTC IMU plus declared Control Hub logo/USB mounting | roboRIO onboard SPI gyro | CCW-positive yaw and yaw rate in radians |
+| Color sensor | FTC color sensor | project-specific starter where supported | cached ARGB value |
+| Pneumatic solenoid | not offered | REV PH or CTRE PCM module and channel | requested off/on state with declared neutral |
+| Indicator / Prism driver | PWM device by Robot Controller name | roboRIO PWM `Servo` | normalized color or pulse-width pattern |
+
+Unsupported platform/device combinations are removed from the picker rather than emitted as code
+that merely looks complete. Generated adapters are intentionally conservative; a vendor-specific
+device that needs more configuration should remain a user-owned adapter behind the same IO contract.
+
+## Hardware connections
+
+An FTC hardware-map name must match the Driver Station / Robot Controller configuration exactly,
+including capitalization. FRC devices use the reviewed CAN bus, CAN ID, DIO/analog channel, onboard
+SPI connection, or pneumatics module and channel shown by the form. The Hardware Setup page turns
+the saved descriptor into a copyable wiring/configuration checklist. That checklist includes the
+declared follower relationship, encoder resolution, analog distance calibration, safe neutral,
+current limit, and IMU mounting details where they apply.
+
+For an FTC IMU, also describe how the Control Hub is physically mounted: the direction the REV logo
+faces and the direction the USB ports face. Those axes must be perpendicular. Generated code passes
+that orientation to the FTC SDK so yaw remains in ARES's CCW-positive convention.
+
+## Cached inputs
+
+Every declared measurement is read exactly once during the adapter's refresh step. The adapter
+converts it to the canonical state unit, validates finite/range requirements, and commits the new
+snapshot only after all required reads succeed. Controllers and telemetry read the cache; they never
+perform a second SDK/vendor call. This makes simulator, replay, and physical behavior comparable and
+prevents one reducer tick from mixing sensor samples from different times.
+
+## State roles
+
+- **Target** is requested intent from controller bindings, autonomous routines, or a higher-level
+  superstructure. A target never proves that hardware moved.
+- **Measurement** is observed hardware state from the cached input snapshot.
+- **Status** is a derived or categorical fact such as readiness or possession.
+- **Configuration** is reviewed setup data that does not change as ordinary operator intent.
+
+Use the natural state created with each hardware device first. Add another value only when it has a
+clear mechanism-level meaning; do not duplicate a motor's position/current or a sensor's reading
+under a second name.
+
+## Control strategies
+
+- **Direct bounded output** is for reviewed voltage, power, PWM, or binary commands without feedback.
+- **Position PID** corrects measured position error.
+- **Profiled position PID** first limits setpoint velocity/acceleration, then applies position PID.
+- **Velocity PID** corrects measured speed and commonly pairs with simple-motor feedforward.
+- **Bang-bang / on-off** switches bounded outputs around a tolerance; it is intentionally abrupt.
+- **Positional servo** maps a normalized target to a servo and applies its declared safe position.
+
+The Builder offers only strategies generated and behaviorally tested by the current runtime. More
+advanced algorithms are not useful menu items unless their plant model, units, tuning workflow,
+safety gates, simulation, and generated verification are equally complete.
+
 ## Builder workflow
 
 The builder uses eight guided stages. You can move backward at any time; advanced settings remain
@@ -82,7 +152,9 @@ collapsed until you need them or a validation problem points to them.
    recovery requirements. The summary shows the protections currently enabled.
 6. **Capabilities** — review the typed driver/autonomous actions that the subsystem exposes.
 7. **Simulation & testing** — choose mock support and generated contract verification so the design
-   can be exercised without a physical robot.
+   can be exercised without a physical robot. The interactive safety preview lets students inject
+   stale/invalid feedback, configuration/current faults, missing home/calibration, and failed writes
+   to see the expected neutral and recovery contract. It never commands hardware.
 8. **Review** — resolve warnings, inspect ownership and module destinations, then save or generate.
 
 Save creates the canonical document revision. Review any starter replacement diff and confirm only
@@ -182,7 +254,7 @@ mass, friction, restitution, and accessible display color for every placed piece
 
 ## Typed tuning parameters
 
-Schema-9 subsystem documents may declare `tuningParameters`. A declaration is not a loose mutable
+Schema-10 subsystem documents may declare `tuningParameters`. A declaration is not a loose mutable
 constant: it gives the value a stable UID, a project-wide key, a component owner, a novice-facing
 name and explanation, a type, optional units/bounds/options, a default, and an apply policy. Named
 robot profiles own authoritative values; the subsystem only owns their meaning and constraints.
