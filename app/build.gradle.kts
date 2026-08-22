@@ -263,6 +263,11 @@ listOf(
     "ares.officialTemplateOutputDir",
     "ares.officialTemplateValidationRepository",
     "ares.officialTemplateValidateProjects",
+    "ares.genericStarterArchiveDir",
+    "ares.genericStarterOutputDir",
+    "ares.genericStarterValidationRepository",
+    "ares.genericStarterValidationVersion",
+    "ares.genericStarterTemplateVersion",
 ).forEach { propertyName ->
     providers.systemProperty(propertyName).orNull?.let { value ->
         tasks.withType<Test>().configureEach {

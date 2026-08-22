@@ -143,7 +143,7 @@ data class GamePieceType(
     val restitution: Double = 0.3
 )
 
-/** AprilTag placement in meters with a CCW-positive yaw in degrees. */
+/** AprilTag placement in meters with right-handed roll/pitch/yaw in degrees. */
 @Serializable
 data class AprilTagPlacement(
     val id: String,
@@ -152,7 +152,12 @@ data class AprilTagPlacement(
     val y: Double,
     val z: Double = 0.5,
     val yawDegrees: Double = 0.0,
-    val locked: Boolean = false
+    val locked: Boolean = false,
+    val name: String = "",
+    val family: String = "",
+    val sizeMeters: Double? = null,
+    val rollDegrees: Double = 0.0,
+    val pitchDegrees: Double = 0.0,
 )
 
 /** Named field pose in meters with a CCW-positive heading in degrees. */

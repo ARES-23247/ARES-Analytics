@@ -215,9 +215,14 @@ internal object FieldDocumentMapper {
         AprilTagPlacement(
             id = tag.editorId.ifBlank { "apriltag_${tag.id}" },
             tagId = tag.id,
+            name = tag.name,
+            family = tag.family,
+            sizeMeters = tag.sizeMeters,
             x = tag.x,
             y = tag.y,
             z = tag.z,
+            rollDegrees = tag.roll,
+            pitchDegrees = tag.pitch,
             yawDegrees = tag.yaw,
             locked = tag.locked
         )
@@ -290,9 +295,14 @@ internal object FieldDocumentMapper {
 
     private fun AprilTagPlacement.toCanonical(): RobotFieldAprilTag = RobotFieldAprilTag(
         id = tagId,
+        name = name,
+        family = family,
+        sizeMeters = sizeMeters,
         x = x,
         y = y,
         z = z,
+        roll = rollDegrees,
+        pitch = pitchDegrees,
         yaw = yawDegrees,
         editorId = id,
         locked = locked

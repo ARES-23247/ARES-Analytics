@@ -16,6 +16,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class FieldEditorInteractionTest {
@@ -83,6 +84,78 @@ class FieldEditorInteractionTest {
         viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FTC))
 
         assertTrue(viewModel.state.value.validationIssues.any { it.message.contains("AprilTag layout") })
+    }
+
+    @Test
+    fun WPILibImportRequiresPreviewAndPreservesFullOrientationWhenApplied() {
+        val viewModel = FieldEditorViewModel(CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
+        viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FRC))
+        val json = """
+            {
+              "field":{"length":17.0,"width":8.0},
+              "tags":[{"ID":9,"pose":{"translation":{"x":1.0,"y":2.0,"z":0.4},"rotation":{"quaternion":{"W":0.7071067811865476,"X":0.0,"Y":0.0,"Z":0.7071067811865475}}}}]
+            }
+        """.trimIndent()
+
+        viewModel.onIntent(FieldEditorIntent.PreviewAprilTagMap(json, "practice.json", null, League.FRC))
+
+        assertTrue(viewModel.state.value.aprilTags.isEmpty())
+        val preview = assertNotNull(viewModel.state.value.aprilTagImportPreview)
+        assertEquals(1, preview.tags.size)
+        assertTrue(preview.warnings.any { it.contains("tag size") })
+
+        viewModel.onIntent(FieldEditorIntent.ApplyAprilTagImport(replaceExisting = true))
+
+        val tag = viewModel.state.value.aprilTags.single()
+        assertEquals(9, tag.tagId)
+        assertEquals(90.0, tag.yawDegrees, 1e-9)
+        assertEquals(17.0, viewModel.state.value.fieldImageConfig.widthMeters, 0.0)
+        assertEquals(8.0, viewModel.state.value.fieldImageConfig.heightMeters, 0.0)
+        assertEquals(null, viewModel.state.value.aprilTagImportPreview)
+    }
+
+    @Test
+    fun LimelightImportCarriesFamilySizeAndMergeDoesNotOverwriteExistingID() {
+        val viewModel = FieldEditorViewModel(CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
+        viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FTC))
+        val existing = AprilTagPlacement(
+            id = "existing",
+            tagId = 3,
+            name = "Mentor reviewed",
+            family = "36h11",
+            sizeMeters = 0.1651,
+            x = 0.0,
+            y = 0.0,
+        )
+        viewModel.onIntent(FieldEditorIntent.AddAprilTag(existing))
+        val fmap = """
+            {"fiducials":[{"id":3,"family":"36h11","size":165.1,"transform":[1,0,0,2,0,1,0,3,0,0,1,0.5,0,0,0,1],"unique":1}]}
+        """.trimIndent()
+
+        viewModel.onIntent(FieldEditorIntent.ImportFmap(fmap, null, League.FTC))
+        val preview = assertNotNull(viewModel.state.value.aprilTagImportPreview)
+        assertEquals(0.1651, preview.tags.single().sizeMeters!!, 1e-12)
+        assertTrue(preview.warnings.any { it.contains("already exist") })
+
+        viewModel.onIntent(FieldEditorIntent.ApplyAprilTagImport(replaceExisting = false))
+
+        assertEquals(listOf(existing), viewModel.state.value.aprilTags)
+    }
+
+    @Test
+    fun LimelightImportUsesTheCanonicalFrcBlueCornerOrigin() {
+        val viewModel = FieldEditorViewModel(CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
+        viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FRC))
+        val fmap = """
+            {"fiducials":[{"id":4,"family":"apriltag3_36h11_classic","size":165.1,"transform":[1,0,0,7,0,1,0,-3,0,0,1,1.3,0,0,0,1],"unique":1}]}
+        """.trimIndent()
+
+        viewModel.onIntent(FieldEditorIntent.PreviewAprilTagMap(fmap, "field.fmap", null, League.FRC))
+        viewModel.onIntent(FieldEditorIntent.ApplyAprilTagImport(replaceExisting = true))
+
+        val tag = viewModel.state.value.aprilTags.single()
+        assertEquals(7.0 + 16.541 / 2.0, tag.x, 1e-12)
+        assertEquals(-3.0 + 8.211 / 2.0, tag.y, 1e-12)
     }
 
     @Test

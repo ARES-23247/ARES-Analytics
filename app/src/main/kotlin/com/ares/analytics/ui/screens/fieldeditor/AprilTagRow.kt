@@ -29,9 +29,6 @@ import com.ares.analytics.viewmodel.field.FieldMeasurementUnit
  * - Position $(x, y, z)$: Meters ($m$)
  * - Rotation $(\text{roll}, \text{pitch}, \text{yaw})$: Degrees ($^\circ$)
  *
- * ### Thread Safety & Performance Guarantees:
- * Zero-allocation Jetpack Compose UI component. State mutations are dispatched via non-blocking callbacks.
- *
  * @param index Zero-based list index of this AprilTag.
  * @param at Current [AprilTagPlacement] data record.
  * @param onUpdate Callback invoked when AprilTag parameters are modified.
@@ -60,6 +57,14 @@ fun AprilTagRow(
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                AresTextField(
+                    value = at.name,
+                    onValueChange = { onUpdate(index, at.copy(name = it)) },
+                    label = "Name",
+                    labelFontSize = 9.sp,
+                    modifier = Modifier.weight(1.5f),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary),
+                )
                 var tagIdText by remember(at.id, at.tagId) { mutableStateOf(at.tagId.toString()) }
                 AresTextField(
                     value = tagIdText,
@@ -72,29 +77,28 @@ fun AprilTagRow(
                     modifier = Modifier.weight(1f),
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
                 )
-                var tagZText by remember(at.id, at.z, measurementUnit) { mutableStateOf(measurementUnit.fromMeters(at.z).toString()) }
                 AresTextField(
-                    value = tagZText,
-                    onValueChange = { newVal ->
-                        tagZText = newVal
-                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(z = measurementUnit.toMeters(parsed))) }
-                    },
-                    label = "Z ($unitLabel)",
+                    value = at.family,
+                    onValueChange = { onUpdate(index, at.copy(family = it)) },
+                    label = "Family (36h11)",
                     labelFontSize = 9.sp,
                     modifier = Modifier.weight(1f),
-                    textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary),
                 )
-                var tagYawText by remember(at.id, at.yawDegrees) { mutableStateOf(at.yawDegrees.toString()) }
+                var tagSizeText by remember(at.id, at.sizeMeters) {
+                    mutableStateOf(at.sizeMeters?.times(1000.0)?.toString().orEmpty())
+                }
                 AresTextField(
-                    value = tagYawText,
+                    value = tagSizeText,
                     onValueChange = { newVal ->
-                        tagYawText = newVal
-                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(yawDegrees = parsed)) }
+                        tagSizeText = newVal
+                        if (newVal.isBlank()) onUpdate(index, at.copy(sizeMeters = null))
+                        else newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(sizeMeters = parsed / 1000.0)) }
                     },
-                    label = "Yaw (°)",
+                    label = "Size (mm)",
                     labelFontSize = 9.sp,
                     modifier = Modifier.weight(1f),
-                    textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary),
                 )
             }
             Spacer(modifier = Modifier.height(4.dp))
@@ -119,6 +123,57 @@ fun AprilTagRow(
                         newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(y = measurementUnit.toMeters(parsed))) }
                     },
                     label = "Y ($unitLabel)",
+                    labelFontSize = 9.sp,
+                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
+                )
+                var tagZText by remember(at.id, at.z, measurementUnit) { mutableStateOf(measurementUnit.fromMeters(at.z).toString()) }
+                AresTextField(
+                    value = tagZText,
+                    onValueChange = { newVal ->
+                        tagZText = newVal
+                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(z = measurementUnit.toMeters(parsed))) }
+                    },
+                    label = "Z ($unitLabel)",
+                    labelFontSize = 9.sp,
+                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                var tagRollText by remember(at.id, at.rollDegrees) { mutableStateOf(at.rollDegrees.toString()) }
+                AresTextField(
+                    value = tagRollText,
+                    onValueChange = { newVal ->
+                        tagRollText = newVal
+                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(rollDegrees = parsed)) }
+                    },
+                    label = "Roll X (°)",
+                    labelFontSize = 9.sp,
+                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
+                )
+                var tagPitchText by remember(at.id, at.pitchDegrees) { mutableStateOf(at.pitchDegrees.toString()) }
+                AresTextField(
+                    value = tagPitchText,
+                    onValueChange = { newVal ->
+                        tagPitchText = newVal
+                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(pitchDegrees = parsed)) }
+                    },
+                    label = "Pitch Y (°)",
+                    labelFontSize = 9.sp,
+                    modifier = Modifier.weight(1f),
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
+                )
+                var tagYawText by remember(at.id, at.yawDegrees) { mutableStateOf(at.yawDegrees.toString()) }
+                AresTextField(
+                    value = tagYawText,
+                    onValueChange = { newVal ->
+                        tagYawText = newVal
+                        newVal.toDoubleOrNull()?.let { parsed -> onUpdate(index, at.copy(yawDegrees = parsed)) }
+                    },
+                    label = "Yaw Z (°)",
                     labelFontSize = 9.sp,
                     modifier = Modifier.weight(1f),
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = AresTextPrimary)
