@@ -36,7 +36,8 @@ internal object ProjectLayout {
         val root = File(projectPath)
         if (!root.isDirectory) return "That folder does not exist."
         if (!containsRobotSource(root, league)) {
-            return "No ${league.name} robot source was found. Choose the repository root, not its assets folder."
+            return "This folder is not a complete ${league.name} robot project: no Kotlin or Java robot source was found. " +
+                "Choose an existing robot repository root, or create a new project from the official ${league.name} starter."
         }
         return null
     }

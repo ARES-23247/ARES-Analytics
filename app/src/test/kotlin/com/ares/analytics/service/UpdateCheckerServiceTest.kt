@@ -74,8 +74,8 @@ class UpdateCheckerServiceTest {
             respond(
                 content = """
                 {
-                    "tag_name": "v1.3.2",
-                    "html_url": "https://github.com/ARES-23247/ARES-Analytics/releases/tag/v1.3.2",
+                    "tag_name": "v1.4.0",
+                    "html_url": "https://github.com/ARES-23247/ARES-Analytics/releases/tag/v1.4.0",
                     "body": "Initial Release"
                 }
                 """.trimIndent(),

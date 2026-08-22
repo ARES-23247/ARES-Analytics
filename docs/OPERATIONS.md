@@ -1,4 +1,4 @@
-# ARES Analytics operations guide
+# ARES Robotics Studio operations guide
 
 This guide covers local development, pit use, target connections, log handling, replay, and recovery. It assumes the four ARES repositories are sibling directories.
 

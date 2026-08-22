@@ -10,9 +10,14 @@ on:
         description: Application version to package (for example, 1.1.1)
         required: true
         type: string
+      publish:
+        description: Create the version tag and public GitHub Release after all package checks pass
+        required: true
+        default: false
+        type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   ARES_VERSION: 9.7.0
@@ -152,16 +157,61 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ARES-Analytics-${{ matrix.os }}
+          name: ARES-Robotics-Studio-${{ matrix.os }}
           path: ARES-Analytics/${{ matrix.artifact-path }}
 
-      # 4. Create Release and Upload Assets (Runs only on tag push)
-      - name: Create Release and Upload Assets
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+  publish-release:
+    name: Publish verified desktop release
+    needs: build-packages
+    if: >-
+      startsWith(github.ref, 'refs/tags/') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve release identity
+        id: release
+        shell: bash
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          REF: ${{ github.ref }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$REF" != "refs/heads/master" ]]; then
+            echo "Public releases may only be dispatched from the protected master branch (received $REF)." >&2
+            exit 1
+          fi
+          version="${REQUESTED_VERSION:-${REF_NAME#v}}"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release version: $version" >&2
+            exit 1
+          fi
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "name=ARES Robotics Studio $version" >> "$GITHUB_OUTPUT"
+
+      - name: Download verified packages
+        uses: actions/download-artifact@v4
         with:
+          pattern: ARES-Robotics-Studio-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Inventory release assets
+        shell: bash
+        run: find release-assets -maxdepth 4 -type f -print
+
+      - name: Create GitHub Release and upload packages
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: ${{ steps.release.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
           files: |
-            ARES-Analytics/${{ matrix.artifact-path }}/*.msi
-            ARES-Analytics/${{ matrix.artifact-path }}/*.dmg
+            release-assets/**/*.msi
+            release-assets/**/*.dmg
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

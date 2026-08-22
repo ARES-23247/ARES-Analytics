@@ -5,10 +5,14 @@ import org.gradle.api.tasks.testing.Test
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import javax.imageio.ImageIO
 
 // Single source of truth for the application version. Consumed both by the native
 // distribution packaging below and by the generated BuildConfig (see generateBuildConfig).
-val aresAnalyticsVersion = providers.gradleProperty("aresAnalyticsVersion").orElse("1.3.2").get()
+val aresAnalyticsVersion = providers.gradleProperty("aresAnalyticsVersion").orElse("1.4.0").get()
+val aresProductName = "ARES Robotics Studio"
+val aresProductTagline = "Design • Simulate • Operate • Analyze"
+val aresLegacyProductName = "ARES Analytics"
 val googleOAuthClientIdEnvironment = providers.environmentVariable("ARES_GOOGLE_OAUTH_CLIENT_ID")
 val googleOAuthBrokerUrlEnvironment = providers.environmentVariable("ARES_GOOGLE_OAUTH_BROKER_URL")
 val githubAppClientIdEnvironment = providers.environmentVariable("ARES_GITHUB_APP_CLIENT_ID")
@@ -123,11 +127,17 @@ dependencies {
 val generatedBuildConfigDir = layout.buildDirectory.dir("generated/buildconfig/src/main/kotlin")
 tasks.register("generateBuildConfig") {
     val version = aresAnalyticsVersion
+    val productName = aresProductName
+    val productTagline = aresProductTagline
+    val legacyProductName = aresLegacyProductName
     val oauthClientId = googleOAuthClientId
     val oauthBrokerUrl = googleOAuthBrokerUrl
     val githubClientId = githubAppClientId
     val githubSlug = githubAppSlug
     inputs.property("aresAnalyticsVersion", version)
+    inputs.property("aresProductName", productName)
+    inputs.property("aresProductTagline", productTagline)
+    inputs.property("aresLegacyProductName", legacyProductName)
     inputs.property("googleOAuthClientId", oauthClientId)
     inputs.property("googleOAuthBrokerUrl", oauthBrokerUrl)
     inputs.property("githubAppClientId", githubClientId)
@@ -151,12 +161,18 @@ tasks.register("generateBuildConfig") {
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
             .replace("$", "\\$")
+        fun String.kotlinLiteral() = replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("$", "\\$")
         pkgDir.resolve("BuildConfig.kt").writeText(
             """
             |package com.ares.analytics
             |
             |object BuildConfig {
             |    const val VERSION = "$version"
+            |    const val PRODUCT_NAME = "${productName.kotlinLiteral()}"
+            |    const val PRODUCT_TAGLINE = "${productTagline.kotlinLiteral()}"
+            |    const val LEGACY_PRODUCT_NAME = "${legacyProductName.kotlinLiteral()}"
             |    const val GOOGLE_OAUTH_CLIENT_ID = "$escapedOAuthClientId"
             |    const val GOOGLE_OAUTH_BROKER_URL = "$escapedOAuthBrokerUrl"
             |    const val GITHUB_APP_CLIENT_ID = "$escapedGitHubClientId"
@@ -165,6 +181,51 @@ tasks.register("generateBuildConfig") {
             """.trimMargin()
         )
     }
+}
+
+val brandResourceDir = layout.projectDirectory.dir("src/main/resources/brand")
+val brandMaster = brandResourceDir.file("ares-studio-master.png")
+val brandAppIcon = brandResourceDir.file("ares-studio-app.png")
+val brandLinuxIcon = brandResourceDir.file("ares-studio.png")
+val brandWindowsIcon = brandResourceDir.file("ares-studio.ico")
+val brandMacIcon = brandResourceDir.file("ares-studio.icns")
+
+tasks.register("verifyBrandAssets") {
+    group = "verification"
+    description = "Verifies the ARES Robotics Studio desktop icon family."
+    inputs.files(brandMaster, brandAppIcon, brandLinuxIcon, brandWindowsIcon, brandMacIcon)
+    doLast {
+        fun verifyPng(file: File, expectedSize: Int, requireAlpha: Boolean) {
+            require(file.isFile) { "Missing brand asset: $file" }
+            val image = requireNotNull(ImageIO.read(file)) { "Unreadable PNG brand asset: $file" }
+            require(image.width == expectedSize && image.height == expectedSize) {
+                "${file.name} must be ${expectedSize}x$expectedSize, found ${image.width}x${image.height}"
+            }
+            if (requireAlpha) require(image.colorModel.hasAlpha()) { "${file.name} must preserve transparency" }
+        }
+
+        verifyPng(brandMaster.asFile, 1024, requireAlpha = true)
+        verifyPng(brandAppIcon.asFile, 256, requireAlpha = true)
+        verifyPng(brandLinuxIcon.asFile, 512, requireAlpha = true)
+
+        val icoBytes = brandWindowsIcon.asFile.readBytes()
+        require(
+            icoBytes.size > 6 &&
+                icoBytes[0] == 0.toByte() && icoBytes[1] == 0.toByte() &&
+                icoBytes[2] == 1.toByte() && icoBytes[3] == 0.toByte(),
+        ) { "${brandWindowsIcon.asFile.name} is not a valid ICO container" }
+        val icoCount = (icoBytes[4].toInt() and 0xff) or ((icoBytes[5].toInt() and 0xff) shl 8)
+        require(icoCount >= 9) { "Windows icon must contain at least 9 resolutions, found $icoCount" }
+
+        val icnsBytes = brandMacIcon.asFile.readBytes()
+        require(icnsBytes.size > 8 && icnsBytes.copyOfRange(0, 4).toString(Charsets.US_ASCII) == "icns") {
+            "${brandMacIcon.asFile.name} is not a valid ICNS container"
+        }
+    }
+}
+
+tasks.named("check") {
+    dependsOn("verifyBrandAssets")
 }
 
 sourceSets {
@@ -188,10 +249,32 @@ val nestedAresRepositoryUri = providers.gradleProperty("aresRepository").map { c
     }
     configuredUri.toASCIIString()
 }
+
+// Automated desktop walkthroughs must never persist throwaway workspaces, credentials, or
+// learning progress into the developer's real home directory. This is opt-in so ordinary
+// `:app:run` keeps the installed application's normal data. Example:
+//   -ParesIsolatedDesktopHome=build/ui-test-home
+val isolatedDesktopHome = providers.gradleProperty("aresIsolatedDesktopHome").map { configured ->
+    rootProject.file(configured).canonicalFile
+}
 tasks.withType<JavaExec>().configureEach {
     systemProperty("ares.version", rootProject.extra["aresVersion"] as String)
     nestedAresRepositoryUri.orNull?.let { uri ->
         systemProperty("ares.repository.uri", uri)
+    }
+    if (name == "run") {
+        isolatedDesktopHome.orNull?.let { directory ->
+            doFirst {
+                val realHome = File(System.getProperty("user.home")).canonicalFile
+                require(directory != realHome) {
+                    "-ParesIsolatedDesktopHome must not point at the real user home"
+                }
+                require(directory.exists() || directory.mkdirs()) {
+                    "Could not create isolated desktop home: ${directory.absolutePath}"
+                }
+            }
+            systemProperty("user.home", directory.absolutePath)
+        }
     }
 }
 
@@ -328,9 +411,9 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "ARES-Analytics"
+            packageName = aresProductName
             packageVersion = aresAnalyticsVersion
-            description = "ARES Robotics Mission Control Suite"
+            description = "Robot design, simulation, mission control, learning, and analytics"
             vendor = "ARES Robotics"
             licenseFile.set(rootProject.file("LICENSE"))
             // Gson constructs immutable Kotlin project documents through sun.misc.Unsafe when
@@ -343,17 +426,22 @@ compose.desktop {
 
             windows {
                 msiPackageVersion = aresAnalyticsVersion
-                menuGroup = "ARES"
+                menuGroup = "ARES Robotics"
+                // Preserve the legacy product's upgrade family so this public rename performs an
+                // in-place upgrade instead of installing a second application.
                 upgradeUuid = "a3e52324-7000-4224-8700-1c7b8d9e2a3c"
-                iconFile.set(project.file("src/main/resources/brand/ares.ico"))
+                iconFile.set(brandWindowsIcon)
             }
 
             macOS {
                 dmgPackageVersion = aresAnalyticsVersion
+                iconFile.set(brandMacIcon)
             }
 
             linux {
                 debPackageVersion = aresAnalyticsVersion
+                menuGroup = "ARES Robotics"
+                iconFile.set(brandLinuxIcon)
             }
         }
     }
@@ -372,11 +460,11 @@ val verifyDistributableProjectLoading = tasks.register<Exec>("verifyDistributabl
         val root = mainDistributableRoot.get().asFile
         val osName = System.getProperty("os.name").lowercase()
         val executable = when {
-            osName.contains("win") -> root.resolve("ARES-Analytics/ARES-Analytics.exe")
-            osName.contains("mac") -> root.resolve("ARES-Analytics.app/Contents/MacOS/ARES-Analytics")
-            else -> root.resolve("ARES-Analytics/bin/ARES-Analytics")
+            osName.contains("win") -> root.resolve("$aresProductName/$aresProductName.exe")
+            osName.contains("mac") -> root.resolve("$aresProductName.app/Contents/MacOS/$aresProductName")
+            else -> root.resolve("$aresProductName/bin/$aresProductName")
         }
-        require(executable.isFile) { "Native ARES Analytics launcher was not created at $executable" }
+        require(executable.isFile) { "Native $aresProductName launcher was not created at $executable" }
         commandLine(
             executable.absolutePath,
             "--verify-packaged-project",
@@ -427,6 +515,42 @@ tasks.matching { task ->
             "Official packages require -PgithubAppSlug (or ARES_GITHUB_APP_SLUG) with the public ARES GitHub App slug"
         }
     }
+}
+
+val releaseWindowsInstaller = layout.buildDirectory
+    .file("compose/binaries/main-release/msi/$aresProductName-$aresAnalyticsVersion.msi")
+val localReleaseDirectory = rootProject.layout.projectDirectory.dir("dist")
+
+val verifyWindowsInstallerMaintenance = tasks.register<Exec>("verifyWindowsInstallerMaintenance") {
+    group = "verification"
+    description = "Verifies that rerunning the Windows installer exposes Repair and preserves upgrade identity."
+    onlyIf { System.getProperty("os.name").lowercase().contains("win") }
+    doFirst {
+        val msi = releaseWindowsInstaller.get().asFile
+        require(msi.isFile) { "Release MSI was not created at $msi" }
+        commandLine(
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", rootProject.file("scripts/verify-windows-installer.ps1").absolutePath,
+            "-MsiFile", msi.absolutePath,
+            "-ExpectedProductName", aresProductName,
+            "-ExpectedProductVersion", aresAnalyticsVersion,
+            "-ExpectedUpgradeCode", "{A3E52324-7000-4224-8700-1C7B8D9E2A3C}",
+        )
+    }
+    doLast {
+        val msi = releaseWindowsInstaller.get().asFile
+        project.copy {
+            from(msi)
+            into(localReleaseDirectory)
+        }
+        println("Verified installer copied to ${localReleaseDirectory.asFile.resolve(msi.name)}")
+    }
+}
+
+tasks.matching { it.name == "packageReleaseMsi" }.configureEach {
+    finalizedBy(verifyWindowsInstallerMaintenance)
 }
 
 private val validationPropertyNames = listOf(

@@ -23,6 +23,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ares.analytics.BuildConfig
 import com.ares.analytics.service.AuthState
 import com.ares.analytics.service.ManagedToolchainInstallState
 import com.ares.analytics.service.ManagedToolchainService
@@ -441,7 +442,11 @@ fun ProfileScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text("Signed in as: ${auth.displayName}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = AresTextPrimary)
                             Text("Email: ${auth.email}", fontSize = 11.sp, color = AresTextSecondary)
-                            Text("Storage Folder: Google Drive/ARES-Analytics/", fontSize = 11.sp, color = AresCyan)
+                            Text(
+                                "Storage destination: ${config.driveDestination?.displayName ?: "choose a workspace folder"}",
+                                fontSize = 11.sp,
+                                color = AresCyan,
+                            )
                         }
 
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -978,13 +983,26 @@ fun ProfileScreen(
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
+                    "${BuildConfig.PRODUCT_NAME} ${BuildConfig.VERSION}",
+                    fontWeight = FontWeight.Bold,
+                    color = AresTextPrimary,
+                    fontSize = 16.sp,
+                )
+                Text(BuildConfig.PRODUCT_TAGLINE, color = AresCyan, fontSize = 12.sp)
+                Text(
+                    "Previously ${BuildConfig.LEGACY_PRODUCT_NAME}; existing projects, settings, and credentials remain compatible.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                )
+                HorizontalDivider(color = AresBorder.copy(alpha = 0.6f))
+                Text(
                     "License and source",
                     fontWeight = FontWeight.Bold,
                     color = AresTextPrimary,
                     fontSize = 15.sp,
                 )
                 Text(
-                    "ARES Analytics is licensed under GNU AGPL v3 or later and is provided without warranty. Separate commercial licensing is available from the ARES project.",
+                    "ARES Robotics Studio is licensed under GNU AGPL v3 or later and is provided without warranty. Separate commercial licensing is available from the ARES project.",
                     color = AresTextSecondary,
                     fontSize = 11.sp,
                 )

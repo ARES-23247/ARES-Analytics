@@ -2,7 +2,7 @@
 
 Created: 2026-08-17 · Owner: software subteam · Review: append completed workstreams to [CYCLE_LOG.md](CYCLE_LOG.md) as a numbered cycle.
 
-**Goal statement:** every place a team member can be confused in ARES Analytics has an accurate, discoverable, in-app explanation one action away — and every explanation states what it does *not* prove.
+**Goal statement:** every place a team member can be confused in ARES Robotics Studio has an accurate, discoverable, in-app explanation one action away — and every explanation states what it does *not* prove.
 
 This goal follows the workspace truthfulness rules (AGENTS.md §9): no completeness claims, no promotional language, explicit fidelity boundaries in teaching content.
 

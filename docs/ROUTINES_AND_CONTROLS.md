@@ -1,6 +1,6 @@
 # Student guide: routines and controller bindings
 
-ARES Analytics can author robot behavior entirely offline. Select a local FTC or FRC repository as
+ARES Robotics Studio can author robot behavior entirely offline. Select a local FTC or FRC repository as
 the workspace project; the robot does not need to be powered on, joined to Wi-Fi, or connected over
 NT4. The app reads and writes ordinary project files under `.ares/`.
 

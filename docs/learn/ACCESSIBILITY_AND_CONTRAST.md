@@ -1,6 +1,6 @@
 # Read ARES comfortably
 
-ARES Analytics provides readability options because pit lighting, display quality, visual acuity, and color perception vary between students. These settings change presentation only; they do not change robot behavior or telemetry values.
+ARES Robotics Studio provides readability options because pit lighting, display quality, visual acuity, and color perception vary between students. These settings change presentation only; they do not change robot behavior or telemetry values.
 
 ## Turn on accessibility options
 
@@ -30,7 +30,9 @@ ARES button and status color pairs are checked automatically against WCAG contra
 
 ## Why the app and website use color differently
 
-ARES Analytics and [aresfirst.org](https://aresfirst.org/) share the same logo and team palette.
+ARES Robotics Studio and [aresfirst.org](https://aresfirst.org/) share the same team palette. The
+Studio's simplified Spartan/circuit app icon is derived from the detailed team mark but remains
+readable at taskbar size.
 The website uses ARES red for expressive public calls to action. Analytics uses technical cyan for
 ordinary actions and selection so brand identity is not confused with an error, fault, or emergency
 stop. See the [ARES product design system](../DESIGN_SYSTEM.md) for the complete mapping.

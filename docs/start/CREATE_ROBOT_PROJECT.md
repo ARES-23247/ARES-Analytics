@@ -14,7 +14,7 @@ does not follow a mutable `master` branch. Official installers bundle one review
 its SHA-256, and only then unpack it. A developer/source build may retrieve the same pinned archive
 as a recovery fallback if its packaged resource is absent.
 
-The verified archive is cached under the local ARES Analytics application data. A normal installed
+The verified archive is cached under the local ARES Robotics Studio application data. A normal installed
 app can create either starter without internet access.
 
 ## Create the project

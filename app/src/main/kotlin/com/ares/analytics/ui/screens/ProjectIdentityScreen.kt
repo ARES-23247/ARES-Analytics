@@ -78,6 +78,9 @@ fun ProjectIdentityScreen(
                 }
             }
         } else {
+            state.projectSourceError?.let { error ->
+                item { MissingRobotSourceCard(error) }
+            }
             state.protectedError?.let { error ->
                 item { ProtectedProjectIdentityCard(error, repairAvailable = state.protectedContentHash != null) }
             }
@@ -90,7 +93,15 @@ fun ProjectIdentityScreen(
             if (state.generalErrors.isNotEmpty()) {
                 item { ProjectIdentityErrors(state.generalErrors) }
             }
-            state.message?.let { message -> item { ProjectIdentityMessage(message, state.messageIsError) } }
+            state.message?.let { message ->
+                item {
+                    ProjectIdentityMessage(
+                        message = message,
+                        isError = state.messageIsError,
+                        isWarning = state.projectSourceError != null,
+                    )
+                }
+            }
             state.proposal?.let { proposal ->
                 item {
                     Card(
@@ -170,9 +181,51 @@ fun ProjectIdentityScreen(
                         Text("Reload project file")
                     }
                 }
+                projectIdentityReviewGuidance(state)?.let { guidance ->
+                    Spacer(Modifier.height(6.dp))
+                    Text(guidance, color = if (state.projectSourceError != null) AresError else AresGold, fontSize = 12.sp)
+                }
             }
         }
     }
+}
+
+@Composable
+private fun MissingRobotSourceCard(error: String) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AresGold.copy(alpha = 0.10f)),
+        border = BorderStroke(1.dp, AresGold),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            Icon(Icons.Default.Info, contentDescription = null, tint = AresGold)
+            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text(
+                    "Robot source is missing · identity metadata alone cannot create a robot",
+                    color = AresTextPrimary,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(error, color = AresTextSecondary)
+                Text(
+                    "Use the robot selector at the top left to open an existing project. To start over, choose Add Robot Profile… and create an official starter. Removing a workspace profile never deletes its files.",
+                    color = AresTextPrimary,
+                    fontSize = 12.sp,
+                )
+            }
+        }
+    }
+}
+
+internal fun projectIdentityReviewGuidance(state: ProjectIdentityEditorState): String? = when {
+    state.projectSourceError != null ->
+        "Saving is unavailable because the selected folder has no robot source. Switch to a real project or create an official starter first."
+    state.proposal != null -> null
+    state.canReview -> null
+    state.fieldErrors.containsKey(ProjectIdentityField.ROBOT_LENGTH) ||
+        state.fieldErrors.containsKey(ProjectIdentityField.ROBOT_WIDTH) ->
+        "Enter valid measured robot length and width above to enable review."
+    state.fieldErrors.isNotEmpty() || state.generalErrors.isNotEmpty() ->
+        "Fix the highlighted identity fields to enable review."
+    else -> null
 }
 
 @Composable
@@ -227,6 +280,7 @@ private fun ProjectIdentityForm(
     val lengthIn = lengthM * 39.3701
     val widthIn = widthM * 39.3701
     val fitsSizingBox = !isFtc || (lengthM <= 0.4572 && widthM <= 0.4572 && lengthM > 0.0 && widthM > 0.0)
+    val sourceAvailable = state.projectSourceError == null
 
     Card(
         colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
@@ -245,6 +299,7 @@ private fun ProjectIdentityForm(
                 onValueChange = { onUpdate(ProjectIdentityField.PROJECT_ID, it) },
                 error = state.fieldErrors[ProjectIdentityField.PROJECT_ID],
                 enabled = state.currentDocument == null &&
+                    sourceAvailable &&
                     (state.protectedError == null || state.protectedContentHash != null),
                 help = "Starts with a letter; letters, numbers, dot, underscore, and dash only.",
             )
@@ -299,7 +354,7 @@ private fun ProjectIdentityForm(
                 secondError = state.fieldErrors[ProjectIdentityField.ROBOT_WIDTH],
                 onSecond = { onUpdate(ProjectIdentityField.ROBOT_WIDTH, it) },
                 secondHelp = if (widthIn > 0.0) "≈ ${"%.1f".format(widthIn)} inches" else "Positive decimal meters.",
-                enabled = state.protectedError == null || state.protectedContentHash != null,
+                enabled = sourceAvailable && (state.protectedError == null || state.protectedContentHash != null),
             )
 
             HorizontalDivider(color = AresBorder)
@@ -401,19 +456,33 @@ private fun ProjectIdentityErrors(errors: List<String>) {
 }
 
 @Composable
-private fun ProjectIdentityMessage(message: String, isError: Boolean) {
+private fun ProjectIdentityMessage(message: String, isError: Boolean, isWarning: Boolean = false) {
+    val icon = when {
+        isError -> Icons.Default.Error
+        isWarning -> Icons.Default.Info
+        else -> Icons.Default.CheckCircle
+    }
+    val color = when {
+        isError -> AresError
+        isWarning -> AresGold
+        else -> AresGreen
+    }
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            if (isError) Icons.Default.Error else Icons.Default.CheckCircle,
+            icon,
             contentDescription = null,
-            tint = if (isError) AresError else AresGreen,
+            tint = color,
         )
         Text(
-            text = if (isError) "Error: $message" else "Status: $message",
+            text = when {
+                isError -> "Error: $message"
+                isWarning -> "Action needed: $message"
+                else -> "Status: $message"
+            },
             color = AresTextPrimary,
         )
     }

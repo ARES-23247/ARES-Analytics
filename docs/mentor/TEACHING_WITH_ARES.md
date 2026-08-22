@@ -1,4 +1,4 @@
-# Teaching with ARES Analytics
+# Teaching with ARES Robotics Studio
 
 This guide helps a mentor run a simulator-first lesson in which students learn to identify evidence before they control anything.
 
