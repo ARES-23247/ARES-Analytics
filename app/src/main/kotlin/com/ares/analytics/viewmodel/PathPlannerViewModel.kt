@@ -3,6 +3,7 @@ package com.ares.analytics.viewmodel
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.AresGenerationPhase
 import com.ares.analytics.service.AresProjectGenerator
+import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
@@ -215,7 +216,8 @@ sealed class PathPlannerIntent {
 class PathPlannerViewModel(
     private val scope: CoroutineScope,
     @Suppress("UNUSED_PARAMETER") nt4ClientService: Nt4ClientService? = null,
-    private val projectGenerator: AresProjectGenerator? = null
+    private val projectGenerator: AresProjectGenerator? = null,
+    private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
 ) {
     private val _state = MutableStateFlow(PathPlannerState())
     val state: StateFlow<PathPlannerState> = _state.asStateFlow()
@@ -823,6 +825,15 @@ class PathPlannerViewModel(
                 )
             }
             scheduleProjectRefresh(activeProjectPath, _state.value.activeLeague)
+            runCatching {
+                checkpointRecorder.checkpoint(
+                    activeProjectPath,
+                    "Saved ${saved.routine.name} autonomous routine",
+                    setOf(".ares/routines", ".ares/history/routines", ".ares/autonomous-catalog.json", ".ares/history/autonomous"),
+                )
+            }.onFailure { failure ->
+                _state.update { it.copy(saveStatus = "Routine saved, but automatic Project History checkpoint failed: ${failure.message}") }
+            }
         }.onFailure { error ->
             if (selectedProjectPath == activeProjectPath) {
                 _state.update { it.copy(saveStatus = "Routine save failed: ${error.message}") }

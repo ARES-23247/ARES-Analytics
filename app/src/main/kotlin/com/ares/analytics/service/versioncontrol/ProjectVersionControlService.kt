@@ -1,6 +1,7 @@
 package com.ares.analytics.service.versioncontrol
 
 import com.ares.analytics.BuildConfig
+import com.ares.analytics.service.writeFileAtomically
 import com.ares.analytics.shared.AppJson
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
@@ -9,10 +10,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.api.MergeCommand
+import org.eclipse.jgit.api.ResetCommand
 import org.eclipse.jgit.diff.DiffEntry
 import org.eclipse.jgit.diff.DiffFormatter
 import org.eclipse.jgit.lib.FileMode
@@ -32,6 +35,8 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 enum class ProjectChangeKind { ADDED, MODIFIED, DELETED, RENAMED, CONFLICT }
 
@@ -44,6 +49,40 @@ data class ProjectVersion(
     val committedAtEpochSeconds: Long,
 )
 
+data class ProjectRecoveryPoint(
+    val refName: String,
+    val commitId: String,
+    val message: String,
+    val authorName: String,
+    val committedAtEpochSeconds: Long,
+)
+
+data class ProjectRecoveryPlan(
+    val refName: String,
+    val currentCommit: String,
+    val targetCommit: String,
+    val changes: List<ProjectChange>,
+    val confirmationToken: String?,
+) {
+    val canRecover: Boolean get() = changes.isNotEmpty() && confirmationToken != null
+}
+
+data class ProjectArchiveResult(
+    val destinationPath: String,
+    val fileCount: Int,
+    val uncompressedBytes: Long,
+    val skippedSensitivePaths: List<String>,
+)
+
+/** Optional boundary used by zero-code editors to checkpoint only the canonical files they saved. */
+fun interface ProjectCheckpointRecorder {
+    suspend fun checkpoint(projectPath: String, label: String, pathScopes: Set<String>): ProjectBackupPlan?
+
+    companion object {
+        val NONE = ProjectCheckpointRecorder { _, _, _ -> null }
+    }
+}
+
 enum class ProjectRestoreDisposition { UP_TO_DATE, REMOTE_AHEAD, LOCAL_AHEAD }
 
 data class ProjectRestorePlan(
@@ -53,10 +92,6 @@ data class ProjectRestorePlan(
     val changes: List<ProjectChange>,
     val confirmationToken: String?,
 ) {
-    init {
-        configureJGitLogging()
-    }
-
     val canRestore: Boolean get() =
         disposition == ProjectRestoreDisposition.REMOTE_AHEAD && changes.isNotEmpty() && confirmationToken != null
 }
@@ -72,6 +107,7 @@ data class ProjectBackupPlan(
     val destination: GitHubBackupDestination?,
     val confirmationToken: String?,
     val versions: List<ProjectVersion> = emptyList(),
+    val recoveryPoints: List<ProjectRecoveryPoint> = emptyList(),
 ) {
     val canCommit: Boolean get() =
         initialized && changes.isNotEmpty() && blockedSensitivePaths.isEmpty() && confirmationToken != null
@@ -119,8 +155,13 @@ class ProjectVersionControlService internal constructor(
     private val epochSeconds: () -> Long = { Instant.now().epochSecond },
     private val remotePusher: (Git, String) -> Unit = ::pushWithJGit,
     private val remoteMainFetcher: (Git, String) -> ObjectId = ::fetchMainWithJGit,
-) {
+) : ProjectCheckpointRecorder {
+    init {
+        configureJGitLogging()
+    }
+
     private val githubMutex = Mutex()
+    private val historyMutex = Mutex()
     private val _githubState = MutableStateFlow<GitHubConnectionState>(initialGitHubState())
     val githubState: StateFlow<GitHubConnectionState> = _githubState.asStateFlow()
 
@@ -348,6 +389,153 @@ class ProjectVersionControlService internal constructor(
         }
     }
 
+    /** Reviews a prior ARES-created safety point without changing project files. */
+    suspend fun previewRecovery(
+        projectPath: String,
+        recoveryRefName: String,
+    ): ProjectRecoveryPlan = withContext(Dispatchers.IO) {
+        val root = requireProjectRoot(projectPath)
+        Git.open(root).use { git -> prepareRecovery(git, recoveryRefName) }
+    }
+
+    /** Restores the exact reviewed safety point and first preserves the current version for redo. */
+    suspend fun recoverToSafetyPoint(
+        projectPath: String,
+        recoveryRefName: String,
+        expectedConfirmationToken: String,
+    ): ProjectBackupPlan = withContext(Dispatchers.IO) {
+        val root = requireProjectRoot(projectPath)
+        Git.open(root).use { git ->
+            val reviewed = prepareRecovery(git, recoveryRefName)
+            require(reviewed.canRecover && reviewed.confirmationToken == expectedConfirmationToken) {
+                "The project changed after this recovery preview. Review the updated file list before restoring."
+            }
+            val currentId = ObjectId.fromString(reviewed.currentCommit)
+            val targetId = ObjectId.fromString(reviewed.targetCommit)
+            createRestoreSafetyRef(git, currentId, targetId)
+            git.reset().setMode(ResetCommand.ResetType.HARD).setRef(targetId.name).call()
+            require(git.repository.resolve(Constants.HEAD) == targetId && git.status().call().isClean) {
+                "ARES could not restore the reviewed safety point. The current version is still preserved as a recovery point."
+            }
+        }
+        requireProjectRoot(root.path)
+        buildPlan(root)
+    }
+
+    /**
+     * Creates a local version for canonical files just written by one zero-code editor.
+     *
+     * This is deliberately path-scoped: unrelated hand edits remain uncommitted and visible for
+     * review. Projects that have not opted into local history are left unchanged.
+     */
+    override suspend fun checkpoint(
+        projectPath: String,
+        label: String,
+        pathScopes: Set<String>,
+    ): ProjectBackupPlan? = withContext(Dispatchers.IO) {
+        historyMutex.withLock {
+            require(label.trim().length in 3..90) { "Describe the automatic checkpoint in 3 to 90 characters." }
+            val root = requireProjectRoot(projectPath)
+            if (!File(root, ".git").isDirectory) return@withLock null
+            val scopes = pathScopes.mapTo(linkedSetOf(), ::normalizeCheckpointScope)
+            require(scopes.isNotEmpty()) { "An automatic checkpoint must name at least one canonical project file." }
+            Git.open(root).use { git ->
+                val selected = projectChanges(git).filter { change ->
+                    scopes.any { scope -> change.path == scope || change.path.startsWith("$scope/") }
+                }
+                if (selected.isEmpty()) return@withLock buildPlan(root)
+                val sensitive = selected.map(ProjectChange::path).filter(::isSensitiveProjectPath)
+                require(sensitive.isEmpty()) {
+                    "ARES did not checkpoint private files: ${sensitive.joinToString()}."
+                }
+                val config = git.repository.config
+                val authorName = config.getString("user", null, "name")?.takeIf(String::isNotBlank)
+                    ?: error("Local history has no author name. Open Project History and save one reviewed version first.")
+                val authorEmail = config.getString("user", null, "email")?.takeIf(String::isNotBlank)
+                    ?: error("Local history has no author email. Open Project History and save one reviewed version first.")
+                selected.map(ProjectChange::path).distinct().forEach { path ->
+                    // JGit's path-limited commit requires new files in the index first. Both calls
+                    // remain scoped to the exact reviewed path; unrelated staged or working-tree
+                    // changes are still excluded by CommitCommand.setOnly below.
+                    git.add().addFilepattern(path).call()
+                    git.add().setUpdate(true).addFilepattern(path).call()
+                }
+                val command = git.commit()
+                    .setMessage("ARES checkpoint: ${label.trim()}")
+                    .setAuthor(authorName, authorEmail)
+                    .setCommitter(authorName, authorEmail)
+                    .setSign(false)
+                selected.map(ProjectChange::path).distinct().forEach(command::setOnly)
+                command.call()
+            }
+            buildPlan(root)
+        }
+    }
+
+    /** Exports a portable, credential-free project archive without Git metadata or build caches. */
+    suspend fun exportProjectArchive(
+        projectPath: String,
+        destinationPath: String,
+    ): ProjectArchiveResult = withContext(Dispatchers.IO) {
+        val root = requireProjectRoot(projectPath)
+        require(destinationPath.isNotBlank()) { "Choose where to save the project archive." }
+        val destination = File(destinationPath).canonicalFile
+        require(!destination.toPath().startsWith(root.toPath())) {
+            "Save the project archive outside the robot project folder."
+        }
+        require(!destination.exists()) {
+            "An archive already exists at that location. Choose a new name so ARES does not replace it."
+        }
+        val included = mutableListOf<Pair<File, String>>()
+        val skippedSensitive = mutableListOf<String>()
+        var totalBytes = 0L
+        root.walkTopDown().onEnter { directory ->
+            require(directory == root || !java.nio.file.Files.isSymbolicLink(directory.toPath())) {
+                "The project contains an unsupported directory link (${directory.relativeTo(root).invariantSeparatorsPath}). Remove it before exporting."
+            }
+            val relative = directory.relativeTo(root).invariantSeparatorsPath
+            relative.isEmpty() || !isExcludedArchivePath(relative)
+        }.forEach { file ->
+            if (file == root || file.isDirectory) return@forEach
+            val relative = file.relativeTo(root).invariantSeparatorsPath
+            if (isExcludedArchivePath(relative)) return@forEach
+            if (isSensitiveProjectPath(relative)) {
+                skippedSensitive += relative
+                return@forEach
+            }
+            require(!java.nio.file.Files.isSymbolicLink(file.toPath())) {
+                "The project contains an unsupported link ($relative). Remove it before exporting."
+            }
+            require(file.isFile && file.length() <= MAX_ARCHIVE_FILE_BYTES) {
+                "$relative is too large for a portable project archive."
+            }
+            totalBytes = Math.addExact(totalBytes, file.length())
+            require(totalBytes <= MAX_ARCHIVE_PROJECT_BYTES) {
+                "The project is too large for one portable archive. Remove build outputs or large recordings first."
+            }
+            included += file to relative
+        }
+        require(included.any { it.second == ".ares/project.json" }) {
+            "The project archive is missing its canonical ARES project identity."
+        }
+        writeFileAtomically(destination) { temporary ->
+            ZipOutputStream(temporary.outputStream().buffered()).use { zip ->
+                included.sortedBy { it.second }.forEach { (file, relative) ->
+                    val entry = ZipEntry(relative).apply { time = 0L }
+                    zip.putNextEntry(entry)
+                    file.inputStream().buffered().use { input -> input.copyTo(zip) }
+                    zip.closeEntry()
+                }
+            }
+        }
+        ProjectArchiveResult(
+            destinationPath = destination.path,
+            fileCount = included.size,
+            uncompressedBytes = totalBytes,
+            skippedSensitivePaths = skippedSensitive.distinct().sorted(),
+        )
+    }
+
     suspend fun disconnectBackupDestination(projectPath: String): ProjectBackupPlan = withContext(Dispatchers.IO) {
         val root = requireProjectRoot(projectPath)
         Git.open(root).use { git ->
@@ -522,16 +710,7 @@ class ProjectVersionControlService internal constructor(
             return ProjectBackupPlan(root.path, false, null, emptyList(), emptyList(), null, null, null, null)
         }
         Git.open(root).use { git ->
-            val status = git.status().call()
-            val changes = buildList {
-                status.added.forEach { add(ProjectChange(it, ProjectChangeKind.ADDED)) }
-                status.untracked.forEach { add(ProjectChange(it, ProjectChangeKind.ADDED)) }
-                status.changed.forEach { add(ProjectChange(it, ProjectChangeKind.MODIFIED)) }
-                status.modified.forEach { add(ProjectChange(it, ProjectChangeKind.MODIFIED)) }
-                status.removed.forEach { add(ProjectChange(it, ProjectChangeKind.DELETED)) }
-                status.missing.forEach { add(ProjectChange(it, ProjectChangeKind.DELETED)) }
-                status.conflicting.forEach { add(ProjectChange(it, ProjectChangeKind.CONFLICT)) }
-            }.distinctBy { it.path to it.kind }.sortedWith(compareBy(ProjectChange::path, ProjectChange::kind))
+            val changes = projectChanges(git)
             val sensitive = changes.map(ProjectChange::path).filter(::isSensitiveProjectPath).distinct().sorted()
             val lastCommit = git.repository.resolve(Constants.HEAD)?.name
             val branch = runCatching { git.repository.branch }.getOrNull()
@@ -547,6 +726,7 @@ class ProjectVersionControlService internal constructor(
                     )
                 }
             }
+            val recoveryPoints = lastCommit?.let { buildRecoveryPoints(git, it) }.orEmpty()
             return ProjectBackupPlan(
                 projectPath = root.path,
                 initialized = true,
@@ -558,8 +738,69 @@ class ProjectVersionControlService internal constructor(
                 destination = readDestination(git),
                 confirmationToken = changes.takeIf { it.isNotEmpty() }?.let { contentBoundToken(root, it) },
                 versions = versions,
+                recoveryPoints = recoveryPoints,
             )
         }
+    }
+
+    private fun projectChanges(git: Git): List<ProjectChange> {
+        val status = git.status().call()
+        return buildList {
+            status.added.forEach { add(ProjectChange(it, ProjectChangeKind.ADDED)) }
+            status.untracked.forEach { add(ProjectChange(it, ProjectChangeKind.ADDED)) }
+            status.changed.forEach { add(ProjectChange(it, ProjectChangeKind.MODIFIED)) }
+            status.modified.forEach { add(ProjectChange(it, ProjectChangeKind.MODIFIED)) }
+            status.removed.forEach { add(ProjectChange(it, ProjectChangeKind.DELETED)) }
+            status.missing.forEach { add(ProjectChange(it, ProjectChangeKind.DELETED)) }
+            status.conflicting.forEach { add(ProjectChange(it, ProjectChangeKind.CONFLICT)) }
+        }.distinctBy { it.path to it.kind }.sortedWith(compareBy(ProjectChange::path, ProjectChange::kind))
+    }
+
+    private fun buildRecoveryPoints(git: Git, currentCommit: String): List<ProjectRecoveryPoint> =
+        git.repository.refDatabase.getRefsByPrefix(RESTORE_BACKUP_REF_PREFIX)
+            .asSequence()
+            .filter { ref -> ref.objectId?.name != currentCommit }
+            .mapNotNull { ref ->
+                val id = ref.objectId ?: return@mapNotNull null
+                runCatching {
+                    RevWalk(git.repository).use { walk ->
+                        val commit = walk.parseCommit(id)
+                        ProjectRecoveryPoint(
+                            refName = ref.name,
+                            commitId = commit.name,
+                            message = commit.shortMessage.ifBlank { "Saved recovery point" },
+                            authorName = commit.authorIdent?.name?.takeIf(String::isNotBlank) ?: "Unknown teammate",
+                            committedAtEpochSeconds = commit.commitTime.toLong(),
+                        )
+                    }
+                }.getOrNull()
+            }
+            .sortedByDescending(ProjectRecoveryPoint::refName)
+            .take(MAX_VISIBLE_RECOVERY_POINTS)
+            .toList()
+
+    private fun prepareRecovery(git: Git, recoveryRefName: String): ProjectRecoveryPlan {
+        require(git.status().call().isClean) {
+            "Save the current changes as a local version before restoring a recovery point."
+        }
+        require(recoveryRefName.startsWith(RESTORE_BACKUP_REF_PREFIX)) {
+            "That recovery point is not owned by ARES."
+        }
+        val targetId = git.repository.exactRef(recoveryRefName)?.objectId
+            ?: error("That recovery point is no longer available.")
+        val currentId = git.repository.resolve(Constants.HEAD)
+            ?: error("Save at least one local version before using recovery.")
+        require(targetId != currentId) { "The project already matches that recovery point." }
+        validateRestorableTree(git, targetId)
+        val changes = diffCommits(git, currentId, targetId)
+        require(changes.isNotEmpty()) { "The project already contains the same reviewed files." }
+        return ProjectRecoveryPlan(
+            refName = recoveryRefName,
+            currentCommit = currentId.name,
+            targetCommit = targetId.name,
+            changes = changes,
+            confirmationToken = restoreConfirmationToken(currentId, targetId, changes),
+        )
     }
 
     private fun prepareRestore(
@@ -683,7 +924,7 @@ class ProjectVersionControlService internal constructor(
     }
 
     private fun createRestoreSafetyRef(git: Git, localId: ObjectId, remoteId: ObjectId) {
-        val refName = "refs/ares/restore-backups/${epochSeconds()}-${localId.name.take(12)}-${remoteId.name.take(12)}"
+        val refName = "$RESTORE_BACKUP_REF_PREFIX${epochSeconds()}-${localId.name.take(12)}-${remoteId.name.take(12)}"
         val update = git.repository.updateRef(refName)
         update.setNewObjectId(localId)
         update.setExpectedOldObjectId(ObjectId.zeroId())
@@ -807,11 +1048,26 @@ class ProjectVersionControlService internal constructor(
         const val MAX_REVIEWED_FILE_BYTES = 20L * 1024L * 1024L
         const val MAX_REVIEWED_CHANGE_BYTES = 100L * 1024L * 1024L
         const val MAX_RESTORED_PROJECT_BYTES = 500L * 1024L * 1024L
+        const val MAX_ARCHIVE_FILE_BYTES = 100L * 1024L * 1024L
+        const val MAX_ARCHIVE_PROJECT_BYTES = 1024L * 1024L * 1024L
         private const val MAX_VISIBLE_VERSIONS = 20
+        private const val MAX_VISIBLE_RECOVERY_POINTS = 10
         private const val MINIMUM_DEVICE_POLL_SECONDS = 5L
         private const val TOKEN_EXPIRY_SAFETY_SECONDS = 60L
         private const val ORIGIN_REMOTE = "origin"
         private const val BACKUP_CONFIG_SECTION = "aresBackup"
+        private const val RESTORE_BACKUP_REF_PREFIX = "refs/ares/restore-backups/"
+    }
+
+    private fun normalizeCheckpointScope(scope: String): String {
+        val normalized = scope.replace('\\', '/').trim().trim('/')
+        require(normalized.isNotEmpty() && normalized != "." && !normalized.startsWith(".git")) {
+            "Automatic checkpoint paths must stay inside canonical project files."
+        }
+        require(normalized.split('/').none { it == "." || it == ".." }) {
+            "Automatic checkpoint paths must not contain traversal segments."
+        }
+        return normalized
     }
 }
 
@@ -870,6 +1126,12 @@ private fun pushWithJGit(git: Git, accessToken: String) {
     require(failures.isEmpty()) {
         "GitHub rejected the backup update (${failures.joinToString { it.status.name }}). Nothing remote was overwritten; refresh or ask a mentor to resolve the history difference."
     }
+}
+
+internal fun isExcludedArchivePath(path: String): Boolean {
+    val segments = path.replace('\\', '/').lowercase(Locale.ROOT).split('/').filter(String::isNotEmpty)
+    return segments.any { it in setOf(".git", ".gradle", "build", ".idea", ".vscode", "out") } ||
+        segments.lastOrNull() in setOf("local.properties", ".ds_store", "thumbs.db")
 }
 
 private fun fetchMainWithJGit(git: Git, accessToken: String): ObjectId {

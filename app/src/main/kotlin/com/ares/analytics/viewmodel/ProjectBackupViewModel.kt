@@ -3,6 +3,7 @@ package com.ares.analytics.viewmodel
 import com.ares.analytics.service.versioncontrol.GitHubConnectionState
 import com.ares.analytics.service.versioncontrol.GitHubBackupCatalog
 import com.ares.analytics.service.versioncontrol.ProjectBackupPlan
+import com.ares.analytics.service.versioncontrol.ProjectRecoveryPlan
 import com.ares.analytics.service.versioncontrol.ProjectRestorePlan
 import com.ares.analytics.service.versioncontrol.ProjectVersionControlService
 import kotlinx.coroutines.CancellationException
@@ -18,6 +19,7 @@ data class ProjectBackupState(
     val projectPath: String = "",
     val plan: ProjectBackupPlan? = null,
     val restorePlan: ProjectRestorePlan? = null,
+    val recoveryPlan: ProjectRecoveryPlan? = null,
     val githubState: GitHubConnectionState = GitHubConnectionState.Disconnected,
     val githubCatalog: GitHubBackupCatalog = GitHubBackupCatalog(),
     val selectedInstallationId: Long? = null,
@@ -44,6 +46,9 @@ sealed class ProjectBackupIntent {
     object SyncGitHubBackup : ProjectBackupIntent()
     object PreviewGitHubRestore : ProjectBackupIntent()
     data class ConfirmGitHubRestore(val confirmationToken: String) : ProjectBackupIntent()
+    data class PreviewRecovery(val refName: String) : ProjectBackupIntent()
+    data class ConfirmRecovery(val refName: String, val confirmationToken: String) : ProjectBackupIntent()
+    data class ExportArchive(val destinationPath: String) : ProjectBackupIntent()
     object DisconnectGitHubDestination : ProjectBackupIntent()
     object DisconnectGitHub : ProjectBackupIntent()
     object ClearMessage : ProjectBackupIntent()
@@ -127,6 +132,9 @@ class ProjectBackupViewModel(
             }
             ProjectBackupIntent.PreviewGitHubRestore -> previewRestore()
             is ProjectBackupIntent.ConfirmGitHubRestore -> restoreFromGitHub(intent.confirmationToken)
+            is ProjectBackupIntent.PreviewRecovery -> previewRecovery(intent.refName)
+            is ProjectBackupIntent.ConfirmRecovery -> recoverToSafetyPoint(intent.refName, intent.confirmationToken)
+            is ProjectBackupIntent.ExportArchive -> exportArchive(intent.destinationPath)
             ProjectBackupIntent.DisconnectGitHubDestination -> runAction(
                 "The online destination was disconnected. No local or GitHub files were deleted.",
             ) { service.disconnectBackupDestination(requireProjectPath()) }
@@ -134,7 +142,7 @@ class ProjectBackupViewModel(
     }
 
     private fun load(projectPath: String) {
-        _state.update { it.copy(projectPath = projectPath, restorePlan = null, notice = null, error = null) }
+        _state.update { it.copy(projectPath = projectPath, restorePlan = null, recoveryPlan = null, notice = null, error = null) }
         if (projectPath.isBlank()) {
             _state.update { it.copy(plan = null, error = "Choose a robot project before opening Project Backup.") }
             return
@@ -153,7 +161,7 @@ class ProjectBackupViewModel(
     ) {
         if (_state.value.isBusy) return
         scope.launch {
-            _state.update { it.copy(isBusy = true, restorePlan = null, error = null, notice = null) }
+            _state.update { it.copy(isBusy = true, restorePlan = null, recoveryPlan = null, error = null, notice = null) }
             try {
                 val plan = block()
                 val catalog = when {
@@ -243,6 +251,76 @@ class ProjectBackupViewModel(
                         isBusy = false,
                         error = failure.message ?: "The GitHub version could not be restored.",
                     )
+                }
+            }
+        }
+    }
+
+    private fun previewRecovery(refName: String) {
+        if (_state.value.isBusy) return
+        scope.launch {
+            _state.update { it.copy(isBusy = true, restorePlan = null, recoveryPlan = null, error = null, notice = null) }
+            try {
+                val recovery = service.previewRecovery(requireProjectPath(), refName)
+                _state.update { it.copy(isBusy = false, recoveryPlan = recovery) }
+            } catch (cancelled: CancellationException) {
+                _state.update { it.copy(isBusy = false) }
+                throw cancelled
+            } catch (failure: Exception) {
+                _state.update {
+                    it.copy(isBusy = false, error = failure.message ?: "That recovery point could not be reviewed.")
+                }
+            }
+        }
+    }
+
+    private fun recoverToSafetyPoint(refName: String, confirmationToken: String) {
+        if (_state.value.isBusy) return
+        scope.launch {
+            _state.update { it.copy(isBusy = true, error = null, notice = null) }
+            try {
+                val plan = service.recoverToSafetyPoint(requireProjectPath(), refName, confirmationToken)
+                _state.update {
+                    it.copy(
+                        plan = plan,
+                        recoveryPlan = null,
+                        restorePlan = null,
+                        isBusy = false,
+                        notice = "The reviewed recovery point was restored. ARES preserved the version you just left, so it can also be recovered.",
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                _state.update { it.copy(isBusy = false) }
+                throw cancelled
+            } catch (failure: Exception) {
+                _state.update {
+                    it.copy(isBusy = false, error = failure.message ?: "The recovery point could not be restored.")
+                }
+            }
+        }
+    }
+
+    private fun exportArchive(destinationPath: String) {
+        if (_state.value.isBusy) return
+        scope.launch {
+            _state.update { it.copy(isBusy = true, error = null, notice = null) }
+            try {
+                val exported = service.exportProjectArchive(requireProjectPath(), destinationPath)
+                val skipped = exported.skippedSensitivePaths.takeIf(List<String>::isNotEmpty)
+                    ?.let { " Private files were intentionally skipped: ${it.joinToString()}." }
+                    .orEmpty()
+                _state.update {
+                    it.copy(
+                        isBusy = false,
+                        notice = "Portable project archive created with ${exported.fileCount} files at ${exported.destinationPath}.$skipped",
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                _state.update { it.copy(isBusy = false) }
+                throw cancelled
+            } catch (failure: Exception) {
+                _state.update {
+                    it.copy(isBusy = false, error = failure.message ?: "The project archive could not be created.")
                 }
             }
         }

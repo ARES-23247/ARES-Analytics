@@ -3,6 +3,7 @@ package com.ares.analytics.viewmodel.superstructure
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentDiagnostic
 import com.ares.analytics.viewmodel.project.SuperstructureProjectRepository
+import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.areslib.catalog.ActionDescriptor
 import com.areslib.subsystem.SubsystemDocument
 import com.areslib.subsystem.SubsystemFieldRole
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 enum class SuperstructureStudioStep {
     POSTURES,
@@ -103,6 +105,7 @@ class SuperstructureStudioViewModel(
     private val scope: CoroutineScope,
     private val projectDocuments: AresProjectDocuments = AresProjectDocuments(),
     private val repository: SuperstructureProjectRepository = projectDocuments.superstructures,
+    private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
 ) {
     private val _state = MutableStateFlow(SuperstructureStudioState(projectPath = projectPath))
     val state: StateFlow<SuperstructureStudioState> = _state.asStateFlow()
@@ -584,6 +587,21 @@ class SuperstructureStudioViewModel(
                         error = null,
                     )
                 )
+                scope.launch {
+                    runCatching {
+                        val root = File(state.projectPath).canonicalFile
+                        checkpointRecorder.checkpoint(
+                            state.projectPath,
+                            "Saved ${saved.document.displayName} superstructure",
+                            setOf(
+                                saved.currentFile.relativeTo(root).invariantSeparatorsPath,
+                                saved.historyFile.relativeTo(root).invariantSeparatorsPath,
+                            ),
+                        )
+                    }.onFailure { failure ->
+                        _state.update { it.copy(status = "Superstructure saved, but automatic Project History checkpoint failed: ${failure.message}") }
+                    }
+                }
             }.onFailure { error ->
                 _state.update { it.copy(loading = false, review = null, error = error.message ?: "Superstructure could not be saved") }
             }

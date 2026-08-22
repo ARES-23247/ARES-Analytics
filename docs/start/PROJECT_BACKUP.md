@@ -25,6 +25,16 @@ Open **Profile & Settings → Project History & Backup**.
 The recent-versions timeline shows the saved description, author, time, and a short version ID.
 Students do not need to understand branches or Git commands to use it.
 
+After local history is enabled, the primary zero-code editors create narrowly scoped automatic
+checkpoints after a successful canonical save. Subsystem Builder, Controller Bindings, Drivebase
+Builder, Superstructure Studio, and Autonomous Routine Builder commit only the files that editor
+just saved. Unrelated hand-written or mentor-edited files remain unsaved and visible for review.
+
+Use **Export portable project archive** to create a `.aresproject.zip` for transfer to another
+computer. The export includes canonical documents and source while excluding Git internals, build
+caches, machine-local settings, and known credential paths. ARES never silently replaces an
+existing archive.
+
 A student does not paste a token, install Git, or configure SSH. For a team repository, an
 organization owner creates the empty private repository and installs ARES for that repository once;
 students then see it in the destination picker when their GitHub account has access.
@@ -46,6 +56,9 @@ students then see it in the destination picker when their GitHub account has acc
   creates a local safety checkpoint that retains the previous commit.
 - The restore confirmation is bound to the exact local commit, remote commit, and reviewed file
   list. If GitHub changes after preview, ARES requires a new review.
+- A prior restore can be undone from **Recent saved versions**. ARES previews the reverse file list,
+  requires confirmation, and preserves the version being left as another recovery point so the
+  operation is reversible.
 - Every sync rechecks the exact installation ID, repository ID, private visibility, and current
   write permission. Removed sharing or organization access fails closed.
 - **Change destination** removes only ARES's local remote metadata. **Sign out** deletes the saved

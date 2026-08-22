@@ -45,6 +45,8 @@ import com.ares.analytics.service.versioncontrol.GitHubBackupAccount
 import com.ares.analytics.service.versioncontrol.GitHubBackupCatalog
 import com.ares.analytics.service.versioncontrol.GitHubBackupRepository
 import com.ares.analytics.service.versioncontrol.ProjectBackupPlan
+import com.ares.analytics.service.versioncontrol.ProjectChange
+import com.ares.analytics.service.versioncontrol.ProjectRecoveryPlan
 import com.ares.analytics.service.versioncontrol.ProjectRestoreDisposition
 import com.ares.analytics.service.versioncontrol.ProjectRestorePlan
 import com.ares.analytics.ui.theme.AresBorder
@@ -59,6 +61,9 @@ import com.ares.analytics.viewmodel.ProjectBackupViewModel
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.io.File
+import javax.swing.JFileChooser
+import javax.swing.filechooser.FileNameExtensionFilter
 
 /** Plain-language, review-first local history and permission-scoped GitHub App backup workflow. */
 @Composable
@@ -79,7 +84,12 @@ fun ProjectBackupScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Project History & Backup", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    "Project History & Backup",
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = AresTextPrimary,
+                )
                 Text(
                     "Save named versions, review what changed, and optionally keep a private GitHub copy.",
                     color = AresTextSecondary,
@@ -107,6 +117,7 @@ fun ProjectBackupScreen(
 
         val plan = state.plan
         if (plan != null) {
+            ProjectStatusSummary(plan, state.restorePlan, state.githubState)
             IdentityFields(authorName, { authorName = it }, authorEmail, { authorEmail = it })
         }
         if (plan != null && !plan.initialized) {
@@ -124,7 +135,7 @@ fun ProjectBackupScreen(
             }
         } else if (plan != null) {
             LocalVersionStep(plan, versionMessage, { versionMessage = it }, authorName, authorEmail, state.isBusy, viewModel)
-            RecentVersionsStep(plan)
+            RecentVersionsStep(plan, state.recoveryPlan, state.isBusy, viewModel)
             GitHubBackupStep(
                 plan = plan,
                 restorePlan = state.restorePlan,
@@ -139,7 +150,12 @@ fun ProjectBackupScreen(
 }
 
 @Composable
-private fun RecentVersionsStep(plan: ProjectBackupPlan) {
+private fun RecentVersionsStep(
+    plan: ProjectBackupPlan,
+    recoveryPlan: ProjectRecoveryPlan?,
+    busy: Boolean,
+    viewModel: ProjectBackupViewModel,
+) {
     if (plan.versions.isEmpty()) return
     StepCard("3", "Recent saved versions", Icons.Default.History) {
         Text(
@@ -157,6 +173,94 @@ private fun RecentVersionsStep(plan: ProjectBackupPlan) {
         }
         if (plan.versions.size > 8) {
             Text("${plan.versions.size - 8} older saved versions are retained.", color = AresTextSecondary)
+        }
+        if (plan.recoveryPoints.isNotEmpty()) {
+            HorizontalDivider(color = AresBorder)
+            Text("Undo a previous restore", fontWeight = FontWeight.Bold)
+            Text(
+                "ARES preserved these versions automatically before a GitHub restore. Review the affected files before going back.",
+                color = AresTextSecondary,
+            )
+            plan.recoveryPoints.take(3).forEach { point ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(point.message, fontWeight = FontWeight.Bold)
+                        Text(
+                            "${formatVersionTime(point.committedAtEpochSeconds)} • version ${point.commitId.take(8)}",
+                            color = AresTextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { viewModel.onIntent(ProjectBackupIntent.PreviewRecovery(point.refName)) },
+                        enabled = !busy,
+                    ) { Text("Review") }
+                }
+            }
+            recoveryPlan?.let { recovery ->
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+                    border = BorderStroke(1.dp, AresCyan),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("Review recovery", fontWeight = FontWeight.Bold)
+                        ReviewedChanges(
+                            changes = recovery.changes,
+                            fromLabel = "Current version ${recovery.currentCommit.take(8)}",
+                            toLabel = "Recovery version ${recovery.targetCommit.take(8)}",
+                        )
+                        Button(
+                            onClick = {
+                                viewModel.onIntent(
+                                    ProjectBackupIntent.ConfirmRecovery(
+                                        recovery.refName,
+                                        requireNotNull(recovery.confirmationToken),
+                                    ),
+                                )
+                            },
+                            enabled = !busy && recovery.canRecover,
+                        ) { Text("Restore this recovery point") }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProjectStatusSummary(
+    plan: ProjectBackupPlan,
+    restorePlan: ProjectRestorePlan?,
+    connection: GitHubConnectionState,
+) {
+    val localStatus = if (plan.changes.isEmpty()) {
+        "LOCAL • Saved — working files match version ${plan.lastCommit?.take(8) ?: "none"}"
+    } else {
+        "LOCAL • ${plan.changes.size} unsaved file change${if (plan.changes.size == 1) "" else "s"}"
+    }
+    val onlineStatus = when {
+        plan.destination == null -> "ONLINE BACKUP • Not connected"
+        connection !is GitHubConnectionState.Connected -> "ONLINE BACKUP • Sign in required"
+        plan.changes.isNotEmpty() -> "ONLINE BACKUP • Save a local version before syncing"
+        restorePlan?.disposition == ProjectRestoreDisposition.REMOTE_AHEAD -> "ONLINE BACKUP • A newer reviewed version is available"
+        restorePlan?.disposition == ProjectRestoreDisposition.LOCAL_AHEAD -> "ONLINE BACKUP • This computer has versions ready to sync"
+        restorePlan?.disposition == ProjectRestoreDisposition.UP_TO_DATE -> "ONLINE BACKUP • Checked and up to date"
+        else -> "ONLINE BACKUP • Connected; check or sync when ready"
+    }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+        border = BorderStroke(1.dp, AresBorder),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(localStatus, color = if (plan.changes.isEmpty()) AresGreen else AresTextPrimary, fontWeight = FontWeight.Bold)
+            Text(onlineStatus, color = AresTextSecondary)
         }
     }
 }
@@ -227,6 +331,19 @@ private fun LocalVersionStep(
             },
             enabled = !busy && plan.canCommit,
         ) { Text("Save this version") }
+        OutlinedButton(
+            onClick = {
+                chooseProjectArchive(plan.projectPath)?.let { target ->
+                    viewModel.onIntent(ProjectBackupIntent.ExportArchive(target.path))
+                }
+            },
+            enabled = !busy,
+        ) { Text("Export portable project archive") }
+        Text(
+            "The archive excludes Git history, build caches, local settings, and credential files. It can be opened on another computer.",
+            color = AresTextSecondary,
+            style = MaterialTheme.typography.bodySmall,
+        )
     }
 }
 
@@ -356,12 +473,11 @@ private fun GitHubRestorePreview(
                         "ARES will only fast-forward to this exact reviewed version. It creates a local safety checkpoint first and never force-pushes or guesses through conflicting histories.",
                         color = AresTextSecondary,
                     )
-                    restore.changes.take(30).forEach { change ->
-                        Text("${change.kind.name.lowercase().replaceFirstChar(Char::uppercase)} • ${change.path}")
-                    }
-                    if (restore.changes.size > 30) {
-                        Text("…and ${restore.changes.size - 30} more files", color = AresTextSecondary)
-                    }
+                    ReviewedChanges(
+                        changes = restore.changes,
+                        fromLabel = "This computer ${restore.localCommit.take(8)}",
+                        toLabel = "GitHub ${restore.remoteCommit.take(8)}",
+                    )
                     Button(
                         onClick = {
                             viewModel.onIntent(
@@ -374,6 +490,46 @@ private fun GitHubRestorePreview(
             }
         }
     }
+}
+
+@Composable
+private fun ReviewedChanges(changes: List<ProjectChange>, fromLabel: String, toLabel: String) {
+    Text("$fromLabel  →  $toLabel", color = AresCyan, fontWeight = FontWeight.Bold)
+    changes.take(30).groupBy { projectArea(it.path) }.forEach { (area, areaChanges) ->
+        Text(area, fontWeight = FontWeight.Bold)
+        areaChanges.forEach { change ->
+            val verb = change.kind.name.lowercase().replaceFirstChar(Char::uppercase)
+            Text("$verb • ${change.path}", color = AresTextSecondary)
+        }
+    }
+    if (changes.size > 30) Text("…and ${changes.size - 30} more files", color = AresTextSecondary)
+}
+
+private fun projectArea(path: String): String = when {
+    path == ".ares/project.json" -> "Robot identity"
+    path.startsWith(".ares/drivetrains/") -> "Drivebase"
+    path.startsWith(".ares/subsystems/") -> "Subsystems"
+    path.startsWith(".ares/controllers/") || path.startsWith(".ares/controls/") -> "Controller bindings"
+    path.startsWith(".ares/routines/") || path.contains("autonomous") -> "Autonomous routines"
+    path.startsWith(".ares/tuning/") -> "Tuning"
+    path.startsWith(".ares/fields/") || path.contains("apriltag", ignoreCase = true) -> "Field and AprilTags"
+    path.startsWith("docs/") || path.endsWith(".md", ignoreCase = true) -> "Documentation"
+    path.contains("generated", ignoreCase = true) -> "Generated project plumbing"
+    else -> "Project files"
+}
+
+private fun chooseProjectArchive(projectPath: String): File? {
+    val root = File(projectPath).canonicalFile
+    val safeName = root.name.replace(Regex("[^A-Za-z0-9._-]+"), "-").trim('-').ifBlank { "ares-robot" }
+    val chooser = JFileChooser(root.parentFile).apply {
+        dialogTitle = "Export portable ARES robot project"
+        fileFilter = FileNameExtensionFilter("ARES project archive (*.aresproject.zip)", "zip")
+        selectedFile = File(root.parentFile, "$safeName.aresproject.zip")
+    }
+    if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return null
+    val selected = chooser.selectedFile
+    return if (selected.name.endsWith(".aresproject.zip", ignoreCase = true)) selected
+    else File(selected.parentFile, "${selected.name}.aresproject.zip")
 }
 
 private fun formatVersionTime(epochSeconds: Long): String = VERSION_TIME_FORMATTER.format(

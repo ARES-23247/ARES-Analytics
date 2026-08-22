@@ -53,15 +53,27 @@ bytes. Repository URLs never contain credentials.
 ## Restore and history semantics
 
 The student-facing history viewer intentionally is not a general Git client. It exposes named local
-versions, a structured changed-file preview, backup state, and one safe restore operation. It does
-not expose arbitrary checkout, force push, rebase, branch deletion, or conflict resolution.
+versions, concept-grouped changed-file previews, explicit local/online status, portable export, and
+reviewed restore/recovery operations. It does not expose arbitrary checkout, force push, rebase,
+branch deletion, or conflict resolution.
 
 A GitHub restore is accepted only when the local commit is an ancestor of the selected remote
 `main` commit. Equal histories are reported as up to date; a local-ahead history directs the user
 to synchronize; divergent histories stop and require mentor review. Incoming trees are validated
 before working files change, and the confirmation token binds both commit identities plus the diff.
 ARES writes a `refs/ares/restore-backups/...` safety ref before the fast-forward so the prior local
-version remains recoverable.
+version remains recoverable. Recovery is itself review-bound and creates a new safety ref before
+moving the working tree, which preserves a redo path.
+
+Zero-code editors depend on a narrow `ProjectCheckpointRecorder` boundary. When local history is
+enabled, the editor supplies only the exact canonical current/history files it successfully wrote.
+The JGit commit uses path-limited staging and commit semantics, so unrelated working-tree or staged
+changes are not absorbed into an automatic checkpoint. If local history is disabled, the recorder
+is a no-op and never creates `.git` implicitly.
+
+Portable export uses a same-directory durable temporary ZIP followed by atomic placement. The
+archive omits `.git`, build/cache/IDE directories, machine-local properties, and known credential
+paths; it rejects links, oversized content, destinations inside the project, and existing targets.
 
 ## Credential storage and recovery
 

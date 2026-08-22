@@ -12,6 +12,7 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.zip.ZipFile
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
@@ -210,6 +211,37 @@ class ProjectVersionControlServiceTest {
     }
 
     @Test
+    fun `automatic checkpoint commits only the canonical editor scope`() = runBlocking {
+        val root = cleanCommittedProject("scoped-checkpoint-project")
+        val service = localOnlyService()
+        File(root, ".ares/subsystems").mkdirs()
+        File(root, ".ares/subsystems/intake.aressubsystem").writeText("intake-v1")
+        File(root, "mentor-notes.txt").writeText("not reviewed by this editor")
+
+        val plan = requireNotNull(
+            service.checkpoint(root.path, "Saved Intake subsystem", setOf(".ares/subsystems")),
+        )
+
+        assertEquals("ARES checkpoint: Saved Intake subsystem", plan.versions.first().message)
+        assertEquals(listOf(ProjectChange("mentor-notes.txt", ProjectChangeKind.ADDED)), plan.changes)
+        Git.open(root).use { git ->
+            val head = git.repository.resolve("HEAD^{tree}")
+            assertNotNull(head)
+            assertTrue(git.status().call().untracked.contains("mentor-notes.txt"))
+        }
+    }
+
+    @Test
+    fun `automatic checkpoint is a no-op until local history is enabled`() = runBlocking {
+        val root = canonicalProject("checkpoint-opt-in-project")
+        File(root, ".ares/subsystems").mkdirs()
+        File(root, ".ares/subsystems/intake.aressubsystem").writeText("intake-v1")
+
+        assertNull(localOnlyService().checkpoint(root.path, "Saved Intake subsystem", setOf(".ares/subsystems")))
+        assertFalse(File(root, ".git").exists())
+    }
+
+    @Test
     fun `raw jgit permission failures become actionable student safe messages`() = runBlocking {
         val root = cleanCommittedProject("friendly-permission-error")
         val api = FakeGitHubApi().apply {
@@ -263,11 +295,57 @@ class ProjectVersionControlServiceTest {
         val restored = service.restoreFromGitHub(root.path, requireNotNull(preview.confirmationToken))
         assertEquals("newer robot", File(root, "robot.txt").readText())
         assertEquals("Improve robot", restored.versions.first().message)
+        val recoveryPoint = restored.recoveryPoints.single()
+        assertEquals(originalCommit, recoveryPoint.commitId)
+        val recoveryPreview = service.previewRecovery(root.path, recoveryPoint.refName)
+        assertEquals(listOf(ProjectChange("robot.txt", ProjectChangeKind.MODIFIED)), recoveryPreview.changes)
+        val recovered = service.recoverToSafetyPoint(
+            root.path,
+            recoveryPoint.refName,
+            requireNotNull(recoveryPreview.confirmationToken),
+        )
+        assertEquals("robot", File(root, "robot.txt").readText())
+        assertEquals("Create robot", recovered.versions.first().message)
+        assertTrue(recovered.recoveryPoints.any { it.message == "Improve robot" })
         Git.open(root).use { git ->
             val safetyRefs = git.repository.refDatabase.getRefsByPrefix("refs/ares/restore-backups/")
-            assertEquals(1, safetyRefs.size)
-            assertEquals(originalCommit, safetyRefs.single().objectId.name)
+            assertEquals(2, safetyRefs.size)
+            assertTrue(safetyRefs.any { it.objectId.name == originalCommit })
         }
+    }
+
+    @Test
+    fun `portable archive excludes credentials git metadata and build caches`() = runBlocking {
+        val root = cleanCommittedProject("archive-project")
+        File(root, "TeamCode/src/main/kotlin").mkdirs()
+        File(root, "TeamCode/src/main/kotlin/Robot.kt").writeText("class Robot")
+        File(root, "TeamCode/build/classes").mkdirs()
+        File(root, "TeamCode/build/classes/generated.class").writeBytes(byteArrayOf(1, 2, 3))
+        File(root, "credentials.json").writeText("never export")
+        val destination = temporaryDirectory.resolve("robot-export.aresproject.zip").toFile()
+
+        val result = localOnlyService().exportProjectArchive(root.path, destination.path)
+
+        assertEquals(destination.canonicalPath, result.destinationPath)
+        assertEquals(listOf("credentials.json"), result.skippedSensitivePaths)
+        ZipFile(destination).use { zip ->
+            val entries = zip.entries().asSequence().map { it.name }.toSet()
+            assertTrue(".ares/project.json" in entries)
+            assertTrue("TeamCode/src/main/kotlin/Robot.kt" in entries)
+            assertFalse(entries.any { it.startsWith(".git/") })
+            assertFalse(entries.any { "/build/" in it || it.startsWith("build/") })
+            assertFalse("credentials.json" in entries)
+        }
+    }
+
+    @Test
+    fun `portable archive must be saved outside the robot project`() = runBlocking {
+        val root = canonicalProject("archive-destination-project")
+        val failure = assertFailsWith<IllegalArgumentException> {
+            localOnlyService().exportProjectArchive(root.path, File(root, "backup.zip").path)
+        }
+        assertContains(failure.message.orEmpty(), "outside the robot project")
+        assertFalse(File(root, "backup.zip").exists())
     }
 
     @Test
