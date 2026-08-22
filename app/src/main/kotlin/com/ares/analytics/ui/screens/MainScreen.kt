@@ -221,7 +221,8 @@ fun MainScreen(services: ServiceRegistry) {
             nt4ClientService = services.nt4ClientService,
             scope = scope,
             repository = services.tuningProfileRepository,
-            proposalInbox = services.tuningProposalInbox
+            proposalInbox = services.tuningProposalInbox,
+            checkpointRecorder = services.projectVersionControlService,
         )
     }
     LaunchedEffect(currentConfig.league) {

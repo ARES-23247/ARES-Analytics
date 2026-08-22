@@ -27,8 +27,9 @@ Students do not need to understand branches or Git commands to use it.
 
 After local history is enabled, the primary zero-code editors create narrowly scoped automatic
 checkpoints after a successful canonical save. Subsystem Builder, Controller Bindings, Drivebase
-Builder, Superstructure Studio, and Autonomous Routine Builder commit only the files that editor
-just saved. Unrelated hand-written or mentor-edited files remain unsaved and visible for review.
+Builder, Superstructure Studio, Autonomous Routine Builder, and reviewed Tuning profile promotion
+commit only the files that editor just saved. Unrelated hand-written or mentor-edited files remain
+unsaved and visible for review.
 
 Use **Export portable project archive** to create a `.aresproject.zip` for transfer to another
 computer. The export includes canonical documents and source while excluding Git internals, build
