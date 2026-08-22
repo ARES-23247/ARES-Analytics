@@ -86,7 +86,6 @@ jobs:
 
   build-packages:
     name: Build package for ${{ matrix.os }}
-    needs: zero-code-project-acceptance
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -221,7 +220,7 @@ jobs:
 
   publish-release:
     name: Publish verified desktop release
-    needs: build-packages
+    needs: [zero-code-project-acceptance, build-packages]
     if: >-
       startsWith(github.ref, 'refs/tags/') ||
       (github.event_name == 'workflow_dispatch' && inputs.publish)

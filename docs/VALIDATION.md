@@ -128,6 +128,10 @@ on the clean runner, upgrades it with the candidate MSI, verifies that no side-b
 remains, runs an explicit repair transaction, and uninstalls the test product. The job rejects a
 version that already has a GitHub Release so different package bytes cannot reuse one public version.
 
+Fresh-project acceptance and native Windows/macOS packaging run concurrently to shorten release
+latency. The publication job still depends on both lanes, so no package can be released unless the
+zero-code consumer matrix and every native package check have completed successfully.
+
 ## Optional physical hardware check
 
 The hosted pipeline cannot reproduce radio congestion, Control Hub storage pressure, RoboRIO CPU contention, or field-network policies. Run `dashboardHardware` manually from the driver-station laptop while it is connected to the robot network. The task observes live NT4 traffic for 30 seconds by default, checks frame/topic minimums and required keys, persists the received data, and writes its report locally. No self-hosted GitHub runner is required.
