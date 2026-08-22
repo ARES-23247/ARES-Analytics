@@ -146,6 +146,88 @@ class ProjectIdentityViewModelTest {
     }
 
     @Test
+    fun `empty object reports missing fields without leaking a Kotlin null error`() {
+        val error = runCatching { decodeProjectMetadata("{}") }.exceptionOrNull()
+
+        assertNotNull(error)
+        assertTrue(error.message.orEmpty().contains("missing required fields"))
+        assertTrue(error.message.orEmpty().contains("projectId"))
+        assertFalse(error.message.orEmpty().contains("Regex.matches"))
+        assertFalse(error.message.orEmpty().contains("non-null is null"))
+    }
+
+    @Test
+    fun `reviewed repair preserves invalid bytes before replacing canonical identity`() = runTest {
+        withProject { project ->
+            val invalidBytes = byteArrayOf(0x7b, 0x7d) // Exact "{}" recovery evidence.
+            val file = File(project, ".ares/project.json").apply {
+                parentFile.mkdirs()
+                writeBytes(invalidBytes)
+            }
+            val viewModel = ProjectIdentityViewModel(
+                scope = this,
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+            )
+            val config = workspace(project).copy(robotLengthMeters = 0.45, robotWidthMeters = 0.43)
+
+            viewModel.load(config)
+            advanceUntilIdle()
+
+            val loaded = viewModel.state.value
+            assertNotNull(loaded.protectedContentHash)
+            assertTrue(loaded.protectedError.orEmpty().contains("missing required fields"))
+            assertNull(loaded.message, "An invalid file must not also report a successful load")
+            assertTrue(loaded.canReview)
+            assertTrue(file.readBytes().contentEquals(invalidBytes))
+
+            viewModel.review()
+            val proposal = assertNotNull(viewModel.state.value.proposal)
+            assertEquals(loaded.protectedContentHash, proposal.expectedInvalidRawContentHash)
+            assertTrue(file.readBytes().contentEquals(invalidBytes), "Preview must be read-only")
+
+            viewModel.applyReviewed()
+            advanceUntilIdle()
+
+            val repaired = AresProjectMetadataCodec.decode(file.readText())
+            assertEquals("team23247-robot-one-decode", repaired.projectId)
+            assertEquals(0.45, repaired.robotLengthMeters)
+            assertTrue(viewModel.state.value.message.orEmpty().contains("Repaired .ares/project.json"))
+            val recovery = File(project, ".ares/recovery/project")
+                .listFiles()
+                .orEmpty()
+                .single()
+            assertTrue(recovery.readBytes().contentEquals(invalidBytes))
+        }
+    }
+
+    @Test
+    fun `reviewed repair aborts when invalid file changes after preview`() = runTest {
+        withProject { project ->
+            val file = File(project, ".ares/project.json").apply {
+                parentFile.mkdirs()
+                writeText("{}")
+            }
+            val viewModel = ProjectIdentityViewModel(
+                scope = this,
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+            )
+            val config = workspace(project).copy(robotLengthMeters = 0.45, robotWidthMeters = 0.43)
+            viewModel.load(config)
+            advanceUntilIdle()
+            viewModel.review()
+            assertNotNull(viewModel.state.value.proposal)
+
+            file.writeText("{\"changed\":true}")
+            viewModel.applyReviewed()
+            advanceUntilIdle()
+
+            assertEquals("{\"changed\":true}", file.readText())
+            assertTrue(viewModel.state.value.message.orEmpty().contains("changed after preview"))
+            assertFalse(File(project, ".ares/recovery/project").exists())
+        }
+    }
+
+    @Test
     fun `validation rejects nonpositive geometry and robots larger than the field`() {
         val invalidNumber = validateProjectIdentityDraft(
             League.FTC,

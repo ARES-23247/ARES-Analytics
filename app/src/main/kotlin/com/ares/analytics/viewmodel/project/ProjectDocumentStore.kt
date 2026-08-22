@@ -358,10 +358,15 @@ internal object ProjectDocumentWriteLocks {
 
 internal object AtomicProjectFileWriter {
     fun write(file: File, content: String, replaceExisting: Boolean) {
+        write(file, content.toByteArray(Charsets.UTF_8), replaceExisting)
+    }
+
+    /** Writes recovery evidence byte-for-byte so even malformed text remains recoverable. */
+    fun write(file: File, content: ByteArray, replaceExisting: Boolean) {
         file.parentFile.mkdirs()
         val temporary = Files.createTempFile(file.parentFile.toPath(), ".${file.name}.", ".tmp")
         try {
-            Files.writeString(temporary, content)
+            Files.write(temporary, content)
             val atomicOptions = if (replaceExisting) {
                 arrayOf<java.nio.file.CopyOption>(
                     StandardCopyOption.ATOMIC_MOVE,

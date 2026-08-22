@@ -43,6 +43,7 @@ data class ProjectIdentityChange(
 
 data class ProjectIdentityProposal(
     val expectedContentHash: String?,
+    val expectedInvalidRawContentHash: String? = null,
     val proposedContentHash: String,
     val document: AresProjectMetadataDocument,
     val changes: List<ProjectIdentityChange>,
@@ -60,11 +61,15 @@ data class ProjectIdentityEditorState(
     val generalErrors: List<String> = emptyList(),
     val proposal: ProjectIdentityProposal? = null,
     val protectedError: String? = null,
+    /** Hash of an invalid existing file that may be replaced only through reviewed repair. */
+    val protectedContentHash: String? = null,
     val message: String? = null,
     val messageIsError: Boolean = false,
 ) {
     val canReview: Boolean
-        get() = !loading && !saving && protectedError == null && fieldErrors.isEmpty() && generalErrors.isEmpty()
+        get() = !loading && !saving &&
+            (protectedError == null || protectedContentHash != null) &&
+            fieldErrors.isEmpty() && generalErrors.isEmpty()
 }
 
 /** Owns the reviewed `.ares/project.json` workflow. It never mutates workspace configuration. */
@@ -150,7 +155,7 @@ class ProjectIdentityViewModel(
     fun review() {
         val config = workspace ?: return
         val current = _state.value
-        if (current.protectedError != null || current.loading || current.saving) return
+        if ((current.protectedError != null && current.protectedContentHash == null) || current.loading || current.saving) return
         val validation = validateProjectIdentityDraft(config.league, current.draft)
         val document = validation.document
         if (document == null) {
@@ -176,6 +181,7 @@ class ProjectIdentityViewModel(
                 generalErrors = emptyList(),
                 proposal = ProjectIdentityProposal(
                     expectedContentHash = current.currentContentHash,
+                    expectedInvalidRawContentHash = current.protectedContentHash,
                     proposedContentHash = AresProjectMetadataCodec.contentHash(document),
                     document = document,
                     changes = changes,
@@ -216,7 +222,9 @@ class ProjectIdentityViewModel(
         scope.launch {
             runCatching {
                 withContext(ioDispatcher) {
-                    repository.saveReviewed(config.projectPath, proposal.expectedContentHash, proposal.document)
+                    proposal.expectedInvalidRawContentHash?.let { invalidHash ->
+                        repository.repairReviewed(config.projectPath, invalidHash, proposal.document)
+                    } ?: repository.saveReviewed(config.projectPath, proposal.expectedContentHash, proposal.document)
                 }
             }.onSuccess { saved ->
                 if (applyGeneration != generation || workspace != config) return@onSuccess
@@ -230,10 +238,11 @@ class ProjectIdentityViewModel(
                     draft = projectIdentityDraft(config, saved.document),
                     fieldErrors = validation.fieldErrors,
                     generalErrors = validation.generalErrors,
-                    message = if (saved.created) {
-                        "Created .ares/project.json after explicit review."
-                    } else {
-                        "Saved .ares/project.json and preserved the previous version in project history."
+                    message = when {
+                        saved.repaired ->
+                            "Repaired .ares/project.json after explicit review. The exact invalid file is preserved in .ares/recovery/project."
+                        saved.created -> "Created .ares/project.json after explicit review."
+                        else -> "Saved .ares/project.json and preserved the previous version in project history."
                     },
                     messageIsError = false,
                 )
@@ -254,6 +263,7 @@ class ProjectIdentityViewModel(
         val currentResult = repository.load(config.projectPath)
         val current = currentResult.getOrNull()
         val corruptError = currentResult.exceptionOrNull()?.takeIf { file.isFile }
+        val corruptHash = corruptError?.let { repository.rawContentHash(config.projectPath) }
         val mismatch = current?.takeIf { it.league != config.league.toAresLeague() }
         val draft = projectIdentityDraft(config, current)
         val validation = validateProjectIdentityDraft(config.league, draft)
@@ -268,15 +278,16 @@ class ProjectIdentityViewModel(
             generalErrors = validation.generalErrors,
             protectedError = when {
                 corruptError != null ->
-                    "The existing .ares/project.json is unreadable: ${corruptError.message}. ARES will not replace it. Preserve the file, repair or restore it, then reload."
+                    "The existing .ares/project.json cannot be used: ${corruptError.message}. Its exact bytes remain unchanged. Enter the measured robot dimensions, review the repair, and ARES will preserve the original under .ares/recovery/project before replacing it."
                 mismatch != null ->
                     "The canonical project is ${mismatch.league}, but this workspace is ${config.league}. Select the correct workspace league; ARES will not rewrite platform identity automatically."
                 else -> null
             },
-            message = if (current == null && corruptError == null) {
-                "No canonical project identity exists yet. Enter measured geometry, then review the file before creating it."
-            } else {
-                "Loaded the canonical project identity. Stable project ID and platform are protected."
+            protectedContentHash = corruptHash,
+            message = when {
+                corruptError != null -> null
+                current == null -> "No canonical project identity exists yet. Enter measured geometry, then review the file before creating it."
+                else -> "Loaded the canonical project identity. Stable project ID and platform are protected."
             },
         )
     }

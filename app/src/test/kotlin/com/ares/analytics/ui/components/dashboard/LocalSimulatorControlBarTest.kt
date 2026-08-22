@@ -124,6 +124,7 @@ class LocalSimulatorControlBarTest {
                 isTeleOpRunning = false,
             ),
         )
+        assertEquals("Building simulator", LocalSimulatorPrimaryAction.VERIFYING_PROJECT.label)
     }
 
     @Test

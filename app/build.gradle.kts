@@ -8,7 +8,7 @@ import java.nio.file.StandardCopyOption
 
 // Single source of truth for the application version. Consumed both by the native
 // distribution packaging below and by the generated BuildConfig (see generateBuildConfig).
-val aresAnalyticsVersion = providers.gradleProperty("aresAnalyticsVersion").orElse("1.3.1").get()
+val aresAnalyticsVersion = providers.gradleProperty("aresAnalyticsVersion").orElse("1.3.2").get()
 val googleOAuthClientIdEnvironment = providers.environmentVariable("ARES_GOOGLE_OAUTH_CLIENT_ID")
 val googleOAuthBrokerUrlEnvironment = providers.environmentVariable("ARES_GOOGLE_OAUTH_BROKER_URL")
 val githubAppClientIdEnvironment = providers.environmentVariable("ARES_GITHUB_APP_CLIENT_ID")
