@@ -139,6 +139,7 @@ jobs:
         env:
           ARES_GOOGLE_OAUTH_CLIENT_ID: ${{ vars.ARES_GOOGLE_OAUTH_CLIENT_ID }}
           ARES_GOOGLE_OAUTH_BROKER_URL: ${{ vars.ARES_GOOGLE_OAUTH_BROKER_URL }}
+          ARES_GITHUB_OAUTH_CLIENT_ID: ${{ vars.ARES_GITHUB_OAUTH_CLIENT_ID }}
         run: |
           cd ARES-Analytics
           chmod +x ./gradlew

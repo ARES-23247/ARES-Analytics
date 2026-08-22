@@ -2,6 +2,8 @@ package com.ares.analytics.viewmodel
 
 import com.ares.analytics.service.EnvironmentService
 import com.ares.analytics.service.GoogleDriveService
+import com.ares.analytics.service.ManagedToolchainInstallState
+import com.ares.analytics.service.ManagedToolchainService
 import com.ares.analytics.service.SyncEngineService
 import com.ares.analytics.service.project.RobotProjectCreationRequest
 import com.ares.analytics.service.project.RobotProjectTemplateService
@@ -57,6 +59,7 @@ data class OnboardingState(
     val javaEnvValid: Boolean? = null,
     val javaEnvMsg: String = "Robot build tools have not been checked yet.",
     val javaMajorVersion: Int? = null,
+    val toolchainInstallState: ManagedToolchainInstallState = ManagedToolchainInstallState.Idle,
     val isSaving: Boolean = false,
     val saveSuccess: Boolean = false,
     val errorMessage: String? = null,
@@ -105,6 +108,7 @@ sealed class OnboardingIntent {
     object NextStep : OnboardingIntent()
     object PreviousStep : OnboardingIntent()
     object VerifyJava : OnboardingIntent()
+    object InstallManagedJdk : OnboardingIntent()
     object SubmitConfig : OnboardingIntent()
 }
 
@@ -114,6 +118,7 @@ class OnboardingViewModel(
     private val syncEngineService: SyncEngineService,
     private val googleDriveService: GoogleDriveService,
     private val projectTemplateService: RobotProjectTemplateService,
+    private val managedToolchainService: ManagedToolchainService,
     private val scope: CoroutineScope,
     private val onConfigured: (WorkspaceConfig) -> Unit,
 ) {
@@ -127,6 +132,11 @@ class OnboardingViewModel(
     val state: StateFlow<OnboardingState> = _state.asStateFlow()
 
     init {
+        scope.launch {
+            managedToolchainService.installState.collect { installState ->
+                _state.update { it.copy(toolchainInstallState = installState) }
+            }
+        }
         handleIntent(OnboardingIntent.VerifyJava)
     }
 
@@ -209,6 +219,7 @@ class OnboardingViewModel(
                     it.copy(currentStep = OnboardingStep.entries[(it.currentStep.ordinal - 1).coerceAtLeast(0)], errorMessage = null)
                 }
                 OnboardingIntent.VerifyJava -> verifyJavaBuildTools()
+                OnboardingIntent.InstallManagedJdk -> installManagedJdk()
                 OnboardingIntent.SubmitConfig -> submitConfig()
             }
         }
@@ -301,6 +312,11 @@ class OnboardingViewModel(
                 javaMajorVersion = javaReadiness.majorVersion,
             )
         }
+    }
+
+    private suspend fun installManagedJdk() {
+        runCatching { managedToolchainService.installManagedJdk21(_state.value.league) }
+        verifyJavaBuildTools()
     }
 
     private suspend fun submitConfig() {

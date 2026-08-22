@@ -201,12 +201,12 @@ private fun ProjectSelection(
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("Verified starter: $templateName $templateVersion", color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "ARES checks an exact revision and SHA-256 before creating anything. The verified download is cached for offline reuse.",
+                        "The official installer includes this exact, SHA-256-verified starter. ARES can create it offline; the network is only a recovery fallback for source builds.",
                         color = AresTextSecondary,
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
-                        "SIMULATION READY — Local generation, tests, packaging, and simulation are supported. Physical deployment stays blocked because this reviewed starter still contains Team 23247 season-specific composition that is not fully GUI-owned.",
+                        "SIMULATION FIRST — This generic starter contains no Team 23247 season mechanisms or calibration. Build and simulation are supported; physical deployment stays blocked until a mentor completes Hardware Setup and commissioning evidence.",
                         color = AresError,
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.SemiBold,

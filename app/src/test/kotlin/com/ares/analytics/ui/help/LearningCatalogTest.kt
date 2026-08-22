@@ -33,6 +33,7 @@ class LearningCatalogTest {
         assertEquals("drivebase-blueprint", LearningCatalog.lessonFor(NavigationTarget.DRIVEBASE_BUILDER)?.id)
         assertEquals("robot-studio-tour", LearningCatalog.lessonFor(NavigationTarget.ROBOT_STUDIO)?.id)
         assertEquals("robot-studio-tour", LearningCatalog.lessonFor(NavigationTarget.PROJECT_IDENTITY)?.id)
+        assertEquals("protect-project-history", LearningCatalog.lessonFor(NavigationTarget.PROJECT_BACKUP)?.id)
         assertEquals("developer-reference", LearningCatalog.lessonFor(NavigationTarget.KDOC_VIEWER)?.id)
         assertEquals(null, LearningCatalog.lessonFor(NavigationTarget.ADMIN))
     }

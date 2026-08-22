@@ -1353,6 +1353,33 @@ object LearningCatalog {
             ),
         ),
         LearningLesson(
+            id = "protect-project-history",
+            level = LearningLevel.STARTER,
+            track = LearningTrack.SUBSYSTEMS,
+            title = "Save and back up a robot project",
+            outcome = "Create a reviewed local version and explain why online backup is a separate optional step.",
+            durationMinutes = 8,
+            destination = NavigationTarget.PROJECT_BACKUP,
+            beforeYouStart = listOf("Choose a canonical ARES robot workspace and make one small reviewed change."),
+            steps = listOf(
+                "Open Project Backup and identify the active project path before changing history.",
+                "Start local history. Explain why this does not upload the project.",
+                "Review the exact changed-file list and verify that no credentials, keystores, or local machine settings are included.",
+                "Describe the change in plain language and save the content-bound version.",
+                "If your team uses GitHub, sign in with the short device code and create a private backup only after the local project is clean.",
+            ),
+            successLooksLike = "The project has a named local version, the pending change list is empty, and you can distinguish local history from optional GitHub backup.",
+            safetyNote = "Never commit passwords, OAuth tokens, signing keys, service-account files, or a robot project's local machine settings.",
+            keywords = setOf("backup", "git", "github", "history", "version", "private repository"),
+            checkpoints = listOf(
+                reflectionCheckpoint(
+                    "project-backup.local-vs-online",
+                    "Explain the two backup boundaries",
+                    "What remains only on this computer after Save this version, and what changes only after a successful GitHub sync?",
+                ),
+            ),
+        ),
+        LearningLesson(
             id = "developer-reference",
             level = LearningLevel.STARTER,
             track = LearningTrack.SUBSYSTEMS,
@@ -1438,6 +1465,7 @@ object LearningCatalog {
         NavigationTarget.ROBOT_STUDIO to "robot-studio-tour",
         NavigationTarget.HARDWARE_STUDIO to "review-hardware-addresses",
         NavigationTarget.PROJECT_IDENTITY to "robot-studio-tour",
+        NavigationTarget.PROJECT_BACKUP to "protect-project-history",
         NavigationTarget.KDOC_VIEWER to "developer-reference",
     )
 

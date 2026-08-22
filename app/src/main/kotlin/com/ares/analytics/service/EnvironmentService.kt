@@ -168,16 +168,7 @@ class EnvironmentService(
     }
 
     suspend fun verifyJavaEnvironment(): JavaEnvResult = withContext(Dispatchers.IO) {
-        val javaHome = System.getenv("JAVA_HOME")
-        val executableName = if (System.getProperty("os.name").contains("win", ignoreCase = true)) {
-            "java.exe"
-        } else {
-            "java"
-        }
-        val javaExe = javaHome
-            ?.takeIf(String::isNotBlank)
-            ?.let { File(it, "bin/$executableName").path }
-            ?: "java"
+        val javaExe = ManagedToolchainPaths.javaExecutable()?.path ?: "java"
 
         if (javaExe != "java" && !File(javaExe).exists()) {
             return@withContext JavaEnvResult(false, "java executable not found at $javaExe")

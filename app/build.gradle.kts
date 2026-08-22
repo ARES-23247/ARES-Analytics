@@ -19,6 +19,11 @@ val googleOAuthBrokerUrl = providers.gradleProperty("googleOAuthBrokerUrl")
     .orElse("")
     .get()
     .trimEnd('/')
+val githubOAuthClientId = providers.gradleProperty("githubOAuthClientId")
+    .orElse(providers.environmentVariable("ARES_GITHUB_OAUTH_CLIENT_ID"))
+    .orElse("")
+    .get()
+    .trim()
 
 plugins {
     kotlin("jvm")
@@ -68,6 +73,9 @@ dependencies {
     // Windows Credential Protection (DPAPI) for OAuth refresh-token persistence.
     implementation("net.java.dev.jna:jna-platform:5.15.0")
 
+    // Pure-Java project version history; students do not need a separate Git installation.
+    implementation("org.eclipse.jgit:org.eclipse.jgit:7.7.1.202607240634-r")
+
     // Math & Signal Processing
     implementation("org.ejml:ejml-simple:0.46.1")
     implementation("org.apache.commons:commons-math3:3.6.1")
@@ -101,9 +109,11 @@ tasks.register("generateBuildConfig") {
     val version = aresAnalyticsVersion
     val oauthClientId = googleOAuthClientId
     val oauthBrokerUrl = googleOAuthBrokerUrl
+    val githubClientId = githubOAuthClientId
     inputs.property("aresAnalyticsVersion", version)
     inputs.property("googleOAuthClientId", oauthClientId)
     inputs.property("googleOAuthBrokerUrl", oauthBrokerUrl)
+    inputs.property("githubOAuthClientId", githubClientId)
     outputs.dir(generatedBuildConfigDir)
     doLast {
         val pkgDir = generatedBuildConfigDir.get().asFile.resolve("com/ares/analytics")
@@ -116,6 +126,10 @@ tasks.register("generateBuildConfig") {
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
             .replace("$", "\\$")
+        val escapedGitHubClientId = githubClientId
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("$", "\\$")
         pkgDir.resolve("BuildConfig.kt").writeText(
             """
             |package com.ares.analytics
@@ -124,6 +138,7 @@ tasks.register("generateBuildConfig") {
             |    const val VERSION = "$version"
             |    const val GOOGLE_OAUTH_CLIENT_ID = "$escapedOAuthClientId"
             |    const val GOOGLE_OAUTH_BROKER_URL = "$escapedOAuthBrokerUrl"
+            |    const val GITHUB_OAUTH_CLIENT_ID = "$escapedGitHubClientId"
             |}
             """.trimMargin()
         )
@@ -361,6 +376,12 @@ tasks.matching { task ->
         }
         require(googleOAuthBrokerUrl.startsWith("https://") && googleOAuthBrokerUrl.length <= 512) {
             "Official packages require an HTTPS Google OAuth broker URL"
+        }
+        require(
+            githubOAuthClientId.matches(Regex("[A-Za-z0-9_-]{12,128}")) &&
+                !githubOAuthClientId.contains("mock", ignoreCase = true)
+        ) {
+            "Official packages require -PgithubOAuthClientId (or ARES_GITHUB_OAUTH_CLIENT_ID) with the public ARES GitHub OAuth app client ID"
         }
     }
 }

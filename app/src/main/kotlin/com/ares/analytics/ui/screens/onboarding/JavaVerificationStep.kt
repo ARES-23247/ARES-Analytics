@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -35,6 +37,7 @@ import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresTextTertiary
+import com.ares.analytics.service.ManagedToolchainInstallState
 
 /** Advisory check for the external JDK used by robot builds and simulation. The packaged app has its own runtime. */
 @Composable
@@ -42,8 +45,11 @@ fun JavaVerificationStep(
     isValid: Boolean?,
     isVerifying: Boolean,
     message: String,
+    installState: ManagedToolchainInstallState,
     onVerifyClick: () -> Unit,
+    onInstallClick: () -> Unit,
 ) {
+    val installWorking = installState is ManagedToolchainInstallState.Working
     val icon = when (isValid) {
         true -> Icons.Default.CheckCircle
         false -> Icons.Default.Warning
@@ -82,17 +88,46 @@ fun JavaVerificationStep(
                 style = MaterialTheme.typography.bodySmall,
                 color = AresTextTertiary,
             )
+            when (installState) {
+                is ManagedToolchainInstallState.Working -> {
+                    installState.fraction?.let { fraction ->
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = AresCyan,
+                        )
+                    }
+                    Text(installState.message, color = AresTextSecondary, style = MaterialTheme.typography.bodySmall)
+                }
+                is ManagedToolchainInstallState.Succeeded ->
+                    Text(installState.message, color = AresGreen, style = MaterialTheme.typography.bodySmall)
+                is ManagedToolchainInstallState.Failed ->
+                    Text(installState.message, color = AresAmber, style = MaterialTheme.typography.bodySmall)
+                ManagedToolchainInstallState.Idle -> Unit
+            }
         }
-        Button(
-            onClick = onVerifyClick,
-            enabled = !isVerifying,
-            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-        ) {
-            if (isVerifying) {
-                CircularProgressIndicator(color = AresBackground, strokeWidth = 2.dp)
-            } else {
-                Icon(Icons.Default.Refresh, contentDescription = null, tint = AresBackground)
-                Text("Recheck", color = AresBackground)
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (isValid != true) {
+                Button(
+                    onClick = onInstallClick,
+                    enabled = !installWorking && !isVerifying,
+                    colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                ) {
+                    Icon(Icons.Default.Download, contentDescription = null, tint = AresBackground)
+                    Text("Install JDK 21", color = AresBackground)
+                }
+            }
+            Button(
+                onClick = onVerifyClick,
+                enabled = !isVerifying && !installWorking,
+                colors = ButtonDefaults.buttonColors(containerColor = AresBorder, contentColor = AresTextPrimary),
+            ) {
+                if (isVerifying) {
+                    CircularProgressIndicator(color = AresTextPrimary, strokeWidth = 2.dp, modifier = Modifier.width(20.dp))
+                } else {
+                    Icon(Icons.Default.Refresh, contentDescription = null, tint = AresTextPrimary)
+                    Text("Recheck", color = AresTextPrimary)
+                }
             }
         }
     }

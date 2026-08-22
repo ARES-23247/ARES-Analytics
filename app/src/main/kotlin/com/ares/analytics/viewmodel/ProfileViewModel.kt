@@ -69,8 +69,6 @@ sealed class ProfileIntent {
 
     object ConfigUpdateApplied : ProfileIntent()
 
-    data class LinkGitHub(val clientId: String) : ProfileIntent()
-
     object SignOut : ProfileIntent()
 
     data class PerformDeltaSync(val firebaseToken: String) : ProfileIntent()
@@ -203,9 +201,6 @@ class ProfileViewModel(
                     }
                 }
                 ProfileIntent.ConfigUpdateApplied -> _state.update { it.copy(pendingConfigUpdate = null) }
-                is ProfileIntent.LinkGitHub -> {
-                    oauthService.startGithubLogin(intent.clientId.takeIf { it.isNotBlank() } ?: "mock-github-client-id")
-                }
                 is ProfileIntent.SignOut -> {
                     oauthService.logout()
                 }

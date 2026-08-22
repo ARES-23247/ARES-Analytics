@@ -213,7 +213,9 @@ fun OnboardingScreen(
                         isValid = state.javaEnvValid,
                         isVerifying = state.isVerifyingJava,
                         message = state.javaEnvMsg,
+                        installState = state.toolchainInstallState,
                         onVerifyClick = { viewModel.handleIntent(OnboardingIntent.VerifyJava) },
+                        onInstallClick = { viewModel.handleIntent(OnboardingIntent.InstallManagedJdk) },
                     )
                 }
 

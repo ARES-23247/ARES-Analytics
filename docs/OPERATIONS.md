@@ -343,12 +343,13 @@ If a previous Analytics JVM is still running, the root Gradle task checks Java p
 - [ ] Verify target switching clears old robot state.
 - [ ] Verify gateway health, authentication, request limits, and rate limiting.
 - [ ] Confirm the protected repository variables `ARES_GOOGLE_OAUTH_CLIENT_ID` and `ARES_GOOGLE_OAUTH_BROKER_URL` point to the active production Desktop client and stable HTTPS broker.
+- [ ] Confirm `ARES_GITHUB_OAUTH_CLIENT_ID` points to the public ARES GitHub OAuth App and that Device Flow is enabled. Do not configure or bundle a GitHub client secret.
 - [ ] Confirm the broker receives the matching `ARES_GOOGLE_OAUTH_CLIENT_ID` and `ARES_GOOGLE_OAUTH_CLIENT_SECRET` from protected Cloud Run/secret-manager configuration, and that neither secret nor token bodies appear in logs.
 - [ ] Verify focused code-exchange, refresh, invalid-input, missing-configuration, error-redaction, and rate-limit tests.
 - [ ] Verify one-click PKCE sign-in, destination creation/selection, a small upload/download, sign-out, refresh, and reconnect against the active production client and broker on a clean installed profile. Do not publish an installer before this passes.
 - [ ] Verify a second workspace cannot list or synchronize the first workspace's root, and that removed folder permissions fail visibly.
 - [ ] Exercise personal folders, created team folders, existing shared folders, and Shared Drive folders when the test account supports them; verify account switching, revoked refresh tokens, deleted clients, offline startup, and concurrent sync.
-- [ ] Build the same native package used by the release workflow. Set `ARES_GOOGLE_OAUTH_CLIENT_ID` and `ARES_GOOGLE_OAUTH_BROKER_URL` from protected repository variables in the build environment (do not paste them into command arguments), then run `.\gradlew.bat :app:packageMsi "-ParesAnalyticsVersion=1.2.3" --no-daemon` and clear the environment values afterward.
+- [ ] Build the same native package used by the release workflow. Set `ARES_GOOGLE_OAUTH_CLIENT_ID`, `ARES_GOOGLE_OAUTH_BROKER_URL`, and the public `ARES_GITHUB_OAUTH_CLIENT_ID` from protected repository variables in the build environment (do not paste them into command arguments), then run `.\gradlew.bat :app:packageMsi "-ParesAnalyticsVersion=1.2.3" --no-daemon` and clear the environment values afterward.
 - [ ] Confirm `:app:verifyDistributableProjectLoading` passes. Native package tasks depend on this guard, which loads metadata, routines, subsystems, capabilities, and autonomous choices through the trimmed jlink runtime rather than the development JDK.
 
 The installer is not approved for publication until the production OAuth and Drive round trip above

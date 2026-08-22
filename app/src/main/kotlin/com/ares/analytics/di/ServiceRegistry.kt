@@ -46,6 +46,8 @@ class ServiceRegistry {
     val academyPracticePackService by lazy { com.ares.analytics.service.AcademyPracticePackService() }
     val importArchiveService by lazy { ImportArchiveService() }
     val robotProjectTemplateService by lazy { com.ares.analytics.service.project.RobotProjectTemplateService() }
+    val managedToolchainService by lazy { ManagedToolchainService() }
+    val projectVersionControlService by lazy { com.ares.analytics.service.versioncontrol.ProjectVersionControlService() }
     val hardwareSetupService by lazy { com.ares.analytics.service.hardware.HardwareSetupService() }
     val tuningProposalInbox by lazy { com.ares.analytics.service.tuning.TuningProposalInbox() }
     val drivebaseProjectRepository by lazy { com.ares.analytics.service.drivebase.DrivebaseProjectRepository() }
