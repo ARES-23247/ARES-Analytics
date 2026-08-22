@@ -28,10 +28,16 @@ Download and run the newest installer normally. Windows recognizes the former AR
 installation through the same upgrade UUID and upgrades it in place. Projects are ordinary folders
 and are never removed by an application upgrade.
 
+The downloaded installer must have a newer version number than the installed application. Published
+installers are immutable: ARES never intentionally publishes two different packages under the same
+version. If a locally built package and a public package happen to share a version, Windows rejects
+the replacement instead of guessing which bytes should win. Install the next public patch release;
+do not uninstall the application or delete a robot project.
+
 ## Repair or reinstall the same version on Windows
 
-Run the downloaded `.msi` again. Windows Installer opens **Change, repair, or remove installation**;
-choose **Repair**. Repair restores missing or corrupt installed program files and shortcuts without
+Run the exact same downloaded `.msi` again. Windows Installer opens **Change, repair, or remove
+installation**; choose **Repair**. Repair restores missing or corrupt installed program files and shortcuts without
 deleting projects, `.ares` documents, the local telemetry database, settings, or user-bound secure
 credentials.
 
@@ -42,7 +48,10 @@ msiexec.exe /fa "ARES Robotics Studio-<version>.msi"
 ```
 
 The release build inspects every generated MSI and fails if the stable upgrade identity,
-maintenance dialog, or Repair button disappears.
+maintenance dialog, or Repair button disappears. The protected Windows package job also downloads
+the previous public MSI on a clean runner, installs it, upgrades it with the candidate MSI, verifies
+that only the candidate version remains, repairs that installation, and removes it. A table-only MSI
+inspection is not treated as proof that an upgrade works.
 
 After local verification, the MSI is copied to the repository-root `dist` directory so it is not
 buried under Gradle's intermediate build tree. `dist` is intentionally ignored by Git; installers

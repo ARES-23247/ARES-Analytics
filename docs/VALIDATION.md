@@ -123,6 +123,11 @@ runs the headless drivetrain verifier, which must demonstrate translation, field
 and rotation before an installer can be produced. This is simulator evidence, not physical-hardware
 validation.
 
+On Windows, the package job then selects the newest earlier stable GitHub release, installs its MSI
+on the clean runner, upgrades it with the candidate MSI, verifies that no side-by-side older product
+remains, runs an explicit repair transaction, and uninstalls the test product. The job rejects a
+version that already has a GitHub Release so different package bytes cannot reuse one public version.
+
 ## Optional physical hardware check
 
 The hosted pipeline cannot reproduce radio congestion, Control Hub storage pressure, RoboRIO CPU contention, or field-network policies. Run `dashboardHardware` manually from the driver-station laptop while it is connected to the robot network. The task observes live NT4 traffic for 30 seconds by default, checks frame/topic minimums and required keys, persists the received data, and writes its report locally. No self-hosted GitHub runner is required.

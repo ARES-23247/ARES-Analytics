@@ -154,6 +154,65 @@ jobs:
           ./gradlew ${{ matrix.task }} "-ParesAnalyticsVersion=${{ steps.version.outputs.version }}" --no-daemon
         shell: bash
 
+      - name: Verify a real Windows upgrade and repair transaction
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $headers = @{
+            Accept = 'application/vnd.github+json'
+            Authorization = "Bearer $env:GH_TOKEN"
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $releases = Invoke-RestMethod `
+            -Headers $headers `
+            -Uri "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/releases?per_page=100"
+          $currentTag = "v$env:CURRENT_VERSION"
+          if ($releases | Where-Object { $_.tag_name -eq $currentTag }) {
+            throw "Release $currentTag already exists. Published versions are immutable; choose a newer version."
+          }
+
+          $current = [version]$env:CURRENT_VERSION
+          $candidates = foreach ($release in $releases) {
+            if ($release.draft -or $release.prerelease) { continue }
+            if ($release.tag_name -match '^v(?<version>\d+\.\d+\.\d+)$') {
+              $candidateVersion = [version]$Matches.version
+              if ($candidateVersion -lt $current) {
+                [pscustomobject]@{
+                  Version = $candidateVersion
+                  Release = $release
+                }
+              }
+            }
+          }
+          $previous = $candidates | Sort-Object Version -Descending | Select-Object -First 1
+          if ($null -eq $previous) {
+            throw "No earlier stable MSI release exists for an upgrade test before $currentTag."
+          }
+          $msiAssets = @($previous.Release.assets | Where-Object { $_.name -match '\.msi$' })
+          if ($msiAssets.Count -ne 1) {
+            throw "Expected one MSI on $($previous.Release.tag_name), found $($msiAssets.Count)."
+          }
+
+          $previousMsi = Join-Path $env:RUNNER_TEMP "ARES-Robotics-Studio-$($previous.Version).msi"
+          Invoke-WebRequest -UseBasicParsing -Uri $msiAssets[0].browser_download_url -OutFile $previousMsi
+          $currentMsi = @(Get-ChildItem `
+            -LiteralPath 'ARES-Analytics/app/build/compose/binaries/main-release/msi' `
+            -Filter '*.msi')
+          if ($currentMsi.Count -ne 1) {
+            throw "Expected exactly one newly built MSI, found $($currentMsi.Count)."
+          }
+
+          & 'ARES-Analytics/scripts/verify-windows-installer-upgrade.ps1' `
+            -PreviousMsi $previousMsi `
+            -CurrentMsi $currentMsi[0].FullName `
+            -ExpectedProductName 'ARES Robotics Studio' `
+            -PreviousVersion $previous.Version.ToString() `
+            -CurrentVersion $env:CURRENT_VERSION `
+            -ExpectedUpgradeCode '{A3E52324-7000-4224-8700-1C7B8D9E2A3C}'
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
