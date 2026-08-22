@@ -150,9 +150,12 @@ class ServiceRegistry {
                 if (lazyFieldInitialized(::nt4ClientService)) {
                     telemetryPersisted = nt4ClientService.stop()
                 }
-                if (lazyFieldInitialized(::processManagerService)) {
-                    processManagerService.shutdown()
-                }
+                  if (lazyFieldInitialized(::processManagerService)) {
+                      processManagerService.shutdown()
+                  }
+                  if (lazyFieldInitialized(::projectVersionControlService)) {
+                      projectVersionControlService.closeAndJoin()
+                  }
                 if (lazyFieldInitialized(::replayEngineService)) {
                     replayEngineService.disposeAndJoin()
                 }

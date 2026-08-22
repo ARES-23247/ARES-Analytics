@@ -161,6 +161,7 @@ class RobotProjectTemplateService(
     suspend fun create(
         request: RobotProjectCreationRequest,
         onProgress: (String) -> Unit = {},
+        prepareStagedProject: suspend (File) -> Unit = {},
     ): RobotProjectCreationResult = withContext(Dispatchers.IO) {
         val initialPlan = plan(request)
         require(initialPlan.canCreate) { initialPlan.issues.joinToString(" ") }
@@ -180,6 +181,8 @@ class RobotProjectTemplateService(
             validateTemplateAresVersion(staging, initialPlan.template)
             personalizeProject(staging, request, initialPlan.template)
 
+            ProjectLayout.validationError(staging.path, request.league)?.let { validationError -> error(validationError) }
+            prepareStagedProject(staging)
             ProjectLayout.validationError(staging.path, request.league)?.let { validationError -> error(validationError) }
             check(!Files.exists(destination.toPath(), LinkOption.NOFOLLOW_LINKS)) {
                 "The destination appeared while the project was being created; nothing was replaced."

@@ -6,13 +6,14 @@ repository. This feature is independent of Google Drive session/log synchronizat
 ## What students need
 
 - No separate Git installation. ARES includes JGit for project history and synchronization.
-- A name and email for the project history record.
+- A name and email only when a student or mentor saves a manually reviewed version.
 - A GitHub account only if the team wants an off-computer backup.
 
 Open **Profile & Settings → Project History & Backup**.
 
-1. Choose **Start local history**. This creates a standard `.git` directory inside the selected
-   robot project and does not upload anything.
+1. Projects created by ARES already have local history and one clean baseline version. ARES authors
+   that mechanical baseline as **ARES Analytics**; it does not pretend a student wrote the starter.
+   For an older or imported project, choose **Start local history** once. Neither path uploads anything.
 2. Review the exact changed-file list, describe the change, then choose **Save this version**.
    A content-bound confirmation token prevents a file changed after preview from being committed.
 3. Optionally choose **Sign in with GitHub** and approve the short device code in the browser.
@@ -21,11 +22,15 @@ Open **Profile & Settings → Project History & Backup**.
    version.
 5. Use **Check for newer version** when another computer or teammate may have updated the GitHub
    copy. ARES shows the exact file list before enabling **Restore this reviewed version**.
+6. If desired, enable **Back up each saved version automatically**. This setting is local to this
+   project and is off by default. ARES waits briefly to combine rapid checkpoints, never uploads
+   unsaved working files, retries temporary connection failures a bounded number of times, and
+   reports whether it is queued, syncing, offline, or needs attention without relying on color.
 
 The recent-versions timeline shows the saved description, author, time, and a short version ID.
 Students do not need to understand branches or Git commands to use it.
 
-After local history is enabled, the primary zero-code editors create narrowly scoped automatic
+After local history is enabled (automatically for app-created projects), the primary zero-code editors create narrowly scoped automatic
 checkpoints after a successful canonical save. Subsystem Builder, Controller Bindings, Drivebase
 Builder, Superstructure Studio, Autonomous Routine Builder, and reviewed Tuning profile promotion
 commit only the files that editor just saved. Unrelated hand-written or mentor-edited files remain
@@ -52,6 +57,8 @@ students then see it in the destination picker when their GitHub account has acc
   block a save if they are not already ignored.
 - Push is non-destructive. A non-fast-forward or permission conflict fails visibly instead of
   rewriting remote history.
+- Automatic online backup is opt-in. Temporary network failures retain the local commit, show a
+  retry status, and never weaken permission, clean-tree, or fast-forward checks.
 - Restore is fast-forward only. ARES rejects divergent histories, sensitive paths, links/special
   files, non-canonical projects, and oversized unreviewed content. Immediately before a restore it
   creates a local safety checkpoint that retains the previous commit.

@@ -3,7 +3,9 @@ package com.ares.analytics.service.versioncontrol
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.transport.RefSpec
@@ -24,6 +26,109 @@ import kotlin.test.assertTrue
 
 class ProjectVersionControlServiceTest {
     private val temporaryDirectory: Path = Files.createTempDirectory("ares-project-backup-test")
+
+    @Test
+    fun `app-created project starts with one clean ARES-authored local version`() = runBlocking {
+        val root = canonicalProject("automatic-baseline")
+        File(root, "robot.txt").writeText("reviewed starter")
+        val service = localOnlyService()
+
+        val plan = service.initializeNewProject(root.path)
+
+        assertTrue(plan.initialized)
+        assertTrue(plan.changes.isEmpty())
+        assertEquals(listOf("Create robot project with ARES Analytics"), plan.versions.map(ProjectVersion::message))
+        Git.open(root).use { git ->
+            val commit = git.log().call().single()
+            assertEquals("ARES Analytics", commit.authorIdent.name)
+            assertEquals("local-history@aresfirst.org", commit.authorIdent.emailAddress)
+            assertEquals("main", git.repository.branch)
+        }
+        service.closeAndJoin()
+    }
+
+    @Test
+    fun `automatic github backup is opt-in and synchronizes later canonical checkpoints`() = runBlocking {
+        val root = canonicalProject("automatic-online-backup")
+        File(root, "robot.txt").writeText("starter")
+        val api = FakeGitHubApi().apply {
+            accounts = listOf(organizationAccount())
+            repositories = listOf(privateRepository(22, 202, "ARES-23247", "team-robot"))
+        }
+        val pushes = AtomicInteger()
+        val service = ProjectVersionControlService(
+            githubClientId = "Ov23liExampleClientId",
+            githubAppSlug = "ares-project-backup",
+            credentialStore = MemoryCredentialStore(),
+            githubApi = api,
+            browserLauncher = {},
+            pollDelay = {},
+            remotePusher = { _, _ -> pushes.incrementAndGet() },
+            autoSyncDelay = {},
+        )
+        service.initializeNewProject(root.path)
+        service.signInToGitHub()
+        service.connectApprovedRepository(root.path, 22, 202)
+        assertEquals(1, pushes.get())
+        assertFalse(service.loadAutoSync(root.path).enabled)
+
+        service.setAutoSyncEnabled(root.path, true)
+        withTimeout(2_000) {
+            while (pushes.get() < 2) delay(10)
+        }
+        File(root, ".ares/project.json").writeText("{\"revision\":2}")
+        service.checkpoint(root.path, "Update robot identity", setOf(".ares/project.json"))
+        withTimeout(2_000) {
+            while (
+                pushes.get() < 3 ||
+                service.autoSyncState.value.status != ProjectBackupAutoSyncStatus.UP_TO_DATE
+            ) delay(10)
+        }
+
+        assertEquals(ProjectBackupAutoSyncStatus.UP_TO_DATE, service.autoSyncState.value.status)
+        assertTrue(service.autoSyncState.value.enabled)
+        assertTrue(service.inspect(root.path).changes.isEmpty())
+        service.closeAndJoin()
+    }
+
+    @Test
+    fun `automatic github backup keeps local versions safe and reports bounded offline retry`() = runBlocking {
+        val root = canonicalProject("automatic-offline-backup")
+        File(root, "robot.txt").writeText("starter")
+        val api = FakeGitHubApi().apply {
+            accounts = listOf(organizationAccount())
+            repositories = listOf(privateRepository(22, 202, "ARES-23247", "team-robot"))
+        }
+        var offline = false
+        val attempts = AtomicInteger()
+        val service = ProjectVersionControlService(
+            githubClientId = "Ov23liExampleClientId",
+            githubAppSlug = "ares-project-backup",
+            credentialStore = MemoryCredentialStore(),
+            githubApi = api,
+            browserLauncher = {},
+            pollDelay = {},
+            remotePusher = { _, _ ->
+                attempts.incrementAndGet()
+                if (offline) throw java.net.UnknownHostException("offline fixture")
+            },
+            autoSyncDelay = {},
+        )
+        service.initializeNewProject(root.path)
+        service.signInToGitHub()
+        service.connectApprovedRepository(root.path, 22, 202)
+        offline = true
+
+        service.setAutoSyncEnabled(root.path, true)
+        withTimeout(2_000) {
+            while (!service.autoSyncState.value.message.contains("local versions are safe")) delay(10)
+        }
+
+        assertEquals(ProjectBackupAutoSyncStatus.OFFLINE_RETRY, service.autoSyncState.value.status)
+        assertContains(service.autoSyncState.value.message, "local versions are safe")
+        assertTrue(service.inspect(root.path).changes.isEmpty())
+        service.closeAndJoin()
+    }
 
     @Test
     fun `local history requires a content-bound review before commit`() = runBlocking {
@@ -64,6 +169,14 @@ class ProjectVersionControlServiceTest {
         val plan = service.inspect(root.path)
         assertEquals(listOf("credentials.json"), plan.blockedSensitivePaths)
         assertFalse(plan.canCommit)
+    }
+
+    @Test
+    fun `only the standard FTC SDK debug keystore is portable project source`() {
+        assertFalse(isSensitiveProjectPath("libs/ftc.debug.keystore"))
+        assertTrue(isSensitiveProjectPath("libs/team-release.keystore"))
+        assertTrue(isSensitiveProjectPath("ftc.debug.keystore"))
+        assertTrue(isSensitiveProjectPath("libs/FTC.DEBUG.KEYSTORE.backup"))
     }
 
     @Test

@@ -14,7 +14,7 @@ permissions:
   security-events: write
 
 env:
-  ARES_VERSION: 9.2.2
+  ARES_VERSION: 9.7.0
 
 concurrency:
   group: analytics-codeql-${{ github.ref }}
