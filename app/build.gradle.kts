@@ -495,15 +495,16 @@ tasks.matching { task ->
     }
 }
 
+val releaseWindowsInstaller = layout.buildDirectory
+    .file("compose/binaries/main-release/msi/$aresProductName-$aresAnalyticsVersion.msi")
+val localReleaseDirectory = rootProject.layout.projectDirectory.dir("dist")
+
 val verifyWindowsInstallerMaintenance = tasks.register<Exec>("verifyWindowsInstallerMaintenance") {
     group = "verification"
     description = "Verifies that rerunning the Windows installer exposes Repair and preserves upgrade identity."
     onlyIf { System.getProperty("os.name").lowercase().contains("win") }
     doFirst {
-        val msi = layout.buildDirectory
-            .file("compose/binaries/main-release/msi/$aresProductName-$aresAnalyticsVersion.msi")
-            .get()
-            .asFile
+        val msi = releaseWindowsInstaller.get().asFile
         require(msi.isFile) { "Release MSI was not created at $msi" }
         commandLine(
             "powershell.exe",
@@ -515,6 +516,14 @@ val verifyWindowsInstallerMaintenance = tasks.register<Exec>("verifyWindowsInsta
             "-ExpectedProductVersion", aresAnalyticsVersion,
             "-ExpectedUpgradeCode", "{A3E52324-7000-4224-8700-1C7B8D9E2A3C}",
         )
+    }
+    doLast {
+        val msi = releaseWindowsInstaller.get().asFile
+        project.copy {
+            from(msi)
+            into(localReleaseDirectory)
+        }
+        println("Verified installer copied to ${localReleaseDirectory.asFile.resolve(msi.name)}")
     }
 }
 

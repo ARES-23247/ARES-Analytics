@@ -44,6 +44,23 @@ msiexec.exe /fa "ARES Robotics Studio-<version>.msi"
 The release build inspects every generated MSI and fails if the stable upgrade identity,
 maintenance dialog, or Repair button disappears.
 
+After local verification, the MSI is copied to the repository-root `dist` directory so it is not
+buried under Gradle's intermediate build tree. `dist` is intentionally ignored by Git; installers
+belong in GitHub Releases rather than source history.
+
+## GitHub Releases
+
+The protected **Build Desktop Packages** workflow creates Windows and macOS packages only after the
+fresh-project acceptance test and native package checks pass. There are two supported release paths:
+
+- Push a protected semantic-version tag such as `v1.4.0`; the workflow publishes the verified
+  packages automatically.
+- Run the workflow manually, enter the semantic version, and explicitly enable **publish**. The
+  workflow creates the tag and GitHub Release only after every required job succeeds.
+
+A manual run with **publish** disabled is a packaging rehearsal: its installers remain downloadable
+as temporary workflow artifacts but no public tag or release is created.
+
 ## Clean removal
 
 Uninstalling removes the installed application, not robot projects or the local workspace data under
