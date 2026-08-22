@@ -18,7 +18,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.DashboardHealthService
+import com.ares.analytics.shared.models.TelemetryFrame
 import com.ares.analytics.ui.theme.*
+import com.areslib.telemetry.TelemetryTopicConstants
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import com.ares.analytics.ui.components.core.*
@@ -34,6 +36,7 @@ fun SystemHealthCard(
     var batteryVoltage by remember { mutableStateOf<Double?>(null) }
     var brownoutCount by remember { mutableStateOf<Int?>(null) }
     var loopOverruns by remember { mutableStateOf<Int?>(null) }
+    var ftcRuntime by remember { mutableStateOf(FtcRuntimeDashboardState()) }
     val runtimeHealth = dashboardHealthService?.health?.collectAsState()?.value
     val connected by nt4ClientService.isConnected.collectAsState()
 
@@ -42,6 +45,8 @@ fun SystemHealthCard(
             nt4ClientService.uiTelemetryFlow.collect { frame ->
                 val key = frame.key.lowercase()
                 val value = frame.value
+
+                ftcRuntime = ftcRuntime.accept(frame)
 
                 when {
                     key.contains("looptime") || key.contains("loop_time") -> {
@@ -97,6 +102,26 @@ fun SystemHealthCard(
                         text = if (loopTimeMs != null) String.format("(%.0f Hz)", hz) else "",
                         color = loopColor,
                         fontSize = 12.sp
+                    )
+                    val runtimePresentation = ftcRuntime.presentation()
+                    Text(
+                        text = runtimePresentation.transportLabel,
+                        color = when (runtimePresentation.transportTone) {
+                            FtcRuntimeTone.HEALTHY -> AresGreen
+                            FtcRuntimeTone.WARNING -> AresGold
+                            FtcRuntimeTone.UNKNOWN -> AresTextTertiary
+                        },
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = runtimePresentation.proxyLabel,
+                        color = when (runtimePresentation.proxyTone) {
+                            FtcRuntimeTone.HEALTHY -> AresGreen
+                            FtcRuntimeTone.WARNING -> AresGold
+                            FtcRuntimeTone.UNKNOWN -> AresTextTertiary
+                        },
+                        fontSize = 9.sp,
                     )
                 }
 
@@ -189,4 +214,53 @@ private fun formatRuntimeBytes(bytes: Long): String = when {
     bytes >= 1024L -> "%.1f KiB".format(bytes / 1024.0)
     else -> "$bytes B"
 }
+
+internal data class FtcRuntimeDashboardState(
+    val hubCommandTransport: String? = null,
+    val photonActive: Boolean? = null,
+    val limelightProxyConfigured: Boolean? = null,
+    val limelightProxyActive: Boolean? = null,
+) {
+    fun accept(frame: TelemetryFrame): FtcRuntimeDashboardState = when (frame.key.removePrefix("/")) {
+        TelemetryTopicConstants.FTC_HUB_COMMAND_TRANSPORT -> copy(
+            hubCommandTransport = frame.stringValue?.trim()?.uppercase()?.takeIf(String::isNotEmpty),
+        )
+        TelemetryTopicConstants.FTC_PHOTON_ACTIVE -> copy(photonActive = frame.value >= 0.5)
+        TelemetryTopicConstants.FTC_LIMELIGHT_PROXY_CONFIGURED -> copy(
+            limelightProxyConfigured = frame.value >= 0.5,
+        )
+        TelemetryTopicConstants.FTC_LIMELIGHT_PROXY_ACTIVE -> copy(
+            limelightProxyActive = frame.value >= 0.5,
+        )
+        else -> this
+    }
+
+    fun presentation(): FtcRuntimePresentation {
+        val transport = when (hubCommandTransport) {
+            "STANDARD_SDK" -> "FTC SDK SELECTED" to FtcRuntimeTone.HEALTHY
+            "ARES_PHOTON" -> if (photonActive == true) {
+                "PHOTON ACTIVE" to FtcRuntimeTone.HEALTHY
+            } else {
+                "PHOTON SELECTED · INACTIVE" to FtcRuntimeTone.WARNING
+            }
+            else -> "HUB MODE --" to FtcRuntimeTone.UNKNOWN
+        }
+        val proxy = when {
+            limelightProxyConfigured == null -> "LIMELIGHT PROXY --" to FtcRuntimeTone.UNKNOWN
+            limelightProxyConfigured == false -> "LIMELIGHT PROXY OFF" to FtcRuntimeTone.UNKNOWN
+            limelightProxyActive == true -> "LIMELIGHT PROXY ACTIVE" to FtcRuntimeTone.HEALTHY
+            else -> "LIMELIGHT PROXY SELECTED · INACTIVE" to FtcRuntimeTone.WARNING
+        }
+        return FtcRuntimePresentation(transport.first, transport.second, proxy.first, proxy.second)
+    }
+}
+
+internal enum class FtcRuntimeTone { HEALTHY, WARNING, UNKNOWN }
+
+internal data class FtcRuntimePresentation(
+    val transportLabel: String,
+    val transportTone: FtcRuntimeTone,
+    val proxyLabel: String,
+    val proxyTone: FtcRuntimeTone,
+)
 

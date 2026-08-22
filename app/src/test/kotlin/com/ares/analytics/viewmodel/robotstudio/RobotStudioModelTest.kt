@@ -395,10 +395,23 @@ class RobotStudioModelTest {
             RobotStudioRuntimeEvidence(),
         )
         assertEquals(RobotStudioStageStatus.NEEDS_ACTION, unreviewed.status(RobotStudioStageId.HARDWARE))
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, unreviewed.status(RobotStudioStageId.GENERATE_VERIFY))
+        assertEquals(RobotStudioStageStatus.BLOCKED, unreviewed.status(RobotStudioStageId.SIMULATE))
+        assertEquals(RobotStudioStageStatus.BLOCKED, unreviewed.status(RobotStudioStageId.DEPLOY))
+        assertTrue(RobotStudioState(loading = false, stages = unreviewed).canRunBuild)
+        assertTrue(unreviewed.first { it.id == RobotStudioStageId.DEPLOY }.explanation.contains("Hardware Setup"))
         assertEquals(
             RobotStudioAction.OPEN_HARDWARE_SETUP,
             unreviewed.first { it.id == RobotStudioStageId.HARDWARE }.action,
         )
+
+        val verifiedForSimulation = evaluateRobotStudioStages(
+            completeEvidence().copy(hardwareItemCount = 7),
+            RobotStudioRuntimeEvidence(build = buildState(BuildExecutionPhase.SUCCEEDED)),
+        )
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, verifiedForSimulation.status(RobotStudioStageId.SIMULATE))
+        assertTrue(RobotStudioState(loading = false, stages = verifiedForSimulation).canRunSimulation)
+        assertEquals(RobotStudioStageStatus.BLOCKED, verifiedForSimulation.status(RobotStudioStageId.DEPLOY))
 
         val currentButReferenceOnly = evaluateRobotStudioStages(
             completeEvidence().copy(

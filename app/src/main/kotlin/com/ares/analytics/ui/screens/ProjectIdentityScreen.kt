@@ -26,6 +26,7 @@ import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.project.ProjectIdentityEditorState
 import com.ares.analytics.viewmodel.project.ProjectIdentityField
 import com.ares.analytics.viewmodel.project.ProjectIdentityViewModel
+import com.areslib.project.AresFtcHubCommandTransport
 
 /** Reviewed editor for canonical `.ares/project.json`; workspace preferences remain separate. */
 @Composable
@@ -88,6 +89,8 @@ fun ProjectIdentityScreen(
                 ProjectIdentityForm(
                     state = state,
                     onUpdate = viewModel::update,
+                    onHubCommandTransport = viewModel::updateFtcHubCommandTransport,
+                    onLimelightProxyEnabled = viewModel::updateFtcLimelightProxyEnabled,
                 )
             }
             if (state.generalErrors.isNotEmpty()) {
@@ -273,6 +276,8 @@ private fun ProtectedProjectIdentityCard(error: String, repairAvailable: Boolean
 private fun ProjectIdentityForm(
     state: ProjectIdentityEditorState,
     onUpdate: (ProjectIdentityField, String) -> Unit,
+    onHubCommandTransport: (AresFtcHubCommandTransport) -> Unit,
+    onLimelightProxyEnabled: (Boolean) -> Unit,
 ) {
     val isFtc = state.workspaceLeague == League.FTC
     val lengthM = state.draft.robotLengthMeters.toDoubleOrNull() ?: 0.0
@@ -281,6 +286,8 @@ private fun ProjectIdentityForm(
     val widthIn = widthM * 39.3701
     val fitsSizingBox = !isFtc || (lengthM <= 0.4572 && widthM <= 0.4572 && lengthM > 0.0 && widthM > 0.0)
     val sourceAvailable = state.projectSourceError == null
+    val runtimeOptionsEnabled = sourceAvailable &&
+        (state.protectedError == null || state.protectedContentHash != null)
 
     Card(
         colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
@@ -357,6 +364,17 @@ private fun ProjectIdentityForm(
                 enabled = sourceAvailable && (state.protectedError == null || state.protectedContentHash != null),
             )
 
+            if (isFtc) {
+                HorizontalDivider(color = AresBorder)
+                FtcRuntimeOptionsEditor(
+                    transport = state.draft.ftcHubCommandTransport,
+                    limelightProxyEnabled = state.draft.ftcLimelightProxyEnabled,
+                    enabled = runtimeOptionsEnabled,
+                    onTransportChanged = onHubCommandTransport,
+                    onLimelightProxyChanged = onLimelightProxyEnabled,
+                )
+            }
+
             HorizontalDivider(color = AresBorder)
 
             // Standard Field Environment Preset Card (Read-only automatic preset)
@@ -388,6 +406,72 @@ private fun ProjectIdentityForm(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun FtcRuntimeOptionsEditor(
+    transport: AresFtcHubCommandTransport,
+    limelightProxyEnabled: Boolean,
+    enabled: Boolean,
+    onTransportChanged: (AresFtcHubCommandTransport) -> Unit,
+    onLimelightProxyChanged: (Boolean) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text("Control Hub runtime", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+            Text(
+                "Choose how this robot sends motor commands. The choice is saved with the project, generated into robot code, and reported back on the dashboard.",
+                color = AresTextSecondary,
+                fontSize = 11.sp,
+            )
+        }
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            FilterChip(
+                selected = transport == AresFtcHubCommandTransport.STANDARD_SDK,
+                onClick = { onTransportChanged(AresFtcHubCommandTransport.STANDARD_SDK) },
+                enabled = enabled,
+                label = { Text("Standard FTC SDK · recommended") },
+            )
+            FilterChip(
+                selected = transport == AresFtcHubCommandTransport.ARES_PHOTON,
+                onClick = { onTransportChanged(AresFtcHubCommandTransport.ARES_PHOTON) },
+                enabled = enabled,
+                label = { Text("ARES Photon · experimental") },
+            )
+        }
+        Text(
+            if (transport == AresFtcHubCommandTransport.ARES_PHOTON) {
+                "Experimental: ARES may use a lower-overhead direct REV Hub write path. Every unsupported or failed command falls back to the FTC SDK. Verify it on restrained physical hardware before competition. Local simulation shows it as selected but not hardware-active."
+            } else {
+                "Uses the supported FTC SDK command path with ARES cached reads and safety handling. This is the safest starting point for a new robot."
+            },
+            color = if (transport == AresFtcHubCommandTransport.ARES_PHOTON) AresGold else AresTextSecondary,
+            fontSize = 11.sp,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("Limelight camera proxy", color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Off by default. Enable only when the laptop must reach Limelight web/video ports through the Control Hub.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                )
+            }
+            Switch(
+                checked = limelightProxyEnabled,
+                onCheckedChange = onLimelightProxyChanged,
+                enabled = enabled,
+            )
         }
     }
 }

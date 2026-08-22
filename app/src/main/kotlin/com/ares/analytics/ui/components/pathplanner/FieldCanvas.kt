@@ -23,18 +23,18 @@ import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ares.analytics.shared.*
 import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
 import com.areslib.math.coordinate.CoordinateTransformers
 import com.ares.analytics.viewmodel.field.FieldDocumentMapper
+import com.ares.analytics.viewmodel.field.FieldImageLoader
 import com.areslib.state.RobotFieldDocument
-import java.io.File
 import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sin
@@ -83,6 +83,7 @@ fun FieldCanvas(
     modifier: Modifier = Modifier
 ) {
     var localFieldImage by remember { mutableStateOf<ImageBitmap?>(null) }
+    var localFieldImageError by remember { mutableStateOf<String?>(null) }
     var localFieldImageConfig by remember { mutableStateOf(FieldImageConfig()) }
     var localFieldConfigLoaded by remember { mutableStateOf(false) }
     var isDraggingHeading by remember { mutableStateOf(false) }
@@ -197,6 +198,7 @@ fun FieldCanvas(
     LaunchedEffect(projectPath) {
         try {
             if (!projectPath.isNullOrEmpty()) {
+                var configuredImagePath = fieldImageConfig?.imagePath
                 val documentFile = ProjectLayout.fieldDefinitionFile(projectPath, league)
                 if (documentFile.isFile) {
                     val document = RobotFieldDocument.decode(documentFile.readText())
@@ -208,15 +210,25 @@ fun FieldCanvas(
                         localFieldImageConfig = FieldDocumentMapper.image(document)
                         localFieldConfigLoaded = true
                     }
+                    configuredImagePath = fieldImageConfig?.imagePath ?: FieldDocumentMapper.image(document).imagePath
                 }
 
-                val assetsDirectory = ProjectLayout.assetsDirectory(projectPath, league)
-                val imgFile = File(assetsDirectory, "field_image.png")
                 if (fieldImage == null) {
-                    localFieldImage = if (imgFile.exists()) org.jetbrains.skia.Image.makeFromEncoded(imgFile.readBytes()).toComposeImageBitmap() else null
+                    FieldImageLoader.load(projectPath, league, configuredImagePath)
+                        .onSuccess {
+                            localFieldImage = it
+                            localFieldImageError = null
+                        }
+                        .onFailure { error ->
+                            localFieldImage = null
+                            localFieldImageError = error.message ?: "Field image could not be loaded."
+                        }
                 }
             }
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) {
+            localFieldImageError = e.message ?: "Field configuration could not be loaded."
+            e.printStackTrace()
+        }
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -738,6 +750,40 @@ fun FieldCanvas(
 
                 drawContext.canvas.restore()
             }
+                if (fieldImage == null && localFieldImageError != null) {
+                    Surface(
+                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+                        color = AresGold.copy(alpha = 0.16f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, AresGold),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                    ) {
+                        Text(
+                            localFieldImageError.orEmpty(),
+                            color = AresGold,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                        )
+                    }
+                }
+                if (league == League.FTC) {
+                    val coordinateLabel = when (activeConfig.ftcCoordinateSystem) {
+                        FTCCoordinateSystem.SQUARE -> "Square field · alliance walls opposite"
+                        FTCCoordinateSystem.DIAMOND -> "Diamond field · alliance walls adjacent"
+                    }
+                    Surface(
+                        modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
+                        color = AresBackground.copy(alpha = 0.88f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(6.dp),
+                    ) {
+                        Text(
+                            coordinateLabel,
+                            color = AresTextSecondary,
+                            fontSize = 10.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        )
+                    }
+                }
             }
 
             FieldCanvasContextMenu(

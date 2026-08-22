@@ -55,6 +55,25 @@ data class SavedProjectRevision<T>(
     val createdRevision: Boolean
 )
 
+/** Hash-bound, recoverable proposal for removing one canonical project document. */
+data class ProjectDocumentRemovalPlan(
+    val documentId: String,
+    val displayName: String,
+    val revision: Int,
+    val contentHash: String,
+    val currentFile: File,
+    val recoveryFile: File,
+)
+
+/** Evidence produced after the canonical file has been moved into project-local recovery. */
+data class RemovedProjectDocument(
+    val documentId: String,
+    val displayName: String,
+    val contentHash: String,
+    val removedFile: File,
+    val recoveryFile: File,
+)
+
 /**
  * Shared crash-safe mechanics for the three versioned student-authored document types.
  *
@@ -176,6 +195,81 @@ abstract class VersionedProjectDocumentStore<T>(
         }
     }
 
+    /**
+     * Plans a removal without changing bytes. The content hash is the confirmation token: if the
+     * descriptor changes after review, [remove] refuses to move it.
+     */
+    fun removalPlan(projectPath: String, rawDocumentId: String): ProjectDocumentRemovalPlan {
+        val id = ProjectDocumentId(rawDocumentId)
+        val currentFile = currentFile(projectPath, id)
+        require(currentFile.isFile) { "${kind.displayName} '${id.value}' does not exist" }
+        return ProjectDocumentWriteLocks.withLock(currentFile) {
+            val document = decode(currentFile.readText()).also { loaded ->
+                require(documentId(loaded) == id.value) {
+                    "${kind.displayName} file '${currentFile.name}' declares documentId '${documentId(loaded)}'"
+                }
+            }
+            val hash = contentHash(document)
+            ProjectDocumentRemovalPlan(
+                documentId = id.value,
+                displayName = displayName(document),
+                revision = revision(document),
+                contentHash = hash,
+                currentFile = currentFile,
+                recoveryFile = File(
+                    recoveryDirectory(projectPath, id),
+                    "${revision(document).toString().padStart(4, '0')}-${hash.take(12)}.$extension",
+                ),
+            )
+        }
+    }
+
+    /**
+     * Atomically moves the reviewed canonical file into `.ares/recovery`. History is retained and
+     * no source file is touched. A stale hash fails before any filesystem mutation.
+     */
+    fun remove(
+        projectPath: String,
+        rawDocumentId: String,
+        expectedContentHash: String,
+    ): RemovedProjectDocument {
+        require(expectedContentHash.matches(Regex("[a-f0-9]{64}"))) { "Invalid removal confirmation hash" }
+        val id = ProjectDocumentId(rawDocumentId)
+        val currentFile = currentFile(projectPath, id)
+        return ProjectDocumentWriteLocks.withLock(currentFile) {
+            require(currentFile.isFile) { "${kind.displayName} '${id.value}' no longer exists" }
+            val document = decode(currentFile.readText()).also { loaded ->
+                require(documentId(loaded) == id.value) {
+                    "${kind.displayName} file '${currentFile.name}' declares documentId '${documentId(loaded)}'"
+                }
+            }
+            val currentHash = contentHash(document)
+            require(currentHash == expectedContentHash) {
+                "${kind.displayName.capitalizeForMessage()} '${id.value}' changed after review. Review the removal again."
+            }
+            val recoveryFile = File(
+                recoveryDirectory(projectPath, id),
+                "${revision(document).toString().padStart(4, '0')}-${currentHash.take(12)}.$extension",
+            )
+            recoveryFile.parentFile.mkdirs()
+            if (recoveryFile.exists()) {
+                require(Files.mismatch(currentFile.toPath(), recoveryFile.toPath()) == -1L) {
+                    "Recovery file '${recoveryFile.name}' already exists with different contents"
+                }
+                Files.delete(currentFile.toPath())
+            } else {
+                moveWithoutReplacement(currentFile, recoveryFile)
+            }
+            RemovedProjectDocument(
+                documentId = id.value,
+                displayName = displayName(document),
+                contentHash = currentHash,
+                removedFile = currentFile,
+                recoveryFile = recoveryFile,
+            )
+        }
+    }
+
     fun listRevisions(projectPath: String, rawDocumentId: String): List<ProjectRevisionSummary> {
         val id = ProjectDocumentId(rawDocumentId)
         val diagnostics = mutableListOf<ProjectDocumentDiagnostic>()
@@ -237,8 +331,23 @@ abstract class VersionedProjectDocumentStore<T>(
     private fun historyDirectory(projectPath: String, id: ProjectDocumentId): File =
         resolveProjectPath(projectPath, ".ares/history/$historyName/${id.value}")
 
+    private fun recoveryDirectory(projectPath: String, id: ProjectDocumentId): File =
+        resolveProjectPath(projectPath, ".ares/recovery/$historyName/${id.value}")
+
     private fun currentFile(projectPath: String, id: ProjectDocumentId): File =
         File(projectDirectory(projectPath), "${id.value}.$extension")
+}
+
+private fun String.capitalizeForMessage(): String = replaceFirstChar { character ->
+    if (character.isLowerCase()) character.titlecase() else character.toString()
+}
+
+private fun moveWithoutReplacement(source: File, destination: File) {
+    try {
+        Files.move(source.toPath(), destination.toPath(), StandardCopyOption.ATOMIC_MOVE)
+    } catch (_: AtomicMoveNotSupportedException) {
+        Files.move(source.toPath(), destination.toPath())
+    }
 }
 
 /** Crash-safe store for a project-wide singleton document such as a generated catalog. */

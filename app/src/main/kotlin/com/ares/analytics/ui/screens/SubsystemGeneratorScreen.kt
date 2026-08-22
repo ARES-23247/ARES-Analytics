@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableChart
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,6 +39,7 @@ import com.ares.analytics.viewmodel.SubsystemBuilderStage
 import com.ares.analytics.viewmodel.SubsystemGeneratorState
 import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
 import com.areslib.subsystem.SubsystemDocument
+import com.areslib.subsystem.SubsystemImplementationKind
 import com.areslib.subsystem.supportsPlatform
 
 /** Modular visual editor for project-backed subsystem DSL documents and generated Kotlin. */
@@ -169,20 +171,72 @@ fun SubsystemGeneratorScreen(
                         ) {
                             Icon(Icons.Default.Refresh, contentDescription = "Reload subsystem", modifier = Modifier.size(18.dp), tint = AresTextSecondary)
                         }
+                        OutlinedButton(
+                            onClick = viewModel::requestRemoveSubsystem,
+                            modifier = Modifier.height(headerControlHeight),
+                            contentPadding = PaddingValues(horizontal = 9.dp, vertical = 0.dp),
+                            border = BorderStroke(1.dp, AresError.copy(alpha = 0.7f)),
+                        ) {
+                            Icon(
+                                Icons.Default.DeleteOutline,
+                                contentDescription = if ((state.draft?.document?.revision ?: 0) > 0) {
+                                    "Remove subsystem from project"
+                                } else {
+                                    "Discard unsaved subsystem draft"
+                                },
+                                modifier = Modifier.size(18.dp),
+                                tint = AresError,
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("Remove", color = AresError, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        val generatedStarter = state.draft?.document?.implementation?.kind ==
+                            SubsystemImplementationKind.GENERATED_STARTER
+                        val generationRunning = state.generationPhase == AresGenerationPhase.RUNNING
                         Button(
-                            onClick = { viewModel.save() },
-                            enabled = state.canSave,
+                            onClick = {
+                                if (generatedStarter) viewModel.generate() else viewModel.save()
+                            },
+                            enabled = if (generatedStarter) {
+                                (state.canSave || state.canGenerate) && !generationRunning
+                            } else {
+                                state.canSave
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                             modifier = Modifier.height(headerControlHeight),
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                         ) {
-                            Text("Save subsystem", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Icon(
+                                if (generatedStarter) Icons.Default.Build else Icons.Default.Save,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(5.dp))
+                            Text(
+                                when {
+                                    generationRunning -> "Creating files…"
+                                    !generatedStarter -> "Save subsystem"
+                                    state.dirty -> "Save & create files"
+                                    else -> "Create/update Kotlin"
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
                         }
                     }
                 },
             )
 
             state.status?.let { StatusBanner(it, AresGreen) }
+            state.generationMessage?.let { message ->
+                val color = when (state.generationPhase) {
+                    AresGenerationPhase.FAILED -> AresError
+                    AresGenerationPhase.RUNNING -> AresCyan
+                    AresGenerationPhase.SUCCEEDED -> AresGreen
+                    AresGenerationPhase.IDLE -> AresTextSecondary
+                }
+                StatusBanner(message, color)
+            }
             state.loadError?.let { StatusBanner(it, AresError) }
 
             val document = state.draft?.document
@@ -324,6 +378,153 @@ fun SubsystemGeneratorScreen(
                 sections = generateSubsystemSpecSections(doc),
                 onDismiss = { showSpecSummaryModal = false },
             )
+
+            state.pendingRemoval?.let { request ->
+                AlertDialog(
+                    onDismissRequest = viewModel::cancelRemoveSubsystem,
+                    title = {
+                        Text(
+                            if (request.persisted) "Remove ${request.displayName} from this project?" else "Discard this unsaved draft?",
+                            color = AresTextPrimary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (request.persisted) {
+                                Text(
+                                    "ARES will remove only the reviewed canonical descriptor ${request.canonicalPath}. A recoverable copy will be kept at ${request.recoveryPath}.",
+                                    color = AresTextSecondary,
+                                    fontSize = 12.sp,
+                                )
+                                Text(
+                                    "Generated registry plumbing will be refreshed. Kotlin starter and USER-OWNED source files are never deleted by this action.",
+                                    color = AresTextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            } else {
+                                Text(
+                                    "This subsystem has not been saved to the project. Discarding it changes no files.",
+                                    color = AresTextSecondary,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                            if (request.sourceFilesPreserved.isNotEmpty()) {
+                                Text("Source preserved:", color = AresTextSecondary, fontSize = 11.sp)
+                                request.sourceFilesPreserved.forEach { path ->
+                                    Text("• $path", color = AresTextTertiary, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                                }
+                            }
+                            if (request.discardsUnsavedChanges) {
+                                Text(
+                                    "Unsaved edits in the open draft will also be discarded.",
+                                    color = AresGold,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = viewModel::confirmRemoveSubsystem,
+                            colors = ButtonDefaults.buttonColors(containerColor = AresError, contentColor = AresOnAccent),
+                        ) {
+                            Text(if (request.persisted) "Remove & keep recovery copy" else "Discard draft", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        OutlinedButton(onClick = viewModel::cancelRemoveSubsystem) {
+                            Text("Keep subsystem")
+                        }
+                    },
+                    containerColor = AresSurfaceElevated,
+                )
+            }
+
+            if (state.pendingStarterReplacements.isNotEmpty()) {
+                AlertDialog(
+                    onDismissRequest = viewModel::cancelStarterReplacement,
+                    title = {
+                        Text(
+                            "Review generated starter replacements",
+                            color = AresTextPrimary,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    },
+                    text = {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(
+                                "These files are marked GENERATED STARTER, but their contents differ from the new proposal. ARES will replace them only after this review. USER-OWNED files can never be replaced here.",
+                                color = AresTextSecondary,
+                                fontSize = 12.sp,
+                            )
+                            state.pendingStarterReplacements.forEach { file ->
+                                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    Text(
+                                        file.projectRelativePath,
+                                        color = AresCyan,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                    )
+                                    Surface(
+                                        color = AresBackground,
+                                        border = BorderStroke(1.dp, AresBorder),
+                                        shape = RoundedCornerShape(6.dp),
+                                    ) {
+                                        Column(Modifier.fillMaxWidth().padding(8.dp)) {
+                                            file.diff.forEach { line ->
+                                                val color = when (line.kind) {
+                                                    com.ares.analytics.viewmodel.SubsystemDiffLineKind.ADDED -> AresGreen
+                                                    com.ares.analytics.viewmodel.SubsystemDiffLineKind.REMOVED -> AresRed
+                                                    com.ares.analytics.viewmodel.SubsystemDiffLineKind.CONTEXT -> AresTextSecondary
+                                                }
+                                                val prefix = when (line.kind) {
+                                                    com.ares.analytics.viewmodel.SubsystemDiffLineKind.ADDED -> "+ "
+                                                    com.ares.analytics.viewmodel.SubsystemDiffLineKind.REMOVED -> "− "
+                                                    com.ares.analytics.viewmodel.SubsystemDiffLineKind.CONTEXT -> "  "
+                                                }
+                                                Text(
+                                                    prefix + line.text,
+                                                    color = color,
+                                                    fontSize = 10.sp,
+                                                    fontFamily = FontFamily.Monospace,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Text(
+                                "Confirmation is bound to this exact proposal. If any file changes before apply, ARES will stop and require another review.",
+                                color = AresGold,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = viewModel::confirmStarterReplacement,
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                        ) {
+                            Text("Replace reviewed starters", fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        OutlinedButton(onClick = viewModel::cancelStarterReplacement) {
+                            Text("Keep existing files")
+                        }
+                    },
+                    containerColor = AresSurfaceElevated,
+                )
+            }
         }
     }
 }

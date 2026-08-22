@@ -4,9 +4,13 @@ import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.util.ProjectLayout
 import com.areslib.project.AresCoordinateConvention
+import com.areslib.project.AresFtcHubCommandTransport
+import com.areslib.project.AresFtcRuntimeOptionsDocument
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataCodec
 import com.areslib.project.AresProjectMetadataDocument
+import com.areslib.project.AresRuntimeOptionsDocument
+import com.areslib.project.resolvedFtcRuntimeOptions
 import com.areslib.project.validateAresProjectMetadata
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineDispatcher
@@ -34,6 +38,8 @@ data class ProjectIdentityDraft(
     val robotWidthMeters: String = "",
     val fieldLengthMeters: String = "",
     val fieldWidthMeters: String = "",
+    val ftcHubCommandTransport: AresFtcHubCommandTransport = AresFtcHubCommandTransport.STANDARD_SDK,
+    val ftcLimelightProxyEnabled: Boolean = false,
 )
 
 data class ProjectIdentityChange(
@@ -130,6 +136,32 @@ class ProjectIdentityViewModel(
             ProjectIdentityField.FIELD_LENGTH -> current.draft.copy(fieldLengthMeters = value)
             ProjectIdentityField.FIELD_WIDTH -> current.draft.copy(fieldWidthMeters = value)
         }
+        val validation = validateProjectIdentityDraft(config.league, nextDraft)
+        _state.value = current.copy(
+            draft = nextDraft,
+            fieldErrors = validation.fieldErrors,
+            generalErrors = validation.generalErrors,
+            proposal = null,
+            message = null,
+            messageIsError = false,
+        )
+    }
+
+    /** Selects the reviewed FTC hub command path; no robot process changes until generation/build. */
+    fun updateFtcHubCommandTransport(value: AresFtcHubCommandTransport) = updateFtcRuntimeOptions {
+        copy(ftcHubCommandTransport = value)
+    }
+
+    /** Controls whether the bounded Limelight HTTP proxy is owned by the FTC robot facade. */
+    fun updateFtcLimelightProxyEnabled(enabled: Boolean) = updateFtcRuntimeOptions {
+        copy(ftcLimelightProxyEnabled = enabled)
+    }
+
+    private fun updateFtcRuntimeOptions(transform: ProjectIdentityDraft.() -> ProjectIdentityDraft) {
+        val config = workspace ?: return
+        if (config.league != League.FTC) return
+        val current = _state.value
+        val nextDraft = current.draft.transform()
         val validation = validateProjectIdentityDraft(config.league, nextDraft)
         _state.value = current.copy(
             draft = nextDraft,
@@ -349,6 +381,16 @@ internal fun validateProjectIdentityDraft(
         robotWidthMeters = requireNotNull(robotWidth),
         fieldLengthMeters = requireNotNull(fieldLength),
         fieldWidthMeters = requireNotNull(fieldWidth),
+        runtimeOptions = if (league == League.FTC) {
+            AresRuntimeOptionsDocument(
+                ftc = AresFtcRuntimeOptionsDocument(
+                    hubCommandTransport = draft.ftcHubCommandTransport,
+                    limelightProxyEnabled = draft.ftcLimelightProxyEnabled,
+                ),
+            )
+        } else {
+            AresRuntimeOptionsDocument()
+        },
     )
     val generalErrors = validateAresProjectMetadata(document)
     return ProjectIdentityDraftValidation(document.takeIf { generalErrors.isEmpty() }, errors, generalErrors)
@@ -359,6 +401,7 @@ internal fun projectIdentityDraft(
     current: AresProjectMetadataDocument?,
 ): ProjectIdentityDraft {
     val field = defaultFieldDimensions(config.league)
+    val ftcRuntime = current?.resolvedFtcRuntimeOptions() ?: AresFtcRuntimeOptionsDocument()
     return ProjectIdentityDraft(
         projectId = current?.projectId ?: suggestedProjectId(config),
         robotLengthMeters = current?.robotLengthMeters?.asInput()
@@ -367,6 +410,8 @@ internal fun projectIdentityDraft(
             ?: config.robotWidthMeters?.asInput().orEmpty(),
         fieldLengthMeters = (current?.fieldLengthMeters ?: field.first).asInput(),
         fieldWidthMeters = (current?.fieldWidthMeters ?: field.second).asInput(),
+        ftcHubCommandTransport = ftcRuntime.hubCommandTransport,
+        ftcLimelightProxyEnabled = ftcRuntime.limelightProxyEnabled,
     )
 }
 
@@ -385,6 +430,16 @@ internal fun projectIdentityChanges(
         changed("Robot width (m)", current?.robotWidthMeters, proposed.robotWidthMeters),
         changed("Field length (m)", current?.fieldLengthMeters, proposed.fieldLengthMeters),
         changed("Field width (m)", current?.fieldWidthMeters, proposed.fieldWidthMeters),
+        changed(
+            "FTC hub command transport",
+            current?.takeIf { it.league == AresLeague.FTC }?.resolvedFtcRuntimeOptions()?.hubCommandTransport,
+            proposed.resolvedFtcRuntimeOptions().hubCommandTransport,
+        ).takeIf { proposed.league == AresLeague.FTC },
+        changed(
+            "Limelight camera proxy",
+            current?.takeIf { it.league == AresLeague.FTC }?.resolvedFtcRuntimeOptions()?.limelightProxyEnabled,
+            proposed.resolvedFtcRuntimeOptions().limelightProxyEnabled,
+        ).takeIf { proposed.league == AresLeague.FTC },
     )
 }
 

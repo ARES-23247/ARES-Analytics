@@ -108,7 +108,8 @@ internal object FieldDocumentMapper {
             heightMeters = document.resolvedHeightMeters,
             ftcCoordinateSystem = when (config?.ftcCoordinateSystem) {
                 FtcFieldCoordinateSystem.SQUARE -> FTCCoordinateSystem.SQUARE
-                else -> FTCCoordinateSystem.DIAMOND
+                FtcFieldCoordinateSystem.DIAMOND -> FTCCoordinateSystem.DIAMOND
+                null -> FTCCoordinateSystem.SQUARE
             }
         )
     }

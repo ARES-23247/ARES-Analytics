@@ -53,7 +53,7 @@ class ProjectDocumentRepositoriesTest {
             )
             val hash = repository.save(project.path, metadata)
 
-            assertEquals(metadata, repository.load(project.path).getOrThrow())
+            assertEquals(canonical(metadata), repository.load(project.path).getOrThrow())
             assertEquals(64, hash.length)
             assertTrue(File(project, ".ares/project.json").isFile)
         }
@@ -69,7 +69,7 @@ class ProjectDocumentRepositoriesTest {
 
             assertTrue(saved.created)
             assertEquals(null, saved.historyFile)
-            assertEquals(metadata, repository.load(project.path).getOrThrow())
+            assertEquals(canonical(metadata), repository.load(project.path).getOrThrow())
         }
     }
 
@@ -85,8 +85,8 @@ class ProjectDocumentRepositoriesTest {
 
             assertFalse(secondSaved.created)
             val history = requireNotNull(secondSaved.historyFile)
-            assertEquals(first, AresProjectMetadataCodec.decode(history.readText()))
-            assertEquals(second, repository.load(project.path).getOrThrow())
+            assertEquals(canonical(first), AresProjectMetadataCodec.decode(history.readText()))
+            assertEquals(canonical(second), repository.load(project.path).getOrThrow())
         }
     }
 
@@ -461,6 +461,9 @@ class ProjectDocumentRepositoriesTest {
         fieldLengthMeters = 3.6576,
         fieldWidthMeters = 3.6576,
     )
+
+    private fun canonical(metadata: AresProjectMetadataDocument): AresProjectMetadataDocument =
+        AresProjectMetadataCodec.decode(AresProjectMetadataCodec.encode(metadata))
 
     private inline fun withProject(block: (File) -> Unit) {
         val project = Files.createTempDirectory("ares-project-docs-").toFile()

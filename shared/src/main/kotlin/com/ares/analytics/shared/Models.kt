@@ -61,7 +61,7 @@ data class FieldImageConfig(
     val cropBottom: Double = 1.0,
     val widthMeters: Double = 3.65,
     val heightMeters: Double = 3.65,
-    val ftcCoordinateSystem: FTCCoordinateSystem = FTCCoordinateSystem.DIAMOND
+    val ftcCoordinateSystem: FTCCoordinateSystem = FTCCoordinateSystem.SQUARE
 )
 
 /**

@@ -8,6 +8,7 @@ import com.ares.analytics.service.writeFileAtomically
 import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.viewmodel.field.FieldDocumentMapper
 import com.ares.analytics.viewmodel.field.FieldDocumentStore
+import com.ares.analytics.viewmodel.field.FieldImageLoader
 import com.ares.analytics.viewmodel.field.FieldEditorValidator
 import com.ares.analytics.viewmodel.field.FieldEditorLayout
 import com.ares.analytics.viewmodel.field.FieldMeasurementUnit
@@ -260,16 +261,13 @@ class FieldEditorViewModel(
                 }
 
                 val loaded = withContext(Dispatchers.IO) { FieldDocumentStore.load(projectPath, league) }
-                val bitmap = withContext(Dispatchers.IO) {
-                    val imageFile = File(ProjectLayout.assetsDirectory(projectPath, league), "field_image.png")
-                    if (imageFile.isFile) {
-                        org.jetbrains.skia.Image.makeFromEncoded(imageFile.readBytes()).toComposeImageBitmap()
-                    } else null
+                val bitmapResult = withContext(Dispatchers.IO) {
+                    FieldImageLoader.load(projectPath, league, loaded.imageConfig.imagePath)
                 }
                 if (generation == loadGeneration) {
                     installLoadedState(FieldEditorState(
                         document = loaded.document,
-                        fieldImage = bitmap,
+                        fieldImage = bitmapResult.getOrNull(),
                         fieldImageConfig = loaded.imageConfig,
                         obstacles = loaded.obstacles,
                         gamePieces = loaded.gamePieces,
@@ -277,7 +275,8 @@ class FieldEditorViewModel(
                         aprilTags = loaded.aprilTags,
                         fieldWaypoints = loaded.fieldWaypoints,
                         isLoading = false,
-                        isDirty = false
+                        isDirty = false,
+                        errorMessage = bitmapResult.exceptionOrNull()?.message,
                     ))
                 }
             } catch (error: Exception) {
