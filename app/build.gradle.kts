@@ -9,26 +9,37 @@ import java.nio.file.StandardCopyOption
 // Single source of truth for the application version. Consumed both by the native
 // distribution packaging below and by the generated BuildConfig (see generateBuildConfig).
 val aresAnalyticsVersion = providers.gradleProperty("aresAnalyticsVersion").orElse("1.2.2").get()
+val googleOAuthClientIdEnvironment = providers.environmentVariable("ARES_GOOGLE_OAUTH_CLIENT_ID")
+val googleOAuthBrokerUrlEnvironment = providers.environmentVariable("ARES_GOOGLE_OAUTH_BROKER_URL")
+val githubAppClientIdEnvironment = providers.environmentVariable("ARES_GITHUB_APP_CLIENT_ID")
+val githubAppSlugEnvironment = providers.environmentVariable("ARES_GITHUB_APP_SLUG")
 val googleOAuthClientId = providers.gradleProperty("googleOAuthClientId")
-    .orElse(providers.environmentVariable("ARES_GOOGLE_OAUTH_CLIENT_ID"))
+    .orElse(googleOAuthClientIdEnvironment)
+    .orElse(providers.gradleProperty("aresPublicGoogleOAuthClientId"))
     .orElse("")
     .get()
     .trim()
 val googleOAuthBrokerUrl = providers.gradleProperty("googleOAuthBrokerUrl")
-    .orElse(providers.environmentVariable("ARES_GOOGLE_OAUTH_BROKER_URL"))
+    .orElse(googleOAuthBrokerUrlEnvironment)
+    .orElse(providers.gradleProperty("aresPublicGoogleOAuthBrokerUrl"))
     .orElse("")
     .get()
     .trimEnd('/')
 val githubAppClientId = providers.gradleProperty("githubAppClientId")
-    .orElse(providers.environmentVariable("ARES_GITHUB_APP_CLIENT_ID"))
+    .orElse(githubAppClientIdEnvironment)
+    .orElse(providers.gradleProperty("aresPublicGitHubAppClientId"))
     .orElse("")
     .get()
     .trim()
 val githubAppSlug = providers.gradleProperty("githubAppSlug")
-    .orElse(providers.environmentVariable("ARES_GITHUB_APP_SLUG"))
+    .orElse(githubAppSlugEnvironment)
+    .orElse(providers.gradleProperty("aresPublicGitHubAppSlug"))
     .orElse("")
     .get()
     .trim()
+val isGitHubActions = providers.environmentVariable("GITHUB_ACTIONS")
+    .map { it.equals("true", ignoreCase = true) }
+    .orElse(false)
 
 plugins {
     kotlin("jvm")
@@ -382,6 +393,20 @@ tasks.matching { task ->
 }.configureEach {
     dependsOn(verifyDistributableProjectLoading)
     doFirst {
+        if (isGitHubActions.get()) {
+            require(googleOAuthClientIdEnvironment.orNull?.trim() == googleOAuthClientId) {
+                "Protected package jobs must provide ARES_GOOGLE_OAUTH_CLIENT_ID"
+            }
+            require(googleOAuthBrokerUrlEnvironment.orNull?.trimEnd('/') == googleOAuthBrokerUrl) {
+                "Protected package jobs must provide ARES_GOOGLE_OAUTH_BROKER_URL"
+            }
+            require(githubAppClientIdEnvironment.orNull?.trim() == githubAppClientId) {
+                "Protected package jobs must provide ARES_GITHUB_APP_CLIENT_ID"
+            }
+            require(githubAppSlugEnvironment.orNull?.trim() == githubAppSlug) {
+                "Protected package jobs must provide ARES_GITHUB_APP_SLUG"
+            }
+        }
         require(
             googleOAuthClientId.length in 30..256 &&
                 googleOAuthClientId.endsWith(".apps.googleusercontent.com") &&
