@@ -34,7 +34,7 @@ data class GitHubRelease(
  * Service checking for application software updates via GitHub Releases API.
  *
  * Compares current application version ([BuildConfig.VERSION]) against the latest release published to
- * `https://api.github.com/repos/ares-robotics/ares-analytics/releases/latest`.
+ * `https://api.github.com/repos/ARES-23247/ARES-Analytics/releases/latest`.
  *
  * ### Thread Safety & Performance Guarantees:
  * Executes HTTP requests asynchronously within [serviceScope] on `Dispatchers.IO`. Updates UI state via [StateFlow].
@@ -70,7 +70,7 @@ class UpdateCheckerService(
         serviceScope.launch {
             _updateState.value = UpdateState.Checking
             try {
-                httpClient.prepareGet("https://api.github.com/repos/ares-robotics/ares-analytics/releases/latest") {
+                httpClient.prepareGet("https://api.github.com/repos/ARES-23247/ARES-Analytics/releases/latest") {
                     header(HttpHeaders.UserAgent, "ares-analytics-app")
                 }.execute { response ->
                     if (response.status == HttpStatusCode.OK) {

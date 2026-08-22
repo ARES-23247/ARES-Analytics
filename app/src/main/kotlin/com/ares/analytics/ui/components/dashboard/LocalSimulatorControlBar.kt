@@ -81,7 +81,7 @@ internal fun decodeSimulatorTeleOps(value: String?): List<String> =
 internal enum class LocalSimulatorPrimaryAction(val label: String) {
     LAUNCH_SIMULATOR("Launch simulator"),
     VERIFY_AND_LAUNCH("Verify & launch"),
-    VERIFYING_PROJECT("Verifying"),
+    VERIFYING_PROJECT("Building simulator"),
     WAIT_FOR_CONNECTION("Connecting"),
     START_DRIVING("Start driving"),
     STARTING_TELEOP("Starting"),
@@ -421,7 +421,8 @@ fun LocalSimulatorControlBar(
 
             Text(
                 when {
-                    !isConnected && isLaunchPreparationRunning -> "Verifying the current robot project. The simulator will launch automatically only if verification passes."
+                    !isConnected && isLaunchPreparationRunning ->
+                        "Building and verifying the current robot project. The first launch can take about a minute; the simulator starts automatically when this finishes."
                     !isConnected && isSimulatorProcessRunning -> "Simulator process started. Waiting for NT4 on 127.0.0.1:5810…"
                     !isConnected && !canLaunchSimulator -> simulatorLaunchDisabledReason
                         ?.takeIf { it.isNotBlank() }

@@ -78,7 +78,9 @@ fun ProjectIdentityScreen(
                 }
             }
         } else {
-            state.protectedError?.let { error -> item { ProtectedProjectIdentityCard(error) } }
+            state.protectedError?.let { error ->
+                item { ProtectedProjectIdentityCard(error, repairAvailable = state.protectedContentHash != null) }
+            }
             item {
                 ProjectIdentityForm(
                     state = state,
@@ -98,7 +100,11 @@ fun ProjectIdentityScreen(
                         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text("Reviewed diff · confirmation required", color = AresTextPrimary, fontWeight = FontWeight.Bold)
                             Text(
-                                "Only .ares/project.json will change. Existing valid content is checkpointed under .ares/history/project before replacement.",
+                                if (proposal.expectedInvalidRawContentHash != null) {
+                                    "The invalid file is hash-bound to this review and will be copied byte-for-byte to .ares/recovery/project before .ares/project.json is replaced."
+                                } else {
+                                    "Only .ares/project.json will change. Existing valid content is checkpointed under .ares/history/project before replacement."
+                                },
                                 color = AresTextSecondary,
                                 fontSize = 12.sp,
                             )
@@ -126,7 +132,15 @@ fun ProjectIdentityScreen(
                                         containerColor = AresCyan,
                                         contentColor = AresOnAccent,
                                     ),
-                                ) { Text(if (state.currentDocument == null) "Create reviewed identity" else "Save reviewed changes") }
+                                ) {
+                                    Text(
+                                        when {
+                                            proposal.expectedInvalidRawContentHash != null -> "Preserve original and repair identity"
+                                            state.currentDocument == null -> "Create reviewed identity"
+                                            else -> "Save reviewed changes"
+                                        },
+                                    )
+                                }
                                 OutlinedButton(onClick = viewModel::cancelReview, enabled = !state.saving) {
                                     Text("Keep editing")
                                 }
@@ -144,7 +158,9 @@ fun ProjectIdentityScreen(
                         onClick = viewModel::review,
                         enabled = state.canReview && state.proposal == null,
                         colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-                    ) { Text("Review structured diff") }
+                    ) {
+                        Text(if (state.protectedContentHash != null) "Review protected-file repair" else "Review structured diff")
+                    }
                     OutlinedButton(onClick = viewModel::resetDraft, enabled = !state.saving) {
                         Text("Discard draft changes")
                     }
@@ -180,7 +196,7 @@ private fun ProjectIdentityDestinationCard(state: ProjectIdentityEditorState) {
 }
 
 @Composable
-private fun ProtectedProjectIdentityCard(error: String) {
+private fun ProtectedProjectIdentityCard(error: String, repairAvailable: Boolean) {
     Card(
         colors = CardDefaults.cardColors(containerColor = AresError.copy(alpha = 0.10f)),
         border = BorderStroke(1.dp, AresError),
@@ -188,7 +204,12 @@ private fun ProtectedProjectIdentityCard(error: String) {
         Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             Icon(Icons.Default.Error, contentDescription = null, tint = AresError)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("Protected project file · no write allowed", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                Text(
+                    if (repairAvailable) "Invalid project file preserved · reviewed repair available"
+                    else "Protected project file · no write allowed",
+                    color = AresTextPrimary,
+                    fontWeight = FontWeight.Bold,
+                )
                 Text(error, color = AresTextSecondary)
             }
         }
@@ -223,7 +244,8 @@ private fun ProjectIdentityForm(
                 value = state.draft.projectId,
                 onValueChange = { onUpdate(ProjectIdentityField.PROJECT_ID, it) },
                 error = state.fieldErrors[ProjectIdentityField.PROJECT_ID],
-                enabled = state.currentDocument == null && state.protectedError == null,
+                enabled = state.currentDocument == null &&
+                    (state.protectedError == null || state.protectedContentHash != null),
                 help = "Starts with a letter; letters, numbers, dot, underscore, and dash only.",
             )
             ReadOnlyIdentityRow("League", state.workspaceLeague.name)
@@ -277,7 +299,7 @@ private fun ProjectIdentityForm(
                 secondError = state.fieldErrors[ProjectIdentityField.ROBOT_WIDTH],
                 onSecond = { onUpdate(ProjectIdentityField.ROBOT_WIDTH, it) },
                 secondHelp = if (widthIn > 0.0) "≈ ${"%.1f".format(widthIn)} inches" else "Positive decimal meters.",
-                enabled = state.protectedError == null,
+                enabled = state.protectedError == null || state.protectedContentHash != null,
             )
 
             HorizontalDivider(color = AresBorder)
