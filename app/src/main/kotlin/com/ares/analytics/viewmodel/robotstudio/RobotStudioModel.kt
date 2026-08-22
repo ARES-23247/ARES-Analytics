@@ -234,10 +234,15 @@ internal fun evaluateRobotStudioStages(
         else -> RobotStudioStageStatus.READY
     }
 
-    val requiredStagesReady = listOf(
-        projectIdentityStatus,
-        hardwareStatus,
-    ).all { it == RobotStudioStageStatus.READY }
+    // Desktop verification and simulation require a complete, runnable canonical definition, but
+    // they intentionally do not require a mentor to claim physical wiring was reviewed. Physical
+    // review remains visible in the Hardware stage and is enforced independently for deployment.
+    val hardwareDefinitionReady = drivebaseStatus == RobotStudioStageStatus.READY &&
+        localizationStatus == RobotStudioStageStatus.READY &&
+        mechanismsStatus in setOf(RobotStudioStageStatus.READY, RobotStudioStageStatus.OPTIONAL) &&
+        capabilitiesStatus in setOf(RobotStudioStageStatus.READY, RobotStudioStageStatus.OPTIONAL) &&
+        evidence.hardwareErrors.isEmpty()
+    val requiredStagesReady = projectIdentityStatus == RobotStudioStageStatus.READY && hardwareDefinitionReady
 
     val optionalStagesSafe = listOf(
         coordinationStatus,
@@ -275,13 +280,18 @@ internal fun evaluateRobotStudioStages(
         selectedBuild?.phase != BuildExecutionPhase.SUCCEEDED -> RobotStudioStageStatus.BLOCKED
         else -> RobotStudioStageStatus.NEEDS_ACTION
     }
+    val physicalDeploymentBlockReason = evidence.physicalDeploymentBlockReason ?: when {
+        evidence.hardwareItemCount > 0 && evidence.hardwareReviewStatus != HardwareReviewStatus.CURRENT ->
+            "Complete a current Hardware Setup review before physical deployment. Desktop build and simulation remain available."
+        else -> null
+    }
     val deployStatus = when {
         runtime.deploy.phase == DeployExecutionPhase.CONNECTING ||
             runtime.deploy.phase == DeployExecutionPhase.BUILDING ||
             runtime.deploy.phase == DeployExecutionPhase.INSTALLING -> RobotStudioStageStatus.RUNNING
         runtime.deploy.phase == DeployExecutionPhase.SUCCEEDED -> RobotStudioStageStatus.READY
         runtime.deploy.phase == DeployExecutionPhase.FAILED -> RobotStudioStageStatus.INVALID
-        evidence.physicalDeploymentBlockReason != null -> RobotStudioStageStatus.BLOCKED
+        physicalDeploymentBlockReason != null -> RobotStudioStageStatus.BLOCKED
         !authoredStagesReady -> RobotStudioStageStatus.BLOCKED
         else -> RobotStudioStageStatus.NEEDS_ACTION
     }
@@ -447,8 +457,8 @@ internal fun evaluateRobotStudioStages(
             "1-Click Deploy to robot",
             "Connect over Wi-Fi, compile, and flash APK/binary directly to the robot.",
             deployStatus,
-            evidence.physicalDeploymentBlockReason ?: runtime.deploy.message,
-            listOfNotNull(evidence.physicalDeploymentBlockReason),
+            physicalDeploymentBlockReason ?: runtime.deploy.message,
+            listOfNotNull(physicalDeploymentBlockReason),
             "Wireless connection (192.168.43.1:5555 / SSH)",
             "Physical FTC Control Hub / FRC RoboRIO",
             RobotStudioAction.DEPLOY_ROBOT,

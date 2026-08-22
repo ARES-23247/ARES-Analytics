@@ -470,7 +470,7 @@ internal fun evaluateJavaBuildTools(commandSucceeded: Boolean, rawMessage: Strin
         return JavaBuildToolsReadiness(
             isValid = false,
             majorVersion = null,
-            message = "ARES Analytics is ready. Robot builds and simulation need JDK 17 or 21, but Java could not be started. Set JAVA_HOME when you are ready to build.",
+            message = "ARES Robotics Studio is ready. Robot builds and simulation need JDK 17 or 21, but Java could not be started. Set JAVA_HOME when you are ready to build.",
         )
     }
     val major = parseJavaMajorVersion(rawMessage)
@@ -483,12 +483,12 @@ internal fun evaluateJavaBuildTools(commandSucceeded: Boolean, rawMessage: Strin
         null -> JavaBuildToolsReadiness(
             false,
             null,
-            "ARES Analytics is ready, but the Java version could not be identified. Install JDK 17 or 21 and set JAVA_HOME before building or simulating a robot.",
+            "ARES Robotics Studio is ready, but the Java version could not be identified. Install JDK 17 or 21 and set JAVA_HOME before building or simulating a robot.",
         )
         else -> JavaBuildToolsReadiness(
             false,
             major,
-            "ARES Analytics is ready, but robot builds and simulation need JDK 17 or 21. We found Java $major. Set JAVA_HOME to a supported JDK.",
+            "ARES Robotics Studio is ready, but robot builds and simulation need JDK 17 or 21. We found Java $major. Set JAVA_HOME to a supported JDK.",
         )
     }
 }

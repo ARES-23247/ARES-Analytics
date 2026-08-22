@@ -37,10 +37,10 @@ class ProjectVersionControlServiceTest {
 
         assertTrue(plan.initialized)
         assertTrue(plan.changes.isEmpty())
-        assertEquals(listOf("Create robot project with ARES Analytics"), plan.versions.map(ProjectVersion::message))
+        assertEquals(listOf("Create robot project with ARES Robotics Studio"), plan.versions.map(ProjectVersion::message))
         Git.open(root).use { git ->
             val commit = git.log().call().single()
-            assertEquals("ARES Analytics", commit.authorIdent.name)
+            assertEquals("ARES Robotics Studio", commit.authorIdent.name)
             assertEquals("local-history@aresfirst.org", commit.authorIdent.emailAddress)
             assertEquals("main", git.repository.branch)
         }

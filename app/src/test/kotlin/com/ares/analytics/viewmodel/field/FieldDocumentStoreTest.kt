@@ -1,6 +1,7 @@
 package com.ares.analytics.viewmodel.field
 
 import com.ares.analytics.shared.League
+import com.ares.analytics.shared.FTCCoordinateSystem
 import com.ares.analytics.shared.GamePiece
 import com.ares.analytics.shared.Obstacle
 import com.ares.analytics.util.ProjectLayout
@@ -11,11 +12,66 @@ import com.areslib.state.RobotFieldElementType
 import com.areslib.state.RobotFieldObstacle
 import java.io.File
 import java.nio.file.Files
+import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class FieldDocumentStoreTest {
+    @Test
+    fun `new FTC fields use the common square coordinate presentation`() {
+        val document = FieldDocumentMapper.newDocument(League.FTC)
+
+        assertEquals(FTCCoordinateSystem.SQUARE, FieldDocumentMapper.image(document).ftcCoordinateSystem)
+    }
+
+    @Test
+    fun `image-free FTC documents default square while explicit diamond remains supported`() {
+        val imageFree = FieldDocumentMapper.newDocument(League.FTC).copy(image = null)
+        val explicitDiamond = FieldDocumentMapper.newDocument(
+            League.FTC,
+            FieldDocumentMapper.defaultImageConfig(League.FTC).copy(
+                ftcCoordinateSystem = FTCCoordinateSystem.DIAMOND,
+            ),
+        )
+
+        assertEquals(FTCCoordinateSystem.SQUARE, FieldDocumentMapper.image(imageFree).ftcCoordinateSystem)
+        assertEquals(FTCCoordinateSystem.DIAMOND, FieldDocumentMapper.image(explicitDiamond).ftcCoordinateSystem)
+    }
+
+    @Test
+    fun `configured project relative field image is resolved and decoded`() {
+        val project = Files.createTempDirectory("ares-field-image").toFile()
+        val imageFile = File(project, "TeamCode/src/main/assets/fields/decode.png").apply {
+            parentFile.mkdirs()
+            writeBytes(Base64.getDecoder().decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+            ))
+        }
+
+        val loaded = assertNotNull(FieldImageLoader.load(project.path, League.FTC, "fields/decode.png").getOrThrow())
+
+        assertEquals(1, loaded.width)
+        assertEquals(1, loaded.height)
+        assertEquals(imageFile.canonicalFile, ProjectLayout.fieldImageFile(project.path, League.FTC, "fields/decode.png"))
+        assertFailsWith<IllegalArgumentException> {
+            ProjectLayout.fieldImageFile(project.path, League.FTC, "../../outside.png")
+        }
+    }
+
+    @Test
+    fun `image-free generic field loads without a false missing-image error`() {
+        val project = Files.createTempDirectory("field-no-image-").toFile()
+        try {
+            assertEquals(null, FieldImageLoader.load(project.path, League.FTC, "").getOrThrow())
+            assertEquals(null, FieldImageLoader.load(project.path, League.FTC, null).getOrThrow())
+        } finally {
+            project.deleteRecursively()
+        }
+    }
+
     @Test
     fun editorSavePreservesCanonicalPropertiesThatAreNotAuthorable() {
         val image = FieldDocumentMapper.defaultImageConfig(League.FTC)

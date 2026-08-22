@@ -143,7 +143,7 @@ internal fun googleOAuthRecoveryMessage(
     "deleted_client" -> if (source == GoogleOAuthClientSource.CUSTOM) {
         "This custom Google OAuth client was deleted. Disable the custom client to use ARES-managed sign-in, or create a replacement Desktop client in Google Cloud."
     } else {
-        "The ARES Google sign-in client is unavailable. Update ARES Analytics or contact an ARES administrator."
+        "The ARES Google sign-in client is unavailable. Update ARES Robotics Studio or contact an ARES administrator."
     }
     "invalid_grant" ->
         "Google revoked or expired this sign-in. The unusable session was cleared; choose Sign in with Google to reconnect."
@@ -152,12 +152,12 @@ internal fun googleOAuthRecoveryMessage(
     "invalid_client" -> if (source == GoogleOAuthClientSource.CUSTOM) {
         "Google rejected this custom OAuth client. Confirm that it is an active Desktop client, then reconnect Google."
     } else {
-        "Google rejected the ARES sign-in client. Update ARES Analytics or contact an ARES administrator."
+        "Google rejected the ARES sign-in client. Update ARES Robotics Studio or contact an ARES administrator."
     }
     "unauthorized_client" ->
         "This Google OAuth client is not permitted to use the desktop authorization flow. An administrator must replace it with an active Desktop client."
     "redirect_uri_mismatch" ->
-        "Google rejected the desktop callback address. Update ARES Analytics, then try Google sign-in again."
+        "Google rejected the desktop callback address. Update ARES Robotics Studio, then try Google sign-in again."
     "invalid_request" -> if (
         responseBody.contains("client_secret", ignoreCase = true) ||
         responseBody.contains("client secret", ignoreCase = true)
@@ -168,7 +168,7 @@ internal fun googleOAuthRecoveryMessage(
             "The ARES Google token service needs administrator attention. Keep using ARES offline and try sign-in again after the service is updated."
         }
     } else {
-        "Google rejected the desktop sign-in request. Update ARES Analytics and try again; if it continues, contact an ARES administrator."
+        "Google rejected the desktop sign-in request. Update ARES Robotics Studio and try again; if it continues, contact an ARES administrator."
     }
     else ->
         "Google could not complete sign-in. Check your internet connection, then try again. If this continues, disconnect Google and reconnect."
@@ -974,7 +974,7 @@ class OAuthService(
                         )
                         launchPendingCodeExchange(pending, code, call.request.queryParameters)
                     } else {
-                        call.respondText("Authentication was not completed. Return to ARES Analytics for recovery steps.")
+                        call.respondText("Authentication was not completed. Return to ARES Robotics Studio for recovery steps.")
                         pending.onError(error ?: "unknown")
                         serviceScope.launch { stopServer(pending.generation) }
                     }

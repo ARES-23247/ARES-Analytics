@@ -41,7 +41,7 @@ class GenericStarterTemplateIntegrationTest {
         val templateVersion = propertyOrEnvironment(
             "ares.genericStarterTemplateVersion",
             "ARES_GENERIC_STARTER_TEMPLATE_VERSION",
-        ) ?: "9.7.0"
+        ) ?: "9.8.0"
 
         assumeTrue(archiveDirectory?.isDirectory == true && outputDirectory != null)
         require(validationRepository == null || !validationVersion.isNullOrBlank()) {

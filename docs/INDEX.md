@@ -1,18 +1,19 @@
-# ARES Analytics documentation
+# ARES Robotics Studio documentation
 
 Cycle evidence: [product improvement cycle log](CYCLE_LOG.md).
 
-Start here if ARES Analytics is new to you. You do not need to understand every screen before you begin.
+Start here if ARES Robotics Studio is new to you. You do not need to understand every screen before you begin.
 
 ## Choose what you are trying to do
 
 | I want to... | Start with | What you will use |
 | --- | --- | --- |
-| Open ARES Analytics for the first time | [First launch](start/FIRST_LAUNCH.md) | A local robot workspace; JDK 17 or 21 is optional until build/simulation |
+| Open ARES Robotics Studio for the first time | [First launch](start/FIRST_LAUNCH.md) | A local robot workspace; JDK 17 or 21 is optional until build/simulation |
 | Create a buildable simulation project without code | [Create a robot project](start/CREATE_ROBOT_PROJECT.md) | A parent folder; official installers contain the verified starter |
 | Save versions or connect a personal/team GitHub backup | [Project Backup](start/PROJECT_BACKUP.md) | A local robot project; GitHub is optional |
 | Compare canonical addresses with a physical robot | [Hardware Setup](start/HARDWARE_SETUP.md) | The robot wiring/configuration and a supervised review |
 | Understand ARES colors, logo, and product styling | [ARES product design system](DESIGN_SYSTEM.md) | None |
+| Upgrade, repair, or reinstall the desktop app | [Branding, upgrades, and repair](BRANDING_AND_UPGRADES.md) | The downloaded installer; projects and credentials stay in place |
 | Enable optional Google Drive sync | [Google Drive setup](start/GOOGLE_DRIVE_SETUP.md) | One-click sign-in and a personal/team destination |
 | Understand multi-team Drive isolation | [OAuth and Drive architecture](GOOGLE_DRIVE_ARCHITECTURE.md) | Application identity, ownership, permissions, migration |
 | Review cloud privacy | [Privacy and cloud data](PRIVACY_AND_CLOUD.md) | Local-first behavior and token storage |
@@ -42,7 +43,7 @@ Start here if ARES Analytics is new to you. You do not need to understand every 
 
 ## Know which world you are looking at
 
-ARES Analytics can display data from several places. They are related, but they are not interchangeable.
+ARES Robotics Studio can display data from several places. They are related, but they are not interchangeable.
 
 | Mode | Where the data comes from | Is it happening now? | Can it move hardware? | Does it require internet? |
 | --- | --- | --- | --- | --- |

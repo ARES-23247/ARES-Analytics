@@ -8,7 +8,7 @@ Students should use the one-click flow in [Google Drive setup](../start/GOOGLE_D
 Official installers use the active **ARES-Analytics Desktop Client** in the `aresfirst-portal`
 project. The Google Auth Platform configuration must remain:
 
-- App name: **ARES Analytics**
+- App name: **ARES Robotics Studio**
 - Homepage: <https://aresfirst.org>
 - Privacy policy: <https://aresfirst.org/privacy>
 - Terms: <https://aresfirst.org/terms>

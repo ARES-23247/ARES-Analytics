@@ -24,6 +24,7 @@ import com.ares.analytics.desktop.DesktopWindowCreationWatchdog
 import com.ares.analytics.di.ServiceRegistry
 import com.ares.analytics.ui.screens.MainScreen
 import com.ares.analytics.ui.theme.AresTheme
+import com.ares.analytics.ui.theme.rememberAresAppIconPainter
 import kotlin.system.exitProcess
 
 /**
@@ -94,7 +95,8 @@ private fun launchDesktopApplication() {
                     exitApplication = ::exitApplication,
                 )
             },
-            title = "ARES Analytics — Mission Control",
+            title = "${BuildConfig.PRODUCT_NAME} — Mission Control",
+            icon = rememberAresAppIconPainter(),
             state = windowState,
             // Windows may deny a foreground request from a Gradle-launched child process. Let
             // Compose create the window topmost so it is visible even when activation is denied,

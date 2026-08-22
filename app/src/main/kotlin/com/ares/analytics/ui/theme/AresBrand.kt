@@ -62,6 +62,17 @@ private val aresLogoBitmap by lazy(LazyThreadSafetyMode.PUBLICATION) {
     Image.makeFromEncoded(bytes).toComposeImageBitmap()
 }
 
+private val aresAppIconBitmap by lazy(LazyThreadSafetyMode.PUBLICATION) {
+    val bytes = requireNotNull(AresBrandTokens::class.java.classLoader.getResourceAsStream("brand/ares-studio-app.png")) {
+        "Packaged ARES Robotics Studio icon resource is missing"
+    }.use { it.readBytes() }
+    Image.makeFromEncoded(bytes).toComposeImageBitmap()
+}
+
 /** Returns the packaged official team mark without relying on deprecated classpath painters. */
 @Composable
 fun rememberAresLogoPainter(): Painter = remember { BitmapPainter(aresLogoBitmap) }
+
+/** Returns the simplified desktop application mark, legible at window and taskbar sizes. */
+@Composable
+fun rememberAresAppIconPainter(): Painter = remember { BitmapPainter(aresAppIconBitmap) }

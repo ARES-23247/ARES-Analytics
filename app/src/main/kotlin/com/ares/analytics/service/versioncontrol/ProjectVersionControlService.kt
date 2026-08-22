@@ -1328,9 +1328,9 @@ class ProjectVersionControlService internal constructor(
         private const val AUTO_SYNC_CONFIG_NAME = "autoSync"
         private const val AUTO_SYNC_DEBOUNCE_MS = 5_000L
         private val AUTO_SYNC_RETRY_DELAYS_MS = longArrayOf(5_000L, 15_000L, 60_000L)
-        private const val AUTOMATIC_HISTORY_AUTHOR_NAME = "ARES Analytics"
+        private const val AUTOMATIC_HISTORY_AUTHOR_NAME = "ARES Robotics Studio"
         private const val AUTOMATIC_HISTORY_AUTHOR_EMAIL = "local-history@aresfirst.org"
-        private const val INITIAL_PROJECT_COMMIT_MESSAGE = "Create robot project with ARES Analytics"
+        private const val INITIAL_PROJECT_COMMIT_MESSAGE = "Create robot project with ARES Robotics Studio"
         private const val RESTORE_BACKUP_REF_PREFIX = "refs/ares/restore-backups/"
     }
 

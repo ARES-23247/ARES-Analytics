@@ -3,9 +3,11 @@ package com.ares.analytics.viewmodel.project
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
 import com.areslib.project.AresCoordinateConvention
+import com.areslib.project.AresFtcHubCommandTransport
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataCodec
 import com.areslib.project.AresProjectMetadataDocument
+import com.areslib.project.resolvedFtcRuntimeOptions
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -39,12 +41,38 @@ class ProjectIdentityViewModelTest {
             assertEquals("", state.draft.robotWidthMeters)
             assertEquals("3.6576", state.draft.fieldLengthMeters)
             assertEquals("3.6576", state.draft.fieldWidthMeters)
+            assertEquals(AresFtcHubCommandTransport.STANDARD_SDK, state.draft.ftcHubCommandTransport)
+            assertFalse(state.draft.ftcLimelightProxyEnabled)
             assertFalse(state.canReview)
             assertTrue(state.message.orEmpty().contains("No canonical project identity"))
 
             viewModel.review()
             assertTrue(viewModel.state.value.messageIsError)
             assertTrue(viewModel.state.value.message.orEmpty().contains("Fix every project identity error"))
+        }
+    }
+
+    @Test
+    fun `metadata cannot be created in a folder without robot source`() = runTest {
+        val project = Files.createTempDirectory("ares-project-identity-empty-").toFile()
+        try {
+            val viewModel = ProjectIdentityViewModel(
+                scope = this,
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+            )
+            viewModel.load(workspace(project).copy(robotLengthMeters = 0.45, robotWidthMeters = 0.43))
+            advanceUntilIdle()
+
+            val state = viewModel.state.value
+            assertNotNull(state.projectSourceError)
+            assertTrue(state.projectSourceError.orEmpty().contains("not a complete FTC robot project"))
+            assertFalse(state.canReview)
+
+            viewModel.review()
+            assertNull(viewModel.state.value.proposal)
+            assertFalse(File(project, ".ares/project.json").exists())
+        } finally {
+            project.deleteRecursively()
         }
     }
 
@@ -61,18 +89,24 @@ class ProjectIdentityViewModelTest {
             advanceUntilIdle()
             viewModel.update(ProjectIdentityField.ROBOT_LENGTH, "0.45")
             viewModel.update(ProjectIdentityField.ROBOT_WIDTH, "0.43")
+            viewModel.updateFtcHubCommandTransport(AresFtcHubCommandTransport.ARES_PHOTON)
+            viewModel.updateFtcLimelightProxyEnabled(true)
 
             viewModel.review()
 
             val proposal = assertNotNull(viewModel.state.value.proposal)
             assertFalse(repository.file(project.path).exists())
             assertTrue(proposal.changes.any { it.label == "Robot length (m)" })
+            assertTrue(proposal.changes.any { it.label == "FTC hub command transport" })
+            assertTrue(proposal.changes.any { it.label == "Limelight camera proxy" })
 
             viewModel.applyReviewed()
             advanceUntilIdle()
 
             val saved = repository.load(project.path).getOrThrow()
             assertEquals(proposal.proposedContentHash, AresProjectMetadataCodec.contentHash(saved))
+            assertEquals(AresFtcHubCommandTransport.ARES_PHOTON, saved.resolvedFtcRuntimeOptions().hubCommandTransport)
+            assertTrue(saved.resolvedFtcRuntimeOptions().limelightProxyEnabled)
             assertNull(viewModel.state.value.proposal)
             assertTrue(viewModel.state.value.message.orEmpty().contains("Created .ares/project.json"))
         }
@@ -270,6 +304,14 @@ class ProjectIdentityViewModelTest {
     private suspend fun TestScope.withProject(block: suspend TestScope.(File) -> Unit) {
         val project = Files.createTempDirectory("ares-project-identity-").toFile()
         try {
+            File(project, "TeamCode/src/main/java/ExampleRobot.kt").apply {
+                parentFile.mkdirs()
+                writeText("class ExampleRobot")
+            }
+            File(project, "src/main/kotlin/ExampleRobot.kt").apply {
+                parentFile.mkdirs()
+                writeText("class ExampleRobot")
+            }
             block(project)
         } finally {
             project.deleteRecursively()

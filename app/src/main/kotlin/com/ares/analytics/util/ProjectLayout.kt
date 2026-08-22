@@ -30,13 +30,26 @@ internal object ProjectLayout {
     fun fieldDefinitionFile(projectPath: String, league: League): File =
         File(fieldDataDirectory(projectPath, league), "field.json")
 
+    /** Resolves a portable field-image path inside the robot asset root. */
+    fun fieldImageFile(projectPath: String, league: League, configuredPath: String?): File {
+        val assets = assetsDirectory(projectPath, league).canonicalFile
+        val relative = configuredPath?.trim()?.takeIf(String::isNotEmpty) ?: "field_image.png"
+        require(!File(relative).isAbsolute) { "Field image path must be relative to the robot asset folder" }
+        val image = File(assets, relative).canonicalFile
+        require(image.toPath().startsWith(assets.toPath())) {
+            "Field image path escapes the robot asset folder"
+        }
+        return image
+    }
+
     /** Returns null only when [projectPath] is a usable robot source repository. */
     fun validationError(projectPath: String, league: League): String? {
         if (projectPath.isBlank()) return "Choose the robot repository folder."
         val root = File(projectPath)
         if (!root.isDirectory) return "That folder does not exist."
         if (!containsRobotSource(root, league)) {
-            return "No ${league.name} robot source was found. Choose the repository root, not its assets folder."
+            return "This folder is not a complete ${league.name} robot project: no Kotlin or Java robot source was found. " +
+                "Choose an existing robot repository root, or create a new project from the official ${league.name} starter."
         }
         return null
     }

@@ -42,7 +42,7 @@ class OnboardingModelTest {
 
         assertFalse(result.isValid)
         assertEquals(11, result.majorVersion)
-        assertTrue(result.message.startsWith("ARES Analytics is ready"))
+        assertTrue(result.message.startsWith("ARES Robotics Studio is ready"))
         assertTrue(result.message.contains("JDK 17 or 21"))
     }
 
@@ -61,7 +61,7 @@ class OnboardingModelTest {
 
         assertFalse(result.isValid)
         assertNull(result.majorVersion)
-        assertTrue(result.message.startsWith("ARES Analytics is ready"))
+        assertTrue(result.message.startsWith("ARES Robotics Studio is ready"))
         assertTrue(result.message.contains("Set JAVA_HOME"))
     }
 

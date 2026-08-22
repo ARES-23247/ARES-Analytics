@@ -2,10 +2,15 @@ package com.ares.analytics.viewmodel.project
 
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
+import com.ares.analytics.util.ProjectLayout
 import com.areslib.project.AresCoordinateConvention
+import com.areslib.project.AresFtcHubCommandTransport
+import com.areslib.project.AresFtcRuntimeOptionsDocument
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataCodec
 import com.areslib.project.AresProjectMetadataDocument
+import com.areslib.project.AresRuntimeOptionsDocument
+import com.areslib.project.resolvedFtcRuntimeOptions
 import com.areslib.project.validateAresProjectMetadata
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineDispatcher
@@ -33,6 +38,8 @@ data class ProjectIdentityDraft(
     val robotWidthMeters: String = "",
     val fieldLengthMeters: String = "",
     val fieldWidthMeters: String = "",
+    val ftcHubCommandTransport: AresFtcHubCommandTransport = AresFtcHubCommandTransport.STANDARD_SDK,
+    val ftcLimelightProxyEnabled: Boolean = false,
 )
 
 data class ProjectIdentityChange(
@@ -60,6 +67,8 @@ data class ProjectIdentityEditorState(
     val fieldErrors: Map<ProjectIdentityField, String> = emptyMap(),
     val generalErrors: List<String> = emptyList(),
     val proposal: ProjectIdentityProposal? = null,
+    /** Blocks canonical writes when the selected folder is not a real robot source repository. */
+    val projectSourceError: String? = null,
     val protectedError: String? = null,
     /** Hash of an invalid existing file that may be replaced only through reviewed repair. */
     val protectedContentHash: String? = null,
@@ -68,6 +77,7 @@ data class ProjectIdentityEditorState(
 ) {
     val canReview: Boolean
         get() = !loading && !saving &&
+            projectSourceError == null &&
             (protectedError == null || protectedContentHash != null) &&
             fieldErrors.isEmpty() && generalErrors.isEmpty()
 }
@@ -137,6 +147,32 @@ class ProjectIdentityViewModel(
         )
     }
 
+    /** Selects the reviewed FTC hub command path; no robot process changes until generation/build. */
+    fun updateFtcHubCommandTransport(value: AresFtcHubCommandTransport) = updateFtcRuntimeOptions {
+        copy(ftcHubCommandTransport = value)
+    }
+
+    /** Controls whether the bounded Limelight HTTP proxy is owned by the FTC robot facade. */
+    fun updateFtcLimelightProxyEnabled(enabled: Boolean) = updateFtcRuntimeOptions {
+        copy(ftcLimelightProxyEnabled = enabled)
+    }
+
+    private fun updateFtcRuntimeOptions(transform: ProjectIdentityDraft.() -> ProjectIdentityDraft) {
+        val config = workspace ?: return
+        if (config.league != League.FTC) return
+        val current = _state.value
+        val nextDraft = current.draft.transform()
+        val validation = validateProjectIdentityDraft(config.league, nextDraft)
+        _state.value = current.copy(
+            draft = nextDraft,
+            fieldErrors = validation.fieldErrors,
+            generalErrors = validation.generalErrors,
+            proposal = null,
+            message = null,
+            messageIsError = false,
+        )
+    }
+
     fun resetDraft() {
         val config = workspace ?: return
         val current = _state.value
@@ -155,7 +191,14 @@ class ProjectIdentityViewModel(
     fun review() {
         val config = workspace ?: return
         val current = _state.value
-        if ((current.protectedError != null && current.protectedContentHash == null) || current.loading || current.saving) return
+        if (
+            current.projectSourceError != null ||
+            (current.protectedError != null && current.protectedContentHash == null) ||
+            current.loading ||
+            current.saving
+        ) {
+            return
+        }
         val validation = validateProjectIdentityDraft(config.league, current.draft)
         val document = validation.document
         if (document == null) {
@@ -222,6 +265,9 @@ class ProjectIdentityViewModel(
         scope.launch {
             runCatching {
                 withContext(ioDispatcher) {
+                    ProjectLayout.validationError(config.projectPath, config.league)?.let { sourceError ->
+                        error("The selected folder stopped being a valid robot project: $sourceError")
+                    }
                     proposal.expectedInvalidRawContentHash?.let { invalidHash ->
                         repository.repairReviewed(config.projectPath, invalidHash, proposal.document)
                     } ?: repository.saveReviewed(config.projectPath, proposal.expectedContentHash, proposal.document)
@@ -264,6 +310,7 @@ class ProjectIdentityViewModel(
         val current = currentResult.getOrNull()
         val corruptError = currentResult.exceptionOrNull()?.takeIf { file.isFile }
         val corruptHash = corruptError?.let { repository.rawContentHash(config.projectPath) }
+        val projectSourceError = ProjectLayout.validationError(config.projectPath, config.league)
         val mismatch = current?.takeIf { it.league != config.league.toAresLeague() }
         val draft = projectIdentityDraft(config, current)
         val validation = validateProjectIdentityDraft(config.league, draft)
@@ -276,6 +323,7 @@ class ProjectIdentityViewModel(
             draft = draft,
             fieldErrors = validation.fieldErrors,
             generalErrors = validation.generalErrors,
+            projectSourceError = projectSourceError,
             protectedError = when {
                 corruptError != null ->
                     "The existing .ares/project.json cannot be used: ${corruptError.message}. Its exact bytes remain unchanged. Enter the measured robot dimensions, review the repair, and ARES will preserve the original under .ares/recovery/project before replacing it."
@@ -286,6 +334,8 @@ class ProjectIdentityViewModel(
             protectedContentHash = corruptHash,
             message = when {
                 corruptError != null -> null
+                projectSourceError != null ->
+                    "The canonical identity is valid, but this folder is not a runnable robot project. Switch projects or create an official starter."
                 current == null -> "No canonical project identity exists yet. Enter measured geometry, then review the file before creating it."
                 else -> "Loaded the canonical project identity. Stable project ID and platform are protected."
             },
@@ -331,6 +381,16 @@ internal fun validateProjectIdentityDraft(
         robotWidthMeters = requireNotNull(robotWidth),
         fieldLengthMeters = requireNotNull(fieldLength),
         fieldWidthMeters = requireNotNull(fieldWidth),
+        runtimeOptions = if (league == League.FTC) {
+            AresRuntimeOptionsDocument(
+                ftc = AresFtcRuntimeOptionsDocument(
+                    hubCommandTransport = draft.ftcHubCommandTransport,
+                    limelightProxyEnabled = draft.ftcLimelightProxyEnabled,
+                ),
+            )
+        } else {
+            AresRuntimeOptionsDocument()
+        },
     )
     val generalErrors = validateAresProjectMetadata(document)
     return ProjectIdentityDraftValidation(document.takeIf { generalErrors.isEmpty() }, errors, generalErrors)
@@ -341,6 +401,7 @@ internal fun projectIdentityDraft(
     current: AresProjectMetadataDocument?,
 ): ProjectIdentityDraft {
     val field = defaultFieldDimensions(config.league)
+    val ftcRuntime = current?.resolvedFtcRuntimeOptions() ?: AresFtcRuntimeOptionsDocument()
     return ProjectIdentityDraft(
         projectId = current?.projectId ?: suggestedProjectId(config),
         robotLengthMeters = current?.robotLengthMeters?.asInput()
@@ -349,6 +410,8 @@ internal fun projectIdentityDraft(
             ?: config.robotWidthMeters?.asInput().orEmpty(),
         fieldLengthMeters = (current?.fieldLengthMeters ?: field.first).asInput(),
         fieldWidthMeters = (current?.fieldWidthMeters ?: field.second).asInput(),
+        ftcHubCommandTransport = ftcRuntime.hubCommandTransport,
+        ftcLimelightProxyEnabled = ftcRuntime.limelightProxyEnabled,
     )
 }
 
@@ -367,6 +430,16 @@ internal fun projectIdentityChanges(
         changed("Robot width (m)", current?.robotWidthMeters, proposed.robotWidthMeters),
         changed("Field length (m)", current?.fieldLengthMeters, proposed.fieldLengthMeters),
         changed("Field width (m)", current?.fieldWidthMeters, proposed.fieldWidthMeters),
+        changed(
+            "FTC hub command transport",
+            current?.takeIf { it.league == AresLeague.FTC }?.resolvedFtcRuntimeOptions()?.hubCommandTransport,
+            proposed.resolvedFtcRuntimeOptions().hubCommandTransport,
+        ).takeIf { proposed.league == AresLeague.FTC },
+        changed(
+            "Limelight camera proxy",
+            current?.takeIf { it.league == AresLeague.FTC }?.resolvedFtcRuntimeOptions()?.limelightProxyEnabled,
+            proposed.resolvedFtcRuntimeOptions().limelightProxyEnabled,
+        ).takeIf { proposed.league == AresLeague.FTC },
     )
 }
 

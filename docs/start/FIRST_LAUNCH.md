@@ -1,12 +1,12 @@
 # First launch
 
-This guide gets one local robot workspace into ARES Analytics. It does not connect to or enable a physical robot.
+This guide gets one local robot workspace into ARES Robotics Studio. It does not connect to or enable a physical robot.
 
 ## Before you start
 
 Have these ready:
 
-- No separate Java installation is needed to open ARES Analytics. The installer includes the app
+- No separate Java installation is needed to open ARES Robotics Studio. The installer includes the app
   runtime. If a robot build needs a full JDK, setup can install a private verified JDK 21 for ARES
   without changing system-wide Java settings. FTC Android tools and FRC WPILib remain explicit
   vendor installations because of their size, licensing, and season-specific content.
@@ -21,11 +21,11 @@ If you are developing from source, launch from `ARES-Analytics`:
 .\gradlew.bat :app:run
 ```
 
-If a mentor installed the desktop application, open **ARES Analytics** normally instead.
+If a mentor installed the desktop application, open **ARES Robotics Studio** normally instead.
 
 ## Set up the workspace
 
-The first-run **ARES setup** has four short stages.
+The first-run **ARES Robotics Studio setup** has four short stages.
 
 ### 1. Choose or create your robot project
 

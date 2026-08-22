@@ -35,7 +35,7 @@ addresses, but students must still confirm the physical labels and vendor config
 
 ## Check FTC motor identity and direction
 
-ARES Analytics does not command a physical motor from the desktop. Instead, it shows the generated
+ARES Robotics Studio does not command a physical motor from the desktop. Instead, it shows the generated
 name, configured direction, and face-button mapping used by the **ARES Drivetrain Diagnostic**
 TeleOp on the Driver Station. This keeps enabled hardware control inside the normal FTC OpMode and
 Stop-button boundary.

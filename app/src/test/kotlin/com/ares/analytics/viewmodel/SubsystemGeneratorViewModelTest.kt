@@ -182,6 +182,76 @@ class SubsystemGeneratorViewModelTest {
     }
 
     @Test
+    fun `saved subsystem removal is hash bound recoverable and preserves source`() {
+        val root = Files.createTempDirectory("ares-subsystem-removal").toFile()
+        val generator = FakeGenerator()
+        val source = root.resolve("TeamCode/src/main/java/example/IndexerSubsystem.kt").apply {
+            parentFile.mkdirs()
+            writeText("// ARES OWNERSHIP: USER-OWNED\nclass IndexerSubsystem")
+        }
+        val repository = SubsystemProjectRepository()
+        val saved = repository.save(root.path, minimalSubsystem("Indexer"))
+        val viewModel = SubsystemGeneratorViewModel(
+            root.path,
+            League.FTC,
+            documents = AresProjectDocuments(subsystems = repository),
+            projectGenerator = generator,
+        )
+
+        viewModel.requestRemoveSubsystem()
+        val request = viewModel.state.value.pendingRemoval
+        assertTrue(request?.persisted == true)
+        assertEquals(saved.contentHash, request?.contentHash)
+        assertTrue(request?.recoveryPath?.startsWith(".ares/recovery/subsystems/indexer/") == true)
+
+        viewModel.confirmRemoveSubsystem()
+
+        assertFalse(root.resolve(".ares/subsystems/indexer.aressubsystem").exists())
+        assertTrue(root.resolve(request!!.recoveryPath!!).isFile)
+        assertTrue(source.isFile, "Removing metadata must never remove user-owned or starter source")
+        assertTrue(viewModel.state.value.documents.isEmpty())
+        assertNull(viewModel.state.value.draft)
+        assertEquals(root.canonicalPath, generator.projectPath)
+        viewModel.close()
+    }
+
+    @Test
+    fun `subsystem removal refuses a descriptor changed after review`() {
+        val root = Files.createTempDirectory("ares-subsystem-stale-removal").toFile()
+        val repository = SubsystemProjectRepository()
+        repository.save(root.path, minimalSubsystem("Indexer"))
+        val viewModel = SubsystemGeneratorViewModel(
+            root.path,
+            League.FTC,
+            documents = AresProjectDocuments(subsystems = repository),
+        )
+
+        viewModel.requestRemoveSubsystem()
+        repository.save(root.path, minimalSubsystem("Indexer").copy(displayName = "Changed elsewhere"))
+        viewModel.confirmRemoveSubsystem()
+
+        assertTrue(root.resolve(".ares/subsystems/indexer.aressubsystem").isFile)
+        assertTrue(viewModel.state.value.status.orEmpty().contains("changed after review", ignoreCase = true))
+        assertNull(viewModel.state.value.pendingRemoval)
+        viewModel.close()
+    }
+
+    @Test
+    fun `unsaved subsystem removal discards only the draft`() {
+        val root = Files.createTempDirectory("ares-unsaved-subsystem-removal").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+
+        viewModel.requestRemoveSubsystem()
+        assertFalse(viewModel.state.value.pendingRemoval!!.persisted)
+        viewModel.confirmRemoveSubsystem()
+
+        assertTrue(viewModel.state.value.documents.isEmpty())
+        assertNull(viewModel.state.value.draft)
+        assertFalse(root.resolve(".ares/subsystems").exists())
+        viewModel.close()
+    }
+
+    @Test
     fun `capability template selection creates a safe explicit draft`() {
         val root = Files.createTempDirectory("ares-subsystem-template").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
@@ -286,6 +356,23 @@ class SubsystemGeneratorViewModelTest {
     }
 
     @Test
+    fun `one novice action saves the descriptor and creates missing starter files`() {
+        val root = Files.createTempDirectory("ares-subsystem-save-and-create").toFile()
+        val generator = FakeGenerator()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC, projectGenerator = generator)
+        val draft = requireNotNull(viewModel.state.value.draft?.document)
+
+        viewModel.generate()
+
+        assertFalse(viewModel.state.value.dirty)
+        assertTrue(root.resolve(".ares/subsystems/${draft.documentId}.aressubsystem").isFile)
+        assertEquals(root.canonicalPath, generator.projectPath)
+        assertEquals(League.FTC, generator.league)
+        assertNull(generator.replacementToken)
+        viewModel.close()
+    }
+
+    @Test
     fun `changed starter requires a structured diff and explicit confirmation`() {
         val root = Files.createTempDirectory("ares-subsystem-starter-diff").toFile()
         val generator = FakeGenerator()
@@ -317,6 +404,8 @@ class SubsystemGeneratorViewModelTest {
 
         viewModel.confirmStarterReplacement()
         assertEquals(root.canonicalPath, generator.projectPath)
+        assertEquals(viewModel.state.value.starterConfirmationToken, null)
+        assertTrue(generator.replacementToken?.isNotBlank() == true)
         viewModel.close()
     }
 

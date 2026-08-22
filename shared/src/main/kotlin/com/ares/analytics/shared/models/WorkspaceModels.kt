@@ -35,7 +35,7 @@ enum class DriveDestinationType {
 /**
  * Stable, workspace-scoped Google Drive destination.
  *
- * The OAuth client identifies ARES Analytics; it does not own this data. Google remains
+ * The OAuth client identifies ARES Robotics Studio; it does not own this data. Google remains
  * authoritative for account identity, ownership, sharing, and write permissions. The root ID
  * is persisted so cloud code never searches a user's unrelated Drive files.
  */

@@ -1,10 +1,10 @@
-# ARES Analytics architecture
+# ARES Robotics Studio architecture
 
-This document describes the implemented architecture of ARES Analytics. It is intended for maintainers changing telemetry ingestion, persistence, replay, analytics, UI state, or the cloud gateway.
+This document describes the implemented architecture of ARES Robotics Studio. It is intended for maintainers changing telemetry ingestion, persistence, replay, analytics, UI state, or the cloud gateway.
 
 ## 1. System boundary
 
-ARES Analytics is the laptop-side member of the ARES robotics workspace:
+ARES Robotics Studio is the laptop-side member of the ARES robotics workspace:
 
 ```text
 ARESLib-Kotlin                     ARES-FTC / ARES-FRC
@@ -13,7 +13,7 @@ ARESLib-Kotlin                     ARES-FTC / ARES-FRC
           +------------- NT4 --------------+
                          |
                          v
-                 ARES Analytics app
+                 ARES Robotics Studio app
                     |           |
                local DuckDB   local files
                     |           |

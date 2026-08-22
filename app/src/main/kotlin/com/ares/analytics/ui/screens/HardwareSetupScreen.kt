@@ -169,7 +169,7 @@ private fun CommissioningGuide(
             HorizontalDivider(color = AresBorder)
             Text("Safely check motor position and direction", color = AresTextPrimary, fontWeight = FontWeight.Bold)
             Text(
-                "ARES Analytics never pulses a physical motor from this screen. On the Driver Station, select the TeleOp named ARES Drivetrain Diagnostic. It is hold-to-run and uses the generated names and directions below.",
+                "ARES Robotics Studio never pulses a physical motor from this screen. On the Driver Station, select the TeleOp named ARES Drivetrain Diagnostic. It is hold-to-run and uses the generated names and directions below.",
                 color = AresTextSecondary,
                 fontSize = 12.sp,
                 lineHeight = 18.sp,

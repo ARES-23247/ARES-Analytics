@@ -10,6 +10,9 @@ class SubsystemProjectRepository : VersionedProjectDocumentStore<SubsystemDocume
     historyName = "subsystems",
     extension = "aressubsystem",
 ) {
+    fun file(projectPath: String, documentId: String) =
+        resolveProjectPath(projectPath, ".ares/subsystems/${ProjectDocumentId(documentId).value}.aressubsystem")
+
     override fun encode(document: SubsystemDocument): String = SubsystemDocumentCodec.encode(document)
     override fun decode(json: String): SubsystemDocument = SubsystemDocumentCodec.decode(json)
     override fun contentHash(document: SubsystemDocument): String = SubsystemDocumentCodec.contentHash(document)

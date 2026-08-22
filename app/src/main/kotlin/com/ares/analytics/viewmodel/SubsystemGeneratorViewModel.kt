@@ -9,6 +9,7 @@ import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentKind
+import com.ares.analytics.viewmodel.project.ProjectDocumentRemovalPlan
 import com.areslib.codegen.GeneratedSubsystemSourceSet
 import com.areslib.codegen.SubsystemArtifact
 import com.areslib.codegen.SubsystemArtifactGroup
@@ -86,6 +87,18 @@ data class SubsystemProblem(
     val severity: SubsystemProblemSeverity,
     val path: String,
     val message: String,
+)
+
+/** Review model for a whole-subsystem removal. Kotlin source is intentionally never included. */
+data class SubsystemRemovalRequest(
+    val documentId: String,
+    val displayName: String,
+    val persisted: Boolean,
+    val contentHash: String? = null,
+    val canonicalPath: String? = null,
+    val recoveryPath: String? = null,
+    val sourceFilesPreserved: List<String> = emptyList(),
+    val discardsUnsavedChanges: Boolean = false,
 )
 
 data class SubsystemPreviewFile(
@@ -315,6 +328,7 @@ data class SubsystemGeneratorState(
     val aiProposal: SubsystemAiProposalReview? = null,
     val aiProposalError: String? = null,
     val showTemplatePicker: Boolean = false,
+    val pendingRemoval: SubsystemRemovalRequest? = null,
 ) {
     val canSave: Boolean
         get() = dirty && loadError == null && problems.none { it.severity == SubsystemProblemSeverity.ERROR }
@@ -1205,6 +1219,117 @@ class SubsystemGeneratorViewModel(
                 }
             }
             .onFailure { error -> _state.update { it.copy(status = error.message ?: "Subsystem could not be saved.") } }
+    }
+
+    fun requestRemoveSubsystem() {
+        val current = _state.value
+        val draft = current.draft?.document ?: return
+        val root = runCatching { File(current.projectPath).canonicalFile }.getOrNull()
+        val canonicalFile = runCatching { documents.subsystems.file(current.projectPath, draft.documentId) }
+            .getOrElse { error ->
+                _state.update { it.copy(status = error.message ?: "The subsystem location is invalid.") }
+                return
+            }
+        val plan: ProjectDocumentRemovalPlan? = if (canonicalFile.isFile) {
+            runCatching { documents.subsystems.removalPlan(current.projectPath, draft.documentId) }
+                .getOrElse { error ->
+                    _state.update {
+                        it.copy(status = error.message ?: "The saved subsystem could not be reviewed for removal.")
+                    }
+                    return
+                }
+        } else null
+        _state.update { state ->
+            state.copy(
+                pendingRemoval = SubsystemRemovalRequest(
+                    documentId = draft.documentId,
+                    displayName = draft.displayName,
+                    persisted = plan != null,
+                    contentHash = plan?.contentHash,
+                    canonicalPath = plan?.currentFile?.projectRelativeTo(root),
+                    recoveryPath = plan?.recoveryFile?.projectRelativeTo(root),
+                    sourceFilesPreserved = draft.implementation.sourceFiles.sorted(),
+                    discardsUnsavedChanges = current.dirty,
+                ),
+                status = null,
+            )
+        }
+    }
+
+    fun cancelRemoveSubsystem() = _state.update { it.copy(pendingRemoval = null) }
+
+    fun confirmRemoveSubsystem() {
+        val current = _state.value
+        val request = current.pendingRemoval ?: return
+        if (!request.persisted) {
+            removeDocumentFromSession(request.documentId, "Discarded the unsaved ${request.displayName} draft.")
+            return
+        }
+        val expectedHash = request.contentHash ?: return
+        runCatching {
+            documents.subsystems.remove(current.projectPath, request.documentId, expectedHash)
+        }.onSuccess { removed ->
+            val root = File(current.projectPath).canonicalFile
+            removeDocumentFromSession(
+                request.documentId,
+                "Removed ${removed.displayName}. Its descriptor is recoverable at ${removed.recoveryFile.relativeTo(root).invariantSeparatorsPath}; Kotlin source was preserved.",
+            )
+            projectGenerator?.generateAresProject(current.projectPath, current.league)
+            scope.launch {
+                runCatching {
+                    checkpointRecorder.checkpoint(
+                        current.projectPath,
+                        "Removed ${removed.displayName} subsystem",
+                        setOf(
+                            removed.removedFile.relativeTo(root).invariantSeparatorsPath,
+                            removed.recoveryFile.relativeTo(root).invariantSeparatorsPath,
+                        ),
+                    )
+                }.onFailure { failure ->
+                    _state.update {
+                        it.copy(status = "Subsystem removed safely, but automatic Project History checkpoint failed: ${failure.message}")
+                    }
+                }
+            }
+        }.onFailure { error ->
+            _state.update {
+                it.copy(
+                    pendingRemoval = null,
+                    status = error.message ?: "The subsystem could not be removed.",
+                )
+            }
+        }
+    }
+
+    private fun removeDocumentFromSession(documentId: String, message: String) {
+        aiProposalGeneration++
+        _state.update { current ->
+            val remaining = current.documents.filterNot { it.documentId == documentId }
+            val next = remaining.firstOrNull()
+            current.copy(
+                documents = remaining,
+                selectedDocumentId = next?.documentId,
+                draft = next?.let(::SubsystemEditorDraft),
+                selectedHardwareUid = null,
+                selectedFieldUid = null,
+                selectedLoopUid = null,
+                selectedInterlockId = null,
+                selectedTuningParameterUid = null,
+                activeStage = SubsystemBuilderStage.PURPOSE,
+                visitedStages = setOf(SubsystemBuilderStage.PURPOSE),
+                selectedTemplate = next?.template ?: current.selectedTemplate,
+                dirty = false,
+                pendingRemoval = null,
+                status = message,
+                aiProposalInProgress = false,
+                aiProposal = null,
+                aiProposalError = null,
+            ).revalidated()
+        }
+    }
+
+    private fun File.projectRelativeTo(root: File?): String? = root?.let { projectRoot ->
+        runCatching { relativeTo(projectRoot).invariantSeparatorsPath }.getOrNull()
     }
 
     fun generate() {

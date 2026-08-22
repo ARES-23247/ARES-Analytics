@@ -231,7 +231,7 @@ class RobotProjectTemplateService(
                     }
                     val actualHash = sha256(temporary)
                     check(actualHash == template.archiveSha256) {
-                        "The installer-bundled starter did not match its reviewed SHA-256. Reinstall ARES Analytics before creating a project."
+                        "The installer-bundled starter did not match its reviewed SHA-256. Reinstall ARES Robotics Studio before creating a project."
                     }
                 }
                 return cacheFile to RobotProjectTemplateSource.VERIFIED_BUNDLED
@@ -457,25 +457,25 @@ class RobotProjectTemplateService(
 
         val OFFICIAL_PROJECT_TEMPLATES: List<RobotProjectTemplate> = listOf(
             RobotProjectTemplate(
-                id = "ares-ftc-starter-9.7.0",
+                id = "ares-ftc-starter-9.8.0",
                 displayName = "ARES FTC Starter",
                 league = League.FTC,
-                aresVersion = "9.7.0",
-                revision = "d81bf7bde2395f33f6f273e969fd2116ad23ae01",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.7.0/ARES-FTC-Starter-9.7.0.zip",
-                archiveSha256 = "f2ab2d04f2a97195b61feb7931c0690a938a8260960868fbf0dc14252c74b865",
-                bundledResourcePath = "/project-templates/ARES-FTC-Starter-9.7.0.zip",
+                aresVersion = "9.8.0",
+                revision = "dc8fe3f8598496564191719ce94a4b85abbe144b",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.8.0/ARES-FTC-Starter-9.8.0.zip",
+                archiveSha256 = "2d2c0cb4b337066d6b4d9f3d16e48ce84cd42a65968b2e1e2d972aa4aa4e8428",
+                bundledResourcePath = "/project-templates/ARES-FTC-Starter-9.8.0.zip",
                 deploymentPolicy = RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
             ),
             RobotProjectTemplate(
-                id = "ares-frc-starter-9.7.0",
+                id = "ares-frc-starter-9.8.0",
                 displayName = "ARES FRC Starter",
                 league = League.FRC,
-                aresVersion = "9.7.0",
-                revision = "54d64de2cfd5c383f03906cbf741c21759eee05d",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FRC-Starter/releases/download/v9.7.0/ARES-FRC-Starter-9.7.0.zip",
-                archiveSha256 = "fd823a8b626506696f42e60831acffeba99887f0147bbdcb30fe7e4ff8d6b3f8",
-                bundledResourcePath = "/project-templates/ARES-FRC-Starter-9.7.0.zip",
+                aresVersion = "9.8.0",
+                revision = "d2863b0b16cac38450d82e3028a5df54f0026297",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FRC-Starter/releases/download/v9.8.0/ARES-FRC-Starter-9.8.0.zip",
+                archiveSha256 = "db2da29a3b5d30e5c8c4d213d37e07c4f111182dd978670e5010ea797dd29467",
+                bundledResourcePath = "/project-templates/ARES-FRC-Starter-9.8.0.zip",
                 deploymentPolicy = RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
             ),
         )

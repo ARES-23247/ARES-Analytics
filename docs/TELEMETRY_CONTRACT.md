@@ -1,6 +1,6 @@
 # ARES telemetry contract
 
-This is the integration contract between ARESLib, the FTC/FRC season repositories, the simulator, and ARES Analytics. Update it in the same change as any topic rename or type change.
+This is the integration contract between ARESLib, the FTC/FRC season repositories, the simulator, and ARES Robotics Studio. Update it in the same change as any topic rename or type change.
 
 ## Wire protocol
 
