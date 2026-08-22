@@ -49,6 +49,30 @@ class ProjectIdentityViewModelTest {
     }
 
     @Test
+    fun `metadata cannot be created in a folder without robot source`() = runTest {
+        val project = Files.createTempDirectory("ares-project-identity-empty-").toFile()
+        try {
+            val viewModel = ProjectIdentityViewModel(
+                scope = this,
+                ioDispatcher = StandardTestDispatcher(testScheduler),
+            )
+            viewModel.load(workspace(project).copy(robotLengthMeters = 0.45, robotWidthMeters = 0.43))
+            advanceUntilIdle()
+
+            val state = viewModel.state.value
+            assertNotNull(state.projectSourceError)
+            assertTrue(state.projectSourceError.orEmpty().contains("not a complete FTC robot project"))
+            assertFalse(state.canReview)
+
+            viewModel.review()
+            assertNull(viewModel.state.value.proposal)
+            assertFalse(File(project, ".ares/project.json").exists())
+        } finally {
+            project.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `review is read only and apply creates exactly the previewed project identity`() = runTest {
         withProject { project ->
             val repository = ProjectMetadataRepository()
@@ -270,6 +294,14 @@ class ProjectIdentityViewModelTest {
     private suspend fun TestScope.withProject(block: suspend TestScope.(File) -> Unit) {
         val project = Files.createTempDirectory("ares-project-identity-").toFile()
         try {
+            File(project, "TeamCode/src/main/java/ExampleRobot.kt").apply {
+                parentFile.mkdirs()
+                writeText("class ExampleRobot")
+            }
+            File(project, "src/main/kotlin/ExampleRobot.kt").apply {
+                parentFile.mkdirs()
+                writeText("class ExampleRobot")
+            }
             block(project)
         } finally {
             project.deleteRecursively()

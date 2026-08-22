@@ -249,10 +249,32 @@ val nestedAresRepositoryUri = providers.gradleProperty("aresRepository").map { c
     }
     configuredUri.toASCIIString()
 }
+
+// Automated desktop walkthroughs must never persist throwaway workspaces, credentials, or
+// learning progress into the developer's real home directory. This is opt-in so ordinary
+// `:app:run` keeps the installed application's normal data. Example:
+//   -ParesIsolatedDesktopHome=build/ui-test-home
+val isolatedDesktopHome = providers.gradleProperty("aresIsolatedDesktopHome").map { configured ->
+    rootProject.file(configured).canonicalFile
+}
 tasks.withType<JavaExec>().configureEach {
     systemProperty("ares.version", rootProject.extra["aresVersion"] as String)
     nestedAresRepositoryUri.orNull?.let { uri ->
         systemProperty("ares.repository.uri", uri)
+    }
+    if (name == "run") {
+        isolatedDesktopHome.orNull?.let { directory ->
+            doFirst {
+                val realHome = File(System.getProperty("user.home")).canonicalFile
+                require(directory != realHome) {
+                    "-ParesIsolatedDesktopHome must not point at the real user home"
+                }
+                require(directory.exists() || directory.mkdirs()) {
+                    "Could not create isolated desktop home: ${directory.absolutePath}"
+                }
+            }
+            systemProperty("user.home", directory.absolutePath)
+        }
     }
 }
 
