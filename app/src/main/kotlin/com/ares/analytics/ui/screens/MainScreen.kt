@@ -198,7 +198,8 @@ fun MainScreen(services: ServiceRegistry) {
         PathPlannerViewModel(
             scope = scope,
             nt4ClientService = services.nt4ClientService,
-            projectGenerator = services.processManagerService
+            projectGenerator = services.processManagerService,
+            checkpointRecorder = services.projectVersionControlService,
         )
     }
     val fieldEditorViewModel = remember(currentConfig.id) {
@@ -220,7 +221,8 @@ fun MainScreen(services: ServiceRegistry) {
             nt4ClientService = services.nt4ClientService,
             scope = scope,
             repository = services.tuningProfileRepository,
-            proposalInbox = services.tuningProposalInbox
+            proposalInbox = services.tuningProposalInbox,
+            checkpointRecorder = services.projectVersionControlService,
         )
     }
     LaunchedEffect(currentConfig.league) {
@@ -262,6 +264,7 @@ fun MainScreen(services: ServiceRegistry) {
             projectPath = currentConfig.projectPath,
             league = currentConfig.league,
             projectGenerator = services.processManagerService,
+            checkpointRecorder = services.projectVersionControlService,
             designAssistant = com.ares.analytics.service.ControlsDesignAssistant { current, context, request ->
                 services.syncEngineService.requestControlsDesignProposal(current, context, request)
             },
@@ -288,6 +291,7 @@ fun MainScreen(services: ServiceRegistry) {
             projectPath = currentConfig.projectPath,
             league = currentConfig.league,
             projectGenerator = services.processManagerService,
+            checkpointRecorder = services.projectVersionControlService,
             designAssistant = com.ares.analytics.service.SubsystemDesignAssistant { current, request ->
                 services.syncEngineService.requestSubsystemDesignProposal(current, request)
             },
@@ -305,6 +309,7 @@ fun MainScreen(services: ServiceRegistry) {
             league = currentConfig.league,
             scope = scope,
             repository = services.drivebaseProjectRepository,
+            checkpointRecorder = services.projectVersionControlService,
             designAssistant = com.ares.analytics.service.DrivebaseDesignAssistant { current, request ->
                 services.syncEngineService.requestDrivebaseDesignProposal(current, request)
             },
@@ -314,6 +319,7 @@ fun MainScreen(services: ServiceRegistry) {
         SuperstructureStudioViewModel(
             projectPath = currentConfig.projectPath,
             scope = scope,
+            checkpointRecorder = services.projectVersionControlService,
         )
     }
     val projectBackupViewModel = remember(currentConfig.projectPath) {

@@ -237,6 +237,13 @@ class ReplayEngineService(
         if (timestamps.isEmpty()) return
         if (_state.value == ReplayState.PLAYING) return
 
+        // A student pressing Play after scrubbing to the end expects a replay, not a transient
+        // PLAYING state that immediately falls back to STOPPED on the worker thread.
+        if (currentPlayheadMs >= endTimestampMs) {
+            currentPlayheadMs = startTimestampMs
+            updateFrameAtPlayhead()
+        }
+
         _state.value = ReplayState.PLAYING
         replayJob = serviceScope.launch {
             var lastRealTime = clock.nowMs()

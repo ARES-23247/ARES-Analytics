@@ -3,8 +3,11 @@ package com.ares.analytics.service.tuning
 import com.areslib.tuning.*
 import java.io.File
 import java.nio.file.Files
+import kotlinx.coroutines.runBlocking
 import kotlin.test.*
+import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.viewmodel.nextTuningRequestNonce
+import com.ares.analytics.viewmodel.recordTuningPromotionCheckpoint
 
 class TuningProfileAuthoringTest {
     private val gain = declaration("drive.translation.kp", "drive.translation.kP", TuningApplyPolicy.LIVE_SAFE, 2.0, 0.0, 50.0)
@@ -149,6 +152,30 @@ class TuningProfileAuthoringTest {
         assertTrue(File(root, ".ares/history/tuning/${competition.uid}/${beforeHash.take(16)}.arestuning").isFile)
         assertEquals(promoted, TuningProfileDocumentCodec.decode(canonical.readText(), declarations))
         assertFalse(File(canonical.parentFile, ".${canonical.name}.tmp").exists())
+    }
+
+    @Test
+    fun `reviewed promotion checkpoints canonical profile and immutable tuning history only`() = runBlocking {
+        var capturedProject = ""
+        var capturedLabel = ""
+        var capturedPaths = emptySet<String>()
+        val recorder = ProjectCheckpointRecorder { projectPath, label, pathScopes ->
+            capturedProject = projectPath
+            capturedLabel = label
+            capturedPaths = pathScopes
+            null
+        }
+
+        recordTuningPromotionCheckpoint(
+            recorder = recorder,
+            projectPath = "C:/robot",
+            profileDisplayName = "Competition",
+            reviewSummary = "Validated in the simulator",
+        )
+
+        assertEquals("C:/robot", capturedProject)
+        assertEquals("Promoted Competition tuning profile: Validated in the simulator", capturedLabel)
+        assertEquals(setOf(".ares/tuning", ".ares/history/tuning"), capturedPaths)
     }
 
     @Test

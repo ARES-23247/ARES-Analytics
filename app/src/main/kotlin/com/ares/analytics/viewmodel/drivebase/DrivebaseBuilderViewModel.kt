@@ -3,6 +3,7 @@ package com.ares.analytics.viewmodel.drivebase
 import com.ares.analytics.service.DrivebaseDesignAssistant
 import com.ares.analytics.service.DrivebaseDesignProposal
 import com.ares.analytics.service.drivebase.*
+import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.shared.League
 import com.areslib.drivetrain.DrivetrainDocumentCodec
 import kotlinx.coroutines.CoroutineScope
@@ -114,6 +115,7 @@ class DrivebaseBuilderViewModel(
     private val scope: CoroutineScope,
     private val repository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
     private val designAssistant: DrivebaseDesignAssistant? = null,
+    private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
 ) {
     private val _state = MutableStateFlow(DrivebaseBuilderState(projectPath, projectId, league))
     val state: StateFlow<DrivebaseBuilderState> = _state.asStateFlow()
@@ -451,7 +453,20 @@ class DrivebaseBuilderViewModel(
         runCatching {
             withContext(Dispatchers.IO) { repository.saveReviewed(state.projectPath, currentHash, state.draft) }
         }.fold(
-            onSuccess = { saved -> _state.update { it.copy(saved = saved, draft = saved, saveReview = null, status = "Saved reviewed drivebase ${saved.canonical?.let(com.areslib.drivetrain.DrivetrainDocumentCodec::contentHash)?.take(12)}. No robot or vendor source was written.", error = null, dirty = false) } },
+            onSuccess = { saved ->
+                _state.update { it.copy(saved = saved, draft = saved, saveReview = null, status = "Saved reviewed drivebase ${saved.canonical?.let(com.areslib.drivetrain.DrivetrainDocumentCodec::contentHash)?.take(12)}. No robot or vendor source was written.", error = null, dirty = false) }
+                scope.launch {
+                    runCatching {
+                        checkpointRecorder.checkpoint(
+                            state.projectPath,
+                            "Saved ${saved.displayName} drivebase",
+                            setOf(".ares/drivetrains", ".ares/history/drivetrains", ".ares/tuning"),
+                        )
+                    }.onFailure { failure ->
+                        _state.update { it.copy(status = "Drivebase saved, but automatic Project History checkpoint failed: ${failure.message}") }
+                    }
+                }
+            },
             onFailure = { failure -> _state.update { it.copy(error = failure.message ?: "Could not save the drivebase." ) } }
         )
     }

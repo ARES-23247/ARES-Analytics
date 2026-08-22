@@ -2,6 +2,7 @@ package com.ares.analytics.viewmodel
 
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.tuning.*
+import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -77,7 +78,8 @@ class TuningViewModel(
     val nt4ClientService: Nt4ClientService,
     private val scope: CoroutineScope,
     private val repository: TuningProfileRepository = TuningProfileRepository(),
-    proposalInbox: TuningProposalInbox? = null
+    proposalInbox: TuningProposalInbox? = null,
+    private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
 ) {
     private var requestNonce = 0L
     /** Serializes multi-parameter live tests so every Requested value receives a unique nonce. */
@@ -316,9 +318,36 @@ class TuningViewModel(
             .fold(onSuccess = { promoted ->
                 val profiles = state.profiles.map { if (it.profileId == promoted.profileId) promoted else it }
                 _state.update { it.copy(profiles = profiles, proposals = emptyMap(), proposalProvenance = emptyMap(), review = null, reviewerName = "", reviewSummary = "", saveStatus = "Promoted canonical profile atomically. Robot values were not pushed.", errorMessage = null) }
+                scope.launch {
+                    runCatching {
+                        recordTuningPromotionCheckpoint(
+                            recorder = checkpointRecorder,
+                            projectPath = state.projectPath,
+                            profileDisplayName = promoted.displayName,
+                            reviewSummary = review.reviewSummary,
+                        )
+                    }.onFailure { failure ->
+                        _state.update {
+                            it.copy(
+                                saveStatus = "Tuning profile promoted, but automatic Project History checkpoint failed: ${failure.message}",
+                            )
+                        }
+                    }
+                }
             }, onFailure = { failure -> _state.update { it.copy(errorMessage = failure.message ?: "Profile promotion failed.") } })
     }
 }
+
+internal suspend fun recordTuningPromotionCheckpoint(
+    recorder: ProjectCheckpointRecorder,
+    projectPath: String,
+    profileDisplayName: String,
+    reviewSummary: String,
+) = recorder.checkpoint(
+    projectPath = projectPath,
+    label = "Promoted $profileDisplayName tuning profile: $reviewSummary",
+    pathScopes = setOf(".ares/tuning", ".ares/history/tuning"),
+)
 
 private const val MAX_SAFE_REQUEST_NONCE = 9_007_199_254_740_991L
 

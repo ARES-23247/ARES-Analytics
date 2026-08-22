@@ -6,6 +6,7 @@ import com.ares.analytics.service.AresProjectGenerator
 import com.ares.analytics.service.ControlsDesignAssistant
 import com.ares.analytics.service.ControlsDesignContext
 import com.ares.analytics.service.ControlsDesignProposal
+import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.areslib.catalog.ActionDescriptor
@@ -47,6 +48,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import java.io.File
 import kotlin.math.abs
 
 enum class ControlsProblemSeverity { INFO, WARNING, ERROR }
@@ -141,6 +143,7 @@ class ControlsEditorViewModel(
     private val documents: AresProjectDocuments = AresProjectDocuments(),
     private val projectGenerator: AresProjectGenerator? = null,
     private val designAssistant: ControlsDesignAssistant? = null,
+    private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
 ) : AutoCloseable {
     private val targetPlatform = when (league) {
         League.FTC -> ControllerInputPlatform.FTC
@@ -645,13 +648,20 @@ class ControlsEditorViewModel(
             return
         }
         runCatching {
+            val root = File(current.projectPath).canonicalFile
+            val checkpointPaths = linkedSetOf<String>()
             current.profiles.filter { it.documentId in current.dirtyProfileIds }.forEach { profile ->
-                documents.controllers.save(current.projectPath, profile)
+                val saved = documents.controllers.save(current.projectPath, profile)
+                checkpointPaths += saved.currentFile.relativeTo(root).invariantSeparatorsPath
+                checkpointPaths += saved.historyFile.relativeTo(root).invariantSeparatorsPath
             }
             current.schemes.filter { it.documentId in current.dirtySchemeIds }.forEach { scheme ->
-                documents.controls.save(current.projectPath, scheme)
+                val saved = documents.controls.save(current.projectPath, scheme)
+                checkpointPaths += saved.currentFile.relativeTo(root).invariantSeparatorsPath
+                checkpointPaths += saved.historyFile.relativeTo(root).invariantSeparatorsPath
             }
-        }.onSuccess {
+            checkpointPaths
+        }.onSuccess { checkpointPaths ->
             reload()
             _state.update {
                 it.copy(
@@ -675,6 +685,17 @@ class ControlsEditorViewModel(
                         )
                     }
                     generator.generateAresProject(current.projectPath, current.league)
+                }
+            }
+            scope.launch {
+                runCatching {
+                    checkpointRecorder.checkpoint(
+                        current.projectPath,
+                        "Saved controller bindings",
+                        checkpointPaths,
+                    )
+                }.onFailure { failure ->
+                    _state.update { it.copy(status = "Controls saved, but automatic Project History checkpoint failed: ${failure.message}") }
                 }
             }
         }.onFailure { error ->

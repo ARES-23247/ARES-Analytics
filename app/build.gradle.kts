@@ -325,7 +325,10 @@ compose.desktop {
             // Gson constructs immutable Kotlin project documents through sun.misc.Unsafe when
             // they do not expose a no-argument JVM constructor. jlink cannot discover this
             // reflective dependency, so the module must remain explicit in every native image.
-            modules("java.sql", "java.naming", "jdk.unsupported")
+            // JGit's pack window cache publishes an optional JMX bean on the first real fetch.
+            // Packaged project parsing does not exercise that path, so keep java.management
+            // explicit to prevent a fetch-only NoClassDefFoundError in the trimmed runtime.
+            modules("java.sql", "java.naming", "java.management", "jdk.unsupported")
 
             windows {
                 msiPackageVersion = aresAnalyticsVersion

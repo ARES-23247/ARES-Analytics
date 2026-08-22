@@ -9,7 +9,7 @@ repository. This feature is independent of Google Drive session/log synchronizat
 - A name and email for the project history record.
 - A GitHub account only if the team wants an off-computer backup.
 
-Open **Profile & Settings → Project Backup**.
+Open **Profile & Settings → Project History & Backup**.
 
 1. Choose **Start local history**. This creates a standard `.git` directory inside the selected
    robot project and does not upload anything.
@@ -19,6 +19,22 @@ Open **Profile & Settings → Project Backup**.
 4. Choose a personal account or team organization, then choose a private repository that a team
    owner has approved for the ARES GitHub App. GitHub backup is allowed only from a clean saved
    version.
+5. Use **Check for newer version** when another computer or teammate may have updated the GitHub
+   copy. ARES shows the exact file list before enabling **Restore this reviewed version**.
+
+The recent-versions timeline shows the saved description, author, time, and a short version ID.
+Students do not need to understand branches or Git commands to use it.
+
+After local history is enabled, the primary zero-code editors create narrowly scoped automatic
+checkpoints after a successful canonical save. Subsystem Builder, Controller Bindings, Drivebase
+Builder, Superstructure Studio, Autonomous Routine Builder, and reviewed Tuning profile promotion
+commit only the files that editor just saved. Unrelated hand-written or mentor-edited files remain
+unsaved and visible for review.
+
+Use **Export portable project archive** to create a `.aresproject.zip` for transfer to another
+computer. The export includes canonical documents and source while excluding Git internals, build
+caches, machine-local settings, and known credential paths. ARES never silently replaces an
+existing archive.
 
 A student does not paste a token, install Git, or configure SSH. For a team repository, an
 organization owner creates the empty private repository and installs ARES for that repository once;
@@ -36,10 +52,20 @@ students then see it in the destination picker when their GitHub account has acc
   block a save if they are not already ignored.
 - Push is non-destructive. A non-fast-forward or permission conflict fails visibly instead of
   rewriting remote history.
+- Restore is fast-forward only. ARES rejects divergent histories, sensitive paths, links/special
+  files, non-canonical projects, and oversized unreviewed content. Immediately before a restore it
+  creates a local safety checkpoint that retains the previous commit.
+- The restore confirmation is bound to the exact local commit, remote commit, and reviewed file
+  list. If GitHub changes after preview, ARES requires a new review.
+- A prior restore can be undone from **Recent saved versions**. ARES previews the reverse file list,
+  requires confirmation, and preserves the version being left as another recovery point so the
+  operation is reversible.
 - Every sync rechecks the exact installation ID, repository ID, private visibility, and current
   write permission. Removed sharing or organization access fails closed.
 - **Change destination** removes only ARES's local remote metadata. **Sign out** deletes the saved
   app credential. Neither action deletes local versions or the GitHub repository.
+- If repository access is removed or the App installation is suspended, ARES keeps local history
+  unchanged and directs the user to restore App access and choose **Refresh destinations**.
 
 ## Administrator setup
 

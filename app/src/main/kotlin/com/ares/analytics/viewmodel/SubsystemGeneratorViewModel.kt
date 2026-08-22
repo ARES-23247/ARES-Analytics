@@ -5,6 +5,7 @@ import com.ares.analytics.service.AresProjectGenerator
 import com.ares.analytics.service.SubsystemDesignAssistant
 import com.ares.analytics.service.SubsystemDesignProposal
 import com.ares.analytics.service.sanitizeSubsystemDesignCandidate
+import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentKind
@@ -340,6 +341,7 @@ class SubsystemGeneratorViewModel(
     private val documents: AresProjectDocuments = AresProjectDocuments(),
     private val projectGenerator: AresProjectGenerator? = null,
     private val designAssistant: SubsystemDesignAssistant? = null,
+    private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
 ) : AutoCloseable {
     private val reviewGson = GsonBuilder().setPrettyPrinting().create()
     private val platform = when (league) {
@@ -1186,6 +1188,21 @@ class SubsystemGeneratorViewModel(
                     ).revalidated()
                 }
                 if (generateAfterSave) projectGenerator?.generateAresProject(current.projectPath, current.league)
+                scope.launch {
+                    runCatching {
+                        val root = File(current.projectPath).canonicalFile
+                        checkpointRecorder.checkpoint(
+                            current.projectPath,
+                            "Saved ${saved.document.displayName} subsystem",
+                            setOf(
+                                saved.currentFile.relativeTo(root).invariantSeparatorsPath,
+                                saved.historyFile.relativeTo(root).invariantSeparatorsPath,
+                            ),
+                        )
+                    }.onFailure { failure ->
+                        _state.update { it.copy(status = "Subsystem saved, but automatic Project History checkpoint failed: ${failure.message}") }
+                    }
+                }
             }
             .onFailure { error -> _state.update { it.copy(status = error.message ?: "Subsystem could not be saved.") } }
     }
