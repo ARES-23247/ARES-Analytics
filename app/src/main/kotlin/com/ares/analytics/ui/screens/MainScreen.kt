@@ -154,6 +154,7 @@ fun MainScreen(services: ServiceRegistry) {
                 services.syncEngineService,
                 services.googleDriveService,
                 services.robotProjectTemplateService,
+                services.managedToolchainService,
                 scope,
             ) { loaded ->
                 mainViewModel.onIntent(MainIntent.SaveConfig(loaded))
@@ -314,6 +315,9 @@ fun MainScreen(services: ServiceRegistry) {
             projectPath = currentConfig.projectPath,
             scope = scope,
         )
+    }
+    val projectBackupViewModel = remember(currentConfig.projectPath) {
+        ProjectBackupViewModel(services.projectVersionControlService, scope)
     }
     val hardwareSetupViewModel = remember(currentConfig.projectPath, currentConfig.league) {
         HardwareSetupViewModel(
@@ -1068,10 +1072,15 @@ fun MainScreen(services: ServiceRegistry) {
                             )
                             NavigationTarget.PROFILE -> ProfileScreen(
                                 viewModel = profileViewModel,
+                                managedToolchainService = services.managedToolchainService,
                                 config = currentConfig,
                                 onConfigChanged = { newConfig ->
                                     mainViewModel.onIntent(MainIntent.SaveConfig(newConfig))
                                 }
+                            )
+                            NavigationTarget.PROJECT_BACKUP -> ProjectBackupScreen(
+                                viewModel = projectBackupViewModel,
+                                projectPath = currentConfig.projectPath,
                             )
                             NavigationTarget.ADMIN -> AdminScreen(
                                 syncEngineService = services.syncEngineService,

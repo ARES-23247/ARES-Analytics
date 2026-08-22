@@ -895,7 +895,8 @@ class ProcessManagerService internal constructor(
                 val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
                 val userCmd = simulatorCommand?.takeIf { it.isNotBlank() }
                 val fatJarFile = File(projectRoot, "simulator/build/libs/simulator-all.jar")
-                val javaExe = File(System.getProperty("java.home"), "bin/${if (isWindows) "java.exe" else "java"}").path
+                val javaExe = ManagedToolchainPaths.javaExecutable()?.path
+                    ?: File(System.getProperty("java.home"), "bin/${if (isWindows) "java.exe" else "java"}").path
                 val cmd = when {
                     userCmd != null && isWindows -> listOf("cmd.exe", "/d", "/s", "/c", userCmd)
                     userCmd != null -> listOf("sh", "-c", userCmd)
@@ -980,6 +981,10 @@ class ProcessManagerService internal constructor(
     }
 
     private fun resolveAdbPath(): String {
+        ManagedToolchainPaths.resolveAndroidSdk()?.let { sdk ->
+            val executable = File(sdk, "platform-tools/${if (System.getProperty("os.name").contains("win", true)) "adb.exe" else "adb"}")
+            if (executable.isFile) return executable.absolutePath
+        }
         val platformTools = File(System.getenv("LOCALAPPDATA") ?: "", "Android/Sdk/platform-tools/adb.exe")
         if (platformTools.exists()) return platformTools.absolutePath
         val adbMac = File(System.getProperty("user.home"), "Library/Android/sdk/platform-tools/adb")
@@ -1159,6 +1164,7 @@ class ProcessManagerService internal constructor(
 
     private fun withAresRepositoryEnvironment(processBuilder: ProcessBuilder): ProcessBuilder =
         processBuilder.also { builder ->
+            ManagedToolchainPaths.configureEnvironment(builder)
             aresRepositoryFileUri?.let { uri ->
                 builder.environment()[ARES_REPOSITORY_GRADLE_ENVIRONMENT] = uri
             }

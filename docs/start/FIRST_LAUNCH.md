@@ -6,9 +6,10 @@ This guide gets one local robot workspace into ARES Analytics. It does not conne
 
 Have these ready:
 
-- JDK 17 or 21 if you plan to build robot code or run the local simulator. The installed desktop app
-  has its own runtime, so you can create a workspace, author projects, import logs, and analyze data
-  before installing robot build tools.
+- No separate Java installation is needed to open ARES Analytics. The installer includes the app
+  runtime. If a robot build needs a full JDK, setup can install a private verified JDK 21 for ARES
+  without changing system-wide Java settings. FTC Android tools and FRC WPILib remain explicit
+  vendor installations because of their size, licensing, and season-specific content.
 - Either a local robot project or a parent folder where ARES can create one.
 - Your team number, season, and robot name or ID.
 
@@ -40,13 +41,15 @@ For an existing project:
 2. At **Robot project folder**, select **Choose project**.
 3. Choose the repository root and read the green detection message, then select **Continue**.
 
-An existing selected folder usually contains `settings.gradle` or `settings.gradle.kts`. New-project
-download, SHA-256 verification, personalization, and publication occur only after the final review.
+An existing selected folder usually contains `settings.gradle` or `settings.gradle.kts`. Official
+installers already contain the exact FTC and FRC starter archives. SHA-256 verification,
+personalization, and publication occur only after the final review; a network download is only a
+verified recovery fallback when a developer build does not contain the resource.
 See [Create a robot project](CREATE_ROBOT_PROJECT.md) for the safety and recovery contract.
 
-The downloaded starters retain Team 23247 season hardware examples. They are usable for Robot
-Studio, tests, and local simulation. Physical deployment remains blocked because the season
-composition is not yet fully GUI-owned; a Hardware Setup review cannot remove that block.
+The starters are generic and simulation-first. They do not contain Team 23247 season mechanisms,
+field routines, or calibration values. Physical deployment remains blocked until the generated
+hardware map, safety settings, commissioning steps, and mentor review are complete.
 
 ### 2. Check the robot details
 
@@ -74,8 +77,9 @@ composition is not yet fully GUI-owned; a Hardware Setup review cannot remove th
 ### 4. Ready to finish
 
 1. Read the **Workspace summary**. Use **Back** if the project, robot, team/season, competition, or connection is wrong.
-2. Review **Robot build tools (optional)**. JDK 17 and 21 are supported. If it is unavailable, you can
-   finish setup now and install a supported JDK before using **Build** or **Local Simulator**.
+2. Review **Robot build tools (optional)**. If a full JDK is unavailable on Windows, choose
+   **Install JDK 21 for ARES**. You can also finish setup now and install build tools later from
+   **Profile & Settings**. This never changes the Java used by unrelated applications.
 3. Select **Create workspace**.
 
 After Dashboard opens, choose **Help & Learn → First mission**. This is the recommended
@@ -105,7 +109,7 @@ The sidebar shows labeled **NT4 on/off** and, for FTC, **ADB on/off** status. Th
 
 | What you see | What to do |
 | --- | --- |
-| **Robot build tools** needs attention | You may create the workspace and use local analysis now. Before building or simulating, install JDK 17 or 21, set `JAVA_HOME`, then select **Recheck**. |
+| **Robot build tools** needs attention | You may create the workspace and use local analysis now. Choose **Install JDK 21 for ARES**, or install the league vendor tools shown by the readiness card, then select **Recheck**. |
 | “Choose a folder that contains your robot project” | Browse to `ARES-FTC` or `ARES-FRC`, not their parent folder. |
 | The wrong competition was detected | Select the correct **Competition** (**FTC** or **FRC**) before creating the workspace, and tell a mentor if the project lacks or misstates `.ares-robot.json`. |
 | A team, season, or robot field is rejected | Use short, non-empty identifiers. Do not substitute a robot's IP address for its ID. |

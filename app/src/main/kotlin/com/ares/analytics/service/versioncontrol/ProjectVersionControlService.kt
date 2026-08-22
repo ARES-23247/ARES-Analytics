@@ -1,0 +1,653 @@
+package com.ares.analytics.service.versioncontrol
+
+import com.ares.analytics.BuildConfig
+import com.ares.analytics.shared.AppJson
+import com.google.gson.JsonParser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.lib.Constants
+import org.eclipse.jgit.transport.URIish
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
+import java.awt.Desktop
+import java.io.File
+import java.net.URI
+import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
+import java.time.Instant
+import java.util.Locale
+
+enum class ProjectChangeKind { ADDED, MODIFIED, DELETED, RENAMED, CONFLICT }
+
+data class ProjectChange(val path: String, val kind: ProjectChangeKind)
+
+data class ProjectBackupPlan(
+    val projectPath: String,
+    val initialized: Boolean,
+    val branch: String?,
+    val changes: List<ProjectChange>,
+    val blockedSensitivePaths: List<String>,
+    val lastCommit: String?,
+    val remoteUrl: String?,
+    val destination: GitHubBackupDestination?,
+    val confirmationToken: String?,
+) {
+    val canCommit: Boolean get() =
+        initialized && changes.isNotEmpty() && blockedSensitivePaths.isEmpty() && confirmationToken != null
+}
+
+sealed class GitHubConnectionState {
+    object Disconnected : GitHubConnectionState()
+    data class Unavailable(val message: String) : GitHubConnectionState()
+    data class AwaitingUser(
+        val userCode: String,
+        val verificationUri: String,
+        val expiresAtEpochSeconds: Long,
+    ) : GitHubConnectionState()
+    data class Connected(val login: String) : GitHubConnectionState()
+    data class Error(val message: String) : GitHubConnectionState()
+}
+
+@Serializable
+internal data class StoredGitHubAppCredential(
+    val schemaVersion: Int,
+    val accessToken: String,
+    val accessTokenExpiresAtEpochSeconds: Long,
+    val refreshToken: String,
+    val refreshTokenExpiresAtEpochSeconds: Long,
+    val login: String,
+)
+
+private class LegacyGitHubCredentialException : IllegalStateException()
+
+/**
+ * Review-first local Git history plus an optional permission-scoped GitHub App backup.
+ *
+ * JGit is embedded, so local history does not require a separate Git installation. GitHub App
+ * user tokens are protected outside the project and never appear in remotes or process arguments.
+ * Every synchronization revalidates the stable installation/repository identity and current
+ * private/write permissions before sending bytes.
+ */
+class ProjectVersionControlService internal constructor(
+    private val githubClientId: String = BuildConfig.GITHUB_APP_CLIENT_ID,
+    private val githubAppSlug: String = BuildConfig.GITHUB_APP_SLUG,
+    private val credentialStore: ProjectBackupCredentialStore = createProjectBackupCredentialStore(),
+    private val githubApi: GitHubProjectApi = DefaultGitHubProjectApi(),
+    private val browserLauncher: (String) -> Unit = { uri -> Desktop.getDesktop().browse(URI(uri)) },
+    private val pollDelay: suspend (Long) -> Unit = { milliseconds -> delay(milliseconds) },
+    private val epochSeconds: () -> Long = { Instant.now().epochSecond },
+    private val remotePusher: (Git, String) -> Unit = ::pushWithJGit,
+) {
+    private val githubMutex = Mutex()
+    private val _githubState = MutableStateFlow<GitHubConnectionState>(initialGitHubState())
+    val githubState: StateFlow<GitHubConnectionState> = _githubState.asStateFlow()
+
+    suspend fun inspect(projectPath: String): ProjectBackupPlan = withContext(Dispatchers.IO) {
+        buildPlan(requireProjectRoot(projectPath))
+    }
+
+    suspend fun initialize(projectPath: String, authorName: String, authorEmail: String): ProjectBackupPlan =
+        withContext(Dispatchers.IO) {
+            validateIdentity(authorName, authorEmail)
+            val root = requireProjectRoot(projectPath)
+            require(!File(root, ".git").exists()) { "This project already has local version history." }
+            Git.init().setDirectory(root).setInitialBranch("main").call().use { git ->
+                val config = git.repository.config
+                config.setString("user", null, "name", authorName.trim())
+                config.setString("user", null, "email", authorEmail.trim())
+                config.save()
+            }
+            buildPlan(root)
+        }
+
+    suspend fun commit(
+        projectPath: String,
+        expectedConfirmationToken: String,
+        message: String,
+        authorName: String,
+        authorEmail: String,
+    ): ProjectBackupPlan = withContext(Dispatchers.IO) {
+        validateIdentity(authorName, authorEmail)
+        require(message.trim().length in 3..120) { "Describe this saved version in 3 to 120 characters." }
+        val root = requireProjectRoot(projectPath)
+        val current = buildPlan(root)
+        require(current.canCommit) {
+            if (current.blockedSensitivePaths.isNotEmpty()) {
+                "Remove or ignore sensitive local files before saving a version: ${current.blockedSensitivePaths.joinToString()}."
+            } else {
+                "There are no reviewed project changes to save."
+            }
+        }
+        require(current.confirmationToken == expectedConfirmationToken) {
+            "The project changed after this preview. Review the updated file list before saving."
+        }
+        Git.open(root).use { git ->
+            val config = git.repository.config
+            config.setString("user", null, "name", authorName.trim())
+            config.setString("user", null, "email", authorEmail.trim())
+            config.save()
+            git.add().addFilepattern(".").call()
+            git.add().setUpdate(true).addFilepattern(".").call()
+            git.commit()
+                .setMessage(message.trim())
+                .setAuthor(authorName.trim(), authorEmail.trim())
+                .setCommitter(authorName.trim(), authorEmail.trim())
+                .setSign(false)
+                .call()
+        }
+        buildPlan(root)
+    }
+
+    suspend fun signInToGitHub() = withContext(Dispatchers.IO) {
+        serializedGitHubOperation {
+            requireValidGitHubAppConfiguration()
+            val authorization = githubApi.beginDeviceAuthorization(githubClientId)
+            val expiresAt = epochSeconds() + authorization.expiresInSeconds
+            _githubState.value = GitHubConnectionState.AwaitingUser(
+                authorization.userCode,
+                authorization.verificationUri,
+                expiresAt,
+            )
+            browserLauncher(authorization.verificationUri)
+            var interval = authorization.intervalSeconds.coerceAtLeast(MINIMUM_DEVICE_POLL_SECONDS)
+            while (epochSeconds() < expiresAt) {
+                pollDelay(interval * 1_000)
+                when (val result = githubApi.pollDeviceAuthorization(githubClientId, authorization.deviceCode)) {
+                    GitHubDevicePollResult.Pending -> Unit
+                    GitHubDevicePollResult.SlowDown -> interval += 5
+                    is GitHubDevicePollResult.Authorized -> {
+                        val login = githubApi.currentLogin(result.tokens.accessToken)
+                        val credential = credentialFrom(result.tokens, login)
+                        storeCredential(credential)
+                        _githubState.value = GitHubConnectionState.Connected(login)
+                        return@serializedGitHubOperation
+                    }
+                    is GitHubDevicePollResult.Failed -> failGitHubSignIn(result.code)
+                }
+            }
+            val message = "The GitHub sign-in code expired. Start sign-in again to receive a new code."
+            _githubState.value = GitHubConnectionState.Error(message)
+            error(message)
+        }
+    }
+
+    suspend fun discoverGitHubDestinations(): GitHubBackupCatalog = withContext(Dispatchers.IO) {
+        serializedGitHubOperation {
+            loadCatalog(requireUsableCredential())
+        }
+    }
+
+    suspend fun openGitHubAppInstallation() = withContext(Dispatchers.IO) {
+        requireValidGitHubAppConfiguration()
+        browserLauncher("https://github.com/apps/$githubAppSlug/installations/new")
+    }
+
+    suspend fun connectApprovedRepository(
+        projectPath: String,
+        installationId: Long,
+        repositoryId: Long,
+    ): ProjectBackupPlan = withContext(Dispatchers.IO) {
+        serializedGitHubOperation {
+            val credential = requireUsableCredential()
+            val catalog = loadCatalog(credential)
+            val account = catalog.accounts.singleOrNull { it.installationId == installationId }
+                ?: error("That GitHub App installation is no longer available to this account.")
+            require(account.canWriteContents) {
+                "The ARES GitHub App installation does not have repository Contents: write permission. Ask a team owner to update it."
+            }
+            val repository = catalog.repositories.singleOrNull {
+                it.installationId == installationId && it.repositoryId == repositoryId
+            } ?: error("That repository is no longer granted to the ARES GitHub App installation.")
+            require(repository.canUseForBackup) { repository.unavailableReason ?: "That repository cannot be used for backup." }
+            require(repository.ownerLogin.equals(account.login, ignoreCase = true)) {
+                "GitHub returned a repository outside the selected installation account. Nothing was connected."
+            }
+            val root = requireProjectRoot(projectPath)
+            Git.open(root).use { git ->
+                require(git.repository.resolve(Constants.HEAD) != null) {
+                    "Save at least one local version before connecting an online backup."
+                }
+                require(git.status().call().isClean) {
+                    "Save the current changes as a local version before connecting an online backup."
+                }
+                val origin = originUrl(git)
+                require(origin == null || sameGitHubRepository(origin, repository.cloneUrl)) {
+                    "This project already has a different origin remote. ARES will not replace it."
+                }
+                val addedOrigin = origin == null
+                try {
+                    if (addedOrigin) {
+                        git.remoteAdd().setName(ORIGIN_REMOTE).setUri(URIish(repository.cloneUrl)).call()
+                    }
+                    writeDestination(git, account, repository)
+                    remotePusher(git, credential.accessToken)
+                } catch (failure: Exception) {
+                    clearDestination(git)
+                    if (addedOrigin) git.remoteRemove().setRemoteName(ORIGIN_REMOTE).call()
+                    throw failure
+                }
+            }
+            buildPlan(root)
+        }
+    }
+
+    suspend fun pushBackup(projectPath: String): ProjectBackupPlan = withContext(Dispatchers.IO) {
+        serializedGitHubOperation {
+            val credential = requireUsableCredential()
+            val root = requireProjectRoot(projectPath)
+            Git.open(root).use { git ->
+                require(git.status().call().isClean) {
+                    "Save the current changes as a local version before syncing GitHub."
+                }
+                val destination = readDestination(git)
+                    ?: error("Choose an approved personal or team repository before syncing GitHub.")
+                val (account, repository) = verifyDestinationAccess(credential, destination)
+                val origin = originUrl(git)
+                    ?: error("The saved GitHub destination has no origin remote. Choose the destination again.")
+                require(sameGitHubRepository(origin, destination.cloneUrl)) {
+                    "The origin remote changed after this destination was approved. ARES will not push."
+                }
+                if (!sameGitHubRepository(origin, repository.cloneUrl)) {
+                    git.remoteSetUrl().setRemoteName(ORIGIN_REMOTE).setRemoteUri(URIish(repository.cloneUrl)).call()
+                }
+                writeDestination(git, account, repository)
+                remotePusher(git, credential.accessToken)
+            }
+            buildPlan(root)
+        }
+    }
+
+    suspend fun disconnectBackupDestination(projectPath: String): ProjectBackupPlan = withContext(Dispatchers.IO) {
+        val root = requireProjectRoot(projectPath)
+        Git.open(root).use { git ->
+            require(readDestination(git) != null) {
+                "This project has no ARES-managed GitHub destination to disconnect."
+            }
+            if (originUrl(git) != null) git.remoteRemove().setRemoteName(ORIGIN_REMOTE).call()
+            clearDestination(git)
+        }
+        buildPlan(root)
+    }
+
+    suspend fun disconnectGitHub() = withContext(Dispatchers.IO) {
+        serializedGitHubOperation {
+            check(credentialStore.delete()) { "GitHub credentials could not be removed from this computer." }
+            _githubState.value = if (validGitHubAppConfiguration(githubClientId, githubAppSlug)) {
+                GitHubConnectionState.Disconnected
+            } else {
+                GitHubConnectionState.Unavailable("Official GitHub App backup is not configured in this build.")
+            }
+        }
+    }
+
+    private suspend fun <T> serializedGitHubOperation(block: suspend () -> T): T {
+        githubMutex.lock()
+        try {
+            return block()
+        } finally {
+            githubMutex.unlock()
+        }
+    }
+
+    private fun loadCatalog(credential: StoredGitHubAppCredential): GitHubBackupCatalog = credentialAware {
+        val accounts = githubApi.listInstallations(credential.accessToken)
+            .distinctBy(GitHubBackupAccount::installationId)
+            .sortedWith(compareBy(GitHubBackupAccount::kind, GitHubBackupAccount::login))
+        val repositories = accounts.flatMap { account ->
+            githubApi.listRepositories(credential.accessToken, account.installationId)
+        }.distinctBy { it.installationId to it.repositoryId }
+            .sortedWith(compareBy(GitHubBackupRepository::ownerLogin, GitHubBackupRepository::name))
+        GitHubBackupCatalog(accounts, repositories)
+    }
+
+    private fun verifyDestinationAccess(
+        credential: StoredGitHubAppCredential,
+        destination: GitHubBackupDestination,
+    ): Pair<GitHubBackupAccount, GitHubBackupRepository> {
+        val catalog = loadCatalog(credential)
+        val account = catalog.accounts.singleOrNull { it.installationId == destination.installationId }
+            ?: error("The saved ${destination.ownerLogin} GitHub App installation is no longer accessible. Ask a team owner to restore it or change destination.")
+        require(account.canWriteContents) {
+            "The saved GitHub App installation no longer has Contents: write permission. Nothing was synchronized."
+        }
+        val repository = catalog.repositories.singleOrNull {
+            it.installationId == destination.installationId && it.repositoryId == destination.repositoryId
+        } ?: error("The saved repository is no longer granted to the ARES GitHub App. Nothing was synchronized.")
+        require(repository.canUseForBackup) { repository.unavailableReason ?: "The saved repository cannot accept a backup." }
+        return account to repository
+    }
+
+    private fun credentialAware(block: () -> GitHubBackupCatalog): GitHubBackupCatalog = try {
+        block()
+    } catch (failure: GitHubApiException) {
+        if (failure.status == 401) invalidateCredential("GitHub access was revoked or expired. Saved access was cleared; sign in again.")
+        throw failure
+    }
+
+    private fun requireUsableCredential(): StoredGitHubAppCredential {
+        val credential = loadCredentialOrInvalidate()
+        val now = epochSeconds()
+        if (credential.refreshTokenExpiresAtEpochSeconds <= now + TOKEN_EXPIRY_SAFETY_SECONDS) {
+            invalidateCredential("GitHub refresh access expired. Saved access was cleared; sign in again.")
+        }
+        if (credential.accessTokenExpiresAtEpochSeconds > now + TOKEN_EXPIRY_SAFETY_SECONDS) return credential
+        val refreshed = try {
+            githubApi.refreshUserAccessToken(githubClientId, credential.refreshToken)
+        } catch (failure: GitHubAuthorizationException) {
+            invalidateCredential(githubRefreshFailureMessage(failure.code))
+        } catch (failure: GitHubApiException) {
+            if (failure.status == 401) invalidateCredential("GitHub refresh access was revoked. Saved access was cleared; sign in again.")
+            throw failure
+        }
+        return credentialFrom(refreshed, credential.login).also(::storeCredential)
+    }
+
+    private fun credentialFrom(tokens: GitHubUserTokens, login: String): StoredGitHubAppCredential {
+        val now = epochSeconds()
+        require(login.matches(Regex("[A-Za-z0-9-]{1,100}"))) { "GitHub returned an invalid account identity." }
+        require(tokens.accessToken.length in 20..2_048 && tokens.refreshToken.length in 20..2_048) {
+            "GitHub returned an invalid credential. Sign-in was not saved."
+        }
+        return StoredGitHubAppCredential(
+            schemaVersion = GITHUB_CREDENTIAL_SCHEMA_VERSION,
+            accessToken = tokens.accessToken,
+            accessTokenExpiresAtEpochSeconds = Math.addExact(now, tokens.expiresInSeconds),
+            refreshToken = tokens.refreshToken,
+            refreshTokenExpiresAtEpochSeconds = Math.addExact(now, tokens.refreshTokenExpiresInSeconds),
+            login = login,
+        )
+    }
+
+    private fun storeCredential(credential: StoredGitHubAppCredential) {
+        credentialStore.write(
+            AppJson.encodeToString(StoredGitHubAppCredential.serializer(), credential)
+                .toByteArray(StandardCharsets.UTF_8),
+        )
+    }
+
+    private fun loadCredentialOrInvalidate(): StoredGitHubAppCredential {
+        val bytes = try {
+            credentialStore.read()
+        } catch (_: Exception) {
+            invalidateCredential("Saved GitHub access was unreadable and has been cleared. Sign in again.")
+        } ?: error("Sign in with GitHub before choosing or synchronizing a backup.")
+        return try {
+            decodeCredential(bytes)
+        } catch (_: LegacyGitHubCredentialException) {
+            invalidateCredential("An older broad GitHub OAuth credential was removed. Sign in again with the permission-scoped ARES GitHub App.")
+        } catch (_: Exception) {
+            invalidateCredential("Saved GitHub access was invalid and has been cleared. Sign in again.")
+        }
+    }
+
+    private fun decodeCredential(bytes: ByteArray): StoredGitHubAppCredential {
+        val text = bytes.toString(StandardCharsets.UTF_8)
+        val root = JsonParser.parseString(text).asJsonObject
+        val schemaVersion = root.get("schemaVersion")?.asInt ?: throw LegacyGitHubCredentialException()
+        if (schemaVersion != GITHUB_CREDENTIAL_SCHEMA_VERSION) throw LegacyGitHubCredentialException()
+        return AppJson.decodeFromString(StoredGitHubAppCredential.serializer(), text).also(::validateStoredCredential)
+    }
+
+    private fun validateStoredCredential(credential: StoredGitHubAppCredential) {
+        require(credential.accessToken.length in 20..2_048 && credential.refreshToken.length in 20..2_048)
+        require(credential.login.matches(Regex("[A-Za-z0-9-]{1,100}")))
+        require(credential.accessTokenExpiresAtEpochSeconds > 0 && credential.refreshTokenExpiresAtEpochSeconds > 0)
+    }
+
+    private fun invalidateCredential(message: String): Nothing {
+        credentialStore.delete()
+        _githubState.value = GitHubConnectionState.Error(message)
+        error(message)
+    }
+
+    private fun initialGitHubState(): GitHubConnectionState {
+        if (!validGitHubAppConfiguration(githubClientId, githubAppSlug)) {
+            return GitHubConnectionState.Unavailable(
+                "Official GitHub App backup is not configured in this build. Local history is still available.",
+            )
+        }
+        val bytes = try {
+            credentialStore.read()
+        } catch (_: Exception) {
+            credentialStore.delete()
+            return GitHubConnectionState.Error("Saved GitHub access was unreadable and has been cleared. Sign in again.")
+        } ?: return GitHubConnectionState.Disconnected
+        val credential = try {
+            decodeCredential(bytes)
+        } catch (_: LegacyGitHubCredentialException) {
+            credentialStore.delete()
+            return GitHubConnectionState.Error(
+                "An older broad GitHub OAuth credential was removed. Sign in again with the permission-scoped ARES GitHub App.",
+            )
+        } catch (_: Exception) {
+            credentialStore.delete()
+            return GitHubConnectionState.Error("Saved GitHub access was invalid and has been cleared. Sign in again.")
+        }
+        return GitHubConnectionState.Connected(credential.login)
+    }
+
+    private fun buildPlan(root: File): ProjectBackupPlan {
+        if (!File(root, ".git").isDirectory) {
+            return ProjectBackupPlan(root.path, false, null, emptyList(), emptyList(), null, null, null, null)
+        }
+        Git.open(root).use { git ->
+            val status = git.status().call()
+            val changes = buildList {
+                status.added.forEach { add(ProjectChange(it, ProjectChangeKind.ADDED)) }
+                status.untracked.forEach { add(ProjectChange(it, ProjectChangeKind.ADDED)) }
+                status.changed.forEach { add(ProjectChange(it, ProjectChangeKind.MODIFIED)) }
+                status.modified.forEach { add(ProjectChange(it, ProjectChangeKind.MODIFIED)) }
+                status.removed.forEach { add(ProjectChange(it, ProjectChangeKind.DELETED)) }
+                status.missing.forEach { add(ProjectChange(it, ProjectChangeKind.DELETED)) }
+                status.conflicting.forEach { add(ProjectChange(it, ProjectChangeKind.CONFLICT)) }
+            }.distinctBy { it.path to it.kind }.sortedWith(compareBy(ProjectChange::path, ProjectChange::kind))
+            val sensitive = changes.map(ProjectChange::path).filter(::isSensitiveProjectPath).distinct().sorted()
+            val lastCommit = git.repository.resolve(Constants.HEAD)?.name
+            val branch = runCatching { git.repository.branch }.getOrNull()
+            return ProjectBackupPlan(
+                projectPath = root.path,
+                initialized = true,
+                branch = branch,
+                changes = changes,
+                blockedSensitivePaths = sensitive,
+                lastCommit = lastCommit,
+                remoteUrl = originUrl(git),
+                destination = readDestination(git),
+                confirmationToken = changes.takeIf { it.isNotEmpty() }?.let { contentBoundToken(root, it) },
+            )
+        }
+    }
+
+    private fun contentBoundToken(root: File, changes: List<ProjectChange>): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        var totalBytes = 0L
+        changes.forEach { change ->
+            digest.update(change.kind.name.toByteArray())
+            digest.update(0)
+            digest.update(change.path.toByteArray(StandardCharsets.UTF_8))
+            digest.update(0)
+            val file = File(root, change.path).canonicalFile
+            require(file.toPath().startsWith(root.canonicalFile.toPath())) { "A changed path escaped the project." }
+            if (file.isFile) {
+                require(file.length() <= MAX_REVIEWED_FILE_BYTES) {
+                    "${change.path} is too large for reviewed project backup."
+                }
+                totalBytes += file.length()
+                require(totalBytes <= MAX_REVIEWED_CHANGE_BYTES) {
+                    "The pending change set is too large for one reviewed backup."
+                }
+                file.inputStream().buffered().use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        digest.update(buffer, 0, read)
+                    }
+                }
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    private fun writeDestination(
+        git: Git,
+        account: GitHubBackupAccount,
+        repository: GitHubBackupRepository,
+    ) {
+        val config = git.repository.config
+        config.setLong(BACKUP_CONFIG_SECTION, null, "installationId", account.installationId)
+        config.setLong(BACKUP_CONFIG_SECTION, null, "repositoryId", repository.repositoryId)
+        config.setString(BACKUP_CONFIG_SECTION, null, "owner", repository.ownerLogin)
+        config.setString(BACKUP_CONFIG_SECTION, null, "repository", repository.name)
+        config.setString(BACKUP_CONFIG_SECTION, null, "accountKind", account.kind.name)
+        config.setString(BACKUP_CONFIG_SECTION, null, "cloneUrl", repository.cloneUrl)
+        config.setString(BACKUP_CONFIG_SECTION, null, "webUrl", repository.webUrl)
+        config.save()
+    }
+
+    private fun readDestination(git: Git): GitHubBackupDestination? {
+        val config = git.repository.config
+        val installationId = config.getLong(BACKUP_CONFIG_SECTION, null, "installationId", -1L)
+        val repositoryId = config.getLong(BACKUP_CONFIG_SECTION, null, "repositoryId", -1L)
+        val owner = config.getString(BACKUP_CONFIG_SECTION, null, "owner") ?: return null
+        val repository = config.getString(BACKUP_CONFIG_SECTION, null, "repository") ?: return null
+        val kind = config.getString(BACKUP_CONFIG_SECTION, null, "accountKind")
+            ?.let { runCatching { GitHubAccountKind.valueOf(it) }.getOrNull() } ?: return null
+        val cloneUrl = config.getString(BACKUP_CONFIG_SECTION, null, "cloneUrl") ?: return null
+        val webUrl = config.getString(BACKUP_CONFIG_SECTION, null, "webUrl") ?: return null
+        if (installationId <= 0 || repositoryId <= 0 || owner.isBlank() || repository.isBlank()) return null
+        validateGitHubRepositoryUrl(cloneUrl)
+        validateGitHubWebUrl(webUrl)
+        val origin = originUrl(git) ?: return null
+        if (!sameGitHubRepository(origin, cloneUrl)) return null
+        return GitHubBackupDestination(installationId, repositoryId, owner, repository, kind, cloneUrl, webUrl)
+    }
+
+    private fun clearDestination(git: Git) {
+        git.repository.config.apply {
+            unsetSection(BACKUP_CONFIG_SECTION, null)
+            save()
+        }
+    }
+
+    private fun originUrl(git: Git): String? = git.remoteList().call()
+        .singleOrNull { it.name == ORIGIN_REMOTE }
+        ?.urIs?.singleOrNull()?.toString()
+
+    private fun requireProjectRoot(projectPath: String): File {
+        require(projectPath.isNotBlank()) { "Choose a robot project before opening Project Backup." }
+        val root = File(projectPath).canonicalFile
+        require(root.isDirectory) { "The selected robot project folder does not exist." }
+        require(File(root, ".ares/project.json").isFile) { "The selected folder is not a canonical ARES robot project." }
+        return root
+    }
+
+    private fun validateIdentity(name: String, email: String) {
+        require(name.trim().length in 2..80) { "Enter the student or team member name used for saved versions." }
+        require(email.trim().matches(Regex("[^\\s@]+@[^\\s@]+\\.[^\\s@]+"))) {
+            "Enter a valid email address for saved versions."
+        }
+    }
+
+    private fun requireValidGitHubAppConfiguration() {
+        require(validGitHubAppConfiguration(githubClientId, githubAppSlug)) {
+            "This ARES build has no GitHub App identity. Local history still works; install an official build configured for GitHub backup."
+        }
+    }
+
+    private fun failGitHubSignIn(code: String): Nothing {
+        val message = githubDeviceFailureMessage(code)
+        _githubState.value = GitHubConnectionState.Error(message)
+        error(message)
+    }
+
+    companion object {
+        const val MAX_REVIEWED_FILE_BYTES = 20L * 1024L * 1024L
+        const val MAX_REVIEWED_CHANGE_BYTES = 100L * 1024L * 1024L
+        private const val MINIMUM_DEVICE_POLL_SECONDS = 5L
+        private const val TOKEN_EXPIRY_SAFETY_SECONDS = 60L
+        private const val ORIGIN_REMOTE = "origin"
+        private const val BACKUP_CONFIG_SECTION = "aresBackup"
+    }
+}
+
+private const val GITHUB_CREDENTIAL_SCHEMA_VERSION = 2
+
+internal fun validGitHubClientId(value: String): Boolean =
+    value.matches(Regex("[A-Za-z0-9_-]{12,128}")) && !value.contains("mock", ignoreCase = true)
+
+internal fun validGitHubAppSlug(value: String): Boolean =
+    value.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?"))
+
+internal fun validGitHubAppConfiguration(clientId: String, slug: String): Boolean =
+    validGitHubClientId(clientId) && validGitHubAppSlug(slug)
+
+internal fun isSensitiveProjectPath(path: String): Boolean {
+    val normalized = path.replace('\\', '/').lowercase(Locale.ROOT)
+    val name = normalized.substringAfterLast('/')
+    return normalized == "local.properties" ||
+        name == ".env" || name.startsWith(".env.") ||
+        name.endsWith(".jks") || name.endsWith(".keystore") || name.endsWith(".p12") || name.endsWith(".pfx") ||
+        name in setOf("credentials.json", "service-account.json", "service_account.json") ||
+        normalized.startsWith(".ares/secrets/")
+}
+
+private fun githubDeviceFailureMessage(code: String): String = when (code) {
+    "expired_token" -> "The GitHub sign-in code expired. Start sign-in again."
+    "access_denied" -> "GitHub sign-in was cancelled. Local project history is unchanged."
+    "device_flow_disabled" -> "The ARES GitHub App is not enabled for device sign-in. Contact an ARES administrator."
+    "incorrect_client_credentials" -> "This ARES build has an invalid GitHub App identity. Update the app or contact an administrator."
+    "token_expiration_required" -> "The ARES GitHub App must use expiring user tokens. Contact an ARES administrator."
+    else -> "GitHub could not complete sign-in ($code). Local project history is unchanged."
+}
+
+private fun githubRefreshFailureMessage(code: String): String = when (code) {
+    "bad_refresh_token", "expired_token" ->
+        "GitHub refresh access expired or was revoked. Saved access was cleared; sign in again."
+    else -> "GitHub could not refresh access ($code). Saved access was cleared; sign in again."
+}
+
+private fun pushWithJGit(git: Git, accessToken: String) {
+    val results = git.push()
+        .setRemote("origin")
+        .setCredentialsProvider(UsernamePasswordCredentialsProvider("x-access-token", accessToken))
+        .setPushAll()
+        .call()
+    val failures = results.flatMap { it.remoteUpdates }
+        .filter { update -> update.status.name !in setOf("OK", "UP_TO_DATE") }
+    require(failures.isEmpty()) {
+        "GitHub rejected the backup update (${failures.joinToString { it.status.name }}). Nothing remote was overwritten; refresh or ask a mentor to resolve the history difference."
+    }
+}
+
+private fun validateGitHubRepositoryUrl(raw: String) {
+    val uri = runCatching { URI(raw) }.getOrElse { error("The GitHub repository URL is invalid.") }
+    require(uri.scheme == "https" && uri.host.equals("github.com", ignoreCase = true) && uri.userInfo == null) {
+        "Project Backup only accepts credential-free HTTPS repositories on github.com."
+    }
+    val segments = uri.path.trim('/').removeSuffix(".git").split('/')
+    require(segments.size == 2 && segments.all { it.matches(Regex("[A-Za-z0-9_.-]{1,100}")) }) {
+        "The GitHub repository URL must identify one owner and repository."
+    }
+}
+
+private fun validateGitHubWebUrl(raw: String) {
+    validateGitHubRepositoryUrl(raw.removeSuffix("/") + if (raw.endsWith(".git")) "" else ".git")
+}
+
+private fun sameGitHubRepository(first: String, second: String): Boolean =
+    githubRepositoryIdentity(first)?.equals(githubRepositoryIdentity(second), ignoreCase = true) == true
+
+private fun githubRepositoryIdentity(raw: String): String? {
+    val uri = runCatching { URI(raw) }.getOrNull() ?: return null
+    if (uri.scheme != "https" || !uri.host.equals("github.com", ignoreCase = true) || uri.userInfo != null) return null
+    val segments = uri.path.trim('/').removeSuffix(".git").split('/')
+    if (segments.size != 2 || segments.any(String::isBlank)) return null
+    return segments.joinToString("/")
+}

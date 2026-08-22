@@ -170,6 +170,7 @@ the secret to a desktop build.
 
 - [Documentation index](docs/INDEX.md) - novice-first map of live robot, simulator, replay, cloud, and task guides
 - [First launch](docs/start/FIRST_LAUNCH.md) - create a local robot workspace and optionally verify JDK 17 or 21 for build/simulation
+- [Project Backup](docs/start/PROJECT_BACKUP.md) - save reviewed local versions and optionally connect an approved personal or team GitHub repository without installing Git
 - [App tour](docs/start/APP_TOUR.md) - find screens, targets, status language, and contextual help
 - [Connect the simulator](docs/start/CONNECT_SIMULATOR.md) - launch Local Sim, confirm live telemetry, and recover safely
 - [Bring in a run](docs/operate/BRING_IN_A_RUN.md) - collect, verify, quarantine, and replay completed logs
@@ -203,3 +204,7 @@ the secret to a desktop build.
 5. Use parameterized SQL where DuckDB permits it; otherwise isolate and escape the smallest possible internal API.
 6. Add a regression test for protocol, parser, replay, or mathematical changes.
 7. When changing an NT4 topic, update the producer, consumer, and `docs/TELEMETRY_CONTRACT.md` together.
+
+## License
+
+ARES-authored Analytics code is available under [GNU AGPL version 3 or later](LICENSE). Separate commercial terms may be available by written agreement; see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md) and [LICENSE_POLICY.md](LICENSE_POLICY.md). Third-party components retain their respective licenses, and the software license does not grant rights to ARES names or logos.

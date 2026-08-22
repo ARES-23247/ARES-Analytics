@@ -71,7 +71,6 @@ sealed class AuthState {
         val uid: String,
         val email: String,
         val displayName: String,
-        val githubToken: String? = null
     ) : AuthState()
     data class Error(val message: String) : AuthState()
 }
@@ -82,12 +81,6 @@ sealed class DrivePickerState {
     data class Selected(val folderId: String) : DrivePickerState()
     data class Error(val message: String) : DrivePickerState()
 }
-
-@Serializable
-data class GithubTokenResponse(
-    val access_token: String,
-    val scope: String? = null
-)
 
 /**
  * Persisted Google identity + OAuth tokens. [OAuthTokenStore] protects this record with
@@ -733,80 +726,6 @@ class OAuthService(
                 null
             }
         }
-    }
-
-    fun startGithubLogin(githubClientId: String?, githubClientSecret: String? = null) {
-        val observedGeneration = authGeneration.get()
-        val attempt = beginAuthAttempt(
-            permitted = { it is AuthState.Authenticated },
-            nextState = { it }
-        )
-        if (attempt == null) {
-            commitIfCurrent(observedGeneration) {
-                if (_authState.value !is AuthState.Authenticated && _authState.value !is AuthState.Authenticating) {
-                    _authState.value = AuthState.Error("Must sign in with Google before linking GitHub")
-                }
-            }
-            return
-        }
-        val generation = attempt.generation
-        val currentAuth = attempt.previousState as AuthState.Authenticated
-
-        if (githubClientId.isNullOrEmpty() || githubClientId == "mock") {
-            updateStateIfCurrent(generation, currentAuth.copy(githubToken = "mock-github-token"))
-            return
-        }
-        val callbackPort = 5805
-        val redirectUri = "http://localhost:$callbackPort/callback"
-        // Per-request CSRF state parameter (AUDIT H1): unguessable, validated on callback.
-        val state = generateCodeVerifier()
-        val loginUrl = "https://github.com/login/oauth/authorize?" +
-                "client_id=$githubClientId" +
-                "&redirect_uri=${URLEncoder.encode(redirectUri, "UTF-8")}" +
-                "&scope=read:org" +
-                "&state=$state"
-
-        val pendingRequest = PendingOAuthRequest(
-            state = state,
-            generation = generation,
-            successTitle = "GitHub Link Successful",
-            onCodeReceived = { code, _ -> try {
-                val response = httpClient.post("https://github.com/login/oauth/access_token") {
-                    header(HttpHeaders.Accept, "application/json")
-                    contentType(ContentType.Application.FormUrlEncoded)
-                    setBody(listOf(
-                        "client_id" to githubClientId,
-                        "client_secret" to (githubClientSecret ?: ""),
-                        "code" to code,
-                        "redirect_uri" to redirectUri
-                    ).formUrlEncode())
-                }
-
-                if (response.status == HttpStatusCode.OK) {
-                    val tokenData = response.body<GithubTokenResponse>()
-                    commitIfCurrent(generation) {
-                        val current = _authState.value
-                        if (current is AuthState.Authenticated) {
-                            _authState.value = current.copy(githubToken = tokenData.access_token)
-                        }
-                    }
-                } else {
-                    val errorText = response.bodyAsText()
-                    updateStateIfCurrent(generation, AuthState.Error("Failed to exchange GitHub code: $errorText"))
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                updateStateIfCurrent(generation, AuthState.Error("GitHub token exchange error: ${e.message}"))
-            } },
-            onError = { error ->
-                updateStateIfCurrent(generation, AuthState.Error("GitHub authorization was not completed: $error"))
-            },
-        )
-        if (!registerPendingRequest(pendingRequest)) return
-
-        bootCallbackServer(callbackPort, generation)
-        launchBrowser(loginUrl, generation)
     }
 
     fun logout() {

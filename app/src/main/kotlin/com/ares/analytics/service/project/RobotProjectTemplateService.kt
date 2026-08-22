@@ -23,6 +23,7 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.CopyOption
@@ -49,6 +50,8 @@ data class RobotProjectTemplate(
     val revision: String,
     val archiveUrl: String,
     val archiveSha256: String,
+    /** Classpath resource shipped in official installers for first-use offline creation. */
+    val bundledResourcePath: String? = null,
     /** Physical deployment policy carried into the newly created workspace. */
     val deploymentPolicy: RobotProjectDeploymentPolicy = RobotProjectDeploymentPolicy.SIMULATION_ONLY_REFERENCE,
 )
@@ -71,7 +74,7 @@ data class RobotProjectCreationPlan(
     val canCreate: Boolean get() = issues.isEmpty()
 }
 
-enum class RobotProjectTemplateSource { VERIFIED_CACHE, VERIFIED_DOWNLOAD }
+enum class RobotProjectTemplateSource { VERIFIED_CACHE, VERIFIED_BUNDLED, VERIFIED_DOWNLOAD }
 
 data class RobotProjectCreationResult(
     val destination: File,
@@ -120,6 +123,9 @@ class RobotProjectTemplateService(
     ),
     templates: List<RobotProjectTemplate> = OFFICIAL_PROJECT_TEMPLATES,
     private val archiveDownloader: (RobotProjectTemplate, File) -> Unit = ::downloadArchive,
+    private val bundledArchiveLoader: (String) -> InputStream? = { resourcePath ->
+        RobotProjectTemplateService::class.java.getResourceAsStream(resourcePath)
+    },
     private val androidSdkLocator: () -> File? = ::locateAndroidSdk,
     private val projectPublisher: (Path, Path) -> Unit = { staging, destination ->
         publishProjectDirectory(staging, destination)
@@ -200,6 +206,33 @@ class RobotProjectTemplateService(
         }
         if (cacheFile.exists() && !cacheFile.delete()) {
             error("A damaged cached starter could not be removed. Delete ${cacheFile.path}, then try again.")
+        }
+
+        template.bundledResourcePath?.let { resourcePath ->
+            val bundled = bundledArchiveLoader(resourcePath)
+            if (bundled != null) {
+                onProgress("Preparing the installer-bundled ${template.displayName} starter…")
+                writeFileAtomically(cacheFile) { temporary ->
+                    bundled.use { input ->
+                        BufferedOutputStream(FileOutputStream(temporary)).use { output ->
+                            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                            var total = 0L
+                            while (true) {
+                                val read = input.read(buffer)
+                                if (read < 0) break
+                                total += read
+                                check(total <= MAX_ARCHIVE_BYTES) { "The bundled starter exceeded the safe archive limit." }
+                                output.write(buffer, 0, read)
+                            }
+                        }
+                    }
+                    val actualHash = sha256(temporary)
+                    check(actualHash == template.archiveSha256) {
+                        "The installer-bundled starter did not match its reviewed SHA-256. Reinstall ARES Analytics before creating a project."
+                    }
+                }
+                return cacheFile to RobotProjectTemplateSource.VERIFIED_BUNDLED
+            }
         }
 
         onProgress("Downloading the pinned ${template.displayName} starter once for offline reuse…")
@@ -428,6 +461,7 @@ class RobotProjectTemplateService(
                 revision = "d81bf7bde2395f33f6f273e969fd2116ad23ae01",
                 archiveUrl = "https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.7.0/ARES-FTC-Starter-9.7.0.zip",
                 archiveSha256 = "f2ab2d04f2a97195b61feb7931c0690a938a8260960868fbf0dc14252c74b865",
+                bundledResourcePath = "/project-templates/ARES-FTC-Starter-9.7.0.zip",
                 deploymentPolicy = RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
             ),
             RobotProjectTemplate(
@@ -438,6 +472,7 @@ class RobotProjectTemplateService(
                 revision = "54d64de2cfd5c383f03906cbf741c21759eee05d",
                 archiveUrl = "https://github.com/ARES-23247/ARES-FRC-Starter/releases/download/v9.7.0/ARES-FRC-Starter-9.7.0.zip",
                 archiveSha256 = "fd823a8b626506696f42e60831acffeba99887f0147bbdcb30fe7e4ff8d6b3f8",
+                bundledResourcePath = "/project-templates/ARES-FRC-Starter-9.7.0.zip",
                 deploymentPolicy = RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
             ),
         )

@@ -1,0 +1,68 @@
+# GitHub App Project Backup Architecture
+
+ARES Project Backup has two independent layers:
+
+1. Embedded JGit creates reviewed, named versions inside the robot project. It works offline and
+   requires no separate Git installation.
+2. An optional public GitHub App sends clean saved versions to one explicitly approved private
+   repository.
+
+## Identity and ownership
+
+The ARES GitHub App identifies the desktop application; it does not own a student's files and it
+does not make Team 23247 the owner of another team's project. A repository remains owned by the
+selected personal account or GitHub organization. GitHub membership, repository permissions,
+organization policy, and the App installation remain authoritative.
+
+The desktop uses GitHub's Device Flow with the App's public client ID. It never embeds a client
+secret or GitHub App private key. Expiring user access and refresh tokens are required. The access
+token is refreshed and rotated without a client secret, and unusable legacy, revoked, corrupt, or
+expired credentials are cleared with an actionable sign-in message.
+
+## Organization workflow
+
+The normal team workflow is:
+
+1. A GitHub organization owner creates an empty private repository.
+2. The owner installs the ARES GitHub App for that repository (prefer **Only select repositories**).
+3. A student signs in to ARES with GitHub and chooses the organization and approved repository.
+4. ARES records the non-secret installation ID and repository ID in local Git configuration.
+5. Every sync fetches current installation and repository permissions before pushing.
+
+ARES does not create organization repositories. GitHub requires Administration write permission
+for that operation, which is substantially broader than backup needs. Keeping creation with a team
+owner makes repository ownership, naming, retention, and policy explicit.
+
+## Permissions and isolation
+
+The GitHub App needs repository metadata read and Contents read/write. It does not need
+Administration, Members, Actions, Secrets, Issues, or webhook permissions. A destination is usable
+only when all of these are true:
+
+- it belongs to the selected installation;
+- its stable repository ID is present in the fresh installation catalog;
+- it is private, writable, enabled, and not archived;
+- the local `origin` identifies the same repository.
+
+The UI cannot manufacture an installation or repository ID that is absent from GitHub's current
+catalog. A removed installation, removed selected-repository grant, lost team membership, changed
+write permission, public repository, or account mismatch blocks synchronization before JGit sends
+bytes. Repository URLs never contain credentials.
+
+## Credential storage and recovery
+
+On Windows, the credential record is encrypted with DPAPI for the current Windows user. Other
+platforms currently use the existing owner-only local credential-file policy. The robot project
+contains only non-secret repository identity and its credential-free HTTPS remote.
+
+**Sign out** removes the saved GitHub credential. **Change destination** removes the ARES-managed
+remote and destination metadata. Neither action deletes local history or remote files. Teams can
+always export or copy the ordinary project folder and `.git` history, so Project Backup does not
+lock projects into ARES.
+
+## Release configuration
+
+Official installers receive the public `ARES_GITHUB_APP_CLIENT_ID` and
+`ARES_GITHUB_APP_SLUG` through protected build variables. Device Flow and expiring user tokens must
+be enabled on the GitHub App. The release gate must exercise a personal installation and an
+organization installation against private selected repositories before publishing the installer.

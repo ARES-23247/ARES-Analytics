@@ -5,6 +5,7 @@ import com.ares.analytics.gateway.auth.GooglePrincipal
 import com.ares.analytics.gateway.routes.diagnosticsRoutes
 import com.ares.analytics.gateway.routes.GoogleOAuthBroker
 import com.ares.analytics.gateway.routes.googleOAuthBrokerRoutes
+import com.ares.analytics.gateway.routes.sourceCodeRoutes
 import com.ares.analytics.shared.ForensicsRequest
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
@@ -138,6 +139,7 @@ fun main() {
             get("/healthz") {
                 call.respondText("ok")
             }
+            sourceCodeRoutes()
             googleOAuthBrokerRoutes(googleOAuthBroker)
             diagnosticsRoutes()
         }

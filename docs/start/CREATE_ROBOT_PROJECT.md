@@ -3,19 +3,19 @@
 ARES can create a complete, buildable FTC or FRC simulation project during first-run setup. This is
 the recommended starting point for a student who does not already have an ARES repository.
 
-> **Simulation-only safety boundary:** the reviewed starters retain Team 23247's season hardware
-> examples, including hand-authored composition that is not fully represented by GUI-owned
-> descriptors. Builds and simulation are available immediately, but ARES blocks physical
-> deployment. A student cannot bypass that boundary by acknowledging a warning.
+> **Simulation-first safety boundary:** the reviewed starters are hardware-neutral and contain no
+> Team 23247 season mechanisms or calibration. Builds and simulation are available immediately,
+> but ARES blocks physical deployment until Hardware Setup and commissioning evidence are complete.
 
-## What ARES downloads
+## What the installer includes
 
 The setup screen names the exact **ARES FTC** or **ARES FRC** starter and its ARES version. The app
-does not follow a mutable `master` branch. It downloads one reviewed commit, verifies the archive's
-SHA-256, and only then unpacks it.
+does not follow a mutable `master` branch. Official installers bundle one reviewed archive, verify
+its SHA-256, and only then unpack it. A developer/source build may retrieve the same pinned archive
+as a recovery fallback if its packaged resource is absent.
 
-The verified archive is cached under the local ARES Analytics application data. After one successful
-download, the same starter can be used again without internet access.
+The verified archive is cached under the local ARES Analytics application data. A normal installed
+app can create either starter without internet access.
 
 ## Create the project
 
@@ -60,12 +60,12 @@ generated-source boundaries.
    packages the project without deploying.
 6. Choose **Local Sim**, then start the now-verified simulator.
 
-Creation does not deploy or enable a physical robot. Downloaded starters remain blocked from the
-deploy service even after a Hardware Setup review. A future generic composition must prove that
-every physical actuator and sensor is GUI-owned before that policy can change.
+Creation does not deploy or enable a physical robot. Generic starters remain blocked from the
+deploy service until every physical actuator and sensor is represented by reviewed canonical
+documents and the commissioning workflow records the required evidence.
 
 Robot Studio's [Hardware Setup](HARDWARE_SETUP.md) screen can still aggregate the canonical
 drivebase and subsystem addresses, detect cross-document conflicts, and record a hash-bound review.
-That review is still useful for finding descriptor conflicts and teaching hardware mapping, but it
-does not remove the season template's simulation-only block. It is not powered hardware validation,
+That review is useful for finding descriptor conflicts and teaching hardware mapping, but it does
+not by itself remove the simulation-first block. It is not powered hardware validation,
 calibration, inspection approval, or permission to test without adult supervision.

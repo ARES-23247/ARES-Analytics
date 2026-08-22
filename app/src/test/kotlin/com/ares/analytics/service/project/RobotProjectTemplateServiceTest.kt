@@ -23,6 +23,7 @@ import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.io.ByteArrayInputStream
 import java.nio.file.Files
 import java.nio.file.FileAlreadyExistsException
 import java.nio.file.Path
@@ -202,6 +203,48 @@ class RobotProjectTemplateServiceTest {
             assertTrue(File(second.destination, ".ares/template-provenance.json").isFile)
         } finally {
             root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `installer bundled starter creates offline then populates verified cache`() = runBlocking {
+        val root = Files.createTempDirectory("ares-project-bundled-test").toFile()
+        try {
+            val archive = validFtcArchive()
+            val template = template(archive).copy(bundledResourcePath = "/fixture-starter.zip")
+            var downloads = 0
+            var bundledReads = 0
+            val service = RobotProjectTemplateService(
+                cacheDirectory = File(root, "cache"),
+                templates = listOf(template),
+                archiveDownloader = { _, _ -> downloads++ },
+                bundledArchiveLoader = { path ->
+                    assertEquals("/fixture-starter.zip", path)
+                    bundledReads++
+                    ByteArrayInputStream(archive)
+                },
+                androidSdkLocator = { File(root, "fixture-android-sdk").apply { mkdirs() } },
+            )
+            val parent = File(root, "robots").apply { mkdirs() }
+
+            val first = service.create(request(parent, "first-bundled"))
+            val second = service.create(request(parent, "second-from-cache"))
+
+            assertEquals(RobotProjectTemplateSource.VERIFIED_BUNDLED, first.source)
+            assertEquals(RobotProjectTemplateSource.VERIFIED_CACHE, second.source)
+            assertEquals(1, bundledReads)
+            assertEquals(0, downloads)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `official bundled starter resources match their pinned hashes`() {
+        RobotProjectTemplateService.OFFICIAL_PROJECT_TEMPLATES.forEach { template ->
+            val path = assertNotNull(template.bundledResourcePath)
+            val bytes = assertNotNull(RobotProjectTemplateService::class.java.getResourceAsStream(path)).use { it.readBytes() }
+            assertEquals(template.archiveSha256, sha256(bytes), template.displayName)
         }
     }
 

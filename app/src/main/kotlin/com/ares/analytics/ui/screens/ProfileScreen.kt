@@ -24,6 +24,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.AuthState
+import com.ares.analytics.service.ManagedToolchainInstallState
+import com.ares.analytics.service.ManagedToolchainService
+import com.ares.analytics.service.ToolchainReadiness
 import com.ares.analytics.service.isValidGoogleDesktopClientId
 import com.ares.analytics.service.isValidGoogleOAuthBrokerUrl
 import com.ares.analytics.service.writeFileAtomically
@@ -41,6 +44,7 @@ import java.awt.Desktop
 import java.net.URI
 import javax.swing.JFileChooser
 import kotlinx.serialization.encodeToString
+import kotlinx.coroutines.launch
 
 /**
  * User account profile, developer preferences, and workspace configuration screen.
@@ -57,12 +61,20 @@ import kotlinx.serialization.encodeToString
 @Composable
 fun ProfileScreen(
     viewModel: ProfileViewModel,
+    managedToolchainService: ManagedToolchainService,
     config: WorkspaceConfig,
     onConfigChanged: (WorkspaceConfig) -> Unit,
     authState: AuthState = AuthState.Unauthenticated,
     onLogout: () -> Unit = {}
 ) {
     val state by viewModel.state.collectAsState()
+    val toolchains by managedToolchainService.snapshot.collectAsState()
+    val toolchainInstallState by managedToolchainService.installState.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(config.league) {
+        managedToolchainService.refresh(config.league)
+    }
 
     LaunchedEffect(state.pendingConfigUpdate) {
         state.pendingConfigUpdate?.let { updated ->
@@ -281,7 +293,82 @@ fun ProfileScreen(
             }
         }
 
-        // 2. Google Drive Cloud Sync
+        // 2. Robot build tools
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Default.IntegrationInstructions, contentDescription = null, tint = AresCyan, modifier = Modifier.size(20.dp))
+                    Text("Robot build tools", fontWeight = FontWeight.Bold, color = AresTextPrimary, fontSize = 15.sp)
+                }
+                Text(
+                    "The installed ARES app already has its own runtime. These optional tools are used only to build, simulate, or deploy ${config.league.name} robot projects.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                )
+                toolchains.components.forEach { component ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth().border(1.dp, AresBorder, RoundedCornerShape(8.dp)).padding(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            when (component.readiness) {
+                                ToolchainReadiness.READY -> "READY"
+                                ToolchainReadiness.OPTIONAL_DOWNLOAD -> "INSTALL"
+                                ToolchainReadiness.MANUAL_SETUP_REQUIRED -> "ACTION NEEDED"
+                            },
+                            color = when (component.readiness) {
+                                ToolchainReadiness.READY -> AresGreen
+                                ToolchainReadiness.OPTIONAL_DOWNLOAD -> AresCyan
+                                ToolchainReadiness.MANUAL_SETUP_REQUIRED -> AresAmber
+                            },
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(component.name, color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
+                            Text(component.detail, color = AresTextSecondary, fontSize = 11.sp)
+                            component.location?.let { Text(it, color = AresTextTertiary, fontSize = 10.sp) }
+                        }
+                    }
+                }
+                when (val install = toolchainInstallState) {
+                    is ManagedToolchainInstallState.Working -> {
+                        install.fraction?.let { fraction ->
+                            LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth(), color = AresCyan)
+                        }
+                        Text(install.message, color = AresTextSecondary, fontSize = 11.sp)
+                    }
+                    is ManagedToolchainInstallState.Succeeded -> Text(install.message, color = AresGreen, fontSize = 11.sp)
+                    is ManagedToolchainInstallState.Failed -> Text(install.message, color = AresAmber, fontSize = 11.sp)
+                    ManagedToolchainInstallState.Idle -> Unit
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (toolchains.components.any { it.name.startsWith("Java") && it.readiness != ToolchainReadiness.READY }) {
+                        Button(
+                            onClick = {
+                                scope.launch { runCatching { managedToolchainService.installManagedJdk21(config.league) } }
+                            },
+                            enabled = toolchainInstallState !is ManagedToolchainInstallState.Working,
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                        ) { Text("Install private JDK 21") }
+                    }
+                    OutlinedButton(onClick = { scope.launch { managedToolchainService.refresh(config.league) } }) {
+                        Text("Recheck tools")
+                    }
+                    OutlinedButton(onClick = {
+                        Desktop.getDesktop().browse(URI("https://github.com/ARES-23247/ARES-Analytics/blob/master/docs/start/ROBOT_BUILD_TOOLS.md"))
+                    }) { Text("Setup guide") }
+                }
+            }
+        }
+
+        // 3. Google Drive Cloud Sync
         Card(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
@@ -879,6 +966,43 @@ fun ProfileScreen(
                         onCheckedChange = { developerMode = it },
                         colors = SwitchDefaults.colors(checkedThumbColor = AresCyan, checkedTrackColor = AresCyanGlow)
                     )
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "License and source",
+                    fontWeight = FontWeight.Bold,
+                    color = AresTextPrimary,
+                    fontSize = 15.sp,
+                )
+                Text(
+                    "ARES Analytics is licensed under GNU AGPL v3 or later and is provided without warranty. Separate commercial licensing is available from the ARES project.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        runCatching {
+                            Desktop.getDesktop().browse(URI("https://github.com/ARES-23247/ARES-Analytics"))
+                        }
+                    }) {
+                        Text("View source")
+                    }
+                    OutlinedButton(onClick = {
+                        runCatching {
+                            Desktop.getDesktop().browse(URI("https://github.com/ARES-23247/ARES-Analytics/blob/master/LICENSE"))
+                        }
+                    }) {
+                        Text("Read license")
+                    }
                 }
             }
         }

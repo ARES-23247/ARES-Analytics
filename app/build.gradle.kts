@@ -19,6 +19,16 @@ val googleOAuthBrokerUrl = providers.gradleProperty("googleOAuthBrokerUrl")
     .orElse("")
     .get()
     .trimEnd('/')
+val githubAppClientId = providers.gradleProperty("githubAppClientId")
+    .orElse(providers.environmentVariable("ARES_GITHUB_APP_CLIENT_ID"))
+    .orElse("")
+    .get()
+    .trim()
+val githubAppSlug = providers.gradleProperty("githubAppSlug")
+    .orElse(providers.environmentVariable("ARES_GITHUB_APP_SLUG"))
+    .orElse("")
+    .get()
+    .trim()
 
 plugins {
     kotlin("jvm")
@@ -68,6 +78,9 @@ dependencies {
     // Windows Credential Protection (DPAPI) for OAuth refresh-token persistence.
     implementation("net.java.dev.jna:jna-platform:5.15.0")
 
+    // Pure-Java project version history; students do not need a separate Git installation.
+    implementation("org.eclipse.jgit:org.eclipse.jgit:7.7.1.202607240634-r")
+
     // Math & Signal Processing
     implementation("org.ejml:ejml-simple:0.46.1")
     implementation("org.apache.commons:commons-math3:3.6.1")
@@ -101,9 +114,13 @@ tasks.register("generateBuildConfig") {
     val version = aresAnalyticsVersion
     val oauthClientId = googleOAuthClientId
     val oauthBrokerUrl = googleOAuthBrokerUrl
+    val githubClientId = githubAppClientId
+    val githubSlug = githubAppSlug
     inputs.property("aresAnalyticsVersion", version)
     inputs.property("googleOAuthClientId", oauthClientId)
     inputs.property("googleOAuthBrokerUrl", oauthBrokerUrl)
+    inputs.property("githubAppClientId", githubClientId)
+    inputs.property("githubAppSlug", githubSlug)
     outputs.dir(generatedBuildConfigDir)
     doLast {
         val pkgDir = generatedBuildConfigDir.get().asFile.resolve("com/ares/analytics")
@@ -116,6 +133,13 @@ tasks.register("generateBuildConfig") {
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
             .replace("$", "\\$")
+        val escapedGitHubClientId = githubClientId
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        val escapedGitHubAppSlug = githubSlug
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("$", "\\$")
         pkgDir.resolve("BuildConfig.kt").writeText(
             """
             |package com.ares.analytics
@@ -124,6 +148,8 @@ tasks.register("generateBuildConfig") {
             |    const val VERSION = "$version"
             |    const val GOOGLE_OAUTH_CLIENT_ID = "$escapedOAuthClientId"
             |    const val GOOGLE_OAUTH_BROKER_URL = "$escapedOAuthBrokerUrl"
+            |    const val GITHUB_APP_CLIENT_ID = "$escapedGitHubClientId"
+            |    const val GITHUB_APP_SLUG = "$escapedGitHubAppSlug"
             |}
             """.trimMargin()
         )
@@ -295,6 +321,7 @@ compose.desktop {
             packageVersion = aresAnalyticsVersion
             description = "ARES Robotics Mission Control Suite"
             vendor = "ARES Robotics"
+            licenseFile.set(rootProject.file("LICENSE"))
             // Gson constructs immutable Kotlin project documents through sun.misc.Unsafe when
             // they do not expose a no-argument JVM constructor. jlink cannot discover this
             // reflective dependency, so the module must remain explicit in every native image.
@@ -361,6 +388,15 @@ tasks.matching { task ->
         }
         require(googleOAuthBrokerUrl.startsWith("https://") && googleOAuthBrokerUrl.length <= 512) {
             "Official packages require an HTTPS Google OAuth broker URL"
+        }
+        require(
+            githubAppClientId.matches(Regex("[A-Za-z0-9_-]{12,128}")) &&
+                !githubAppClientId.contains("mock", ignoreCase = true)
+        ) {
+            "Official packages require -PgithubAppClientId (or ARES_GITHUB_APP_CLIENT_ID) with the public ARES GitHub App client ID"
+        }
+        require(githubAppSlug.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?"))) {
+            "Official packages require -PgithubAppSlug (or ARES_GITHUB_APP_SLUG) with the public ARES GitHub App slug"
         }
     }
 }
