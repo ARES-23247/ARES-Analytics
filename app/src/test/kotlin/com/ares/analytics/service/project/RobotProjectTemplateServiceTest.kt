@@ -40,14 +40,16 @@ import kotlin.test.assertFailsWith
 
 class RobotProjectTemplateServiceTest {
     @Test
-    fun `official starters remain simulation only until composition is fully GUI owned`() {
+    fun `official generic starters require hardware review before deployment`() {
         val service = RobotProjectTemplateService()
 
         League.entries.forEach { league ->
-            assertEquals("9.6.0", service.templateFor(league).aresVersion)
+            val template = service.templateFor(league)
+            assertEquals("9.7.0", template.aresVersion)
+            assertTrue(template.displayName.endsWith("Starter"))
             assertEquals(
-                RobotProjectDeploymentPolicy.SIMULATION_ONLY_REFERENCE,
-                service.templateFor(league).deploymentPolicy,
+                RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
+                template.deploymentPolicy,
             )
         }
     }

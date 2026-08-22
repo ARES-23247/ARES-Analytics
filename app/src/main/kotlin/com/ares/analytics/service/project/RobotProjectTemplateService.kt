@@ -421,22 +421,24 @@ class RobotProjectTemplateService(
 
         val OFFICIAL_PROJECT_TEMPLATES: List<RobotProjectTemplate> = listOf(
             RobotProjectTemplate(
-                id = "ares-ftc-9.6.0",
-                displayName = "ARES FTC",
+                id = "ares-ftc-starter-9.7.0",
+                displayName = "ARES FTC Starter",
                 league = League.FTC,
-                aresVersion = "9.6.0",
-                revision = "1a3458ac7d3cc99280658fe136aec6e3101842cb",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FTC/archive/1a3458ac7d3cc99280658fe136aec6e3101842cb.zip",
-                archiveSha256 = "a0a606a18a0ed92ae23b74f7b1284d8d6b8b9df38a54f73ed21770f9211ba856",
+                aresVersion = "9.7.0",
+                revision = "d81bf7bde2395f33f6f273e969fd2116ad23ae01",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.7.0/ARES-FTC-Starter-9.7.0.zip",
+                archiveSha256 = "f2ab2d04f2a97195b61feb7931c0690a938a8260960868fbf0dc14252c74b865",
+                deploymentPolicy = RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
             ),
             RobotProjectTemplate(
-                id = "ares-frc-9.6.0",
-                displayName = "ARES FRC",
+                id = "ares-frc-starter-9.7.0",
+                displayName = "ARES FRC Starter",
                 league = League.FRC,
-                aresVersion = "9.6.0",
-                revision = "8c3ab98c86c459d3d842fc846f4740114cc55b6c",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FRC/archive/8c3ab98c86c459d3d842fc846f4740114cc55b6c.zip",
-                archiveSha256 = "80039b3a5fb182b27795355f9817d2d7e9d3a4e89142048c808635ac481be0b9",
+                aresVersion = "9.7.0",
+                revision = "54d64de2cfd5c383f03906cbf741c21759eee05d",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FRC-Starter/releases/download/v9.7.0/ARES-FRC-Starter-9.7.0.zip",
+                archiveSha256 = "fd823a8b626506696f42e60831acffeba99887f0147bbdcb30fe7e4ff8d6b3f8",
+                deploymentPolicy = RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
             ),
         )
 
