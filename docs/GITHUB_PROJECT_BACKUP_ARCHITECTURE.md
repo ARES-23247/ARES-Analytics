@@ -27,7 +27,8 @@ The normal team workflow is:
 2. The owner installs the ARES GitHub App for that repository (prefer **Only select repositories**).
 3. A student signs in to ARES with GitHub and chooses the organization and approved repository.
 4. ARES records the non-secret installation ID and repository ID in local Git configuration.
-5. Every sync fetches current installation and repository permissions before pushing.
+5. Every sync or restore check fetches current installation and repository permissions before
+   contacting GitHub.
 
 ARES does not create organization repositories. GitHub requires Administration write permission
 for that operation, which is substantially broader than backup needs. Keeping creation with a team
@@ -48,6 +49,19 @@ The UI cannot manufacture an installation or repository ID that is absent from G
 catalog. A removed installation, removed selected-repository grant, lost team membership, changed
 write permission, public repository, or account mismatch blocks synchronization before JGit sends
 bytes. Repository URLs never contain credentials.
+
+## Restore and history semantics
+
+The student-facing history viewer intentionally is not a general Git client. It exposes named local
+versions, a structured changed-file preview, backup state, and one safe restore operation. It does
+not expose arbitrary checkout, force push, rebase, branch deletion, or conflict resolution.
+
+A GitHub restore is accepted only when the local commit is an ancestor of the selected remote
+`main` commit. Equal histories are reported as up to date; a local-ahead history directs the user
+to synchronize; divergent histories stop and require mentor review. Incoming trees are validated
+before working files change, and the confirmation token binds both commit identities plus the diff.
+ARES writes a `refs/ares/restore-backups/...` safety ref before the fast-forward so the prior local
+version remains recoverable.
 
 ## Credential storage and recovery
 

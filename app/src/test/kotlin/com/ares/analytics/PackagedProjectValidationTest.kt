@@ -17,6 +17,11 @@ class PackagedProjectValidationTest {
     }
 
     @Test
+    fun `packaged runtime probe exercises jgit pack transfer`() {
+        validatePackagedGitRuntime()
+    }
+
+    @Test
     fun `validation command is isolated from ordinary desktop startup`() {
         assertEquals(null, runPackagedProjectValidationCommand(emptyArray()))
         assertEquals(64, runPackagedProjectValidationCommand(arrayOf(PACKAGED_PROJECT_VALIDATION_COMMAND)))

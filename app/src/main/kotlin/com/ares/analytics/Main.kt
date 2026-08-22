@@ -20,6 +20,7 @@ import com.ares.analytics.desktop.DesktopInstanceLock
 import com.ares.analytics.desktop.DesktopShutdownCoordinator
 import com.ares.analytics.desktop.DesktopStartupMachine
 import com.ares.analytics.desktop.DesktopWindowPresentationController
+import com.ares.analytics.desktop.DesktopWindowCreationWatchdog
 import com.ares.analytics.di.ServiceRegistry
 import com.ares.analytics.ui.screens.MainScreen
 import com.ares.analytics.ui.theme.AresTheme
@@ -70,7 +71,20 @@ private fun launchDesktopApplication() {
         val shutdownScope = rememberCoroutineScope()
         val startupMachine = remember { DesktopStartupMachine() }
         val shutdownCoordinator = remember { DesktopShutdownCoordinator(startupMachine) }
+        val creationWatchdog = remember {
+            DesktopWindowCreationWatchdog(
+                machine = startupMachine,
+                onUnrecoverableWindow = DesktopShutdownCoordinator::terminateForUnusableWindow,
+            )
+        }
         var startupAlwaysOnTop by remember { mutableStateOf(true) }
+
+        // This effect belongs to the application composition rather than Window content. It
+        // therefore starts even if Compose never creates the native peer/content composition.
+        DisposableEffect(creationWatchdog) {
+            creationWatchdog.start()
+            onDispose { creationWatchdog.stop() }
+        }
 
         Window(
             onCloseRequest = {

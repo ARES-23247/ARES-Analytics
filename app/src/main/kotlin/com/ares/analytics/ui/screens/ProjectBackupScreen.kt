@@ -45,6 +45,8 @@ import com.ares.analytics.service.versioncontrol.GitHubBackupAccount
 import com.ares.analytics.service.versioncontrol.GitHubBackupCatalog
 import com.ares.analytics.service.versioncontrol.GitHubBackupRepository
 import com.ares.analytics.service.versioncontrol.ProjectBackupPlan
+import com.ares.analytics.service.versioncontrol.ProjectRestoreDisposition
+import com.ares.analytics.service.versioncontrol.ProjectRestorePlan
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
 import com.ares.analytics.ui.theme.AresError
@@ -54,6 +56,9 @@ import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.viewmodel.ProjectBackupIntent
 import com.ares.analytics.viewmodel.ProjectBackupViewModel
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /** Plain-language, review-first local history and permission-scoped GitHub App backup workflow. */
 @Composable
@@ -74,9 +79,9 @@ fun ProjectBackupScreen(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(modifier = Modifier.weight(1f)) {
-                Text("Project Backup", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Text("Project History & Backup", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 Text(
-                    "Save named versions of this robot on the computer, then optionally back them up to a private GitHub repository.",
+                    "Save named versions, review what changed, and optionally keep a private GitHub copy.",
                     color = AresTextSecondary,
                 )
             }
@@ -119,14 +124,39 @@ fun ProjectBackupScreen(
             }
         } else if (plan != null) {
             LocalVersionStep(plan, versionMessage, { versionMessage = it }, authorName, authorEmail, state.isBusy, viewModel)
+            RecentVersionsStep(plan)
             GitHubBackupStep(
                 plan = plan,
+                restorePlan = state.restorePlan,
                 connection = state.githubState,
                 catalog = state.githubCatalog,
                 selectedInstallationId = state.selectedInstallationId,
                 busy = state.isBusy,
                 viewModel = viewModel,
             )
+        }
+    }
+}
+
+@Composable
+private fun RecentVersionsStep(plan: ProjectBackupPlan) {
+    if (plan.versions.isEmpty()) return
+    StepCard("3", "Recent saved versions", Icons.Default.History) {
+        Text(
+            "These are durable checkpoints stored with the robot project. Git commit IDs are shown only as short version IDs.",
+            color = AresTextSecondary,
+        )
+        plan.versions.take(8).forEachIndexed { index, version ->
+            if (index > 0) HorizontalDivider(color = AresBorder)
+            Text(version.message, fontWeight = FontWeight.Bold)
+            Text(
+                "${version.authorName} • ${formatVersionTime(version.committedAtEpochSeconds)} • version ${version.commitId.take(8)}",
+                color = AresTextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (plan.versions.size > 8) {
+            Text("${plan.versions.size - 8} older saved versions are retained.", color = AresTextSecondary)
         }
     }
 }
@@ -203,13 +233,14 @@ private fun LocalVersionStep(
 @Composable
 private fun GitHubBackupStep(
     plan: ProjectBackupPlan,
+    restorePlan: ProjectRestorePlan?,
     connection: GitHubConnectionState,
     catalog: GitHubBackupCatalog,
     selectedInstallationId: Long?,
     busy: Boolean,
     viewModel: ProjectBackupViewModel,
 ) {
-    StepCard("3", "Optional GitHub project backup", Icons.Default.CloudUpload) {
+    StepCard("4", "Optional GitHub project backup", Icons.Default.CloudUpload) {
         Text(
             "GitHub stores another copy outside this computer. Sign in, then choose a private repository that a team owner has approved for the ARES GitHub App. No token is stored in the robot project.",
             color = AresTextSecondary,
@@ -262,10 +293,17 @@ private fun GitHubBackupStep(
                             enabled = !busy && plan.changes.isEmpty(),
                         ) { Text("Sync backup now") }
                         OutlinedButton(
+                            onClick = { viewModel.onIntent(ProjectBackupIntent.PreviewGitHubRestore) },
+                            enabled = !busy && plan.changes.isEmpty(),
+                        ) { Text("Check for newer version") }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedButton(
                             onClick = { viewModel.onIntent(ProjectBackupIntent.DisconnectGitHubDestination) },
                             enabled = !busy,
                         ) { Text("Change destination") }
                     }
+                    restorePlan?.let { GitHubRestorePreview(it, busy, viewModel) }
                     if (plan.changes.isNotEmpty()) {
                         Text("Save a clean local version before syncing GitHub.", color = AresTextSecondary)
                     }
@@ -288,6 +326,61 @@ private fun GitHubBackupStep(
         }
     }
 }
+
+@Composable
+private fun GitHubRestorePreview(
+    restore: ProjectRestorePlan,
+    busy: Boolean,
+    viewModel: ProjectBackupViewModel,
+) {
+    when (restore.disposition) {
+        ProjectRestoreDisposition.UP_TO_DATE -> Text(
+            "GitHub and this computer contain the same saved version.",
+            color = AresGreen,
+        )
+        ProjectRestoreDisposition.LOCAL_AHEAD -> Text(
+            "This computer is newer than GitHub. Use Sync backup now after reviewing local changes.",
+            color = AresTextSecondary,
+        )
+        ProjectRestoreDisposition.REMOTE_AHEAD -> {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+                border = BorderStroke(1.dp, AresCyan),
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text("Review newer GitHub version", fontWeight = FontWeight.Bold)
+                    Text(
+                        "ARES will only fast-forward to this exact reviewed version. It creates a local safety checkpoint first and never force-pushes or guesses through conflicting histories.",
+                        color = AresTextSecondary,
+                    )
+                    restore.changes.take(30).forEach { change ->
+                        Text("${change.kind.name.lowercase().replaceFirstChar(Char::uppercase)} • ${change.path}")
+                    }
+                    if (restore.changes.size > 30) {
+                        Text("…and ${restore.changes.size - 30} more files", color = AresTextSecondary)
+                    }
+                    Button(
+                        onClick = {
+                            viewModel.onIntent(
+                                ProjectBackupIntent.ConfirmGitHubRestore(requireNotNull(restore.confirmationToken)),
+                            )
+                        },
+                        enabled = !busy && restore.canRestore,
+                    ) { Text("Restore this reviewed version") }
+                }
+            }
+        }
+    }
+}
+
+private fun formatVersionTime(epochSeconds: Long): String = VERSION_TIME_FORMATTER.format(
+    Instant.ofEpochSecond(epochSeconds).atZone(ZoneId.systemDefault()),
+)
+
+private val VERSION_TIME_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a")
 
 @Composable
 private fun RepositoryDestinationPicker(

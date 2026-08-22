@@ -12,9 +12,19 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.api.MergeCommand
+import org.eclipse.jgit.diff.DiffEntry
+import org.eclipse.jgit.diff.DiffFormatter
+import org.eclipse.jgit.lib.FileMode
 import org.eclipse.jgit.lib.Constants
+import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.transport.URIish
+import org.eclipse.jgit.transport.RefSpec
 import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider
+import org.eclipse.jgit.revwalk.RevWalk
+import org.eclipse.jgit.treewalk.TreeWalk
+import org.eclipse.jgit.util.io.DisabledOutputStream
+import org.slf4j.LoggerFactory
 import java.awt.Desktop
 import java.io.File
 import java.net.URI
@@ -27,6 +37,30 @@ enum class ProjectChangeKind { ADDED, MODIFIED, DELETED, RENAMED, CONFLICT }
 
 data class ProjectChange(val path: String, val kind: ProjectChangeKind)
 
+data class ProjectVersion(
+    val commitId: String,
+    val message: String,
+    val authorName: String,
+    val committedAtEpochSeconds: Long,
+)
+
+enum class ProjectRestoreDisposition { UP_TO_DATE, REMOTE_AHEAD, LOCAL_AHEAD }
+
+data class ProjectRestorePlan(
+    val disposition: ProjectRestoreDisposition,
+    val localCommit: String,
+    val remoteCommit: String,
+    val changes: List<ProjectChange>,
+    val confirmationToken: String?,
+) {
+    init {
+        configureJGitLogging()
+    }
+
+    val canRestore: Boolean get() =
+        disposition == ProjectRestoreDisposition.REMOTE_AHEAD && changes.isNotEmpty() && confirmationToken != null
+}
+
 data class ProjectBackupPlan(
     val projectPath: String,
     val initialized: Boolean,
@@ -37,6 +71,7 @@ data class ProjectBackupPlan(
     val remoteUrl: String?,
     val destination: GitHubBackupDestination?,
     val confirmationToken: String?,
+    val versions: List<ProjectVersion> = emptyList(),
 ) {
     val canCommit: Boolean get() =
         initialized && changes.isNotEmpty() && blockedSensitivePaths.isEmpty() && confirmationToken != null
@@ -83,6 +118,7 @@ class ProjectVersionControlService internal constructor(
     private val pollDelay: suspend (Long) -> Unit = { milliseconds -> delay(milliseconds) },
     private val epochSeconds: () -> Long = { Instant.now().epochSecond },
     private val remotePusher: (Git, String) -> Unit = ::pushWithJGit,
+    private val remoteMainFetcher: (Git, String) -> ObjectId = ::fetchMainWithJGit,
 ) {
     private val githubMutex = Mutex()
     private val _githubState = MutableStateFlow<GitHubConnectionState>(initialGitHubState())
@@ -226,7 +262,9 @@ class ProjectVersionControlService internal constructor(
                         git.remoteAdd().setName(ORIGIN_REMOTE).setUri(URIish(repository.cloneUrl)).call()
                     }
                     writeDestination(git, account, repository)
-                    remotePusher(git, credential.accessToken)
+                    invokeRemoteOperation(RemoteOperation.PUSH) {
+                        remotePusher(git, credential.accessToken)
+                    }
                 } catch (failure: Exception) {
                     clearDestination(git)
                     if (addedOrigin) git.remoteRemove().setRemoteName(ORIGIN_REMOTE).call()
@@ -257,8 +295,55 @@ class ProjectVersionControlService internal constructor(
                     git.remoteSetUrl().setRemoteName(ORIGIN_REMOTE).setRemoteUri(URIish(repository.cloneUrl)).call()
                 }
                 writeDestination(git, account, repository)
-                remotePusher(git, credential.accessToken)
+                invokeRemoteOperation(RemoteOperation.PUSH) {
+                    remotePusher(git, credential.accessToken)
+                }
             }
+            buildPlan(root)
+        }
+    }
+
+    /**
+     * Fetches and reviews the selected GitHub backup without changing the working tree.
+     * Only an unambiguous fast-forward can become restorable.
+     */
+    suspend fun previewGitHubRestore(projectPath: String): ProjectRestorePlan = withContext(Dispatchers.IO) {
+        serializedGitHubOperation {
+            val credential = requireUsableCredential()
+            val root = requireProjectRoot(projectPath)
+            Git.open(root).use { git -> prepareRestore(git, credential) }
+        }
+    }
+
+    /** Applies the exact reviewed fast-forward and preserves the previous commit under an ARES safety ref. */
+    suspend fun restoreFromGitHub(
+        projectPath: String,
+        expectedConfirmationToken: String,
+    ): ProjectBackupPlan = withContext(Dispatchers.IO) {
+        serializedGitHubOperation {
+            val credential = requireUsableCredential()
+            val root = requireProjectRoot(projectPath)
+            Git.open(root).use { git ->
+                val reviewed = prepareRestore(git, credential)
+                require(reviewed.canRestore && reviewed.confirmationToken == expectedConfirmationToken) {
+                    "The GitHub backup changed after this preview. Review the updated file list before restoring."
+                }
+                val localId = ObjectId.fromString(reviewed.localCommit)
+                val remoteId = ObjectId.fromString(reviewed.remoteCommit)
+                createRestoreSafetyRef(git, localId, remoteId)
+                val result = git.merge()
+                    .include(remoteId)
+                    .setFastForward(MergeCommand.FastForwardMode.FF_ONLY)
+                    .call()
+                require(result.mergeStatus.isSuccessful) {
+                    "ARES could not safely restore the reviewed GitHub version. The previous local version is still preserved."
+                }
+                require(git.repository.resolve(Constants.HEAD) == remoteId) {
+                    "ARES did not reach the reviewed GitHub version. The previous local version is still preserved."
+                }
+            }
+            // Revalidate the canonical marker after JGit updates the working tree.
+            requireProjectRoot(root.path)
             buildPlan(root)
         }
     }
@@ -450,6 +535,18 @@ class ProjectVersionControlService internal constructor(
             val sensitive = changes.map(ProjectChange::path).filter(::isSensitiveProjectPath).distinct().sorted()
             val lastCommit = git.repository.resolve(Constants.HEAD)?.name
             val branch = runCatching { git.repository.branch }.getOrNull()
+            val versions = if (lastCommit == null) {
+                emptyList()
+            } else {
+                git.log().setMaxCount(MAX_VISIBLE_VERSIONS).call().map { commit ->
+                    ProjectVersion(
+                        commitId = commit.name,
+                        message = commit.shortMessage.ifBlank { "Saved robot version" },
+                        authorName = commit.authorIdent?.name?.takeIf(String::isNotBlank) ?: "Unknown teammate",
+                        committedAtEpochSeconds = commit.commitTime.toLong(),
+                    )
+                }
+            }
             return ProjectBackupPlan(
                 projectPath = root.path,
                 initialized = true,
@@ -460,8 +557,147 @@ class ProjectVersionControlService internal constructor(
                 remoteUrl = originUrl(git),
                 destination = readDestination(git),
                 confirmationToken = changes.takeIf { it.isNotEmpty() }?.let { contentBoundToken(root, it) },
+                versions = versions,
             )
         }
+    }
+
+    private fun prepareRestore(
+        git: Git,
+        credential: StoredGitHubAppCredential,
+    ): ProjectRestorePlan {
+        require(git.status().call().isClean) {
+            "Save the current changes as a local version before checking or restoring GitHub."
+        }
+        val destination = readDestination(git)
+            ?: error("Choose an approved personal or team repository before checking GitHub versions.")
+        val (_, repository) = verifyDestinationAccess(credential, destination)
+        val origin = originUrl(git)
+            ?: error("The saved GitHub destination has no origin remote. Choose the destination again.")
+        require(sameGitHubRepository(origin, repository.cloneUrl)) {
+            "The origin remote changed after this destination was approved. ARES will not restore from it."
+        }
+        val localId = git.repository.resolve(Constants.HEAD)
+            ?: error("Save at least one local version before checking GitHub versions.")
+        val remoteId = invokeRemoteOperation(RemoteOperation.FETCH) {
+            remoteMainFetcher(git, credential.accessToken)
+        }
+        val disposition = RevWalk(git.repository).use { walk ->
+            val local = walk.parseCommit(localId)
+            val remote = walk.parseCommit(remoteId)
+            when {
+                localId == remoteId -> ProjectRestoreDisposition.UP_TO_DATE
+                walk.isMergedInto(local, remote) -> ProjectRestoreDisposition.REMOTE_AHEAD
+                walk.isMergedInto(remote, local) -> ProjectRestoreDisposition.LOCAL_AHEAD
+                else -> error(
+                    "Both this computer and GitHub contain different saved versions. " +
+                        "ARES will not guess which work to replace; ask a mentor to reconcile the histories.",
+                )
+            }
+        }
+        val changes = if (disposition == ProjectRestoreDisposition.REMOTE_AHEAD) {
+            validateRestorableTree(git, remoteId)
+            diffCommits(git, localId, remoteId)
+        } else {
+            emptyList()
+        }
+        return ProjectRestorePlan(
+            disposition = disposition,
+            localCommit = localId.name,
+            remoteCommit = remoteId.name,
+            changes = changes,
+            confirmationToken = changes.takeIf { it.isNotEmpty() }
+                ?.let { restoreConfirmationToken(localId, remoteId, it) },
+        )
+    }
+
+    private fun validateRestorableTree(git: Git, remoteId: ObjectId) {
+        var canonicalMarkerFound = false
+        var totalBytes = 0L
+        RevWalk(git.repository).use { walk ->
+            val commit = walk.parseCommit(remoteId)
+            TreeWalk(git.repository).use { tree ->
+                tree.addTree(commit.tree)
+                tree.isRecursive = true
+                while (tree.next()) {
+                    val path = tree.pathString
+                    require(!isSensitiveProjectPath(path)) {
+                        "The GitHub version contains a private credential path ($path). ARES will not restore it."
+                    }
+                    val mode = tree.getFileMode(0)
+                    require(mode == FileMode.REGULAR_FILE || mode == FileMode.EXECUTABLE_FILE) {
+                        "The GitHub version contains an unsupported link or special file ($path). ARES will not restore it."
+                    }
+                    val size = git.repository.open(tree.getObjectId(0)).size
+                    require(size <= MAX_REVIEWED_FILE_BYTES) {
+                        "$path is too large for a reviewed GitHub restore."
+                    }
+                    totalBytes = Math.addExact(totalBytes, size)
+                    require(totalBytes <= MAX_RESTORED_PROJECT_BYTES) {
+                        "The GitHub project is too large for a reviewed restore."
+                    }
+                    if (path == ".ares/project.json") canonicalMarkerFound = true
+                }
+            }
+        }
+        require(canonicalMarkerFound) {
+            "The GitHub version is not a canonical ARES robot project. Nothing was restored."
+        }
+    }
+
+    private fun diffCommits(git: Git, localId: ObjectId, remoteId: ObjectId): List<ProjectChange> =
+        RevWalk(git.repository).use { walk ->
+            val localTree = walk.parseCommit(localId).tree
+            val remoteTree = walk.parseCommit(remoteId).tree
+            DiffFormatter(DisabledOutputStream.INSTANCE).use { formatter ->
+                formatter.setRepository(git.repository)
+                formatter.isDetectRenames = true
+                formatter.scan(localTree, remoteTree).map { entry ->
+                    val kind = when (entry.changeType) {
+                        DiffEntry.ChangeType.ADD -> ProjectChangeKind.ADDED
+                        DiffEntry.ChangeType.DELETE -> ProjectChangeKind.DELETED
+                        DiffEntry.ChangeType.RENAME, DiffEntry.ChangeType.COPY -> ProjectChangeKind.RENAMED
+                        DiffEntry.ChangeType.MODIFY -> ProjectChangeKind.MODIFIED
+                    }
+                    val path = if (entry.changeType == DiffEntry.ChangeType.DELETE) entry.oldPath else entry.newPath
+                    ProjectChange(path, kind)
+                }.sortedWith(compareBy(ProjectChange::path, ProjectChange::kind))
+            }
+        }
+
+    private fun restoreConfirmationToken(
+        localId: ObjectId,
+        remoteId: ObjectId,
+        changes: List<ProjectChange>,
+    ): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        digest.update(localId.name.toByteArray(StandardCharsets.US_ASCII))
+        digest.update(remoteId.name.toByteArray(StandardCharsets.US_ASCII))
+        changes.forEach { change ->
+            digest.update(change.kind.name.toByteArray(StandardCharsets.US_ASCII))
+            digest.update(0)
+            digest.update(change.path.toByteArray(StandardCharsets.UTF_8))
+            digest.update(0)
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    private fun createRestoreSafetyRef(git: Git, localId: ObjectId, remoteId: ObjectId) {
+        val refName = "refs/ares/restore-backups/${epochSeconds()}-${localId.name.take(12)}-${remoteId.name.take(12)}"
+        val update = git.repository.updateRef(refName)
+        update.setNewObjectId(localId)
+        update.setExpectedOldObjectId(ObjectId.zeroId())
+        require(update.update().name in setOf("NEW", "NO_CHANGE")) {
+            "ARES could not create the restore safety checkpoint. Nothing was restored."
+        }
+    }
+
+    private fun <T> invokeRemoteOperation(operation: RemoteOperation, block: () -> T): T = try {
+        block()
+    } catch (failure: Exception) {
+        val safeMessage = friendlyRemoteFailure(operation, failure)
+        if (safeMessage == failure.message) throw failure
+        throw IllegalStateException(safeMessage, failure)
     }
 
     private fun contentBoundToken(root: File, changes: List<ProjectChange>): String {
@@ -570,11 +806,21 @@ class ProjectVersionControlService internal constructor(
     companion object {
         const val MAX_REVIEWED_FILE_BYTES = 20L * 1024L * 1024L
         const val MAX_REVIEWED_CHANGE_BYTES = 100L * 1024L * 1024L
+        const val MAX_RESTORED_PROJECT_BYTES = 500L * 1024L * 1024L
+        private const val MAX_VISIBLE_VERSIONS = 20
         private const val MINIMUM_DEVICE_POLL_SECONDS = 5L
         private const val TOKEN_EXPIRY_SAFETY_SECONDS = 60L
         private const val ORIGIN_REMOTE = "origin"
         private const val BACKUP_CONFIG_SECTION = "aresBackup"
     }
+}
+
+private enum class RemoteOperation { PUSH, FETCH }
+
+/** JGit defaults to DEBUG under Logback's fallback configuration and otherwise prints local paths. */
+internal fun configureJGitLogging() {
+    val context = LoggerFactory.getILoggerFactory() as? ch.qos.logback.classic.LoggerContext ?: return
+    context.getLogger("org.eclipse.jgit").level = ch.qos.logback.classic.Level.WARN
 }
 
 private const val GITHUB_CREDENTIAL_SCHEMA_VERSION = 2
@@ -623,6 +869,60 @@ private fun pushWithJGit(git: Git, accessToken: String) {
         .filter { update -> update.status.name !in setOf("OK", "UP_TO_DATE") }
     require(failures.isEmpty()) {
         "GitHub rejected the backup update (${failures.joinToString { it.status.name }}). Nothing remote was overwritten; refresh or ask a mentor to resolve the history difference."
+    }
+}
+
+private fun fetchMainWithJGit(git: Git, accessToken: String): ObjectId {
+    git.fetch()
+        .setRemote("origin")
+        .setCredentialsProvider(UsernamePasswordCredentialsProvider("x-access-token", accessToken))
+        .setRefSpecs(RefSpec("+refs/heads/main:refs/remotes/origin/main"))
+        .call()
+    return git.repository.resolve("refs/remotes/origin/main")
+        ?: error("The selected GitHub repository does not contain a main branch to restore.")
+}
+
+private fun friendlyRemoteFailure(operation: RemoteOperation, failure: Throwable): String {
+    val messages = generateSequence(failure) { it.cause }
+        .mapNotNull(Throwable::message)
+        .joinToString(" ")
+        .lowercase(Locale.ROOT)
+    if (failure.message?.startsWith("GitHub ") == true || failure.message?.startsWith("The selected GitHub ") == true) {
+        return failure.message.orEmpty()
+    }
+    val permissionDenied = listOf(
+        "git-receive-pack not permitted",
+        "git-upload-pack not permitted",
+        "repository not found",
+        "not authorized",
+        "unauthorized",
+        "forbidden",
+        "status code: 403",
+        "status code 403",
+        "authentication is required",
+    ).any(messages::contains)
+    if (permissionDenied) {
+        val access = if (operation == RemoteOperation.PUSH) "write to" else "read"
+        return "ARES no longer has permission to $access this GitHub repository. " +
+            "Ask a team owner to restore the ARES GitHub App's repository access, then choose Refresh destinations. " +
+            "Local project history is unchanged."
+    }
+    val unreachable = listOf(
+        "timed out",
+        "timeout",
+        "unknownhost",
+        "connection reset",
+        "connection refused",
+        "network is unreachable",
+        "could not resolve host",
+    ).any(messages::contains)
+    if (unreachable) {
+        return "GitHub could not be reached. Check the internet connection and try again. Local project history is unchanged."
+    }
+    return if (operation == RemoteOperation.PUSH) {
+        "GitHub could not update this backup. Refresh destinations and try again; local project history is unchanged."
+    } else {
+        "GitHub could not check this backup. Refresh destinations and try again; local project history is unchanged."
     }
 }
 

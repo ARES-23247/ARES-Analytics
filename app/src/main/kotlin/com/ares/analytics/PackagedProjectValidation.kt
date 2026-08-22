@@ -1,6 +1,10 @@
 package com.ares.analytics
 
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
+import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.transport.RefSpec
+import java.io.File
+import java.nio.file.Files
 
 internal const val PACKAGED_PROJECT_VALIDATION_COMMAND = "--verify-packaged-project"
 
@@ -37,6 +41,46 @@ internal fun validatePackagedProject(projectPath: String): PackagedProjectValida
     )
 }
 
+/**
+ * Exercises JGit's real pack-transfer path inside the jlink runtime.
+ *
+ * Opening an ordinary repository is insufficient: JGit first touches java.management while
+ * publishing its pack-window-cache MBean during fetch. This probe caught the exact packaged-only
+ * failure that a full-JDK unit test and document-loader smoke test could not see.
+ */
+internal fun validatePackagedGitRuntime() {
+    com.ares.analytics.service.versioncontrol.configureJGitLogging()
+    val root = Files.createTempDirectory("ares-packaged-jgit-").toFile()
+    try {
+        val source = File(root, "source").apply { mkdirs() }
+        val remote = File(root, "remote.git")
+        val target = File(root, "target").apply { mkdirs() }
+        Git.init().setDirectory(source).setInitialBranch("main").call().use { git ->
+            File(source, "probe.txt").writeText("ARES packaged JGit pack-transfer probe")
+            git.add().addFilepattern(".").call()
+            git.commit()
+                .setMessage("Create packaged JGit probe")
+                .setAuthor("ARES Validation", "validation@aresfirst.org")
+                .setCommitter("ARES Validation", "validation@aresfirst.org")
+                .setSign(false)
+                .call()
+            Git.init().setBare(true).setDirectory(remote).call().close()
+            git.push().setRemote(remote.toURI().toString()).setPushAll().call()
+        }
+        Git.init().setDirectory(target).setInitialBranch("main").call().use { git ->
+            git.fetch()
+                .setRemote(remote.toURI().toString())
+                .setRefSpecs(RefSpec("+refs/heads/main:refs/remotes/probe/main"))
+                .call()
+            checkNotNull(git.repository.resolve("refs/remotes/probe/main")) {
+                "Packaged JGit fetch did not produce the reviewed main ref"
+            }
+        }
+    } finally {
+        root.deleteRecursively()
+    }
+}
+
 /** Returns null when the desktop application should launch normally. */
 internal fun runPackagedProjectValidationCommand(args: Array<String>): Int? {
     if (args.firstOrNull() != PACKAGED_PROJECT_VALIDATION_COMMAND) return null
@@ -45,7 +89,10 @@ internal fun runPackagedProjectValidationCommand(args: Array<String>): Int? {
         return 64
     }
 
-    val result = runCatching { validatePackagedProject(args[1]) }
+    val result = runCatching {
+        validatePackagedGitRuntime()
+        validatePackagedProject(args[1])
+    }
         .onFailure { error ->
             System.err.println("PACKAGED_PROJECT_VALIDATION_FAILED: ${error.message}")
         }
@@ -58,7 +105,7 @@ internal fun runPackagedProjectValidationCommand(args: Array<String>): Int? {
 
     println(
         "PACKAGED_PROJECT_VALIDATION_OK " +
-            "routines=${result.routineCount} subsystems=${result.subsystemCount}"
+            "routines=${result.routineCount} subsystems=${result.subsystemCount} jgitPackTransfer=true"
     )
     return 0
 }

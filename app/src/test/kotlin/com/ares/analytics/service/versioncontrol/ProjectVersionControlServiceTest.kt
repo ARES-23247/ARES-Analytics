@@ -5,6 +5,8 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import org.eclipse.jgit.api.Git
+import org.eclipse.jgit.lib.ObjectId
+import org.eclipse.jgit.transport.RefSpec
 import org.eclipse.jgit.transport.URIish
 import java.io.File
 import java.nio.file.Files
@@ -45,6 +47,7 @@ class ProjectVersionControlServiceTest {
         )
         assertTrue(clean.changes.isEmpty())
         assertNotNull(clean.lastCommit)
+        assertEquals(listOf("Create robot"), clean.versions.map(ProjectVersion::message))
         Git.open(root).use { git ->
             assertEquals("Create robot", git.log().call().first().fullMessage)
             assertEquals("Student Builder", git.log().call().first().authorIdent.name)
@@ -207,6 +210,133 @@ class ProjectVersionControlServiceTest {
     }
 
     @Test
+    fun `raw jgit permission failures become actionable student safe messages`() = runBlocking {
+        val root = cleanCommittedProject("friendly-permission-error")
+        val api = FakeGitHubApi().apply {
+            accounts = listOf(organizationAccount())
+            repositories = listOf(privateRepository(22, 202, "ARES-23247", "team-robot"))
+        }
+        val service = githubService(
+            MemoryCredentialStore(),
+            api,
+            remotePusher = { _, _ ->
+                error("https://github.com/ARES-23247/team-robot.git: git-receive-pack not permitted")
+            },
+        )
+        service.signInToGitHub()
+
+        val failure = assertFailsWith<IllegalStateException> {
+            service.connectApprovedRepository(root.path, 22, 202)
+        }
+
+        assertContains(failure.message.orEmpty(), "no longer has permission to write")
+        assertContains(failure.message.orEmpty(), "Refresh destinations")
+        assertContains(failure.message.orEmpty(), "Local project history is unchanged")
+        assertFalse(failure.message.orEmpty().contains("git-receive-pack"))
+        assertFalse(failure.message.orEmpty().contains("github.com/"))
+    }
+
+    @Test
+    fun `newer github version is previewed then restored only by exact token with a safety ref`() = runBlocking {
+        val root = cleanCommittedProject("restorable-project")
+        val remote = localBareRemote("restorable-remote")
+        val api = FakeGitHubApi().apply {
+            accounts = listOf(organizationAccount())
+            repositories = listOf(privateRepository(22, 202, "ARES-23247", "team-robot"))
+        }
+        val service = githubService(
+            MemoryCredentialStore(),
+            api,
+            remotePusher = localRemotePusher(remote),
+            remoteMainFetcher = localRemoteFetcher(remote),
+        )
+        service.signInToGitHub()
+        val connected = service.connectApprovedRepository(root.path, 22, 202)
+        val originalCommit = requireNotNull(connected.lastCommit)
+        advanceRemote(remote, "robot.txt", "newer robot", "Improve robot")
+
+        val preview = service.previewGitHubRestore(root.path)
+
+        assertEquals(ProjectRestoreDisposition.REMOTE_AHEAD, preview.disposition)
+        assertEquals(listOf(ProjectChange("robot.txt", ProjectChangeKind.MODIFIED)), preview.changes)
+        assertTrue(preview.canRestore)
+        val restored = service.restoreFromGitHub(root.path, requireNotNull(preview.confirmationToken))
+        assertEquals("newer robot", File(root, "robot.txt").readText())
+        assertEquals("Improve robot", restored.versions.first().message)
+        Git.open(root).use { git ->
+            val safetyRefs = git.repository.refDatabase.getRefsByPrefix("refs/ares/restore-backups/")
+            assertEquals(1, safetyRefs.size)
+            assertEquals(originalCommit, safetyRefs.single().objectId.name)
+        }
+    }
+
+    @Test
+    fun `github restore refuses stale previews and divergent histories`() = runBlocking {
+        val root = cleanCommittedProject("divergent-project")
+        val remote = localBareRemote("divergent-remote")
+        val api = FakeGitHubApi().apply {
+            accounts = listOf(organizationAccount())
+            repositories = listOf(privateRepository(22, 202, "ARES-23247", "team-robot"))
+        }
+        val service = githubService(
+            MemoryCredentialStore(),
+            api,
+            remotePusher = localRemotePusher(remote),
+            remoteMainFetcher = localRemoteFetcher(remote),
+        )
+        service.signInToGitHub()
+        service.connectApprovedRepository(root.path, 22, 202)
+        advanceRemote(remote, "robot.txt", "remote one", "Remote one")
+        val stalePreview = service.previewGitHubRestore(root.path)
+        advanceRemote(remote, "robot.txt", "remote two", "Remote two")
+
+        val staleFailure = assertFailsWith<IllegalArgumentException> {
+            service.restoreFromGitHub(root.path, requireNotNull(stalePreview.confirmationToken))
+        }
+        assertContains(staleFailure.message.orEmpty(), "changed after this preview")
+        assertEquals("robot", File(root, "robot.txt").readText())
+
+        File(root, "local.txt").writeText("local work")
+        val localPlan = service.inspect(root.path)
+        service.commit(
+            root.path,
+            requireNotNull(localPlan.confirmationToken),
+            "Local work",
+            "Student",
+            "student@example.org",
+        )
+        val divergence = assertFailsWith<IllegalStateException> { service.previewGitHubRestore(root.path) }
+        assertContains(divergence.message.orEmpty(), "different saved versions")
+    }
+
+    @Test
+    fun `github restore rejects incoming credential paths before changing local files`() = runBlocking {
+        val root = cleanCommittedProject("sensitive-restore-project")
+        val remote = localBareRemote("sensitive-restore-remote")
+        val api = FakeGitHubApi().apply {
+            accounts = listOf(organizationAccount())
+            repositories = listOf(privateRepository(22, 202, "ARES-23247", "team-robot"))
+        }
+        val service = githubService(
+            MemoryCredentialStore(),
+            api,
+            remotePusher = localRemotePusher(remote),
+            remoteMainFetcher = localRemoteFetcher(remote),
+        )
+        service.signInToGitHub()
+        service.connectApprovedRepository(root.path, 22, 202)
+        advanceRemote(remote, "credentials.json", "{\"privateKey\":\"must-not-restore\"}", "Unsafe remote file")
+
+        val failure = assertFailsWith<IllegalArgumentException> {
+            service.previewGitHubRestore(root.path)
+        }
+
+        assertContains(failure.message.orEmpty(), "private credential path")
+        assertFalse(File(root, "credentials.json").exists())
+        assertTrue(service.inspect(root.path).changes.isEmpty())
+    }
+
+    @Test
     fun `removed repository permission blocks sync without invoking remote push`() = runBlocking {
         val root = cleanCommittedProject("revoked-backup")
         val api = FakeGitHubApi().apply {
@@ -321,6 +451,9 @@ class ProjectVersionControlServiceTest {
         now: Long = 1_000L,
         browserLauncher: (String) -> Unit = {},
         remotePusher: (Git, String) -> Unit = { _, _ -> },
+        remoteMainFetcher: (Git, String) -> ObjectId = { git, _ ->
+            requireNotNull(git.repository.resolve("refs/remotes/origin/main"))
+        },
     ) = ProjectVersionControlService(
         githubClientId = "Ov23liExampleClientId",
         githubAppSlug = "ares-project-backup",
@@ -330,7 +463,44 @@ class ProjectVersionControlServiceTest {
         pollDelay = {},
         epochSeconds = { if (api.nowForTokenExpiry) now + 3_570L else now },
         remotePusher = remotePusher,
+        remoteMainFetcher = remoteMainFetcher,
     )
+
+    private fun localBareRemote(name: String): File = temporaryDirectory.resolve("$name.git").toFile().also { remote ->
+        Git.init().setBare(true).setDirectory(remote).call().close()
+    }
+
+    private fun localRemotePusher(remote: File): (Git, String) -> Unit = { git, _ ->
+        git.push().setRemote(remote.toURI().toString()).setPushAll().call()
+    }
+
+    private fun localRemoteFetcher(remote: File): (Git, String) -> ObjectId = { git, _ ->
+        git.fetch()
+            .setRemote(remote.toURI().toString())
+            .setRefSpecs(RefSpec("+refs/heads/main:refs/remotes/ares-test/main"))
+            .call()
+        requireNotNull(git.repository.resolve("refs/remotes/ares-test/main"))
+    }
+
+    private fun advanceRemote(remote: File, path: String, contents: String, message: String) {
+        val checkout = temporaryDirectory.resolve("remote-writer-${System.nanoTime()}").toFile()
+        Git.cloneRepository()
+            .setURI(remote.toURI().toString())
+            .setBranch("main")
+            .setDirectory(checkout)
+            .call()
+            .use { git ->
+            File(checkout, path).writeText(contents)
+            git.add().addFilepattern(".").call()
+            git.commit()
+                .setMessage(message)
+                .setAuthor("Remote teammate", "remote@example.org")
+                .setCommitter("Remote teammate", "remote@example.org")
+                .setSign(false)
+                .call()
+            git.push().setRemote("origin").call()
+        }
+    }
 
     private suspend fun cleanCommittedProject(name: String): File {
         val root = canonicalProject(name)

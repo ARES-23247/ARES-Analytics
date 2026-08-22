@@ -44,7 +44,7 @@ enum class NavigationTarget(val label: String, val icon: ImageVector) {
     DRIVEBASE_BUILDER("Drivebase Builder", Icons.Default.Settings),
     SUBSYSTEM_GEN("Subsystem Builder", Icons.Default.Construction),
     SUPERSTRUCTURE_STUDIO("Superstructure Studio", Icons.Default.Layers),
-    PROJECT_BACKUP("Project Backup", Icons.Default.CloudUpload),
+    PROJECT_BACKUP("Project History", Icons.Default.CloudUpload),
     PROFILE("Profile", Icons.Default.Person),
     ADMIN("Admin Panel", Icons.Default.SupervisorAccount)
 }
