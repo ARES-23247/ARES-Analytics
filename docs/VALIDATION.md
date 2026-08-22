@@ -1,6 +1,6 @@
 # Automated Dashboard Validation
 
-ARES Analytics includes repeatable smoke and soak profiles for the complete dashboard data path. Validation combines the in-process NT4 server/client test with deterministic telemetry ingestion, indexed DuckDB queries, CSV and Parquet export, lossless Parquet restore, replay load and scrubbing, alert regression checks, memory measurement, and performance budgets.
+ARES Robotics Studio includes repeatable smoke and soak profiles for the complete dashboard data path. Validation combines the in-process NT4 server/client test with deterministic telemetry ingestion, indexed DuckDB queries, CSV and Parquet export, lossless Parquet restore, replay load and scrubbing, alert regression checks, memory measurement, and performance budgets.
 
 ## Local commands
 

@@ -12,7 +12,7 @@ repository. This feature is independent of Google Drive session/log synchronizat
 Open **Profile & Settings → Project History & Backup**.
 
 1. Projects created by ARES already have local history and one clean baseline version. ARES authors
-   that mechanical baseline as **ARES Analytics**; it does not pretend a student wrote the starter.
+   that mechanical baseline as **ARES Robotics Studio**; it does not pretend a student wrote the starter.
    For an older or imported project, choose **Start local history** once. Neither path uploads anything.
 2. Review the exact changed-file list, describe the change, then choose **Save this version**.
    A content-bound confirmation token prevents a file changed after preview from being committed.

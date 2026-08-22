@@ -1,8 +1,16 @@
-# ARES Analytics
+# ARES Robotics Studio
 
 [ARES 23247 team website](https://aresfirst.org/) · [ARES GitHub organization](https://github.com/ARES-23247)
 
-ARES Analytics is the desktop mission-control, log-analysis, replay, and pit-diagnostics application for the ARES FTC and FRC robots. It receives live NetworkTables 4 (NT4) telemetry, imports robot logs into DuckDB, runs analysis locally, and optionally synchronizes artifacts through Google Drive.
+ARES Robotics Studio is the local-first desktop environment for designing, simulating, operating,
+teaching, tuning, and analyzing FTC and FRC robots. Students can create a verified robot project,
+configure its drivebase and mechanisms through guided builders, author controls and autonomous
+routines, run the real robot program in simulation, inspect live NT4 telemetry, and review imported
+logs in DuckDB. Optional Google Drive and GitHub integrations never replace the local workspace.
+
+The product was previously named **ARES Analytics**. Existing settings, credentials, projects, and
+installer upgrades retain their established internal identities; the public rename does not move or
+rewrite team data. See [Branding, upgrades, and repair](docs/BRANDING_AND_UPGRADES.md).
 
 The robot remains offline-first: robot code never sends data directly to a cloud service. The desktop app owns every cloud interaction.
 

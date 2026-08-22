@@ -1,7 +1,7 @@
 # ARES product design system
 
 ARES products should look related without forcing a public website and a technical mission-control
-application into the same layout. The website is expressive and recruitment-oriented. Analytics is
+application into the same layout. The website is expressive and recruitment-oriented. The Studio is
 dense, operational, and optimized for readable telemetry. Both use the same team identity,
 typography families, focus treatment, and accessibility rules.
 
@@ -9,7 +9,7 @@ typography families, focus treatment, and accessibility rules.
 
 The source contract lives in
 [`ARES-23247/ARESWEB/design/ares-design-tokens.json`](https://github.com/ARES-23247/ARESWEB/blob/master/design/ares-design-tokens.json).
-Analytics packages a versioned snapshot at
+ARES Robotics Studio packages a versioned snapshot at
 `app/src/main/resources/design/ares-design-tokens.json`; `AresBrandContractTest` prevents its Kotlin
 theme from drifting from that snapshot.
 
@@ -20,7 +20,7 @@ When changing a shared token:
 3. From Analytics, run `scripts\sync-ares-design-tokens.ps1` to copy the complete contract—never
    copy only one color. Pass `-WebsiteRoot` if ARESWEB is not the default sibling.
 4. Update `AresBrandTokens` and run the Analytics theme tests.
-5. Review representative website and Analytics screens with keyboard focus, high contrast, larger
+5. Review representative website and Studio screens with keyboard focus, high contrast, larger
    text, and colorblind-friendly mode.
 
 Neither product downloads design tokens at runtime. Both remain usable offline.
@@ -31,12 +31,12 @@ Neither product downloads design tokens at runtime. Both remain usable offline.
 |---|---|---|
 | Team identity | ARES red `#C00000` | Logo and intentional brand moments |
 | Team heritage | Bronze `#CD7F32` and gold `#FFB81C` | Decorative details and selected emphasis |
-| Technical interaction | Cyan `#00E5FF` | Analytics primary actions, data, selection, and focus |
+| Technical interaction | Cyan `#00E5FF` | Studio primary actions, data, selection, and focus |
 | Dark identity foundation | Obsidian `#1A1A1A` | Website dark sections and app branding |
 | Light identity foundation | Marble `#F9F9F9` | Website light sections and logo contrast |
 | Errors, warnings, success | Semantic palette | Operational state—not team identity |
 
-ARES red is not the Analytics selected-state color and is not interchangeable with an error.
+ARES red is not the Studio selected-state color and is not interchangeable with an error.
 Every error, warning, success, connection, or robot state includes a word, icon, border, or pattern;
 color is supplemental.
 
@@ -52,8 +52,10 @@ color is supplemental.
 
 ## Links and logo
 
-The app packages the official website mark for its window, installer, and navigation rail. Selecting
-the mark opens [aresfirst.org](https://aresfirst.org/). **Help & Learn** also provides explicit links
+The app packages two related assets. The detailed official team mark remains on the navigation rail
+and opens [aresfirst.org](https://aresfirst.org/). The simplified ARES Robotics Studio Spartan/circuit
+mark is used for the window, taskbar, and native installers because it remains legible at 16–32 px.
+**Help & Learn** also provides explicit links
 to the [team website](https://aresfirst.org/) and
 [ARES GitHub organization](https://github.com/ARES-23247). Link failures never block offline work.
 

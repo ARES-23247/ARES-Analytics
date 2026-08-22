@@ -1,4 +1,4 @@
-# ARES Analytics glossary
+# ARES Robotics Studio glossary
 
 Definitions are written for a first-year team member. “Mentor note” adds the precise system meaning where it matters.
 

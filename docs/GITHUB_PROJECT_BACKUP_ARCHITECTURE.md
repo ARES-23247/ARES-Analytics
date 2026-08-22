@@ -22,7 +22,7 @@ expired credentials are cleared with an actionable sign-in message.
 App-created FTC and FRC projects receive their Git repository and first clean commit while the
 verified starter is still in its protected staging directory. The project directory becomes
 visible only after both template validation and history initialization succeed. The mechanical
-baseline is authored by `ARES Analytics <local-history@aresfirst.org>`; later reviewed commits use
+baseline is authored by `ARES Robotics Studio <local-history@aresfirst.org>`; later reviewed commits use
 the student or team identity entered in Project History. Existing imported projects remain an
 explicit opt-in so ARES never silently takes ownership of an arbitrary source tree.
 

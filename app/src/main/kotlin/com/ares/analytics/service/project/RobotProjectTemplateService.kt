@@ -231,7 +231,7 @@ class RobotProjectTemplateService(
                     }
                     val actualHash = sha256(temporary)
                     check(actualHash == template.archiveSha256) {
-                        "The installer-bundled starter did not match its reviewed SHA-256. Reinstall ARES Analytics before creating a project."
+                        "The installer-bundled starter did not match its reviewed SHA-256. Reinstall ARES Robotics Studio before creating a project."
                     }
                 }
                 return cacheFile to RobotProjectTemplateSource.VERIFIED_BUNDLED

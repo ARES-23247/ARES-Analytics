@@ -1,4 +1,4 @@
-# Find your way around ARES Analytics
+# Find your way around ARES Robotics Studio
 
 This tour explains the parts of the window you will use most often. You can explore every item here with **Local Sim**; a physical robot is not required.
 

@@ -66,7 +66,7 @@ fun AuthStep(
 ) {
     var destinationType by remember { mutableStateOf(DriveDestinationType.PERSONAL_FOLDER) }
     var destinationMenuExpanded by remember { mutableStateOf(false) }
-    var destinationName by remember { mutableStateOf("ARES Analytics") }
+    var destinationName by remember { mutableStateOf("ARES Robotics Studio") }
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),

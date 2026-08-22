@@ -75,7 +75,7 @@ class GoogleOAuthClientResolver(
             )
         } else {
             GoogleOAuthClientResolution.Unavailable(
-                "Google sign-in is unavailable in this build. Install an official ARES Analytics release or ask an administrator to configure a custom Desktop OAuth client.",
+                "Google sign-in is unavailable in this build. Install an official ARES Robotics Studio release or ask an administrator to configure a custom Desktop OAuth client.",
             )
         }
     }

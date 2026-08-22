@@ -84,7 +84,7 @@ fun JavaVerificationStep(
                 color = if (isValid == false) AresAmber else AresTextSecondary,
             )
             Text(
-                "ARES Analytics uses its bundled runtime. This check only affects Build and Local Simulator.",
+                "ARES Robotics Studio uses its bundled runtime. This check only affects Build and Local Simulator.",
                 style = MaterialTheme.typography.bodySmall,
                 color = AresTextTertiary,
             )

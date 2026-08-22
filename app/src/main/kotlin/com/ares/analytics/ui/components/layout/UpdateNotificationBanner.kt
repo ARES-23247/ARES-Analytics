@@ -58,7 +58,7 @@ fun UpdateNotificationBanner(
                 }
 
                 Text(
-                    text = "A new version (${updateState.latestVersion}) of ARES Analytics is available.",
+                    text = "A new version (${updateState.latestVersion}) of ARES Robotics Studio is available.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = AresTextSecondary
                 )

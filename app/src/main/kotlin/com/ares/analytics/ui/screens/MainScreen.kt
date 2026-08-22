@@ -68,7 +68,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Root UI frame container and screen routing shell for the ARES Analytics desktop application.
+ * Root UI frame container and screen routing shell for the ARES Robotics Studio desktop application.
  *
  * Manages navigation sidebar targets ([NavigationTarget]), execution toolbars (Gradle build/deploy, ADB logcat, Sim launcher),
  * terminal output drawers, and global keyboard shortcuts (`Ctrl+Shift+B`, `Ctrl+Shift+R`).

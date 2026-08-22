@@ -1,6 +1,6 @@
 # Privacy and cloud data
 
-ARES Analytics is local-first. Live robot telemetry, imported logs, authoring files, simulation,
+ARES Robotics Studio is local-first. Live robot telemetry, imported logs, authoring files, simulation,
 and analysis run on the laptop. Robots do not sign into Google and do not upload directly.
 
 Google Drive synchronization is opt-in. Before consent, the app explains that it requests basic

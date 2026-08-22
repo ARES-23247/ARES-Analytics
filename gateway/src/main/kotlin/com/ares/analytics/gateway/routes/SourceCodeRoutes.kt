@@ -18,5 +18,5 @@ fun Route.sourceCodeRoutes() {
 }
 
 internal const val SOURCE_CODE_NOTICE =
-    "ARES Analytics is licensed under GNU AGPL-3.0-or-later. " +
+    "ARES Robotics Studio is licensed under GNU AGPL-3.0-or-later. " +
         "Source code: https://github.com/ARES-23247/ARES-Analytics"

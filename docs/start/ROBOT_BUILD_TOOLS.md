@@ -1,6 +1,6 @@
 # Robot build tools
 
-ARES Analytics itself includes a private desktop runtime. Students can create projects, use the GUI
+ARES Robotics Studio itself includes a private desktop runtime. Students can create projects, use the GUI
 builders, import logs, and analyze runs without installing Java, Kotlin, Gradle, Git, or GitHub
 Desktop.
 
