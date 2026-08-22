@@ -3,6 +3,7 @@ package com.ares.analytics.viewmodel
 import com.ares.analytics.service.versioncontrol.GitHubConnectionState
 import com.ares.analytics.service.versioncontrol.GitHubBackupCatalog
 import com.ares.analytics.service.versioncontrol.ProjectBackupPlan
+import com.ares.analytics.service.versioncontrol.ProjectBackupAutoSyncState
 import com.ares.analytics.service.versioncontrol.ProjectRecoveryPlan
 import com.ares.analytics.service.versioncontrol.ProjectRestorePlan
 import com.ares.analytics.service.versioncontrol.ProjectVersionControlService
@@ -23,6 +24,7 @@ data class ProjectBackupState(
     val githubState: GitHubConnectionState = GitHubConnectionState.Disconnected,
     val githubCatalog: GitHubBackupCatalog = GitHubBackupCatalog(),
     val selectedInstallationId: Long? = null,
+    val autoSync: ProjectBackupAutoSyncState = ProjectBackupAutoSyncState(),
     val isBusy: Boolean = false,
     val notice: String? = null,
     val error: String? = null,
@@ -44,6 +46,7 @@ sealed class ProjectBackupIntent {
     data class SelectGitHubInstallation(val installationId: Long) : ProjectBackupIntent()
     data class ConnectGitHubRepository(val installationId: Long, val repositoryId: Long) : ProjectBackupIntent()
     object SyncGitHubBackup : ProjectBackupIntent()
+    data class SetAutomaticGitHubBackup(val enabled: Boolean) : ProjectBackupIntent()
     object PreviewGitHubRestore : ProjectBackupIntent()
     data class ConfirmGitHubRestore(val confirmationToken: String) : ProjectBackupIntent()
     data class PreviewRecovery(val refName: String) : ProjectBackupIntent()
@@ -66,6 +69,11 @@ class ProjectBackupViewModel(
         scope.launch {
             service.githubState.collectLatest { github ->
                 _state.update { it.copy(githubState = github) }
+            }
+        }
+        scope.launch {
+            service.autoSyncState.collectLatest { autoSync ->
+                _state.update { it.copy(autoSync = autoSync) }
             }
         }
     }
@@ -130,6 +138,7 @@ class ProjectBackupViewModel(
             ) {
                 service.pushBackup(requireProjectPath())
             }
+            is ProjectBackupIntent.SetAutomaticGitHubBackup -> setAutomaticGitHubBackup(intent.enabled)
             ProjectBackupIntent.PreviewGitHubRestore -> previewRestore()
             is ProjectBackupIntent.ConfirmGitHubRestore -> restoreFromGitHub(intent.confirmationToken)
             is ProjectBackupIntent.PreviewRecovery -> previewRecovery(intent.refName)
@@ -150,7 +159,41 @@ class ProjectBackupViewModel(
         runAction(
             notice = null,
             refreshCatalog = _state.value.githubState is GitHubConnectionState.Connected,
-        ) { service.inspect(projectPath) }
+        ) {
+            service.loadAutoSync(projectPath)
+            service.inspect(projectPath)
+        }
+    }
+
+    private fun setAutomaticGitHubBackup(enabled: Boolean) {
+        if (_state.value.isBusy) return
+        scope.launch {
+            _state.update { it.copy(isBusy = true, error = null, notice = null) }
+            try {
+                val autoSync = service.setAutoSyncEnabled(requireProjectPath(), enabled)
+                _state.update {
+                    it.copy(
+                        isBusy = false,
+                        autoSync = autoSync,
+                        notice = if (enabled) {
+                            "Automatic GitHub backup is on for this project. Local versions remain the source of truth."
+                        } else {
+                            "Automatic GitHub backup is off. Local project history is unchanged."
+                        },
+                    )
+                }
+            } catch (cancelled: CancellationException) {
+                _state.update { it.copy(isBusy = false) }
+                throw cancelled
+            } catch (failure: Exception) {
+                _state.update {
+                    it.copy(
+                        isBusy = false,
+                        error = failure.message ?: "Automatic GitHub backup could not be changed.",
+                    )
+                }
+            }
+        }
     }
 
     private fun runAction(

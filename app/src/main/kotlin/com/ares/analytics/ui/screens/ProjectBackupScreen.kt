@@ -27,6 +27,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +46,7 @@ import com.ares.analytics.service.versioncontrol.GitHubBackupAccount
 import com.ares.analytics.service.versioncontrol.GitHubBackupCatalog
 import com.ares.analytics.service.versioncontrol.GitHubBackupRepository
 import com.ares.analytics.service.versioncontrol.ProjectBackupPlan
+import com.ares.analytics.service.versioncontrol.ProjectBackupAutoSyncState
 import com.ares.analytics.service.versioncontrol.ProjectChange
 import com.ares.analytics.service.versioncontrol.ProjectRecoveryPlan
 import com.ares.analytics.service.versioncontrol.ProjectRestoreDisposition
@@ -142,6 +144,7 @@ fun ProjectBackupScreen(
                 connection = state.githubState,
                 catalog = state.githubCatalog,
                 selectedInstallationId = state.selectedInstallationId,
+                autoSync = state.autoSync,
                 busy = state.isBusy,
                 viewModel = viewModel,
             )
@@ -354,6 +357,7 @@ private fun GitHubBackupStep(
     connection: GitHubConnectionState,
     catalog: GitHubBackupCatalog,
     selectedInstallationId: Long?,
+    autoSync: ProjectBackupAutoSyncState,
     busy: Boolean,
     viewModel: ProjectBackupViewModel,
 ) {
@@ -362,6 +366,9 @@ private fun GitHubBackupStep(
             "GitHub stores another copy outside this computer. Sign in, then choose a private repository that a team owner has approved for the ARES GitHub App. No token is stored in the robot project.",
             color = AresTextSecondary,
         )
+        if (autoSync.enabled) {
+            Text("Automatic backup status: ${autoSync.message}", color = AresTextSecondary)
+        }
         when (connection) {
             GitHubConnectionState.Disconnected -> Button(
                 onClick = { viewModel.onIntent(ProjectBackupIntent.SignInToGitHub) },
@@ -404,6 +411,27 @@ private fun GitHubBackupStep(
                     Text(ownerLabel, fontWeight = FontWeight.Bold)
                     Text("Repository: ${destination.ownerLogin}/${destination.repositoryName}", color = AresTextSecondary)
                     Text("GitHub verifies current access before every sync.", color = AresTextSecondary)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Switch(
+                            checked = autoSync.enabled,
+                            onCheckedChange = {
+                                viewModel.onIntent(ProjectBackupIntent.SetAutomaticGitHubBackup(it))
+                            },
+                            enabled = !busy,
+                        )
+                        Column {
+                            Text("Back up each saved version automatically", fontWeight = FontWeight.Bold)
+                            Text(
+                                autoSync.message,
+                                color = AresTextSecondary,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             onClick = { viewModel.onIntent(ProjectBackupIntent.SyncGitHubBackup) },

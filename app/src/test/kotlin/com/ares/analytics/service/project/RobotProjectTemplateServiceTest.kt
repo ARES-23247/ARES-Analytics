@@ -106,6 +106,34 @@ class RobotProjectTemplateServiceTest {
     }
 
     @Test
+    fun `staged project preparation completes before publish and rolls back atomically on failure`() = runBlocking {
+        val root = Files.createTempDirectory("ares-project-history-staging-test").toFile()
+        try {
+            val archive = validFtcArchive()
+            val parent = File(root, "robots").apply { mkdirs() }
+            val service = service(root, archive)
+
+            val created = service.create(
+                request(parent, "history-ready"),
+                prepareStagedProject = { staging -> File(staging, ".history-ready").writeText("yes") },
+            )
+            assertEquals("yes", File(created.destination, ".history-ready").readText())
+
+            val failure = assertFailsWith<IllegalStateException> {
+                service.create(
+                    request(parent, "history-failed"),
+                    prepareStagedProject = { error("Local history could not be created") },
+                )
+            }
+            assertTrue(failure.message.orEmpty().contains("Local history"))
+            assertFalse(File(parent, "history-failed").exists())
+            assertFalse(parent.listFiles().orEmpty().any { it.name.contains("history-failed.ares-partial") })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `cloud backed folder falls back to a non-replacing move`() {
         val root = Files.createTempDirectory("ares-project-cloud-move-test").toFile()
         try {

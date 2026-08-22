@@ -19,6 +19,13 @@ secret or GitHub App private key. Expiring user access and refresh tokens are re
 token is refreshed and rotated without a client secret, and unusable legacy, revoked, corrupt, or
 expired credentials are cleared with an actionable sign-in message.
 
+App-created FTC and FRC projects receive their Git repository and first clean commit while the
+verified starter is still in its protected staging directory. The project directory becomes
+visible only after both template validation and history initialization succeed. The mechanical
+baseline is authored by `ARES Analytics <local-history@aresfirst.org>`; later reviewed commits use
+the student or team identity entered in Project History. Existing imported projects remain an
+explicit opt-in so ARES never silently takes ownership of an arbitrary source tree.
+
 ## Organization workflow
 
 The normal team workflow is:
@@ -69,7 +76,17 @@ Zero-code editors depend on a narrow `ProjectCheckpointRecorder` boundary. When 
 enabled, the editor supplies only the exact canonical current/history files it successfully wrote.
 The JGit commit uses path-limited staging and commit semantics, so unrelated working-tree or staged
 changes are not absorbed into an automatic checkpoint. If local history is disabled, the recorder
-is a no-op and never creates `.git` implicitly.
+is a no-op and never creates `.git` implicitly. This latter case applies to older/imported projects;
+new projects created by ARES have history from their first visible moment.
+
+Automatic GitHub backup is a separate local repository preference (`aresBackup.autoSync`). It is
+off by default and is not a tracked project file, so enabling it on one computer does not surprise
+another teammate. A successful local checkpoint sends a conflated signal to one background worker.
+The worker debounces rapid saves, requires a clean tree and an approved stable destination, and then
+uses the same permission revalidation and non-force push as the manual action. Temporary network
+failures use bounded retries and a visible offline status; permission, account, destination, or
+history conflicts stop with an attention-required status. Local commits remain durable regardless
+of online outcome.
 
 Portable export uses a same-directory durable temporary ZIP followed by atomic placement. The
 archive omits `.git`, build/cache/IDE directories, machine-local properties, and known credential

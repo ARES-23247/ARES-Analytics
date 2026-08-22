@@ -150,12 +150,15 @@ fun MainScreen(services: ServiceRegistry) {
     if (currentConfig == null) {
         val onboardingViewModel = remember {
             OnboardingViewModel(
-                services.environmentService,
-                services.syncEngineService,
-                services.googleDriveService,
-                services.robotProjectTemplateService,
-                services.managedToolchainService,
-                scope,
+                environmentService = services.environmentService,
+                syncEngineService = services.syncEngineService,
+                googleDriveService = services.googleDriveService,
+                projectTemplateService = services.robotProjectTemplateService,
+                managedToolchainService = services.managedToolchainService,
+                projectHistoryInitializer = NewProjectHistoryInitializer { stagedProjectPath ->
+                    services.projectVersionControlService.initializeNewProject(stagedProjectPath)
+                },
+                scope = scope,
             ) { loaded ->
                 mainViewModel.onIntent(MainIntent.SaveConfig(loaded))
                 mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ROBOT_STUDIO))

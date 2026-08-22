@@ -112,6 +112,15 @@ sealed class OnboardingIntent {
     object SubmitConfig : OnboardingIntent()
 }
 
+/** Atomic staging hook used to give every app-created project a clean local baseline version. */
+fun interface NewProjectHistoryInitializer {
+    suspend fun initialize(stagedProjectPath: String)
+
+    companion object {
+        val NONE = NewProjectHistoryInitializer { }
+    }
+}
+
 /** Builds and validates a workspace configuration before making it the active workspace. */
 class OnboardingViewModel(
     private val environmentService: EnvironmentService,
@@ -119,6 +128,7 @@ class OnboardingViewModel(
     private val googleDriveService: GoogleDriveService,
     private val projectTemplateService: RobotProjectTemplateService,
     private val managedToolchainService: ManagedToolchainService,
+    private val projectHistoryInitializer: NewProjectHistoryInitializer = NewProjectHistoryInitializer.NONE,
     private val scope: CoroutineScope,
     private val onConfigured: (WorkspaceConfig) -> Unit,
 ) {
@@ -351,6 +361,10 @@ class OnboardingViewModel(
                         robotName = current.robotName,
                     ),
                     onProgress = { message -> _state.update { it.copy(projectCreationMessage = message) } },
+                    prepareStagedProject = { staged ->
+                        _state.update { it.copy(projectCreationMessage = "Creating the first local project version…") }
+                        projectHistoryInitializer.initialize(staged.path)
+                    },
                 )
                 _state.update {
                     it.copy(
@@ -358,7 +372,7 @@ class OnboardingViewModel(
                         projectPath = result.destination.path,
                         projectDetectionMessage =
                             "Created ${result.template.displayName} ${result.template.aresVersion} from a verified ${result.source.name.lowercase().replace('_', ' ')}.",
-                        projectCreationMessage = "Project files are ready.",
+                        projectCreationMessage = "Project files and local version history are ready.",
                     )
                 }
                 current = _state.value

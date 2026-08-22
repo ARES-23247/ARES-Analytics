@@ -1,11 +1,15 @@
 package com.ares.analytics.service.project
 
 import com.ares.analytics.shared.League
+import com.ares.analytics.service.versioncontrol.DefaultGitHubProjectApi
+import com.ares.analytics.service.versioncontrol.ProjectBackupCredentialStore
+import com.ares.analytics.service.versioncontrol.ProjectVersionControlService
 import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
 import java.io.File
 import java.net.URI
 import java.util.concurrent.TimeUnit
+import java.util.zip.ZipFile
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
@@ -56,6 +60,7 @@ class OfficialProjectTemplateIntegrationTest {
                 requireNotNull(archives[template.league]).copyTo(destination, overwrite = true)
             },
         )
+        val history = localHistoryService()
 
         League.entries.forEach { league ->
             val destination = File(output, league.name.lowercase())
@@ -70,12 +75,37 @@ class OfficialProjectTemplateIntegrationTest {
                     robotId = "TemplateCheck${league.name}",
                     robotName = "Template Check ${league.name}",
                 ),
+                prepareStagedProject = { staged -> history.initializeNewProject(staged.path) },
             )
             assertTrue(result.destination.isDirectory)
             assertTrue(File(result.destination, ".ares/template-provenance.json").isFile)
+            val initialHistory = history.inspect(result.destination.path)
+            assertTrue(initialHistory.changes.isEmpty())
+            assertTrue(initialHistory.versions.single().message.contains("Create robot project"))
             if (league == League.FTC) assertTrue(File(result.destination, "local.properties").isFile)
             if (validateProjects) validateGeneratedProject(result.destination, league, validationRepository)
+
+            File(result.destination, ".ares/acceptance-checkpoint.txt").writeText("${league.name} zero-code journey complete")
+            val generatedRuntime = when (league) {
+                League.FTC -> "TeamCode/src/main/java/org/firstinspires/ftc/teamcode/generated/GeneratedAresProject.kt"
+                League.FRC -> "src/main/kotlin/org/aresfirst/starter/frc/generated/GeneratedAresProject.kt"
+            }
+            val checkpoint = history.checkpoint(
+                result.destination.path,
+                "Complete ${league.name} zero-code acceptance journey",
+                setOf(".ares/acceptance-checkpoint.txt", generatedRuntime),
+            )
+            assertTrue(requireNotNull(checkpoint).changes.isEmpty())
+            val archive = File(output, "${league.name.lowercase()}-portable.zip")
+            if (archive.exists()) archive.delete()
+            history.exportProjectArchive(result.destination.path, archive.path)
+            ZipFile(archive).use { zip ->
+                val names = zip.entries().asSequence().map { it.name }.toSet()
+                assertTrue(".ares/acceptance-checkpoint.txt" in names)
+                assertTrue(names.none { it.startsWith(".git/") || it.startsWith("build/") || it.contains("/build/") })
+            }
         }
+        history.closeAndJoin()
     }
 
     private fun validateGeneratedProject(project: File, league: League, repositoryUri: String?) {
@@ -126,6 +156,20 @@ class OfficialProjectTemplateIntegrationTest {
     }
 
     private companion object {
+        fun localHistoryService() = ProjectVersionControlService(
+            githubClientId = "",
+            githubAppSlug = "",
+            credentialStore = object : ProjectBackupCredentialStore {
+                override fun read(): ByteArray? = null
+                override fun write(bytes: ByteArray) = Unit
+                override fun delete(): Boolean = true
+                override val protectionDescription: String = "acceptance fixture"
+            },
+            githubApi = DefaultGitHubProjectApi(),
+            browserLauncher = {},
+            pollDelay = {},
+        )
+
         fun validationRepositoryUri(value: String): String {
             val file = if (value.startsWith("file:", ignoreCase = true)) File(URI(value)) else File(value)
             require(file.isDirectory) { "Official-template validation repository does not exist: $value" }
