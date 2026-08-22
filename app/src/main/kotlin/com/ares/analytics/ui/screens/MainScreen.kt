@@ -1081,7 +1081,6 @@ fun MainScreen(services: ServiceRegistry) {
                             NavigationTarget.PROJECT_BACKUP -> ProjectBackupScreen(
                                 viewModel = projectBackupViewModel,
                                 projectPath = currentConfig.projectPath,
-                                robotName = currentConfig.robotName,
                             )
                             NavigationTarget.ADMIN -> AdminScreen(
                                 syncEngineService = services.syncEngineService,

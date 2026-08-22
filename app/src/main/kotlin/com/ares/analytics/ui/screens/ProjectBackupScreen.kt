@@ -40,6 +40,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ares.analytics.service.versioncontrol.GitHubConnectionState
+import com.ares.analytics.service.versioncontrol.GitHubAccountKind
+import com.ares.analytics.service.versioncontrol.GitHubBackupAccount
+import com.ares.analytics.service.versioncontrol.GitHubBackupCatalog
+import com.ares.analytics.service.versioncontrol.GitHubBackupRepository
 import com.ares.analytics.service.versioncontrol.ProjectBackupPlan
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
@@ -50,20 +54,17 @@ import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.viewmodel.ProjectBackupIntent
 import com.ares.analytics.viewmodel.ProjectBackupViewModel
-import java.io.File
 
-/** Plain-language, review-first local history and private GitHub backup workflow. */
+/** Plain-language, review-first local history and permission-scoped GitHub App backup workflow. */
 @Composable
 fun ProjectBackupScreen(
     viewModel: ProjectBackupViewModel,
     projectPath: String,
-    robotName: String,
 ) {
     val state by viewModel.state.collectAsState()
     var authorName by remember { mutableStateOf("") }
     var authorEmail by remember { mutableStateOf("") }
     var versionMessage by remember { mutableStateOf("Save robot design") }
-    var repositoryName by remember(robotName) { mutableStateOf(safeRepositoryName(robotName)) }
 
     LaunchedEffect(projectPath) { viewModel.onIntent(ProjectBackupIntent.Load(projectPath)) }
 
@@ -121,8 +122,8 @@ fun ProjectBackupScreen(
             GitHubBackupStep(
                 plan = plan,
                 connection = state.githubState,
-                repositoryName = repositoryName,
-                onRepositoryNameChanged = { repositoryName = it },
+                catalog = state.githubCatalog,
+                selectedInstallationId = state.selectedInstallationId,
                 busy = state.isBusy,
                 viewModel = viewModel,
             )
@@ -203,14 +204,14 @@ private fun LocalVersionStep(
 private fun GitHubBackupStep(
     plan: ProjectBackupPlan,
     connection: GitHubConnectionState,
-    repositoryName: String,
-    onRepositoryNameChanged: (String) -> Unit,
+    catalog: GitHubBackupCatalog,
+    selectedInstallationId: Long?,
     busy: Boolean,
     viewModel: ProjectBackupViewModel,
 ) {
-    StepCard("3", "Optional private GitHub backup", Icons.Default.CloudUpload) {
+    StepCard("3", "Optional GitHub project backup", Icons.Default.CloudUpload) {
         Text(
-            "GitHub stores another copy outside this computer. ARES creates a private repository and never puts your access token in the robot project.",
+            "GitHub stores another copy outside this computer. Sign in, then choose a private repository that a team owner has approved for the ARES GitHub App. No token is stored in the robot project.",
             color = AresTextSecondary,
         )
         when (connection) {
@@ -231,33 +232,170 @@ private fun GitHubBackupStep(
             }
             is GitHubConnectionState.Connected -> {
                 Text("Signed in as ${connection.login}", color = AresGreen, fontWeight = FontWeight.Bold)
-                if (plan.remoteUrl == null) {
-                    OutlinedTextField(
-                        repositoryName,
-                        onRepositoryNameChanged,
-                        label = { Text("Private repository name") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Button(
-                        onClick = { viewModel.onIntent(ProjectBackupIntent.CreatePrivateGitHubBackup(repositoryName)) },
-                        enabled = !busy && plan.lastCommit != null && plan.changes.isEmpty(),
-                    ) { Text("Create private backup") }
-                    if (plan.lastCommit == null || plan.changes.isNotEmpty()) {
-                        Text("Save a clean local version before creating the online backup.", color = AresTextSecondary)
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(
+                        onClick = { viewModel.onIntent(ProjectBackupIntent.RefreshGitHubDestinations) },
+                        enabled = !busy,
+                    ) { Text("Refresh destinations") }
+                    OutlinedButton(
+                        onClick = { viewModel.onIntent(ProjectBackupIntent.OpenGitHubAppInstallation) },
+                        enabled = !busy,
+                    ) { Text("Install or manage ARES access") }
+                    OutlinedButton(
+                        onClick = { viewModel.onIntent(ProjectBackupIntent.DisconnectGitHub) },
+                        enabled = !busy,
+                    ) { Text("Sign out") }
+                }
+                val destination = plan.destination
+                if (destination != null) {
+                    val ownerLabel = if (destination.accountKind == GitHubAccountKind.ORGANIZATION) {
+                        "Team organization backup"
+                    } else {
+                        "Personal backup"
                     }
-                } else {
-                    Text("Backup: ${plan.remoteUrl}", color = AresTextSecondary)
+                    Text(ownerLabel, fontWeight = FontWeight.Bold)
+                    Text("Repository: ${destination.ownerLogin}/${destination.repositoryName}", color = AresTextSecondary)
+                    Text("GitHub verifies current access before every sync.", color = AresTextSecondary)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             onClick = { viewModel.onIntent(ProjectBackupIntent.SyncGitHubBackup) },
                             enabled = !busy && plan.changes.isEmpty(),
                         ) { Text("Sync backup now") }
-                        OutlinedButton(onClick = { viewModel.onIntent(ProjectBackupIntent.DisconnectGitHub) }, enabled = !busy) {
-                            Text("Disconnect GitHub")
-                        }
+                        OutlinedButton(
+                            onClick = { viewModel.onIntent(ProjectBackupIntent.DisconnectGitHubDestination) },
+                            enabled = !busy,
+                        ) { Text("Change destination") }
                     }
+                    if (plan.changes.isNotEmpty()) {
+                        Text("Save a clean local version before syncing GitHub.", color = AresTextSecondary)
+                    }
+                } else {
+                    if (plan.remoteUrl != null) {
+                        Text(
+                            "This project has an existing Git origin that ARES did not approve. Choose the matching approved repository; ARES will never replace a different remote.",
+                            color = AresError,
+                        )
+                    }
+                    RepositoryDestinationPicker(
+                        plan = plan,
+                        catalog = catalog,
+                        selectedInstallationId = selectedInstallationId,
+                        busy = busy,
+                        viewModel = viewModel,
+                    )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RepositoryDestinationPicker(
+    plan: ProjectBackupPlan,
+    catalog: GitHubBackupCatalog,
+    selectedInstallationId: Long?,
+    busy: Boolean,
+    viewModel: ProjectBackupViewModel,
+) {
+    if (catalog.accounts.isEmpty()) {
+        Text(
+            "No approved personal or team destination is visible. A team owner can install ARES for selected repositories, then you can refresh this list.",
+            color = AresTextSecondary,
+        )
+        return
+    }
+    Text("1. Choose who owns the backup", fontWeight = FontWeight.Bold)
+    catalog.accounts.forEach { account ->
+        GitHubAccountRow(
+            account = account,
+            selected = account.installationId == selectedInstallationId,
+            busy = busy,
+            onSelect = { viewModel.onIntent(ProjectBackupIntent.SelectGitHubInstallation(account.installationId)) },
+        )
+    }
+    val selected = catalog.accounts.firstOrNull { it.installationId == selectedInstallationId } ?: return
+    Text("2. Choose an approved private repository", fontWeight = FontWeight.Bold)
+    val repositories = catalog.repositoriesFor(selected.installationId)
+    if (repositories.isEmpty()) {
+        Text(
+            "No repositories are approved for ${selected.login}. Ask a team owner to add one under Install or manage ARES access.",
+            color = AresTextSecondary,
+        )
+    } else {
+        repositories.forEach { repository ->
+            GitHubRepositoryRow(
+                repository = repository,
+                accountCanWrite = selected.canWriteContents,
+                canConnect = plan.lastCommit != null && plan.changes.isEmpty(),
+                busy = busy,
+                onConnect = {
+                    viewModel.onIntent(
+                        ProjectBackupIntent.ConnectGitHubRepository(
+                            installationId = selected.installationId,
+                            repositoryId = repository.repositoryId,
+                        ),
+                    )
+                },
+            )
+        }
+    }
+    if (plan.lastCommit == null || plan.changes.isNotEmpty()) {
+        Text("Save a clean local version before connecting the online backup.", color = AresTextSecondary)
+    }
+}
+
+@Composable
+private fun GitHubAccountRow(
+    account: GitHubBackupAccount,
+    selected: Boolean,
+    busy: Boolean,
+    onSelect: () -> Unit,
+) {
+    val kind = if (account.kind == GitHubAccountKind.ORGANIZATION) "Team organization" else "Personal account"
+    val access = if (account.canWriteContents) "Repository contents: read and write" else "Repository contents: not writable"
+    OutlinedButton(
+        onClick = onSelect,
+        enabled = !busy,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Text("${if (selected) "Selected • " else ""}${account.login} — $kind", fontWeight = FontWeight.Bold)
+            Text("$access • ${account.repositorySelection.lowercase()} repositories", color = AresTextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun GitHubRepositoryRow(
+    repository: GitHubBackupRepository,
+    accountCanWrite: Boolean,
+    canConnect: Boolean,
+    busy: Boolean,
+    onConnect: () -> Unit,
+) {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+        border = BorderStroke(1.dp, AresBorder),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(repository.fullName, fontWeight = FontWeight.Bold)
+                val status = when {
+                    !accountCanWrite -> "Unavailable • ARES App needs Contents: write permission"
+                    repository.unavailableReason != null -> "Unavailable • ${repository.unavailableReason}"
+                    else -> "Ready • Private • Read and write"
+                }
+                Text(status, color = if (repository.canUseForBackup && accountCanWrite) AresGreen else AresError)
+            }
+            Button(
+                onClick = onConnect,
+                enabled = !busy && canConnect && accountCanWrite && repository.canUseForBackup,
+            ) {
+                Text("Use this repository")
             }
         }
     }
@@ -283,10 +421,3 @@ private fun StatusCard(message: String, color: androidx.compose.ui.graphics.Colo
         Text(message, color = color, modifier = Modifier.fillMaxWidth().padding(12.dp))
     }
 }
-
-private fun safeRepositoryName(robotName: String): String = robotName.trim()
-    .lowercase()
-    .replace(Regex("[^a-z0-9._-]+"), "-")
-    .trim('-', '.')
-    .ifBlank { "ares-robot" }
-    .take(100)

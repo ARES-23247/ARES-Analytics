@@ -15,28 +15,41 @@ Open **Profile & Settings → Project Backup**.
    robot project and does not upload anything.
 2. Review the exact changed-file list, describe the change, then choose **Save this version**.
    A content-bound confirmation token prevents a file changed after preview from being committed.
-3. Optionally choose **Sign in with GitHub**, approve the short device code in the browser, and
-   create a private repository. GitHub backup is allowed only from a clean saved version.
+3. Optionally choose **Sign in with GitHub** and approve the short device code in the browser.
+4. Choose a personal account or team organization, then choose a private repository that a team
+   owner has approved for the ARES GitHub App. GitHub backup is allowed only from a clean saved
+   version.
+
+A student does not paste a token, install Git, or configure SSH. For a team repository, an
+organization owner creates the empty private repository and installs ARES for that repository once;
+students then see it in the destination picker when their GitHub account has access.
 
 ## Safety and privacy
 
-- GitHub device authorization uses a public application client ID and never a client secret.
-- On Windows the GitHub token is protected with DPAPI for the current user. Other platforms use
+- GitHub App device authorization uses a public application client ID and never a client secret.
+- ARES requests an expiring GitHub App user token and rotates its refresh token. It does not request
+  the broad legacy `repo` OAuth scope.
+- On Windows the GitHub credentials are protected with DPAPI for the current user. Other platforms use
   the existing owner-only ARES credential-file policy until a native keychain backend is added.
 - Tokens are never embedded in remote URLs, robot project files, terminal arguments, or logs.
 - Known secret-bearing paths such as `credentials.json`, keystores, `.env`, and `.ares/secrets/`
   block a save if they are not already ignored.
 - Push is non-destructive. A non-fast-forward or permission conflict fails visibly instead of
   rewriting remote history.
-- **Disconnect GitHub** deletes the saved app credential. It does not delete local versions or the
-  private repository.
+- Every sync rechecks the exact installation ID, repository ID, private visibility, and current
+  write permission. Removed sharing or organization access fails closed.
+- **Change destination** removes only ARES's local remote metadata. **Sign out** deletes the saved
+  app credential. Neither action deletes local versions or the GitHub repository.
 
 ## Administrator setup
 
-The official installer must receive `ARES_GITHUB_OAUTH_CLIENT_ID` from a protected repository
-variable at build time. The corresponding GitHub OAuth App must have Device Flow enabled. The
-client ID is public application identity; never configure or bundle a GitHub client secret.
+The official installer must receive `ARES_GITHUB_APP_CLIENT_ID` and `ARES_GITHUB_APP_SLUG` from
+protected repository variables at build time. The corresponding public GitHub App must have Device
+Flow and expiring user tokens enabled. The client ID and slug are public application identity;
+never configure or bundle a GitHub client secret or private key in the desktop application.
 
-The requested `repo` scope is used because the app creates and pushes private repositories. Teams
-whose organization policy blocks OAuth Apps should keep local history enabled and use their
-approved backup process.
+Configure repository **Contents: read and write** and metadata read. Do not grant Administration,
+Members, Actions, Secrets, or webhook access. Prefer **Only select repositories** for organizations.
+ARES deliberately does not create organization repositories because doing so would require broad
+Administration permission; a team owner retains that responsibility and chooses the approved
+repositories. See [GitHub App project-backup architecture](../GITHUB_PROJECT_BACKUP_ARCHITECTURE.md).

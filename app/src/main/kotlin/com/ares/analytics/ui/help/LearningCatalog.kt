@@ -1366,7 +1366,7 @@ object LearningCatalog {
                 "Start local history. Explain why this does not upload the project.",
                 "Review the exact changed-file list and verify that no credentials, keystores, or local machine settings are included.",
                 "Describe the change in plain language and save the content-bound version.",
-                "If your team uses GitHub, sign in with the short device code and create a private backup only after the local project is clean.",
+                "If your team uses GitHub, sign in with the short device code and choose a private personal or team repository that an owner approved for ARES. Connect it only after the local project is clean.",
             ),
             successLooksLike = "The project has a named local version, the pending change list is empty, and you can distinguish local history from optional GitHub backup.",
             safetyNote = "Never commit passwords, OAuth tokens, signing keys, service-account files, or a robot project's local machine settings.",

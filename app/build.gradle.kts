@@ -19,8 +19,13 @@ val googleOAuthBrokerUrl = providers.gradleProperty("googleOAuthBrokerUrl")
     .orElse("")
     .get()
     .trimEnd('/')
-val githubOAuthClientId = providers.gradleProperty("githubOAuthClientId")
-    .orElse(providers.environmentVariable("ARES_GITHUB_OAUTH_CLIENT_ID"))
+val githubAppClientId = providers.gradleProperty("githubAppClientId")
+    .orElse(providers.environmentVariable("ARES_GITHUB_APP_CLIENT_ID"))
+    .orElse("")
+    .get()
+    .trim()
+val githubAppSlug = providers.gradleProperty("githubAppSlug")
+    .orElse(providers.environmentVariable("ARES_GITHUB_APP_SLUG"))
     .orElse("")
     .get()
     .trim()
@@ -109,11 +114,13 @@ tasks.register("generateBuildConfig") {
     val version = aresAnalyticsVersion
     val oauthClientId = googleOAuthClientId
     val oauthBrokerUrl = googleOAuthBrokerUrl
-    val githubClientId = githubOAuthClientId
+    val githubClientId = githubAppClientId
+    val githubSlug = githubAppSlug
     inputs.property("aresAnalyticsVersion", version)
     inputs.property("googleOAuthClientId", oauthClientId)
     inputs.property("googleOAuthBrokerUrl", oauthBrokerUrl)
-    inputs.property("githubOAuthClientId", githubClientId)
+    inputs.property("githubAppClientId", githubClientId)
+    inputs.property("githubAppSlug", githubSlug)
     outputs.dir(generatedBuildConfigDir)
     doLast {
         val pkgDir = generatedBuildConfigDir.get().asFile.resolve("com/ares/analytics")
@@ -129,6 +136,9 @@ tasks.register("generateBuildConfig") {
         val escapedGitHubClientId = githubClientId
             .replace("\\", "\\\\")
             .replace("\"", "\\\"")
+        val escapedGitHubAppSlug = githubSlug
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
             .replace("$", "\\$")
         pkgDir.resolve("BuildConfig.kt").writeText(
             """
@@ -138,7 +148,8 @@ tasks.register("generateBuildConfig") {
             |    const val VERSION = "$version"
             |    const val GOOGLE_OAUTH_CLIENT_ID = "$escapedOAuthClientId"
             |    const val GOOGLE_OAUTH_BROKER_URL = "$escapedOAuthBrokerUrl"
-            |    const val GITHUB_OAUTH_CLIENT_ID = "$escapedGitHubClientId"
+            |    const val GITHUB_APP_CLIENT_ID = "$escapedGitHubClientId"
+            |    const val GITHUB_APP_SLUG = "$escapedGitHubAppSlug"
             |}
             """.trimMargin()
         )
@@ -379,10 +390,13 @@ tasks.matching { task ->
             "Official packages require an HTTPS Google OAuth broker URL"
         }
         require(
-            githubOAuthClientId.matches(Regex("[A-Za-z0-9_-]{12,128}")) &&
-                !githubOAuthClientId.contains("mock", ignoreCase = true)
+            githubAppClientId.matches(Regex("[A-Za-z0-9_-]{12,128}")) &&
+                !githubAppClientId.contains("mock", ignoreCase = true)
         ) {
-            "Official packages require -PgithubOAuthClientId (or ARES_GITHUB_OAUTH_CLIENT_ID) with the public ARES GitHub OAuth app client ID"
+            "Official packages require -PgithubAppClientId (or ARES_GITHUB_APP_CLIENT_ID) with the public ARES GitHub App client ID"
+        }
+        require(githubAppSlug.matches(Regex("[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?"))) {
+            "Official packages require -PgithubAppSlug (or ARES_GITHUB_APP_SLUG) with the public ARES GitHub App slug"
         }
     }
 }
