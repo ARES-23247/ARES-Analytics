@@ -309,6 +309,15 @@ $env:ARES_GOOGLE_OAUTH_BROKER_URL = "https://your-broker.example.org"
 .\gradlew.bat :app:run
 ```
 
+Team-owned public application identity is also recorded in `gradle.properties` under the
+`aresPublic*` keys, so a normal source checkout can run and package ARES without copying command-line
+flags. These values are public identifiers, not credentials. Explicit `-PgoogleOAuthClientId`,
+`-PgoogleOAuthBrokerUrl`, `-PgithubAppClientId`, and `-PgithubAppSlug` values take precedence for an
+administrator testing a replacement configuration. Protected GitHub Actions package jobs must still
+provide all four `ARES_*` environment variables; the build rejects a release job that merely falls
+back to the checked-in development defaults. Never add a Google client secret, GitHub App private
+key, or user token to `gradle.properties`.
+
 Clear the variables after the run. Custom clients entered in the app require the same pair: public
 Desktop client ID plus an administrator-operated HTTPS broker URL. A client secret never belongs in
 the app configuration.
