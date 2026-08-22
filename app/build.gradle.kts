@@ -310,6 +310,7 @@ compose.desktop {
             packageVersion = aresAnalyticsVersion
             description = "ARES Robotics Mission Control Suite"
             vendor = "ARES Robotics"
+            licenseFile.set(rootProject.file("LICENSE"))
             // Gson constructs immutable Kotlin project documents through sun.misc.Unsafe when
             // they do not expose a no-argument JVM constructor. jlink cannot discover this
             // reflective dependency, so the module must remain explicit in every native image.

@@ -27,6 +27,21 @@ subprojects {
     group = rootProject.group
     version = rootProject.version
 
+    tasks.withType<org.gradle.language.jvm.tasks.ProcessResources>().configureEach {
+        from(rootProject.file("LICENSE")) {
+            into("META-INF")
+        }
+        from(rootProject.file("NOTICE")) {
+            into("META-INF")
+        }
+        from(rootProject.file("LICENSE_POLICY.md")) {
+            into("META-INF")
+        }
+        from(rootProject.file("THIRD_PARTY_NOTICES.md")) {
+            into("META-INF")
+        }
+    }
+
     // A running desktop app uses an isolated runtime classpath, so compilation and clean tasks
     // must be safe while it is open. Only a new run owns replacement of an existing app process;
     // coupling clean to killExisting made unrelated agent rebuilds silently close the UI.

@@ -204,3 +204,7 @@ the secret to a desktop build.
 5. Use parameterized SQL where DuckDB permits it; otherwise isolate and escape the smallest possible internal API.
 6. Add a regression test for protocol, parser, replay, or mathematical changes.
 7. When changing an NT4 topic, update the producer, consumer, and `docs/TELEMETRY_CONTRACT.md` together.
+
+## License
+
+ARES-authored Analytics code is available under [GNU AGPL version 3 or later](LICENSE). Separate commercial terms may be available by written agreement; see [COMMERCIAL-LICENSE.md](COMMERCIAL-LICENSE.md) and [LICENSE_POLICY.md](LICENSE_POLICY.md). Third-party components retain their respective licenses, and the software license does not grant rights to ARES names or logos.

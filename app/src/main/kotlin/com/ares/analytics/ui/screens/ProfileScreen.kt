@@ -970,6 +970,43 @@ fun ProfileScreen(
             }
         }
 
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, AresBorder),
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "License and source",
+                    fontWeight = FontWeight.Bold,
+                    color = AresTextPrimary,
+                    fontSize = 15.sp,
+                )
+                Text(
+                    "ARES Analytics is licensed under GNU AGPL v3 or later and is provided without warranty. Separate commercial licensing is available from the ARES project.",
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = {
+                        runCatching {
+                            Desktop.getDesktop().browse(URI("https://github.com/ARES-23247/ARES-Analytics"))
+                        }
+                    }) {
+                        Text("View source")
+                    }
+                    OutlinedButton(onClick = {
+                        runCatching {
+                            Desktop.getDesktop().browse(URI("https://github.com/ARES-23247/ARES-Analytics/blob/master/LICENSE"))
+                        }
+                    }) {
+                        Text("Read license")
+                    }
+                }
+            }
+        }
+
         // Save Button Footer
         Button(
             onClick = {
