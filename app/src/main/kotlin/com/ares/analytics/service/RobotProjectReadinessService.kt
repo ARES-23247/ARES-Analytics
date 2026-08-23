@@ -3,6 +3,7 @@ package com.ares.analytics.service
 import com.ares.analytics.service.drivebase.DrivebaseKind
 import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
 import com.ares.analytics.service.drivebase.DrivebaseIssueSeverity
+import com.ares.analytics.service.drivebase.FtcMecanumRuntimeParameters
 import com.ares.analytics.service.drivebase.LocalizationKind
 import com.ares.analytics.service.drivebase.validateDrivebase
 import com.ares.analytics.service.hardware.HardwareReviewStatus
@@ -93,6 +94,7 @@ class RobotProjectReadinessService(
         val drivebaseErrors = buildList {
             drivebaseResult.exceptionOrNull()?.message?.let(::add)
             addAll(drivebaseIssues.filter { it.severity == DrivebaseIssueSeverity.ERROR }.map { it.message })
+            drivebase?.canonical?.let(FtcMecanumRuntimeParameters::repairMessage)?.let(::add)
         }.distinct()
 
         val tuningResult = tuningRepository.load(config.projectPath)

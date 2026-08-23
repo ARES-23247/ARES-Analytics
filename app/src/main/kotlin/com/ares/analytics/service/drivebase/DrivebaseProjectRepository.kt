@@ -2,9 +2,7 @@ package com.ares.analytics.service.drivebase
 
 import com.areslib.drivetrain.DrivetrainDocumentCodec
 import com.ares.analytics.service.tuning.TuningProfileRepository
-import com.areslib.tuning.TuningProfileAuthority
-import com.areslib.tuning.TuningProfileDocument
-import com.areslib.tuning.TuningProfileDocumentCodec
+import com.areslib.tuning.*
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -22,11 +20,12 @@ class DrivebaseProjectRepository {
         val current = load(projectPath).getOrThrow()
         val currentHash = current?.let { DrivetrainDocumentCodec.contentHash(it.toCanonicalDrivebase()) }
         require(currentHash == expectedContentHash) { "The drivebase changed on disk. Reload and review a fresh diff." }
-        require(validateDrivebase(document).none { it.severity == DrivebaseIssueSeverity.ERROR }) {
+        val canonical = FtcMecanumRuntimeParameters.reconcile(document.toCanonicalDrivebase())
+        val normalized = canonical.toUiDrivebase()
+        require(validateDrivebase(normalized).none { it.severity == DrivebaseIssueSeverity.ERROR }) {
             "Fix drivebase validation errors before saving."
         }
-        val canonical = document.toCanonicalDrivebase()
-        val saved = canonical.toUiDrivebase()
+        val saved = normalized
         val tuningWorkspace = TuningProfileRepository().load(projectPath).getOrThrow()
         val matchingProfiles = tuningWorkspace.profiles.filter { it.uid == canonical.canonicalProfileUid }
         require(matchingProfiles.size <= 1) { "Multiple tuning profiles claim ${canonical.canonicalProfileUid}. Resolve them before saving." }
@@ -35,7 +34,7 @@ class DrivebaseProjectRepository {
         require(matchingProfile == null ||
             (matchingProfile.projectUid == canonicalProjectUid && matchingProfile.drivebaseUid == canonical.uid && matchingProfile.authority == TuningProfileAuthority.CANONICAL_CHECKED_IN)
         ) { "Canonical tuning profile ${canonical.canonicalProfileUid} targets a different project or drivebase." }
-        val newProfile = matchingProfile ?: TuningProfileDocument(
+        val baseProfile = matchingProfile ?: TuningProfileDocument(
             uid = canonical.canonicalProfileUid,
             profileId = canonical.canonicalProfileUid.substringAfterLast('.'),
             displayName = "Competition",
@@ -43,19 +42,51 @@ class DrivebaseProjectRepository {
             projectUid = canonicalProjectUid,
             drivebaseUid = canonical.uid,
             authority = TuningProfileAuthority.CANONICAL_CHECKED_IN,
-            values = emptyList(),
+            values = canonical.parameters.map { TuningAssignment(it.uid, it.defaultValue) },
         )
-        val profileFile = File(File(projectPath, ".ares/tuning"), "${newProfile.uid}.arestuning")
-        val createProfile = matchingProfile == null
+        val existingAssignments = baseProfile.values.associateBy { it.parameterUid }
+        val closedLoopUid = canonical.parameters.singleOrNull { it.key == CLOSED_LOOP_VELOCITY_KEY }?.uid
+        val reconciledAssignments = buildList {
+            existingAssignments.values.forEach { assignment ->
+                if (assignment.parameterUid != closedLoopUid) add(assignment)
+            }
+            canonical.parameters.forEach { declaration ->
+                if (declaration.uid == closedLoopUid || declaration.uid !in existingAssignments) {
+                    add(TuningAssignment(declaration.uid, declaration.defaultValue))
+                }
+            }
+        }.distinctBy { it.parameterUid }.sortedBy { it.parameterUid }
+        val updatedProfile = baseProfile.copy(values = reconciledAssignments)
+        val catalog = (tuningWorkspace.catalog + canonical.parameters)
+            .associateBy { it.uid }
+            .values
+            .sortedBy { it.uid }
+        val profileDirectory = File(projectPath, ".ares/tuning")
+        val profileFile = matchingProfile?.let { existing ->
+            profileDirectory.listFiles { file -> file.extension == "arestuning" }
+                ?.singleOrNull { file ->
+                    runCatching { TuningProfileDocumentCodec.decode(file.readText(), tuningWorkspace.catalog).uid }
+                        .getOrNull() == existing.uid
+                }
+        } ?: File(profileDirectory, "${updatedProfile.uid}.arestuning")
         val target = current?.let { existingFile(projectPath, requireNotNull(it.canonical).uid) }
             ?: File(File(projectPath, ".ares/drivetrains"), "${canonical.uid}.aresdrivetrain")
         target.parentFile.mkdirs()
         if (target.exists()) backupFile(projectPath, target, canonical.uid, DrivetrainDocumentCodec.contentHash(current!!.toCanonicalDrivebase()))
+        if (profileFile.exists()) {
+            val profileHash = TuningProfileDocumentCodec.contentHash(baseProfile, tuningWorkspace.catalog)
+            val profileBackup = File(projectPath, ".ares/history/tuning/${baseProfile.uid}/${profileHash.take(16)}.arestuning")
+            profileBackup.parentFile.mkdirs()
+            Files.copy(profileFile.toPath(), profileBackup.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+        val priorTarget = target.takeIf(File::exists)?.readText()
+        val priorProfile = profileFile.takeIf(File::exists)?.readText()
         try {
-            if (createProfile) atomicWrite(profileFile, TuningProfileDocumentCodec.encode(newProfile, tuningWorkspace.catalog))
+            atomicWrite(profileFile, TuningProfileDocumentCodec.encode(updatedProfile, catalog))
             atomicWrite(target, DrivetrainDocumentCodec.encode(canonical))
         } catch (failure: Exception) {
-            if (createProfile) Files.deleteIfExists(profileFile.toPath())
+            restoreOrDelete(profileFile, priorProfile)
+            restoreOrDelete(target, priorTarget)
             throw failure
         }
         return saved
@@ -93,6 +124,10 @@ class DrivebaseProjectRepository {
         }.getOrElse {
             Files.move(temp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
         }
+    }
+
+    private fun restoreOrDelete(target: File, priorContent: String?) {
+        if (priorContent == null) Files.deleteIfExists(target.toPath()) else atomicWrite(target, priorContent)
     }
 }
 

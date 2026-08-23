@@ -38,6 +38,10 @@ class DesignAssistantsTest {
             displayName = "Student mecanum",
             canonicalProfileUid = "ai-profile",
             description = "Four-wheel practice robot",
+            parameters = current.parameters.map { parameter ->
+                if (parameter.componentUid == current.uid) parameter.copy(componentUid = "ai-replaced-uid")
+                else parameter
+            },
         )
         val response = envelope("Updated the form", DrivetrainDocumentCodec.encode(proposed))
 

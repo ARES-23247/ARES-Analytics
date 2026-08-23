@@ -201,7 +201,7 @@ internal fun evaluateRobotStudioStages(
         projectIdentityStatus != RobotStudioStageStatus.READY -> RobotStudioStageStatus.BLOCKED
         drivebaseStatus == RobotStudioStageStatus.CODE_REQUIRED -> RobotStudioStageStatus.CODE_REQUIRED
         drivebaseStatus == RobotStudioStageStatus.NEEDS_ACTION || localizationStatus == RobotStudioStageStatus.NEEDS_ACTION ||
-            (evidence.hardwareItemCount > 0 && evidence.hardwareReviewStatus == HardwareReviewStatus.NOT_REVIEWED) -> RobotStudioStageStatus.NEEDS_ACTION
+            (evidence.hardwareItemCount > 0 && evidence.hardwareReviewStatus != HardwareReviewStatus.CURRENT) -> RobotStudioStageStatus.NEEDS_ACTION
         else -> RobotStudioStageStatus.READY
     }
 
@@ -302,20 +302,25 @@ internal fun evaluateRobotStudioStages(
         hardwareStatus == RobotStudioStageStatus.CODE_REQUIRED -> "This drivebase descriptor type is valid documentation, but the selected season project has no no-code runtime adapter for it."
         evidence.drivebaseKind == null -> "Configure one platform-supported drivebase and add any needed mechanism subsystems."
         !evidence.localizationConfigured -> "Configure a compatible primary localization source in the Drivebase settings."
-        evidence.hardwareReviewStatus == HardwareReviewStatus.NOT_REVIEWED && evidence.hardwareItemCount > 0 -> "${evidence.hardwareItemCount} physical device(s) are declared. Review the hardware port and CAN map before physical testing."
+        evidence.hardwareItemCount > 0 && evidence.hardwareReviewStatus == HardwareReviewStatus.NOT_REVIEWED ->
+            "${evidence.hardwareItemCount} physical device(s) are declared. Review the hardware port and CAN map before physical testing."
+        evidence.hardwareItemCount > 0 && evidence.hardwareReviewStatus == HardwareReviewStatus.STALE ->
+            "The canonical hardware map changed after its last review. Recheck it before physical testing; desktop build and simulation remain available."
+        evidence.hardwareItemCount > 0 && evidence.hardwareReviewStatus == HardwareReviewStatus.INVALID ->
+            "The saved physical mapping review is invalid. Record a new review before deployment; desktop build and simulation remain available."
         evidence.subsystemCount > 0 -> "A platform-supported ${evidence.drivebaseKind.name.lowercase().replace('_', ' ')} drivetrain and ${evidence.subsystemCount} subsystem(s) passed validation."
         else -> "A platform-supported ${evidence.drivebaseKind.name.lowercase().replace('_', ' ')} drive-only robot passed validation."
     }
 
     val hardwareAction = when {
         evidence.drivebaseKind == null -> RobotStudioAction.OPEN_DRIVEBASE
-        evidence.hardwareReviewStatus == HardwareReviewStatus.NOT_REVIEWED && evidence.hardwareItemCount > 0 -> RobotStudioAction.OPEN_HARDWARE_SETUP
+        evidence.hardwareItemCount > 0 && evidence.hardwareReviewStatus != HardwareReviewStatus.CURRENT -> RobotStudioAction.OPEN_HARDWARE_SETUP
         evidence.subsystemCount == 0 -> RobotStudioAction.OPEN_SUBSYSTEMS
         else -> RobotStudioAction.OPEN_HARDWARE_SETUP
     }
     val hardwareActionLabel = when {
         evidence.drivebaseKind == null -> "Open Hardware Studio"
-        evidence.hardwareReviewStatus == HardwareReviewStatus.NOT_REVIEWED && evidence.hardwareItemCount > 0 -> "Review Hardware Port Map"
+        evidence.hardwareItemCount > 0 && evidence.hardwareReviewStatus != HardwareReviewStatus.CURRENT -> "Review Hardware Port Map"
         evidence.subsystemCount == 0 -> "Configure Mechanisms"
         else -> "Open Hardware Studio"
     }

@@ -413,6 +413,20 @@ class RobotStudioModelTest {
         assertTrue(RobotStudioState(loading = false, stages = verifiedForSimulation).canRunSimulation)
         assertEquals(RobotStudioStageStatus.BLOCKED, verifiedForSimulation.status(RobotStudioStageId.DEPLOY))
 
+        val staleReview = evaluateRobotStudioStages(
+            completeEvidence().copy(
+                hardwareItemCount = 7,
+                hardwareReviewStatus = HardwareReviewStatus.STALE,
+                hardwareReviewedBy = "Mentor",
+            ),
+            RobotStudioRuntimeEvidence(),
+        )
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, staleReview.status(RobotStudioStageId.HARDWARE))
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, staleReview.status(RobotStudioStageId.GENERATE_VERIFY))
+        assertTrue(RobotStudioState(loading = false, stages = staleReview).canRunBuild)
+        assertEquals(RobotStudioStageStatus.BLOCKED, staleReview.status(RobotStudioStageId.DEPLOY))
+        assertTrue(staleReview.first { it.id == RobotStudioStageId.HARDWARE }.explanation.contains("changed"))
+
         val currentButReferenceOnly = evaluateRobotStudioStages(
             completeEvidence().copy(
                 hardwareItemCount = 7,

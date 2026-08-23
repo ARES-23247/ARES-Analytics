@@ -46,7 +46,7 @@ class RobotProjectTemplateServiceTest {
 
         League.entries.forEach { league ->
             val template = service.templateFor(league)
-            assertEquals("9.8.0", template.aresVersion)
+            assertEquals(if (league == League.FTC) "9.9.0" else "9.8.0", template.aresVersion)
             assertTrue(template.displayName.endsWith("Starter"))
             assertEquals(
                 RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,

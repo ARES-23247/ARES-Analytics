@@ -186,8 +186,36 @@ class DrivebaseBuilderViewModel(
         val result = withContext(Dispatchers.IO) { repository.load(_state.value.projectPath) }
         result.fold(
             onSuccess = { saved ->
-                val draft = saved ?: defaultDrivebase(_state.value.projectId, defaultNoCodeDrivebaseKind(_state.value.league))
-                _state.update { it.copy(saved = saved, draft = draft, issues = validateDrivebaseForLeague(draft, it.league), loading = false, dirty = false, error = null, selectedHardwareId = null) }
+                val draftResult = runCatching {
+                    (saved ?: defaultDrivebase(
+                        _state.value.projectId,
+                        defaultNoCodeDrivebaseKind(_state.value.league),
+                    )).withRuntimeRequirements()
+                }
+                val draft = draftResult.getOrElse { failure ->
+                    _state.update {
+                        it.copy(
+                            loading = false,
+                            error = failure.message ?: "Could not prepare the drivebase runtime contract.",
+                        )
+                    }
+                    return@fold
+                }
+                val runtimeRepairReady = saved != null && diffDrivebase(saved, draft).isNotEmpty()
+                _state.update {
+                    it.copy(
+                        saved = saved,
+                        draft = draft,
+                        issues = validateDrivebaseForLeague(draft, it.league),
+                        loading = false,
+                        dirty = runtimeRepairReady,
+                        status = if (runtimeRepairReady) {
+                            "ARES prepared missing runtime parameters and/or hardware wiring for review. Open Safety & Review to save the repair."
+                        } else "",
+                        error = null,
+                        selectedHardwareId = null,
+                    )
+                }
             },
             onFailure = { failure -> _state.update { it.copy(loading = false, error = failure.message ?: "Could not load the drivebase document.") } }
         )
@@ -419,12 +447,16 @@ class DrivebaseBuilderViewModel(
 
     private fun reviewSave() {
         val state = _state.value
-        val issues = validateDrivebaseForLeague(state.draft, state.league)
+        val normalized = runCatching { state.draft.withRuntimeRequirements() }.getOrElse { failure ->
+            _state.update { it.copy(error = failure.message ?: "Could not prepare the runtime contract for review.") }
+            return
+        }
+        val issues = validateDrivebaseForLeague(normalized, state.league)
         if (issues.any { it.severity == DrivebaseIssueSeverity.ERROR }) {
             _state.update { it.copy(issues = issues, error = "Fix the blocking checks before reviewing the save.") }
             return
         }
-        val changes = diffDrivebase(state.saved, state.draft)
+        val changes = diffDrivebase(state.saved, normalized)
         if (changes.isEmpty()) {
             _state.update {
                 it.copy(
@@ -439,7 +471,16 @@ class DrivebaseBuilderViewModel(
         }
         val baseHash = state.saved?.canonical?.let(com.areslib.drivetrain.DrivetrainDocumentCodec::contentHash)
         val token = reviewToken(baseHash, changes)
-        _state.update { it.copy(step = DrivebaseBuilderStep.REVIEW, saveReview = DrivebaseSaveReview(changes, token, baseHash), error = null) }
+        _state.update {
+            it.copy(
+                draft = normalized,
+                issues = issues,
+                step = DrivebaseBuilderStep.REVIEW,
+                saveReview = DrivebaseSaveReview(changes, token, baseHash),
+                error = null,
+                dirty = true,
+            )
+        }
     }
 
     private fun confirmSave(token: String) = scope.launch {

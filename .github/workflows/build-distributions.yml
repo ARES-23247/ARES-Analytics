@@ -20,11 +20,36 @@ permissions:
   contents: read
 
 env:
-  ARES_VERSION: 9.8.0
+  ARES_VERSION: 9.9.0
 
 jobs:
+  release-preflight:
+    name: Verify release version alignment
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Checkout ARES-Analytics
+        uses: actions/checkout@v4
+        with:
+          path: 'ARES-Analytics'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Fail fast on stale release pins
+        shell: bash
+        run: |
+          cd ARES-Analytics
+          ./gradlew verifyReleaseVersionAlignment --no-daemon --console=plain
+
   zero-code-project-acceptance:
     name: Verify fresh zero-code robot projects
+    needs: release-preflight
     runs-on: windows-latest
     steps:
       - name: Set up JDK 17
@@ -47,13 +72,13 @@ jobs:
           $archiveDirectory = Join-Path $env:RUNNER_TEMP 'ares-official-templates'
           New-Item -ItemType Directory -Force -Path $archiveDirectory | Out-Null
           Invoke-WebRequest -UseBasicParsing `
-            -Uri 'https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.8.0/ARES-FTC-Starter-9.8.0.zip' `
+            -Uri 'https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.9.0/ARES-FTC-Starter-9.9.0.zip' `
             -OutFile (Join-Path $archiveDirectory 'ftc.zip')
           Invoke-WebRequest -UseBasicParsing `
             -Uri 'https://github.com/ARES-23247/ARES-FRC-Starter/releases/download/v9.8.0/ARES-FRC-Starter-9.8.0.zip' `
             -OutFile (Join-Path $archiveDirectory 'frc.zip')
           $expectedHashes = @{
-            'ftc.zip' = '2d2c0cb4b337066d6b4d9f3d16e48ce84cd42a65968b2e1e2d972aa4aa4e8428'
+            'ftc.zip' = '6cd46d6950430b52205741525f9d0ba109ba20157b7ccadfcb0a6fe6452a39c3'
             'frc.zip' = 'db2da29a3b5d30e5c8c4d213d37e07c4f111182dd978670e5010ea797dd29467'
           }
           foreach ($entry in $expectedHashes.GetEnumerator()) {
@@ -86,6 +111,7 @@ jobs:
 
   build-packages:
     name: Build package for ${{ matrix.os }}
+    needs: release-preflight
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:

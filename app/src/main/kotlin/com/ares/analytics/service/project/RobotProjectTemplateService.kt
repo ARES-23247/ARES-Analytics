@@ -362,12 +362,20 @@ class RobotProjectTemplateService(
             val profileUid = requireNotNull(profileUidMap[drivetrain.canonicalProfileUid]) {
                 "The reviewed starter drivebase '${drivetrain.displayName}' references missing tuning profile '${drivetrain.canonicalProfileUid}'."
             }
+            val personalizedDrivebaseUid = drivebaseUidMap.getValue(drivetrain.uid)
             writeTextAtomically(
                 file,
                 DrivetrainDocumentCodec.encode(
                     drivetrain.copy(
-                        uid = drivebaseUidMap.getValue(drivetrain.uid),
+                        uid = personalizedDrivebaseUid,
                         canonicalProfileUid = profileUid,
+                        parameters = drivetrain.parameters.map { parameter ->
+                            if (parameter.componentUid == drivetrain.uid) {
+                                parameter.copy(componentUid = personalizedDrivebaseUid)
+                            } else {
+                                parameter
+                            }
+                        },
                     ),
                 ),
             )
@@ -457,14 +465,14 @@ class RobotProjectTemplateService(
 
         val OFFICIAL_PROJECT_TEMPLATES: List<RobotProjectTemplate> = listOf(
             RobotProjectTemplate(
-                id = "ares-ftc-starter-9.8.0",
+                id = "ares-ftc-starter-9.9.0",
                 displayName = "ARES FTC Starter",
                 league = League.FTC,
-                aresVersion = "9.8.0",
-                revision = "dc8fe3f8598496564191719ce94a4b85abbe144b",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.8.0/ARES-FTC-Starter-9.8.0.zip",
-                archiveSha256 = "2d2c0cb4b337066d6b4d9f3d16e48ce84cd42a65968b2e1e2d972aa4aa4e8428",
-                bundledResourcePath = "/project-templates/ARES-FTC-Starter-9.8.0.zip",
+                aresVersion = "9.9.0",
+                revision = "eece701c95170439d170aae6bb0c0a58c2ca0744",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.9.0/ARES-FTC-Starter-9.9.0.zip",
+                archiveSha256 = "6cd46d6950430b52205741525f9d0ba109ba20157b7ccadfcb0a6fe6452a39c3",
+                bundledResourcePath = "/project-templates/ARES-FTC-Starter-9.9.0.zip",
                 deploymentPolicy = RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
             ),
             RobotProjectTemplate(

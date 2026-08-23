@@ -448,7 +448,7 @@ fun GeometryStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewMo
 fun ControlStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewModel) {
     SectionHeading(
         "4 · Choose drive control systems",
-        "Enable only the command layers this robot actually supports. Open-loop is easiest to learn; closed-loop modes require measured feedback and reviewed tuning.",
+        "ARES recommends chassis-velocity control for normal driving. Open-loop remains available for first-motion diagnosis; every closed-loop mode requires fresh encoder feedback.",
     )
     val modes = DrivetrainControlKind.entries
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -476,7 +476,12 @@ fun ControlStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewMod
                         },
                     )
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(mode.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase), color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(mode.name.lowercase().replace('_', ' ').replaceFirstChar(Char::uppercase), color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            if (mode == DrivetrainControlKind.CHASSIS_VELOCITY) {
+                                Text("RECOMMENDED", color = AresGreen, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
                         Text(explanation, color = AresTextSecondary, fontSize = 10.sp, lineHeight = 14.sp)
                     }
                     RadioButton(
@@ -502,9 +507,23 @@ fun ControlStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewMod
                     }
                 }
                 Text(
-                    "PID and feedforward values are calibrated in Tuning Studio so measured experiments, history, and promotion evidence stay separate from physical hardware identity.",
+                    "Closed-loop wheel velocity uses the FTC motor controller's encoder loop. ARES keeps the controller's built-in PIDF when every custom motor PIDF value is zero. Calibrated overrides and feedforward belong in Tuning Studio.",
                     color = AresGold,
                     fontSize = 10.sp,
+                )
+                HorizontalDivider(color = AresBorder)
+                Text("DRIVE ASSISTS", color = AresCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Rotation lock starts enabled and holds heading when the turn stick is released. Anti-push position hold starts off and engages only with fresh, valid pose feedback.",
+                    color = AresTextSecondary,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
+                )
+                Text(
+                    "In TeleOp Controls, bind Enable, Disable, or Toggle actions under Drive assists. Tune heading and anti-push gains, deadzones, and output limits in Tuning Studio.",
+                    color = AresTextSecondary,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp,
                 )
             }
         }
