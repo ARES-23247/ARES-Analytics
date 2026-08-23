@@ -26,6 +26,24 @@ class RobotStudioPresentationTest {
     }
 
     @Test
+    fun `robot structure badge ignores downstream build and simulation stages`() {
+        val state = RobotStudioState(
+            loading = false,
+            stages = listOf(
+                stage(RobotStudioStageId.PROJECT_IDENTITY, RobotStudioStageStatus.READY),
+                stage(RobotStudioStageId.HARDWARE, RobotStudioStageStatus.READY),
+                stage(RobotStudioStageId.COORDINATION, RobotStudioStageStatus.OPTIONAL),
+                stage(RobotStudioStageId.AUTONOMOUS, RobotStudioStageStatus.READY),
+                stage(RobotStudioStageId.CONTROLS, RobotStudioStageStatus.READY),
+                stage(RobotStudioStageId.GENERATE_VERIFY, RobotStudioStageStatus.INVALID),
+                stage(RobotStudioStageId.SIMULATE, RobotStudioStageStatus.BLOCKED),
+            ),
+        )
+
+        assertEquals("Ready", state.progressPresentation().label)
+    }
+
+    @Test
     fun `an empty issue list does not turn a blocked stage into pass`() {
         val state = RobotStudioState(
             loading = false,

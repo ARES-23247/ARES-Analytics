@@ -51,21 +51,47 @@ internal fun RobotStudioState.progressPresentation(): RobotStudioStatusPresentat
     loading -> RobotStudioStatusPresentation("Checking", RobotStudioPresentationTone.INFO)
     error != null -> RobotStudioStatusPresentation("Unavailable", RobotStudioPresentationTone.ERROR)
     stages.isEmpty() -> RobotStudioStatusPresentation("Not checked", RobotStudioPresentationTone.MUTED)
-    blockingCount > 0 -> RobotStudioStatusPresentation(
-        "$blockingCount blocked",
-        RobotStudioPresentationTone.ERROR,
-    )
-    !hasCompleteReadiness -> RobotStudioStatusPresentation(
-        "${stages.map { it.id }.distinct().size}/${RobotStudioStageId.entries.size} checked",
+    structureStages().size < STRUCTURE_STAGE_IDS.size -> RobotStudioStatusPresentation(
+        "${structureStages().size}/${STRUCTURE_STAGE_IDS.size} checked",
         RobotStudioPresentationTone.WARNING,
     )
-    stages.all { it.status == RobotStudioStageStatus.READY || it.status == RobotStudioStageStatus.OPTIONAL } ->
+    structureStages().count { it.status.isBlockingStructureStatus() } > 0 -> RobotStudioStatusPresentation(
+        "${structureStages().count { it.status.isBlockingStructureStatus() }} blocked",
+        RobotStudioPresentationTone.ERROR,
+    )
+    structureStages().any { it.status == RobotStudioStageStatus.NEEDS_ACTION } -> RobotStudioStatusPresentation(
+        "${structureStages().count { it.status == RobotStudioStageStatus.NEEDS_ACTION }} needs action",
+        RobotStudioPresentationTone.WARNING,
+    )
+    structureStages().all { it.status == RobotStudioStageStatus.READY || it.status == RobotStudioStageStatus.OPTIONAL } ->
         RobotStudioStatusPresentation("Ready", RobotStudioPresentationTone.SUCCESS)
     else -> RobotStudioStatusPresentation(
-        "$readyCount/${stages.size} ready",
+        "${structureStages().count { it.status == RobotStudioStageStatus.READY }}/${structureStages().size} ready",
         RobotStudioPresentationTone.WARNING,
     )
 }
+
+/**
+ * The hierarchy header describes the canonical robot structure shown directly below it. Build,
+ * simulation, deployment, and analysis have their own controls and must not make a complete
+ * structure appear blocked merely because those later actions have not run yet.
+ */
+private fun RobotStudioState.structureStages(): List<RobotStudioStage> = stages.filter { stage ->
+    stage.id in STRUCTURE_STAGE_IDS
+}
+
+private val STRUCTURE_STAGE_IDS = setOf(
+    RobotStudioStageId.PROJECT_IDENTITY,
+    RobotStudioStageId.HARDWARE,
+    RobotStudioStageId.COORDINATION,
+    RobotStudioStageId.AUTONOMOUS,
+    RobotStudioStageId.CONTROLS,
+)
+
+private fun RobotStudioStageStatus.isBlockingStructureStatus(): Boolean =
+    this == RobotStudioStageStatus.BLOCKED ||
+        this == RobotStudioStageStatus.INVALID ||
+        this == RobotStudioStageStatus.CODE_REQUIRED
 
 internal fun RobotStudioState.nodePresentation(
     status: RobotStudioStageStatus?,

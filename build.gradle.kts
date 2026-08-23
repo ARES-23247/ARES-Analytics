@@ -23,6 +23,125 @@ val resolvedAresVersion = providers.gradleProperty("aresVersion")
 
 extra["aresVersion"] = resolvedAresVersion
 
+// Release metadata is intentionally duplicated in runtime Kotlin and the GitHub workflow, where
+// neither can safely import the other. This fast preflight makes gradle.properties authoritative
+// and names every stale copy before tests, simulator builds, or native packaging consume minutes.
+val verifyReleaseVersionAlignment = tasks.register("verifyReleaseVersionAlignment") {
+    group = "verification"
+    description = "Fails fast when ARES, app, or bundled starter release pins disagree."
+
+    val releasePropertiesFile = file("gradle.properties")
+    val appBuildFile = file("app/build.gradle.kts")
+    val templateServiceFile = file(
+        "app/src/main/kotlin/com/ares/analytics/service/project/RobotProjectTemplateService.kt",
+    )
+    val workflowFile = file(".github/workflows/build-distributions.yml")
+    val templateDirectory = file("app/src/main/resources/project-templates")
+    inputs.files(releasePropertiesFile, appBuildFile, templateServiceFile, workflowFile)
+    inputs.dir(templateDirectory)
+
+    doLast {
+        val properties = java.util.Properties().apply {
+            releasePropertiesFile.inputStream().use(::load)
+        }
+        fun requiredProperty(name: String): String = properties.getProperty(name)?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?: throw GradleException("Release preflight: gradle.properties is missing '$name'.")
+        fun requireContains(file: File, token: String, label: String) {
+            if (!file.readText().contains(token)) {
+                throw GradleException(
+                    "Release preflight: stale $label in ${file.relativeTo(rootDir)}. Expected: $token",
+                )
+            }
+        }
+        fun sha256(file: File): String {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+
+        val aresVersion = requiredProperty("aresVersion")
+        val appVersion = requiredProperty("aresAnalyticsVersion")
+        val ftcVersion = requiredProperty("aresFtcStarterVersion")
+        val ftcHash = requiredProperty("aresFtcStarterSha256").lowercase()
+        val frcVersion = requiredProperty("aresFrcStarterVersion")
+        val frcHash = requiredProperty("aresFrcStarterSha256").lowercase()
+
+        requireContains(
+            appBuildFile,
+            "providers.gradleProperty(\"aresAnalyticsVersion\").get()",
+            "application-version source",
+        )
+        requireContains(templateServiceFile, "id = \"ares-ftc-starter-$ftcVersion\"", "FTC template ID")
+        requireContains(templateServiceFile, "aresVersion = \"$ftcVersion\"", "FTC template version")
+        requireContains(
+            templateServiceFile,
+            "ARES-FTC-Starter/releases/download/v$ftcVersion/ARES-FTC-Starter-$ftcVersion.zip",
+            "FTC template URL",
+        )
+        requireContains(templateServiceFile, "archiveSha256 = \"$ftcHash\"", "FTC template hash")
+        requireContains(
+            templateServiceFile,
+            "bundledResourcePath = \"/project-templates/ARES-FTC-Starter-$ftcVersion.zip\"",
+            "FTC bundled-template path",
+        )
+        requireContains(templateServiceFile, "id = \"ares-frc-starter-$frcVersion\"", "FRC template ID")
+        requireContains(templateServiceFile, "aresVersion = \"$frcVersion\"", "FRC template version")
+        requireContains(
+            templateServiceFile,
+            "ARES-FRC-Starter/releases/download/v$frcVersion/ARES-FRC-Starter-$frcVersion.zip",
+            "FRC template URL",
+        )
+        requireContains(templateServiceFile, "archiveSha256 = \"$frcHash\"", "FRC template hash")
+        requireContains(
+            templateServiceFile,
+            "bundledResourcePath = \"/project-templates/ARES-FRC-Starter-$frcVersion.zip\"",
+            "FRC bundled-template path",
+        )
+
+        requireContains(workflowFile, "ARES_VERSION: $aresVersion", "workflow ARES version")
+        requireContains(
+            workflowFile,
+            "ARES-FTC-Starter/releases/download/v$ftcVersion/ARES-FTC-Starter-$ftcVersion.zip",
+            "workflow FTC template URL",
+        )
+        requireContains(workflowFile, "'ftc.zip' = '$ftcHash'", "workflow FTC template hash")
+        requireContains(
+            workflowFile,
+            "ARES-FRC-Starter/releases/download/v$frcVersion/ARES-FRC-Starter-$frcVersion.zip",
+            "workflow FRC template URL",
+        )
+        requireContains(workflowFile, "'frc.zip' = '$frcHash'", "workflow FRC template hash")
+
+        listOf("FTC" to ftcVersion to ftcHash, "FRC" to frcVersion to frcHash).forEach { entry ->
+            val (leagueAndVersion, expectedHash) = entry
+            val (league, version) = leagueAndVersion
+            val archive = File(templateDirectory, "ARES-$league-Starter-$version.zip")
+            if (!archive.isFile) {
+                throw GradleException("Release preflight: missing bundled template ${archive.relativeTo(rootDir)}.")
+            }
+            val actualHash = sha256(archive)
+            if (actualHash != expectedHash) {
+                throw GradleException(
+                    "Release preflight: ${archive.name} SHA-256 is $actualHash, expected $expectedHash.",
+                )
+            }
+        }
+
+        logger.lifecycle(
+            "Release preflight passed: Studio $appVersion, ARES $aresVersion, " +
+                "FTC starter $ftcVersion, FRC starter $frcVersion.",
+        )
+    }
+}
+
 subprojects {
     group = rootProject.group
     version = rootProject.version
@@ -61,6 +180,12 @@ subprojects {
     }
 
     apply(plugin = "org.jetbrains.kotlinx.kover")
+
+    tasks.matching { task ->
+        task.name == "test" || task.name.startsWith("packageRelease")
+    }.configureEach {
+        dependsOn(verifyReleaseVersionAlignment)
+    }
 }
 
 tasks.register("killExisting") {

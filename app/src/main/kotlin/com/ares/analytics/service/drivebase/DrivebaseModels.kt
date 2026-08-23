@@ -253,6 +253,11 @@ fun diffDrivebase(before: DrivebaseDocument?, after: DrivebaseDocument): List<Dr
     change("supportedControlModes", before.supportedControlModes, after.supportedControlModes)
     change("defaultControlMode", before.defaultControlMode, after.defaultControlMode)
     change("fieldRelativeEnabled", before.fieldRelativeEnabled, after.fieldRelativeEnabled)
+    change(
+        "runtimeParameters",
+        before.canonical?.parameters?.associate { it.key to it.defaultValue },
+        after.canonical?.parameters?.associate { it.key to it.defaultValue },
+    )
     (before.hardware.associateBy { it.id }.keys + after.hardware.associateBy { it.id }.keys).sorted().forEach { id ->
         change("hardware.$id", before.hardware.firstOrNull { it.id == id }, after.hardware.firstOrNull { it.id == id })
     }
@@ -505,9 +510,33 @@ private fun DriveHardwareRole.toCanonicalRole(): DrivetrainComponentRole = when 
 
 internal fun canonicalTemplate(projectId: String, kind: DrivebaseKind): DrivetrainDocument {
     val projectUid = projectId.lowercase().replace(Regex("[^a-z0-9]+"), ".").trim('.').ifBlank { "robot.project" }
-    fun drive(uid: String, hardware: String, inverted: Boolean = false, module: String? = null) = DrivetrainComponentDocument(uid, uid.substringAfterLast('.').replace('-', ' ').replaceFirstChar(Char::uppercase), DrivetrainComponentRole.DRIVE_MOTOR, hardware, moduleUid = module, currentMeasurementRequired = true, currentMeasurementAvailable = true, inverted = inverted)
+    fun drive(
+        uid: String,
+        hardware: String,
+        inverted: Boolean = false,
+        module: String? = null,
+        xMeters: Double? = null,
+        yMeters: Double? = null,
+    ) = DrivetrainComponentDocument(
+        uid,
+        uid.substringAfterLast('.').replace('-', ' ').replaceFirstChar(Char::uppercase),
+        DrivetrainComponentRole.DRIVE_MOTOR,
+        hardware,
+        moduleUid = module,
+        currentMeasurementRequired = true,
+        currentMeasurementAvailable = true,
+        inverted = inverted,
+        xMeters = xMeters,
+        yMeters = yMeters,
+    )
     val components = when (kind) {
-        DrivebaseKind.FTC_MECANUM -> listOf(drive("drive.front-left", "fl"), drive("drive.front-right", "fr", true), drive("drive.rear-left", "rl"), drive("drive.rear-right", "rr", true), DrivetrainComponentDocument("drive.pinpoint", "goBILDA Pinpoint", DrivetrainComponentRole.ODOMETRY_SENSOR, "pinpoint"))
+        DrivebaseKind.FTC_MECANUM -> listOf(
+            drive("drive.front-left", "fl", xMeters = .18, yMeters = .18),
+            drive("drive.front-right", "fr", inverted = true, xMeters = .18, yMeters = -.18),
+            drive("drive.rear-left", "rl", xMeters = -.18, yMeters = .18),
+            drive("drive.rear-right", "rr", inverted = true, xMeters = -.18, yMeters = -.18),
+            DrivetrainComponentDocument("drive.pinpoint", "goBILDA Pinpoint", DrivetrainComponentRole.ODOMETRY_SENSOR, "pinpoint"),
+        )
         DrivebaseKind.DIFFERENTIAL -> listOf(drive("drive.left", "leftLeader"), drive("drive.right", "rightLeader", true), DrivetrainComponentDocument("drive.gyro", "Gyro", DrivetrainComponentRole.GYRO, "gyro"))
         DrivebaseKind.FRC_CTRE_SWERVE -> listOf("front-left", "front-right", "rear-left", "rear-right").flatMap { corner ->
             val module = "module.$corner"
@@ -529,20 +558,36 @@ internal fun canonicalTemplate(projectId: String, kind: DrivebaseKind): Drivetra
         else -> DrivetrainLocalizationSourceDocument("localization.wheel-imu", LocalizationSourceKind.WHEEL_ENCODERS_IMU, components.map { it.uid })
     }
     val diameter = .096
-    return DrivetrainDocument(
+    val document = DrivetrainDocument(
         uid = "drive.primary", drivebaseId = "primary", displayName = "Primary drivebase", description = "Robot-owned drivebase contract.",
         kind = when (kind) { DrivebaseKind.FTC_MECANUM -> DrivetrainKind.FTC_MECANUM; DrivebaseKind.FRC_CTRE_SWERVE -> DrivetrainKind.FRC_CTRE_SWERVE; DrivebaseKind.DIFFERENTIAL -> DrivetrainKind.DIFFERENTIAL; DrivebaseKind.CUSTOM -> DrivetrainKind.ADVANCED_CUSTOM },
         platform = if (kind == DrivebaseKind.FTC_MECANUM) DrivetrainPlatform.FTC else DrivetrainPlatform.FRC,
         components = components, modules = modules,
-        geometry = DrivetrainGeometryDocument(diameter, .36, .36, 1.0, if (kind == DrivebaseKind.FRC_CTRE_SWERVE) 1.0 else null, 3.0, 6.0),
+        geometry = DrivetrainGeometryDocument(
+            diameter,
+            .36,
+            .36,
+            1.0,
+            if (kind == DrivebaseKind.FRC_CTRE_SWERVE) 1.0 else null,
+            if (kind == DrivebaseKind.FTC_MECANUM) 1.0 else 3.0,
+            if (kind == DrivebaseKind.FTC_MECANUM) 1.0 / .36 else 6.0,
+        ),
         localization = DrivetrainLocalizationDocument(primary, components.firstOrNull { it.role == DrivetrainComponentRole.GYRO }?.uid ?: primary.uid),
-        control = DrivetrainControlDocument(listOf(DrivetrainControlKind.OPEN_LOOP, DrivetrainControlKind.CHASSIS_VELOCITY), DrivetrainControlKind.OPEN_LOOP),
+        control = DrivetrainControlDocument(
+            listOf(DrivetrainControlKind.OPEN_LOOP, DrivetrainControlKind.CHASSIS_VELOCITY),
+            if (kind == DrivebaseKind.FTC_MECANUM) DrivetrainControlKind.CHASSIS_VELOCITY else DrivetrainControlKind.OPEN_LOOP,
+        ),
         simulation = DrivetrainSimulationDocument("com.areslib.simulator.DrivetrainModel", "com.areslib.simulator.DrivetrainAdapter"),
         // Physical geometry is authoritative here. It must never be duplicated as a tuning value.
         parameters = emptyList(),
         ctreImport = if (kind == DrivebaseKind.FRC_CTRE_SWERVE) CtreSwerveImportDocument("src/main/java/frc/robot/generated/TunerConstants.java", "0".repeat(64), "CTRE Tuner", "unknown", "frc.robot.generated.TunerConstants", "rio") else null,
         canonicalProfileUid = "$projectUid.profile.competition"
     )
+    return if (kind == DrivebaseKind.FTC_MECANUM) {
+        FtcMecanumRuntimeParameters.reconcile(document)
+    } else {
+        document
+    }
 }
 
 private fun error(path: String, message: String) = DrivebaseIssue(DrivebaseIssueSeverity.ERROR, path, message)

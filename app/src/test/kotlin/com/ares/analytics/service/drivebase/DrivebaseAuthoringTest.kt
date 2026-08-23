@@ -16,6 +16,7 @@ import kotlin.test.*
 import com.areslib.drivetrain.*
 import com.areslib.codegen.DrivetrainKotlinGenerator
 import com.areslib.tuning.TuningProfileAuthority
+import com.areslib.tuning.TuningParameterType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -154,7 +155,68 @@ class DrivebaseAuthoringTest {
         assertTrue(document.safety.safeNeutralRequired)
         assertTrue(document.safety.configurationHealthRequired)
         assertTrue(document.safety.explicitNeutralRecoveryRequired)
+        assertEquals(DrivetrainControlKind.CHASSIS_VELOCITY, document.defaultControlMode)
+        assertEquals(
+            true,
+            document.canonical!!.parameters.single { it.key == CLOSED_LOOP_VELOCITY_KEY }
+                .defaultValue.booleanValue,
+        )
         assertTrue(validateDrivebase(document).none { it.severity == DrivebaseIssueSeverity.ERROR })
+    }
+
+    @Test
+    fun `reviewed Pinpoint save repairs generator parameters and tuning assignments`() {
+        val root = Files.createTempDirectory("ares-drivebase-pinpoint-repair").toFile()
+        try {
+            val repository = DrivebaseProjectRepository()
+            val complete = defaultDrivebase("team", DrivebaseKind.FTC_MECANUM)
+            val legacy = complete.copy(
+                canonical = complete.canonical!!.copy(
+                    parameters = complete.canonical.parameters.filterNot { it.key.startsWith("localization.pinpoint") },
+                ),
+            )
+
+            val saved = repository.saveReviewed(root.path, null, legacy)
+            val workspace = com.ares.analytics.service.tuning.TuningProfileRepository().load(root.path).getOrThrow()
+            val requiredPinpointKeys = setOf(
+                "localization.pinpointCcwPositive",
+                "localization.pinpointXOffsetMm",
+                "localization.pinpointYOffsetMm",
+                "localization.pinpointEncoderResolution",
+                "localization.pinpointXReversed",
+                "localization.pinpointYReversed",
+            )
+            val declarations = saved.canonical!!.parameters
+            assertTrue(requiredPinpointKeys.all { key -> declarations.any { it.key == key } })
+            assertEquals(TuningParameterType.BOOLEAN, declarations.single { it.key == "localization.pinpointCcwPositive" }.type)
+            val assigned = workspace.profiles.single().values.map { it.parameterUid }.toSet()
+            assertTrue(declarations.all { it.uid in assigned })
+
+            val generated = DrivetrainKotlinGenerator.generateFtcMecanumRuntime(
+                saved.canonical,
+                workspace.profiles,
+                "org.example.generated",
+            )
+            assertTrue(generated.content.contains("pinpointIsCcwPositive"))
+            assertTrue(generated.content.contains("useClosedLoopVelocity = values."))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `legacy Pinpoint document reports actionable runtime repair before generation`() {
+        val complete = defaultDrivebase("team", DrivebaseKind.FTC_MECANUM).canonical!!
+        val legacy = complete.copy(
+            parameters = complete.parameters.filterNot { it.key == "localization.pinpointCcwPositive" },
+        )
+
+        val message = FtcMecanumRuntimeParameters.repairMessage(legacy)
+
+        assertNotNull(message)
+        assertTrue(message.contains("localization.pinpointCcwPositive"))
+        assertTrue(message.contains("Safety & Review"))
+        assertEquals(null, FtcMecanumRuntimeParameters.repairMessage(complete))
     }
 
     @Test
@@ -360,8 +422,9 @@ class DrivebaseAuthoringTest {
         val profile = workspace.profiles.single()
         assertEquals(TuningProfileAuthority.CANONICAL_CHECKED_IN, profile.authority)
         assertEquals(saved.canonical!!.uid, profile.drivebaseUid)
-        assertTrue(saved.canonical.parameters.isEmpty(), "Physical geometry must not be duplicated as a tuning parameter")
-        val generated = DrivetrainKotlinGenerator.generate(saved.canonical, workspace.profiles, "org.example.generated", workspace.catalog)
+        assertTrue(saved.canonical.parameters.isNotEmpty(), "Runtime tuning parameters must be explicit")
+        assertTrue(saved.canonical.parameters.none { it.key.contains("trackWidth", ignoreCase = true) }, "Physical geometry must not be duplicated as a tuning parameter")
+        val generated = DrivetrainKotlinGenerator.generate(saved.canonical, workspace.profiles, "org.example.generated")
         assertTrue(generated.content.contains("TRACK_WIDTH_METERS"))
         assertFalse(generated.content.contains("DRIVE_TRACKWIDTHMETERS"))
 
@@ -404,6 +467,79 @@ class DrivebaseAuthoringTest {
             assertEquals(0.36, viewModel.state.value.draft.geometry.trackWidthMeters, 1e-9)
         } finally {
             viewModelScope.cancel()
+        }
+    }
+
+    @Test
+    fun `builder loads an older Pinpoint drivebase as an explicit reviewed repair`() = runBlocking {
+        val root = Files.createTempDirectory("ares-drivebase-runtime-repair").toFile()
+        val complete = defaultDrivebase("team", DrivebaseKind.FTC_MECANUM).canonical!!
+        val removedPinpointUid = complete.components.single {
+            it.role == DrivetrainComponentRole.ODOMETRY_SENSOR
+        }.uid
+        val legacy = complete.copy(
+            components = complete.components.filterNot { it.role == DrivetrainComponentRole.ODOMETRY_SENSOR },
+            localization = complete.localization.copy(
+                primaryOdometry = complete.localization.primaryOdometry.copy(componentUids = emptyList()),
+                visionFusion = listOf(
+                    DrivetrainLocalizationSourceDocument(
+                        uid = "localization.vision",
+                        source = LocalizationSourceKind.EXTERNAL,
+                        componentUids = emptyList(),
+                        implementationClassName = "com.areslib.vision.VisionTracker",
+                    ),
+                ),
+            ),
+            parameters = complete.parameters.filterNot { it.componentUid == removedPinpointUid },
+        )
+        File(root, ".ares/drivetrains/starter-mecanum.aresdrivetrain").apply {
+            parentFile.mkdirs()
+            writeText(DrivetrainDocumentCodec.encode(legacy))
+        }
+        val viewModelScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val viewModel = DrivebaseBuilderViewModel(root.path, "team", League.FTC, viewModelScope)
+        try {
+            withTimeout(5_000) { viewModel.state.first { !it.loading } }
+
+            assertTrue(viewModel.state.value.dirty)
+            assertTrue(viewModel.state.value.status.contains("missing runtime parameters"))
+            assertTrue(
+                viewModel.state.value.draft.canonical!!.parameters.any {
+                    it.key == "localization.pinpointCcwPositive"
+                },
+            )
+            val repairedDraft = viewModel.state.value.draft.canonical!!
+            val repairedPinpointUid = repairedDraft.localization.primaryOdometry.componentUids.single()
+            assertEquals(
+                DrivetrainComponentRole.ODOMETRY_SENSOR,
+                repairedDraft.components.single { it.uid == repairedPinpointUid }.role,
+            )
+            assertTrue(repairedDraft.localization.visionFusion.isEmpty())
+
+            viewModel.onIntent(DrivebaseBuilderIntent.ReviewSave)
+            val review = assertNotNull(
+                viewModel.state.value.saveReview,
+                "error=${viewModel.state.value.error}; issues=${viewModel.state.value.issues}; status=${viewModel.state.value.status}",
+            )
+            assertTrue(review.changes.any { it.path == "runtimeParameters" })
+            viewModel.onIntent(DrivebaseBuilderIntent.ConfirmSave(review.confirmationToken))
+            withTimeout(5_000) { viewModel.state.first { !it.dirty && it.status.startsWith("Saved reviewed") } }
+
+            val saved = DrivebaseProjectRepository().load(root.path).getOrThrow()!!
+            assertTrue(saved.canonical!!.parameters.any { it.key == "localization.pinpointCcwPositive" })
+            val profile = com.ares.analytics.service.tuning.TuningProfileRepository()
+                .load(root.path).getOrThrow().profiles.single()
+            assertTrue(profile.values.any { it.parameterUid == "ftc.localization.pinpoint.ccw" })
+            val generated = DrivetrainKotlinGenerator.generateFtcMecanumRuntime(
+                saved.canonical,
+                listOf(profile),
+                "org.example.generated",
+            )
+            assertTrue(generated.content.contains("pinpointName ="))
+            assertFalse(generated.content.contains("pinpointName = null"))
+        } finally {
+            viewModelScope.cancel()
+            root.deleteRecursively()
         }
     }
 
