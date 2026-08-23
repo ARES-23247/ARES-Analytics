@@ -70,11 +70,23 @@ data class RobotStudioRuntimeEvidence(
     val nt4Connected: Boolean = false,
 )
 
+data class RobotStudioSectionReadiness(
+    val status: RobotStudioStageStatus,
+    val explanation: String,
+    val issues: List<String> = emptyList(),
+)
+
+data class RobotStudioHardwareReadiness(
+    val drivetrain: RobotStudioSectionReadiness,
+    val portMap: RobotStudioSectionReadiness,
+)
+
 data class RobotStudioState(
     val loading: Boolean = true,
     val projectName: String = "",
     val projectPath: String = "",
     val stages: List<RobotStudioStage> = emptyList(),
+    val hardwareReadiness: RobotStudioHardwareReadiness? = null,
     val error: String? = null,
 ) {
     val readyCount: Int get() = stages.count { it.status == RobotStudioStageStatus.READY || it.status == RobotStudioStageStatus.RUNNING }
@@ -158,33 +170,15 @@ internal fun evaluateRobotStudioStages(
         !evidence.metadataLeagueMatches -> RobotStudioStageStatus.INVALID
         else -> RobotStudioStageStatus.READY
     }
-    val drivebaseStatus = when {
-        projectBlocked || projectIdentityStatus != RobotStudioStageStatus.READY -> RobotStudioStageStatus.BLOCKED
-        evidence.drivebaseKind == null && evidence.drivebaseErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
-        evidence.drivebaseKind == null -> RobotStudioStageStatus.NEEDS_ACTION
-        evidence.drivebaseErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
-        !evidence.drivebaseNoCodeSupported -> RobotStudioStageStatus.CODE_REQUIRED
-        else -> RobotStudioStageStatus.READY
-    }
-    val localizationStatus = when {
-        drivebaseStatus == RobotStudioStageStatus.BLOCKED -> RobotStudioStageStatus.BLOCKED
-        drivebaseStatus == RobotStudioStageStatus.INVALID -> RobotStudioStageStatus.BLOCKED
-        evidence.localizationConfigured -> RobotStudioStageStatus.READY
-        else -> RobotStudioStageStatus.NEEDS_ACTION
-    }
+    val sectionReadiness = evaluateRobotStudioHardwareReadiness(evidence)
+    val drivebaseStatus = sectionReadiness.drivetrain.status
     val mechanismsStatus = when {
         projectBlocked -> RobotStudioStageStatus.BLOCKED
         evidence.subsystemErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
         evidence.subsystemCount == 0 -> RobotStudioStageStatus.OPTIONAL
         else -> RobotStudioStageStatus.READY
     }
-    val hardwareReviewStatus = when {
-        projectBlocked || projectIdentityStatus != RobotStudioStageStatus.READY -> RobotStudioStageStatus.BLOCKED
-        evidence.hardwareErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
-        evidence.hardwareItemCount == 0 -> RobotStudioStageStatus.NEEDS_ACTION
-        evidence.hardwareReviewStatus == HardwareReviewStatus.CURRENT -> RobotStudioStageStatus.READY
-        else -> RobotStudioStageStatus.NEEDS_ACTION
-    }
+    val hardwareReviewStatus = sectionReadiness.portMap.status
     val capabilitiesStatus = when {
         projectBlocked -> RobotStudioStageStatus.BLOCKED
         evidence.capabilityErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
@@ -200,7 +194,7 @@ internal fun evaluateRobotStudioStages(
             evidence.hardwareErrors.isNotEmpty() || evidence.capabilityErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
         projectIdentityStatus != RobotStudioStageStatus.READY -> RobotStudioStageStatus.BLOCKED
         drivebaseStatus == RobotStudioStageStatus.CODE_REQUIRED -> RobotStudioStageStatus.CODE_REQUIRED
-        drivebaseStatus == RobotStudioStageStatus.NEEDS_ACTION || localizationStatus == RobotStudioStageStatus.NEEDS_ACTION ||
+        drivebaseStatus == RobotStudioStageStatus.NEEDS_ACTION ||
             (evidence.hardwareItemCount > 0 && evidence.hardwareReviewStatus != HardwareReviewStatus.CURRENT) -> RobotStudioStageStatus.NEEDS_ACTION
         else -> RobotStudioStageStatus.READY
     }
@@ -238,7 +232,6 @@ internal fun evaluateRobotStudioStages(
     // they intentionally do not require a mentor to claim physical wiring was reviewed. Physical
     // review remains visible in the Hardware stage and is enforced independently for deployment.
     val hardwareDefinitionReady = drivebaseStatus == RobotStudioStageStatus.READY &&
-        localizationStatus == RobotStudioStageStatus.READY &&
         mechanismsStatus in setOf(RobotStudioStageStatus.READY, RobotStudioStageStatus.OPTIONAL) &&
         capabilitiesStatus in setOf(RobotStudioStageStatus.READY, RobotStudioStageStatus.OPTIONAL) &&
         evidence.hardwareErrors.isEmpty()
@@ -485,6 +478,75 @@ internal fun evaluateRobotStudioStages(
             "Run History, replay, deterministic diagnostics, and optional AI explanation",
             if (evidence.importedRunCount > 0) RobotStudioAction.OPEN_GUIDED_ANALYSIS else RobotStudioAction.OPEN_IMPORTS,
             if (evidence.importedRunCount > 0) "Review run evidence" else "Import a run",
+        ),
+    )
+}
+
+internal fun evaluateRobotStudioHardwareReadiness(
+    evidence: RobotProjectReadinessEvidence,
+): RobotStudioHardwareReadiness {
+    val projectIdentityReady = evidence.projectError == null &&
+        evidence.metadataPresent &&
+        evidence.metadataLeagueMatches &&
+        evidence.metadataErrors.isEmpty()
+
+    val drivetrainStatus = when {
+        !projectIdentityReady -> RobotStudioStageStatus.BLOCKED
+        evidence.drivebaseKind == null && evidence.drivebaseErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        evidence.drivebaseKind == null -> RobotStudioStageStatus.NEEDS_ACTION
+        evidence.drivebaseErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        !evidence.drivebaseNoCodeSupported -> RobotStudioStageStatus.CODE_REQUIRED
+        !evidence.localizationConfigured -> RobotStudioStageStatus.NEEDS_ACTION
+        else -> RobotStudioStageStatus.READY
+    }
+    val drivetrainExplanation = when (drivetrainStatus) {
+        RobotStudioStageStatus.READY ->
+            "The saved drivetrain and localization definition passed canonical project validation."
+        RobotStudioStageStatus.CODE_REQUIRED ->
+            "This drivetrain is documented, but the selected platform does not have a no-code runtime adapter for it."
+        RobotStudioStageStatus.INVALID ->
+            "The saved drivetrain definition is invalid. Open Drivetrain and resolve the listed errors."
+        RobotStudioStageStatus.BLOCKED ->
+            "Finish Project Identity before configuring the drivetrain."
+        else -> if (evidence.drivebaseKind == null) {
+            "Choose and save a drivetrain before building or simulating the robot."
+        } else {
+            "Choose a compatible localization source, then save the drivetrain."
+        }
+    }
+
+    val portMapStatus = when {
+        !projectIdentityReady -> RobotStudioStageStatus.BLOCKED
+        evidence.hardwareErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
+        evidence.hardwareItemCount == 0 -> RobotStudioStageStatus.NEEDS_ACTION
+        evidence.hardwareReviewStatus == HardwareReviewStatus.CURRENT -> RobotStudioStageStatus.READY
+        else -> RobotStudioStageStatus.NEEDS_ACTION
+    }
+    val portMapExplanation = when {
+        portMapStatus == RobotStudioStageStatus.BLOCKED ->
+            "Finish Project Identity before reviewing physical hardware."
+        portMapStatus == RobotStudioStageStatus.INVALID ->
+            "The saved physical hardware review is invalid. Record a new review before deploying to a robot."
+        evidence.hardwareItemCount == 0 ->
+            "Add drivetrain or mechanism hardware before recording a physical port-map review."
+        evidence.hardwareReviewStatus == HardwareReviewStatus.CURRENT ->
+            "The physical port and wiring review matches the current canonical hardware definitions."
+        evidence.hardwareReviewStatus == HardwareReviewStatus.STALE ->
+            "The hardware definition changed after its last physical review. Recheck it before deploying; desktop simulation remains available."
+        else ->
+            "Review the ${evidence.hardwareItemCount} declared physical device(s) before deploying to a robot; desktop simulation remains available."
+    }
+
+    return RobotStudioHardwareReadiness(
+        drivetrain = RobotStudioSectionReadiness(
+            status = drivetrainStatus,
+            explanation = drivetrainExplanation,
+            issues = evidence.drivebaseErrors,
+        ),
+        portMap = RobotStudioSectionReadiness(
+            status = portMapStatus,
+            explanation = portMapExplanation,
+            issues = evidence.hardwareErrors,
         ),
     )
 }

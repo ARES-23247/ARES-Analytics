@@ -441,6 +441,22 @@ class RobotStudioModelTest {
         assertTrue(currentButReferenceOnly.first { it.id == RobotStudioStageId.DEPLOY }.issues.single().contains("simulation-only"))
     }
 
+    @Test
+    fun `saved drivetrain readiness is distinct from physical port review`() {
+        val evidence = completeEvidence().copy(
+            hardwareItemCount = 6,
+            hardwareReviewStatus = HardwareReviewStatus.NOT_REVIEWED,
+        )
+        val sections = evaluateRobotStudioHardwareReadiness(evidence)
+        val stages = evaluateRobotStudioStages(evidence, RobotStudioRuntimeEvidence())
+
+        assertEquals(RobotStudioStageStatus.READY, sections.drivetrain.status)
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, sections.portMap.status)
+        assertTrue(sections.portMap.explanation.contains("desktop simulation remains available"))
+        assertEquals(RobotStudioStageStatus.NEEDS_ACTION, stages.status(RobotStudioStageId.HARDWARE))
+        assertTrue(RobotStudioState(loading = false, stages = stages).canRunBuild)
+    }
+
     private fun completeEvidence() = RobotProjectReadinessEvidence(
         projectPath = "C:/fixture/robot",
         league = League.FTC,

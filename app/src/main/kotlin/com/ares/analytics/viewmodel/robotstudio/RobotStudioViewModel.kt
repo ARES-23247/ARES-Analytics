@@ -70,6 +70,7 @@ class RobotStudioViewModel(
             projectName = selected.robotName.ifBlank { selected.robotId },
             projectPath = inspected.projectPath,
             stages = evaluateRobotStudioStages(inspected, runtime),
+            hardwareReadiness = evaluateRobotStudioHardwareReadiness(inspected),
             error = null,
         )
     }

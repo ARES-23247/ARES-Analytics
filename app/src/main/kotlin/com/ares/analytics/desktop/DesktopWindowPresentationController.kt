@@ -13,6 +13,8 @@ internal const val WINDOW_TOPMOST_SETTLEMENT_CHECK_MS = 100L
 internal const val WINDOW_TOPMOST_SETTLEMENT_LIMIT = 20
 internal const val STARTUP_CAPTURE_ENV = "ARES_ANALYTICS_STARTUP_CAPTURE"
 internal const val STARTUP_CAPTURE_CLOSE_ENV = "ARES_ANALYTICS_STARTUP_CAPTURE_CLOSE"
+internal const val TEST_CAPTURE_DIRECTORY_ENV = "ARES_ANALYTICS_TEST_CAPTURE_DIR"
+internal const val TEST_CONTROL_PORT_ENV = "ARES_ANALYTICS_TEST_CONTROL_PORT"
 
 /** Pure decisions of the presentation policy, separated from scheduling for unit testing. */
 internal object DesktopPresentationPolicy {

@@ -121,6 +121,7 @@ class SubsystemGeneratorViewModelTest {
     fun `guided builder stages advance deterministically and remain directly selectable`() {
         val root = Files.createTempDirectory("ares-subsystem-stages").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.newSubsystem()
 
         assertEquals(SubsystemBuilderStage.PURPOSE, viewModel.state.value.activeStage)
         viewModel.previousStage()
@@ -143,6 +144,7 @@ class SubsystemGeneratorViewModelTest {
         val root = Files.createTempDirectory("ares-subsystem-editor").toFile()
         val generator = FakeGenerator()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC, projectGenerator = generator)
+        viewModel.newSubsystem()
 
         val initial = viewModel.state.value
         assertTrue(initial.dirty)
@@ -240,6 +242,7 @@ class SubsystemGeneratorViewModelTest {
     fun `unsaved subsystem removal discards only the draft`() {
         val root = Files.createTempDirectory("ares-unsaved-subsystem-removal").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.newSubsystem()
 
         viewModel.requestRemoveSubsystem()
         assertFalse(viewModel.state.value.pendingRemoval!!.persisted)
@@ -248,6 +251,26 @@ class SubsystemGeneratorViewModelTest {
         assertTrue(viewModel.state.value.documents.isEmpty())
         assertNull(viewModel.state.value.draft)
         assertFalse(root.resolve(".ares/subsystems").exists())
+        viewModel.close()
+    }
+
+    @Test
+    fun `empty project remains a valid drive-only project after reload`() {
+        val root = Files.createTempDirectory("ares-drive-only-project").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+
+        assertTrue(viewModel.state.value.documents.isEmpty())
+        assertNull(viewModel.state.value.draft)
+        assertFalse(viewModel.state.value.dirty)
+
+        viewModel.newSubsystem()
+        viewModel.requestRemoveSubsystem()
+        viewModel.confirmRemoveSubsystem()
+        viewModel.reload()
+
+        assertTrue(viewModel.state.value.documents.isEmpty())
+        assertNull(viewModel.state.value.draft)
+        assertFalse(viewModel.state.value.dirty)
         viewModel.close()
     }
 
@@ -295,6 +318,8 @@ class SubsystemGeneratorViewModelTest {
         val frcRoot = Files.createTempDirectory("ares-frc-hardware-support").toFile()
         val ftc = SubsystemGeneratorViewModel(ftcRoot.path, League.FTC)
         val frc = SubsystemGeneratorViewModel(frcRoot.path, League.FRC)
+        ftc.newSubsystem()
+        frc.newSubsystem()
 
         assertFailsWith<IllegalArgumentException> { ftc.addHardware(SubsystemHardwareKind.SOLENOID) }
         assertFailsWith<IllegalArgumentException> { frc.addHardware(SubsystemHardwareKind.COLOR_SENSOR) }
@@ -311,6 +336,7 @@ class SubsystemGeneratorViewModelTest {
     fun `sandbox gains update the selected controller and reject nonfinite input`() {
         val root = Files.createTempDirectory("ares-subsystem-gains").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.newSubsystem()
         val loopId = viewModel.state.value.draft!!.document.controlLoops.single().loopId
 
         viewModel.applyControlLoopGains(loopId, 1.2, 0.3, 0.04, 0.5, 2.1, 0.7)
@@ -333,6 +359,7 @@ class SubsystemGeneratorViewModelTest {
     fun `unsafe opt-outs are visible warnings without hiding structural errors`() {
         val root = Files.createTempDirectory("ares-subsystem-safety-warnings").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.newSubsystem()
 
         viewModel.edit { document ->
             document.copy(
@@ -360,6 +387,7 @@ class SubsystemGeneratorViewModelTest {
         val root = Files.createTempDirectory("ares-subsystem-save-and-create").toFile()
         val generator = FakeGenerator()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC, projectGenerator = generator)
+        viewModel.newSubsystem()
         val draft = requireNotNull(viewModel.state.value.draft?.document)
 
         viewModel.generate()
@@ -377,6 +405,7 @@ class SubsystemGeneratorViewModelTest {
         val root = Files.createTempDirectory("ares-subsystem-starter-diff").toFile()
         val generator = FakeGenerator()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC, projectGenerator = generator)
+        viewModel.newSubsystem()
         val starter = viewModel.state.value.previewFiles.first {
             it.ownership == com.areslib.codegen.SubsystemArtifactOwnership.GENERATED_STARTER
         }
@@ -414,6 +443,7 @@ class SubsystemGeneratorViewModelTest {
         val root = Files.createTempDirectory("ares-subsystem-user-owned").toFile()
         val generator = FakeGenerator()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC, projectGenerator = generator)
+        viewModel.newSubsystem()
         val starter = viewModel.state.value.previewFiles.first {
             it.ownership == com.areslib.codegen.SubsystemArtifactOwnership.GENERATED_STARTER
         }
@@ -451,6 +481,7 @@ class SubsystemGeneratorViewModelTest {
     fun `adding a motor scaffolds natural cached state and undo restores the prior document`() {
         val root = Files.createTempDirectory("ares-subsystem-natural-state").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.newSubsystem()
         val before = viewModel.state.value.draft?.document
 
         viewModel.addHardware(SubsystemHardwareKind.MOTOR)
@@ -473,6 +504,7 @@ class SubsystemGeneratorViewModelTest {
     fun `controller rule can be documented and renamed without changing editor identity`() {
         val root = Files.createTempDirectory("ares-subsystem-controller-identity").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.newSubsystem()
         val original = viewModel.state.value.draft!!.document.controlLoops.first()
 
         viewModel.updateControlLoop(original.loopId) { it.copy(description = "Holds the elevator position") }
@@ -499,6 +531,7 @@ class SubsystemGeneratorViewModelTest {
             )
         }
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC, designAssistant = assistant)
+        viewModel.newSubsystem()
         val before = viewModel.state.value.draft!!.document
 
         viewModel.requestAiProposal("Make a mechanism")
@@ -517,6 +550,7 @@ class SubsystemGeneratorViewModelTest {
     fun `stall homing selection creates bounded current evidence and navigates safety errors`() {
         val root = Files.createTempDirectory("ares-subsystem-stall-homing").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.newSubsystem()
         viewModel.addHardware(SubsystemHardwareKind.MOTOR)
 
         viewModel.setHomingMethod(SubsystemHomingMethod.CURRENT_STALL)
@@ -538,6 +572,7 @@ class SubsystemGeneratorViewModelTest {
     fun `hardware reversal and follower direction remain separate and survive leader rename`() {
         val root = Files.createTempDirectory("ares-subsystem-follower-direction").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.newSubsystem()
         while (viewModel.state.value.draft!!.document.hardware.count { it.kind == SubsystemHardwareKind.MOTOR } < 2) {
             viewModel.addHardware(SubsystemHardwareKind.MOTOR)
         }
@@ -585,6 +620,7 @@ class SubsystemGeneratorViewModelTest {
             )
         }
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC, designAssistant = assistant)
+        viewModel.newSubsystem()
         viewModel.addTuningParameter()
         val before = viewModel.state.value.draft!!.document
 
@@ -616,6 +652,7 @@ class SubsystemGeneratorViewModelTest {
     fun `interlock authoring and fault recovery editing updates draft and permits undo`() {
         val root = Files.createTempDirectory("ares-interlock-test").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.newSubsystem()
         viewModel.registerHandAuthoredSubsystem()
 
         viewModel.addInterlock()

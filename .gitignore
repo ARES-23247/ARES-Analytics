@@ -19,6 +19,9 @@ out/
 
 # Kotlin
 .kotlin/
+/app/bin/
+/gateway/bin/
+/shared/bin/
 *.class
 *.jar
 !gradle/wrapper/gradle-wrapper.jar
