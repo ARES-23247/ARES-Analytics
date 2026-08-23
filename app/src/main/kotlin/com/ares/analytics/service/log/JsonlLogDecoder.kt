@@ -43,13 +43,21 @@ data class ActionLogMetadata(
  * @see CsvLogDecoder
  * @see FrameBatcher
  */
-class JsonlLogDecoder(private val databaseService: DatabaseService) {
+class JsonlLogDecoder(
+    private val databaseService: DatabaseService,
+    private val maxActionRecords: Int = MAX_ACTION_RECORDS,
+) {
+    init {
+        require(maxActionRecords > 0) { "maxActionRecords must be positive" }
+    }
 
     private companion object {
         const val MAX_JSONL_BYTES = 512L * 1024L * 1024L
         const val MAX_JSONL_LINE_CHARS = 1_048_576
         const val MAX_ACTION_PAYLOAD_CHARS = 524_288
-        const val MAX_ACTION_RECORDS = 10_000
+        // A 2.5-minute match can legitimately dispatch several Redux actions per 20 ms tick.
+        // Keep a hard streaming-import bound, but do not reject complete competition runs.
+        const val MAX_ACTION_RECORDS = 250_000
         const val ACTION_BATCH_SIZE = 500
         const val ACTION_SCHEMA_VERSION = 1
     }
@@ -164,7 +172,7 @@ class JsonlLogDecoder(private val databaseService: DatabaseService) {
                 val line = reader.readLine() ?: break
                 val action = parseAction(line, sessionId) ?: continue
                 actionCount++
-                require(actionCount <= MAX_ACTION_RECORDS) { "Action log contains too many records" }
+                require(actionCount <= maxActionRecords) { "Action log contains too many records" }
                 if (isFirstLine) {
                     firstMatchNumber = action.matchNumber
                     firstAlliance = action.alliance

@@ -202,13 +202,23 @@ internal class Nt4OutboundPublisher(
             valueBytes[offset++] = 0xcb.toByte()
             for (shift in 56 downTo 0 step 8) valueBytes[offset++] = (bits shr shift).toByte()
         }
-        return sendBinaryUpdate(pubUid, 17.toByte(), valueBytes)
+        // The simulator's RobotClock is fixed-step and can intentionally diverge from wall time
+        // while paused or under load. NT4 timestamp zero asks the receiver to stamp arrival time,
+        // avoiding rejection from a stale clock-sync offset. Frame element 3 still carries the
+        // sender's monotonic clock for protocol ordering and diagnostics.
+        return sendBinaryUpdate(pubUid, 17.toByte(), valueBytes, useServerReceiptTimestamp = true)
     }
 
-    private fun sendBinaryUpdate(pubUid: Int, typeId: Byte, valueBytes: ByteArray): Boolean {
-        val offsetUs = serverTimeOffsetUs ?: return false
+    private fun sendBinaryUpdate(
+        pubUid: Int,
+        typeId: Byte,
+        valueBytes: ByteArray,
+        useServerReceiptTimestamp: Boolean = false,
+    ): Boolean {
+        val offsetUs = serverTimeOffsetUs
+        if (!useServerReceiptTimestamp && offsetUs == null) return false
         val connectedSession = session ?: return false
-        val timestampUs = monotonicTimeUs() + offsetUs
+        val timestampUs = if (useServerReceiptTimestamp) 0L else monotonicTimeUs() + requireNotNull(offsetUs)
         val buffer = encodeNt4BinaryUpdate(pubUid, timestampUs, typeId, valueBytes)
         return connectedSession.outgoing.trySend(Frame.Binary(true, buffer)).isSuccess
     }

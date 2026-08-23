@@ -61,12 +61,12 @@ class SummaryEngineService(
             listOf(session.sessionId)
         )
         val aggRow = aggregateResult.rows.firstOrNull()
-        val minBattery = aggRow?.getOrNull(0)?.toDoubleOrNull() ?: 12.0
-        val maxDrift = aggRow?.getOrNull(1)?.toDoubleOrNull() ?: 0.0
-        val avgLoop = aggRow?.getOrNull(2)?.toDoubleOrNull() ?: 0.0
-        val visionRate = aggRow?.getOrNull(3)?.toDoubleOrNull() ?: 0.0
-        val avgCrossTrack = aggRow?.getOrNull(4)?.toDoubleOrNull() ?: 0.0
-        val avgVisionLat = aggRow?.getOrNull(5)?.toDoubleOrNull() ?: 0.0
+        val minBattery = aggRow?.getOrNull(0).finiteDoubleOr(12.0)
+        val maxDrift = aggRow?.getOrNull(1).finiteDoubleOr(0.0)
+        val avgLoop = aggRow?.getOrNull(2).finiteDoubleOr(0.0)
+        val visionRate = aggRow?.getOrNull(3).finiteDoubleOr(0.0)
+        val avgCrossTrack = aggRow?.getOrNull(4).finiteDoubleOr(0.0)
+        val avgVisionLat = aggRow?.getOrNull(5).finiteDoubleOr(0.0)
 
         // P95 loop time via ordered-set aggregate (DuckDB supports PERCENTILE_CONT)
         val p95Result = databaseService.executeQueryWithParams(
@@ -77,7 +77,7 @@ class SummaryEngineService(
             """.trimIndent(),
             listOf(session.sessionId)
         )
-        val p95Loop = p95Result.rows.firstOrNull()?.getOrNull(0)?.toDoubleOrNull() ?: 0.0
+        val p95Loop = p95Result.rows.firstOrNull()?.getOrNull(0).finiteDoubleOr(0.0)
 
         // Motor current averages grouped by device name extracted from key
         val motorResult = databaseService.executeQueryWithParams(
@@ -97,7 +97,7 @@ class SummaryEngineService(
             listOf(session.sessionId)
         )
         val motorCurrentAverages = motorResult.rows.associate { row ->
-            (row.getOrNull(0) ?: "Motor") to (row.getOrNull(1)?.toDoubleOrNull() ?: 0.0)
+            (row.getOrNull(0) ?: "Motor") to row.getOrNull(1).finiteDoubleOr(0.0)
         }
 
         // Battery resistance estimation using LAG() window function
@@ -125,7 +125,7 @@ class SummaryEngineService(
             """.trimIndent(),
             listOf(session.sessionId)
         )
-        val avgResistance = batteryResult.rows.firstOrNull()?.getOrNull(0)?.toDoubleOrNull() ?: 0.0
+        val avgResistance = batteryResult.rows.firstOrNull()?.getOrNull(0).finiteDoubleOr(0.0)
 
         // Detect OpModes from string_value column
         val opModeResult = databaseService.executeQueryWithParams(
@@ -170,6 +170,10 @@ class SummaryEngineService(
         databaseService.insertSessionSummary(summary)
         summary
     }
+
+    /** DuckDB deliberately preserves IEEE NaN/Infinity; persisted summaries and JSON do not. */
+    private fun String?.finiteDoubleOr(fallback: Double): Double =
+        this?.toDoubleOrNull()?.takeIf(Double::isFinite) ?: fallback
 
     private suspend fun calculateAndSaveDiagnostics(session: Session): List<String> {
         var resolvedTags = session.tags

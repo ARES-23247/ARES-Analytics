@@ -3,6 +3,8 @@ package com.ares.analytics.ui.components.dashboard
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class LocalSimulatorControlBarTest {
     @Test
@@ -25,6 +27,33 @@ class LocalSimulatorControlBarTest {
 
         assertEquals(teleOps[1], preferredSimulatorTeleOp(teleOps))
         assertNull(preferredSimulatorTeleOp(emptyList()))
+    }
+
+    @Test
+    fun `generated starter TeleOp wins over library and diagnostic modes`() {
+        val teleOps = listOf(
+            "com.areslib.ftc.hardware.AresHardwareTestOpMode",
+            "org.firstinspires.ftc.teamcode.opmodes.ARESRemoteDriveOpMode",
+            "org.firstinspires.ftc.teamcode.opmodes.ARESStarterTeleOp",
+        )
+
+        assertEquals(teleOps[2], preferredSimulatorTeleOp(teleOps))
+    }
+
+    @Test
+    fun `running acknowledgement requires the exact selected class`() {
+        assertTrue(simulatorOpModeAcknowledged("a.Starter", "a.Starter", "TELEOP_RUNNING", "TELEOP_RUNNING"))
+        assertFalse(simulatorOpModeAcknowledged("a.Starter", "b.Test", "TELEOP_RUNNING", "TELEOP_RUNNING"))
+        assertFalse(simulatorOpModeAcknowledged("a.Starter", "a.Starter", "TELEOP_INIT", "TELEOP_RUNNING"))
+    }
+
+    @Test
+    fun `control receiver is ready only for a fresh armed or active lease`() {
+        assertTrue(simulatorDriveReceiverReady(2, 0))
+        assertTrue(simulatorDriveReceiverReady(3, 500))
+        assertFalse(simulatorDriveReceiverReady(3, 501))
+        assertFalse(simulatorDriveReceiverReady(4, 10))
+        assertEquals("CONTROL LEASE EXPIRED", simulatorDriveReceiverStatus(4))
     }
 
     @Test

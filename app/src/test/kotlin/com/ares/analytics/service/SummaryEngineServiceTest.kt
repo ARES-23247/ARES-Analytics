@@ -109,6 +109,38 @@ class SummaryEngineServiceTest {
     }
 
     @Test
+    fun `non-finite live samples cannot poison persisted summary json`() = runTest {
+        val tempDb = File.createTempFile("summary_non_finite", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        try {
+            val summaryEngine = SummaryEngineService(
+                databaseService,
+                SysIdService(databaseService),
+                DriverAnalysisService(databaseService, SysIdService(databaseService)),
+            )
+            val session = Session("non-finite", "23247", "2026", "ares-bot", 1_000L)
+            databaseService.insertTelemetryFrames(
+                listOf(
+                    TelemetryFrame(1_100L, session.sessionId, "Robot/LoopTimeMs", Double.NaN),
+                    TelemetryFrame(1_100L, session.sessionId, "Hardware/Motors/fl/CurrentAmps", Double.NaN),
+                    TelemetryFrame(1_100L, session.sessionId, "Vision/LatencyMs", Double.POSITIVE_INFINITY),
+                )
+            )
+
+            val summary = summaryEngine.generateSummary(session)
+            val persisted = databaseService.getSessionSummary(session.sessionId)
+
+            assertTrue(summary.avgLoopTimeMs.isFinite())
+            assertTrue(summary.avgVisionLatencyMs.isFinite())
+            assertTrue(summary.motorCurrentAverages.values.all(Double::isFinite))
+            assertEquals(summary, persisted)
+        } finally {
+            databaseService.close()
+            tempDb.delete()
+        }
+    }
+
+    @Test
     fun testBatterySagCalculationWithActiveHighCurrentDrawSamples() = runTest {
         val tempDb = File.createTempFile("summary_battery_sag_db", ".db").apply { deleteOnExit() }
         val databaseService = DatabaseService(tempDb.absolutePath)

@@ -51,7 +51,7 @@ internal class Nt4InboundRouter(
 
     fun markDiscovered(normalizedName: String, type: String) {
         if (discoveredKeys.add(normalizedName)) {
-            println("[Nt4ClientService] Discovered telemetry key: $normalizedName (type=$type)")
+            trace("Discovered telemetry key: $normalizedName (type=$type)")
             cachedActiveTopics = null
         }
     }
@@ -96,15 +96,17 @@ internal class Nt4InboundRouter(
             println("ERROR decoding NT4 binary frame: ${exception.message}")
             emptyList()
         }
-        binaryFrameCount += messages.size
         val now = wallClockMs()
-        if (now - lastBinaryDiagLog > BINARY_DIAGNOSTIC_INTERVAL_MS) {
-            println(
-                "[Nt4ClientService] DIAG: $binaryFrameCount binary messages decoded in last 2s, " +
-                    "topicMap.size=${topicMap.size}"
-            )
-            lastBinaryDiagLog = now
-            binaryFrameCount = 0L
+        if (traceEnabled) {
+            binaryFrameCount += messages.size
+            if (now - lastBinaryDiagLog > BINARY_DIAGNOSTIC_INTERVAL_MS) {
+                trace(
+                    "$binaryFrameCount binary messages decoded in last 2s, " +
+                        "topicMap.size=${topicMap.size}"
+                )
+                lastBinaryDiagLog = now
+                binaryFrameCount = 0L
+            }
         }
         for (message in messages) {
             if (message.topicId == CLOCK_SYNC_TOPIC_ID) {
@@ -131,7 +133,7 @@ internal class Nt4InboundRouter(
         if (name.removePrefix("/") == "ARES/Input/driveFrame" && type != "double[]") {
             println("[Nt4ClientService] WARN: Topic $name announced with type $type, expected double[]")
         }
-        println("[Nt4ClientService] Server announced topic: $name (id=$id, type=$type)")
+        trace("Server announced topic: $name (id=$id, type=$type)")
         topicMap[id] = Nt4Topic(id, name, type, properties)
         cachedActiveTopics = null
     }
@@ -139,7 +141,7 @@ internal class Nt4InboundRouter(
     private fun unannounce(message: JsonObject) {
         val params = message["params"] as? JsonObject ?: return
         val id = params["id"]?.jsonPrimitive?.intOrNull ?: return
-        println("[Nt4ClientService] Server unannounced topic id: $id")
+        trace("Server unannounced topic id: $id")
         topicMap.remove(id)
         cachedActiveTopics = null
     }
@@ -152,11 +154,16 @@ internal class Nt4InboundRouter(
         onValue(topic, value, timestampUs / 1_000L, timestampUs, target)
     }
 
+    private fun trace(message: String) {
+        if (traceEnabled) println("[Nt4ClientService] TRACE: $message")
+    }
+
     companion object {
         private const val CLOCK_SYNC_TOPIC_ID = -1L
         private const val MAX_TEXT_FRAME_CHARS = 1_048_576
         private const val MAX_TEXT_FRAME_MESSAGES = 1_024
         private const val MALFORMED_TEXT_LOG_INTERVAL = 100L
         private const val BINARY_DIAGNOSTIC_INTERVAL_MS = 2_000L
+        private val traceEnabled: Boolean = java.lang.Boolean.getBoolean("ares.nt4.trace")
     }
 }

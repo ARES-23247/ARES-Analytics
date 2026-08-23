@@ -10,13 +10,22 @@ import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.shared.League
 import com.areslib.math.InputMath
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import java.util.concurrent.Executors
+
+/**
+ * The 50 Hz safety lease must not share workers with DuckDB, cloud sync, log parsing, or image IO.
+ * A single daemon is process-owned and survives navigation/recomposition without thread churn.
+ */
+private val DRIVE_HEARTBEAT_DISPATCHER = Executors.newSingleThreadExecutor { runnable ->
+    Thread(runnable, "ARES-Drive-Heartbeat").apply { isDaemon = true }
+}.asCoroutineDispatcher()
 
 /** One fail-closed desktop control snapshot before protocol sequencing is applied. */
 internal data class DesktopDriveIntent(
@@ -73,13 +82,16 @@ internal fun KeyboardDriveState.driveSnapshot() = DesktopKeyboardDriveSnapshot(
  * returned array is reused by this session and must be consumed synchronously.
  */
 internal class DesktopDriveFrameSession(
-    private val sessionNonce: Double,
+    val sessionNonce: Double,
     private val clockMs: () -> Long = { System.nanoTime() / 1_000_000L },
 ) {
     private val frame = DoubleArray(FRAME_VALUE_COUNT)
     private var sequence = 0L
     private var neutralHandshakeFramesTransmitted = 0
     private var lastSuccessfulTransmissionMs: Long? = null
+    private val createdAtMs = clockMs()
+    private var lastAcknowledgedSequence = -1L
+    private var lastAcknowledgedAtMs: Long? = null
 
     private val neutralHandshakeComplete: Boolean
         get() = neutralHandshakeFramesTransmitted >= NEUTRAL_HANDSHAKE_FRAME_COUNT
@@ -112,6 +124,29 @@ internal class DesktopDriveFrameSession(
     fun needsRehandshake(): Boolean = successfulTransmissionAgeMs()?.let { age ->
         age >= REHANDSHAKE_AFTER_GAP_MS
     } ?: false
+
+    /** Records receiver acceptance, not merely local WebSocket queueing. */
+    fun observeReceiverAcknowledgement(receiverSession: Long?, receiverSequence: Long?) {
+        if (receiverSession?.toDouble() != sessionNonce || receiverSequence == null || receiverSequence < 0L) return
+        if (receiverSequence > lastAcknowledgedSequence) {
+            lastAcknowledgedSequence = receiverSequence
+            lastAcknowledgedAtMs = clockMs()
+        }
+    }
+
+    fun receiverAcknowledgementAgeMs(): Long? = lastAcknowledgedAtMs?.let { acceptedAt ->
+        (clockMs() - acceptedAt).coerceAtLeast(0L)
+    }
+
+    /**
+     * Once a simulator advertises the acknowledgement contract, silence means that the receiver
+     * did not accept queued frames. Start a new neutral session instead of remaining falsely armed.
+     */
+    fun needsReceiverRehandshake(acknowledgementContractAvailable: Boolean): Boolean {
+        if (!acknowledgementContractAvailable) return false
+        return receiverAcknowledgementAgeMs()?.let { it >= RECEIVER_ACK_TIMEOUT_MS }
+            ?: (clockMs() - createdAtMs >= RECEIVER_ACK_STARTUP_TIMEOUT_MS)
+    }
 }
 
 /** Converts current keyboard/gamepad state into canonical league-aware field commands. */
@@ -228,7 +263,7 @@ internal fun DesktopDriveInputPublisher(
         // Incoming telemetry and Compose layout can briefly saturate the UI dispatcher. The
         // simulator's 500 ms fail-closed lease must be renewed independently of that work, using
         // the latest immutable input snapshot produced by the UI thread.
-        withContext(Dispatchers.IO) {
+        withContext(DRIVE_HEARTBEAT_DISPATCHER) {
             while (currentCoroutineContext().isActive) {
                 val session = DesktopDriveFrameSession(nt4ClientService.nextDriveSessionNonce())
                 try {
@@ -240,6 +275,23 @@ internal fun DesktopDriveInputPublisher(
                             System.err.println(
                                 "[DesktopDriveInput] Control heartbeat stalled for " +
                                     "${session.successfulTransmissionAgeMs()} ms; starting a neutral session"
+                            )
+                            break
+                        }
+                        val acknowledgement = nt4ClientService.driveInputAcknowledgement.value
+                        val acknowledgementAvailable = acknowledgement?.version == DRIVE_ACK_VERSION
+                        session.observeReceiverAcknowledgement(
+                            receiverSession = acknowledgement?.acceptedSession,
+                            receiverSequence = acknowledgement?.acceptedSequence,
+                        )
+                        if (session.needsReceiverRehandshake(acknowledgementAvailable)) {
+                            System.err.println(
+                                "[DesktopDriveInput] Simulator acknowledgement stalled for " +
+                                    "${session.receiverAcknowledgementAgeMs() ?: "startup"}; " +
+                                    "senderSession=${session.sessionNonce.toLong()}, " +
+                                    "receiverSession=${acknowledgement?.acceptedSession}, " +
+                                    "receiverSequence=${acknowledgement?.acceptedSequence}; " +
+                                    "starting a neutral session"
                             )
                             break
                         }
@@ -274,6 +326,12 @@ private const val PUBLISH_INTERVAL_MS = 20L
 private const val RESTART_DELAY_MS = 250L
 internal const val REHANDSHAKE_AFTER_GAP_MS = 250L
 internal const val NEUTRAL_HANDSHAKE_FRAME_COUNT = 5
+// The receiver's independent 500 ms lease remains the safety authority. This sender-side
+// diagnostic timeout is intentionally longer so a transient desktop/NT4 scheduler stall cannot
+// manufacture a neutral-handshake pause while the simulator is still accepting fresh commands.
+internal const val RECEIVER_ACK_TIMEOUT_MS = 2_000L
+internal const val RECEIVER_ACK_STARTUP_TIMEOUT_MS = 2_500L
+internal const val DRIVE_ACK_VERSION = 1.0
 private const val FRAME_VALUE_COUNT = 8
 private const val FRAME_VERSION = 2.0
 private const val VERSION_INDEX = 0

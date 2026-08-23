@@ -28,6 +28,58 @@ import kotlin.test.assertTrue
  */
 class Nt4ClientServiceTest {
     @Test
+    fun `packed drive acknowledgement decodes receiver ownership and applied command`() {
+        val acknowledgement = decodeDriveInputAcknowledgement(
+            doubleArrayOf(1.0, 3.0, 42.0, 17.0, 12.0, 0.5, -0.25, 1.2, 2.0),
+            timestampMs = 1_234L,
+        )
+
+        requireNotNull(acknowledgement)
+        assertEquals(3, acknowledgement.statusCode)
+        assertEquals(42L, acknowledgement.acceptedSession)
+        assertEquals(17L, acknowledgement.acceptedSequence)
+        assertEquals(12L, acknowledgement.leaseAgeMs)
+        assertEquals(0.5, acknowledgement.appliedVx)
+        assertEquals(-0.25, acknowledgement.appliedVy)
+        assertEquals(1.2, acknowledgement.appliedOmega)
+        assertEquals(2L, acknowledgement.rejectedFrameCount)
+        assertEquals(1_234L, acknowledgement.timestampMs)
+    }
+
+    @Test
+    fun `packed mecanum frame preserves wheel order and same-tick values`() {
+        val frame = decodeMecanumMotorFrame(
+            doubleArrayOf(
+                0.1, 0.2, 0.3, 0.4,
+                100.0, 200.0, 300.0, 400.0,
+                1.1, 1.2, 1.3, 1.4,
+                9.0,
+            ),
+            timestampMs = 2_345L,
+        )
+
+        requireNotNull(frame)
+        assertEquals(0.1, frame.flPower)
+        assertEquals(0.4, frame.rrPower)
+        assertEquals(300.0, frame.rlVelocity)
+        assertEquals(1.2, frame.frCurrentAmps)
+        assertEquals(9L, frame.sequence)
+        assertEquals(2_345L, frame.timestampMs)
+    }
+
+    @Test
+    fun `packed control and motor telemetry rejects malformed frames`() {
+        assertNull(decodeDriveInputAcknowledgement(DoubleArray(8), 1L))
+        assertNull(decodeMecanumMotorFrame(DoubleArray(12), 1L))
+        assertNull(
+            decodeDriveInputAcknowledgement(
+                doubleArrayOf(1.0, 3.5, 1.0, 2.0, 3.0, 0.0, 0.0, 0.0, 0.0),
+                1L,
+            )
+        )
+    }
+
+    @Test
     fun `dashboard drive control accepts only loopback target hosts`() {
         assertTrue(isLoopbackDriveControlHost("127.0.0.1"))
         assertTrue(isLoopbackDriveControlHost("localhost"))

@@ -124,7 +124,37 @@ internal class AwtDesktopWindowPort(private val window: Window) : DesktopWindowP
             require(bounds.width > 0 && bounds.height > 0) { "desktop window has invalid bounds: $bounds" }
             val outputFile = File(outputPath).absoluteFile
             outputFile.parentFile?.mkdirs()
-            val image = java.awt.Robot(window.graphicsConfiguration.device).createScreenCapture(bounds)
+            val image = run {
+                var captured = runCatching {
+                    java.awt.Robot(window.graphicsConfiguration.device).createScreenCapture(bounds)
+                }.getOrNull()
+
+                fun isAllBlack(img: java.awt.image.BufferedImage): Boolean {
+                    for (y in 0 until img.height step 50) {
+                        for (x in 0 until img.width step 50) {
+                            if ((img.getRGB(x, y) and 0x00FFFFFF) != 0) return false
+                        }
+                    }
+                    return true
+                }
+
+                if (captured == null || isAllBlack(captured)) {
+                    val offscreen = java.awt.image.BufferedImage(
+                        bounds.width.coerceAtLeast(1),
+                        bounds.height.coerceAtLeast(1),
+                        java.awt.image.BufferedImage.TYPE_INT_ARGB
+                    )
+                    val g2 = offscreen.createGraphics()
+                    try {
+                        window.paintAll(g2)
+                    } finally {
+                        g2.dispose()
+                    }
+                    offscreen
+                } else {
+                    captured
+                }
+            }
             require(javax.imageio.ImageIO.write(image, "png", outputFile)) {
                 "no PNG writer is available"
             }

@@ -246,12 +246,17 @@ class AutoImportService(
                 } catch (e: Exception) {
                     val failedFile = archivedFile
                     val failedFingerprint = fingerprint
+                    var quarantineRecorded = false
                     if (failedFile != null && failedFingerprint != null && failedFile.exists()) {
                         runCatching { quarantineFailedImport(config, failedFile, failedFingerprint, e, file.name) }
+                            .onSuccess { quarantineRecorded = true }
                             .onFailure { e.addSuppressed(it) }
                     }
                     _importNotifications.emit("[AUTO-IMPORT] Failed to import local log ${file.name}: ${e.message}")
-                    e.printStackTrace()
+                    // A durable quarantine report is the actionable diagnostic. Avoid dumping a
+                    // full expected parser stack on every developer launch; retain stacks only
+                    // when the quarantine itself failed and evidence may otherwise be lost.
+                    if (!quarantineRecorded) e.printStackTrace()
                 } finally {
                     stagingFile.delete()
                     eventsStagingFile?.delete()

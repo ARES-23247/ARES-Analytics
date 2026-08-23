@@ -41,7 +41,8 @@ import javax.sound.sampled.AudioSystem
  *   $$\text{VisionStale} \iff f_{\text{limelight}} < 5.0\text{ Hz}$$
  *
  * - **Control Loop Latency Overrun Alert:**
- *   $$\text{LoopOverrun} \iff t_{\text{loop}} > 25.0\text{ ms}$$
+ *   $$\text{LoopOverrun} \iff (N_{t>25ms,1s} \ge 3) \lor (t_{\text{loop}} \ge 100ms)$$
+ *   One scheduler/GC outlier is retained for analysis but does not interrupt the driver.
  *
  * ### Physical Units & Guarantees:
  * - **Power ($P$):** Normalized motor duty cycle $[-1.0, 1.0]$ or Volts ($V$)
@@ -70,6 +71,8 @@ class AlertEngineService(
     private val recentValues = ConcurrentHashMap<String, ConcurrentHashMap<String, Double>>()
     /** One-second current windows, isolated by session and motor. */
     private val currentBuffers = ConcurrentHashMap<String, ArrayDeque<TimedCurrentSample>>()
+    /** One-second loop-overrun windows, isolated by recording session. */
+    private val loopTimeBuffers = ConcurrentHashMap<String, ArrayDeque<TimedLoopSample>>()
     private val motorNames = listOf("fl", "fr", "rl", "rr", "bl", "br")
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -175,7 +178,13 @@ class AlertEngineService(
      * @param frame Incoming telemetry frame containing topic key and double value.
      */
     private suspend fun evaluateFrame(frame: TelemetryFrame) {
-        val rule = rules[normalizeTopic(frame.key)] ?: return
+        val normalizedKey = normalizeTopic(frame.key)
+        // Loop timing needs temporal evidence; evaluating its ordinary max rule here would create
+        // an intrusive banner for a single harmless scheduler/GC sample.
+        if (normalizedKey in TelemetryMetricCatalog.LOOP_TIME.keys ||
+            frame.key.trimStart('/') in TelemetryMetricCatalog.LOOP_TIME.keys
+        ) return
+        val rule = rules[normalizedKey] ?: return
         val value = frame.value
 
         val minVal = rule.minValue
@@ -319,12 +328,25 @@ class AlertEngineService(
 
         // 6. Control Loop Latency Alert (>25ms)
         if (normalizedFrameKey in TelemetryMetricCatalog.LOOP_TIME.keys) {
-        val loopMs = TelemetryMetricCatalog.LOOP_TIME.keys.firstNotNullOfOrNull(sessionValues::get)
-            ?: 10.0
-        val isLoopSlow = loopMs > 25.0
+        val loopMs = frame.value
+        val loopBuffer = loopTimeBuffers.getOrPut(sessionId) { ArrayDeque() }
+        loopBuffer.addLast(TimedLoopSample(ts, loopMs))
+        while (loopBuffer.isNotEmpty() && ts - loopBuffer.first().timestampMs > LOOP_OVERRUN_WINDOW_MS) {
+            loopBuffer.removeFirst()
+        }
+        val overrunCount = loopBuffer.count { it.durationMs > LOOP_OVERRUN_THRESHOLD_MS }
+        val peakLoopMs = loopBuffer.maxOfOrNull { it.durationMs } ?: loopMs
+        val isLoopSlow = loopMs >= LOOP_SEVERE_THRESHOLD_MS || overrunCount >= LOOP_OVERRUN_SAMPLE_COUNT
         val loopKey = TelemetryMetricCatalog.LOOP_TIME.canonicalKey
-        val loopRule = rules.getOrPut(loopKey) { ThresholdRule(loopKey, "WARNING: Control Loop Overrun (>25ms)!", maxValue = 25.0, audibleAlert = false) }
-        evaluateRuleState(loopKey, isLoopSlow, loopMs, ts, sessionId, loopRule)
+        val loopRule = rules.getOrPut(loopKey) {
+            ThresholdRule(
+                loopKey,
+                "WARNING: Repeated Control Loop Overruns (3 samples >25ms in 1s)!",
+                maxValue = LOOP_OVERRUN_THRESHOLD_MS,
+                audibleAlert = false,
+            )
+        }
+        evaluateRuleState(loopKey, isLoopSlow, if (isLoopSlow) peakLoopMs else loopMs, ts, sessionId, loopRule)
         }
     }
 
@@ -393,6 +415,7 @@ class AlertEngineService(
     private class AlertOutcome(val alert: AlertRecord, val shouldBeep: Boolean)
 
     private data class TimedCurrentSample(val timestampMs: Long, val amps: Double)
+    private data class TimedLoopSample(val timestampMs: Long, val durationMs: Double)
 
     /**
      * Atomically applies an alert transition. [compute] receives the current snapshot and
@@ -497,5 +520,9 @@ class AlertEngineService(
 
     private companion object {
         const val CURRENT_WINDOW_MS = 1_000L
+        const val LOOP_OVERRUN_WINDOW_MS = 1_000L
+        const val LOOP_OVERRUN_THRESHOLD_MS = 25.0
+        const val LOOP_SEVERE_THRESHOLD_MS = 100.0
+        const val LOOP_OVERRUN_SAMPLE_COUNT = 3
     }
 }

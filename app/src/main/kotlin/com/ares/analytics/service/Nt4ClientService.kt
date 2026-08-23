@@ -16,6 +16,10 @@ import kotlin.math.hypot
 
 internal const val SIMULATOR_POSE_FRAME_TOPIC = "ARES/SimulatorPoseFrame"
 internal const val SIMULATOR_POSE_FRAME_VALUE_COUNT = 10
+internal const val DRIVE_INPUT_ACK_TOPIC = "ARES/Control/DriveInputAck"
+internal const val DRIVE_INPUT_ACK_VALUE_COUNT = 9
+internal const val MECANUM_MOTOR_FRAME_TOPIC = "Hardware/Motors/MecanumFrame"
+internal const val MECANUM_MOTOR_FRAME_VALUE_COUNT = 13
 
 /** One immutable, same-cycle simulator localization sample decoded from the packed NT4 topic. */
 data class SimulatorPoseFrameSnapshot(
@@ -32,6 +36,147 @@ data class SimulatorPoseFrameSnapshot(
     val timestampMs: Long,
     val timestampUs: Long,
 )
+
+/** Latest fail-closed simulator receiver state for the desktop-owned drive-frame lease. */
+data class DriveInputAcknowledgement(
+    val version: Double,
+    val statusCode: Int,
+    val acceptedSession: Long,
+    val acceptedSequence: Long,
+    val leaseAgeMs: Long,
+    val appliedVx: Double,
+    val appliedVy: Double,
+    val appliedOmega: Double,
+    val rejectedFrameCount: Long,
+    val timestampMs: Long,
+)
+
+internal fun decodeDriveInputAcknowledgement(value: Any?, timestampMs: Long): DriveInputAcknowledgement? {
+    val size = when (value) {
+        is JsonArray -> value.size
+        is List<*> -> value.size
+        is DoubleArray -> value.size
+        is FloatArray -> value.size
+        is Array<*> -> value.size
+        else -> return null
+    }
+    if (size != DRIVE_INPUT_ACK_VALUE_COUNT) return null
+
+    fun numberAt(index: Int): Double? {
+        val element = when (value) {
+            is JsonArray -> value[index]
+            is List<*> -> value[index]
+            is DoubleArray -> value[index]
+            is FloatArray -> value[index]
+            is Array<*> -> value[index]
+            else -> null
+        }
+        return when (element) {
+            is JsonPrimitive -> element.doubleOrNull
+            is Number -> element.toDouble()
+            else -> null
+        }?.takeIf(Double::isFinite)
+    }
+
+    val version = numberAt(0) ?: return null
+    val statusValue = numberAt(1) ?: return null
+    val sessionValue = numberAt(2) ?: return null
+    val sequenceValue = numberAt(3) ?: return null
+    val ageValue = numberAt(4) ?: return null
+    val rejectedValue = numberAt(8) ?: return null
+    val statusCode = statusValue.toInt()
+    val acceptedSession = sessionValue.toLong()
+    val acceptedSequence = sequenceValue.toLong()
+    val leaseAgeMs = ageValue.toLong()
+    val rejectedFrameCount = rejectedValue.toLong()
+    if (statusCode.toDouble() != statusValue || acceptedSession.toDouble() != sessionValue ||
+        acceptedSequence.toDouble() != sequenceValue || leaseAgeMs.toDouble() != ageValue ||
+        rejectedFrameCount.toDouble() != rejectedValue
+    ) return null
+
+    return DriveInputAcknowledgement(
+        version = version,
+        statusCode = statusCode,
+        acceptedSession = acceptedSession,
+        acceptedSequence = acceptedSequence,
+        leaseAgeMs = leaseAgeMs,
+        appliedVx = numberAt(5) ?: return null,
+        appliedVy = numberAt(6) ?: return null,
+        appliedOmega = numberAt(7) ?: return null,
+        rejectedFrameCount = rejectedFrameCount,
+        timestampMs = timestampMs,
+    )
+}
+
+/** One complete, same-tick mecanum simulator observation in FL, FR, RL, RR order. */
+data class MecanumMotorFrameSnapshot(
+    val flPower: Double,
+    val frPower: Double,
+    val rlPower: Double,
+    val rrPower: Double,
+    val flVelocity: Double,
+    val frVelocity: Double,
+    val rlVelocity: Double,
+    val rrVelocity: Double,
+    val flCurrentAmps: Double,
+    val frCurrentAmps: Double,
+    val rlCurrentAmps: Double,
+    val rrCurrentAmps: Double,
+    val sequence: Long,
+    val timestampMs: Long,
+)
+
+internal fun decodeMecanumMotorFrame(value: Any?, timestampMs: Long): MecanumMotorFrameSnapshot? {
+    val size = when (value) {
+        is JsonArray -> value.size
+        is List<*> -> value.size
+        is DoubleArray -> value.size
+        is FloatArray -> value.size
+        is Array<*> -> value.size
+        else -> return null
+    }
+    if (size != MECANUM_MOTOR_FRAME_VALUE_COUNT) return null
+
+    fun numberAt(index: Int): Double? {
+        val element = when (value) {
+            is JsonArray -> value[index]
+            is List<*> -> value[index]
+            is DoubleArray -> value[index]
+            is FloatArray -> value[index]
+            is Array<*> -> value[index]
+            else -> null
+        }
+        return when (element) {
+            is JsonPrimitive -> element.doubleOrNull
+            is Number -> element.toDouble()
+            else -> null
+        }?.takeIf(Double::isFinite)
+    }
+
+    val flPower = numberAt(0) ?: return null
+    val frPower = numberAt(1) ?: return null
+    val rlPower = numberAt(2) ?: return null
+    val rrPower = numberAt(3) ?: return null
+    val flVelocity = numberAt(4) ?: return null
+    val frVelocity = numberAt(5) ?: return null
+    val rlVelocity = numberAt(6) ?: return null
+    val rrVelocity = numberAt(7) ?: return null
+    val flCurrentAmps = numberAt(8) ?: return null
+    val frCurrentAmps = numberAt(9) ?: return null
+    val rlCurrentAmps = numberAt(10) ?: return null
+    val rrCurrentAmps = numberAt(11) ?: return null
+    val sequenceValue = numberAt(12) ?: return null
+    val sequence = sequenceValue.toLong()
+    if (sequence < 0L || sequence.toDouble() != sequenceValue) return null
+    return MecanumMotorFrameSnapshot(
+        flPower = flPower, frPower = frPower, rlPower = rlPower, rrPower = rrPower,
+        flVelocity = flVelocity, frVelocity = frVelocity, rlVelocity = rlVelocity, rrVelocity = rrVelocity,
+        flCurrentAmps = flCurrentAmps, frCurrentAmps = frCurrentAmps,
+        rlCurrentAmps = rlCurrentAmps, rrCurrentAmps = rrCurrentAmps,
+        sequence = sequence,
+        timestampMs = timestampMs,
+    )
+}
 
 /** Decodes without retaining any producer- or MessagePack-owned array storage. */
 internal fun decodeSimulatorPoseFrame(
@@ -133,6 +278,13 @@ open class Nt4ClientService(
     private val _simulatorPoseFrame = MutableStateFlow<SimulatorPoseFrameSnapshot?>(null)
     /** Latest packed simulator pose, kept atomic and independent of the lossy telemetry fan-out. */
     val simulatorPoseFrame: StateFlow<SimulatorPoseFrameSnapshot?> = _simulatorPoseFrame.asStateFlow()
+    private val _driveInputAcknowledgement = MutableStateFlow<DriveInputAcknowledgement?>(null)
+    /** Packed receiver feedback bypasses general telemetry fan-out to avoid a 50 Hz UI storm. */
+    val driveInputAcknowledgement: StateFlow<DriveInputAcknowledgement?> =
+        _driveInputAcknowledgement.asStateFlow()
+    private val _mecanumMotorFrame = MutableStateFlow<MecanumMotorFrameSnapshot?>(null)
+    /** Latest complete motor observation, independent of scalar-topic suppression and UI loss. */
+    val mecanumMotorFrame: StateFlow<MecanumMotorFrameSnapshot?> = _mecanumMotorFrame.asStateFlow()
     private var lastSimulatorPoseDivergenceLogNs = Long.MIN_VALUE
 
     init {
@@ -280,6 +432,8 @@ open class Nt4ClientService(
         val nextTargetEpoch = telemetryStore.clear()
         uiTelemetryFanout.reset(nextTargetEpoch)
         _simulatorPoseFrame.value = null
+        _driveInputAcknowledgement.value = null
+        _mecanumMotorFrame.value = null
     }
 
     fun start(host: String, teamId: String, seasonId: String, robotId: String, port: Int = 5810) {
@@ -392,6 +546,25 @@ open class Nt4ClientService(
                 logSimulatorPoseDivergence(frame)
                 _simulatorPoseFrame.value = frame
             }
+        }
+
+
+        if (normalizedName == DRIVE_INPUT_ACK_TOPIC) {
+            if (!isReplayActive.value) {
+                decodeDriveInputAcknowledgement(valueElement, timestampMs)?.let {
+                    _driveInputAcknowledgement.value = it
+                }
+            }
+            return
+        }
+
+        if (normalizedName == MECANUM_MOTOR_FRAME_TOPIC) {
+            if (!isReplayActive.value) {
+                decodeMecanumMotorFrame(valueElement, timestampMs)?.let {
+                    _mecanumMotorFrame.value = it
+                }
+            }
+            return
         }
 
         // Skip input topics that the dashboard publishes — they echo back from the

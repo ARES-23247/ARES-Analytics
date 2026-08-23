@@ -19,7 +19,6 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.ReplayFrame
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.ui.theme.*
-import kotlinx.coroutines.launch
 
 @Composable
 fun JoystickVisualizer(
@@ -184,7 +183,6 @@ fun SingleGamepadVisualizer(
     gamepadStateFlow: kotlinx.coroutines.flow.StateFlow<com.ares.analytics.service.GamepadState>?,
     modifier: Modifier = Modifier
 ) {
-    val scope = rememberCoroutineScope()
     var lx by remember { mutableStateOf(0.0) }
     var ly by remember { mutableStateOf(0.0) }
     var rx by remember { mutableStateOf(0.0) }
@@ -230,33 +228,35 @@ fun SingleGamepadVisualizer(
             btnRS = (currentFrame.values["$gamepadId/RightStickButton"] ?: 0.0) > 0.5
         }
         nt4ClientService != null && !keyboardControlEnabled -> {
-            LaunchedEffect(Unit) {
-                scope.launch {
-                    nt4ClientService.uiTelemetryFlow.collect { frame ->
-                        val key = frame.key
-                        val value = frame.value
-                        when (key) {
-                            "$gamepadId/LeftStick_X" -> lx = value
-                            "$gamepadId/LeftStick_Y" -> ly = value
-                            "$gamepadId/RightStick_X" -> rx = value
-                            "$gamepadId/RightStick_Y" -> ry = value
-                            "$gamepadId/LeftTrigger" -> lt = value
-                            "$gamepadId/RightTrigger" -> rt = value
-                            "$gamepadId/A" -> btnA = value > 0.5
-                            "$gamepadId/B" -> btnB = value > 0.5
-                            "$gamepadId/X" -> btnX = value > 0.5
-                            "$gamepadId/Y" -> btnY = value > 0.5
-                            "$gamepadId/DpadUp" -> dpadUp = value > 0.5
-                            "$gamepadId/DpadDown" -> dpadDown = value > 0.5
-                            "$gamepadId/DpadLeft" -> dpadLeft = value > 0.5
-                            "$gamepadId/DpadRight" -> dpadRight = value > 0.5
-                            "$gamepadId/LeftBumper" -> lb = value > 0.5
-                            "$gamepadId/RightBumper" -> rb = value > 0.5
-                            "$gamepadId/Start", "$gamepadId/Options" -> btnStart = value > 0.5
-                            "$gamepadId/Back", "$gamepadId/Share" -> btnBack = value > 0.5
-                            "$gamepadId/LeftStickButton" -> btnLS = value > 0.5
-                            "$gamepadId/RightStickButton" -> btnRS = value > 0.5
-                        }
+            // Collect in the LaunchedEffect itself so switching to local keyboard control
+            // cancels this remote-telemetry writer immediately. Launching into a remembered
+            // composition scope leaves the old collector alive, allowing remote zeroes and the
+            // held keyboard value to alternate on the same visual state.
+            LaunchedEffect(nt4ClientService, gamepadId) {
+                nt4ClientService.uiTelemetryFlow.collect { frame ->
+                    val key = frame.key
+                    val value = frame.value
+                    when (key) {
+                        "$gamepadId/LeftStick_X" -> lx = value
+                        "$gamepadId/LeftStick_Y" -> ly = value
+                        "$gamepadId/RightStick_X" -> rx = value
+                        "$gamepadId/RightStick_Y" -> ry = value
+                        "$gamepadId/LeftTrigger" -> lt = value
+                        "$gamepadId/RightTrigger" -> rt = value
+                        "$gamepadId/A" -> btnA = value > 0.5
+                        "$gamepadId/B" -> btnB = value > 0.5
+                        "$gamepadId/X" -> btnX = value > 0.5
+                        "$gamepadId/Y" -> btnY = value > 0.5
+                        "$gamepadId/DpadUp" -> dpadUp = value > 0.5
+                        "$gamepadId/DpadDown" -> dpadDown = value > 0.5
+                        "$gamepadId/DpadLeft" -> dpadLeft = value > 0.5
+                        "$gamepadId/DpadRight" -> dpadRight = value > 0.5
+                        "$gamepadId/LeftBumper" -> lb = value > 0.5
+                        "$gamepadId/RightBumper" -> rb = value > 0.5
+                        "$gamepadId/Start", "$gamepadId/Options" -> btnStart = value > 0.5
+                        "$gamepadId/Back", "$gamepadId/Share" -> btnBack = value > 0.5
+                        "$gamepadId/LeftStickButton" -> btnLS = value > 0.5
+                        "$gamepadId/RightStickButton" -> btnRS = value > 0.5
                     }
                 }
             }

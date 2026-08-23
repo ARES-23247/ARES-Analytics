@@ -118,7 +118,8 @@ class JsonlLogDecoderTest {
         val database = DatabaseService(tempDb.absolutePath)
         try {
             assertFailsWith<IllegalArgumentException> {
-                JsonlLogDecoder(database).parseActionLogJsonl(log, "session")
+                JsonlLogDecoder(database, maxActionRecords = 10_000)
+                    .parseActionLogJsonl(log, "session")
             }
             assertEquals(0, database.getActionsForSession("session").size)
         } finally {
