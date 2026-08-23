@@ -134,6 +134,7 @@ fun SubsystemGeneratorScreen(
                 actions = {
                     OutlinedButton(
                         onClick = { showAiAssistantDrawer = true },
+                        enabled = state.draft != null,
                         modifier = Modifier.height(headerControlHeight),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
                     ) {
@@ -244,7 +245,15 @@ fun SubsystemGeneratorScreen(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text("No Subsystem Loaded", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text("Create a new mechanism subsystem (Intake, Arm, Lift, Shooter) to get started.", color = AresTextSecondary, fontSize = 11.sp)
+                        Text("A drive-only robot does not need a mechanism. Add one when your robot has an intake, arm, lift, shooter, or sensor.", color = AresTextSecondary, fontSize = 11.sp)
+                        Button(
+                            onClick = { viewModel.setTemplatePickerVisible(true) },
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Add a mechanism")
+                        }
                     }
                 }
             } else {

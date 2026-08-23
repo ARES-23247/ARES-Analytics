@@ -398,21 +398,21 @@ class SubsystemGeneratorViewModel(
         runCatching { documents.load(current.projectPath) }
             .onSuccess { snapshot ->
                 val matching = snapshot.subsystems.filter { it.platform == platform }
-                val first = matching.firstOrNull() ?: defaultDocument()
+                val first = matching.firstOrNull()
                 val projectProblems = snapshot.diagnostics.filter {
                     it.kind == ProjectDocumentKind.SUBSYSTEM || it.kind == ProjectDocumentKind.PROJECT_METADATA
                 }.map { SubsystemProblem(SubsystemProblemSeverity.WARNING, "project:${it.file.name}", it.message) }
                 _state.value = current.copy(
-                    documents = if (matching.isEmpty()) listOf(first) else matching,
-                    selectedDocumentId = first.documentId,
-                    draft = SubsystemEditorDraft(first),
+                    documents = matching,
+                    selectedDocumentId = first?.documentId,
+                    draft = first?.let(::SubsystemEditorDraft),
                     selectedHardwareUid = null,
                     selectedFieldUid = null,
                     selectedLoopUid = null,
                     selectedTuningParameterUid = null,
-                    selectedTemplate = first.template,
-                    dirty = matching.isEmpty(),
-                    status = if (matching.isEmpty()) "Create your first subsystem, then save it as a project revision." else null,
+                    selectedTemplate = first?.template ?: current.selectedTemplate,
+                    dirty = false,
+                    status = null,
                     loadError = null,
                     aiProposalInProgress = false,
                     aiProposal = null,
@@ -1416,10 +1416,6 @@ class SubsystemGeneratorViewModel(
             problems = (external + validation + safetyWarnings(document))
                 .distinctBy { Triple(it.severity, it.path, it.message) },
         )
-    }
-
-    private fun defaultDocument(id: String = "new-subsystem", name: String = "NewSubsystem"): SubsystemDocument {
-        return SubsystemTemplates.create(SubsystemTemplate.POSITION_CONTROLLED_MECHANISM, id, name, platform)
     }
 
     private fun artifactDestination(

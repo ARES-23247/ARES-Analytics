@@ -128,6 +128,10 @@ internal fun RobotStudioState.validationPresentation(
         explanation = error,
         issues = listOf(error),
     )
+    selection == RobotStudioSelection.Drivetrain && hardwareReadiness != null ->
+        hardwareReadiness.drivetrain.toValidationPresentation()
+    selection == RobotStudioSelection.PortMap && hardwareReadiness != null ->
+        hardwareReadiness.portMap.toValidationPresentation()
     else -> {
         val stage = stageFor(selection)
         if (stage == null) {
@@ -145,6 +149,13 @@ internal fun RobotStudioState.validationPresentation(
         }
     }
 }
+
+private fun com.ares.analytics.viewmodel.robotstudio.RobotStudioSectionReadiness.toValidationPresentation() =
+    RobotStudioValidationPresentation(
+        status = status.presentation(uppercase = true),
+        explanation = explanation,
+        issues = issues,
+    )
 
 private fun RobotStudioStageStatus.presentation(uppercase: Boolean = false): RobotStudioStatusPresentation {
     val text = when (this) {
