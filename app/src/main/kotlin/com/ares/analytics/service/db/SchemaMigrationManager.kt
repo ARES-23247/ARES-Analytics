@@ -219,8 +219,11 @@ class SchemaMigrationManager(
 
             migrateTelemetryPrecision(targetConn)
             st.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_session_time ON telemetry_frames(session_id, timestamp_ms)")
-            st.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_session_key_time ON telemetry_frames(session_id, key, timestamp_ms)")
-            st.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_session_id ON telemetry_frames(session_id)")
+            // telemetry_frames already has a primary-key index beginning with (session_id, key)
+            // and the session/time index above begins with session_id. Building two more indexes
+            // over a multi-gigabyte telemetry store can consume the entire DuckDB memory budget
+            // during startup while duplicating those lookup prefixes. Existing copies are left in
+            // place, but new stores and recovered installs no longer attempt these redundant builds.
             st.execute("CREATE INDEX IF NOT EXISTS idx_analysis_diagnostics_session ON analysis_diagnostics(session_id)")
             st.execute("CREATE INDEX IF NOT EXISTS idx_session_import_reports_session ON session_import_reports(session_id)")
 

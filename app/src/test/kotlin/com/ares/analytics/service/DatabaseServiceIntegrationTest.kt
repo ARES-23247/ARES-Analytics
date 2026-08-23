@@ -100,6 +100,18 @@ class DatabaseServiceIntegrationTest {
     }
 
     @Test
+    fun `telemetry schema avoids redundant startup indexes`() = runTest {
+        withDatabase { database ->
+            val indexes = database.executeQueryRaw(
+                "SELECT index_name FROM duckdb_indexes() " +
+                    "WHERE table_name = 'telemetry_frames' ORDER BY index_name"
+            ).rows.flatten()
+
+            assertEquals(listOf("idx_telemetry_session_time"), indexes)
+        }
+    }
+
+    @Test
     fun `database browser caps custom query rows and reports truncation`() = runTest {
         withDatabase { database ->
             val result = database.executeQueryRaw(
