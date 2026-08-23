@@ -5,6 +5,7 @@ import com.ares.analytics.service.log.*
 import com.ares.analytics.shared.WorkspaceConfig
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -111,6 +112,17 @@ class ServiceRegistry {
     val phoenixDiagnosticsService by lazy { PhoenixDiagnosticsService(nt4ClientService) }
     val dashboardHealthService by lazy {
         DashboardHealthService(nt4ClientService.telemetryStore, databaseService.metrics, nt4ClientService, replayEngineService)
+    }
+
+    /**
+     * Opens DuckDB before [MainScreen] resolves database-backed services.
+     *
+     * The caller owns dispatcher selection. Desktop startup invokes this on [Dispatchers.IO] so
+     * a cold native-library load, WAL recovery, or a large database cannot block the AWT event
+     * thread before Compose creates a visible window.
+     */
+    internal fun prepareForMainScreen() {
+        databaseService
     }
 
     /** Applies a workspace transition only after the prior scanner generation has joined. */
