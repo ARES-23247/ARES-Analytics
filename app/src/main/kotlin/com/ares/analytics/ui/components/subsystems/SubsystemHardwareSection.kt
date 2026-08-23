@@ -232,6 +232,13 @@ fun HardwareInspectorBody(
             device.measurements.forEachIndexed { index, measurement ->
                 CachedMeasurementEditor(document, device, index, measurement, measurementSources, viewModel)
             }
+            if (device.kind == SubsystemHardwareKind.MOTOR && device.measurements.any {
+                    it.source == SubsystemMeasurementSource.MOTOR_POSITION_NATIVE ||
+                        it.source == SubsystemMeasurementSource.MOTOR_VELOCITY_NATIVE_PER_SECOND
+                }
+            ) {
+                MotorMechanismConversionAssistant(document, device, viewModel)
+            }
             val available = measurementSources.firstOrNull { source ->
                 document.stateFields.any { field ->
                     field.fieldId !in device.measurements.map { it.fieldId } &&
@@ -284,6 +291,98 @@ fun HardwareInspectorBody(
             ToggleRow("Reverse hardware direction", device.inverted) { value ->
                 viewModel.updateHardware(device.hardwareId) { it.copy(inverted = value) }
             }
+        }
+    }
+}
+
+@Composable
+private fun MotorMechanismConversionAssistant(
+    document: SubsystemDocument,
+    device: SubsystemHardwareDocument,
+    viewModel: SubsystemGeneratorViewModel,
+) {
+    val positionMeasurement = device.measurements.firstOrNull {
+        it.source == SubsystemMeasurementSource.MOTOR_POSITION_NATIVE
+    }
+    val velocityMeasurement = device.measurements.firstOrNull {
+        it.source == SubsystemMeasurementSource.MOTOR_VELOCITY_NATIVE_PER_SECOND
+    }
+    val stateField = document.stateFields.firstOrNull {
+        it.fieldId == positionMeasurement?.fieldId || it.fieldId == velocityMeasurement?.fieldId
+    }
+    val suggestedTravel = when (stateField?.unit?.trim()?.lowercase()) {
+        "rad", "rad/s", "radian", "radians", "radian/second", "radians/second" -> Math.PI * 2.0
+        "rot", "rot/s", "turn", "turns", "rotation", "rotations" -> 1.0
+        else -> 0.0
+    }
+    var nativeUnitsPerMotorRevolution by remember(device.uid) {
+        mutableStateOf(if (document.platform == SubsystemPlatform.FRC) 1.0 else 0.0)
+    }
+    var motorRevolutionsPerMechanismRevolution by remember(device.uid) { mutableStateOf(1.0) }
+    var stateUnitsPerMechanismRevolution by remember(device.uid, stateField?.unit) { mutableStateOf(suggestedTravel) }
+    val valid = nativeUnitsPerMotorRevolution.isFinite() && nativeUnitsPerMotorRevolution > 0.0 &&
+        motorRevolutionsPerMechanismRevolution.isFinite() && motorRevolutionsPerMechanismRevolution > 0.0 &&
+        stateUnitsPerMechanismRevolution.isFinite() && stateUnitsPerMechanismRevolution > 0.0
+    val scale = if (valid) subsystemMotorMeasurementScale(
+        nativeUnitsPerMotorRevolution,
+        motorRevolutionsPerMechanismRevolution,
+        stateUnitsPerMechanismRevolution,
+    ) else Double.NaN
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = AresSurface,
+        shape = RoundedCornerShape(6.dp),
+        border = BorderStroke(1.dp, AresBorder),
+    ) {
+        Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text("MECHANISM CONVERSION", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Convert the motor sensor into the mechanism unit before PID or feedforward uses it. This updates both cached position and velocity scales.",
+                color = AresTextSecondary,
+                fontSize = 10.sp,
+            )
+            DoubleInput(
+                if (document.platform == SubsystemPlatform.FTC) {
+                    "Encoder counts per motor revolution (datasheet)"
+                } else {
+                    "Native sensor turns per motor revolution"
+                },
+                nativeUnitsPerMotorRevolution,
+            ) { nativeUnitsPerMotorRevolution = it }
+            DoubleInput("Motor revolutions per mechanism revolution", motorRevolutionsPerMechanismRevolution) {
+                motorRevolutionsPerMechanismRevolution = it
+            }
+            DoubleInput(
+                "${stateField?.unit ?: "State units"} per mechanism revolution",
+                stateUnitsPerMechanismRevolution,
+            ) { stateUnitsPerMechanismRevolution = it }
+            FieldGuidance(
+                when (stateField?.unit?.trim()?.lowercase()) {
+                    "rad", "rad/s" -> "For a rotating output, one mechanism revolution is 2π radians. For an elevator, enter spool travel per revolution in meters instead."
+                    "m", "m/s" -> "Enter the measured belt, lead-screw, or spool travel produced by one mechanism revolution in meters."
+                    else -> "Use the unit declared on the cached state field. Check the motor/encoder datasheet and the actual gear ratio."
+                }
+            )
+            Text(
+                if (valid) "Result: state = native sensor × ${"%.9g".format(scale)} + offset" else "Enter positive finite conversion values.",
+                color = if (valid) AresTextPrimary else AresError,
+                fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace,
+            )
+            Button(
+                onClick = {
+                    viewModel.updateHardware(device.hardwareId) { hardware ->
+                        hardware.copy(measurements = hardware.measurements.map { measurement ->
+                            if (measurement.source == SubsystemMeasurementSource.MOTOR_POSITION_NATIVE ||
+                                measurement.source == SubsystemMeasurementSource.MOTOR_VELOCITY_NATIVE_PER_SECOND
+                            ) measurement.copy(scale = scale) else measurement
+                        })
+                    }
+                },
+                enabled = valid,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Apply conversion to position and velocity") }
         }
     }
 }

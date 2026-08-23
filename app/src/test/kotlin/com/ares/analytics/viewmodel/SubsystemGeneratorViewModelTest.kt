@@ -520,6 +520,47 @@ class SubsystemGeneratorViewModelTest {
     }
 
     @Test
+    fun `builder refuses a second controller for an already controlled actuator`() {
+        val root = Files.createTempDirectory("ares-subsystem-controller-owner").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.newSubsystem(SubsystemTemplate.POSITION_CONTROLLED_MECHANISM)
+        val before = viewModel.state.value.draft!!.document.controlLoops
+
+        viewModel.addControlLoop()
+
+        val state = viewModel.state.value
+        assertEquals(before, state.draft!!.document.controlLoops)
+        assertTrue(state.status.orEmpty().contains("already has a controller", ignoreCase = true))
+        viewModel.close()
+    }
+
+    @Test
+    fun `changing a controller target clears incompatible feedback`() {
+        val root = Files.createTempDirectory("ares-subsystem-controller-units").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.newSubsystem(SubsystemTemplate.ARM_PIVOT)
+        val loop = viewModel.state.value.draft!!.document.controlLoops.single()
+        viewModel.edit { document ->
+            document.copy(stateFields = document.stateFields + SubsystemStateFieldDocument(
+                fieldId = "linearTarget",
+                displayName = "Linear target",
+                type = SubsystemValueType.DOUBLE,
+                role = SubsystemFieldRole.TARGET,
+                unit = "m",
+                defaultNumber = 0.0,
+            ))
+        }
+
+        viewModel.changeControlLoopTarget(loop.loopId, "linearTarget")
+
+        val changed = viewModel.state.value.draft!!.document.controlLoops.single()
+        assertEquals("linearTarget", changed.targetFieldId)
+        assertNull(changed.measurementFieldId)
+        assertFalse(viewModel.state.value.canSave)
+        viewModel.close()
+    }
+
+    @Test
     fun `invalid AI proposal remains review only and cannot be applied`() {
         val root = Files.createTempDirectory("ares-subsystem-ai-invalid-").toFile()
         File(root, ".ares/subsystems").mkdirs()

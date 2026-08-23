@@ -108,6 +108,21 @@ snapshot only after all required reads succeed. Controllers and telemetry read t
 perform a second SDK/vendor call. This makes simulator, replay, and physical behavior comparable and
 prevents one reducer tick from mixing sensor samples from different times.
 
+### Motor-to-mechanism conversion
+
+FTC motors report encoder counts and counts per second; FRC Talon FX starters report rotor turns
+and turns per second. Those are not automatically metres, radians, or mechanism rotations. In the
+motor inspector, **Mechanism conversion** asks for the encoder's native units per motor revolution,
+the gear ratio in motor revolutions per mechanism revolution, and the mechanism travel/angle per
+revolution. Applying it writes one explicit scale to both cached position and velocity signals.
+
+ARES warns when a native motor signal is labeled with a physical unit while its scale remains 1:1.
+That warning is not a tuning suggestion: confirm the encoder specification, gearing, and spool or
+linkage geometry before simulation conclusions or physical operation. An absolute encoder provides
+an absolute angular sample, but the current generated subsystem PID does not infer continuous-angle
+wrapping; mechanisms that cross their angular discontinuity require a reviewed custom controller
+until that behavior has an explicit descriptor and simulator contract.
+
 ## State roles
 
 - **Target** is requested intent from controller bindings, autonomous routines, or a higher-level

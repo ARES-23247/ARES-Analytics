@@ -71,10 +71,15 @@ fun SubsystemStateflowSection(
                     onClick = { viewModel.selectLoop(loop.uid) },
                 )
             }
-            val canAddControl = document.hardware.any { it.kind.isActuator() } && document.stateFields.any {
+            val controlledActuators = document.controlLoops.mapTo(mutableSetOf()) { it.actuatorId }
+            val hasUncontrolledActuator = document.hardware.any {
+                it.kind.isActuator() && it.following == null && it.hardwareId !in controlledActuators
+            }
+            val hasNumericTarget = document.stateFields.any {
                 it.role == SubsystemFieldRole.TARGET &&
                     (it.type == SubsystemValueType.DOUBLE || it.type == SubsystemValueType.INT)
             }
+            val canAddControl = hasUncontrolledActuator && hasNumericTarget
             OutlinedButton(
                 onClick = viewModel::addControlLoop,
                 enabled = canAddControl,
@@ -83,7 +88,15 @@ fun SubsystemStateflowSection(
                 Text("+ Add Controller Rule", fontSize = 11.sp)
             }
             if (!canAddControl) {
-                Text("Add an actuator and a numeric target state value first.", color = AresTextSecondary, fontSize = 10.sp)
+                Text(
+                    when {
+                        !hasNumericTarget -> "Add a numeric target state value first."
+                        !hasUncontrolledActuator -> "Every independent actuator already has a controller. Select a rule above to edit it."
+                        else -> "Add an independent actuator first."
+                    },
+                    color = AresTextSecondary,
+                    fontSize = 10.sp,
+                )
             }
         }
 
@@ -171,9 +184,14 @@ fun ControlInspectorBody(
     viewModel: SubsystemGeneratorViewModel,
 ) {
     val document = state.draft?.document ?: return
-    val actuators = document.hardware.filter { it.kind.isActuator() }.map { it.hardwareId }
-    val numericFields = document.stateFields.filter { it.type == SubsystemValueType.DOUBLE || it.type == SubsystemValueType.INT }
     val actuator = document.hardware.firstOrNull { it.hardwareId == loop.actuatorId }
+    val claimedActuators = document.controlLoops.filterNot { it.loopId == loop.loopId }.mapTo(mutableSetOf()) { it.actuatorId }
+    val actuators = document.hardware.filter {
+        it.kind == actuator?.kind && it.kind.isActuator() && it.following == null && it.hardwareId !in claimedActuators
+    }.map { it.hardwareId }
+    val numericFields = document.stateFields.filter { it.type == SubsystemValueType.DOUBLE || it.type == SubsystemValueType.INT }
+    val targetFields = numericFields.filter { it.role == SubsystemFieldRole.TARGET || it.role == SubsystemFieldRole.CONFIGURATION }
+    val selectedTarget = targetFields.firstOrNull { it.fieldId == loop.targetFieldId }
     val allowedStrategies = when (actuator?.kind) {
         SubsystemHardwareKind.POSITIONAL_SERVO -> listOf(SubsystemControlStrategy.SERVO_POSITION)
         SubsystemHardwareKind.MOTOR -> listOf(
@@ -227,20 +245,25 @@ fun ControlInspectorBody(
         FieldGuidance(controlStrategyGuidance(loop.strategy))
         if (actuators.isNotEmpty()) {
             DropdownSelector("Actuator", loop.actuatorId, actuators) { value ->
-                viewModel.updateControlLoop(loop.loopId) { it.copy(actuatorId = value) }
+                viewModel.changeControlLoopActuator(loop.loopId, value)
             }
         }
-        if (numericFields.isNotEmpty()) {
-            DropdownSelector("Target state", loop.targetFieldId, numericFields.map { it.fieldId }) { value ->
-                viewModel.updateControlLoop(loop.loopId) { it.copy(targetFieldId = value) }
+        if (targetFields.isNotEmpty()) {
+            DropdownSelector("Target state", loop.targetFieldId, targetFields.map { it.fieldId }) { value ->
+                viewModel.changeControlLoopTarget(loop.loopId, value)
             }
         }
         if (loop.strategy.requiresMeasurement()) {
-            val measurements = numericFields.filter { it.role == SubsystemFieldRole.MEASUREMENT }.map { it.fieldId }
+            val measurements = numericFields.filter {
+                it.role == SubsystemFieldRole.MEASUREMENT &&
+                    (selectedTarget == null || subsystemControlUnitsCompatible(selectedTarget.unit, it.unit))
+            }.map { it.fieldId }
             if (measurements.isNotEmpty()) {
                 DropdownSelector("Measurement feedback", loop.measurementFieldId ?: measurements.first(), measurements) { value ->
                     viewModel.updateControlLoop(loop.loopId) { it.copy(measurementFieldId = value) }
                 }
+            } else {
+                FieldGuidance("Add a numeric measurement in the same unit as the selected target. ARES will not subtract incompatible units.")
             }
         }
         if (supportsPid) {
@@ -303,17 +326,21 @@ fun ControlInspectorBody(
                         viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(kG = value)) }
                     }
                 }
-                val numericIds = numericFields.map { it.fieldId }
-                DropdownSelector("Desired velocity source", loop.feedforward.velocityFieldId ?: "Use controller setpoint", listOf("Use controller setpoint") + numericIds) { selected ->
+                val velocityIds = numericFields.filter { subsystemUnitCanRepresentVelocity(it.unit) }.map { it.fieldId }
+                val accelerationIds = numericFields.filter { subsystemUnitCanRepresentAcceleration(it.unit) }.map { it.fieldId }
+                DropdownSelector("Desired velocity source", loop.feedforward.velocityFieldId ?: "Use controller setpoint", listOf("Use controller setpoint") + velocityIds) { selected ->
                     viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(velocityFieldId = selected.takeUnless { value -> value == "Use controller setpoint" })) }
                 }
-                DropdownSelector("Desired acceleration source", loop.feedforward.accelerationFieldId ?: "Use zero/profile acceleration", listOf("Use zero/profile acceleration") + numericIds) { selected ->
+                DropdownSelector("Desired acceleration source", loop.feedforward.accelerationFieldId ?: "Use zero/profile acceleration", listOf("Use zero/profile acceleration") + accelerationIds) { selected ->
                     viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(accelerationFieldId = selected.takeUnless { value -> value == "Use zero/profile acceleration" })) }
                 }
-                if (loop.feedforward.kind == SubsystemFeedforwardKind.ARM && numericIds.isNotEmpty()) {
-                    DropdownSelector("Arm angle measurement (rad)", loop.feedforward.gravityAngleFieldId ?: numericIds.first(), numericIds) { selected ->
+                val angleIds = numericFields.filter { subsystemUnitIsCanonicalAngle(it.unit) }.map { it.fieldId }
+                if (loop.feedforward.kind == SubsystemFeedforwardKind.ARM && angleIds.isNotEmpty()) {
+                    DropdownSelector("Arm angle measurement (rad)", loop.feedforward.gravityAngleFieldId ?: angleIds.first(), angleIds) { selected ->
                         viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(gravityAngleFieldId = selected)) }
                     }
+                } else if (loop.feedforward.kind == SubsystemFeedforwardKind.ARM) {
+                    FieldGuidance("Add a numeric arm-angle measurement whose unit is rad before enabling arm gravity feedforward.")
                 }
                 if (loop.feedforward.kind == SubsystemFeedforwardKind.TWO_DOF_ARM) {
                     DropdownSelector("Linkage joint", (loop.feedforward.linkageJoint ?: 1).toString(), listOf("1", "2")) { selected ->

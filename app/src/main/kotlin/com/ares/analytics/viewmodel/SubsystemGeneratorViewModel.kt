@@ -52,6 +52,7 @@ import com.areslib.subsystem.SubsystemTemplates
 import com.areslib.subsystem.SubsystemValueType
 import com.areslib.subsystem.validateSubsystemDocument
 import com.areslib.subsystem.supportsPlatform
+import com.areslib.subsystem.subsystemControlUnitsCompatible
 import com.areslib.tuning.TuningParameterDeclaration
 import com.areslib.tuning.TuningParameterType
 import com.google.gson.GsonBuilder
@@ -214,7 +215,7 @@ val subsystemTemplateOptions = listOf(
     SubsystemTemplateOption(SubsystemTemplate.LIMIT_SWITCH_SENSOR, "Limit switch", "A cached digital end-stop with explicit active polarity and freshness.", "Sensors", true),
     SubsystemTemplateOption(SubsystemTemplate.BEAM_BREAK_SENSOR, "Beam-break sensor", "A cached presence sensor for game pieces, indexing, and interlocks.", "Sensors", true),
     SubsystemTemplateOption(SubsystemTemplate.POTENTIOMETER_SENSOR, "Potentiometer", "An analog position input with documented voltage-to-state conversion.", "Sensors"),
-    SubsystemTemplateOption(SubsystemTemplate.ABSOLUTE_ENCODER_SENSOR, "Absolute encoder", "A wrap-aware angular measurement published in canonical radians.", "Sensors"),
+    SubsystemTemplateOption(SubsystemTemplate.ABSOLUTE_ENCODER_SENSOR, "Absolute encoder", "An absolute angular measurement published in canonical radians; controller wrap is not inferred.", "Sensors"),
     SubsystemTemplateOption(SubsystemTemplate.QUADRATURE_ENCODER_SENSOR, "Quadrature encoder", "Position and velocity feedback with explicit counts-per-revolution calibration.", "Sensors"),
     SubsystemTemplateOption(SubsystemTemplate.DISTANCE_SENSOR, "Distance sensor", "A cached metric distance signal with validity bounds and freshness.", "Sensors"),
     SubsystemTemplateOption(SubsystemTemplate.IMU_SENSOR, "IMU or gyroscope", "Cached yaw and yaw-rate feedback in radians for orientation-aware mechanisms.", "Sensors"),
@@ -1031,14 +1032,31 @@ class SubsystemGeneratorViewModel(
 
     fun addControlLoop() {
         val current = _state.value.draft?.document ?: return
-        val actuator = current.hardware.firstOrNull { it.kind.isActuator() && it.following == null } ?: return
-        val target = current.stateFields.firstOrNull { it.role == SubsystemFieldRole.TARGET && it.type.isNumeric() } ?: return
+        val controlledActuators = current.controlLoops.mapTo(mutableSetOf()) { it.actuatorId }
+        val actuator = current.hardware.firstOrNull {
+            it.kind.isActuator() && it.following == null && it.hardwareId !in controlledActuators
+        }
+        if (actuator == null) {
+            _state.update { it.copy(status = "Every independent actuator already has a controller. Edit the existing rule instead of adding a conflicting output.") }
+            return
+        }
+        val target = current.stateFields.firstOrNull { it.role == SubsystemFieldRole.TARGET && it.type.isNumeric() }
+        if (target == null) {
+            _state.update { it.copy(status = "Add a numeric target state value before creating a controller.") }
+            return
+        }
         val id = uniqueId("control", current.controlLoops.map { it.loopId })
         edit { document ->
-        val actuator = document.hardware.firstOrNull { it.kind.isActuator() && it.following == null } ?: return@edit document
+        val owned = document.controlLoops.mapTo(mutableSetOf()) { it.actuatorId }
+        val actuator = document.hardware.firstOrNull {
+            it.kind.isActuator() && it.following == null && it.hardwareId !in owned
+        } ?: return@edit document
         val target = document.stateFields.firstOrNull { it.role == SubsystemFieldRole.TARGET && it.type.isNumeric() }
             ?: return@edit document
-        val measurement = document.stateFields.firstOrNull { it.role == SubsystemFieldRole.MEASUREMENT && it.type.isNumeric() }
+        val measurement = document.stateFields.firstOrNull {
+            it.role == SubsystemFieldRole.MEASUREMENT && it.type.isNumeric() &&
+                subsystemControlUnitsCompatible(target.unit, it.unit)
+        }
         val strategy = when {
             actuator.kind == SubsystemHardwareKind.POSITIONAL_SERVO -> SubsystemControlStrategy.SERVO_POSITION
             measurement != null -> SubsystemControlStrategy.POSITION_PID
@@ -1067,6 +1085,44 @@ class SubsystemGeneratorViewModel(
         document.copy(controlLoops = document.controlLoops.map { if (it.loopId == id) transform(it) else it })
     }
 
+    fun changeControlLoopActuator(id: String, actuatorId: String) = edit { document ->
+        val currentLoop = document.controlLoops.firstOrNull { it.loopId == id } ?: return@edit document
+        val currentActuator = document.hardware.firstOrNull { it.hardwareId == currentLoop.actuatorId } ?: return@edit document
+        val claimedByAnother = document.controlLoops.any { it.loopId != id && it.actuatorId == actuatorId }
+        val actuator = document.hardware.firstOrNull {
+            it.hardwareId == actuatorId && it.kind == currentActuator.kind && it.kind.isActuator() && it.following == null
+        }
+        if (claimedByAnother || actuator == null) return@edit document
+        document.copy(controlLoops = document.controlLoops.map { loop ->
+            if (loop.loopId != id) loop else loop.copy(actuatorId = actuatorId)
+        })
+    }
+
+    fun changeControlLoopTarget(id: String, targetFieldId: String) = edit { document ->
+        val target = document.stateFields.firstOrNull {
+            it.fieldId == targetFieldId &&
+                it.role in setOf(SubsystemFieldRole.TARGET, SubsystemFieldRole.CONFIGURATION) &&
+                it.type.isNumeric()
+        } ?: return@edit document
+        document.copy(controlLoops = document.controlLoops.map { loop ->
+            if (loop.loopId != id) loop else {
+                val currentMeasurement = loop.measurementFieldId?.let { measurementId ->
+                    document.stateFields.firstOrNull { it.fieldId == measurementId }
+                }
+                val compatibleMeasurement = currentMeasurement?.takeIf {
+                    subsystemControlUnitsCompatible(target.unit, it.unit)
+                } ?: document.stateFields.firstOrNull {
+                    it.role == SubsystemFieldRole.MEASUREMENT && it.type.isNumeric() &&
+                        subsystemControlUnitsCompatible(target.unit, it.unit)
+                }
+                loop.copy(
+                    targetFieldId = targetFieldId,
+                    measurementFieldId = if (loop.strategy.requiresMeasurement()) compatibleMeasurement?.fieldId else null,
+                )
+            }
+        })
+    }
+
     fun renameControlLoopId(id: String, newId: String) {
         if (newId == id) return
         edit { document ->
@@ -1088,10 +1144,15 @@ class SubsystemGeneratorViewModel(
             SubsystemControlStrategy.BANG_BANG -> SubsystemMeasurementSource.MOTOR_POSITION_NATIVE
             else -> null
         }
+        val target = document.stateFields.firstOrNull { it.fieldId == loop.targetFieldId }
         val preferredMeasurement = preferredSource?.let { source ->
             actuator?.measurements?.firstOrNull { it.source == source }?.fieldId
-        } ?: document.stateFields.firstOrNull {
-            it.role == SubsystemFieldRole.MEASUREMENT && it.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT)
+        }?.let { fieldId -> document.stateFields.firstOrNull { it.fieldId == fieldId } }
+            ?.takeIf { target == null || subsystemControlUnitsCompatible(target.unit, it.unit) }
+            ?.fieldId
+            ?: document.stateFields.firstOrNull {
+            it.role == SubsystemFieldRole.MEASUREMENT && it.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT) &&
+                (target == null || subsystemControlUnitsCompatible(target.unit, it.unit))
         }?.fieldId
         val supportsFeedforward = strategy in setOf(
             SubsystemControlStrategy.POSITION_PID,
@@ -1503,6 +1564,23 @@ private fun safetyWarnings(document: SubsystemDocument): List<SubsystemProblem> 
     ) {
         warn("safety.requiresCurrentMonitoring", "Current monitoring is required but no cached current measurement is configured.")
     }
+    document.hardware.forEachIndexed { hardwareIndex, device ->
+        if (device.kind != SubsystemHardwareKind.MOTOR) return@forEachIndexed
+        device.measurements.forEachIndexed { measurementIndex, measurement ->
+            if (measurement.source !in setOf(
+                    SubsystemMeasurementSource.MOTOR_POSITION_NATIVE,
+                    SubsystemMeasurementSource.MOTOR_VELOCITY_NATIVE_PER_SECOND,
+                ) || measurement.scale != 1.0
+            ) return@forEachIndexed
+            val field = document.stateFields.firstOrNull { it.fieldId == measurement.fieldId }
+            if (!field?.unit.isNullOrBlank()) {
+                warn(
+                    "hardware[$hardwareIndex].measurements[$measurementIndex].scale",
+                    "${field.displayName} is labeled '${field.unit}' but still uses a 1:1 native motor scale. Review gearing/encoder conversion before tuning or physical use.",
+                )
+            }
+        }
+    }
 }
 
 private fun SubsystemHardwareKind.isActuator(): Boolean = this == SubsystemHardwareKind.MOTOR ||
@@ -1513,7 +1591,8 @@ private fun SubsystemHardwareKind.isActuator(): Boolean = this == SubsystemHardw
 private fun SubsystemValueType.isNumeric(): Boolean = this == SubsystemValueType.DOUBLE || this == SubsystemValueType.INT
 
 private fun SubsystemControlStrategy.requiresMeasurement(): Boolean = this == SubsystemControlStrategy.POSITION_PID ||
-    this == SubsystemControlStrategy.VELOCITY_PID || this == SubsystemControlStrategy.BANG_BANG
+    this == SubsystemControlStrategy.PROFILED_POSITION_PID || this == SubsystemControlStrategy.VELOCITY_PID ||
+    this == SubsystemControlStrategy.BANG_BANG
 
 /**
  * Small deterministic line diff for starter replacement review. Common context is intentionally
