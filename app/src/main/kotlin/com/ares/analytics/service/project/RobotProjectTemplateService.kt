@@ -465,14 +465,14 @@ class RobotProjectTemplateService(
 
         val OFFICIAL_PROJECT_TEMPLATES: List<RobotProjectTemplate> = listOf(
             RobotProjectTemplate(
-                id = "ares-ftc-starter-9.9.0",
+                id = "ares-ftc-starter-9.10.0",
                 displayName = "ARES FTC Starter",
                 league = League.FTC,
-                aresVersion = "9.9.0",
+                aresVersion = "9.10.0",
                 revision = "eece701c95170439d170aae6bb0c0a58c2ca0744",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.9.0/ARES-FTC-Starter-9.9.0.zip",
-                archiveSha256 = "6cd46d6950430b52205741525f9d0ba109ba20157b7ccadfcb0a6fe6452a39c3",
-                bundledResourcePath = "/project-templates/ARES-FTC-Starter-9.9.0.zip",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.10.0/ARES-FTC-Starter-9.10.0.zip",
+                archiveSha256 = "8276f389878549c19e07cef8a3284cc6ce3929e1dfd048e66dfc7b010df5f821",
+                bundledResourcePath = "/project-templates/ARES-FTC-Starter-9.10.0.zip",
                 deploymentPolicy = RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
             ),
             RobotProjectTemplate(

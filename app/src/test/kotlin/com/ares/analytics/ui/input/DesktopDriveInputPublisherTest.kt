@@ -5,9 +5,33 @@ import com.ares.analytics.service.GamepadState
 import com.ares.analytics.shared.League
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class DesktopDriveInputPublisherTest {
+    @Test
+    fun `receiver acknowledgement prevents false armed session after accepted queue stalls`() {
+        var nowMs = 1_000L
+        val session = DesktopDriveFrameSession(sessionNonce = 44.0) { nowMs }
+        session.markTransmitted()
+
+        assertFalse(session.needsReceiverRehandshake(acknowledgementContractAvailable = true))
+        session.observeReceiverAcknowledgement(receiverSession = 44L, receiverSequence = 0L)
+        nowMs += RECEIVER_ACK_TIMEOUT_MS - 1L
+        assertFalse(session.needsReceiverRehandshake(acknowledgementContractAvailable = true))
+        nowMs += 1L
+        assertTrue(session.needsReceiverRehandshake(acknowledgementContractAvailable = true))
+    }
+
+    @Test
+    fun `legacy simulator without acknowledgement keeps transport fallback`() {
+        var nowMs = 1_000L
+        val session = DesktopDriveFrameSession(sessionNonce = 45.0) { nowMs }
+        session.markTransmitted()
+        nowMs += RECEIVER_ACK_STARTUP_TIMEOUT_MS * 2
+
+        assertFalse(session.needsReceiverRehandshake(acknowledgementContractAvailable = false))
+    }
     @Test
     fun `keyboard motion requires only an armed local simulator surface`() {
         val keyboard = KeyboardDriveState().apply {

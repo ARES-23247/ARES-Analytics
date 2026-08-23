@@ -60,18 +60,58 @@ import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 
 private const val TELEOP_LIST_TOPIC = "ARES/DriverStation/TeleOpList"
 private const val SELECTED_OPMODE_TOPIC = "ARES/DriverStation/SelectedOpMode"
 private const val DRIVER_STATION_COMMAND_TOPIC = "ARES/DriverStation/Command"
+private const val ACTIVE_OPMODE_CLASS_TOPIC = "ARES/DriverStation/ActiveOpModeClass"
+private const val ACTIVE_OPMODE_DISPLAY_NAME_TOPIC = "ARES/DriverStation/ActiveOpModeDisplayName"
+private const val ACTIVE_OPMODE_STATE_TOPIC = "ARES/DriverStation/ActiveOpModeState"
+private const val TELEOP_INIT_STATE = "TELEOP_INIT"
+private const val TELEOP_RUNNING_STATE = "TELEOP_RUNNING"
+private const val OPMODE_ACK_TIMEOUT_MS = 5_000L
 
 internal fun preferredSimulatorTeleOp(teleOps: List<String>): String? =
-    teleOps.firstOrNull { it.endsWith(".ARESMecanumTeleOp") || it == "ARESMecanumTeleOp" }
+    teleOps.firstOrNull { it.endsWith(".ARESStarterTeleOp") || it == "ARESStarterTeleOp" }
+        ?: teleOps.firstOrNull { it.endsWith(".ARESMecanumTeleOp") || it == "ARESMecanumTeleOp" }
         ?: teleOps.firstOrNull { it.endsWith(".ARESRemoteDriveOpMode") || it == "ARESRemoteDriveOpMode" }
+        ?: teleOps.firstOrNull { !it.isAuxiliarySimulatorOpMode() }
         ?: teleOps.firstOrNull()
+
+private fun String.isAuxiliarySimulatorOpMode(): Boolean {
+    val simpleName = substringAfterLast('.')
+    return simpleName == "AresHardwareTestOpMode" ||
+        simpleName == "NullOpMode" ||
+        simpleName.contains("Diagnostic", ignoreCase = true) ||
+        simpleName.contains("Calibration", ignoreCase = true) ||
+        simpleName.contains("Tuning", ignoreCase = true)
+}
+
+internal fun simulatorOpModeAcknowledged(
+    selectedOpMode: String?,
+    activeOpMode: String?,
+    activeState: String?,
+    expectedState: String,
+): Boolean = selectedOpMode != null && selectedOpMode == activeOpMode && activeState == expectedState
+
+internal fun simulatorDriveReceiverReady(statusCode: Int?, leaseAgeMs: Long?): Boolean =
+    (statusCode == 2 || statusCode == 3) && leaseAgeMs != null && leaseAgeMs in 0..500L
+
+internal fun simulatorDriveReceiverStatus(statusCode: Int?): String = when (statusCode) {
+    0 -> "WAITING FOR CONTROL"
+    1 -> "WAITING FOR NEUTRAL"
+    2 -> "CONTROL READY"
+    3 -> "CONTROL ACTIVE"
+    4 -> "CONTROL LEASE EXPIRED"
+    5 -> "INVALID CONTROL FRAME"
+    6 -> "OUT-OF-ORDER CONTROL"
+    else -> "CONTROL LINK UNKNOWN"
+}
 
 internal fun decodeSimulatorTeleOps(value: String?): List<String> =
     value?.let { encoded ->
@@ -159,7 +199,23 @@ fun LocalSimulatorControlBar(
     var command by remember(nt4Client) {
         mutableStateOf(nt4Client.latestValues[DRIVER_STATION_COMMAND_TOPIC]?.stringValue ?: "STOP")
     }
+    var activeOpMode by remember(nt4Client) {
+        mutableStateOf(nt4Client.latestValues[ACTIVE_OPMODE_CLASS_TOPIC]?.stringValue?.takeIf(String::isNotBlank))
+    }
+    var activeOpModeDisplayName by remember(nt4Client) {
+        mutableStateOf(nt4Client.latestValues[ACTIVE_OPMODE_DISPLAY_NAME_TOPIC]?.stringValue?.takeIf(String::isNotBlank))
+    }
+    var activeOpModeState by remember(nt4Client) {
+        mutableStateOf(nt4Client.latestValues[ACTIVE_OPMODE_STATE_TOPIC]?.stringValue)
+    }
+    var driveReceiverStatusCode by remember(nt4Client) {
+        mutableStateOf(nt4Client.driveInputAcknowledgement.value?.statusCode)
+    }
+    var driveReceiverLeaseAgeMs by remember(nt4Client) {
+        mutableStateOf(nt4Client.driveInputAcknowledgement.value?.leaseAgeMs)
+    }
     var starting by remember { mutableStateOf(false) }
+    var startFailure by remember { mutableStateOf<String?>(null) }
     var selectorExpanded by remember { mutableStateOf(false) }
     var startJob by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
@@ -177,9 +233,18 @@ fun LocalSimulatorControlBar(
                 }
                 DRIVER_STATION_COMMAND_TOPIC -> frame.stringValue?.let {
                     command = it
-                    if (it == "START" || it == "STOP") starting = false
                 }
+                ACTIVE_OPMODE_CLASS_TOPIC -> activeOpMode = frame.stringValue?.takeIf(String::isNotBlank)
+                ACTIVE_OPMODE_DISPLAY_NAME_TOPIC -> activeOpModeDisplayName = frame.stringValue?.takeIf(String::isNotBlank)
+                ACTIVE_OPMODE_STATE_TOPIC -> activeOpModeState = frame.stringValue
             }
+        }
+    }
+
+    LaunchedEffect(nt4Client) {
+        nt4Client.driveInputAcknowledgement.collect { acknowledgement ->
+            driveReceiverStatusCode = acknowledgement?.statusCode
+            driveReceiverLeaseAgeMs = acknowledgement?.leaseAgeMs
         }
     }
 
@@ -188,12 +253,22 @@ fun LocalSimulatorControlBar(
             startJob?.cancel()
             startJob = null
             starting = false
+            startFailure = null
             keyboardDriveState.disarm()
         }
     }
 
     val isFtc = league == League.FTC
-    val isRunning = isConnected && (!isFtc || command == "START") && !starting
+    val isRunning = isConnected && (!isFtc || simulatorOpModeAcknowledged(
+        selectedOpMode = selectedOpMode,
+        activeOpMode = activeOpMode,
+        activeState = activeOpModeState,
+        expectedState = TELEOP_RUNNING_STATE,
+    )) && !starting
+    val receiverReady = !isFtc || simulatorDriveReceiverReady(
+        statusCode = driveReceiverStatusCode,
+        leaseAgeMs = driveReceiverLeaseAgeMs,
+    )
     val primaryAction = localSimulatorPrimaryAction(
         isConnected = isConnected,
         isSimulatorProcessRunning = isSimulatorProcessRunning,
@@ -206,6 +281,9 @@ fun LocalSimulatorControlBar(
         !isConnected && isSimulatorProcessRunning -> "CONNECTING"
         !isConnected -> "OFFLINE"
         starting -> "STARTING"
+        startFailure != null -> "TELEOP FAILED"
+        isRunning && keyboardDriveState.enabled && !receiverReady -> "CONTROL RECOVERING"
+        isRunning && keyboardDriveState.enabled -> simulatorDriveReceiverStatus(driveReceiverStatusCode)
         isRunning && isFtc -> "TELEOP RUNNING"
         isRunning && keyboardDriveState.enabled -> "CONTROL ARMED"
         isRunning -> "CONNECTED"
@@ -214,7 +292,8 @@ fun LocalSimulatorControlBar(
     }
     val statusColor = when {
         !isConnected -> AresTextSecondary
-        starting || command == "INIT" -> AresAmber
+        startFailure != null -> AresError
+        starting || command == "INIT" || (isRunning && keyboardDriveState.enabled && !receiverReady) -> AresAmber
         isRunning -> AresGreen
         else -> AresCyan
     }
@@ -307,19 +386,54 @@ fun LocalSimulatorControlBar(
                         startJob?.cancel()
                         startJob = scope.launch {
                             starting = true
+                            startFailure = null
                             keyboardDriveState.disarm()
-                            nt4Client.publishString(SELECTED_OPMODE_TOPIC, opMode)
-                            nt4Client.publishString(DRIVER_STATION_COMMAND_TOPIC, "INIT")
-                            command = "INIT"
-                            delay(2_000)
-                            if (!connectedNow) {
+                            try {
+                                nt4Client.publishString(SELECTED_OPMODE_TOPIC, opMode)
+                                nt4Client.publishString(DRIVER_STATION_COMMAND_TOPIC, "INIT")
+                                command = "INIT"
+                                val initialized = withTimeoutOrNull(OPMODE_ACK_TIMEOUT_MS) {
+                                    while (connectedNow && !simulatorOpModeAcknowledged(
+                                            selectedOpMode = opMode,
+                                            activeOpMode = activeOpMode,
+                                            activeState = activeOpModeState,
+                                            expectedState = TELEOP_INIT_STATE,
+                                        )) {
+                                        delay(20)
+                                    }
+                                    connectedNow
+                                } == true
+                                if (!initialized) {
+                                    startFailure = "The simulator did not initialize ${opMode.substringAfterLast('.')}"
+                                    return@launch
+                                }
+
+                                nt4Client.publishString(DRIVER_STATION_COMMAND_TOPIC, "START")
+                                command = "START"
+                                val running = withTimeoutOrNull(OPMODE_ACK_TIMEOUT_MS) {
+                                    while (connectedNow && !simulatorOpModeAcknowledged(
+                                            selectedOpMode = opMode,
+                                            activeOpMode = activeOpMode,
+                                            activeState = activeOpModeState,
+                                            expectedState = TELEOP_RUNNING_STATE,
+                                        )) {
+                                        delay(20)
+                                    }
+                                    connectedNow
+                                } == true
+                                if (!running) {
+                                    startFailure = "The simulator did not start ${opMode.substringAfterLast('.')}"
+                                    return@launch
+                                }
+                                keyboardDriveState.enabled = true
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                startFailure = error.message ?: "Simulator TeleOp start failed"
+                                keyboardDriveState.disarm()
+                            } finally {
                                 starting = false
-                                return@launch
                             }
-                            nt4Client.publishString(DRIVER_STATION_COMMAND_TOPIC, "START")
-                            command = "START"
-                            keyboardDriveState.enabled = true
-                            starting = false
                         }
                     },
                     enabled = when (primaryAction) {
@@ -415,7 +529,15 @@ fun LocalSimulatorControlBar(
                     shape = RoundedCornerShape(6.dp),
                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                 ) {
-                    Text(if (keyboardDriveState.enabled) "ARMED" else "Arm control", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        when {
+                            !keyboardDriveState.enabled -> "Arm control"
+                            receiverReady -> "ARMED"
+                            else -> "RECONNECTING"
+                        },
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
 
@@ -434,9 +556,12 @@ fun LocalSimulatorControlBar(
                     } else {
                         "Enable TeleOp in the WPILib Simulation GUI, then Arm control. Robot-centric axes remain league-independent."
                     }
+                    startFailure != null -> "$startFailure. Stop, confirm the selected TeleOp, and try again."
                     !isRunning -> "Choose a TeleOp, then Start driving. The simulator can be online while no OpMode is running."
+                    keyboardDriveState.enabled && !receiverReady ->
+                        "${simulatorDriveReceiverStatus(driveReceiverStatusCode)}. ARES is sending neutral frames to restore the safe control lease."
                     keyboardDriveState.useGamepad -> "Move the sticks directly while armed. Dashboard drive frames are blocked for non-loopback targets."
-                    else -> "Field-centric: W drives toward the opposing station, A/D strafe, and ←/→ rotate. Loopback only."
+                    else -> "${activeOpModeDisplayName ?: selectedOpMode?.substringAfterLast('.')}: W drives toward the opposing station, A/D strafe, and ←/→ rotate. Loopback only."
                 },
                 color = if (isRunning && keyboardDriveState.enabled) AresGreen else AresTextSecondary,
                 fontSize = 10.sp,

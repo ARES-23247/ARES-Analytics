@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import kotlin.math.hypot
 import kotlin.test.Test
@@ -34,7 +35,7 @@ class SimulatorControlSoakTest {
         val port = intProperty("ares.simSoak.port", 5810)
         val opMode = System.getProperty(
             "ares.simSoak.opMode",
-            "org.firstinspires.ftc.teamcode.opmodes.ARESMecanumTeleOp"
+            "org.firstinspires.ftc.teamcode.opmodes.ARESStarterTeleOp"
         )
         val tempDirectory = kotlin.io.path.createTempDirectory("ares-simulator-control-soak").toFile()
         val database = DatabaseService(File(tempDirectory, "soak.duckdb").absolutePath)
@@ -140,6 +141,25 @@ class SimulatorControlSoakTest {
                 publish(0.0, 0.0, 0.0)
                 delay(20L)
             }
+            val receiverAcknowledgement = withTimeoutOrNull(2_000L) {
+                while (true) {
+                    val acknowledgement = client.driveInputAcknowledgement.value
+                    if (
+                        acknowledgement != null &&
+                        acknowledgement.acceptedSession.toDouble() == sessionNonce &&
+                        acknowledgement.acceptedSequence >= sequence - 2L
+                    ) return@withTimeoutOrNull acknowledgement
+                    delay(20L)
+                }
+                error("unreachable")
+            }
+            assertTrue(
+                receiverAcknowledgement != null,
+                "Simulator did not acknowledge the current drive session: " +
+                    "senderSession=${sessionNonce.toLong()}, senderSequence=${sequence - 1L}, " +
+                    "lastReceiver=${client.driveInputAcknowledgement.value}"
+            )
+            val verifiedReceiverAcknowledgement = requireNotNull(receiverAcknowledgement)
             delay(500L)
             client.publishString("ARES/DriverStation/Command", "STOP")
             collector?.cancelAndJoin()
@@ -161,6 +181,10 @@ class SimulatorControlSoakTest {
             }
 
             assertEquals(0L, failedPublishes, "The Analytics sender dropped a leased control heartbeat")
+            assertTrue(
+                verifiedReceiverAcknowledgement.statusCode in 2..3,
+                "Simulator receiver did not acknowledge an armed neutral or active frame: $verifiedReceiverAcknowledgement"
+            )
             assertTrue(maximumSendGapNs <= 100_000_000L, "Control scheduling gap exceeded 100 ms: ${maximumSendGapNs / 1_000_000.0} ms")
             assertTrue(activePoses.size >= durationSeconds * 10, "Packed pose telemetry fell below 10 Hz")
             assertTrue(
