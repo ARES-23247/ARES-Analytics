@@ -192,6 +192,7 @@ fun ControlInspectorBody(
     val numericFields = document.stateFields.filter { it.type == SubsystemValueType.DOUBLE || it.type == SubsystemValueType.INT }
     val targetFields = numericFields.filter { it.role == SubsystemFieldRole.TARGET || it.role == SubsystemFieldRole.CONFIGURATION }
     val selectedTarget = targetFields.firstOrNull { it.fieldId == loop.targetFieldId }
+    val selectedMeasurement = numericFields.firstOrNull { it.fieldId == loop.measurementFieldId }
     val allowedStrategies = when (actuator?.kind) {
         SubsystemHardwareKind.POSITIONAL_SERVO -> listOf(SubsystemControlStrategy.SERVO_POSITION)
         SubsystemHardwareKind.MOTOR -> listOf(
@@ -208,6 +209,11 @@ fun ControlInspectorBody(
         SubsystemControlStrategy.PROFILED_POSITION_PID,
         SubsystemControlStrategy.VELOCITY_PID,
     )
+    val supportsContinuousInput = loop.strategy in setOf(
+        SubsystemControlStrategy.POSITION_PID,
+        SubsystemControlStrategy.PROFILED_POSITION_PID,
+    ) && subsystemUnitIsCanonicalAngle(selectedTarget?.unit) &&
+        subsystemUnitIsCanonicalAngle(selectedMeasurement?.unit)
     val outputUnit = when (actuator?.kind) {
         SubsystemHardwareKind.MOTOR -> "V"
         SubsystemHardwareKind.PRISM_DRIVER -> "µs"
@@ -215,6 +221,7 @@ fun ControlInspectorBody(
     }
     var showControlLab by remember(loop.uid) { mutableStateOf(false) }
     var showFeedforwardLab by remember(loop.uid) { mutableStateOf(false) }
+    var editCustomAngleRange by remember(loop.uid) { mutableStateOf(false) }
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("Configure control strategy, PID feedback gains, and feedforward dynamics.", color = AresTextSecondary, fontSize = 11.sp)
@@ -260,10 +267,87 @@ fun ControlInspectorBody(
             }.map { it.fieldId }
             if (measurements.isNotEmpty()) {
                 DropdownSelector("Measurement feedback", loop.measurementFieldId ?: measurements.first(), measurements) { value ->
-                    viewModel.updateControlLoop(loop.loopId) { it.copy(measurementFieldId = value) }
+                    val measurement = numericFields.firstOrNull { it.fieldId == value }
+                    viewModel.updateControlLoop(loop.loopId) {
+                        it.copy(
+                            measurementFieldId = value,
+                            continuousInput = it.continuousInput.copy(
+                                enabled = it.continuousInput.enabled && subsystemUnitIsCanonicalAngle(selectedTarget?.unit) &&
+                                    subsystemUnitIsCanonicalAngle(measurement?.unit),
+                            ),
+                        )
+                    }
                 }
             } else {
                 FieldGuidance("Add a numeric measurement in the same unit as the selected target. ARES will not subtract incompatible units.")
+            }
+        }
+        if (loop.strategy in setOf(SubsystemControlStrategy.POSITION_PID, SubsystemControlStrategy.PROFILED_POSITION_PID)) {
+            if (supportsContinuousInput) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        ToggleRow("Use shortest path across the angle boundary", loop.continuousInput.enabled) { enabled ->
+                            viewModel.updateControlLoop(loop.loopId) {
+                                it.copy(continuousInput = it.continuousInput.copy(enabled = enabled))
+                            }
+                        }
+                    }
+                    ConceptHelp(
+                        "Continuous angle input",
+                        "For a rotating mechanism, +179° and -179° are only 2° apart. Wrapping makes PID and its derivative use that shortest signed angular error.",
+                        "continuous-angle-control",
+                        compact = true,
+                    )
+                }
+                if (loop.continuousInput.enabled) {
+                    val minusPiPreset = "-π to +π (common signed angle)"
+                    val zeroToTwoPiPreset = "0 to 2π (common absolute encoder)"
+                    val customPreset = "Custom one-turn range"
+                    val selectedPreset = when {
+                        editCustomAngleRange -> customPreset
+                        kotlin.math.abs(loop.continuousInput.minimumInput + Math.PI) < 1e-9 &&
+                            kotlin.math.abs(loop.continuousInput.maximumInput - Math.PI) < 1e-9 -> minusPiPreset
+                        kotlin.math.abs(loop.continuousInput.minimumInput) < 1e-9 &&
+                            kotlin.math.abs(loop.continuousInput.maximumInput - 2.0 * Math.PI) < 1e-9 -> zeroToTwoPiPreset
+                        else -> customPreset
+                    }
+                    DropdownSelector(
+                        "Sensor angle range",
+                        selectedPreset,
+                        listOf(minusPiPreset, zeroToTwoPiPreset, customPreset),
+                    ) { preset ->
+                        when (preset) {
+                            minusPiPreset -> {
+                                editCustomAngleRange = false
+                                viewModel.updateControlLoop(loop.loopId) {
+                                    it.copy(continuousInput = it.continuousInput.copy(minimumInput = -Math.PI, maximumInput = Math.PI))
+                                }
+                            }
+                            zeroToTwoPiPreset -> {
+                                editCustomAngleRange = false
+                                viewModel.updateControlLoop(loop.loopId) {
+                                    it.copy(continuousInput = it.continuousInput.copy(minimumInput = 0.0, maximumInput = 2.0 * Math.PI))
+                                }
+                            }
+                            customPreset -> editCustomAngleRange = true
+                        }
+                    }
+                    if (selectedPreset == customPreset) {
+                        DoubleInput("Angle range minimum (rad)", loop.continuousInput.minimumInput) { value ->
+                            viewModel.updateControlLoop(loop.loopId) {
+                                it.copy(continuousInput = it.continuousInput.copy(minimumInput = value))
+                            }
+                        }
+                        DoubleInput("Angle range maximum (rad)", loop.continuousInput.maximumInput) { value ->
+                            viewModel.updateControlLoop(loop.loopId) {
+                                it.copy(continuousInput = it.continuousInput.copy(maximumInput = value))
+                            }
+                        }
+                    }
+                    FieldGuidance("The range must describe one complete turn (2π rad), such as -π to +π or 0 to 2π. Hard-limited arms should leave wrapping off.")
+                }
+            } else {
+                FieldGuidance("Shortest-path angle wrapping becomes available when both target and feedback use canonical radians (rad).")
             }
         }
         if (supportsPid) {
@@ -278,9 +362,16 @@ fun ControlInspectorBody(
                 viewModel.updateControlLoop(loop.loopId) { it.copy(tolerance = value) }
             }
         } else if (loop.strategy == SubsystemControlStrategy.BANG_BANG) {
-            DoubleInput("Stop band / tolerance", loop.tolerance) { value ->
+            val targetUnit = selectedTarget?.unit ?: "state units"
+            DoubleInput("Stop band / tolerance ($targetUnit)", loop.tolerance) { value ->
                 viewModel.updateControlLoop(loop.loopId) { it.copy(tolerance = value) }
             }
+            DoubleInput("Restart hysteresis ($targetUnit)", loop.hysteresis) { value ->
+                viewModel.updateControlLoop(loop.loopId) { it.copy(hysteresis = value) }
+            }
+            FieldGuidance(
+                "Output stops inside ±${loop.tolerance}. Once stopped, it does not restart until error exceeds ±${loop.tolerance + loop.hysteresis}. Direction reversals pass through neutral for one control tick.",
+            )
         }
         if (loop.strategy == SubsystemControlStrategy.PROFILED_POSITION_PID) {
             Text("MOTION PROFILE", color = AresTextTertiary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
@@ -375,7 +466,7 @@ private fun SubsystemControlStrategy.controlStrategyLabel(): String = when (this
     SubsystemControlStrategy.POSITION_PID -> "Position PID"
     SubsystemControlStrategy.PROFILED_POSITION_PID -> "Profiled position PID"
     SubsystemControlStrategy.VELOCITY_PID -> "Velocity PID"
-    SubsystemControlStrategy.BANG_BANG -> "Bang-bang / on-off"
+    SubsystemControlStrategy.BANG_BANG -> "Hysteretic on/off (bang-bang)"
     SubsystemControlStrategy.SERVO_POSITION -> "Positional servo"
 }
 
@@ -695,7 +786,7 @@ private fun controlStrategyGuidance(strategy: SubsystemControlStrategy): String 
     SubsystemControlStrategy.VELOCITY_PID ->
         "Velocity PID regulates measured speed. A simple-motor feedforward (kS/kV/kA) usually supplies most of the required voltage."
     SubsystemControlStrategy.BANG_BANG ->
-        "Bang-bang control switches between bounded outputs around a tolerance. It is simple but abrupt; use it only where that behavior is mechanically appropriate."
+        "Hysteretic on/off control stops inside a tolerance and requires extra error before restarting. This reduces chatter near the threshold, while direction changes pass through neutral."
     SubsystemControlStrategy.SERVO_POSITION ->
         "Servo position maps a normalized target to the positional-servo command and applies the declared safe neutral when motion is not permitted."
 }

@@ -118,10 +118,10 @@ revolution. Applying it writes one explicit scale to both cached position and ve
 
 ARES warns when a native motor signal is labeled with a physical unit while its scale remains 1:1.
 That warning is not a tuning suggestion: confirm the encoder specification, gearing, and spool or
-linkage geometry before simulation conclusions or physical operation. An absolute encoder provides
-an absolute angular sample, but the current generated subsystem PID does not infer continuous-angle
-wrapping; mechanisms that cross their angular discontinuity require a reviewed custom controller
-until that behavior has an explicit descriptor and simulator contract.
+linkage geometry before simulation conclusions or physical operation. For a continuously rotating
+axis, position and target must both use canonical radians before **shortest-path angle wrapping** can
+be enabled. The declared input range must span exactly 2π radians. Leave wrapping off for a
+hard-limited arm whose two ends are not physically adjacent.
 
 ## State roles
 
@@ -138,10 +138,14 @@ under a second name.
 ## Control strategies
 
 - **Direct bounded output** is for reviewed voltage, power, PWM, or binary commands without feedback.
-- **Position PID** corrects measured position error.
+- **Position PID** corrects measured position error. Continuous-angle mode wraps position and
+  derivative error across a declared 2π-radian boundary.
 - **Profiled position PID** first limits setpoint velocity/acceleration, then applies position PID.
+  Continuous-angle mode also makes the profile choose the shortest path across the boundary.
 - **Velocity PID** corrects measured speed and commonly pairs with simple-motor feedforward.
-- **Bang-bang / on-off** switches bounded outputs around a tolerance; it is intentionally abrupt.
+- **Hysteretic on/off (bang-bang)** stops inside a tolerance and requires error to exceed an
+  additional hysteresis distance before restarting. A requested reversal passes through neutral
+  for one controller tick.
 - **Positional servo** maps a normalized target to a servo and applies its declared safe position.
 
 The Builder offers only strategies generated and behaviorally tested by the current runtime. More
@@ -269,7 +273,7 @@ mass, friction, restitution, and accessible display color for every placed piece
 
 ## Typed tuning parameters
 
-Schema-10 subsystem documents may declare `tuningParameters`. A declaration is not a loose mutable
+Schema-11 subsystem documents may declare `tuningParameters`. A declaration is not a loose mutable
 constant: it gives the value a stable UID, a project-wide key, a component owner, a novice-facing
 name and explanation, a type, optional units/bounds/options, a default, and an apply policy. Named
 robot profiles own authoritative values; the subsystem only owns their meaning and constraints.

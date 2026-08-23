@@ -11,6 +11,8 @@ import com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository
 import com.ares.analytics.viewmodel.project.SubsystemProjectRepository
 import com.areslib.catalog.CapabilityCatalogDocument
 import com.areslib.subsystem.SubsystemFieldRole
+import com.areslib.subsystem.SubsystemControlStrategy
+import com.areslib.subsystem.SubsystemContinuousInputDocument
 import com.areslib.subsystem.SubsystemFollowerTransform
 import com.areslib.subsystem.SubsystemHardwareConnection
 import com.areslib.subsystem.SubsystemHardwareDocument
@@ -557,6 +559,31 @@ class SubsystemGeneratorViewModelTest {
         assertEquals("linearTarget", changed.targetFieldId)
         assertNull(changed.measurementFieldId)
         assertFalse(viewModel.state.value.canSave)
+        viewModel.close()
+    }
+
+    @Test
+    fun `strategy changes preserve only compatible continuous input and hysteresis settings`() {
+        val root = Files.createTempDirectory("ares-subsystem-controller-modes").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+        viewModel.newSubsystem(SubsystemTemplate.ARM_PIVOT)
+        val loopId = viewModel.state.value.draft!!.document.controlLoops.single().loopId
+        viewModel.updateControlLoop(loopId) {
+            it.copy(continuousInput = SubsystemContinuousInputDocument(enabled = true))
+        }
+
+        viewModel.changeControlLoopStrategy(loopId, SubsystemControlStrategy.POSITION_PID)
+        assertTrue(viewModel.state.value.draft!!.document.controlLoops.single().continuousInput.enabled)
+
+        viewModel.changeControlLoopStrategy(loopId, SubsystemControlStrategy.BANG_BANG)
+        var changed = viewModel.state.value.draft!!.document.controlLoops.single()
+        assertFalse(changed.continuousInput.enabled)
+        viewModel.updateControlLoop(loopId) { it.copy(hysteresis = 0.05) }
+
+        viewModel.changeControlLoopStrategy(loopId, SubsystemControlStrategy.VELOCITY_PID)
+        changed = viewModel.state.value.draft!!.document.controlLoops.single()
+        assertEquals(0.0, changed.hysteresis)
+        assertFalse(changed.continuousInput.enabled)
         viewModel.close()
     }
 

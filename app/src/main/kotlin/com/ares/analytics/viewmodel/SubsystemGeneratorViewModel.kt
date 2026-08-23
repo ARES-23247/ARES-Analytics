@@ -22,6 +22,7 @@ import com.areslib.subsystem.FaultRecoveryActionKind
 import com.areslib.subsystem.InterlockComparison
 import com.areslib.subsystem.SubsystemControlLoopDocument
 import com.areslib.subsystem.SubsystemControlStrategy
+import com.areslib.subsystem.SubsystemContinuousInputDocument
 import com.areslib.subsystem.SubsystemDocument
 import com.areslib.subsystem.SubsystemFaultRecoveryDocument
 import com.areslib.subsystem.SubsystemFeedforwardDocument
@@ -53,6 +54,7 @@ import com.areslib.subsystem.SubsystemValueType
 import com.areslib.subsystem.validateSubsystemDocument
 import com.areslib.subsystem.supportsPlatform
 import com.areslib.subsystem.subsystemControlUnitsCompatible
+import com.areslib.subsystem.subsystemUnitIsCanonicalAngle
 import com.areslib.tuning.TuningParameterDeclaration
 import com.areslib.tuning.TuningParameterType
 import com.google.gson.GsonBuilder
@@ -1118,6 +1120,10 @@ class SubsystemGeneratorViewModel(
                 loop.copy(
                     targetFieldId = targetFieldId,
                     measurementFieldId = if (loop.strategy.requiresMeasurement()) compatibleMeasurement?.fieldId else null,
+                    continuousInput = loop.continuousInput.copy(
+                        enabled = loop.continuousInput.enabled && subsystemUnitIsCanonicalAngle(target.unit) &&
+                            subsystemUnitIsCanonicalAngle(compatibleMeasurement?.unit),
+                    ),
                 )
             }
         })
@@ -1159,11 +1165,18 @@ class SubsystemGeneratorViewModel(
             SubsystemControlStrategy.PROFILED_POSITION_PID,
             SubsystemControlStrategy.VELOCITY_PID,
         )
+        val supportsContinuousInput = strategy in setOf(
+            SubsystemControlStrategy.POSITION_PID,
+            SubsystemControlStrategy.PROFILED_POSITION_PID,
+        )
         document.copy(controlLoops = document.controlLoops.map { candidate ->
             if (candidate.loopId != id) candidate else candidate.copy(
                 strategy = strategy,
                 measurementFieldId = preferredMeasurement.takeIf { strategy.requiresMeasurement() },
                 feedforward = candidate.feedforward.takeIf { supportsFeedforward } ?: SubsystemFeedforwardDocument(),
+                continuousInput = candidate.continuousInput.takeIf { supportsContinuousInput }
+                    ?: SubsystemContinuousInputDocument(),
+                hysteresis = candidate.hysteresis.takeIf { strategy == SubsystemControlStrategy.BANG_BANG } ?: 0.0,
             )
         })
     }
