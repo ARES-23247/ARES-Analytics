@@ -88,6 +88,7 @@ import com.ares.analytics.ui.theme.AresTextTertiary
 import com.ares.analytics.viewmodel.controls.ControlsEditorState
 import com.ares.analytics.viewmodel.controls.ControlsEditorViewModel
 import com.ares.analytics.viewmodel.controls.ControlsProblemSeverity
+import com.ares.analytics.viewmodel.controls.momentaryOutputParameter
 import com.areslib.catalog.CapabilityParameterDescriptor
 import com.areslib.catalog.CapabilityParameterType
 import com.areslib.controls.ControlBindingDocument
@@ -806,6 +807,29 @@ private fun BindingInspectorBody(
             "Event", binding.event.friendlyName(), events.map { it.name to it.friendlyName() }, Modifier.fillMaxWidth(),
         ) { selected -> viewModel.updateDraft { it.copy(event = ControlEvent.valueOf(selected)) } }
         TargetFields(state, binding, viewModel)
+        val momentaryAction = state.selectedAction
+        val momentaryParameter = momentaryAction?.let(::momentaryOutputParameter)
+        if (momentaryAction != null && momentaryParameter != null && binding.source.kind == ControlSourceKind.BUTTON) {
+            Surface(
+                color = AresCyan.copy(alpha = 0.08f),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, AresCyan.copy(alpha = 0.45f)),
+            ) {
+                Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("Safe momentary motor output", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                    Text(
+                        "A motor keeps its last requested output after a button is released. Use Held to run and Release at 0 ${momentaryParameter.unit.orEmpty().ifBlank { "output" }} to stop.",
+                        color = AresTextSecondary,
+                        fontSize = 10.sp,
+                    )
+                    if (state.selectedBindingId == null) {
+                        Button(onClick = viewModel::addSafeMomentaryPair, modifier = Modifier.fillMaxWidth()) {
+                            Text("Add safe hold + release pair")
+                        }
+                    }
+                }
+            }
+        }
         Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(binding.enabled, { value -> viewModel.updateDraft { it.copy(enabled = value) } })

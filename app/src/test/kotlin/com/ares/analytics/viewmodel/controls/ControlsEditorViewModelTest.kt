@@ -68,6 +68,90 @@ class ControlsEditorViewModelTest {
     }
 
     @Test
+    fun `selecting an action replaces only the untouched generic binding name`() = withProject { project ->
+        val documents = seededDocuments(project)
+        documents.capabilities.save(
+            project.path,
+            CapabilityCatalogDocument(
+                projectId = "student-robot",
+                actions = listOf(
+                    ActionDescriptor(
+                        key = "intake.run",
+                        displayName = "Run intake",
+                        description = "Runs the intake.",
+                        category = "Intake",
+                    ),
+                    ActionDescriptor(
+                        key = "drive.reset",
+                        displayName = "Reset drive",
+                        description = "Resets the drivetrain.",
+                        category = "Drive",
+                    ),
+                ),
+            ),
+        )
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+        viewModel.selectControl("a")
+        viewModel.createBinding()
+
+        assertEquals("A binding", viewModel.state.value.draftBinding?.displayName)
+        viewModel.setTarget(ControlTargetKind.ACTION, "intake.run")
+        assertEquals("Run intake", viewModel.state.value.draftBinding?.displayName)
+
+        viewModel.setTarget(ControlTargetKind.ACTION, "drive.reset")
+        assertEquals("Reset drive", viewModel.state.value.draftBinding?.displayName)
+
+        viewModel.updateDraft { it.copy(displayName = "Student's intake control") }
+        viewModel.setTarget(ControlTargetKind.ACTION, "intake.run")
+        assertEquals("Student's intake control", viewModel.state.value.draftBinding?.displayName)
+    }
+
+    @Test
+    fun `momentary voltage action creates held output and zero release bindings atomically`() = withProject { project ->
+        val documents = seededDocuments(project)
+        documents.capabilities.save(
+            project.path,
+            CapabilityCatalogDocument(
+                projectId = "student-robot",
+                actions = listOf(
+                    ActionDescriptor(
+                        key = "intake.voltage",
+                        displayName = "Set intake voltage",
+                        description = "Commands the intake motor voltage.",
+                        category = "Intake",
+                        parameters = listOf(
+                            CapabilityParameterDescriptor(
+                                key = "value",
+                                displayName = "Voltage",
+                                description = "Requested motor voltage.",
+                                type = CapabilityParameterType.NUMBER,
+                                unit = "V",
+                                defaultNumber = 6.0,
+                            )
+                        ),
+                    )
+                ),
+            ),
+        )
+        val viewModel = ControlsEditorViewModel(project.path, League.FTC, documents)
+        viewModel.selectControl("a")
+        viewModel.createBinding()
+        viewModel.setTarget(ControlTargetKind.ACTION, "intake.voltage")
+
+        viewModel.addSafeMomentaryPair()
+
+        val bindings = viewModel.state.value.selectedScheme?.bindings.orEmpty()
+            .filter { it.target.key == "intake.voltage" }
+        assertEquals(2, bindings.size)
+        assertEquals("6.0", bindings.single { it.event == ControlEvent.HELD }.target.arguments["value"])
+        assertEquals("0", bindings.single { it.event == ControlEvent.RELEASE }.target.arguments["value"])
+        assertTrue(bindings.all { it.source.controlIds == listOf("a") })
+        assertNull(viewModel.state.value.draftBinding)
+        assertTrue(viewModel.state.value.dirty)
+        assertTrue(viewModel.state.value.status.orEmpty().contains("safe pair"))
+    }
+
+    @Test
     fun `editor is explicitly project backed and does not require a robot`() {
         val viewModel = ControlsEditorViewModel("", League.FTC)
 

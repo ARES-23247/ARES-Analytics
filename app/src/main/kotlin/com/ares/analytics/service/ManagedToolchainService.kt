@@ -263,6 +263,37 @@ object ManagedToolchainPaths {
         File(home, "bin/${if (isWindows()) "java.exe" else "java"}").takeIf(File::isFile)
     }
 
+    /**
+     * Returns every supported JDK that Gradle children should be allowed to use as a toolchain.
+     *
+     * Gradle's normal Windows discovery only sees JDKs registered by their installer. Oracle ZIP
+     * installs and WPILib's bundled JDK are common on student laptops but are not necessarily in
+     * that registry. ARES runs student builds with an isolated home, so relying on a developer's
+     * cached Gradle toolchain locations would also make clean installs fail unexpectedly.
+     */
+    fun gradleJavaInstallations(): List<File> {
+        val directCandidates = buildList {
+            resolveJavaHome()?.let(::add)
+            System.getProperty("java.home")?.takeIf(String::isNotBlank)?.let(::File)?.let(::add)
+            resolveWpilibHome()?.let { add(File(it, "jdk")) }
+        }
+        val installationRoots = buildList {
+            add(rootDirectory())
+            if (isWindows()) {
+                add(File("C:/Program Files/Java"))
+                add(File("C:/Program Files/Eclipse Adoptium"))
+                add(File("C:/Program Files/Microsoft"))
+            } else {
+                add(File("/usr/lib/jvm"))
+                add(File("/Library/Java/JavaVirtualMachines"))
+            }
+        }
+        return (directCandidates + installationRoots.flatMap { root -> root.listFiles().orEmpty().toList() })
+            .mapNotNull { candidate -> runCatching { candidate.canonicalFile }.getOrNull() }
+            .filter(::isCompleteJdk)
+            .distinctBy { it.path.lowercase(Locale.ROOT) }
+    }
+
     fun isManagedJavaHome(file: File): Boolean = runCatching {
         file.canonicalFile.toPath().startsWith(rootDirectory().canonicalFile.toPath())
     }.getOrDefault(false)

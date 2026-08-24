@@ -21,8 +21,9 @@ import kotlin.test.assertTrue
  * Set `ARES_OFFICIAL_TEMPLATE_VALIDATE_PROJECTS=true` to also run generation, verification,
  * tests, simulator tests, packaging, and the FTC headless drivetrain acceptance run inside the
  * emitted projects using their normal immutable dependency repositories. A local validation
- * repository can be supplied with `ARES_OFFICIAL_TEMPLATE_VALIDATION_REPOSITORY` while developing
- * an unpublished ARESLib version; supplying it also enables project validation.
+ * repository and matching candidate version can be supplied with
+ * `ARES_OFFICIAL_TEMPLATE_VALIDATION_REPOSITORY` and `ARES_OFFICIAL_TEMPLATE_VALIDATION_VERSION`
+ * while developing an unpublished ARESLib version; supplying them also enables project validation.
  * Normal unit runs skip this network/release-artifact boundary.
  */
 class OfficialProjectTemplateIntegrationTest {
@@ -40,11 +41,16 @@ class OfficialProjectTemplateIntegrationTest {
             System.getProperty("ares.officialTemplateValidationRepository")
                 ?: System.getenv("ARES_OFFICIAL_TEMPLATE_VALIDATION_REPOSITORY")
             )?.let(::validationRepositoryUri)
+        val validationVersion = System.getProperty("ares.officialTemplateValidationVersion")
+            ?: System.getenv("ARES_OFFICIAL_TEMPLATE_VALIDATION_VERSION")
         val validateProjects = validationRepository != null || (
             System.getProperty("ares.officialTemplateValidateProjects")
                 ?: System.getenv("ARES_OFFICIAL_TEMPLATE_VALIDATE_PROJECTS")
             ).toBoolean()
         assumeTrue(archiveDirectory?.isDirectory == true && outputDirectory != null)
+        require(validationRepository == null || !validationVersion.isNullOrBlank()) {
+            "Set ARES_OFFICIAL_TEMPLATE_VALIDATION_VERSION with the isolated validation repository."
+        }
 
         val archiveRoot = requireNotNull(archiveDirectory).canonicalFile
         val output = requireNotNull(outputDirectory).canonicalFile
@@ -83,7 +89,9 @@ class OfficialProjectTemplateIntegrationTest {
             assertTrue(initialHistory.changes.isEmpty())
             assertTrue(initialHistory.versions.single().message.contains("Create robot project"))
             if (league == League.FTC) assertTrue(File(result.destination, "local.properties").isFile)
-            if (validateProjects) validateGeneratedProject(result.destination, league, validationRepository)
+            if (validateProjects) {
+                validateGeneratedProject(result.destination, league, validationRepository, validationVersion)
+            }
 
             File(result.destination, ".ares/acceptance-checkpoint.txt").writeText("${league.name} zero-code journey complete")
             val generatedRuntime = when (league) {
@@ -108,7 +116,12 @@ class OfficialProjectTemplateIntegrationTest {
         history.closeAndJoin()
     }
 
-    private fun validateGeneratedProject(project: File, league: League, repositoryUri: String?) {
+    private fun validateGeneratedProject(
+        project: File,
+        league: League,
+        repositoryUri: String?,
+        validationVersion: String?,
+    ) {
         val windows = System.getProperty("os.name").contains("win", ignoreCase = true)
         val command = buildList {
             if (windows) addAll(listOf("cmd.exe", "/c", "gradlew.bat")) else add("./gradlew")
@@ -125,6 +138,7 @@ class OfficialProjectTemplateIntegrationTest {
                 )
                 League.FRC -> addAll(listOf("generateAresProject", "verifyAresProject", "test", "build"))
             }
+            validationVersion?.let { add("-ParesVersion=$it") }
             repositoryUri?.let { add("-ParesRepository=$it") }
             addAll(listOf("--no-parallel", "--no-daemon", "--console=plain"))
         }

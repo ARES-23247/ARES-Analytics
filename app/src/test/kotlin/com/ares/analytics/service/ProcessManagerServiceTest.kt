@@ -20,6 +20,17 @@ import kotlin.test.assertTrue
 class ProcessManagerServiceTest {
 
     @Test
+    fun `only the known transient Gradle cache handoff is eligible for one automatic retry`() {
+        assertTrue(
+            isTransientGradleCacheMoveFailure(
+                "Could not move temporary workspace C:/cache/transforms/tmp to immutable location C:/cache/transforms/final",
+            ),
+        )
+        assertFalse(isTransientGradleCacheMoveFailure("Compilation error: unresolved reference Elevator"))
+        assertFalse(isTransientGradleCacheMoveFailure("Could not resolve org.aresfirst.ares:core:9.11.0"))
+    }
+
+    @Test
     fun `explicit isolated repository file URI decorates every nested Gradle command`() {
         val repository = Files.createTempDirectory("ares-release-repository").toFile()
         val service = ProcessManagerService(
@@ -44,7 +55,9 @@ class ProcessManagerServiceTest {
 
             representativeCommands.forEach { base ->
                 val configured = service.configuredGradleCommandForTest(base)
-                assertEquals(base + expectedRepository + expectedVersion, configured)
+                assertEquals(base, configured.take(base.size))
+                assertTrue(configured.any { it.startsWith("-Porg.gradle.java.installations.paths=") })
+                assertEquals(listOf(expectedRepository, expectedVersion), configured.takeLast(2))
                 assertFalse(configured.any { it.contains("mavenLocal", ignoreCase = true) })
             }
         } finally {
@@ -71,10 +84,9 @@ class ProcessManagerServiceTest {
     fun `normal installer command construction adds no implicit local repository`() {
         val service = ProcessManagerService(monitorAdbConnection = false)
         try {
-            assertEquals(
-                listOf("./gradlew", "assemble"),
-                service.configuredGradleCommandForTest(listOf("./gradlew", "assemble")),
-            )
+            val configured = service.configuredGradleCommandForTest(listOf("./gradlew", "assemble"))
+            assertEquals(listOf("./gradlew", "assemble"), configured.take(2))
+            assertTrue(configured.single { it.startsWith("-Porg.gradle.java.installations.paths=") }.isNotBlank())
             assertEquals(null, service.configuredAresRepositoryEnvironmentForTest())
             assertEquals(null, service.configuredAresVersionEnvironmentForTest())
         } finally {
@@ -105,7 +117,9 @@ class ProcessManagerServiceTest {
                 assertTrue("--no-daemon" in command)
                 assertTrue("--console=plain" in command)
             }
-            (ftc + frc).forEach { argument ->
+            (ftc + frc)
+                .filterNot { it.startsWith("-Porg.gradle.java.installations.paths=") }
+                .forEach { argument ->
                 assertFalse(argument.contains("adb", ignoreCase = true))
                 assertFalse(argument.contains("deploy", ignoreCase = true))
                 assertFalse(argument.contains("install", ignoreCase = true))
@@ -347,6 +361,24 @@ class ProcessManagerServiceTest {
     }
 
     @Test
+    fun `slow terminal collector cannot backpressure verbose build output`() = runBlocking {
+        val service = ProcessManagerService(monitorAdbConnection = false)
+        val slowCollector = launch {
+            service.buildOutput.collect {
+                delay(50L)
+            }
+        }
+        try {
+            service.runManagedProcessForTest(probeCommand("flood"))
+            withTimeout(10_000L) { service.awaitBuildIdleForTest() }
+            assertFalse(service.isBuildRunning.value)
+        } finally {
+            slowCollector.cancelAndJoin()
+            withContext(Dispatchers.IO) { service.shutdown() }
+        }
+    }
+
+    @Test
     fun `shutdown remains non-cancellable and kills the complete process tree`() = runBlocking {
         val service = ProcessManagerService(monitorAdbConnection = false)
         val directory = Files.createTempDirectory("process-manager-shutdown").toFile()
@@ -439,6 +471,12 @@ class ProcessManagerServiceTest {
                             ).start();
                             Files.writeString(Path.of(args[1]), Long.toString(ProcessHandle.current().pid()));
                             Thread.sleep(60_000L);
+                            return;
+                        }
+                        if ("flood".equals(args[0])) {
+                            for (int index = 0; index < 10_000; index++) {
+                                System.out.println("generated line " + index);
+                            }
                             return;
                         }
                         Files.writeString(Path.of(args[1]), Long.toString(ProcessHandle.current().pid()));

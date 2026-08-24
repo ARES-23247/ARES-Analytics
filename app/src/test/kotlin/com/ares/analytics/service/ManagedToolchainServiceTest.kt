@@ -56,6 +56,10 @@ class ManagedToolchainServiceTest {
             assertEquals(ToolchainReadiness.READY, snapshot.components.first().readiness)
             val builder = ManagedToolchainPaths.configureEnvironment(ProcessBuilder("fixture"))
             assertEquals(java.parentFile.parentFile.path, builder.environment()["JAVA_HOME"])
+            assertTrue(
+                ManagedToolchainPaths.gradleJavaInstallations().any { it.canonicalFile == java.parentFile.parentFile.canonicalFile },
+                "The managed JDK must also be advertised to nested Gradle toolchain discovery",
+            )
             assertTrue(service.installState.value is ManagedToolchainInstallState.Succeeded)
         } finally {
             if (oldRoot == null) System.clearProperty("ares.toolchains.root") else System.setProperty("ares.toolchains.root", oldRoot)

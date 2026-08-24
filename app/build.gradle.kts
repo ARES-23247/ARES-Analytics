@@ -396,6 +396,7 @@ listOf(
     "ares.officialTemplateArchiveDir",
     "ares.officialTemplateOutputDir",
     "ares.officialTemplateValidationRepository",
+    "ares.officialTemplateValidationVersion",
     "ares.officialTemplateValidateProjects",
     "ares.genericStarterArchiveDir",
     "ares.genericStarterOutputDir",

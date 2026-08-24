@@ -72,6 +72,12 @@ private const val DRIVER_STATION_COMMAND_TOPIC = "ARES/DriverStation/Command"
 private const val ACTIVE_OPMODE_CLASS_TOPIC = "ARES/DriverStation/ActiveOpModeClass"
 private const val ACTIVE_OPMODE_DISPLAY_NAME_TOPIC = "ARES/DriverStation/ActiveOpModeDisplayName"
 private const val ACTIVE_OPMODE_STATE_TOPIC = "ARES/DriverStation/ActiveOpModeState"
+private const val FRC_DRIVER_STATION_COMMAND_TOPIC = "ARES/Simulation/FrcDriverStationCommand"
+private const val FRC_DRIVER_STATION_STATE_TOPIC = "ARES/Simulation/FrcDriverStationState"
+private const val FRC_ENABLE_TELEOP_COMMAND = "ENABLE_TELEOP"
+private const val FRC_DISABLE_COMMAND = "DISABLE"
+private const val FRC_TELEOP_ENABLED_STATE = "TELEOP_ENABLED"
+private const val FRC_WAITING_FOR_CONTROL_STATE = "WAITING_FOR_CONTROL"
 private const val TELEOP_INIT_STATE = "TELEOP_INIT"
 private const val TELEOP_RUNNING_STATE = "TELEOP_RUNNING"
 private const val OPMODE_ACK_TIMEOUT_MS = 5_000L
@@ -112,6 +118,9 @@ internal fun simulatorDriveReceiverStatus(statusCode: Int?): String = when (stat
     6 -> "OUT-OF-ORDER CONTROL"
     else -> "CONTROL LINK UNKNOWN"
 }
+
+internal fun frcSimulatorTeleOpEnabled(state: String?): Boolean =
+    state?.trim()?.uppercase() == FRC_TELEOP_ENABLED_STATE
 
 internal fun decodeSimulatorTeleOps(value: String?): List<String> =
     value?.let { encoded ->
@@ -166,11 +175,12 @@ internal fun localSimulatorLaunchRequest(
 }
 
 /**
- * An always-visible control path for the headless FTC simulator.
+ * An always-visible control path for the FTC simulator and the FRC starter simulator.
  *
  * Starting the simulator only creates the physics/NT4 server. Motion additionally requires a
- * running TeleOp and an armed local-control surface. The transport rejects drive frames for every
- * non-loopback target, so this strip cannot become a physical-robot control path.
+ * running TeleOp and an armed local-control surface. For FRC, a simulation-only bridge owns the
+ * Driver Station state so students do not need a separate WPILib window. The transport rejects
+ * drive frames for every non-loopback target, so this strip cannot become a physical-robot path.
  */
 @Composable
 fun LocalSimulatorControlBar(
@@ -208,6 +218,9 @@ fun LocalSimulatorControlBar(
     var activeOpModeState by remember(nt4Client) {
         mutableStateOf(nt4Client.latestValues[ACTIVE_OPMODE_STATE_TOPIC]?.stringValue)
     }
+    var frcDriverStationState by remember(nt4Client) {
+        mutableStateOf(nt4Client.latestValues[FRC_DRIVER_STATION_STATE_TOPIC]?.stringValue)
+    }
     var driveReceiverStatusCode by remember(nt4Client) {
         mutableStateOf(nt4Client.driveInputAcknowledgement.value?.statusCode)
     }
@@ -237,6 +250,7 @@ fun LocalSimulatorControlBar(
                 ACTIVE_OPMODE_CLASS_TOPIC -> activeOpMode = frame.stringValue?.takeIf(String::isNotBlank)
                 ACTIVE_OPMODE_DISPLAY_NAME_TOPIC -> activeOpModeDisplayName = frame.stringValue?.takeIf(String::isNotBlank)
                 ACTIVE_OPMODE_STATE_TOPIC -> activeOpModeState = frame.stringValue
+                FRC_DRIVER_STATION_STATE_TOPIC -> frcDriverStationState = frame.stringValue
             }
         }
     }
@@ -259,13 +273,19 @@ fun LocalSimulatorControlBar(
     }
 
     val isFtc = league == League.FTC
-    val isRunning = isConnected && (!isFtc || simulatorOpModeAcknowledged(
-        selectedOpMode = selectedOpMode,
-        activeOpMode = activeOpMode,
-        activeState = activeOpModeState,
-        expectedState = TELEOP_RUNNING_STATE,
-    )) && !starting
-    val receiverReady = !isFtc || simulatorDriveReceiverReady(
+    val isRunning = isConnected && (
+        if (isFtc) {
+            simulatorOpModeAcknowledged(
+                selectedOpMode = selectedOpMode,
+                activeOpMode = activeOpMode,
+                activeState = activeOpModeState,
+                expectedState = TELEOP_RUNNING_STATE,
+            )
+        } else {
+            frcSimulatorTeleOpEnabled(frcDriverStationState)
+        }
+    ) && !starting
+    val receiverReady = simulatorDriveReceiverReady(
         statusCode = driveReceiverStatusCode,
         leaseAgeMs = driveReceiverLeaseAgeMs,
     )
@@ -284,9 +304,8 @@ fun LocalSimulatorControlBar(
         startFailure != null -> "TELEOP FAILED"
         isRunning && keyboardDriveState.enabled && !receiverReady -> "CONTROL RECOVERING"
         isRunning && keyboardDriveState.enabled -> simulatorDriveReceiverStatus(driveReceiverStatusCode)
-        isRunning && isFtc -> "TELEOP RUNNING"
-        isRunning && keyboardDriveState.enabled -> "CONTROL ARMED"
-        isRunning -> "CONNECTED"
+        isRunning -> "TELEOP RUNNING"
+        !isFtc && frcDriverStationState == FRC_WAITING_FOR_CONTROL_STATE -> "WAITING FOR SAFE CONTROL"
         command == "INIT" -> "INITIALIZED"
         else -> "WAITING FOR TELEOP"
     }
@@ -341,7 +360,7 @@ fun LocalSimulatorControlBar(
                         ) {
                             Text(
                                 if (!isFtc) {
-                                    if (isConnected) "Enable TeleOp in the WPILib Simulation GUI" else "FRC simulator is not running"
+                                    if (isConnected) "ARES Studio Driver Station · TeleOp" else "FRC simulator is not running"
                                 } else {
                                     selectedOpMode?.substringAfterLast('.')
                                         ?: if (isConnected) "Waiting for TeleOp list…" else "Simulator is not running"
@@ -381,14 +400,34 @@ fun LocalSimulatorControlBar(
                             onLaunchSimulator()
                             return@Button
                         }
-                        if (!isFtc || primaryAction != LocalSimulatorPrimaryAction.START_DRIVING) return@Button
-                        val opMode = selectedOpMode ?: return@Button
+                        if (primaryAction != LocalSimulatorPrimaryAction.START_DRIVING) return@Button
+                        val opMode = selectedOpMode
+                        if (isFtc && opMode == null) return@Button
                         startJob?.cancel()
                         startJob = scope.launch {
                             starting = true
                             startFailure = null
                             keyboardDriveState.disarm()
                             try {
+                                if (!isFtc) {
+                                    nt4Client.publishString(FRC_DRIVER_STATION_COMMAND_TOPIC, FRC_ENABLE_TELEOP_COMMAND)
+                                    val running = withTimeoutOrNull(OPMODE_ACK_TIMEOUT_MS) {
+                                        while (connectedNow && !frcSimulatorTeleOpEnabled(frcDriverStationState)) delay(20)
+                                        connectedNow
+                                    } == true
+                                    if (!running) {
+                                        startFailure = when (frcDriverStationState) {
+                                            FRC_WAITING_FOR_CONTROL_STATE ->
+                                                "The FRC simulator did not receive a fresh neutral control handshake"
+                                            else -> "The FRC simulator did not enable TeleOp"
+                                        }
+                                        return@launch
+                                    }
+                                    keyboardDriveState.enabled = true
+                                    return@launch
+                                }
+
+                                checkNotNull(opMode)
                                 nt4Client.publishString(SELECTED_OPMODE_TOPIC, opMode)
                                 nt4Client.publishString(DRIVER_STATION_COMMAND_TOPIC, "INIT")
                                 command = "INIT"
@@ -439,7 +478,7 @@ fun LocalSimulatorControlBar(
                     enabled = when (primaryAction) {
                         LocalSimulatorPrimaryAction.LAUNCH_SIMULATOR,
                         LocalSimulatorPrimaryAction.VERIFY_AND_LAUNCH -> canLaunchSimulator
-                        LocalSimulatorPrimaryAction.START_DRIVING -> selectedOpMode != null
+                        LocalSimulatorPrimaryAction.START_DRIVING -> !isFtc || selectedOpMode != null
                         else -> false
                     },
                     modifier = Modifier.height(32.dp),
@@ -478,8 +517,11 @@ fun LocalSimulatorControlBar(
                         starting = false
                         command = "STOP"
                         keyboardDriveState.disarm()
-                        if (isFtc) {
-                            scope.launch { nt4Client.publishString(DRIVER_STATION_COMMAND_TOPIC, "STOP") }
+                        scope.launch {
+                            nt4Client.publishString(
+                                if (isFtc) DRIVER_STATION_COMMAND_TOPIC else FRC_DRIVER_STATION_COMMAND_TOPIC,
+                                if (isFtc) "STOP" else FRC_DISABLE_COMMAND,
+                            )
                         }
                     },
                     enabled = isConnected,
@@ -491,7 +533,7 @@ fun LocalSimulatorControlBar(
                 ) {
                     Icon(
                         Icons.Default.Stop,
-                        if (isFtc) "Stop simulated OpMode" else "Disarm FRC desktop control",
+                        if (isFtc) "Stop simulated OpMode" else "Disable simulated FRC Driver Station",
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -551,11 +593,12 @@ fun LocalSimulatorControlBar(
                         ?: "Verify & build the current robot project before launching its simulator."
                     !isConnected && launchRequiresVerification -> "Verify the current project, then launch its simulator automatically. No code is deployed."
                     !isConnected -> "Launch the physics server here. When it connects, choose a TeleOp and Start driving."
-                    !isFtc -> if (keyboardDriveState.enabled) {
-                        "FRC field-centric control armed: W crosses the field toward the opposing station (+/-X). Loopback only."
-                    } else {
-                        "Enable TeleOp in the WPILib Simulation GUI, then Arm control. Robot-centric axes remain league-independent."
-                    }
+                    !isFtc && frcDriverStationState == FRC_WAITING_FOR_CONTROL_STATE ->
+                        "ARES is establishing a fresh neutral control lease before it enables the simulation-only Driver Station."
+                    !isFtc && keyboardDriveState.enabled ->
+                        "FRC TeleOp is enabled and field-centric control is armed: W drives toward the opposing station. Loopback only."
+                    !isFtc ->
+                        "Start driving enables the simulation-only Driver Station here; no external WPILib window is required."
                     startFailure != null -> "$startFailure. Stop, confirm the selected TeleOp, and try again."
                     !isRunning -> "Choose a TeleOp, then Start driving. The simulator can be online while no OpMode is running."
                     keyboardDriveState.enabled && !receiverReady ->

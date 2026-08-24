@@ -6,9 +6,11 @@ import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderIntent
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderStep
 import com.ares.analytics.viewmodel.drivebase.DrivebaseBuilderViewModel
 import com.ares.analytics.viewmodel.drivebase.DrivebaseDiscardAction
+import com.ares.analytics.viewmodel.drivebase.canonicalRuntimeProjectUid
 import com.ares.analytics.viewmodel.drivebase.evaluateDriveLab
 import com.ares.analytics.viewmodel.drivebase.evaluateGeometryLab
 import com.ares.analytics.viewmodel.drivebase.evaluateLocalizationFailure
+import com.ares.analytics.viewmodel.drivebase.withCanonicalProjectIdentity
 import com.ares.analytics.viewmodel.drivebase.LocalizationFailureScenario
 import java.io.File
 import java.nio.file.Files
@@ -73,6 +75,134 @@ class DrivebaseAuthoringTest {
         assertTrue(validateDrivebaseForLeague(defaultDrivebase("team", DrivebaseKind.FTC_MECANUM), League.FTC).none {
             it.path == "runtime"
         })
+    }
+
+    @Test
+    fun `default FRC CTRE swerve starts with unique simulation addresses and is reviewable`() {
+        val draft = defaultDrivebase("team", DrivebaseKind.FRC_CTRE_SWERVE)
+        val initialErrors = validateDrivebaseForLeague(draft, League.FRC)
+            .filter { it.severity == DrivebaseIssueSeverity.ERROR }
+        assertEquals((1..13).toList(), draft.hardware.map { it.canId })
+        assertTrue(draft.hardware.all { it.canBus == "rio" })
+        assertTrue(initialErrors.isEmpty(), initialErrors.joinToString("\n") { "${it.path}: ${it.message}" })
+    }
+
+    @Test
+    fun `FRC simulation address helper assigns unique placeholders without claiming physical evidence`() = runBlocking {
+        val root = Files.createTempDirectory("ares-frc-sim-addresses").toFile()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val viewModel = DrivebaseBuilderViewModel(root.path, "frc-team", League.FRC, scope)
+        try {
+            withTimeout(5_000) { viewModel.state.first { !it.loading } }
+            viewModel.onIntent(DrivebaseBuilderIntent.UseSimulationCanIds)
+
+            val state = viewModel.state.value
+            assertEquals((1..13).toList(), state.draft.hardware.map { it.canId })
+            assertTrue(state.draft.hardware.all { it.canBus == "rio" })
+            assertTrue(state.status.contains("simulation-only"))
+            assertTrue(state.issues.none { it.severity == DrivebaseIssueSeverity.ERROR }, state.issues.joinToString("\n") { it.message })
+        } finally {
+            scope.cancel()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `drivebase builder uses canonical project identity and repairs stale profile ownership`() = runBlocking {
+        val root = Files.createTempDirectory("ares-drivebase-project-identity").toFile()
+        File(root, ".ares-robot.json").writeText(
+            """{"teamId":"99998","seasonId":"2026","robotId":"VisibleFrcRobot","name":"Visible FRC Robot","league":"FRC"}""",
+        )
+        val stale = canonicalTemplate("VisibleFrcRobot", DrivebaseKind.FRC_CTRE_SWERVE).toUiDrivebase()
+        val runtimeProjectUid = "team99998.frc.season2026.visiblefrcrobot"
+        val repaired = stale.withCanonicalProjectIdentity(runtimeProjectUid)
+
+        assertEquals(runtimeProjectUid, canonicalRuntimeProjectUid(root.path, "VisibleFrcRobot", League.FRC))
+        assertEquals(runtimeProjectUid, repaired.projectId)
+        assertEquals(
+            "$runtimeProjectUid.profile.competition",
+            repaired.canonical?.canonicalProfileUid,
+        )
+        assertEquals(
+            runtimeProjectUid,
+            requireNotNull(repaired.canonical).toUiDrivebase().projectId,
+        )
+        assertEquals(
+            setOf("projectId", "canonicalProfileUid"),
+            diffDrivebase(stale, repaired).map { it.path }.toSet(),
+        )
+        root.deleteRecursively()
+        Unit
+    }
+
+    @Test
+    fun `reviewed save migrates a legacy profile identity with an immutable history backup`() {
+        val root = Files.createTempDirectory("ares-drivebase-profile-identity-migration").toFile()
+        try {
+            val ares = File(root, ".ares")
+            val drivetrainDirectory = File(ares, "drivetrains").apply { mkdirs() }
+            val tuningDirectory = File(ares, "tuning").apply { mkdirs() }
+            val current = canonicalTemplate("VisibleFrcRobot", DrivebaseKind.FRC_CTRE_SWERVE).let { template ->
+                template.copy(components = template.components.mapIndexed { index, component ->
+                    component.copy(hardwareId = (index + 1).toString())
+                })
+            }
+            val currentFile = File(drivetrainDirectory, "primary.aresdrivetrain")
+            currentFile.writeText(DrivetrainDocumentCodec.encode(current))
+            val expectedProjectUid = "team99998.frc.season2026.visiblefrcrobot"
+            val legacyProfile = com.areslib.tuning.TuningProfileDocument(
+                uid = current.canonicalProfileUid,
+                profileId = "competition",
+                displayName = "Competition",
+                description = "Legacy Studio identity",
+                projectUid = "visiblefrcrobot",
+                drivebaseUid = current.uid,
+                authority = TuningProfileAuthority.CANONICAL_CHECKED_IN,
+                values = emptyList(),
+            )
+            val simulationProfile = legacyProfile.copy(
+                uid = "$expectedProjectUid.profile.simulation",
+                profileId = "simulation",
+                displayName = "Simulation",
+                projectUid = expectedProjectUid,
+                drivebaseUid = "retired.drivebase",
+                values = listOf(
+                    com.areslib.tuning.TuningAssignment(
+                        "frc.starter.path.velocity-scale",
+                        com.areslib.tuning.TuningValue(doubleValue = 0.5),
+                    ),
+                ),
+            )
+            val legacyFile = File(tuningDirectory, "legacy.arestuning")
+            legacyFile.writeText(com.areslib.tuning.TuningProfileDocumentCodec.encode(legacyProfile, emptyList()))
+            File(tuningDirectory, "simulation.arestuning").writeText(
+                com.google.gson.GsonBuilder().setPrettyPrinting().create().toJson(simulationProfile),
+            )
+            val repaired = current.toUiDrivebase().withCanonicalProjectIdentity(expectedProjectUid)
+            val repository = DrivebaseProjectRepository()
+
+            val repairIssues = repository.tuningProfileRepairIssues(root.path, repaired)
+            assertTrue(repairIssues.any { it.contains("removed parameter") })
+            assertTrue(repairIssues.any { it.contains("retired drivebase") })
+
+            repository.saveReviewed(
+                root.path,
+                DrivetrainDocumentCodec.contentHash(current),
+                repaired,
+            )
+
+            assertFalse(legacyFile.exists(), "The stale identity file should be replaced only after its backup is durable")
+            val loaded = com.ares.analytics.service.tuning.TuningProfileRepository().load(root.path).getOrThrow()
+            assertEquals(setOf(expectedProjectUid), loaded.profiles.map { it.projectUid }.toSet())
+            assertTrue(loaded.profiles.any { it.uid == "$expectedProjectUid.profile.competition" })
+            val repairedSimulation = loaded.profiles.single { it.profileId == "simulation" }
+            assertTrue(repairedSimulation.values.isEmpty())
+            assertEquals(current.uid, repairedSimulation.drivebaseUid)
+            assertTrue(File(ares, "history/tuning/${legacyProfile.uid}").walkTopDown().any { it.extension == "arestuning" })
+            assertTrue(File(ares, "history/tuning/${simulationProfile.uid}").walkTopDown().any { it.extension == "arestuning" })
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     @Test

@@ -407,10 +407,11 @@ class Nt4ClientServiceTest {
     fun `canonical subscription prefixes cover every ARES publisher family`() {
         val prefixes = Nt4ClientService.CANONICAL_SUBSCRIPTION_PREFIXES
         listOf(
-            "/ARES", "/Drive", "/Robot", "/Hardware", "/Topology", "/Tuning",
-            "/Profiling", "/Diagnostics", "/Vision", "/Path", "/Gamepad1", "/Gamepad2",
-            "/Superstructure", "/Calibration", "/SysId", "/Swerve"
+            "ARES", "Drive", "Robot", "Hardware", "Topology", "Tuning",
+            "Profiling", "Diagnostics", "Vision", "Path", "Gamepad1", "Gamepad2",
+            "Superstructure", "Subsystems", "Calibration", "SysId", "Swerve"
         ).forEach { prefix -> assertTrue(prefix in prefixes, "missing subscription for $prefix") }
+        assertTrue(prefixes.none { it.startsWith('/') }, "canonical subscriptions must match slash-free publishers")
     }
 
     @Test
@@ -528,6 +529,18 @@ class Nt4ClientServiceTest {
         delay(300)
 
         assertEquals(attemptsAtStop, nt4ClientService.connectionMetrics().attempts)
+        assertFalse(nt4ClientService.isConnected.value)
+    }
+
+    @Test
+    fun `terminal disposal rejects Compose restart during desktop shutdown`() = runBlocking {
+        assertTrue(nt4ClientService.disposeAndJoin())
+        val attemptsAtDisposal = nt4ClientService.connectionMetrics().attempts
+
+        nt4ClientService.start("127.0.0.1", "team", "season", "robot", port = 1)
+        delay(300)
+
+        assertEquals(attemptsAtDisposal, nt4ClientService.connectionMetrics().attempts)
         assertFalse(nt4ClientService.isConnected.value)
     }
 

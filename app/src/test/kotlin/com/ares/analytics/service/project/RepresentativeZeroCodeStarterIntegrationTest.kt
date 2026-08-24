@@ -37,6 +37,7 @@ import com.areslib.superstructure.SuperstructureSubsystemTarget
 import kotlinx.coroutines.runBlocking
 import org.junit.Assume.assumeTrue
 import java.io.File
+import java.net.URI
 import java.nio.file.Files
 import java.util.concurrent.TimeUnit
 import kotlin.test.Test
@@ -244,7 +245,7 @@ class RepresentativeZeroCodeStarterIntegrationTest {
     private fun runConsumerBuild(project: File, league: League, repository: String, version: String) {
         val commonArguments = listOf(
             "-ParesVersion=$version",
-            "-ParesRepository=${File(repository).canonicalFile.toURI().toASCIIString()}",
+            "-ParesRepository=${validationRepositoryUri(repository)}",
             "--refresh-dependencies",
             "--no-parallel",
             "--no-daemon",
@@ -321,5 +322,11 @@ class RepresentativeZeroCodeStarterIntegrationTest {
 
     private companion object {
         val SKIPPED_DIRECTORIES = setOf(".git", ".gradle", "build", ".idea")
+
+        fun validationRepositoryUri(value: String): String {
+            val file = if (value.startsWith("file:", ignoreCase = true)) File(URI(value)) else File(value)
+            require(file.isDirectory) { "Representative validation repository does not exist: $value" }
+            return file.canonicalFile.toURI().toASCIIString()
+        }
     }
 }

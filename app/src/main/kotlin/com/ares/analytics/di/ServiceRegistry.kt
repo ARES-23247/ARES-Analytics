@@ -158,9 +158,10 @@ class ServiceRegistry {
                 }
             },
             closeDependencies = {
-                // Nt4ClientService.stop() cancels and joins the WebSocket client job.
+                // Terminal disposal cancels and joins the WebSocket client job, then rejects
+                // Compose-driven restarts while later process shutdown updates UI state.
                 if (lazyFieldInitialized(::nt4ClientService)) {
-                    telemetryPersisted = nt4ClientService.stop()
+                    telemetryPersisted = nt4ClientService.disposeAndJoin()
                 }
                   if (lazyFieldInitialized(::processManagerService)) {
                       processManagerService.shutdown()

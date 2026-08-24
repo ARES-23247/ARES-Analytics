@@ -3,6 +3,7 @@ package com.ares.analytics.service.drivebase
 import com.areslib.drivetrain.DrivetrainDocumentCodec
 import com.ares.analytics.service.tuning.TuningProfileRepository
 import com.areslib.tuning.*
+import com.google.gson.JsonParser
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -26,15 +27,27 @@ class DrivebaseProjectRepository {
             "Fix drivebase validation errors before saving."
         }
         val saved = normalized
-        val tuningWorkspace = TuningProfileRepository().load(projectPath).getOrThrow()
+        val tuningRepository = TuningProfileRepository()
+        val tuningWorkspace = tuningRepository.loadForIdentityRepair(projectPath).getOrThrow()
         val matchingProfiles = tuningWorkspace.profiles.filter { it.uid == canonical.canonicalProfileUid }
         require(matchingProfiles.size <= 1) { "Multiple tuning profiles claim ${canonical.canonicalProfileUid}. Resolve them before saving." }
         val canonicalProjectUid = canonical.canonicalProfileUid.substringBefore(".profile.")
         val matchingProfile = matchingProfiles.singleOrNull()
+        val previousProfileUid = current?.canonical?.canonicalProfileUid
+        val legacyProfiles = if (matchingProfile == null && previousProfileUid != null && previousProfileUid != canonical.canonicalProfileUid) {
+            tuningWorkspace.profiles.filter { it.uid == previousProfileUid }
+        } else emptyList()
+        require(legacyProfiles.size <= 1) { "Multiple tuning profiles claim legacy identity $previousProfileUid. Resolve them before saving." }
+        val legacyProfile = legacyProfiles.singleOrNull()
         require(matchingProfile == null ||
             (matchingProfile.projectUid == canonicalProjectUid && matchingProfile.drivebaseUid == canonical.uid && matchingProfile.authority == TuningProfileAuthority.CANONICAL_CHECKED_IN)
         ) { "Canonical tuning profile ${canonical.canonicalProfileUid} targets a different project or drivebase." }
-        val baseProfile = matchingProfile ?: TuningProfileDocument(
+        val baseProfile = matchingProfile ?: legacyProfile?.copy(
+            uid = canonical.canonicalProfileUid,
+            profileId = canonical.canonicalProfileUid.substringAfterLast('.'),
+            projectUid = canonicalProjectUid,
+            drivebaseUid = canonical.uid,
+        ) ?: TuningProfileDocument(
             uid = canonical.canonicalProfileUid,
             profileId = canonical.canonicalProfileUid.substringAfterLast('.'),
             displayName = "Competition",
@@ -44,7 +57,14 @@ class DrivebaseProjectRepository {
             authority = TuningProfileAuthority.CANONICAL_CHECKED_IN,
             values = canonical.parameters.map { TuningAssignment(it.uid, it.defaultValue) },
         )
-        val existingAssignments = baseProfile.values.associateBy { it.parameterUid }
+        val catalog = (tuningWorkspace.catalog + canonical.parameters)
+            .associateBy { it.uid }
+            .values
+            .sortedBy { it.uid }
+        val allowedParameterUids = catalog.mapTo(hashSetOf()) { it.uid }
+        val existingAssignments = baseProfile.values
+            .filter { it.parameterUid in allowedParameterUids }
+            .associateBy { it.parameterUid }
         val closedLoopUid = canonical.parameters.singleOrNull { it.key == CLOSED_LOOP_VELOCITY_KEY }?.uid
         val reconciledAssignments = buildList {
             existingAssignments.values.forEach { assignment ->
@@ -57,36 +77,63 @@ class DrivebaseProjectRepository {
             }
         }.distinctBy { it.parameterUid }.sortedBy { it.parameterUid }
         val updatedProfile = baseProfile.copy(values = reconciledAssignments)
-        val catalog = (tuningWorkspace.catalog + canonical.parameters)
-            .associateBy { it.uid }
-            .values
-            .sortedBy { it.uid }
         val profileDirectory = File(projectPath, ".ares/tuning")
-        val profileFile = matchingProfile?.let { existing ->
+        fun profileFileFor(existing: TuningProfileDocument): File? =
             profileDirectory.listFiles { file -> file.extension == "arestuning" }
                 ?.singleOrNull { file ->
-                    runCatching { TuningProfileDocumentCodec.decode(file.readText(), tuningWorkspace.catalog).uid }
+                    runCatching { JsonParser.parseString(file.readText()).asJsonObject.get("uid").asString }
                         .getOrNull() == existing.uid
                 }
-        } ?: File(profileDirectory, "${updatedProfile.uid}.arestuning")
+        val legacyProfileFile = legacyProfile?.let(::profileFileFor)
+        val profileFile = matchingProfile?.let(::profileFileFor)
+            ?: File(profileDirectory, "${updatedProfile.uid}.arestuning")
+        val additionalProfileRepairs = tuningWorkspace.profiles
+            .filterNot { it.uid == matchingProfile?.uid || it.uid == legacyProfile?.uid }
+            .mapNotNull { profile ->
+                val repaired = profile.copy(
+                    drivebaseUid = if (profile.projectUid == canonicalProjectUid && profile.drivebaseUid != null) canonical.uid else profile.drivebaseUid,
+                    values = profile.values.filter { it.parameterUid in allowedParameterUids },
+                )
+                if (repaired == profile) null else requireNotNull(profileFileFor(profile)) to repaired
+            }
         val target = current?.let { existingFile(projectPath, requireNotNull(it.canonical).uid) }
             ?: File(File(projectPath, ".ares/drivetrains"), "${canonical.uid}.aresdrivetrain")
         target.parentFile.mkdirs()
         if (target.exists()) backupFile(projectPath, target, canonical.uid, DrivetrainDocumentCodec.contentHash(current!!.toCanonicalDrivebase()))
-        if (profileFile.exists()) {
-            val profileHash = TuningProfileDocumentCodec.contentHash(baseProfile, tuningWorkspace.catalog)
-            val profileBackup = File(projectPath, ".ares/history/tuning/${baseProfile.uid}/${profileHash.take(16)}.arestuning")
+        val sourceProfileFile = legacyProfileFile ?: profileFile.takeIf(File::exists)
+        val sourceProfile = legacyProfile ?: matchingProfile
+        if (sourceProfileFile != null && sourceProfile != null) {
+            val profileHash = contentSha256(sourceProfileFile.readText())
+            val profileBackup = File(projectPath, ".ares/history/tuning/${sourceProfile.uid}/${profileHash.take(16)}.arestuning")
             profileBackup.parentFile.mkdirs()
-            Files.copy(profileFile.toPath(), profileBackup.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            Files.copy(sourceProfileFile.toPath(), profileBackup.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+        additionalProfileRepairs.forEach { (file, profile) ->
+            val profileBackup = File(projectPath, ".ares/history/tuning/${profile.uid}/${contentSha256(file.readText()).take(16)}.arestuning")
+            profileBackup.parentFile.mkdirs()
+            Files.copy(file.toPath(), profileBackup.toPath(), StandardCopyOption.REPLACE_EXISTING)
         }
         val priorTarget = target.takeIf(File::exists)?.readText()
         val priorProfile = profileFile.takeIf(File::exists)?.readText()
+        val priorLegacyProfile = legacyProfileFile?.takeIf(File::exists)?.readText()
+        val priorAdditionalProfiles = additionalProfileRepairs.associate { (file, _) -> file to file.readText() }
         try {
             atomicWrite(profileFile, TuningProfileDocumentCodec.encode(updatedProfile, catalog))
+            additionalProfileRepairs.forEach { (file, profile) ->
+                atomicWrite(file, TuningProfileDocumentCodec.encode(profile, catalog))
+            }
             atomicWrite(target, DrivetrainDocumentCodec.encode(canonical))
+            if (legacyProfileFile != null && legacyProfileFile != profileFile) {
+                Files.deleteIfExists(legacyProfileFile.toPath())
+            }
+            tuningRepository.load(projectPath).getOrThrow()
         } catch (failure: Exception) {
             restoreOrDelete(profileFile, priorProfile)
             restoreOrDelete(target, priorTarget)
+            if (legacyProfileFile != null && legacyProfileFile != profileFile && !legacyProfileFile.exists()) {
+                if (priorLegacyProfile != null) atomicWrite(legacyProfileFile, priorLegacyProfile)
+            }
+            priorAdditionalProfiles.forEach { (file, text) -> atomicWrite(file, text) }
             throw failure
         }
         return saved
@@ -114,6 +161,33 @@ class DrivebaseProjectRepository {
         backup.parentFile.mkdirs()
         Files.copy(source.toPath(), backup.toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
+
+    fun tuningProfileRepairIssues(projectPath: String, document: DrivebaseDocument): List<String> {
+        val canonical = document.canonical ?: return emptyList()
+        return runCatching {
+            val workspace = TuningProfileRepository().loadForIdentityRepair(projectPath).getOrThrow()
+            val projectUid = canonical.canonicalProfileUid.substringBefore(".profile.")
+            val declared = (workspace.catalog + canonical.parameters).mapTo(hashSetOf()) { it.uid }
+            buildList {
+                if (workspace.profiles.none { it.uid == canonical.canonicalProfileUid }) {
+                    add("Create or migrate canonical profile ${canonical.canonicalProfileUid}.")
+                }
+                workspace.profiles.forEach { profile ->
+                    if (profile.projectUid != projectUid) {
+                        add("Profile ${profile.uid} targets legacy project ${profile.projectUid}.")
+                    }
+                    if (profile.projectUid == projectUid && profile.drivebaseUid != null && profile.drivebaseUid != canonical.uid) {
+                        add("Profile ${profile.uid} targets retired drivebase ${profile.drivebaseUid}.")
+                    }
+                    val obsolete = profile.values.map { it.parameterUid }.filterNot(declared::contains)
+                    if (obsolete.isNotEmpty()) add("Profile ${profile.uid} assigns removed parameter(s): ${obsolete.joinToString()}.")
+                }
+            }.distinct()
+        }.getOrElse { failure -> listOf("Tuning profiles need reviewed repair: ${failure.message}") }
+    }
+
+    private fun contentSha256(text: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(text.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
     private fun atomicWrite(target: File, content: String) {
         target.parentFile.mkdirs()

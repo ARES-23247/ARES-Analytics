@@ -120,6 +120,38 @@ fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewMo
     }
     SectionHeading("2 · Identify hardware", hardwareGuidance)
 
+    if (state.draft.kind == DrivebaseKind.FRC_CTRE_SWERVE &&
+        state.issues.any { it.severity == DrivebaseIssueSeverity.ERROR && it.message.contains("Hardware ID") }
+    ) {
+        Surface(
+            color = AresGold.copy(alpha = 0.10f),
+            border = BorderStroke(1.dp, AresGold.copy(alpha = 0.65f)),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Need to practice before the robot is wired?", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        "ARES can assign unique placeholder CAN IDs for desktop simulation. They are not a physical wiring plan and must be replaced before commissioning.",
+                        color = AresTextSecondary,
+                        fontSize = 10.sp,
+                    )
+                }
+                OutlinedButton(
+                    onClick = { viewModel.onIntent(DrivebaseBuilderIntent.UseSimulationCanIds) },
+                    border = BorderStroke(1.dp, AresGold),
+                ) {
+                    Text("Use simulation IDs", color = AresGold, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 440.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -197,7 +229,15 @@ fun HardwareStep(state: DrivebaseBuilderState, viewModel: DrivebaseBuilderViewMo
                 ) {
                     Column {
                         Text("DRIVE MOTORS (2×2 PHYSICAL LAYOUT)", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                        Text("FTC hardware-map names: fl, fr, rl, rr", color = AresTextTertiary, fontSize = 10.sp)
+                        Text(
+                            if (state.league == com.ares.analytics.shared.League.FTC) {
+                                "FTC hardware-map names: fl, fr, rl, rr"
+                            } else {
+                                "FRC: assign a unique CAN ID and bus to every drive device"
+                            },
+                            color = AresTextTertiary,
+                            fontSize = 10.sp,
+                        )
                     }
                 }
 
@@ -818,7 +858,15 @@ fun HardwareEditor(
     Text(device.displayName, color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 16.sp)
     Text(device.role.name.lowercase().replace('_', ' '), color = AresTextSecondary, fontSize = 10.sp)
     HelpedTextField("Display name", device.displayName, "A student-facing label. It does not change the stable device ID.") { onUpdate(device.copy(displayName = it)) }
-    HelpedTextField("Hardware-map name", device.hardwareName, "The exact configured name used by FTC or a named FRC device.") { onUpdate(device.copy(hardwareName = it)) }
+    HelpedTextField(
+        if (device.canId != null) "Device label (optional)" else "Hardware-map name",
+        device.hardwareName,
+        if (device.canId != null) {
+            "A readable project label. The CAN ID below is the physical device address."
+        } else {
+            "The exact configured name used by the FTC Robot Controller."
+        },
+    ) { onUpdate(device.copy(hardwareName = it)) }
     if (advanced) {
         var roleMenu by remember(device.id) { mutableStateOf(false) }
         Box {

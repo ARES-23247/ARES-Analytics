@@ -101,6 +101,7 @@ class SubsystemHealthAccumulator(
         private const val NANOS_PER_MILLISECOND = 1_000_000L
         private const val SUBSYSTEM_PREFIX = "Subsystems/"
         private val HEALTH_SIGNAL_NAMES = setOf(
+            "TelemetryHeartbeat",
             "FeedbackValid",
             "ConfigurationHealthy",
             "Homed",

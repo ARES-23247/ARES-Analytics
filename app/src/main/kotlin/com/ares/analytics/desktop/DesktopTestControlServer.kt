@@ -10,6 +10,7 @@ import kotlin.concurrent.thread
 
 internal sealed interface DesktopTestCommand {
     data class Click(val x: Int, val y: Int) : DesktopTestCommand
+    data class Wheel(val x: Int, val y: Int, val rotation: Int) : DesktopTestCommand
     data class Key(val keyCode: Int, val modifiers: Int) : DesktopTestCommand
     data class KeyDown(val keyCode: Int, val modifiers: Int) : DesktopTestCommand
     data class KeyUp(val keyCode: Int, val modifiers: Int) : DesktopTestCommand
@@ -26,6 +27,15 @@ internal object DesktopTestCommandParser {
             "CLICK" -> {
                 require(parts.size == 3) { "CLICK requires x and y coordinates" }
                 DesktopTestCommand.Click(parts[1].toInt(), parts[2].toInt())
+            }
+            "WHEEL" -> {
+                val wheelParts = line.trim().split(' ')
+                require(wheelParts.size == 4) { "WHEEL requires x, y, and rotation" }
+                DesktopTestCommand.Wheel(
+                    x = wheelParts[1].toInt(),
+                    y = wheelParts[2].toInt(),
+                    rotation = wheelParts[3].toInt(),
+                )
             }
             "KEY" -> {
                 require(parts.size >= 2) { "KEY requires a Java key code" }

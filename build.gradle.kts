@@ -39,6 +39,7 @@ val verifyReleaseVersionAlignment = tasks.register("verifyReleaseVersionAlignmen
     val templateDirectory = file("app/src/main/resources/project-templates")
     inputs.files(releasePropertiesFile, appBuildFile, templateServiceFile, workflowFile)
     inputs.dir(templateDirectory)
+    inputs.property("resolvedAresVersion", resolvedAresVersion)
 
     doLast {
         val properties = java.util.Properties().apply {
@@ -73,6 +74,21 @@ val verifyReleaseVersionAlignment = tasks.register("verifyReleaseVersionAlignmen
         val ftcHash = requiredProperty("aresFtcStarterSha256").lowercase()
         val frcVersion = requiredProperty("aresFrcStarterVersion")
         val frcHash = requiredProperty("aresFrcStarterSha256").lowercase()
+
+        if (resolvedAresVersion != aresVersion) {
+            val validationRepository = providers.gradleProperty("aresRepository").orNull?.trim().orEmpty()
+            if (validationRepository.isEmpty() || !resolvedAresVersion.startsWith("$aresVersion-")) {
+                throw GradleException(
+                    "Release preflight: resolved ARES dependency $resolvedAresVersion does not match " +
+                        "the pinned release $aresVersion. Use the pinned release, or pass an explicit " +
+                        "isolated -ParesRepository with a $aresVersion-* validation candidate.",
+                )
+            }
+            logger.lifecycle(
+                "Release preflight is validating isolated ARES candidate $resolvedAresVersion " +
+                    "for pinned release $aresVersion.",
+            )
+        }
 
         requireContains(
             appBuildFile,
@@ -136,7 +152,8 @@ val verifyReleaseVersionAlignment = tasks.register("verifyReleaseVersionAlignmen
         }
 
         logger.lifecycle(
-            "Release preflight passed: Studio $appVersion, ARES $aresVersion, " +
+            "Release preflight passed: Studio $appVersion, ARES dependency $resolvedAresVersion " +
+                "(release pin $aresVersion), " +
                 "FTC starter $ftcVersion, FRC starter $frcVersion.",
         )
     }

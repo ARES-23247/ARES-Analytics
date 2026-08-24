@@ -10,11 +10,13 @@ import com.areslib.codegen.SubsystemStarterReconciler
 import com.areslib.subsystem.SubsystemDocumentCodec
 import com.areslib.subsystem.SubsystemPlatform
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.net.URI
+import java.util.Locale
 import java.nio.file.Paths
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -107,6 +109,7 @@ class ProcessManagerService internal constructor(
     private val monitorAdbConnection: Boolean,
     aresRepositoryUri: String?,
     aresVersion: String? = null,
+    gradleJavaInstallations: List<File> = ManagedToolchainPaths.gradleJavaInstallations(),
 ) : AresProjectGenerator {
 
     constructor() : this(
@@ -131,11 +134,27 @@ class ProcessManagerService internal constructor(
         ?.let(::validatedAresVersion)
     private val aresVersionArgument = explicitAresVersion
         ?.let { "-ParesVersion=$it" }
+    private val gradleJavaInstallationsArgument = gradleJavaInstallations
+        .mapNotNull { runCatching { it.canonicalFile }.getOrNull() }
+        .distinctBy { it.path.lowercase(Locale.ROOT) }
+        .takeIf(List<File>::isNotEmpty)
+        ?.joinToString(",") { it.path }
+        ?.let { "-Porg.gradle.java.installations.paths=$it" }
 
-    private val _buildOutput = MutableSharedFlow<String>(replay = 200)
+    // Build tools can emit thousands of lines in a burst. Terminal rendering must never apply
+    // back-pressure to the child process or its stdout pipe can fill and deadlock Gradle.
+    private val _buildOutput = MutableSharedFlow<String>(
+        replay = 200,
+        extraBufferCapacity = 800,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     val buildOutput: SharedFlow<String> = _buildOutput.asSharedFlow()
 
-    private val _logcatOutput = MutableSharedFlow<String>(replay = 200)
+    private val _logcatOutput = MutableSharedFlow<String>(
+        replay = 200,
+        extraBufferCapacity = 800,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
     val logcatOutput: SharedFlow<String> = _logcatOutput.asSharedFlow()
 
     private val _isSimRunning = MutableStateFlow(false)
@@ -232,12 +251,26 @@ class ProcessManagerService internal constructor(
             val command = verificationBuildCommand(league, isWindows)
 
             _buildOutput.emit("[SYSTEM] Starting compile-only project verification: ${command.joinToString(" ")}")
-            val exitCode = runOwnedBuildProcess(
+            var transientGradleCacheMoveFailure = false
+            suspend fun runVerificationAttempt(): Int = runOwnedBuildProcess(
                 generation,
                 withAresRepositoryEnvironment(ProcessBuilder(command)
                     .directory(projectRoot)
                     .redirectErrorStream(true))
-            ) { line -> _buildOutput.emit(line) }
+            ) { line ->
+                if (isTransientGradleCacheMoveFailure(line)) transientGradleCacheMoveFailure = true
+                _buildOutput.emit(line)
+            }
+            var exitCode = runVerificationAttempt()
+            if (exitCode != 0 && transientGradleCacheMoveFailure) {
+                currentCoroutineContext().ensureActive()
+                _buildOutput.emit(
+                    "[SYSTEM] Gradle's local transform cache was temporarily locked. " +
+                        "Retrying verification once; no project files were changed.",
+                )
+                transientGradleCacheMoveFailure = false
+                exitCode = runVerificationAttempt()
+            }
             currentCoroutineContext().ensureActive()
             val result = if (exitCode == 0) {
                 BuildExecutionState(
@@ -368,7 +401,6 @@ class ProcessManagerService internal constructor(
                 if (diagnosticLines.size == GENERATION_DIAGNOSTIC_LINE_LIMIT) diagnosticLines.removeFirst()
                 diagnosticLines.addLast(line)
                 _buildOutput.emit(line)
-                updateGenerationStateIfOwner(generation, AresGenerationState(AresGenerationPhase.RUNNING, line.take(500)))
             }
             check(exitCode == 0) {
                 diagnosticLines.joinToString("\n").takeLast(GENERATION_DIAGNOSTIC_CHARACTER_LIMIT)
@@ -440,10 +472,6 @@ class ProcessManagerService internal constructor(
                 if (diagnosticLines.size == GENERATION_DIAGNOSTIC_LINE_LIMIT) diagnosticLines.removeFirst()
                 diagnosticLines.addLast(line)
                 _buildOutput.emit(line)
-                updateGenerationStateIfOwner(
-                    generation,
-                    AresGenerationState(AresGenerationPhase.RUNNING, line.take(500))
-                )
             }
             currentCoroutineContext().ensureActive()
             if (exitCode != 0) {
@@ -523,7 +551,7 @@ class ProcessManagerService internal constructor(
             runOwnedBuildProcess(
                 generation,
                 ProcessBuilder(command).redirectErrorStream(true)
-            ) { }
+            ) { line -> _buildOutput.emit(line) }
         }
     }
 
@@ -1171,6 +1199,7 @@ class ProcessManagerService internal constructor(
 
     private fun withAresRepository(command: List<String>): List<String> = buildList {
         addAll(command)
+        gradleJavaInstallationsArgument?.let(::add)
         aresRepositoryArgument?.let(::add)
         aresVersionArgument?.let(::add)
     }
@@ -1312,5 +1341,11 @@ class ProcessManagerService internal constructor(
         val GENERATED_CONTENT_HASH = Regex("CONTENT_SHA256:\\s*String\\s*=\\s*\"([0-9a-fA-F]{64})\"")
         val ARES_VERSION_PATTERN = Regex("[0-9]+\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?")
     }
+}
+
+internal fun isTransientGradleCacheMoveFailure(line: String): Boolean {
+    val normalized = line.lowercase()
+    return normalized.contains("could not move temporary workspace") ||
+        (normalized.contains("temporary workspace") && normalized.contains("immutable location"))
 }
 

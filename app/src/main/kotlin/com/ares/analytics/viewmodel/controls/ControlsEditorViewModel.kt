@@ -442,12 +442,66 @@ class ControlsEditorViewModel(
 
     fun setTarget(kind: ControlTargetKind, key: String) = updateDraft { draft ->
         val action = _state.value.actions.firstOrNull { it.key == key }
-        draft.copy(target = ControlTargetDocument(
-            kind = kind,
-            key = key,
-            arguments = if (kind == ControlTargetKind.ACTION && action != null) defaultArguments(action) else emptyMap(),
-            routinePolicy = draft.target.routinePolicy
-        ))
+        val previousAction = _state.value.actions.firstOrNull { it.key == draft.target.key }
+        val defaultControlName = _state.value.selectedControl?.let { "${it.displayName} binding" }
+        draft.copy(
+            displayName = if (
+                action != null &&
+                (draft.displayName == defaultControlName || draft.displayName == previousAction?.displayName)
+            ) {
+                action.displayName
+            } else {
+                draft.displayName
+            },
+            target = ControlTargetDocument(
+                kind = kind,
+                key = key,
+                arguments = if (kind == ControlTargetKind.ACTION && action != null) defaultArguments(action) else emptyMap(),
+                routinePolicy = draft.target.routinePolicy
+            )
+        )
+    }
+
+    /**
+     * Applies the common safe momentary-output pattern as one reviewed edit: command the chosen
+     * voltage/duty-cycle while held and explicitly command zero when the button is released.
+     */
+    fun addSafeMomentaryPair() = mutateSelection { current ->
+        val draft = current.draftBinding
+            ?: return@mutateSelection current.copy(status = "Create a binding draft first.")
+        if (current.selectedBindingId != null) {
+            return@mutateSelection current.copy(status = "Safe pairs can be added from a new binding. Edit existing bindings individually.")
+        }
+        if (draft.source.kind != ControlSourceKind.BUTTON) {
+            return@mutateSelection current.copy(status = "A safe hold-and-release pair requires one button input.")
+        }
+        val action = current.actions.firstOrNull { it.key == draft.target.key }
+            ?: return@mutateSelection current.copy(status = "Choose a project action first.")
+        val outputParameter = momentaryOutputParameter(action)
+            ?: return@mutateSelection current.copy(status = "That action is not a momentary voltage or duty-cycle output.")
+        if (current.problems.any { it.severity == ControlsProblemSeverity.ERROR && (it.bindingId == null || it.bindingId == draft.bindingId) }) {
+            return@mutateSelection current.copy(status = "Fix the highlighted binding errors before adding the safe pair.")
+        }
+        val scheme = current.selectedScheme ?: return@mutateSelection current
+        val runBinding = draft.copy(
+            displayName = "${action.displayName} while held",
+            event = ControlEvent.HELD,
+        )
+        val stopBinding = draft.copy(
+            bindingId = uniqueBindingId(scheme.copy(bindings = scheme.bindings + runBinding), "${draft.bindingId}-release"),
+            displayName = "Stop ${action.category.ifBlank { "output" }.lowercase()} on release",
+            event = ControlEvent.RELEASE,
+            target = draft.target.copy(arguments = draft.target.arguments + (outputParameter.key to "0")),
+        )
+        val updated = scheme.copy(bindings = scheme.bindings + runBinding + stopBinding)
+        current.replaceScheme(updated).copy(
+            selectedBindingId = runBinding.bindingId,
+            draftBinding = null,
+            draftHasUnappliedChanges = false,
+            dirty = true,
+            dirtySchemeIds = current.dirtySchemeIds + updated.documentId,
+            status = "Added a safe pair: hold to command output and release to command zero.",
+        ).revalidated()
     }
 
     fun setTargetArgument(key: String, value: String) = updateDraft { draft ->
@@ -985,6 +1039,22 @@ class ControlsEditorViewModel(
         scope.cancel()
     }
 }
+
+internal fun momentaryOutputParameter(action: ActionDescriptor): CapabilityParameterDescriptor? =
+    action.parameters.firstOrNull { parameter ->
+        if (parameter.type != CapabilityParameterType.NUMBER) return@firstOrNull false
+        val normalizedUnit = parameter.unit.orEmpty().trim().lowercase()
+        normalizedUnit in setOf(
+            "v",
+            "volt",
+            "volts",
+            "%",
+            "percent",
+            "power",
+            "duty cycle",
+            "duty_cycle",
+        )
+    }
 
 internal fun describeControlsChanges(
     before: ControlSchemeDocument,

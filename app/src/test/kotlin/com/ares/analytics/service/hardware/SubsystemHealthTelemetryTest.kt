@@ -19,6 +19,7 @@ class SubsystemHealthTelemetryTest {
         val accumulator = SubsystemHealthAccumulator()
         assertFalse(accumulator.accept(frame("Drive/FeedbackValid", 1.0), 10L))
         assertTrue(accumulator.accept(frame("/Subsystems/arm/ConfigurationHealthy", 1.0), 10L))
+        accumulator.accept(frame("Subsystems/arm/TelemetryHeartbeat", 1.0), 10L)
         accumulator.accept(frame("Subsystems/arm/FeedbackValid", 1.0), 10L)
         accumulator.accept(frame("Subsystems/arm/Homed", 1.0), 10L)
         accumulator.accept(frame("Subsystems/arm/Calibrated", 1.0), 10L)
@@ -64,5 +65,24 @@ class SubsystemHealthTelemetryTest {
             SubsystemHealthStatus.STALE,
             accumulator.snapshots(102_000_000L).single().status,
         )
+    }
+
+    @Test
+    fun `heartbeat keeps unchanged health live without appearing as a measurement`() {
+        val accumulator = SubsystemHealthAccumulator(staleAfterMs = 100L)
+        accumulator.accept(frame("Subsystems/claw/TelemetryHeartbeat", 1.0), 1_000_000L)
+        accumulator.accept(frame("Subsystems/claw/FeedbackValid", 1.0), 1_000_000L)
+        accumulator.accept(frame("Subsystems/claw/ConfigurationHealthy", 1.0), 1_000_000L)
+        accumulator.accept(frame("Subsystems/claw/Homed", 1.0), 1_000_000L)
+        accumulator.accept(frame("Subsystems/claw/Calibrated", 1.0), 1_000_000L)
+        accumulator.accept(frame("Subsystems/claw/CurrentReadingValid", 1.0), 1_000_000L)
+        accumulator.accept(frame("Subsystems/claw/HomingFaultLatched", 0.0), 1_000_000L)
+        accumulator.accept(frame("Subsystems/claw/OutputFaultLatched", 0.0), 1_000_000L)
+        accumulator.accept(frame("Subsystems/claw/TelemetryHeartbeat", 2.0), 99_000_000L)
+
+        val snapshot = accumulator.snapshots(150_000_000L).single()
+
+        assertEquals(SubsystemHealthStatus.HEALTHY, snapshot.status)
+        assertFalse(snapshot.measurements.containsKey("TelemetryHeartbeat"))
     }
 }

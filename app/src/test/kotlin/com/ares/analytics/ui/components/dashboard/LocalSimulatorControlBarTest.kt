@@ -57,6 +57,15 @@ class LocalSimulatorControlBarTest {
     }
 
     @Test
+    fun `FRC TeleOp requires the explicit simulation Driver Station acknowledgement`() {
+        assertTrue(frcSimulatorTeleOpEnabled("TELEOP_ENABLED"))
+        assertTrue(frcSimulatorTeleOpEnabled(" teleop_enabled "))
+        assertFalse(frcSimulatorTeleOpEnabled("WAITING_FOR_CONTROL"))
+        assertFalse(frcSimulatorTeleOpEnabled("DISABLED"))
+        assertFalse(frcSimulatorTeleOpEnabled(null))
+    }
+
+    @Test
     fun `malformed Driver Station inventory cannot crash the dashboard`() {
         assertEquals(emptyList(), decodeSimulatorTeleOps("not-json"))
         assertEquals(listOf("One", "Two"), decodeSimulatorTeleOps("[\"One\",\"Two\"]"))
