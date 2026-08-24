@@ -13,6 +13,7 @@ import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
 import java.awt.event.WindowFocusListener
 import java.awt.event.WindowListener
+import java.awt.event.WindowEvent
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -237,6 +238,10 @@ internal class AwtDesktopWindowPort(private val window: Window) : DesktopWindowP
                 "typed ${command.value.length} character(s)"
             }
             DesktopTestCommand.Capture -> onEventThread { captureTestFramebuffer() }
+            DesktopTestCommand.Close -> {
+                onEventThread { window.dispatchEvent(WindowEvent(window, WindowEvent.WINDOW_CLOSING)) }
+                "close requested"
+            }
             DesktopTestCommand.Ping -> "pong"
         }
     }

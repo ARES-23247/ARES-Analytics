@@ -32,6 +32,20 @@ $repository = ([Uri](Resolve-Path ..\ARESLib-Kotlin\build\release-repository)).A
 
 The sibling directory is not substituted automatically. Use `-ParesUseSiblingLib=true` only for focused library development; binary validation should use the isolated repository above.
 
+For a local GUI refinement cycle that also creates or builds robot projects, use the guarded launcher:
+
+```powershell
+.\scripts\run-local-ares.ps1
+# Before a larger checkpoint:
+.\scripts\run-local-ares.ps1 -FullValidation
+```
+
+It assigns a unique local candidate version, publishes ARESLib to the isolated validation repository,
+and forwards that exact version and repository to every child Gradle build started by Robotics Studio.
+This prevents the desktop UI from accepting a newer document schema while a generated FTC or FRC
+project silently resolves an older artifact with the same version. A direct `:app:run`
+with `-ParesUseSiblingLib=true` now fails early unless an explicit validation repository is also supplied.
+
 ## 2. Run modes
 
 Desktop application only:

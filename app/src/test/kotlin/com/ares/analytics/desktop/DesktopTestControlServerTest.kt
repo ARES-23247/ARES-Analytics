@@ -14,6 +14,7 @@ class DesktopTestControlServerTest {
         assertEquals(DesktopTestCommand.KeyDown(87, 0), DesktopTestCommandParser.parse("KEY_DOWN 87"))
         assertEquals(DesktopTestCommand.KeyUp(87, 0), DesktopTestCommandParser.parse("KEY_UP 87 0"))
         assertEquals(DesktopTestCommand.Capture, DesktopTestCommandParser.parse("CAPTURE"))
+        assertEquals(DesktopTestCommand.Close, DesktopTestCommandParser.parse("CLOSE"))
         assertEquals(DesktopTestCommand.Ping, DesktopTestCommandParser.parse("PING"))
 
         val encoded = Base64.getEncoder().encodeToString("Robot π".toByteArray(StandardCharsets.UTF_8))

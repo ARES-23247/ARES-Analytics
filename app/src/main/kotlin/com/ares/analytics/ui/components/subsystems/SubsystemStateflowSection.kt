@@ -20,9 +20,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.ui.screens.ConceptHelp
-import com.ares.analytics.ui.screens.ControlTheorySandboxLab
 import com.ares.analytics.ui.screens.FeedforwardConceptLab
 import com.ares.analytics.ui.screens.HomingConceptLab
+import com.ares.analytics.ui.screens.SubsystemCommissioningLab
 import com.ares.analytics.viewmodel.SubsystemGeneratorState
 import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
 import com.areslib.subsystem.*
@@ -188,7 +188,7 @@ fun ControlInspectorBody(
     val claimedActuators = document.controlLoops.filterNot { it.loopId == loop.loopId }.mapTo(mutableSetOf()) { it.actuatorId }
     val actuators = document.hardware.filter {
         it.kind == actuator?.kind && it.kind.isActuator() && it.following == null && it.hardwareId !in claimedActuators
-    }.map { it.hardwareId }
+    }
     val numericFields = document.stateFields.filter { it.type == SubsystemValueType.DOUBLE || it.type == SubsystemValueType.INT }
     val targetFields = numericFields.filter { it.role == SubsystemFieldRole.TARGET || it.role == SubsystemFieldRole.CONFIGURATION }
     val selectedTarget = targetFields.firstOrNull { it.fieldId == loop.targetFieldId }
@@ -251,29 +251,41 @@ fun ControlInspectorBody(
         }
         FieldGuidance(controlStrategyGuidance(loop.strategy))
         if (actuators.isNotEmpty()) {
-            DropdownSelector("Actuator", loop.actuatorId, actuators) { value ->
-                viewModel.changeControlLoopActuator(loop.loopId, value)
+            val actuatorOptions = actuators.associateBy { device ->
+                "${device.displayName} · ${device.kind.name.replace('_', ' ').lowercase()} (${device.hardwareId})"
+            }
+            val selectedActuatorLabel = actuatorOptions.entries.firstOrNull { it.value.hardwareId == loop.actuatorId }?.key
+                ?: loop.actuatorId
+            DropdownSelector("Actuator", selectedActuatorLabel, actuatorOptions.keys.toList()) { label ->
+                viewModel.changeControlLoopActuator(loop.loopId, requireNotNull(actuatorOptions[label]).hardwareId)
             }
         }
         if (targetFields.isNotEmpty()) {
-            DropdownSelector("Target state", loop.targetFieldId, targetFields.map { it.fieldId }) { value ->
-                viewModel.changeControlLoopTarget(loop.loopId, value)
+            val targetOptions = targetFields.associateBy(::stateFieldOptionLabel)
+            val selectedTargetLabel = targetOptions.entries.firstOrNull { it.value.fieldId == loop.targetFieldId }?.key
+                ?: loop.targetFieldId
+            DropdownSelector("Target state", selectedTargetLabel, targetOptions.keys.toList()) { label ->
+                viewModel.changeControlLoopTarget(loop.loopId, requireNotNull(targetOptions[label]).fieldId)
             }
         }
         if (loop.strategy.requiresMeasurement()) {
             val measurements = numericFields.filter {
                 it.role == SubsystemFieldRole.MEASUREMENT &&
                     (selectedTarget == null || subsystemControlUnitsCompatible(selectedTarget.unit, it.unit))
-            }.map { it.fieldId }
+            }
             if (measurements.isNotEmpty()) {
-                DropdownSelector("Measurement feedback", loop.measurementFieldId ?: measurements.first(), measurements) { value ->
-                    val measurement = numericFields.firstOrNull { it.fieldId == value }
+                val measurementOptions = measurements.associateBy(::stateFieldOptionLabel)
+                val selectedMeasurementLabel = measurementOptions.entries
+                    .firstOrNull { it.value.fieldId == loop.measurementFieldId }
+                    ?.key ?: measurementOptions.keys.first()
+                DropdownSelector("Measurement feedback", selectedMeasurementLabel, measurementOptions.keys.toList()) { label ->
+                    val measurement = requireNotNull(measurementOptions[label])
                     viewModel.updateControlLoop(loop.loopId) {
                         it.copy(
-                            measurementFieldId = value,
+                            measurementFieldId = measurement.fieldId,
                             continuousInput = it.continuousInput.copy(
                                 enabled = it.continuousInput.enabled && subsystemUnitIsCanonicalAngle(selectedTarget?.unit) &&
-                                    subsystemUnitIsCanonicalAngle(measurement?.unit),
+                                    subsystemUnitIsCanonicalAngle(measurement.unit),
                             ),
                         )
                     }
@@ -417,18 +429,40 @@ fun ControlInspectorBody(
                         viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(kG = value)) }
                     }
                 }
-                val velocityIds = numericFields.filter { subsystemUnitCanRepresentVelocity(it.unit) }.map { it.fieldId }
-                val accelerationIds = numericFields.filter { subsystemUnitCanRepresentAcceleration(it.unit) }.map { it.fieldId }
-                DropdownSelector("Desired velocity source", loop.feedforward.velocityFieldId ?: "Use controller setpoint", listOf("Use controller setpoint") + velocityIds) { selected ->
-                    viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(velocityFieldId = selected.takeUnless { value -> value == "Use controller setpoint" })) }
+                val velocityDefault = when (loop.strategy) {
+                    SubsystemControlStrategy.VELOCITY_PID -> "Use the target velocity"
+                    SubsystemControlStrategy.PROFILED_POSITION_PID -> "Use the motion-profile velocity"
+                    else -> "Use zero planned velocity"
                 }
-                DropdownSelector("Desired acceleration source", loop.feedforward.accelerationFieldId ?: "Use zero/profile acceleration", listOf("Use zero/profile acceleration") + accelerationIds) { selected ->
-                    viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(accelerationFieldId = selected.takeUnless { value -> value == "Use zero/profile acceleration" })) }
+                val velocityOptions = numericFields.filter { subsystemUnitCanRepresentVelocity(it.unit) }.associateBy(::stateFieldOptionLabel)
+                val selectedVelocity = velocityOptions.entries.firstOrNull { it.value.fieldId == loop.feedforward.velocityFieldId }?.key
+                    ?: velocityDefault
+                DropdownSelector("Desired velocity source", selectedVelocity, listOf(velocityDefault) + velocityOptions.keys) { selected ->
+                    viewModel.updateControlLoop(loop.loopId) {
+                        it.copy(feedforward = it.feedforward.copy(velocityFieldId = velocityOptions[selected]?.fieldId))
+                    }
                 }
-                val angleIds = numericFields.filter { subsystemUnitIsCanonicalAngle(it.unit) }.map { it.fieldId }
-                if (loop.feedforward.kind == SubsystemFeedforwardKind.ARM && angleIds.isNotEmpty()) {
-                    DropdownSelector("Arm angle measurement (rad)", loop.feedforward.gravityAngleFieldId ?: angleIds.first(), angleIds) { selected ->
-                        viewModel.updateControlLoop(loop.loopId) { it.copy(feedforward = it.feedforward.copy(gravityAngleFieldId = selected)) }
+                val accelerationDefault = if (loop.strategy == SubsystemControlStrategy.PROFILED_POSITION_PID) {
+                    "Use the motion-profile acceleration"
+                } else {
+                    "Use zero planned acceleration"
+                }
+                val accelerationOptions = numericFields.filter { subsystemUnitCanRepresentAcceleration(it.unit) }.associateBy(::stateFieldOptionLabel)
+                val selectedAcceleration = accelerationOptions.entries.firstOrNull { it.value.fieldId == loop.feedforward.accelerationFieldId }?.key
+                    ?: accelerationDefault
+                DropdownSelector("Desired acceleration source", selectedAcceleration, listOf(accelerationDefault) + accelerationOptions.keys) { selected ->
+                    viewModel.updateControlLoop(loop.loopId) {
+                        it.copy(feedforward = it.feedforward.copy(accelerationFieldId = accelerationOptions[selected]?.fieldId))
+                    }
+                }
+                val angleOptions = numericFields.filter { subsystemUnitIsCanonicalAngle(it.unit) }.associateBy(::stateFieldOptionLabel)
+                if (loop.feedforward.kind == SubsystemFeedforwardKind.ARM && angleOptions.isNotEmpty()) {
+                    val selectedAngle = angleOptions.entries.firstOrNull { it.value.fieldId == loop.feedforward.gravityAngleFieldId }?.key
+                        ?: angleOptions.keys.first()
+                    DropdownSelector("Arm angle measurement (rad)", selectedAngle, angleOptions.keys.toList()) { selected ->
+                        viewModel.updateControlLoop(loop.loopId) {
+                            it.copy(feedforward = it.feedforward.copy(gravityAngleFieldId = requireNotNull(angleOptions[selected]).fieldId))
+                        }
                     }
                 } else if (loop.feedforward.kind == SubsystemFeedforwardKind.ARM) {
                     FieldGuidance("Add a numeric arm-angle measurement whose unit is rad before enabling arm gravity feedforward.")
@@ -451,11 +485,11 @@ fun ControlInspectorBody(
             viewModel.updateControlLoop(loop.loopId) { it.copy(maximumOutput = value) }
         }
         OutlinedButton(onClick = { showControlLab = !showControlLab }, modifier = Modifier.fillMaxWidth()) {
-            Text(if (showControlLab) "Hide educational control lab" else "Try this controller in a safe model")
+            Text(if (showControlLab) "Hide commissioning sandbox" else "Commission this controller safely")
         }
         if (showControlLab) {
-            ControlTheorySandboxLab(loop) { kp, ki, kd, ks, kv, kg ->
-                viewModel.applyControlLoopGains(loop.loopId, kp, ki, kd, ks, kv, kg)
+            SubsystemCommissioningLab(document, loop) { reviewedLoop ->
+                viewModel.updateControlLoop(loop.loopId) { reviewedLoop }
             }
         }
     }
@@ -468,6 +502,12 @@ private fun SubsystemControlStrategy.controlStrategyLabel(): String = when (this
     SubsystemControlStrategy.VELOCITY_PID -> "Velocity PID"
     SubsystemControlStrategy.BANG_BANG -> "Hysteretic on/off (bang-bang)"
     SubsystemControlStrategy.SERVO_POSITION -> "Positional servo"
+}
+
+private fun stateFieldOptionLabel(field: SubsystemStateFieldDocument): String {
+    val role = field.role.name.replace('_', ' ').lowercase()
+    val unit = field.unit?.takeIf { it.isNotBlank() } ?: "unitless"
+    return "${field.displayName} · $role · $unit (${field.fieldId})"
 }
 
 private fun SubsystemFeedforwardKind.feedforwardLabel(): String = when (this) {

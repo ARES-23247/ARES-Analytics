@@ -152,6 +152,22 @@ The Builder offers only strategies generated and behaviorally tested by the curr
 advanced algorithms are not useful menu items unless their plant model, units, tuning workflow,
 safety gates, simulation, and generated verification are equally complete.
 
+Each controller card includes **Commission this controller safely**. This contextual sandbox runs
+the selected strategy—not a generic PID stand-in—against a deterministic teaching mechanism. It
+can inject a load, stale or invalid cached feedback, and a signed-angle boundary crossing when the
+controller supports those cases. It reports output saturation, final error, tolerance entry, and
+whether a feedback fault produced neutral output. Slider changes remain a private preview until the
+student chooses **Apply reviewed settings to draft**; normal structured review and Save are still
+required afterward. The sandbox never commands hardware and its simple plant is not a digital twin.
+
+ARES does not currently offer a generic cascaded position/velocity checkbox. A safe cascade needs
+two independently typed and fresh measurements, separate outer velocity and inner voltage limits,
+two sets of gains, saturation propagation, anti-windup across both loops, and a matching mock plant.
+Pretending that the existing one-measurement position controller has those semantics would weaken
+the zero-code contract. Use profiled position PID plus typed feedforward for ordinary mechanisms;
+keep a genuinely cascaded controller hand-authored until that complete descriptor and runtime
+contract exists.
+
 ## Builder workflow
 
 The builder uses eight guided stages. You can move backward at any time; advanced settings remain
@@ -186,8 +202,9 @@ byte-for-byte identical output, user-owned files are protected, and starter repl
 silent.
 
 Every major editor card has a keyboard-focusable help button and hover explanation. Longer concepts
-link to this guide. The homing and feedforward sections include small interactive labs; those labs
-only explain the configured math and never connect to or command robot hardware.
+link to this guide. The homing and feedforward sections include small interactive labs; the control
+card adds a contextual commissioning sandbox. These tools explain or preview configured math and
+never connect to or command robot hardware.
 
 ## Learn the workflow in Robot Academy
 

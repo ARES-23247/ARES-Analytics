@@ -249,6 +249,9 @@ val nestedAresRepositoryUri = providers.gradleProperty("aresRepository").map { c
     }
     configuredUri.toASCIIString()
 }
+val usesSiblingAresLib = providers.gradleProperty("aresUseSiblingLib")
+    .map(String::toBoolean)
+    .getOrElse(false)
 
 // Automated desktop walkthroughs must never persist throwaway workspaces, credentials, or
 // learning progress into the developer's real home directory. This is opt-in so ordinary
@@ -263,6 +266,17 @@ tasks.withType<JavaExec>().configureEach {
         systemProperty("ares.repository.uri", uri)
     }
     if (name == "run") {
+        doFirst {
+            require(!usesSiblingAresLib || nestedAresRepositoryUri.isPresent) {
+                """
+                -ParesUseSiblingLib=true only substitutes ARESLib into the desktop build. Newly
+                created robot projects are separate Gradle builds and would still resolve the
+                pinned remote ARES version. Launch with scripts/run-local-ares.ps1, or publish an
+                isolated validation repository and pass the same -ParesVersion and
+                -ParesRepository=file:///... values to :app:run.
+                """.trimIndent()
+            }
+        }
         isolatedDesktopHome.orNull?.let { directory ->
             doFirst {
                 val realHome = File(System.getProperty("user.home")).canonicalFile

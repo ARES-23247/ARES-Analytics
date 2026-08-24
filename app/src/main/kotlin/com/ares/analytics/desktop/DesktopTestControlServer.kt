@@ -15,6 +15,7 @@ internal sealed interface DesktopTestCommand {
     data class KeyUp(val keyCode: Int, val modifiers: Int) : DesktopTestCommand
     data class Text(val value: String) : DesktopTestCommand
     data object Capture : DesktopTestCommand
+    data object Close : DesktopTestCommand
     data object Ping : DesktopTestCommand
 }
 
@@ -44,6 +45,7 @@ internal object DesktopTestCommandParser {
                 DesktopTestCommand.Text(String(decoded, StandardCharsets.UTF_8))
             }
             "CAPTURE" -> DesktopTestCommand.Capture
+            "CLOSE" -> DesktopTestCommand.Close
             "PING" -> DesktopTestCommand.Ping
             else -> error("Unsupported desktop test command")
         }
