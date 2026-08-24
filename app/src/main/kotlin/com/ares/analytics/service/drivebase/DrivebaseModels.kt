@@ -245,6 +245,9 @@ fun diffDrivebase(before: DrivebaseDocument?, after: DrivebaseDocument): List<Dr
     fun change(path: String, old: Any?, new: Any?) {
         if (old != new) add(DrivebaseChange(path, old.toString(), new.toString()))
     }
+    change("documentId", before.documentId, after.documentId)
+    change("projectId", before.projectId, after.projectId)
+    change("canonicalProfileUid", before.canonical?.canonicalProfileUid, after.canonical?.canonicalProfileUid)
     change("kind", before.kind, after.kind)
     change("displayName", before.displayName, after.displayName)
     change("geometry", before.geometry, after.geometry)
@@ -279,7 +282,7 @@ fun DrivebaseDocument.cornerDriveHardware(): List<DriveHardwareDeclaration?> {
 fun DrivetrainDocument.toUiDrivebase(): DrivebaseDocument = DrivebaseDocument(
     schemaVersion = schemaVersion,
     documentId = uid,
-    projectId = canonicalProfileUid.substringBeforeLast('.', canonicalProfileUid),
+    projectId = canonicalProfileUid.substringBefore(".profile.", canonicalProfileUid),
     kind = when (kind) {
         DrivetrainKind.FTC_MECANUM -> DrivebaseKind.FTC_MECANUM
         DrivetrainKind.FRC_CTRE_SWERVE -> DrivebaseKind.FRC_CTRE_SWERVE
@@ -538,14 +541,15 @@ internal fun canonicalTemplate(projectId: String, kind: DrivebaseKind): Drivetra
             DrivetrainComponentDocument("drive.pinpoint", "goBILDA Pinpoint", DrivetrainComponentRole.ODOMETRY_SENSOR, "pinpoint"),
         )
         DrivebaseKind.DIFFERENTIAL -> listOf(drive("drive.left", "leftLeader"), drive("drive.right", "rightLeader", true), DrivetrainComponentDocument("drive.gyro", "Gyro", DrivetrainComponentRole.GYRO, "gyro"))
-        DrivebaseKind.FRC_CTRE_SWERVE -> listOf("front-left", "front-right", "rear-left", "rear-right").flatMap { corner ->
+        DrivebaseKind.FRC_CTRE_SWERVE -> listOf("front-left", "front-right", "rear-left", "rear-right").flatMapIndexed { moduleIndex, corner ->
             val module = "module.$corner"
+            val firstSimulationCanId = moduleIndex * 3 + 1
             listOf(
-                drive("drive.$corner", "0", module = module),
-                DrivetrainComponentDocument("steer.$corner", "${corner.replace('-', ' ')} steer", DrivetrainComponentRole.STEER_MOTOR, "0", moduleUid = module),
-                DrivetrainComponentDocument("encoder.$corner", "${corner.replace('-', ' ')} encoder", DrivetrainComponentRole.ABSOLUTE_ENCODER, "0", moduleUid = module)
+                drive("drive.$corner", firstSimulationCanId.toString(), module = module),
+                DrivetrainComponentDocument("steer.$corner", "${corner.replace('-', ' ')} steer", DrivetrainComponentRole.STEER_MOTOR, (firstSimulationCanId + 1).toString(), moduleUid = module),
+                DrivetrainComponentDocument("encoder.$corner", "${corner.replace('-', ' ')} encoder", DrivetrainComponentRole.ABSOLUTE_ENCODER, (firstSimulationCanId + 2).toString(), moduleUid = module)
             )
-        } + DrivetrainComponentDocument("drive.gyro", "Pigeon gyro", DrivetrainComponentRole.GYRO, "0")
+        } + DrivetrainComponentDocument("drive.gyro", "Pigeon gyro", DrivetrainComponentRole.GYRO, "13")
         DrivebaseKind.CUSTOM -> listOf(drive("drive.custom", "custom"), DrivetrainComponentDocument("drive.gyro", "Gyro", DrivetrainComponentRole.GYRO, "gyro"))
     }
     val modules = if (kind == DrivebaseKind.FRC_CTRE_SWERVE) listOf("front-left", "front-right", "rear-left", "rear-right").map { corner ->

@@ -12,12 +12,36 @@ data class FtcMotorDirectionCheck(
     val configuredDirection: String,
 )
 
+/** A deliberately non-executable motion proposal that must be reviewed on the disabled robot. */
+data class UnarmedPulseProposal(
+    val safeNeutralOutput: Double,
+    val maximumDurationMs: Long = 250L,
+    val maximumTravelFromNeutralFraction: Double = 0.10,
+)
+
+/** Descriptor-derived guidance for commissioning one subsystem device. */
+data class SubsystemCommissioningCheck(
+    val itemUid: String,
+    val subsystemName: String,
+    val deviceName: String,
+    val hardwareAddress: String,
+    val readOnlySignals: List<String>,
+    val controlStrategies: List<String>,
+    val homingMethod: String?,
+    val homingEvidence: List<String>,
+    val requiresCalibration: Boolean,
+    val requiresCurrentMonitoring: Boolean,
+    val pulseProposal: UnarmedPulseProposal?,
+    val followerOnly: Boolean,
+)
+
 /** Descriptor-derived setup instructions; this model never commands hardware. */
 data class HardwareCommissioningPlan(
     val hardwareMapEntries: List<HardwareInventoryItem>,
     val ftcMotorChecks: List<FtcMotorDirectionCheck>,
     val ftcDiagnosticAvailable: Boolean,
     val ftcDiagnosticBlockReason: String? = null,
+    val subsystemChecks: List<SubsystemCommissioningCheck> = emptyList(),
 ) {
     /** Plain-text checklist suitable for a team wiring sheet or Driver Station setup. */
     val clipboardText: String
@@ -43,6 +67,22 @@ data class HardwareCommissioningPlan(
                     appendLine()
                 }
             }
+            if (subsystemChecks.isNotEmpty()) {
+                appendLine()
+                appendLine("Subsystem commissioning (simulation/read-only until explicitly authorized)")
+                subsystemChecks.forEach { check ->
+                    append("- ").append(check.subsystemName).append(" / ").append(check.deviceName)
+                    append(": ").appendLine(check.hardwareAddress.ifBlank { "NOT CONFIGURED" })
+                    if (check.readOnlySignals.isNotEmpty()) append("    Observe: ").appendLine(check.readOnlySignals.joinToString())
+                    check.homingMethod?.let { append("    Homing: ").appendLine(it.lowercase().replace('_', ' ')) }
+                    check.pulseProposal?.let { proposal ->
+                        append("    UNARMED proposal: no more than ")
+                        append(proposal.maximumDurationMs).append(" ms, within ")
+                        append((proposal.maximumTravelFromNeutralFraction * 100).toInt()).append("% of neutral ")
+                        appendLine(proposal.safeNeutralOutput)
+                    }
+                }
+            }
         }.trimEnd()
 }
 
@@ -56,6 +96,26 @@ fun HardwareSetupSnapshot.commissioningPlan(): HardwareCommissioningPlan {
     val hardwareMapEntries = items
         .filter { it.addressKind == HardwareAddressKind.FTC_HARDWARE_MAP }
         .sortedWith(compareBy<HardwareInventoryItem> { it.owner.ordinal }.thenBy { it.displayName.lowercase() })
+    val subsystemChecks = items
+        .filter { it.owner == HardwareInventoryOwner.SUBSYSTEM }
+        .map { item ->
+            SubsystemCommissioningCheck(
+                itemUid = item.uid,
+                subsystemName = item.ownerDisplayName,
+                deviceName = item.displayName,
+                hardwareAddress = item.addressDescription,
+                readOnlySignals = item.measurementFieldIds,
+                controlStrategies = item.controlStrategies,
+                homingMethod = item.homingMethod,
+                homingEvidence = item.homingEvidence,
+                requiresCalibration = item.requiresCalibration,
+                requiresCurrentMonitoring = item.requiresCurrentMonitoring,
+                pulseProposal = item.safeOutput?.takeIf { item.isMotionActuator && !item.isFollower }?.let {
+                    UnarmedPulseProposal(safeNeutralOutput = it)
+                },
+                followerOnly = item.isFollower,
+            )
+        }
 
     if (league != League.FTC) {
         return HardwareCommissioningPlan(
@@ -63,6 +123,7 @@ fun HardwareSetupSnapshot.commissioningPlan(): HardwareCommissioningPlan {
             ftcMotorChecks = emptyList(),
             ftcDiagnosticAvailable = false,
             ftcDiagnosticBlockReason = "The ARES Drivetrain Diagnostic is currently available for FTC mecanum projects only.",
+            subsystemChecks = subsystemChecks,
         )
     }
 
@@ -96,5 +157,6 @@ fun HardwareSetupSnapshot.commissioningPlan(): HardwareCommissioningPlan {
         ftcDiagnosticBlockReason = if (available) null else {
             "Configure exactly one front-left, front-right, rear-left, and rear-right motor before running the diagnostic."
         },
+        subsystemChecks = subsystemChecks,
     )
 }

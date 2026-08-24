@@ -176,6 +176,27 @@ Limelight target-space yaw is `-robotPoseTargetSpace.rotation.y`. Rotation Z is 
 | `Superstructure/PackedState` | `double[]` | season-defined packed mechanism state |
 | `Superstructure/IndicatorLight/{name}` | `double` | named light output/state |
 
+Generated subsystem runtimes publish discoverable health beneath `Subsystems/<stable-id>/`.
+Dashboard treats a topic as subsystem health only when it has that exact three-segment shape; it
+does not infer mechanisms from arbitrary Kotlin classes or unrelated telemetry.
+
+| Suffix | Type | Meaning |
+| --- | --- | --- |
+| `TelemetryHeartbeat` | `double` | monotonically changing publish sequence proving this subsystem's telemetry is still live; it is a health signal, not a mechanism measurement |
+| `FeedbackValid` | `boolean` | the cached required control snapshot is valid |
+| `FeedbackAgeMs` | `double` | receiver-relative age of the newest cached snapshot |
+| `ConfigurationHealthy` | `boolean` | required device configuration succeeded |
+| `Homed`, `Calibrated` | `boolean` | required reference/calibration has been established |
+| `HomingFaultLatched`, `OutputFaultLatched` | `boolean` | explicit fail-closed latch state |
+| `CurrentReadingValid` | `boolean` | required current sample is finite and fresh |
+| other generated fields | declared scalar/string | target or cached measurement, shown as supporting evidence |
+
+The desktop computes age from its own monotonic receipt time and never trusts a robot epoch as a
+wall-clock timestamp. Generated runtimes increment `TelemetryHeartbeat` on every registry publish,
+so unchanged but healthy state remains fresh even when the NT4 transport suppresses unchanged
+values. The heartbeat is excluded from the measurements shown to students. Missing required permits
+and latched faults take priority over measurements when choosing the card's plain-language status.
+
 Consumers of `PackedState` must be versioned alongside the season producer; the array has no self-describing field names.
 
 ## Dashboard-to-target inputs

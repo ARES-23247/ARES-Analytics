@@ -39,6 +39,7 @@ import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresTextTertiary
 import com.areslib.controls.ControllerControlDocument
+import com.areslib.controls.ControllerControlTypeDocument
 import com.areslib.controls.ControllerInputPlatform
 import com.areslib.controls.ControllerProfileDocument
 import com.areslib.controls.ControllerSurfaceDocument
@@ -130,12 +131,13 @@ fun ControllerCanvas(
             }
 
             val targetMapped = control.mappings.any { it.platform == targetPlatform }
+            val collisionOffsetY = control.canvasCollisionOffsetY(controls)
 
             Box(
                 modifier = Modifier
                     .offset(
                         x = maxWidth * control.anchor.x.toFloat() - 32.dp,
-                        y = maxHeight * control.anchor.y.toFloat() - 20.dp,
+                        y = maxHeight * control.anchor.y.toFloat() - 20.dp + collisionOffsetY.dp,
                     )
                     .background(backgroundColor, RoundedCornerShape(8.dp))
                     .border(if (active || selected || hasBindings) 1.5.dp else 1.dp, borderColor, RoundedCornerShape(8.dp))
@@ -187,6 +189,32 @@ fun ControllerCanvas(
             }
         }
     }
+}
+
+/**
+ * Some controller catalogs place the horizontal and vertical axes at the same visual stick
+ * center. Their full beginner-facing labels then overlap even though both controls are valid.
+ * Separate only those same-stick/same-row axis callouts; catalogs that already provide distinct
+ * anchors retain their authored layout.
+ */
+internal fun ControllerControlDocument.canvasCollisionOffsetY(
+    controls: Collection<ControllerControlDocument>,
+): Float {
+    if (type != ControllerControlTypeDocument.AXIS) return 0f
+    val axis = when {
+        controlId.endsWith("_x") -> 'x'
+        controlId.endsWith("_y") -> 'y'
+        else -> return 0f
+    }
+    val stickId = controlId.removeSuffix("_x").removeSuffix("_y")
+    val sharesVisualRow = controls.any { peer ->
+        peer !== this &&
+            peer.type == ControllerControlTypeDocument.AXIS &&
+            peer.controlId.removeSuffix("_x").removeSuffix("_y") == stickId &&
+            kotlin.math.abs(peer.anchor.y - anchor.y) < 0.04
+    }
+    if (!sharesVisualRow) return 0f
+    return if (axis == 'x') -28f else 28f
 }
 
 fun ControllerControlDocument.isActive(state: GamepadState, threshold: Float = .55f): Boolean {

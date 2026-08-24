@@ -158,6 +158,33 @@ fun DrivebaseBuilderScreen(
 
             state.error?.let { StatusBanner(it, AresError) }
             if (state.status.isNotBlank()) StatusBanner(state.status, AresGreen)
+            val blockingIssues = state.issues.filter { it.severity == DrivebaseIssueSeverity.ERROR }
+            if (blockingIssues.isNotEmpty()) {
+                Surface(
+                    color = AresError.copy(alpha = 0.10f),
+                    border = BorderStroke(1.dp, AresError.copy(alpha = 0.65f)),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            "${blockingIssues.size} item${if (blockingIssues.size == 1) "" else "s"} must be fixed before this drivetrain can be saved",
+                            color = AresError,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        blockingIssues.take(3).forEach { issue ->
+                            Text("• ${issue.message}", color = AresTextPrimary, fontSize = 10.sp)
+                        }
+                        if (blockingIssues.size > 3) {
+                            Text("• ${blockingIssues.size - 3} more — open the relevant builder steps above.", color = AresTextSecondary, fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
 
             if (state.loading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -499,7 +526,8 @@ private fun generateDrivebaseSpecSections(state: DrivebaseBuilderState): List<Ar
                 AresSpecRow(
                     id = dev.id,
                     primaryLabel = dev.displayName,
-                    secondaryLabel = "hw: ${dev.hardwareName}",
+                    secondaryLabel = dev.canId?.let { "CAN $it${dev.canBus?.let { bus -> " · $bus" }.orEmpty()}" }
+                        ?: "hw: ${dev.hardwareName}",
                     badge = dev.role.name,
                     columns = listOf(
                         "Direction" to if (dev.inverted) "INVERTED" else "NORMAL",

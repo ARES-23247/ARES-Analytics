@@ -32,6 +32,17 @@ fun SuperstructureStudioScreen(
     var showSpecSummaryModal by remember { mutableStateOf(false) }
     var createOpen by remember { mutableStateOf(false) }
 
+    // This editor is intentionally retained while students move between Robot Studio stages so
+    // an unfinished coordinator draft survives navigation. A clean editor, however, must refresh
+    // on entry: drivetrain, subsystem, and controls editors may have written new catalog entries
+    // while this view model was off screen. Never require a novice to discover the reload icon just
+    // to make a newly-created mechanism or action appear here.
+    LaunchedEffect(viewModel) {
+        if (shouldRefreshSuperstructureCatalogsOnEntry(viewModel.state.value)) {
+            viewModel.reload()
+        }
+    }
+
     Box(modifier.fillMaxSize()) {
         Column(
             modifier = Modifier.fillMaxSize().padding(12.dp),
@@ -216,6 +227,9 @@ fun SuperstructureStudioScreen(
         }
     }
 }
+
+internal fun shouldRefreshSuperstructureCatalogsOnEntry(state: SuperstructureStudioState): Boolean =
+    !state.loading && !state.dirty
 
 @Composable
 private fun StatusBanner(message: String, color: Color) {

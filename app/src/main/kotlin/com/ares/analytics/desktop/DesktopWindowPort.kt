@@ -11,8 +11,10 @@ import java.awt.event.ComponentListener
 import java.awt.event.InputEvent
 import java.awt.event.KeyEvent
 import java.awt.event.MouseEvent
+import java.awt.event.MouseWheelEvent
 import java.awt.event.WindowFocusListener
 import java.awt.event.WindowListener
+import java.awt.event.WindowEvent
 import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -209,6 +211,7 @@ internal class AwtDesktopWindowPort(private val window: Window) : DesktopWindowP
     private fun executeTestCommand(command: DesktopTestCommand): String {
         return when (command) {
             is DesktopTestCommand.Click -> executeTestClick(command)
+            is DesktopTestCommand.Wheel -> executeTestWheel(command)
             is DesktopTestCommand.Key -> executeTestKey(command)
             is DesktopTestCommand.KeyDown -> {
                 dispatchTestKeyEvent(KeyEvent.KEY_PRESSED, command.keyCode, command.modifiers)
@@ -237,6 +240,10 @@ internal class AwtDesktopWindowPort(private val window: Window) : DesktopWindowP
                 "typed ${command.value.length} character(s)"
             }
             DesktopTestCommand.Capture -> onEventThread { captureTestFramebuffer() }
+            DesktopTestCommand.Close -> {
+                onEventThread { window.dispatchEvent(WindowEvent(window, WindowEvent.WINDOW_CLOSING)) }
+                "close requested"
+            }
             DesktopTestCommand.Ping -> "pong"
         }
     }
@@ -284,6 +291,32 @@ internal class AwtDesktopWindowPort(private val window: Window) : DesktopWindowP
             )
         }
         return "clicked ${command.x},${command.y}"
+    }
+
+    private fun executeTestWheel(command: DesktopTestCommand.Wheel): String {
+        onEventThread {
+            val inputSurface = requireSkiaInputSurface()
+            require(command.x in 0 until inputSurface.width && command.y in 0 until inputSurface.height) {
+                "wheel position is outside the Compose surface: ${command.x},${command.y}"
+            }
+            inputSurface.requestFocusInWindow()
+            inputSurface.dispatchEvent(
+                MouseWheelEvent(
+                    inputSurface,
+                    MouseEvent.MOUSE_WHEEL,
+                    System.currentTimeMillis(),
+                    0,
+                    command.x,
+                    command.y,
+                    0,
+                    false,
+                    MouseWheelEvent.WHEEL_UNIT_SCROLL,
+                    3,
+                    command.rotation,
+                )
+            )
+        }
+        return "wheel ${command.rotation} at ${command.x},${command.y}"
     }
 
     private fun executeTestKey(command: DesktopTestCommand.Key): String {

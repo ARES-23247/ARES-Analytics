@@ -20,6 +20,17 @@ import kotlin.test.assertTrue
 class ProcessManagerServiceTest {
 
     @Test
+    fun `only the known transient Gradle cache handoff is eligible for one automatic retry`() {
+        assertTrue(
+            isTransientGradleCacheMoveFailure(
+                "Could not move temporary workspace C:/cache/transforms/tmp to immutable location C:/cache/transforms/final",
+            ),
+        )
+        assertFalse(isTransientGradleCacheMoveFailure("Compilation error: unresolved reference Elevator"))
+        assertFalse(isTransientGradleCacheMoveFailure("Could not resolve org.aresfirst.ares:core:9.11.0"))
+    }
+
+    @Test
     fun `explicit isolated repository file URI decorates every nested Gradle command`() {
         val repository = Files.createTempDirectory("ares-release-repository").toFile()
         val service = ProcessManagerService(
@@ -44,7 +55,9 @@ class ProcessManagerServiceTest {
 
             representativeCommands.forEach { base ->
                 val configured = service.configuredGradleCommandForTest(base)
-                assertEquals(base + expectedRepository + expectedVersion, configured)
+                assertEquals(base, configured.take(base.size))
+                assertTrue(configured.any { it.startsWith("-Porg.gradle.java.installations.paths=") })
+                assertEquals(listOf(expectedRepository, expectedVersion), configured.takeLast(2))
                 assertFalse(configured.any { it.contains("mavenLocal", ignoreCase = true) })
             }
         } finally {
@@ -71,10 +84,9 @@ class ProcessManagerServiceTest {
     fun `normal installer command construction adds no implicit local repository`() {
         val service = ProcessManagerService(monitorAdbConnection = false)
         try {
-            assertEquals(
-                listOf("./gradlew", "assemble"),
-                service.configuredGradleCommandForTest(listOf("./gradlew", "assemble")),
-            )
+            val configured = service.configuredGradleCommandForTest(listOf("./gradlew", "assemble"))
+            assertEquals(listOf("./gradlew", "assemble"), configured.take(2))
+            assertTrue(configured.single { it.startsWith("-Porg.gradle.java.installations.paths=") }.isNotBlank())
             assertEquals(null, service.configuredAresRepositoryEnvironmentForTest())
             assertEquals(null, service.configuredAresVersionEnvironmentForTest())
         } finally {
@@ -100,10 +112,69 @@ class ProcessManagerServiceTest {
             assertTrue("test" in frc)
             assertTrue("build" in frc)
             assertTrue(frc.indexOf("generateAresProject") < frc.indexOf("verifyAresProject"))
-            (ftc + frc).forEach { argument ->
+            listOf(ftc, frc).forEach { command ->
+                assertTrue("--no-parallel" in command)
+                assertTrue("--no-daemon" in command)
+                assertTrue("--console=plain" in command)
+            }
+            (ftc + frc)
+                .filterNot { it.startsWith("-Porg.gradle.java.installations.paths=") }
+                .forEach { argument ->
                 assertFalse(argument.contains("adb", ignoreCase = true))
                 assertFalse(argument.contains("deploy", ignoreCase = true))
                 assertFalse(argument.contains("install", ignoreCase = true))
+            }
+        } finally {
+            service.shutdown()
+        }
+    }
+
+    @Test
+    fun `desktop simulator wrapper is isolated from ambient Gradle daemons`() {
+        val service = ProcessManagerService(monitorAdbConnection = false)
+        try {
+            val ftc = service.simulationGradleCommandForTest(League.FTC, isWindows = true)
+            val frc = service.simulationGradleCommandForTest(League.FRC, isWindows = false)
+
+            assertEquals(listOf("cmd.exe", "/c", "gradlew.bat"), ftc.take(3))
+            assertTrue(":TeamCode:runSim" in ftc)
+            assertEquals("./gradlew", frc.first())
+            assertTrue("simulateJava" in frc)
+            listOf(ftc, frc).forEach { command ->
+                assertTrue("--no-parallel" in command)
+                assertTrue("--no-daemon" in command)
+                assertTrue("--console=plain" in command)
+            }
+        } finally {
+            service.shutdown()
+        }
+    }
+
+    @Test
+    fun `desktop authoring uses platform wrapper and fixed isolated arguments`() {
+        val service = ProcessManagerService(monitorAdbConnection = false)
+        try {
+            val token = "a".repeat(64)
+            val windows = service.authoringGradleCommandForTest(
+                task = ":TeamCode:replaceSubsystemStarters",
+                isWindows = true,
+                confirmationToken = token,
+            )
+            val unix = service.authoringGradleCommandForTest(
+                task = "generateSubsystemStarters",
+                isWindows = false,
+            )
+
+            assertEquals(listOf("cmd.exe", "/c", "gradlew.bat"), windows.take(3))
+            assertTrue(":TeamCode:replaceSubsystemStarters" in windows)
+            assertTrue("-Pares.subsystemReplacementToken=$token" in windows)
+            assertEquals("./gradlew", unix.first())
+            assertTrue("generateSubsystemStarters" in unix)
+            listOf(windows, unix).forEach { command ->
+                assertFalse("org.gradle.wrapper.GradleWrapperMain" in command)
+                assertTrue("--no-parallel" in command)
+                assertTrue("--no-daemon" in command)
+                assertTrue("--console=plain" in command)
             }
         } finally {
             service.shutdown()
@@ -290,6 +361,24 @@ class ProcessManagerServiceTest {
     }
 
     @Test
+    fun `slow terminal collector cannot backpressure verbose build output`() = runBlocking {
+        val service = ProcessManagerService(monitorAdbConnection = false)
+        val slowCollector = launch {
+            service.buildOutput.collect {
+                delay(50L)
+            }
+        }
+        try {
+            service.runManagedProcessForTest(probeCommand("flood"))
+            withTimeout(10_000L) { service.awaitBuildIdleForTest() }
+            assertFalse(service.isBuildRunning.value)
+        } finally {
+            slowCollector.cancelAndJoin()
+            withContext(Dispatchers.IO) { service.shutdown() }
+        }
+    }
+
+    @Test
     fun `shutdown remains non-cancellable and kills the complete process tree`() = runBlocking {
         val service = ProcessManagerService(monitorAdbConnection = false)
         val directory = Files.createTempDirectory("process-manager-shutdown").toFile()
@@ -382,6 +471,12 @@ class ProcessManagerServiceTest {
                             ).start();
                             Files.writeString(Path.of(args[1]), Long.toString(ProcessHandle.current().pid()));
                             Thread.sleep(60_000L);
+                            return;
+                        }
+                        if ("flood".equals(args[0])) {
+                            for (int index = 0; index < 10_000; index++) {
+                                System.out.println("generated line " + index);
+                            }
                             return;
                         }
                         Files.writeString(Path.of(args[1]), Long.toString(ProcessHandle.current().pid()));

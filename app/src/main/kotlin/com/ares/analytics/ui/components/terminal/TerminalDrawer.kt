@@ -37,13 +37,9 @@ fun TerminalDrawer(
     modifier: Modifier = Modifier
 ) {
     var activeTab by remember { mutableStateOf(0) } // 0 = Build, 1 = Logcat
-    val buildLines by processManagerService.buildOutput.collectAsState(initial = "")
-    val logcatLines by processManagerService.logcatOutput.collectAsState(initial = "")
     val isBuildRunning by processManagerService.isBuildRunning.collectAsState()
     val buildListState = rememberLazyListState()
     val logcatListState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
-
     // Store lines in memory to render in LazyColumn
     val buildLog = remember { mutableStateListOf<String>() }
     val logcatLog = remember { mutableStateListOf<String>() }
@@ -54,15 +50,26 @@ fun TerminalDrawer(
             processManagerService.buildOutput.collect { line ->
                 buildLog.add(line)
                 if (buildLog.size > 1000) buildLog.removeAt(0)
-                buildListState.animateScrollToItem((buildLog.size - 1).coerceAtLeast(0))
             }
         }
         launch {
             processManagerService.logcatOutput.collect { line ->
                 logcatLog.add(line)
                 if (logcatLog.size > 1000) logcatLog.removeAt(0)
-                logcatListState.animateScrollToItem((logcatLog.size - 1).coerceAtLeast(0))
             }
+        }
+    }
+
+    // Auto-scroll is a presentation concern, not part of log collection. Snap only while the
+    // relevant terminal tab is visible so a burst of build output cannot queue animations.
+    LaunchedEffect(buildLog.size, isOpen, activeTab) {
+        if (isOpen && activeTab == 0 && buildLog.isNotEmpty()) {
+            buildListState.scrollToItem(buildLog.lastIndex)
+        }
+    }
+    LaunchedEffect(logcatLog.size, isOpen, activeTab) {
+        if (isOpen && activeTab == 1 && logcatLog.isNotEmpty()) {
+            logcatListState.scrollToItem(logcatLog.lastIndex)
         }
     }
 

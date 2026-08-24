@@ -223,7 +223,8 @@ fun MotorGridCard(
                     )
                 }
                 Text(
-                    "hw: ${device?.hardwareName ?: "none"}",
+                    device?.canId?.let { "CAN $it${device.canBus?.let { bus -> " · $bus" }.orEmpty()}" }
+                        ?: "hw: ${device?.hardwareName ?: "none"}",
                     color = AresCyan,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
@@ -318,7 +319,13 @@ fun AuxHardwareRow(
                     )
                 }
                 Text(device.displayName, color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Text("hw: ${device.hardwareName}", color = AresCyan, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                Text(
+                    device.canId?.let { "CAN $it${device.canBus?.let { bus -> " · $bus" }.orEmpty()}" }
+                        ?: "hw: ${device.hardwareName}",
+                    color = AresCyan,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 10.sp,
+                )
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {

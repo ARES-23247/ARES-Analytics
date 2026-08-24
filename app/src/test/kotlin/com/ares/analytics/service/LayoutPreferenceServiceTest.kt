@@ -81,6 +81,7 @@ class LayoutPreferenceServiceTest {
         val studentLayout = service.getDefaultLayout("student")
         assertTrue(studentLayout.widgets.any { it.type == "field_viewer" })
         assertTrue(studentLayout.widgets.any { it.type == "system_health" })
+        assertTrue(studentLayout.widgets.any { it.type == "subsystem_health" })
         assertTrue(studentLayout.widgets.any { it.type == "autonomous_selector" })
 
         val driverLayout = service.getDefaultLayout("driver")

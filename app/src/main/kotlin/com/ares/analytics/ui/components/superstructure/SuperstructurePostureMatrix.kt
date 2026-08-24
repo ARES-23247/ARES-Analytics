@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.areslib.subsystem.SubsystemValueType
@@ -320,6 +321,7 @@ private fun SelectedPostureEditor(
                             viewModel.addTarget(option.reference)
                         },
                         modifier = Modifier.width(220.dp),
+                        openAbove = true,
                     )
                 }
             }
@@ -455,6 +457,7 @@ fun StudioDropdown(
     options: List<Pair<String, String>>,
     onSelect: (String) -> Unit,
     modifier: Modifier = Modifier,
+    openAbove: Boolean = false,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box(modifier) {
@@ -465,7 +468,16 @@ fun StudioDropdown(
         ) {
             Text(label, color = AresTextPrimary, fontSize = 11.sp, maxLines = 1)
         }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        val verticalOffset = if (openAbove) {
+            -(48 * (options.size.coerceAtMost(6) + 1)).dp
+        } else {
+            0.dp
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            offset = DpOffset(0.dp, verticalOffset),
+        ) {
             options.forEach { (key, display) ->
                 DropdownMenuItem(
                     text = { Text(display, fontSize = 11.sp) },

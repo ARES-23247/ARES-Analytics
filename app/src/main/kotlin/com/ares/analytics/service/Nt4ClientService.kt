@@ -263,6 +263,7 @@ open class Nt4ClientService(
     private val databaseService: DatabaseService
 ) {
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob() + CoroutineExceptionHandler { _, e -> e.printStackTrace() })
+    private val disposed = java.util.concurrent.atomic.AtomicBoolean(false)
     private val liveTimelineEpochUs = System.currentTimeMillis() * 1_000L
     private val liveTimelineMonotonicOriginNs = System.nanoTime()
     private val _selectedRedAlliance = MutableStateFlow(true)
@@ -437,6 +438,10 @@ open class Nt4ClientService(
     }
 
     fun start(host: String, teamId: String, seasonId: String, robotId: String, port: Int = 5810) {
+        if (disposed.get()) {
+            println("[Nt4ClientService] Ignoring start after terminal disposal")
+            return
+        }
         connectionLifecycle.start(host, port, Nt4TargetIdentity(teamId, seasonId, robotId))
     }
 
@@ -464,6 +469,15 @@ open class Nt4ClientService(
             if (attempt + 1 < SHUTDOWN_FLUSH_ATTEMPTS) delay(SHUTDOWN_FLUSH_RETRY_MS)
         }
         return persisted
+    }
+
+    /**
+     * Terminal desktop-shutdown boundary. Unlike [stop], this permanently rejects later starts
+     * from Compose effects that may observe simulator/process state while the window is closing.
+     */
+    suspend fun disposeAndJoin(): Boolean {
+        disposed.set(true)
+        return stop()
     }
 
     suspend fun publishFrame(frame: TelemetryFrame) {
@@ -844,10 +858,10 @@ open class Nt4ClientService(
         /** Amount of recent live telemetry intentionally retained in the ephemeral database. */
         internal const val LIVE_RETENTION_MS = 300_000L
         internal val CANONICAL_SUBSCRIPTION_PREFIXES = listOf(
-            "/ARES", "/Drive", "/Robot", "/Hardware", "/Topology", "/Tuning",
-            "/Profiling", "/Diagnostics", "/Vision", "/Path", "/Gamepad1", "/Gamepad2",
-            "/Superstructure", "/Calibration", "/SysId", "/Swerve", "/Mechanism",
-            "/LoopTimeMs", "/TimestampMs"
+            "ARES", "Drive", "Robot", "Hardware", "Topology", "Tuning",
+            "Profiling", "Diagnostics", "Vision", "Path", "Gamepad1", "Gamepad2",
+            "Superstructure", "Subsystems", "Calibration", "SysId", "Swerve", "Mechanism",
+            "LoopTimeMs", "TimestampMs"
         )
     }
 }

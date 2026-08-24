@@ -21,6 +21,7 @@ import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Science
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -199,6 +200,59 @@ private fun CommissioningGuide(
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
             )
+            if (plan.subsystemChecks.isNotEmpty()) {
+                HorizontalDivider(color = AresBorder)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Icon(Icons.Default.Science, contentDescription = null, tint = AresCyan, modifier = Modifier.size(18.dp))
+                    Text("Commission subsystem devices", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                }
+                Text(
+                    "Start with read-only signals in the simulator or live self-test. Motion proposals below are intentionally unarmed: this app does not send them to a robot.",
+                    color = AresTextSecondary,
+                    fontSize = 12.sp,
+                    lineHeight = 18.sp,
+                )
+                plan.subsystemChecks.forEach { check ->
+                    Surface(color = AresSurfaceElevated, shape = RoundedCornerShape(9.dp), border = BorderStroke(1.dp, AresBorder)) {
+                        Column(Modifier.fillMaxWidth().padding(11.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("${check.subsystemName} · ${check.deviceName}", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                Text(check.hardwareAddress, color = AresCyan, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                            }
+                            if (check.readOnlySignals.isNotEmpty()) {
+                                Text("Observe first: ${check.readOnlySignals.joinToString()}", color = AresTextSecondary, fontSize = 11.sp)
+                            }
+                            if (check.controlStrategies.isNotEmpty()) {
+                                Text("Control: ${check.controlStrategies.joinToString { it.lowercase().replace('_', ' ') }}", color = AresTextSecondary, fontSize = 11.sp)
+                            }
+                            check.homingMethod?.let { method ->
+                                Text(
+                                    "Homing: ${method.lowercase().replace('_', ' ')}${check.homingEvidence.takeIf { it.isNotEmpty() }?.joinToString(prefix = " · evidence: ").orEmpty()}",
+                                    color = AresTextSecondary,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            if (check.requiresCalibration) Text("Calibration must be established before motion.", color = AresAmber, fontSize = 11.sp)
+                            if (check.requiresCurrentMonitoring) Text("A fresh, valid current reading is required.", color = AresAmber, fontSize = 11.sp)
+                            when {
+                                check.followerOnly -> Text("Follower device: verify it with its leader; do not command it independently.", color = AresAmber, fontSize = 11.sp)
+                                check.pulseProposal != null -> Text(
+                                    "UNARMED PULSE PROPOSAL · mentor review required · ≤${check.pulseProposal.maximumDurationMs} ms · ≤${(check.pulseProposal.maximumTravelFromNeutralFraction * 100).toInt()}% from neutral ${check.pulseProposal.safeNeutralOutput}",
+                                    color = AresAmber,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+                    }
+                }
+                Text(
+                    "After identity, direction, sensors, and homing pass, transfer only reviewed gains from the simulation/tuning tools. Re-run neutral recovery before enabling normal commands.",
+                    color = AresTextTertiary,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                )
+            }
             if (onOpenPitDiagnostics != null) {
                 OutlinedButton(onClick = onOpenPitDiagnostics) {
                     Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))

@@ -2,8 +2,10 @@ package com.ares.analytics.viewmodel.drivebase
 
 import com.ares.analytics.service.DrivebaseDesignAssistant
 import com.ares.analytics.service.DrivebaseDesignProposal
+import com.ares.analytics.service.AresRobotConfig
 import com.ares.analytics.service.drivebase.*
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
+import com.ares.analytics.shared.AppJson
 import com.ares.analytics.shared.League
 import com.areslib.drivetrain.DrivetrainDocumentCodec
 import kotlinx.coroutines.CoroutineScope
@@ -14,6 +16,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.decodeFromString
 import java.io.File
 import java.security.MessageDigest
 import kotlin.math.PI
@@ -71,6 +74,7 @@ data class DrivebaseBuilderState(
     val saveReview: DrivebaseSaveReview? = null,
     val importPath: String = "",
     val importWarnings: List<String> = emptyList(),
+    val tuningProfileRepairIssues: List<String> = emptyList(),
     val status: String = "",
     val error: String? = null,
     val loading: Boolean = true,
@@ -88,6 +92,7 @@ sealed interface DrivebaseBuilderIntent {
     data class SelectKind(val kind: DrivebaseKind) : DrivebaseBuilderIntent
     data class SelectHardware(val id: String?) : DrivebaseBuilderIntent
     data class UpdateHardware(val device: DriveHardwareDeclaration) : DrivebaseBuilderIntent
+    data object UseSimulationCanIds : DrivebaseBuilderIntent
     data class AddHardware(val role: DriveHardwareRole) : DrivebaseBuilderIntent
     data class RemoveHardware(val id: String) : DrivebaseBuilderIntent
     data class UpdateGeometry(val geometry: DriveGeometry) : DrivebaseBuilderIntent
@@ -117,7 +122,8 @@ class DrivebaseBuilderViewModel(
     private val designAssistant: DrivebaseDesignAssistant? = null,
     private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
 ) {
-    private val _state = MutableStateFlow(DrivebaseBuilderState(projectPath, projectId, league))
+    private val canonicalProjectId = canonicalRuntimeProjectUid(projectPath, projectId, league)
+    private val _state = MutableStateFlow(DrivebaseBuilderState(projectPath, canonicalProjectId, league))
     val state: StateFlow<DrivebaseBuilderState> = _state.asStateFlow()
 
     init { onIntent(DrivebaseBuilderIntent.Reload) }
@@ -133,12 +139,13 @@ class DrivebaseBuilderViewModel(
                 _state.value.dirty && intent.kind != _state.value.draft.kind -> {
                     _state.update { it.copy(pendingDiscardAction = DrivebaseDiscardAction.CHANGE_KIND, pendingKind = intent.kind) }
                 }
-                intent.kind != _state.value.draft.kind -> edit(defaultDrivebase(_state.value.projectId, intent.kind))
+                intent.kind != _state.value.draft.kind -> edit(drivebaseForKind(_state.value, intent.kind))
             }
             is DrivebaseBuilderIntent.SelectHardware -> _state.update { it.copy(selectedHardwareId = intent.id) }
             is DrivebaseBuilderIntent.UpdateHardware -> edit(_state.value.draft.copy(
                 hardware = _state.value.draft.hardware.map { if (it.id == intent.device.id) intent.device else it }
             ))
+            DrivebaseBuilderIntent.UseSimulationCanIds -> useSimulationCanIds()
             is DrivebaseBuilderIntent.AddHardware -> addHardware(intent.role)
             is DrivebaseBuilderIntent.RemoveHardware -> removeHardware(intent.id)
             is DrivebaseBuilderIntent.UpdateGeometry -> edit(_state.value.draft.copy(geometry = intent.geometry))
@@ -170,13 +177,33 @@ class DrivebaseBuilderViewModel(
 
     private fun requestDiscard(action: DrivebaseDiscardAction) = _state.update { it.copy(pendingDiscardAction = action, pendingKind = null) }
 
+    private fun useSimulationCanIds() {
+        val state = _state.value
+        if (state.league != League.FRC || state.draft.kind != DrivebaseKind.FRC_CTRE_SWERVE) {
+            _state.update { it.copy(error = "Simulation CAN placeholders are available only for an FRC CTRE swerve draft.") }
+            return
+        }
+        val candidate = state.draft.copy(
+            hardware = state.draft.hardware.mapIndexed { index, device ->
+                device.copy(canId = index + 1, canBus = "rio")
+            },
+        )
+        edit(candidate)
+        _state.update {
+            it.copy(
+                status = "Assigned unique simulation-only CAN IDs 1–${candidate.hardware.size}. Replace every address with the robot's verified CTRE configuration before physical deployment.",
+                error = null,
+            )
+        }
+    }
+
     private fun confirmDiscard() {
         val action = _state.value.pendingDiscardAction
         val kind = _state.value.pendingKind
         _state.update { it.copy(pendingDiscardAction = null, pendingKind = null, dirty = false) }
         when (action) {
             DrivebaseDiscardAction.RELOAD -> load()
-            DrivebaseDiscardAction.CHANGE_KIND -> kind?.let { edit(defaultDrivebase(_state.value.projectId, it)) }
+            DrivebaseDiscardAction.CHANGE_KIND -> kind?.let { edit(drivebaseForKind(_state.value, it)) }
             null -> Unit
         }
     }
@@ -190,7 +217,7 @@ class DrivebaseBuilderViewModel(
                     (saved ?: defaultDrivebase(
                         _state.value.projectId,
                         defaultNoCodeDrivebaseKind(_state.value.league),
-                    )).withRuntimeRequirements()
+                    )).withRuntimeRequirements().withCanonicalProjectIdentity(_state.value.projectId)
                 }
                 val draft = draftResult.getOrElse { failure ->
                     _state.update {
@@ -202,15 +229,19 @@ class DrivebaseBuilderViewModel(
                     return@fold
                 }
                 val runtimeRepairReady = saved != null && diffDrivebase(saved, draft).isNotEmpty()
+                val tuningProfileRepairs = if (saved != null) {
+                    withContext(Dispatchers.IO) { repository.tuningProfileRepairIssues(_state.value.projectPath, draft) }
+                } else emptyList()
                 _state.update {
                     it.copy(
                         saved = saved,
                         draft = draft,
                         issues = validateDrivebaseForLeague(draft, it.league),
                         loading = false,
-                        dirty = runtimeRepairReady,
-                        status = if (runtimeRepairReady) {
-                            "ARES prepared missing runtime parameters and/or hardware wiring for review. Open Safety & Review to save the repair."
+                        dirty = runtimeRepairReady || tuningProfileRepairs.isNotEmpty(),
+                        tuningProfileRepairIssues = tuningProfileRepairs,
+                        status = if (runtimeRepairReady || tuningProfileRepairs.isNotEmpty()) {
+                            "ARES prepared missing runtime parameters, hardware wiring, and/or tuning ownership repairs for review. Open Safety & Review to inspect and save them."
                         } else "",
                         error = null,
                         selectedHardwareId = null,
@@ -456,7 +487,17 @@ class DrivebaseBuilderViewModel(
             _state.update { it.copy(issues = issues, error = "Fix the blocking checks before reviewing the save.") }
             return
         }
-        val changes = diffDrivebase(state.saved, normalized)
+        val changes = diffDrivebase(state.saved, normalized).toMutableList().apply {
+            if (state.tuningProfileRepairIssues.isNotEmpty()) {
+                add(
+                    DrivebaseChange(
+                        "tuningProfiles",
+                        state.tuningProfileRepairIssues.joinToString(" "),
+                        "Reconcile checked-in profiles to this drivebase and remove only obsolete assignments; preserve every prior file in .ares/history.",
+                    ),
+                )
+            }
+        }
         if (changes.isEmpty()) {
             _state.update {
                 it.copy(
@@ -495,7 +536,7 @@ class DrivebaseBuilderViewModel(
             withContext(Dispatchers.IO) { repository.saveReviewed(state.projectPath, currentHash, state.draft) }
         }.fold(
             onSuccess = { saved ->
-                _state.update { it.copy(saved = saved, draft = saved, saveReview = null, status = "Saved reviewed drivebase ${saved.canonical?.let(com.areslib.drivetrain.DrivetrainDocumentCodec::contentHash)?.take(12)}. No robot or vendor source was written.", error = null, dirty = false) }
+                _state.update { it.copy(saved = saved, draft = saved, saveReview = null, tuningProfileRepairIssues = emptyList(), status = "Saved reviewed drivebase ${saved.canonical?.let(com.areslib.drivetrain.DrivetrainDocumentCodec::contentHash)?.take(12)}. No robot or vendor source was written.", error = null, dirty = false) }
                 scope.launch {
                     runCatching {
                         checkpointRecorder.checkpoint(
@@ -512,6 +553,54 @@ class DrivebaseBuilderViewModel(
         )
     }
 
+}
+
+internal fun canonicalRuntimeProjectUid(projectPath: String, fallback: String, league: League): String {
+    val identity = File(projectPath, ".ares-robot.json")
+    return runCatching { AppJson.decodeFromString<AresRobotConfig>(identity.readText()) }
+        .getOrNull()
+        ?.let { config ->
+            listOf(
+                "team${config.teamId.filter(Char::isDigit)}",
+                league.name.lowercase(),
+                uidSegment("season${config.seasonId}", "seasonunknown"),
+                uidSegment(config.robotId, "robot"),
+            ).joinToString(".")
+        }
+        ?: fallback.lowercase().replace(Regex("[^a-z0-9]+"), ".").trim('.').ifBlank { "robot.project" }
+}
+
+private fun uidSegment(value: String, fallback: String): String =
+    value.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').ifBlank { fallback }
+
+private fun drivebaseForKind(state: DrivebaseBuilderState, kind: DrivebaseKind): DrivebaseDocument {
+    val replacement = defaultDrivebase(state.projectId, kind)
+    val replacementCanonical = replacement.canonical ?: return replacement
+    val currentCanonical = state.draft.canonical ?: return replacement
+    val reboundUid = currentCanonical.uid
+    return replacement.copy(
+        canonical = replacementCanonical.copy(
+            uid = reboundUid,
+            canonicalProfileUid = currentCanonical.canonicalProfileUid,
+            parameters = replacementCanonical.parameters.map { parameter ->
+                if (parameter.componentUid == replacementCanonical.uid) parameter.copy(componentUid = reboundUid) else parameter
+            },
+        ),
+    )
+}
+
+internal fun DrivebaseDocument.withCanonicalProjectIdentity(projectId: String): DrivebaseDocument {
+    val canonicalDocument = canonical ?: return copy(projectId = projectId)
+    val profileId = canonicalDocument.canonicalProfileUid.substringAfter(".profile.", "competition")
+    val expectedProfileUid = "$projectId.profile.$profileId"
+    return if (this.projectId == projectId && canonicalDocument.canonicalProfileUid == expectedProfileUid) {
+        this
+    } else {
+        copy(
+            projectId = projectId,
+            canonical = canonicalDocument.copy(canonicalProfileUid = expectedProfileUid),
+        )
+    }
 }
 
 data class GeometryLabResult(

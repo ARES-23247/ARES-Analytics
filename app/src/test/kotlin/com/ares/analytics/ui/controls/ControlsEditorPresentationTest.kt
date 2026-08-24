@@ -5,6 +5,7 @@ import com.ares.analytics.ui.components.controls.actionAccessibleLabel
 import com.ares.analytics.ui.components.controls.actionBrowserGroups
 import com.ares.analytics.ui.components.controls.actionCatalogSummary
 import com.ares.analytics.ui.components.controls.bindingLearningTrace
+import com.ares.analytics.ui.components.controls.canvasCollisionOffsetY
 import com.ares.analytics.ui.components.controls.hasAdvancedBindingSettings
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.controls.ControlsEditorState
@@ -59,6 +60,23 @@ class ControlsEditorPresentationTest {
         target = ControlTargetDocument(ControlTargetKind.ACTION, "intake.start"),
         timing = timing
     )
+
+    @Test
+    fun `same-row stick axes receive opposite callout offsets without moving authored layouts`() {
+        fun axis(id: String, y: Double) = ControllerControlDocument(
+            controlId = id,
+            displayName = id,
+            type = ControllerControlTypeDocument.AXIS,
+            anchor = ControllerAnchorDocument(.35, y),
+        )
+        val sameRow = listOf(axis("left_stick_x", .5), axis("left_stick_y", .5))
+        assertEquals(-28f, sameRow[0].canvasCollisionOffsetY(sameRow))
+        assertEquals(28f, sameRow[1].canvasCollisionOffsetY(sameRow))
+
+        val authoredRows = listOf(axis("left_stick_x", .62), axis("left_stick_y", .72))
+        assertEquals(0f, authoredRows[0].canvasCollisionOffsetY(authoredRows))
+        assertEquals(0f, authoredRows[1].canvasCollisionOffsetY(authoredRows))
+    }
 
     @Test
     fun `default timing stays collapsed with a plain-language summary`() {

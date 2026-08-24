@@ -10,10 +10,12 @@ class DesktopTestControlServerTest {
     @Test
     fun `parses supported visible UI commands`() {
         assertEquals(DesktopTestCommand.Click(12, 34), DesktopTestCommandParser.parse("CLICK 12 34"))
+        assertEquals(DesktopTestCommand.Wheel(12, 34, 5), DesktopTestCommandParser.parse("WHEEL 12 34 5"))
         assertEquals(DesktopTestCommand.Key(65, 128), DesktopTestCommandParser.parse("KEY 65 128"))
         assertEquals(DesktopTestCommand.KeyDown(87, 0), DesktopTestCommandParser.parse("KEY_DOWN 87"))
         assertEquals(DesktopTestCommand.KeyUp(87, 0), DesktopTestCommandParser.parse("KEY_UP 87 0"))
         assertEquals(DesktopTestCommand.Capture, DesktopTestCommandParser.parse("CAPTURE"))
+        assertEquals(DesktopTestCommand.Close, DesktopTestCommandParser.parse("CLOSE"))
         assertEquals(DesktopTestCommand.Ping, DesktopTestCommandParser.parse("PING"))
 
         val encoded = Base64.getEncoder().encodeToString("Robot π".toByteArray(StandardCharsets.UTF_8))
@@ -23,6 +25,7 @@ class DesktopTestControlServerTest {
     @Test
     fun `rejects malformed or unknown commands`() {
         assertFailsWith<IllegalArgumentException> { DesktopTestCommandParser.parse("CLICK 12") }
+        assertFailsWith<IllegalArgumentException> { DesktopTestCommandParser.parse("WHEEL 12 34") }
         assertFailsWith<IllegalArgumentException> { DesktopTestCommandParser.parse("KEY") }
         assertFailsWith<IllegalStateException> { DesktopTestCommandParser.parse("DELETE EVERYTHING") }
     }

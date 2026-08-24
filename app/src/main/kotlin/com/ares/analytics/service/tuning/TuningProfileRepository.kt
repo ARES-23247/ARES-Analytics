@@ -3,6 +3,7 @@ package com.ares.analytics.service.tuning
 import com.areslib.drivetrain.DrivetrainDocumentCodec
 import com.areslib.subsystem.SubsystemDocumentCodec
 import com.areslib.tuning.*
+import com.google.gson.GsonBuilder
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -20,10 +21,21 @@ data class ReviewedTuningHistory(
 )
 
 class TuningProfileRepository {
+    private val gson = GsonBuilder().create()
     fun evidenceErrors(projectPath: String, changes: List<TuningProfileChange>): List<String> =
         runCatching { validateEvidence(projectPath, changes) }.exceptionOrNull()?.message?.let(::listOf).orEmpty()
 
-    fun load(projectPath: String): Result<TuningWorkspaceDocuments> = runCatching {
+    fun load(projectPath: String): Result<TuningWorkspaceDocuments> = loadInternal(projectPath, requireSingleProject = true)
+
+    /**
+     * Reads otherwise-valid checked-in tuning documents while allowing a legacy project UID
+     * mismatch to be repaired by a structured, history-backed authoring transaction.
+     * Normal consumers must use [load], which continues to fail closed.
+     */
+    internal fun loadForIdentityRepair(projectPath: String): Result<TuningWorkspaceDocuments> =
+        loadInternal(projectPath, requireSingleProject = false)
+
+    private fun loadInternal(projectPath: String, requireSingleProject: Boolean): Result<TuningWorkspaceDocuments> = runCatching {
         val root = File(projectPath, ".ares")
         val drivetrainDeclarations = File(root, "drivetrains").listFiles { file -> file.extension == "aresdrivetrain" }
             ?.flatMap { DrivetrainDocumentCodec.decode(it.readText()).parameters }.orEmpty()
@@ -35,16 +47,37 @@ class TuningProfileRepository {
         require(declarations.map { it.uid }.distinct().size == declarations.size) { "Tuning parameter UIDs must be unique across the project." }
         require(declarations.map { it.key }.distinct().size == declarations.size) { "Tuning parameter keys must be unique across the project." }
         val profiles = File(root, "tuning").listFiles { file -> file.extension == "arestuning" }
-            ?.map { TuningProfileDocumentCodec.decode(it.readText(), declarations) }
+            ?.map { file ->
+                if (requireSingleProject) TuningProfileDocumentCodec.decode(file.readText(), declarations)
+                else decodeForIdentityRepair(file.readText(), declarations)
+            }
             ?.sortedBy { it.displayName }.orEmpty()
         require(profiles.map { it.uid }.distinct().size == profiles.size) { "Tuning profile UIDs must be unique across the project." }
         require(profiles.map { it.profileId }.distinct().size == profiles.size) { "Tuning profile IDs must be unique across the project." }
         require(profiles.all { it.authority == TuningProfileAuthority.CANONICAL_CHECKED_IN }) {
             "Only checked-in canonical profiles belong in .ares/tuning; local experiments belong in .ares/local/tuning."
         }
-        require(profiles.map { it.projectUid }.distinct().size <= 1) { "Every tuning profile must target the same robot project." }
-        resolveTuningProfiles(profiles, declarations)
+        if (requireSingleProject) {
+            require(profiles.map { it.projectUid }.distinct().size <= 1) { "Every tuning profile must target the same robot project." }
+        }
+        val resolvableProfiles = if (requireSingleProject) profiles else profiles.map { profile ->
+            profile.copy(values = profile.values.filter { assignment -> declarations.any { it.uid == assignment.parameterUid } })
+        }
+        resolveTuningProfiles(resolvableProfiles, declarations)
         TuningWorkspaceDocuments(declarations, profiles)
+    }
+
+    private fun decodeForIdentityRepair(
+        text: String,
+        declarations: Collection<TuningParameterDeclaration>,
+    ): TuningProfileDocument {
+        val profile = runCatching { gson.fromJson(text, TuningProfileDocument::class.java) }
+            .getOrElse { throw IllegalArgumentException("Invalid tuning profile: ${it.message}", it) }
+        val blockingIssues = validateTuningProfileDocument(profile, declarations).filterNot { issue ->
+            issue.path.matches(Regex("values\\[\\d+].parameterUid")) && issue.message.startsWith("Unknown parameter '")
+        }
+        require(blockingIssues.isEmpty()) { blockingIssues.joinToString("; ") { "${it.path}: ${it.message}" } }
+        return profile
     }
 
     fun promote(

@@ -74,6 +74,13 @@ The mission deliberately follows one mechanism through the whole learning loop:
 8. **Graduate** through the state-flow lab, generated Kotlin, controller binding, compilation, and
    simulator evidence.
 
+For a complete practice robot, repeat the workflow with four deliberately different mechanisms:
+a homed position elevator or arm, velocity flywheel, hysteretic intake, and positional servo. Then
+coordinate them with one cross-mechanism interlock, bind one direct action and one routine, run the
+routine in Local Sim, and use Dashboard's **Subsystem health** card to explain each mechanism's
+configuration, freshness, validity, homing/calibration, fault, and recovery state. FTC and FRC use
+the same canonical learning flow even though their hardware addresses and build products differ.
+
 ARES may record that the draft has the expected typed fields, that its declared safety contract
 passes local validation, that the generated artifact plan was opened, and that a descriptor was
 saved. Those facts do not prove that generated code compiled or that a real motor, encoder, switch,

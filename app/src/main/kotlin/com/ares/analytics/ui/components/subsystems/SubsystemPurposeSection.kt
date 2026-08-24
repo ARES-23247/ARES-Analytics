@@ -29,6 +29,7 @@ fun SubsystemPurposeSection(
 ) {
     val document = state.draft?.document ?: return
     var pendingTemplate by remember(document.uid) { mutableStateOf<SubsystemTemplate?>(null) }
+    var showAdvancedNaming by remember(document.uid) { mutableStateOf(false) }
 
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Purpose & Naming
@@ -41,22 +42,41 @@ fun SubsystemPurposeSection(
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("SUBSYSTEM IDENTITY & PURPOSE", color = AresTextSecondary, fontSize = 10.sp, fontWeight = FontWeight.Bold)
 
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(
-                        value = document.displayName,
-                        onValueChange = { name ->
-                            val typeName = name.replace(" ", "")
-                            viewModel.edit { it.copy(displayName = name, kotlinTypeName = typeName) }
-                        },
-                        label = { Text("Display Name (e.g. Intake)") },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                    )
+                OutlinedTextField(
+                    value = document.displayName,
+                    onValueChange = { name ->
+                        val previousDerivedName = subsystemKotlinTypeName(document.displayName)
+                        val typeName = if (
+                            document.kotlinTypeName.isBlank() || document.kotlinTypeName == previousDerivedName
+                        ) {
+                            subsystemKotlinTypeName(name)
+                        } else {
+                            document.kotlinTypeName
+                        }
+                        viewModel.edit { it.copy(displayName = name, kotlinTypeName = typeName) }
+                    },
+                    label = { Text("Mechanism name (e.g. Intake)") },
+                    supportingText = { Text("This is the name students will see throughout ARES.") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                )
+
+                TextButton(
+                    onClick = { showAdvancedNaming = !showAdvancedNaming },
+                    contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                ) {
+                    Text(if (showAdvancedNaming) "Hide advanced code naming" else "Advanced code naming", fontSize = 11.sp)
+                }
+
+                if (showAdvancedNaming) {
                     OutlinedTextField(
                         value = document.kotlinTypeName,
                         onValueChange = { typeName -> viewModel.edit { it.copy(kotlinTypeName = typeName) } },
-                        label = { Text("Kotlin Type Name (e.g. IntakeSubsystem)") },
-                        modifier = Modifier.weight(1f),
+                        label = { Text("Kotlin type name (e.g. IntakeSubsystem)") },
+                        supportingText = {
+                            Text("ARES manages this automatically. Change it only when matching existing source code.")
+                        },
+                        modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
                     )
                 }
@@ -218,6 +238,17 @@ fun SubsystemPurposeSection(
         )
     }
 }
+
         }
     }
+}
+
+internal fun subsystemKotlinTypeName(displayName: String): String {
+    val identifier = displayName
+        .trim()
+        .split(Regex("[^A-Za-z0-9]+"))
+        .filter(String::isNotBlank)
+        .joinToString("") { part -> part.replaceFirstChar(Char::uppercaseChar) }
+        .ifBlank { "NewSubsystem" }
+    return if (identifier.first().isDigit()) "Mechanism$identifier" else identifier
 }

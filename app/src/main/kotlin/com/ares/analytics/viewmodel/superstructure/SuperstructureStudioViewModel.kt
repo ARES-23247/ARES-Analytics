@@ -467,18 +467,37 @@ class SuperstructureStudioViewModel(
         require(constrained.field.role == SubsystemFieldRole.TARGET && constrained.field.type in setOf(SubsystemValueType.DOUBLE, SubsystemValueType.INT)) {
             "Interlocks can clamp only numeric target fields."
         }
-        document.copy(interlocks = document.interlocks + SuperstructureInterlockRule(
+        val rule = SuperstructureInterlockRule(
             ruleId = uniqueId("limit-${constrained.subsystem.documentId}-${constrained.field.fieldId}"),
-            description = "Clamp ${constrained.label} while ${source.label} is below the reviewed threshold.",
+            description = "",
             primary = source.reference,
             constrained = constrained.reference,
             conditionThreshold = 0.0,
             clampMinimum = constrained.field.minimum,
             clampMaximum = constrained.field.defaultNumber ?: constrained.field.defaultInt?.toDouble() ?: 0.0,
-        ))
+        )
+        document.copy(
+            interlocks = document.interlocks + rule.copy(
+                description = automaticInterlockDescription(rule, _state.value.sourceFields, _state.value.targetFields)
+                    ?: "Clamp the selected target while the reviewed safety condition is active.",
+            ),
+        )
     }
     fun updateInterlock(rule: SuperstructureInterlockRule) = edit { document ->
-        document.copy(interlocks = document.interlocks.map { if (it.ruleId == rule.ruleId) rule else it })
+        val existing = document.interlocks.firstOrNull { it.ruleId == rule.ruleId }
+        val descriptionWasEdited = existing != null && rule.description != existing.description
+        val preserveStudentDescription = descriptionWasEdited || existing?.let { current ->
+            !isAutomaticInterlockDescription(current, _state.value.sourceFields, _state.value.targetFields)
+        } == true
+        val updated = if (preserveStudentDescription) {
+            rule
+        } else {
+            rule.copy(
+                description = automaticInterlockDescription(rule, _state.value.sourceFields, _state.value.targetFields)
+                    ?: rule.description,
+            )
+        }
+        document.copy(interlocks = document.interlocks.map { if (it.ruleId == rule.ruleId) updated else it })
     }
     fun removeInterlock(id: String) {
         _state.update { state -> state.copy(editorErrors = state.editorErrors.filterKeys { !it.startsWith("interlock:$id:") }) }
@@ -681,4 +700,33 @@ class SuperstructureStudioViewModel(
         while ("$normalized-$suffix" in used) suffix++
         return "$normalized-$suffix"
     }
+}
+
+internal fun automaticInterlockDescription(
+    rule: SuperstructureInterlockRule,
+    sourceFields: List<SuperstructureFieldOption>,
+    targetFields: List<SuperstructureFieldOption>,
+): String? {
+    val source = sourceFields.firstOrNull { it.reference == rule.primary }?.label ?: return null
+    val constrained = targetFields.firstOrNull { it.reference == rule.constrained }?.label ?: return null
+    val comparison = when (rule.conditionComparison) {
+        InterlockComparison.LESS_THAN -> "below"
+        InterlockComparison.GREATER_THAN -> "above"
+        InterlockComparison.EQUALS_STATE -> "equal to"
+        InterlockComparison.NOT_EQUALS_STATE -> "not equal to"
+    }
+    return "Clamp $constrained when $source is $comparison ${rule.conditionThreshold}."
+}
+
+internal fun isAutomaticInterlockDescription(
+    rule: SuperstructureInterlockRule,
+    sourceFields: List<SuperstructureFieldOption>,
+    targetFields: List<SuperstructureFieldOption>,
+): Boolean {
+    if (rule.description.isBlank()) return true
+    val automatic = automaticInterlockDescription(rule, sourceFields, targetFields)
+    if (rule.description == automatic) return true
+    val source = sourceFields.firstOrNull { it.reference == rule.primary }?.label ?: return false
+    val constrained = targetFields.firstOrNull { it.reference == rule.constrained }?.label ?: return false
+    return rule.description == "Clamp $constrained while $source is below the reviewed threshold."
 }

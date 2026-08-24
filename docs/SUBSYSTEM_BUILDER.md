@@ -108,6 +108,21 @@ snapshot only after all required reads succeed. Controllers and telemetry read t
 perform a second SDK/vendor call. This makes simulator, replay, and physical behavior comparable and
 prevents one reducer tick from mixing sensor samples from different times.
 
+### Motor-to-mechanism conversion
+
+FTC motors report encoder counts and counts per second; FRC Talon FX starters report rotor turns
+and turns per second. Those are not automatically metres, radians, or mechanism rotations. In the
+motor inspector, **Mechanism conversion** asks for the encoder's native units per motor revolution,
+the gear ratio in motor revolutions per mechanism revolution, and the mechanism travel/angle per
+revolution. Applying it writes one explicit scale to both cached position and velocity signals.
+
+ARES warns when a native motor signal is labeled with a physical unit while its scale remains 1:1.
+That warning is not a tuning suggestion: confirm the encoder specification, gearing, and spool or
+linkage geometry before simulation conclusions or physical operation. For a continuously rotating
+axis, position and target must both use canonical radians before **shortest-path angle wrapping** can
+be enabled. The declared input range must span exactly 2π radians. Leave wrapping off for a
+hard-limited arm whose two ends are not physically adjacent.
+
 ## State roles
 
 - **Target** is requested intent from controller bindings, autonomous routines, or a higher-level
@@ -123,15 +138,35 @@ under a second name.
 ## Control strategies
 
 - **Direct bounded output** is for reviewed voltage, power, PWM, or binary commands without feedback.
-- **Position PID** corrects measured position error.
+- **Position PID** corrects measured position error. Continuous-angle mode wraps position and
+  derivative error across a declared 2π-radian boundary.
 - **Profiled position PID** first limits setpoint velocity/acceleration, then applies position PID.
+  Continuous-angle mode also makes the profile choose the shortest path across the boundary.
 - **Velocity PID** corrects measured speed and commonly pairs with simple-motor feedforward.
-- **Bang-bang / on-off** switches bounded outputs around a tolerance; it is intentionally abrupt.
+- **Hysteretic on/off (bang-bang)** stops inside a tolerance and requires error to exceed an
+  additional hysteresis distance before restarting. A requested reversal passes through neutral
+  for one controller tick.
 - **Positional servo** maps a normalized target to a servo and applies its declared safe position.
 
 The Builder offers only strategies generated and behaviorally tested by the current runtime. More
 advanced algorithms are not useful menu items unless their plant model, units, tuning workflow,
 safety gates, simulation, and generated verification are equally complete.
+
+Each controller card includes **Commission this controller safely**. This contextual sandbox runs
+the selected strategy—not a generic PID stand-in—against a deterministic teaching mechanism. It
+can inject a load, stale or invalid cached feedback, and a signed-angle boundary crossing when the
+controller supports those cases. It reports output saturation, final error, tolerance entry, and
+whether a feedback fault produced neutral output. Slider changes remain a private preview until the
+student chooses **Apply reviewed settings to draft**; normal structured review and Save are still
+required afterward. The sandbox never commands hardware and its simple plant is not a digital twin.
+
+ARES does not currently offer a generic cascaded position/velocity checkbox. A safe cascade needs
+two independently typed and fresh measurements, separate outer velocity and inner voltage limits,
+two sets of gains, saturation propagation, anti-windup across both loops, and a matching mock plant.
+Pretending that the existing one-measurement position controller has those semantics would weaken
+the zero-code contract. Use profiled position PID plus typed feedforward for ordinary mechanisms;
+keep a genuinely cascaded controller hand-authored until that complete descriptor and runtime
+contract exists.
 
 ## Builder workflow
 
@@ -167,8 +202,9 @@ byte-for-byte identical output, user-owned files are protected, and starter repl
 silent.
 
 Every major editor card has a keyboard-focusable help button and hover explanation. Longer concepts
-link to this guide. The homing and feedforward sections include small interactive labs; those labs
-only explain the configured math and never connect to or command robot hardware.
+link to this guide. The homing and feedforward sections include small interactive labs; the control
+card adds a contextual commissioning sandbox. These tools explain or preview configured math and
+never connect to or command robot hardware.
 
 ## Learn the workflow in Robot Academy
 
@@ -254,7 +290,7 @@ mass, friction, restitution, and accessible display color for every placed piece
 
 ## Typed tuning parameters
 
-Schema-10 subsystem documents may declare `tuningParameters`. A declaration is not a loose mutable
+Schema-11 subsystem documents may declare `tuningParameters`. A declaration is not a loose mutable
 constant: it gives the value a stable UID, a project-wide key, a component owner, a novice-facing
 name and explanation, a type, optional units/bounds/options, a default, and an apply policy. Named
 robot profiles own authoritative values; the subsystem only owns their meaning and constraints.
