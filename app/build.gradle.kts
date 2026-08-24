@@ -91,7 +91,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
 
     // Windows Credential Protection (DPAPI) for OAuth refresh-token persistence.
-    implementation("net.java.dev.jna:jna-platform:5.15.0")
+    implementation("net.java.dev.jna:jna-platform:5.19.1")
 
     // Pure-Java project version history; students do not need a separate Git installation.
     implementation("org.eclipse.jgit:org.eclipse.jgit:7.7.1.202607240634-r")
