@@ -113,7 +113,7 @@ dependencies {
     implementation("org.tukaani:xz:1.12")
 
     // Gamepad Support (LWJGL / GLFW — no external SDL dependency)
-    val lwjglVersion = "3.3.4"
+    val lwjglVersion = "3.4.2"
     val lwjglNatives = "natives-windows"
     implementation("org.lwjgl:lwjgl:$lwjglVersion")
     implementation("org.lwjgl:lwjgl-glfw:$lwjglVersion")
