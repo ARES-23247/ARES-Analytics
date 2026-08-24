@@ -34,7 +34,7 @@ private val allowedCorsHosts: List<String> = System.getenv("CORS_ALLOWED_HOSTS")
     .orEmpty()
 
 /**
- * Gateway entry point. This service authenticates callers for Vertex AI pit forensics and
+ * Gateway entry point. This service authenticates callers for Gemini pit forensics and
  * performs narrowly scoped Google OAuth token exchanges for the desktop app. Storage (session
  * logs/summaries) and Google Drive access remain desktop-owned; this gateway does not persist
  * OAuth grants or touch Firebase, Firestore, GCS, or users' Drive files.

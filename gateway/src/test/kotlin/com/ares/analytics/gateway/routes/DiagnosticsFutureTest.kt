@@ -1,9 +1,9 @@
 package com.ares.analytics.gateway.routes
 
-import com.google.api.core.SettableApiFuture
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import java.util.concurrent.CompletableFuture
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -12,10 +12,10 @@ import kotlin.test.assertTrue
 class DiagnosticsFutureTest {
     @Test
     fun `coroutine timeout cancels the underlying RPC future`() = runBlocking {
-        val future = SettableApiFuture.create<String>()
+        val future = CompletableFuture<String>()
 
         assertFailsWith<TimeoutCancellationException> {
-            withTimeout(10) { awaitApiFuture(future) }
+            withTimeout(10) { awaitCompletableFuture(future) }
         }
 
         assertTrue(future.isCancelled)
@@ -23,9 +23,8 @@ class DiagnosticsFutureTest {
 
     @Test
     fun `completed RPC future resumes the caller`() = runBlocking {
-        val future = SettableApiFuture.create<String>()
-        future.set("ok")
+        val future = CompletableFuture.completedFuture("ok")
 
-        assertEquals("ok", awaitApiFuture(future))
+        assertEquals("ok", awaitCompletableFuture(future))
     }
 }

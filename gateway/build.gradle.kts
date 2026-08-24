@@ -32,14 +32,11 @@ dependencies {
     // Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 
-    // Coroutines Extensions
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-guava:1.11.0")
-
     // Google OIDC ID-token verification
     implementation("com.google.api-client:google-api-client:2.7.0")
 
-    // Google Cloud SDKs
-    implementation("com.google.cloud:google-cloud-vertexai:1.12.0")
+    // Google Gen AI SDK (supports Gemini through Vertex AI / enterprise mode)
+    implementation("com.google.genai:google-genai:1.67.0")
 
     // Logging
     implementation("ch.qos.logback:logback-classic:1.5.12")
