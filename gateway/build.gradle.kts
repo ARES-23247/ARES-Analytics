@@ -39,7 +39,7 @@ dependencies {
     implementation("com.google.api-client:google-api-client:2.7.0")
 
     // Google Cloud SDKs
-    implementation("com.google.cloud:google-cloud-vertexai:1.12.0")
+    implementation("com.google.cloud:google-cloud-vertexai:1.52.0")
 
     // Logging
     implementation("ch.qos.logback:logback-classic:1.5.12")
