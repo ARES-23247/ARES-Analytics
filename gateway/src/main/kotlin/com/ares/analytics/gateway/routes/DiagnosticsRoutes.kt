@@ -2,12 +2,8 @@ package com.ares.analytics.gateway.routes
 
 import com.ares.analytics.shared.ForensicsRequest
 import com.ares.analytics.shared.ForensicsResponse
-import com.google.cloud.vertexai.VertexAI
-import com.google.cloud.vertexai.generativeai.GenerativeModel
-import com.google.cloud.vertexai.generativeai.ResponseHandler
-import com.google.api.core.ApiFuture
-import com.google.api.core.ApiFutureCallback
-import com.google.api.core.ApiFutures
+import com.google.genai.Client
+import com.google.genai.types.HttpOptions
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.auth.*
@@ -22,36 +18,33 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
 import org.slf4j.LoggerFactory
+import java.util.concurrent.CompletableFuture
 import kotlin.time.Duration.Companion.seconds
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-private val vertexAiLogger = LoggerFactory.getLogger("DiagnosticsRoutes")
+private val genAiLogger = LoggerFactory.getLogger("DiagnosticsRoutes")
 
 private val projectId = System.getenv("GOOGLE_CLOUD_PROJECT") ?: "ares-analytics"
 private val location = System.getenv("GOOGLE_CLOUD_LOCATION") ?: "us-central1"
-// Lazy so the VertexAI client is not constructed until the first diagnostics request.
-// VertexAI is Closeable but is intentionally never closed here — it lives for the process
-// lifetime and closing it on a hot server would break all subsequent requests.
-private val vertexAi by lazy { VertexAI(projectId, location) }
-private val model by lazy { GenerativeModel(com.ares.analytics.shared.DEFAULT_GEMINI_MODEL, vertexAi) }
+// Lazy so Application Default Credentials are not loaded until the first diagnostics request.
+// The client is process-scoped; closing it while the server is running would break later calls.
+private val genAiClient by lazy {
+    Client.builder()
+        .project(projectId)
+        .location(location)
+        .enterprise(true)
+        .httpOptions(HttpOptions.builder().apiVersion("v1").build())
+        .build()
+}
 private val diagnosticsConcurrency = Semaphore(4)
 
-internal suspend fun <T> awaitApiFuture(future: ApiFuture<T>): T = suspendCancellableCoroutine { continuation ->
+internal suspend fun <T> awaitCompletableFuture(future: CompletableFuture<T>): T = suspendCancellableCoroutine { continuation ->
     continuation.invokeOnCancellation { future.cancel(true) }
-    ApiFutures.addCallback(
-        future,
-        object : ApiFutureCallback<T> {
-            override fun onSuccess(result: T) {
-                if (continuation.isActive) continuation.resume(result)
-            }
-
-            override fun onFailure(error: Throwable) {
-                if (continuation.isActive) continuation.resumeWithException(error)
-            }
-        },
-        java.util.concurrent.Executor { command -> command.run() }
-    )
+    future.whenComplete { result, error ->
+        if (!continuation.isActive) return@whenComplete
+        if (error == null) continuation.resume(result) else continuation.resumeWithException(error)
+    }
 }
 
 /** Registers the authenticated, per-user-rate-limited pit-forensics endpoint. */
@@ -88,10 +81,16 @@ fun Route.diagnosticsRoutes() {
                     """.trimIndent()
                     val response = withTimeout(60.seconds) {
                         diagnosticsConcurrency.withPermit {
-                            awaitApiFuture(model.generateContentAsync(prompt))
+                            awaitCompletableFuture(
+                                genAiClient.async.models.generateContent(
+                                    com.ares.analytics.shared.DEFAULT_GEMINI_MODEL,
+                                    prompt,
+                                    null
+                                )
+                            )
                         }
                     }
-                    val jsonResponse = ResponseHandler.getText(response) ?: "{}"
+                    val jsonResponse = response.text() ?: "{}"
                     val sanitizedJson = jsonResponse.replace(Regex("```(?:json)?\\n?(.*?)\\n?```", RegexOption.DOT_MATCHES_ALL), "$1").trim()
 
                     // Parse to verify compliance and return to client
@@ -110,7 +109,7 @@ fun Route.diagnosticsRoutes() {
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    vertexAiLogger.error("AI diagnostics failed", e)
+                    genAiLogger.error("AI diagnostics failed", e)
                     call.respond(HttpStatusCode.InternalServerError, "AI diagnostics failed")
                 }
             }
