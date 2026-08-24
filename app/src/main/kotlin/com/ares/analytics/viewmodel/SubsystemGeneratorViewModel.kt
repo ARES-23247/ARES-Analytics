@@ -436,6 +436,7 @@ class SubsystemGeneratorViewModel(
         while (id in used) id = "new-subsystem-${++suffix}"
         val name = if (suffix == 1) "NewSubsystem" else "NewSubsystem$suffix"
         val document = SubsystemTemplates.create(template, id, name, platform)
+            .withAvailableTemplateConnections(_state.value.documents)
         _state.update { current ->
             current.copy(
                 documents = current.documents + document,
@@ -471,6 +472,8 @@ class SubsystemGeneratorViewModel(
             kotlinTypeName = currentDocument.kotlinTypeName,
             platform = currentDocument.platform,
             displayName = currentDocument.displayName,
+        ).withAvailableTemplateConnections(
+            _state.value.documents.filterNot { it.documentId == currentDocument.documentId },
         ).copy(
             revision = currentDocument.revision,
             parentContentHash = currentDocument.parentContentHash,
@@ -1443,7 +1446,7 @@ class SubsystemGeneratorViewModel(
         val document = draft?.document ?: return copy(previewFiles = emptyList(), problems = external)
         val validation = validateSubsystemDocument(document).map {
             SubsystemProblem(SubsystemProblemSeverity.ERROR, it.path, it.message)
-        }
+        } + projectConnectionProblems(document, documents)
         val generated = if (validation.isEmpty() && document.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER) {
             val sourceFiles = SubsystemKotlinGenerator.generate(document, SubsystemKotlinCodegenTarget(platform, basePackage))
             val starterPlan = SubsystemStarterReconciler.plan(starterRoot().toPath(), sourceFiles)
@@ -1606,6 +1609,153 @@ private fun SubsystemValueType.isNumeric(): Boolean = this == SubsystemValueType
 private fun SubsystemControlStrategy.requiresMeasurement(): Boolean = this == SubsystemControlStrategy.POSITION_PID ||
     this == SubsystemControlStrategy.PROFILED_POSITION_PID || this == SubsystemControlStrategy.VELOCITY_PID ||
     this == SubsystemControlStrategy.BANG_BANG
+
+/**
+ * Gives a newly applied GUI template addresses that do not immediately collide with another
+ * subsystem. FTC keeps a familiar short default until it is already owned; FRC mechanism CAN
+ * devices start in the intentionally separate 20-62 range because the drivetrain commonly owns
+ * the low IDs. Every value remains an editable draft and still goes through Hardware Setup.
+ */
+private fun SubsystemDocument.withAvailableTemplateConnections(
+    existingDocuments: Collection<SubsystemDocument>,
+): SubsystemDocument {
+    val existingHardware = existingDocuments
+        .filterNot { it.documentId == documentId }
+        .flatMap { it.hardware }
+    val usedNames = existingHardware.mapNotNullTo(linkedSetOf()) {
+        it.connection.hardwareMapName?.trim()?.takeIf(String::isNotEmpty)
+    }
+    val usedCan = existingHardware.mapNotNullTo(linkedSetOf()) { device ->
+        device.connection.canId?.let { device.connection.canBus.trim().lowercase() to it }
+    }
+    val usedChannels = existingHardware.flatMapTo(linkedSetOf()) { device ->
+        buildList {
+            device.connection.channel?.let { add(device.kind.channelNamespace() to it) }
+            device.connection.secondaryChannel?.let { add(device.kind.channelNamespace() to it) }
+        }
+    }
+    val namePrefix = documentId
+        .lowercase()
+        .replace(Regex("[^a-z0-9_]+"), "_")
+        .trim('_')
+        .ifBlank { "subsystem" }
+
+    return copy(hardware = hardware.map { device ->
+        var connection = device.connection
+        if (platform == SubsystemPlatform.FTC) {
+            val currentName = connection.hardwareMapName?.trim()
+            if (!currentName.isNullOrEmpty()) {
+                val chosen = if (usedNames.add(currentName)) {
+                    currentName
+                } else {
+                    uniqueTextValue("${namePrefix}_${device.hardwareId}", usedNames)
+                }
+                connection = connection.copy(hardwareMapName = chosen)
+            }
+        } else {
+            connection.canId?.let { requested ->
+                val bus = connection.canBus.trim().lowercase()
+                val chosen = requested.takeIf { it in 20..62 && (bus to it) !in usedCan }
+                    ?: (20..62).firstOrNull { (bus to it) !in usedCan }
+                    ?: requested
+                usedCan += bus to chosen
+                connection = connection.copy(canId = chosen)
+            }
+            connection.channel?.let { requested ->
+                val namespace = device.kind.channelNamespace()
+                val chosen = requested.takeIf { (namespace to it) !in usedChannels }
+                    ?: (0..31).firstOrNull { (namespace to it) !in usedChannels }
+                    ?: requested
+                usedChannels += namespace to chosen
+                connection = connection.copy(channel = chosen)
+            }
+            connection.secondaryChannel?.let { requested ->
+                val namespace = device.kind.channelNamespace()
+                val chosen = requested.takeIf { (namespace to it) !in usedChannels }
+                    ?: (0..31).firstOrNull { (namespace to it) !in usedChannels }
+                    ?: requested
+                usedChannels += namespace to chosen
+                connection = connection.copy(secondaryChannel = chosen)
+            }
+        }
+        device.copy(connection = connection)
+    })
+}
+
+private fun uniqueTextValue(base: String, used: MutableSet<String>): String {
+    var candidate = base
+    var suffix = 2
+    while (!used.add(candidate)) candidate = "${base}_${suffix++}"
+    return candidate
+}
+
+private fun SubsystemHardwareKind.channelNamespace(): String = when (this) {
+    SubsystemHardwareKind.POSITIONAL_SERVO,
+    SubsystemHardwareKind.CONTINUOUS_SERVO,
+    SubsystemHardwareKind.INDICATOR_LIGHT,
+    SubsystemHardwareKind.PRISM_DRIVER -> "pwm"
+    SubsystemHardwareKind.DIGITAL_INPUT,
+    SubsystemHardwareKind.QUADRATURE_ENCODER -> "dio"
+    SubsystemHardwareKind.ANALOG_INPUT,
+    SubsystemHardwareKind.ABSOLUTE_ENCODER,
+    SubsystemHardwareKind.DISTANCE_SENSOR -> "analog"
+    SubsystemHardwareKind.SOLENOID -> "solenoid"
+    else -> name.lowercase()
+}
+
+/** Cross-document ownership is a builder error, not a surprise deferred to Verify & build. */
+private fun projectConnectionProblems(
+    document: SubsystemDocument,
+    savedDocuments: Collection<SubsystemDocument>,
+): List<SubsystemProblem> {
+    val others = savedDocuments.filterNot { it.documentId == document.documentId }
+    val nameOwners = mutableMapOf<String, String>()
+    val canOwners = mutableMapOf<Pair<String, Int>, String>()
+    val channelOwners = mutableMapOf<Pair<String, Int>, String>()
+    others.forEach { owner ->
+        owner.hardware.forEach { device ->
+            val label = "${owner.displayName} / ${device.displayName}"
+            device.connection.hardwareMapName?.trim()?.takeIf(String::isNotEmpty)?.let { nameOwners.putIfAbsent(it, label) }
+            device.connection.canId?.let { canOwners.putIfAbsent(device.connection.canBus.trim().lowercase() to it, label) }
+            val namespace = device.kind.channelNamespace()
+            device.connection.channel?.let { channelOwners.putIfAbsent(namespace to it, label) }
+            device.connection.secondaryChannel?.let { channelOwners.putIfAbsent(namespace to it, label) }
+        }
+    }
+    return buildList {
+        document.hardware.forEachIndexed { index, device ->
+            device.connection.hardwareMapName?.trim()?.takeIf(String::isNotEmpty)?.let { name ->
+                nameOwners[name]?.let { owner ->
+                    add(SubsystemProblem(
+                        SubsystemProblemSeverity.ERROR,
+                        "hardware[$index].connection.hardwareMapName",
+                        "Hardware-map name '$name' is already owned by $owner. Give every subsystem device a unique configured name.",
+                    ))
+                }
+            }
+            device.connection.canId?.let { canId ->
+                val bus = device.connection.canBus.trim().lowercase()
+                canOwners[bus to canId]?.let { owner ->
+                    add(SubsystemProblem(
+                        SubsystemProblemSeverity.ERROR,
+                        "hardware[$index].connection.canId",
+                        "CAN ID $canId on ${device.connection.canBus} is already owned by $owner. Choose an unused device ID.",
+                    ))
+                }
+            }
+            val namespace = device.kind.channelNamespace()
+            listOfNotNull(device.connection.channel, device.connection.secondaryChannel).forEach { channel ->
+                channelOwners[namespace to channel]?.let { owner ->
+                    add(SubsystemProblem(
+                        SubsystemProblemSeverity.ERROR,
+                        "hardware[$index].connection.channel",
+                        "${namespace.uppercase()} channel $channel is already owned by $owner. Choose an unused channel.",
+                    ))
+                }
+            }
+        }
+    }
+}
 
 /**
  * Small deterministic line diff for starter replacement review. Common context is intentionally

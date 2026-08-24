@@ -356,6 +356,9 @@ fun DashboardScreen(
                 "state_tracker" to { _, mod ->
                     StateMachineTrackerCard(services.nt4ClientService, mod)
                 },
+                "subsystem_health" to { _, mod ->
+                    SubsystemHealthCard(services.nt4ClientService, mod)
+                },
                 "system_health" to { _, mod ->
                     SystemHealthCard(services.nt4ClientService, services.dashboardHealthService, mod)
                 },

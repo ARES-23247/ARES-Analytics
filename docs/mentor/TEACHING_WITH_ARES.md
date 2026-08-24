@@ -316,6 +316,21 @@ Do not replace the final explanation with “the build was green.” Students mu
 where generated code stops, where user-owned/platform code begins, and which physical claims remain
 unverified.
 
+### Recommended complete practice robot
+
+Use one drivetrain plus a homed position mechanism, velocity flywheel, hysteretic intake, and
+positional servo. Require students to reuse catalog capabilities across a direct TeleOp binding, a
+bounded autonomous routine, and a guarded superstructure transition; add one cross-mechanism
+interlock and exercise invalid/stale feedback plus failed-write neutral recovery in simulation.
+Finish by reading the Dashboard **Subsystem health** card. This gives every student the same
+end-to-end vocabulary without pretending the simulator verified wiring, loads, clearances, or
+physical gains.
+
+Before a powered bring-up, open Hardware Setup and review its exact names/addresses and derived
+commissioning checklist. The displayed pulse is an **unarmed proposal**, not a desktop control.
+Physical identity/direction tests remain mentor-authorized, restrained, hold-to-run, and inside the
+league controller's normal enable/stop boundary.
+
 ## A 30-minute input-to-telemetry lab
 
 ### Learning outcomes

@@ -126,6 +126,26 @@ class HardwareSetupServiceTest {
     }
 
     @Test
+    fun `subsystem commissioning is descriptor derived and motion remains unarmed`() {
+        val root = Files.createTempDirectory("ares-subsystem-commissioning").toFile()
+        try {
+            seedDrivebase(root)
+            SubsystemProjectRepository().save(root.path, lift("arm"))
+
+            val plan = HardwareSetupService().inspect(root.path, League.FTC).commissioningPlan()
+            val motor = plan.subsystemChecks.single { it.deviceName == "Motor" }
+
+            assertEquals("Lift", motor.subsystemName)
+            assertTrue(motor.readOnlySignals.isNotEmpty())
+            assertTrue(motor.controlStrategies.isNotEmpty())
+            assertEquals(250L, requireNotNull(motor.pulseProposal).maximumDurationMs)
+            assertTrue(plan.clipboardText.contains("UNARMED proposal"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `Prism driver is documented as PWM rather than I2C hardware`() {
         val root = Files.createTempDirectory("ares-prism-address-kind").toFile()
         try {

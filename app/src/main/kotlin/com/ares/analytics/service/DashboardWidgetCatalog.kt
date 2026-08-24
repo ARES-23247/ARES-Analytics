@@ -38,6 +38,7 @@ object DashboardWidgetCatalog {
         DashboardWidgetSpec("control_profiler", 4, 5),
         DashboardWidgetSpec("profiling_diagnostics", 4, 5),
         DashboardWidgetSpec("hardware_topology", 3, 3),
+        DashboardWidgetSpec("subsystem_health", 4, 5),
         DashboardWidgetSpec("state_tracker", 4, 5),
         DashboardWidgetSpec("runs_index", 4, 9),
         DashboardWidgetSpec("pose_viewer", 6, 6),

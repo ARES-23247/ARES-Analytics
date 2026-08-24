@@ -56,6 +56,16 @@ data class HardwareInventoryItem(
     val inverted: Boolean,
     /** Descriptor-owned details students must transfer or verify during physical setup. */
     val configurationDetails: List<String> = emptyList(),
+    /** Advisory commissioning metadata. It never grants authority to command hardware. */
+    val isMotionActuator: Boolean = false,
+    val isFollower: Boolean = false,
+    val safeOutput: Double? = null,
+    val measurementFieldIds: List<String> = emptyList(),
+    val controlStrategies: List<String> = emptyList(),
+    val homingMethod: String? = null,
+    val homingEvidence: List<String> = emptyList(),
+    val requiresCalibration: Boolean = false,
+    val requiresCurrentMonitoring: Boolean = false,
 ) {
     val addressDescription: String
         get() = when {
@@ -214,6 +224,11 @@ class HardwareSetupService(
             val sourcePath = ".ares/subsystems/${subsystem.documentId}.aressubsystem"
             sources += HardwareSourceFingerprint(sourcePath, SubsystemDocumentCodec.contentHash(subsystem))
             subsystem.hardware.forEach { device ->
+                val controlStrategies = subsystem.controlLoops
+                    .filter { it.actuatorId == device.hardwareId }
+                    .map { it.strategy.name }
+                    .distinct()
+                val homing = subsystem.safety.homing.takeIf { it.actuatorId == device.hardwareId }
                 val address = when (league) {
                     League.FTC -> device.connection.hardwareMapName.orEmpty().trim()
                     League.FRC -> when (device.kind) {
@@ -255,6 +270,20 @@ class HardwareSetupService(
                     required = device.required,
                     inverted = device.inverted,
                     configurationDetails = device.configurationDetails(),
+                    isMotionActuator = device.kind in MOTION_ACTUATOR_KINDS,
+                    isFollower = device.following != null,
+                    safeOutput = device.safeOutput,
+                    measurementFieldIds = device.measurements.map { it.fieldId },
+                    controlStrategies = controlStrategies,
+                    homingMethod = homing?.method?.name?.takeUnless { it == "NONE" },
+                    homingEvidence = homing?.evidence.orEmpty().map { evidence ->
+                        buildString {
+                            append(evidence.fieldId).append(' ').append(evidence.comparison.name.lowercase().replace('_', ' '))
+                            evidence.threshold?.let { append(' ').append(formatSetupNumber(it)) }
+                        }
+                    },
+                    requiresCalibration = subsystem.safety.requiresCalibration && device.kind in MOTION_ACTUATOR_KINDS,
+                    requiresCurrentMonitoring = subsystem.safety.requiresCurrentMonitoring && device.kind in MOTION_ACTUATOR_KINDS,
                 )
             }
         }
@@ -506,3 +535,9 @@ private fun formatSetupNumber(value: Double): String = if (value == value.toLong
 } else {
     value.toString()
 }
+
+private val MOTION_ACTUATOR_KINDS = setOf(
+    SubsystemHardwareKind.MOTOR,
+    SubsystemHardwareKind.POSITIONAL_SERVO,
+    SubsystemHardwareKind.CONTINUOUS_SERVO,
+)

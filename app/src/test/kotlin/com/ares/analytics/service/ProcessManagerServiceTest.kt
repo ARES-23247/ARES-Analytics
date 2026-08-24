@@ -100,10 +100,67 @@ class ProcessManagerServiceTest {
             assertTrue("test" in frc)
             assertTrue("build" in frc)
             assertTrue(frc.indexOf("generateAresProject") < frc.indexOf("verifyAresProject"))
+            listOf(ftc, frc).forEach { command ->
+                assertTrue("--no-parallel" in command)
+                assertTrue("--no-daemon" in command)
+                assertTrue("--console=plain" in command)
+            }
             (ftc + frc).forEach { argument ->
                 assertFalse(argument.contains("adb", ignoreCase = true))
                 assertFalse(argument.contains("deploy", ignoreCase = true))
                 assertFalse(argument.contains("install", ignoreCase = true))
+            }
+        } finally {
+            service.shutdown()
+        }
+    }
+
+    @Test
+    fun `desktop simulator wrapper is isolated from ambient Gradle daemons`() {
+        val service = ProcessManagerService(monitorAdbConnection = false)
+        try {
+            val ftc = service.simulationGradleCommandForTest(League.FTC, isWindows = true)
+            val frc = service.simulationGradleCommandForTest(League.FRC, isWindows = false)
+
+            assertEquals(listOf("cmd.exe", "/c", "gradlew.bat"), ftc.take(3))
+            assertTrue(":TeamCode:runSim" in ftc)
+            assertEquals("./gradlew", frc.first())
+            assertTrue("simulateJava" in frc)
+            listOf(ftc, frc).forEach { command ->
+                assertTrue("--no-parallel" in command)
+                assertTrue("--no-daemon" in command)
+                assertTrue("--console=plain" in command)
+            }
+        } finally {
+            service.shutdown()
+        }
+    }
+
+    @Test
+    fun `desktop authoring uses platform wrapper and fixed isolated arguments`() {
+        val service = ProcessManagerService(monitorAdbConnection = false)
+        try {
+            val token = "a".repeat(64)
+            val windows = service.authoringGradleCommandForTest(
+                task = ":TeamCode:replaceSubsystemStarters",
+                isWindows = true,
+                confirmationToken = token,
+            )
+            val unix = service.authoringGradleCommandForTest(
+                task = "generateSubsystemStarters",
+                isWindows = false,
+            )
+
+            assertEquals(listOf("cmd.exe", "/c", "gradlew.bat"), windows.take(3))
+            assertTrue(":TeamCode:replaceSubsystemStarters" in windows)
+            assertTrue("-Pares.subsystemReplacementToken=$token" in windows)
+            assertEquals("./gradlew", unix.first())
+            assertTrue("generateSubsystemStarters" in unix)
+            listOf(windows, unix).forEach { command ->
+                assertFalse("org.gradle.wrapper.GradleWrapperMain" in command)
+                assertTrue("--no-parallel" in command)
+                assertTrue("--no-daemon" in command)
+                assertTrue("--console=plain" in command)
             }
         } finally {
             service.shutdown()

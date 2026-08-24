@@ -33,6 +33,23 @@ drive motor names are `fl`, `fr`, `rl`, and `rr` (rear, not back). The individua
 the same source-owned values. For FRC, each card shows the CAN ID and bus. ARES blocks duplicate
 addresses, but students must still confirm the physical labels and vendor configuration.
 
+## Read the subsystem commissioning plan
+
+Hardware Setup also derives a per-mechanism plan from the saved subsystem descriptors. For each
+actuator it names the safe output, available control strategies, cached measurements, follower
+relationships, homing evidence, and any calibration or current-monitoring requirement. Treat this
+as a checklist for a mentor-led bring-up, not as proof that the declarations match the machine.
+
+The displayed **UNARMED PULSE PROPOSAL** is intentionally non-executable. It documents a bounded
+proposal (at most 10% away from neutral for at most 250 ms) so a student can discuss identity and
+direction before any powered test. The desktop app does not send that proposal to a robot. Use the
+league's disabled/enable boundary, physical restraints, a spotter, and the purpose-built robot-side
+diagnostic when the team later authorizes physical commissioning.
+
+Transfer gains only after the sensor sign, canonical unit, home reference, soft limits, neutral
+behavior, and configuration health are verified. Start from simulation evidence, change one
+bounded value, preserve the run, and never interpret a copied gain as physical validation.
+
 ## Check FTC motor identity and direction
 
 ARES Robotics Studio does not command a physical motor from the desktop. Instead, it shows the generated

@@ -159,7 +159,8 @@ class LayoutPreferenceService(
                     WidgetConfig("system_health", "system_health", 0, 7, 3, 5),
                     WidgetConfig("autonomous_selector", "autonomous_selector", 3, 7, 2, 5),
                     WidgetConfig("telemetry_chart", "telemetry_chart", 5, 0, 5, 7),
-                    WidgetConfig("alerts", "alerts", 5, 7, 5, 5)
+                    WidgetConfig("alerts", "alerts", 5, 7, 5, 5),
+                    WidgetConfig("subsystem_health", "subsystem_health", 10, 0, 4, 7)
                 )
             )
             "driver" -> DashboardLayoutConfig(
@@ -178,7 +179,8 @@ class LayoutPreferenceService(
                     WidgetConfig("motor_health", "motor_health", 3, 7, 4, 5),
                     WidgetConfig("power_distribution", "power_distribution", 5, 0, 4, 4),
                     WidgetConfig("battery_health", "battery_health", 5, 4, 4, 3),
-                    WidgetConfig("alerts", "alerts", 7, 7, 2, 5)
+                    WidgetConfig("alerts", "alerts", 7, 7, 2, 5),
+                    WidgetConfig("subsystem_health", "subsystem_health", 9, 0, 4, 7)
                 )
             )
             "autonomous" -> DashboardLayoutConfig(
@@ -276,7 +278,8 @@ class LayoutPreferenceService(
                     WidgetConfig("telemetry_chart", "telemetry_chart", 3, 7, 5, 5),
                     WidgetConfig("advanced_analytics", "advanced_analytics", 8, 0, 5, 6),
                     WidgetConfig("alerts", "alerts", 8, 6, 5, 3),
-                    WidgetConfig("joystick_visualizer", "joystick_visualizer", 8, 9, 5, 3)
+                    WidgetConfig("joystick_visualizer", "joystick_visualizer", 8, 9, 5, 3),
+                    WidgetConfig("subsystem_health", "subsystem_health", 13, 0, 4, 6)
                 )
             )
         }

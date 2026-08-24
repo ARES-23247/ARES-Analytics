@@ -36,6 +36,21 @@ Robot Studio never marks a build ready merely because an old generated file exis
 9. **1-Click Deploy to robot** — connect over Wi-Fi, compile, and flash APK/binary directly to the physical robot.
 10. **Import & analyze a run** — preserve a simulator or robot run before making claims about behavior.
 
+## Follow one capability all the way through
+
+A saved generated subsystem contributes typed named actions to the same project catalog used by
+TeleOp Controls, autonomous routines, and Superstructure Studio. Do not create three separate
+commands for the same intent. Select the generated capability in each editor and follow this one
+runtime path:
+
+`controller/routine/transition → typed action or task → Redux reducer → immutable subsystem state → controller → cached IO → FTC/FRC or simulated adapter`
+
+On Dashboard, add **Subsystem health** (included in the Student, Builder, and Standard layouts).
+It discovers `Subsystems/<id>/...` topics and reports configuration, freshness, feedback/current
+validity, homing/calibration, output faults, and neutral recovery using text as well as color. A
+healthy simulator result proves the generated and simulated path; it does not prove wiring,
+mechanical clearance, sensor polarity, or physical gain stability.
+
 ## Know what is stored where
 
 Robot Studio shows the exact destination on each stage. The important boundaries are:

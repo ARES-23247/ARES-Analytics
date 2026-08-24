@@ -40,6 +40,64 @@ import kotlin.test.assertTrue
 
 class SubsystemGeneratorViewModelTest {
     @Test
+    fun `new FTC templates receive non-colliding hardware map names`() {
+        val root = Files.createTempDirectory("ares-subsystem-unique-ftc-addresses").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+
+        viewModel.newSubsystem(SubsystemTemplate.SIMPLE_ACTUATOR)
+        val firstName = viewModel.state.value.draft!!.document.hardware.single().connection.hardwareMapName
+        viewModel.save()
+        viewModel.newSubsystem(SubsystemTemplate.FLYWHEEL_SHOOTER)
+        val second = viewModel.state.value.draft!!.document
+        val secondName = second.hardware.single().connection.hardwareMapName
+
+        assertEquals("motor", firstName)
+        assertTrue(secondName != firstName)
+        assertTrue(secondName!!.contains("new_subsystem_2_motor"))
+        assertTrue(viewModel.state.value.canSave)
+        viewModel.close()
+    }
+
+    @Test
+    fun `cross subsystem address collision is rejected in the builder before save`() {
+        val root = Files.createTempDirectory("ares-subsystem-address-collision").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)
+
+        viewModel.newSubsystem(SubsystemTemplate.SIMPLE_ACTUATOR)
+        viewModel.save()
+        viewModel.newSubsystem(SubsystemTemplate.FLYWHEEL_SHOOTER)
+        viewModel.edit { document ->
+            document.copy(hardware = document.hardware.map { device ->
+                device.copy(connection = device.connection.copy(hardwareMapName = "motor"))
+            })
+        }
+
+        assertFalse(viewModel.state.value.canSave)
+        assertTrue(viewModel.state.value.problems.any {
+            it.severity == SubsystemProblemSeverity.ERROR && it.message.contains("already owned")
+        })
+        viewModel.close()
+    }
+
+    @Test
+    fun `FRC GUI templates reserve distinct mechanism CAN IDs outside the common drivetrain range`() {
+        val root = Files.createTempDirectory("ares-subsystem-unique-frc-addresses").toFile()
+        val viewModel = SubsystemGeneratorViewModel(root.path, League.FRC)
+
+        viewModel.newSubsystem(SubsystemTemplate.DUAL_MOTOR_FOLLOWER)
+        val firstIds = viewModel.state.value.draft!!.document.hardware.mapNotNull { it.connection.canId }
+        viewModel.save()
+        viewModel.newSubsystem(SubsystemTemplate.FLYWHEEL_SHOOTER)
+        val secondIds = viewModel.state.value.draft!!.document.hardware.mapNotNull { it.connection.canId }
+
+        assertTrue(firstIds.all { it in 20..62 })
+        assertEquals(firstIds.size, firstIds.distinct().size)
+        assertTrue(secondIds.none { it in firstIds })
+        assertTrue(viewModel.state.value.canSave)
+        viewModel.close()
+    }
+
+    @Test
     fun `academy evidence follows the real homed mechanism draft review and save`() {
         val root = Files.createTempDirectory("ares-subsystem-academy").toFile()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC)

@@ -307,16 +307,17 @@ class ProcessManagerService internal constructor(
                 )
                 League.FRC -> addAll(listOf("generateAresProject", "verifyAresProject", "test", "build"))
             }
-            add("--no-parallel")
-            add("--console=plain")
+            addDesktopGradleProcessOptions()
         })
 
     /**
      * Regenerates the checked-in Kotlin bridge from canonical `.ares` documents.
      *
-     * The wrapper is launched through its JAR with a fixed argument list. This avoids interpreting
-     * the student-selected project path as shell syntax on Windows while retaining normal Gradle
-     * wrapper behavior. A robot connection is never involved.
+     * The platform wrapper is launched with a fixed argument list and the selected project is used
+     * only as the process working directory. No student-selected path is interpolated into shell
+     * text. Using the wrapper entrypoint (rather than invoking GradleWrapperMain directly) is also
+     * important on Gradle 8.11, whose direct client can remain alive after a successful single-use
+     * daemon build. A robot connection is never involved.
     */
     override fun generateAresProject(projectPath: String, league: League) {
         enqueueBuildOperation(BuildOperationKind.GENERATION) { generation ->
@@ -355,23 +356,9 @@ class ProcessManagerService internal constructor(
         )
         val taskName = if (confirmationToken == null) "generateSubsystemStarters" else "replaceSubsystemStarters"
         val task = if (league == League.FTC) ":TeamCode:$taskName" else taskName
-        val wrapperJar = File(root, "gradle/wrapper/gradle-wrapper.jar").canonicalFile
-        require(wrapperJar.isFile && wrapperJar.toPath().startsWith(root.toPath())) {
-            "This directory does not contain gradle/wrapper/gradle-wrapper.jar"
-        }
-        val javaExecutable = File(
-            System.getProperty("java.home"),
-            "bin/${if (System.getProperty("os.name").contains("win", true)) "java.exe" else "java"}"
-        ).canonicalFile
-        val command = withAresRepository(buildList {
-            add(javaExecutable.path)
-            add("-classpath")
-            add(wrapperJar.path)
-            add("org.gradle.wrapper.GradleWrapperMain")
-            add(task)
-            add("--console=plain")
-            confirmationToken?.let { add("-Pares.subsystemReplacementToken=$it") }
-        })
+        val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
+        requireProjectGradleWrapper(root, isWindows)
+        val command = authoringGradleCommand(task, isWindows, confirmationToken)
         val diagnosticLines = ArrayDeque<String>(GENERATION_DIAGNOSTIC_LINE_LIMIT)
         try {
             val exitCode = runOwnedBuildProcess(
@@ -436,27 +423,13 @@ class ProcessManagerService internal constructor(
         val diagnosticLines = ArrayDeque<String>(GENERATION_DIAGNOSTIC_LINE_LIMIT)
         try {
             val root = requireSafeProjectRoot(projectPath)
-            val wrapperJar = File(root, "gradle/wrapper/gradle-wrapper.jar").canonicalFile
-            require(wrapperJar.isFile && wrapperJar.toPath().startsWith(root.toPath())) {
-                "This directory does not contain gradle/wrapper/gradle-wrapper.jar"
-            }
             require(File(root, ".ares").canonicalFile.isDirectory) {
                 "This directory does not contain canonical .ares project documents"
             }
-            val javaExecutable = File(
-                System.getProperty("java.home"),
-                "bin/${if (System.getProperty("os.name").contains("win", true)) "java.exe" else "java"}"
-            ).canonicalFile
-            require(javaExecutable.isFile) { "The app Java runtime could not be found" }
+            val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
+            requireProjectGradleWrapper(root, isWindows)
 
-            val command = withAresRepository(listOf(
-                javaExecutable.path,
-                "-classpath",
-                wrapperJar.path,
-                "org.gradle.wrapper.GradleWrapperMain",
-                "generateAresProject",
-                "--console=plain"
-            ))
+            val command = authoringGradleCommand("generateAresProject", isWindows)
             _buildOutput.emit("[ARES] Generating checked-in Kotlin from canonical project files")
             val exitCode = runOwnedBuildProcess(
                 generation,
@@ -839,8 +812,7 @@ class ProcessManagerService internal constructor(
         add(":TeamCode:testDebugUnitTest")
         add(":simulator:test")
         add(":TeamCode:assembleDebug")
-        add("--no-parallel")
-        add("--console=plain")
+        addDesktopGradleProcessOptions()
     }
 
     private fun frcDeployBuildCommand(isWindows: Boolean): List<String> = buildList {
@@ -850,8 +822,7 @@ class ProcessManagerService internal constructor(
         add("test")
         add("build")
         add("deploy")
-        add("--no-parallel")
-        add("--console=plain")
+        addDesktopGradleProcessOptions()
     }
 
     private fun MutableList<String>.addGradleWrapper(isWindows: Boolean) {
@@ -863,6 +834,48 @@ class ProcessManagerService internal constructor(
             add("./gradlew")
         }
     }
+
+    private fun requireProjectGradleWrapper(root: File, isWindows: Boolean) {
+        val wrapperScript = File(root, if (isWindows) "gradlew.bat" else "gradlew").canonicalFile
+        require(wrapperScript.isFile && wrapperScript.toPath().startsWith(root.toPath())) {
+            "This directory does not contain ${wrapperScript.name}"
+        }
+        val wrapperJar = File(root, "gradle/wrapper/gradle-wrapper.jar").canonicalFile
+        require(wrapperJar.isFile && wrapperJar.toPath().startsWith(root.toPath())) {
+            "This directory does not contain gradle/wrapper/gradle-wrapper.jar"
+        }
+    }
+
+    /**
+     * Desktop-owned Gradle children must not attach to an arbitrary long-lived daemon. The app can
+     * itself be running from Gradle while a different FTC/FRC wrapper version is active, and sharing
+     * daemon state between those processes has caused authoring tasks to wait indefinitely. A
+     * single-use daemon is a little slower to start, but gives save, build, and simulator operations
+     * deterministic ownership and lets cancellation terminate the complete process tree.
+     */
+    private fun MutableList<String>.addDesktopGradleProcessOptions() {
+        add("--no-parallel")
+        add("--no-daemon")
+        add("--console=plain")
+    }
+
+    private fun simulationGradleCommand(isWindows: Boolean, league: League): List<String> =
+        withAresRepository(buildList {
+            addGradleWrapper(isWindows)
+            add(if (league == League.FTC) ":TeamCode:runSim" else "simulateJava")
+            addDesktopGradleProcessOptions()
+        })
+
+    private fun authoringGradleCommand(
+        task: String,
+        isWindows: Boolean,
+        confirmationToken: String? = null,
+    ): List<String> = withAresRepository(buildList {
+        addGradleWrapper(isWindows)
+        add(task)
+        addDesktopGradleProcessOptions()
+        confirmationToken?.let { add("-Pares.subsystemReplacementToken=$it") }
+    })
 
     private fun adbConnectCommandForDeploy(adb: String): List<String> =
         listOf(adb, "connect", FTC_ADB_TARGET)
@@ -901,10 +914,10 @@ class ProcessManagerService internal constructor(
                     userCmd != null && isWindows -> listOf("cmd.exe", "/d", "/s", "/c", userCmd)
                     userCmd != null -> listOf("sh", "-c", userCmd)
                     fatJarFile.exists() -> listOf(javaExe, "-jar", fatJarFile.absolutePath)
-                    isWindows && league == League.FTC -> withAresRepository(listOf("cmd.exe", "/c", "gradlew.bat", ":TeamCode:runSim"))
-                    isWindows -> withAresRepository(listOf("cmd.exe", "/c", "gradlew.bat", "simulateJava"))
-                    league == League.FTC -> withAresRepository(listOf("./gradlew", ":TeamCode:runSim"))
-                    else -> withAresRepository(listOf("./gradlew", "simulateJava"))
+                    isWindows && league == League.FTC -> simulationGradleCommand(true, League.FTC)
+                    isWindows -> simulationGradleCommand(true, League.FRC)
+                    league == League.FTC -> simulationGradleCommand(false, League.FTC)
+                    else -> simulationGradleCommand(false, League.FRC)
                 }
 
                 _buildOutput.emit("[SYSTEM] Starting Simulation: ${cmd.joinToString(" ")}")
@@ -1188,6 +1201,17 @@ class ProcessManagerService internal constructor(
     /** Exact compile-only verification command used by the student-facing Build action. */
     internal fun verificationBuildCommandForTest(league: League, isWindows: Boolean): List<String> =
         verificationBuildCommand(league, isWindows)
+
+    /** Exact simulator wrapper command; proves app-owned Gradle children stay isolated. */
+    internal fun simulationGradleCommandForTest(league: League, isWindows: Boolean): List<String> =
+        simulationGradleCommand(isWindows, league)
+
+    /** Exact fixed-argument command used for descriptor and starter generation. */
+    internal fun authoringGradleCommandForTest(
+        task: String,
+        isWindows: Boolean,
+        confirmationToken: String? = null,
+    ): List<String> = authoringGradleCommand(task, isWindows, confirmationToken)
 
     /** Test seam for success, failure, cancellation, and replacement result ownership. */
     internal fun runVerificationProcessForTest(command: List<String>, projectPath: String, league: League) {

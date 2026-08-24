@@ -83,6 +83,20 @@ fun RobotStudioScreen(
 
     var selection by remember(initialSelection) { mutableStateOf(initialSelection) }
 
+    // Editors live for the whole workspace so a student's draft survives navigation. When the
+    // controls editor has no draft of its own, entering it should nevertheless reload canonical
+    // catalogs written by the drivetrain/subsystem/superstructure editors. This keeps a newly
+    // generated action discoverable without teaching students to press a manual refresh button.
+    LaunchedEffect(selection) {
+        if (
+            selection == RobotStudioSelection.Controls &&
+            !controlsViewModel.state.value.dirty &&
+            !controlsViewModel.state.value.draftHasUnappliedChanges
+        ) {
+            controlsViewModel.reload()
+        }
+    }
+
     val subsystemTreeItems = remember(
         subsystemState.documents,
         subsystemState.draft,

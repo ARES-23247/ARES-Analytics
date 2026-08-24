@@ -11,8 +11,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.GamepadState
+import com.ares.analytics.service.hardware.SubsystemHealthSnapshot
+import com.ares.analytics.service.hardware.SubsystemHealthStatus
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.components.controls.ControllerCanvas
+import com.ares.analytics.ui.components.dashboard.SubsystemHealthContent
 import com.ares.analytics.ui.components.core.AresInspectorDrawer
 import com.ares.analytics.ui.components.core.AresSpecRow
 import com.ares.analytics.ui.components.core.AresSpecSection
@@ -45,6 +48,46 @@ import kotlin.test.assertTrue
 class BuilderVisualScreenshotTest {
 
     private val outputDir = File("build/diagnostics/builder-visual-tests").apply { mkdirs() }
+
+    @Test
+    fun renderSubsystemHealthWithExplicitNonColorStatus() {
+        val scene = ImageComposeScene(900, 700)
+        scene.setContent {
+            AresTheme {
+                Box(Modifier.fillMaxSize().background(AresBackground).padding(20.dp)) {
+                    SubsystemHealthContent(
+                        snapshots = listOf(
+                            SubsystemHealthSnapshot(
+                                subsystemId = "elevator",
+                                status = SubsystemHealthStatus.NEEDS_HOMING,
+                                issues = listOf("Home the mechanism before commanding motion."),
+                                measurements = mapOf("positionMeters" to 0.12),
+                                ageMs = 20L,
+                            ),
+                            SubsystemHealthSnapshot(
+                                subsystemId = "flywheel",
+                                status = SubsystemHealthStatus.OUTPUT_FAULT,
+                                issues = listOf("An output write failed; motion remains latched off until neutral recovery."),
+                                measurements = mapOf("velocityRadiansPerSecond" to 0.0),
+                                ageMs = 20L,
+                            ),
+                            SubsystemHealthSnapshot(
+                                subsystemId = "intake",
+                                status = SubsystemHealthStatus.HEALTHY,
+                                issues = emptyList(),
+                                measurements = mapOf("piecePresent" to 1.0),
+                                ageMs = 20L,
+                            ),
+                        ),
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+
+        val file = saveScene(scene, "subsystem_health_explicit_status.png")
+        assertTrue(file.length() > 10_000, "Subsystem health screenshot should contain rendered status text")
+    }
 
     @Test
     fun renderRobotStudioAtFullHdWithAllThreePanes() {
@@ -288,6 +331,54 @@ class BuilderVisualScreenshotTest {
             file.writeBytes(data.bytes)
             println("Saved screenshot to: ${file.absolutePath}")
         }
+    }
+
+    @Test
+    fun renderControllerCanvasWithSameRowStickAxes() {
+        val scene = ImageComposeScene(1000, 700)
+        fun axis(id: String, label: String, x: Double) = ControllerControlDocument(
+            controlId = id,
+            displayName = label,
+            surface = ControllerSurfaceDocument.FRONT,
+            type = ControllerControlTypeDocument.AXIS,
+            anchor = ControllerAnchorDocument(x, 0.5),
+        )
+        val profile = ControllerProfileDocument(
+            documentId = "frc_driver",
+            displayName = "FRC Driver Station Xbox",
+            controls = listOf(
+                axis("left_stick_x", "Left stick horizontal", 0.32),
+                axis("left_stick_y", "Left stick vertical", 0.40),
+                axis("right_stick_y", "Right stick vertical", 0.60),
+                axis("right_stick_x", "Right stick horizontal", 0.68),
+            ),
+        )
+        scene.setContent {
+            AresTheme {
+                Box(Modifier.fillMaxSize().background(AresBackground).padding(20.dp)) {
+                    ControllerCanvas(
+                        profile = profile,
+                        surface = ControllerSurfaceDocument.FRONT,
+                        selectedControlId = null,
+                        chordControlIds = emptySet(),
+                        boundControlIds = profile.controls.mapTo(linkedSetOf()) { it.controlId },
+                        targetPlatform = ControllerInputPlatform.FRC,
+                        liveState = GamepadState(),
+                        onControlSelected = {},
+                        boundActionLabels = mapOf(
+                            "left_stick_x" to listOf("Strafe left/right"),
+                            "left_stick_y" to listOf("Drive forward/back"),
+                            "right_stick_x" to listOf("Rotate"),
+                            "right_stick_y" to listOf("Manual mechanism"),
+                        ),
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+        }
+
+        val file = saveScene(scene, "controller_canvas_same_row_axes.png")
+        assertTrue(file.length() > 10_000, "Controller axis screenshot should contain four separated callouts")
     }
 
     @Test
