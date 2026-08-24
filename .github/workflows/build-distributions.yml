@@ -286,6 +286,14 @@ jobs:
         shell: bash
         run: find release-assets -maxdepth 4 -type f -print
 
+      - name: Generate SHA-256 checksums
+        shell: bash
+        run: |
+          find release-assets -type f \( -name '*.msi' -o -name '*.dmg' \) -print0 |
+            while IFS= read -r -d '' asset; do
+              sha256sum "$asset" > "$asset.sha256"
+            done
+
       - name: Create GitHub Release and upload packages
         uses: softprops/action-gh-release@v2
         with:
@@ -297,5 +305,6 @@ jobs:
           files: |
             release-assets/**/*.msi
             release-assets/**/*.dmg
+            release-assets/**/*.sha256
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
