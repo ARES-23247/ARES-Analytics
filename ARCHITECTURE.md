@@ -38,7 +38,7 @@ The Compose Desktop process. It owns:
 - live dashboard input/output;
 - DuckDB connections and schema migrations;
 - log decoding and frame batching;
-- replay and UDP rebroadcast;
+- deterministic, read-only replay snapshots and dashboard timelines;
 - summaries, SysId, calibration, driver analysis, and alerts;
 - simulator and build-process management;
 - Google OAuth/Drive synchronization;
@@ -206,7 +206,9 @@ The Cloud screen's HTTP pull uses the same durability rules: remote basenames an
 
 ## 8. Replay model
 
-Replay reconstructs latched topic state, not just events in the visible query window.
+Replay reconstructs latched topic state, not just events in the visible query window. Persisted
+`timestamp_us` is the source instant and `sample_order` is the stable tie-breaker. Playback uses a
+monotonic elapsed clock; wall-clock time never reorders historical evidence.
 
 When loading or seeking:
 
@@ -215,11 +217,15 @@ When loading or seeking:
 3. query the latest frame for each key at or before the window start;
 4. seed the state map with that baseline;
 5. apply in-window updates in timestamp order;
-6. emit an immutable snapshot.
+6. atomically publish one immutable `ReplayFrame` for every dashboard consumer.
 
 Without step 3, a topic last updated at the start of a match disappears when seeking later.
 
-Replay supports numeric and string state. UDP rebroadcast is optional. `stop()` must not emit a synthetic frame or reopen a socket; `dispose()` cancels the service scope and closes the socket permanently.
+Replay supports numeric and string state. It does not write replay values into the live NT4 store
+or broadcast them as robot telemetry. Actions, annotations, and alerts are markers only: they do
+not stretch telemetry bounds or synthesize sensor/pose values. `stop()` returns to the first sample
+without leaving the selected historical source; `dispose()` cancels all playback, seek, and
+prefetch jobs. See [Deterministic replay and dashboard evidence](docs/DETERMINISTIC_REPLAY.md).
 
 ## 9. Analysis services
 

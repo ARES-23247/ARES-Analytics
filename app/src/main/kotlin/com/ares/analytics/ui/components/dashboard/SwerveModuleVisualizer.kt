@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
+import com.ares.analytics.service.ReplayFrame
 import com.ares.analytics.ui.theme.*
 import kotlin.math.abs
 import kotlin.math.cos
@@ -26,6 +27,7 @@ import kotlin.math.sin
 @Composable
 fun SwerveModuleVisualizer(
     nt4ClientService: Nt4ClientService,
+    currentFrame: ReplayFrame? = null,
     modifier: Modifier = Modifier
 ) {
     // 0: FL, 1: FR, 2: BL, 3: BR
@@ -33,8 +35,21 @@ fun SwerveModuleVisualizer(
     val anglesTarget = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
     val speedsActual = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
     val anglesActual = remember { mutableStateListOf(0.0, 0.0, 0.0, 0.0) }
+    val replayHasSwerveTelemetry = currentFrame?.values?.keys?.any { it.startsWith("Swerve/Module") } ?: false
 
-    LaunchedEffect(nt4ClientService) {
+    SideEffect {
+        if (currentFrame != null) {
+            for (index in 0..3) {
+                speedsTarget[index] = currentFrame.values["Swerve/ModuleSpeedsTarget/$index"] ?: 0.0
+                anglesTarget[index] = currentFrame.values["Swerve/ModuleAnglesTarget/$index"] ?: 0.0
+                speedsActual[index] = currentFrame.values["Swerve/ModuleSpeedsActual/$index"] ?: 0.0
+                anglesActual[index] = currentFrame.values["Swerve/ModuleAnglesActual/$index"] ?: 0.0
+            }
+        }
+    }
+
+    LaunchedEffect(nt4ClientService, currentFrame == null) {
+        if (currentFrame != null) return@LaunchedEffect
         nt4ClientService.uiTelemetryFlow.collect { frame ->
             val key = frame.key
             val value = frame.value
@@ -79,8 +94,12 @@ fun SwerveModuleVisualizer(
             )
             val isConnected by nt4ClientService.isConnected.collectAsState()
             Text(
-                if (isConnected) "Live Connected" else "Live Disconnected",
-                color = if (isConnected) AresGreen else AresTextTertiary,
+                when {
+                    currentFrame != null -> "Replay"
+                    isConnected -> "Live Connected"
+                    else -> "Live Disconnected"
+                },
+                color = if (currentFrame != null || isConnected) AresGreen else AresTextTertiary,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -88,14 +107,24 @@ fun SwerveModuleVisualizer(
 
         HorizontalDivider(color = AresBorder, thickness = 1.dp)
 
-        Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ModuleCard("Front Left (FL)", speedsTarget[0], anglesTarget[0], speedsActual[0], anglesActual[0], Modifier.weight(1f))
-                ModuleCard("Back Left (BL)", speedsTarget[2], anglesTarget[2], speedsActual[2], anglesActual[2], Modifier.weight(1f))
+        if (currentFrame != null && !replayHasSwerveTelemetry) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Text(
+                    "No swerve-module topics in this recording — values are missing, not zero.",
+                    color = AresTextTertiary,
+                    fontSize = 11.sp,
+                )
             }
-            Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                ModuleCard("Front Right (FR)", speedsTarget[1], anglesTarget[1], speedsActual[1], anglesActual[1], Modifier.weight(1f))
-                ModuleCard("Back Right (BR)", speedsTarget[3], anglesTarget[3], speedsActual[3], anglesActual[3], Modifier.weight(1f))
+        } else {
+            Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ModuleCard("Front Left (FL)", speedsTarget[0], anglesTarget[0], speedsActual[0], anglesActual[0], Modifier.weight(1f))
+                    ModuleCard("Back Left (BL)", speedsTarget[2], anglesTarget[2], speedsActual[2], anglesActual[2], Modifier.weight(1f))
+                }
+                Column(modifier = Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ModuleCard("Front Right (FR)", speedsTarget[1], anglesTarget[1], speedsActual[1], anglesActual[1], Modifier.weight(1f))
+                    ModuleCard("Back Right (BR)", speedsTarget[3], anglesTarget[3], speedsActual[3], anglesActual[3], Modifier.weight(1f))
+                }
             }
         }
     }

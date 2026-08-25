@@ -296,53 +296,63 @@ private fun HealthAndFreshnessRow(snapshot: DashboardMissionSnapshot, compact: B
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Icon(
-                    imageVector = snapshot.sourceType.icon,
-                    contentDescription = null,
-                    tint = when (snapshot.sourceType) {
-                        DashboardDataSourceType.SIMULATION_TRUTH -> AresCyan
-                        DashboardDataSourceType.LIVE_ROBOT_FTC, DashboardDataSourceType.LIVE_ROBOT_FRC -> AresGreen
-                        DashboardDataSourceType.HISTORICAL_REPLAY -> AresAmber
-                        DashboardDataSourceType.NO_ACTIVE_SOURCE -> AresTextTertiary
-                    },
-                    modifier = Modifier.size(16.dp)
-                )
+                if (!compact) {
+                    Icon(
+                        imageVector = snapshot.sourceType.icon,
+                        contentDescription = null,
+                        tint = when (snapshot.sourceType) {
+                            DashboardDataSourceType.SIMULATION_TRUTH -> AresCyan
+                            DashboardDataSourceType.LIVE_ROBOT_FTC, DashboardDataSourceType.LIVE_ROBOT_FRC -> AresGreen
+                            DashboardDataSourceType.HISTORICAL_REPLAY -> AresAmber
+                            DashboardDataSourceType.NO_ACTIVE_SOURCE -> AresTextTertiary
+                        },
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
                 Text(
                     text = if (compact) snapshot.sourceType.badge else snapshot.sourceType.label,
                     color = AresTextPrimary,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    softWrap = false,
                 )
             }
         }
 
-        // Freshness Indicator
-        Surface(
-            color = snapshot.freshness.color.copy(alpha = 0.12f),
-            border = BorderStroke(1.dp, snapshot.freshness.color.copy(alpha = 0.5f)),
-            shape = RoundedCornerShape(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.padding(horizontal = if (compact) 6.dp else 8.dp, vertical = if (compact) 4.dp else 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(5.dp)
+        // Replay is an archive source, so a live-connection freshness badge beside it is
+        // misleading and wastes the narrow global toolbar. Detailed status stays available
+        // from the diagnostics dialog; live sources retain the freshness indicator.
+        if (!compact || snapshot.sourceType != DashboardDataSourceType.HISTORICAL_REPLAY) {
+            Surface(
+                color = snapshot.freshness.color.copy(alpha = 0.12f),
+                border = BorderStroke(1.dp, snapshot.freshness.color.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(8.dp)
             ) {
-                Icon(
-                    imageVector = when (snapshot.freshness) {
-                        TelemetryFreshness.FRESH -> Icons.Default.CheckCircle
-                        TelemetryFreshness.STALE -> Icons.Default.Warning
-                        TelemetryFreshness.INACTIVE -> Icons.Default.WifiOff
-                    },
-                    contentDescription = snapshot.freshness.label,
-                    tint = snapshot.freshness.color,
-                    modifier = Modifier.size(14.dp)
-                )
-                Text(
-                    text = snapshot.freshness.badge,
-                    color = snapshot.freshness.color,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = if (compact) 6.dp else 8.dp, vertical = if (compact) 4.dp else 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    Icon(
+                        imageVector = when (snapshot.freshness) {
+                            TelemetryFreshness.FRESH -> Icons.Default.CheckCircle
+                            TelemetryFreshness.STALE -> Icons.Default.Warning
+                            TelemetryFreshness.INACTIVE -> Icons.Default.WifiOff
+                        },
+                        contentDescription = snapshot.freshness.label,
+                        tint = snapshot.freshness.color,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = snapshot.freshness.badge,
+                        color = snapshot.freshness.color,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false,
+                    )
+                }
             }
         }
     }

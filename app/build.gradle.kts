@@ -617,6 +617,10 @@ tasks.register<Test>("dashboardSmoke") {
         includeTestsMatching("com.ares.analytics.service.DatabaseServiceIntegrationTest")
         includeTestsMatching("com.ares.analytics.service.ExportServiceTest")
         includeTestsMatching("com.ares.analytics.service.ReplayEngineServiceTest")
+        includeTestsMatching("com.ares.analytics.service.ReplayDeterminismTest")
+        includeTestsMatching("com.ares.analytics.service.ReplayCacheAndClockTest")
+        includeTestsMatching("com.ares.analytics.viewmodel.field.ReplayFieldSnapshotTest")
+        includeTestsMatching("com.ares.analytics.ui.components.dashboard.ReplayDashboardModelsTest")
         includeTestsMatching("com.ares.analytics.service.AlertEngineServiceTest")
         includeTestsMatching("com.ares.analytics.service.AlertEngineCompositeTest")
     }

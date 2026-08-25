@@ -578,7 +578,7 @@ class MatchLogRepository(
     suspend fun getActionsForSession(sessionId: String): List<com.ares.analytics.shared.RobotActionRecord> = withDbLock {
         val list = mutableListOf<com.ares.analytics.shared.RobotActionRecord>()
         conn.prepareStatement(
-            "SELECT timestamp_ms, session_id, run_id, robot_id, match_number, alliance, action_type, payload_json FROM robot_actions WHERE session_id = ? ORDER BY timestamp_ms"
+            "SELECT timestamp_ms, session_id, run_id, robot_id, match_number, alliance, action_type, payload_json FROM robot_actions WHERE session_id = ? ORDER BY timestamp_ms, run_id, action_type, payload_json"
         ).use { ps ->
             ps.setString(1, sessionId)
             ps.executeQuery().use { rs ->
@@ -1271,7 +1271,7 @@ class MatchLogRepository(
 
     suspend fun getAnnotations(sessionId: String): List<SessionAnnotation> = withDbLock {
         val list = mutableListOf<SessionAnnotation>()
-        conn.prepareStatement("SELECT * FROM session_annotations WHERE session_id = ? ORDER BY created_at ASC").use { ps ->
+        conn.prepareStatement("SELECT * FROM session_annotations WHERE session_id = ? ORDER BY created_at ASC, annotation_id ASC").use { ps ->
             ps.setString(1, sessionId)
             ps.executeQuery().use { rs ->
                 while (rs.next()) list.add(rs.toSessionAnnotation())

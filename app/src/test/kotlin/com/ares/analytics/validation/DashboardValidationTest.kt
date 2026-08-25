@@ -6,6 +6,8 @@ import com.ares.analytics.service.ReplayEngineService
 import com.ares.analytics.shared.Session
 import com.ares.analytics.shared.TelemetryFrame
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -151,10 +153,29 @@ class DashboardValidationTest {
             metrics["replay_load_ms"] = elapsedMs { replayEngine.loadSession(sessionId) }
             val scrubTimesMs = mutableListOf<Double>()
             for (step in 0..10) {
-                scrubTimesMs += elapsedMs { replayEngine.scrubTo(step / 10.0) }
+                scrubTimesMs += elapsedMs {
+                    replayEngine.scrubTo(step / 10.0)
+                    awaitReplaySeek(replayEngine)
+                }
             }
             metrics["replay_scrub_p95_ms"] = percentile95(scrubTimesMs)
             assertTrue(replayEngine.currentFrame.value != null, "Replay did not produce a current frame")
+            metrics["replay_rapid_seek_burst_ms"] = elapsedMs {
+                repeat(51) { index ->
+                    replayEngine.scrubTo(
+                        when {
+                            index == 50 -> 0.75
+                            index % 2 == 0 -> 0.10
+                            else -> 0.90
+                        }
+                    )
+                }
+                awaitReplaySeek(replayEngine)
+            }
+            assertTrue(
+                replayEngine.progress.value in 0.749..0.751,
+                "Rapid seeks committed a stale request instead of the final 75% playhead",
+            )
 
             forceGc()
             metrics["heap_growth_mb"] = max(0L, usedHeapBytes() - memoryBefore) / BYTES_PER_MIB
@@ -251,6 +272,12 @@ class DashboardValidationTest {
         val started = System.nanoTime()
         block()
         return (System.nanoTime() - started) / 1_000_000.0
+    }
+
+    private suspend fun awaitReplaySeek(replay: ReplayEngineService) {
+        withTimeout(5_000) {
+            while (replay.isSeeking.value) delay(2)
+        }
     }
 
     private fun percentile95(values: List<Double>): Double {

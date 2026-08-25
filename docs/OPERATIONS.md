@@ -257,9 +257,15 @@ If a seek loses values:
 
 If replay contaminates live UI:
 
-1. Check `isReplayActive` ownership in `ReplayEngineService`/`Nt4ClientService`.
-2. Stop replay and confirm no extra first-frame emission occurs.
-3. Confirm the replay socket is not reopened by `stop()`.
+1. Confirm every replay-driven widget receives `ReplayEngineService.currentFrame` rather than the live telemetry store.
+2. Confirm selecting a historical run sets the visible source to **Replay**, even while paused or stopped.
+3. Stop replay and confirm the first historical sample remains selected without being inserted into live NT4 state.
+4. Leave the run and confirm live widgets resume only from newly observed live frames.
+
+If the timeline says **No telemetry samples**, do not treat actions or annotations as sensor data.
+Review the import report and source log. If a widget says its topics are missing, choose another
+recorded signal or correct the robot logger for the next run; missing is not zero. See
+[Deterministic replay and dashboard evidence](DETERMINISTIC_REPLAY.md).
 
 ## 9. DuckDB and export recovery
 

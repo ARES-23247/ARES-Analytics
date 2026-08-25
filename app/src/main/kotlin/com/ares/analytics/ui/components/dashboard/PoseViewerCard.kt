@@ -12,6 +12,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
+import com.ares.analytics.service.ReplayFrame
 import com.ares.analytics.ui.components.core.CardHeader
 import com.ares.analytics.ui.components.core.GlassCard
 import com.ares.analytics.ui.components.core.MetricValueBadge
@@ -19,12 +20,14 @@ import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.LivePoseState
 import com.ares.analytics.viewmodel.field.FieldPoseFrameAccumulator
 import com.ares.analytics.viewmodel.field.isFieldPoseTopic
+import com.ares.analytics.viewmodel.field.toReplayPoseState
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
 fun PoseViewerCard(
     nt4ClientService: Nt4ClientService,
+    currentFrame: ReplayFrame? = null,
     modifier: Modifier = Modifier
 ) {
     val poseAccumulator = remember(nt4ClientService) { FieldPoseFrameAccumulator() }
@@ -110,8 +113,15 @@ fun PoseViewerCard(
         }
     }
 
+    val displayedPose = remember(currentFrame?.sequence, pose) {
+        currentFrame?.toReplayPoseState() ?: pose
+    }
+    val displayedVisionX = if (currentFrame != null) displayedPose.visionX else visionX
+    val displayedVisionY = if (currentFrame != null) displayedPose.visionY else visionY
+    val displayedVisionHeading = if (currentFrame != null) displayedPose.visionHeading else visionHeading
     val elapsed = lastUpdateMs?.let { nowMs - it }
     val (statusText, statusColor) = when {
+        currentFrame != null -> "Replay" to AresCyan
         !connected && !replayActive -> "Offline" to AresError
         elapsed == null -> "No Data" to AresTextTertiary
         elapsed < 500 -> "Active" to AresGreen
@@ -136,17 +146,17 @@ fun PoseViewerCard(
         ) {
             PoseRow(
                 "True (Actual)",
-                pose.trueX.takeIf { pose.hasTruePoseData },
-                pose.trueY.takeIf { pose.hasTruePoseData },
-                pose.trueHeading.takeIf { pose.hasTruePoseData },
+                displayedPose.trueX.takeIf { displayedPose.hasTruePoseData },
+                displayedPose.trueY.takeIf { displayedPose.hasTruePoseData },
+                displayedPose.trueHeading.takeIf { displayedPose.hasTruePoseData },
                 AresCyan
             )
             HorizontalDivider(color = AresBorder.copy(alpha = 0.5f), thickness = 0.5.dp)
-            PoseRow("Estimated (EKF)", pose.ekfX, pose.ekfY, pose.ekfHeading, AresAmber)
+            PoseRow("Estimated (EKF)", displayedPose.ekfX, displayedPose.ekfY, displayedPose.ekfHeading, AresAmber)
             HorizontalDivider(color = AresBorder.copy(alpha = 0.5f), thickness = 0.5.dp)
-            PoseRow("Pinpoint (Odom)", pose.odomX, pose.odomY, pose.odomHeading, AresGreen)
+            PoseRow("Pinpoint (Odom)", displayedPose.odomX, displayedPose.odomY, displayedPose.odomHeading, AresGreen)
             HorizontalDivider(color = AresBorder.copy(alpha = 0.5f), thickness = 0.5.dp)
-            PoseRow("Vision (Limelight)", visionX, visionY, visionHeading, AresGold)
+            PoseRow("Vision (Limelight)", displayedVisionX, displayedVisionY, displayedVisionHeading, AresGold)
         }
     }
 }

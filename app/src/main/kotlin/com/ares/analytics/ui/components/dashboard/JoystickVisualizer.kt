@@ -69,6 +69,7 @@ fun JoystickVisualizer(
         ) {
             Button(
                 onClick = onOpenKeybindings,
+                enabled = currentFrame == null,
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated),
                 shape = RoundedCornerShape(6.dp),
@@ -89,6 +90,7 @@ fun JoystickVisualizer(
                     keyboardState.releaseAll()
                     keyboardState.useGamepad = !keyboardState.useGamepad
                 },
+                enabled = currentFrame == null,
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = if (keyboardState.useGamepad) AresCyan else AresSurfaceElevated,
@@ -128,6 +130,16 @@ fun JoystickVisualizer(
                     )
                 }
             }
+        }
+
+        if (currentFrame != null) {
+            Text(
+                "Replay snapshot — controls are view-only.",
+                color = AresCyan,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
 
         if (keyboardControlEnabled) {
@@ -183,6 +195,7 @@ fun SingleGamepadVisualizer(
     gamepadStateFlow: kotlinx.coroutines.flow.StateFlow<com.ares.analytics.service.GamepadState>?,
     modifier: Modifier = Modifier
 ) {
+    val replayHasGamepadData = currentFrame?.values?.keys?.any { it.startsWith("$gamepadId/") } ?: false
     var lx by remember { mutableStateOf(0.0) }
     var ly by remember { mutableStateOf(0.0) }
     var rx by remember { mutableStateOf(0.0) }
@@ -331,6 +344,13 @@ fun SingleGamepadVisualizer(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text(title, color = AresTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        if (currentFrame != null && !replayHasGamepadData) {
+            Text(
+                "No $gamepadId topics in this recording; centered controls below mean missing data.",
+                color = AresTextTertiary,
+                fontSize = 9.sp,
+            )
+        }
         Spacer(modifier = Modifier.height(4.dp))
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             Canvas(modifier = Modifier.fillMaxSize()) {

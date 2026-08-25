@@ -40,6 +40,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
+import com.ares.analytics.service.DatabaseService
+import com.ares.analytics.service.ReplayFrame
 import com.ares.analytics.shared.RobotUnit
 import com.ares.analytics.shared.UnitCategory
 import com.ares.analytics.shared.UnitConversion
@@ -73,6 +75,8 @@ data class TelemetryPoint(val timestampMs: Long, val value: Double)
 @Composable
 fun TelemetryChartPanel(
     nt4ClientService: Nt4ClientService,
+    databaseService: DatabaseService? = null,
+    currentFrame: ReplayFrame? = null,
     properties: Map<String, String>,
     onPropertiesChanged: (Map<String, String>) -> Unit,
     modifier: Modifier = Modifier
@@ -105,7 +109,7 @@ fun TelemetryChartPanel(
     var hasReceivedData by remember { mutableStateOf(false) }
     var liveTime by remember { mutableStateOf(System.currentTimeMillis()) }
 
-    LaunchedEffect(selectedKeys.toList(), selectedWindowSec) {
+    LaunchedEffect(selectedKeys.toList(), selectedWindowSec, currentFrame?.sessionId) {
         val keysList = selectedKeys.toList()
         if (keysList != initialKeys || selectedWindowSec != initialWindow) {
             onPropertiesChanged(mapOf(
@@ -115,7 +119,7 @@ fun TelemetryChartPanel(
         }
 
         // Initialize newly added keys with their historical values
-        keysList.forEach { key ->
+        if (currentFrame == null) keysList.forEach { key ->
             val queue = telemetryData.getOrPut(key) { ArrayDeque() }
             synchronized(queue) {
                 if (queue.isEmpty()) {
@@ -136,9 +140,9 @@ fun TelemetryChartPanel(
     }
 
     // Live clock ticker to keep the chart scrolling smoothly even when stationary
-    LaunchedEffect(Unit) {
+    LaunchedEffect(currentFrame?.sessionId) {
         while (true) {
-            liveTime = System.currentTimeMillis() + serverTimeOffset
+            liveTime = currentFrame?.playheadMs ?: (System.currentTimeMillis() + serverTimeOffset)
             kotlinx.coroutines.delay(100)
         }
     }
@@ -152,7 +156,12 @@ fun TelemetryChartPanel(
     val activeTopics = remember { mutableStateListOf<String>() }
 
     // Periodically update active topics from NT4 Service
-    LaunchedEffect(Unit) {
+    LaunchedEffect(currentFrame?.sessionId, currentFrame?.sequence) {
+        if (currentFrame != null) {
+            activeTopics.clear()
+            activeTopics.addAll(currentFrame.values.keys.sorted())
+            return@LaunchedEffect
+        }
         while (true) {
             val topics = nt4ClientService.getActiveTopics()
             activeTopics.clear()
@@ -162,7 +171,8 @@ fun TelemetryChartPanel(
     }
 
     // Subscribe to telemetry Flow
-    LaunchedEffect(selectedKeys.toList()) {
+    LaunchedEffect(selectedKeys.toList(), currentFrame?.sessionId) {
+        if (currentFrame != null) return@LaunchedEffect
         val observedKeys = selectedKeys.toSet()
         if (observedKeys.isNotEmpty()) {
             nt4ClientService.telemetryStore.observe(observedKeys).collect { frame ->
@@ -185,6 +195,43 @@ fun TelemetryChartPanel(
                 lastUpdateTick = frame.timestampMs
             }
         }
+    }
+
+    // Historical charts query only the visible bounded viewport. Bucketing the logical playhead
+    // limits DuckDB work while playback is running; a paused seek still refreshes immediately.
+    val replayQueryBucket = currentFrame?.let { it.playheadMs / REPLAY_CHART_REFRESH_MS }
+    LaunchedEffect(
+        currentFrame?.sessionId,
+        replayQueryBucket,
+        currentFrame?.sequence.takeIf { currentFrame != null && currentFrame.playheadMs == currentFrame.timestampMs },
+        selectedKeys.toList(),
+        selectedWindowSec,
+    ) {
+        val replay = currentFrame ?: return@LaunchedEffect
+        val database = databaseService ?: return@LaunchedEffect
+        val keys = selectedKeys.toList()
+        liveTime = replay.playheadMs
+        if (keys.isEmpty()) return@LaunchedEffect
+        val startMs = (replay.playheadMs - selectedWindowSec * 1_000L).coerceAtLeast(0L)
+        val loaded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            keys.associateWith { key ->
+                database.getTelemetrySeries(
+                    sessionId = replay.sessionId,
+                    key = key,
+                    startMs = startMs,
+                    endMs = replay.playheadMs,
+                    maxPoints = MAX_REPLAY_CHART_POINTS_PER_TOPIC,
+                )
+            }
+        }
+        keys.forEach { key ->
+            val queue = telemetryData.getOrPut(key) { ArrayDeque() }
+            synchronized(queue) {
+                queue.clear()
+                loaded.getValue(key).forEach { queue.add(TelemetryPoint(it.timestampMs, it.value)) }
+            }
+        }
+        lastUpdateTick = replay.sequence
     }
 
     // Legend colors for up to 8 channels
@@ -216,13 +263,17 @@ fun TelemetryChartPanel(
         ) {
             Column {
                 Text(
-                    "Live Telemetry Viewer",
+                    if (currentFrame == null) "Live Telemetry Viewer" else "Replay Telemetry Viewer",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = AresTextPrimary
                 )
                 Text(
-                    "Real-time streaming multi-channel scope",
+                    if (currentFrame == null) {
+                        "Real-time streaming multi-channel scope"
+                    } else {
+                        "Bounded history ending at the selected replay instant"
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = AresTextTertiary
                 )
@@ -642,3 +693,6 @@ fun TelemetryChartPanel(
         }
     }
 }
+
+private const val REPLAY_CHART_REFRESH_MS = 200L
+private const val MAX_REPLAY_CHART_POINTS_PER_TOPIC = 1_500

@@ -82,8 +82,11 @@ Successful automatic imports are archived under `<robot-project>/logs/imported/`
 3. Wait for the dashboard profile to change to **Replay** and for the timeline to appear.
 4. Use **Play**, **Pause**, **Step Back**, **Step Forward**, or drag the timeline.
 5. Confirm that the field, chart, or console follows the replay time.
+6. Read the sample label: **Exact sample** is a recorded instant; **Held N ms** is the last recorded
+   value before the playhead. A missing-topic message is not a zero measurement.
 
 Use **Analysis → Guided Run Review** for the student-first evidence path from source identity through a safe next action. Use **Run History** for advanced across-run calculated metrics and trends. Use the Dashboard **Recorded Sessions** widget and timeline for exact time-based replay. See [Guided run review](GUIDED_RUN_REVIEW.md).
+For the clock, source, marker, and missing-data rules, see [Deterministic replay](../DETERMINISTIC_REPLAY.md).
 
 ## Success check
 

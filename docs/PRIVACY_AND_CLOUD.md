@@ -9,6 +9,11 @@ user's local DuckDB database with exact team, season, and robot identity. ARES f
 Run History, Guided Review, and Cloud lists by that identity so one workspace cannot disclose
 another workspace's sessions through normal application state.
 
+Historical replay reads only the selected local session. It does not republish recorded values to
+the live NT4 connection, send robot controls, or merge current live topics into missing historical
+fields. Navigating to replay does not upload the run; cloud synchronization remains a separate,
+explicit workspace action governed by the destination and account rules below.
+
 Google Drive synchronization is opt-in. Before consent, the app explains that it requests basic
 Google identity and `drive.file`. This scope is limited to files ARES creates or the user explicitly
 selects for ARES. ARES stores the selected workspace folder/Shared Drive ID and does not scan

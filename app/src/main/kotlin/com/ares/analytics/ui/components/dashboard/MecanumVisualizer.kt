@@ -113,7 +113,8 @@ fun MecanumVisualizer(
             delay(250)
         }
     }
-    val hasFreshMotorTelemetry = currentFrame != null ||
+    val replayHasMotorTelemetry = currentFrame?.values?.keys?.any(::isMecanumReplayTopic) ?: false
+    val hasFreshMotorTelemetry = (currentFrame != null && replayHasMotorTelemetry) ||
         (lastMotorTelemetryAtMs != Long.MIN_VALUE && nowMs - lastMotorTelemetryAtMs <= MOTOR_TELEMETRY_FRESH_MS)
 
     Column(
@@ -137,14 +138,15 @@ fun MecanumVisualizer(
                 style = MaterialTheme.typography.titleMedium
             )
             val telemetryStatus = when {
-                    currentFrame != null -> "Replay"
+                    currentFrame != null && replayHasMotorTelemetry -> "Replay"
+                    currentFrame != null -> "Replay · no motor topics"
                     !isConnected -> "Offline"
                     hasFreshMotorTelemetry -> "Live"
                     else -> "Waiting"
                 }
             Text(
                 "Front ↑ · $telemetryStatus",
-                color = if (hasFreshMotorTelemetry) AresGreen else AresTextTertiary,
+                color = if (hasFreshMotorTelemetry) AresGreen else if (currentFrame != null) AresAmber else AresTextTertiary,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold
             )
@@ -312,11 +314,27 @@ fun MecanumVisualizer(
                         drawLine(color = AresAmber, start = netEnd, end = rightWing, strokeWidth = 4f, cap = StrokeCap.Round)
                     }
                 }
+
+            if (currentFrame != null && !replayHasMotorTelemetry) {
+                Text(
+                    text = "This recording has no drivetrain motor topics.\nZero output is not being inferred.",
+                    color = AresTextSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.align(Alignment.Center),
+                )
             }
+        }
 
         MecanumDetailsPanel(powers = powers, velocities = velocities, currents = currents)
     }
 }
+
+internal fun isMecanumReplayTopic(key: String): Boolean =
+    key.startsWith("Drive/MotorPower_") ||
+        key.startsWith("Drive/MotorVelocity_") ||
+        key.startsWith("Drive/MotorCurrent_") ||
+        (key.startsWith("Hardware/Motors/") &&
+            (key.endsWith("/Power") || key.endsWith("/Velocity") || key.endsWith("/CurrentAmps")))
 
 @Composable
 fun MecanumDetailsPanel(powers: List<Double>, velocities: List<Double>, currents: List<Double>) {
