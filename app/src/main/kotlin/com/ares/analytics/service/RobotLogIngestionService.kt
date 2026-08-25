@@ -215,7 +215,8 @@ class RobotLogIngestionService internal constructor(
                 val runFingerprint = runFingerprint(downloaded)
                 val manifest = File(archiveDirectory, ROBOT_PULL_MANIFEST_NAME)
                 importedSessionId(manifest, runFingerprint)?.let { sessionId ->
-                    val existing = databaseService.getSessions().firstOrNull { it.sessionId == sessionId }
+                    val existing = databaseService.getSessionsForWorkspace(teamId, seasonId, robotId)
+                        .firstOrNull { it.sessionId == sessionId }
                     if (existing != null) return@withContext RobotLogImportOutcome.AlreadyImported(existing)
                 }
 
@@ -241,11 +242,13 @@ class RobotLogIngestionService internal constructor(
                     tags = listOf("robot-pull", "archived-raw"),
                 )
                 parsedSession = session
-                archivedSources.forEach { (archive, source) ->
+                val reports = archivedSources.map { (archive, source) ->
                     val report = logParserService.buildImportReport(archive, session.sessionId)
                         .copy(sourceName = source.name)
                     autoImportService.writeImportReport(archive, report)
+                    report
                 }
+                logParserService.persistExternalImportReports(session.sessionId, reports)
                 markImported(manifest, runFingerprint, session.sessionId)
                 RobotLogImportOutcome.Imported(session, archivedFiles.toList())
             } catch (failure: CancellationException) {

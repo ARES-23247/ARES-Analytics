@@ -107,6 +107,9 @@ class ServiceRegistry {
     val robotLogIngestionService by lazy {
         RobotLogIngestionService(databaseService, logParserService, autoImportService)
     }
+    val manualLogImportService by lazy {
+        ManualLogImportService(databaseService, logParserService, hootDecoderService, autoImportService)
+    }
     val googleDriveService by lazy { GoogleDriveService(oauthService, environmentService) }
     val syncEngineService by lazy { SyncEngineService(databaseService, parquetExporterService, environmentService, summaryEngineService, googleDriveService) }
     val phoenixDiagnosticsService by lazy { PhoenixDiagnosticsService(nt4ClientService) }

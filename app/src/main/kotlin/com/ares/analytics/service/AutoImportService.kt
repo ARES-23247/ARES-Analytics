@@ -217,9 +217,14 @@ class AutoImportService(
                         )
                     }
                     val result = if (file.name.endsWith(".hoot", ignoreCase = true)) {
-                        val sessionId = hootDecoderService.importHootLog(targetFile, config.teamId, config.seasonId, config.robotId)
-                        sessionId to logParserService.buildImportReport(targetFile, sessionId, decoderOverride = "hoot")
-                            .copy(sourceName = file.name)
+                        val imported = hootDecoderService.importHootLog(
+                            targetFile,
+                            config.teamId,
+                            config.seasonId,
+                            config.robotId,
+                            sourceName = file.name,
+                        )
+                        imported.session.sessionId to imported.report
                     } else {
                         val imported = logParserService.parseLogFileWithReport(
                             targetFile, config.teamId, config.seasonId, config.robotId,
@@ -229,6 +234,7 @@ class AutoImportService(
                     }
                     val (sessionId, report) = result
 
+                    logParserService.persistExternalImportReports(sessionId, listOf(report))
                     writeImportReport(targetFile, report)
                     markFingerprintImported(manifest, stableFingerprint)
                     if (!file.delete()) {
@@ -315,9 +321,14 @@ class AutoImportService(
                             archivedFile = targetFile
                             Files.move(tempLocalFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
                             val result = if (lower.endsWith(".hoot")) {
-                                val sessionId = hootDecoderService.importHootLog(targetFile, config.teamId, config.seasonId, config.robotId)
-                                sessionId to logParserService.buildImportReport(targetFile, sessionId, decoderOverride = "hoot")
-                                    .copy(sourceName = filename)
+                                val imported = hootDecoderService.importHootLog(
+                                    targetFile,
+                                    config.teamId,
+                                    config.seasonId,
+                                    config.robotId,
+                                    sourceName = filename,
+                                )
+                                imported.session.sessionId to imported.report
                             } else {
                                 val imported = logParserService.parseLogFileWithReport(
                                     targetFile, config.teamId, config.seasonId, config.robotId,
@@ -327,6 +338,7 @@ class AutoImportService(
                             }
                             val (sessionId, report) = result
 
+                            logParserService.persistExternalImportReports(sessionId, listOf(report))
                             writeImportReport(targetFile, report)
                             markFingerprintImported(manifest, stableFingerprint)
                             // Keep imported file safely in logs/imported archive folder
@@ -435,9 +447,14 @@ class AutoImportService(
                                 )
                             }
                             val result = if (lower.endsWith(".hoot")) {
-                                val sessionId = hootDecoderService.importHootLog(targetFile, config.teamId, config.seasonId, config.robotId)
-                                sessionId to logParserService.buildImportReport(targetFile, sessionId, decoderOverride = "hoot")
-                                    .copy(sourceName = filename)
+                                val imported = hootDecoderService.importHootLog(
+                                    targetFile,
+                                    config.teamId,
+                                    config.seasonId,
+                                    config.robotId,
+                                    sourceName = filename,
+                                )
+                                imported.session.sessionId to imported.report
                             } else {
                                 val imported = logParserService.parseLogFileWithReport(
                                     targetFile, config.teamId, config.seasonId, config.robotId,
@@ -447,6 +464,7 @@ class AutoImportService(
                             }
                             val (sessionId, report) = result
 
+                            logParserService.persistExternalImportReports(sessionId, listOf(report))
                             writeImportReport(targetFile, report)
                             markFingerprintImported(manifest, stableFingerprint)
                             // Keep imported file safely in logs/imported archive folder

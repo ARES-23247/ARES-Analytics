@@ -126,6 +126,7 @@ class DatabaseService(
         conn.createStatement().use { st ->
             st.execute("SET memory_limit='${duckDbResourceSettings.memoryLimit}'")
             st.execute("SET threads=${duckDbResourceSettings.workerThreads}")
+            st.execute("SET preserve_insertion_order=false")
             val safeTmpDir = tmpDirFile.absolutePath.replace("\\", "/").replace("'", "''")
             st.execute("SET temp_directory='$safeTmpDir'")
             st.execute("INSTALL parquet;")
@@ -136,6 +137,7 @@ class DatabaseService(
         ephemeralConn.createStatement().use { st ->
             st.execute("SET memory_limit='${duckDbResourceSettings.memoryLimit}'")
             st.execute("SET threads=${duckDbResourceSettings.workerThreads}")
+            st.execute("SET preserve_insertion_order=false")
         }
         ephemeralReadConn = ephemeralConn.unwrap(org.duckdb.DuckDBConnection::class.java).duplicate()
 
@@ -169,7 +171,16 @@ class DatabaseService(
     ): QueryResult = matchLogRepo.executeAiQuery(sql, rowLimit)
     suspend fun executeQueryWithParams(sql: String, params: List<Any>): QueryResult = matchLogRepo.executeQueryWithParams(sql, params)
     suspend fun insertSession(session: Session) = matchLogRepo.insertSession(session)
+    internal suspend fun insertImportSession(session: Session) = matchLogRepo.insertImportSession(session)
     suspend fun getSessions(): List<Session> = matchLogRepo.getSessions()
+    suspend fun getSessionsForWorkspace(teamId: String, seasonId: String, robotId: String): List<Session> =
+        matchLogRepo.getSessionsForWorkspace(teamId, seasonId, robotId)
+    internal suspend fun findCompletedSessionBySourceHashes(
+        teamId: String,
+        seasonId: String,
+        robotId: String,
+        sourceHashes: Set<String>,
+    ): Session? = matchLogRepo.findCompletedSessionBySourceHashes(teamId, seasonId, robotId, sourceHashes)
     suspend fun deleteSession(sessionId: String) = matchLogRepo.deleteSession(sessionId)
     suspend fun insertSessionSummary(summary: SessionSummary) = matchLogRepo.insertSessionSummary(summary)
     override suspend fun getSessionSummary(sessionId: String): SessionSummary? = matchLogRepo.getSessionSummary(sessionId)
@@ -223,10 +234,26 @@ class DatabaseService(
         matchLogRepo.getAnalysisDiagnostics(sessionId)
     internal suspend fun replaceSessionImportReports(sessionId: String, reports: List<ImportReport>) =
         matchLogRepo.replaceSessionImportReports(sessionId, reports)
+    internal suspend fun completeSessionImport(session: Session, reports: List<ImportReport>) =
+        matchLogRepo.completeSessionImport(session, reports)
     internal suspend fun getSessionImportReports(sessionId: String): List<ImportReport> =
         matchLogRepo.getSessionImportReports(sessionId)
-    suspend fun getTelemetryForFilters(sessionId: String, keys: List<String>, prefixes: List<String>): List<TelemetryFrame> = matchLogRepo.getTelemetryForFilters(sessionId, keys, prefixes)
+    suspend fun getTelemetryForFilters(
+        sessionId: String,
+        keys: List<String>,
+        prefixes: List<String>,
+        maxFrames: Int = 100_000,
+        maxFramesPerTopic: Int = 2_048,
+    ): List<TelemetryFrame> = matchLogRepo.getTelemetryForFilters(
+        sessionId,
+        keys,
+        prefixes,
+        maxFrames,
+        maxFramesPerTopic,
+    )
     suspend fun getDistinctTimestamps(sessionId: String): List<Long> = matchLogRepo.getDistinctTimestamps(sessionId)
+    suspend fun countTimestampGaps(sessionId: String, minimumGapMs: Long): Long =
+        matchLogRepo.countTimestampGaps(sessionId, minimumGapMs)
     suspend fun deleteTelemetryFrames(sessionId: String) = matchLogRepo.deleteTelemetryFrames(sessionId)
     suspend fun pruneTelemetryFrames(sessionId: String, cutoffMs: Long) = matchLogRepo.pruneTelemetryFrames(sessionId, cutoffMs)
     suspend fun insertAnnotation(annotation: SessionAnnotation) = matchLogRepo.insertAnnotation(annotation)

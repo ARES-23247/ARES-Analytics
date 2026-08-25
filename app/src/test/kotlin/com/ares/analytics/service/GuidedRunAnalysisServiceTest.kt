@@ -21,6 +21,7 @@ class GuidedRunAnalysisServiceTest {
         withService { root, database, service ->
             val workspace = workspace(root)
             database.insertSession(Session("current", "23247", "decode", "practice", 1_000L, durationMs = 1_000L))
+            database.insertSession(Session("baseline", "23247", "decode", "practice", 500L, durationMs = 1_000L))
             database.insertSessionSummary(summary("current", createdAt = 1_000L, p95 = 15.0))
             database.insertSessionSummary(summary("baseline", createdAt = 500L, p95 = 10.0))
             database.insertTelemetryFrames(

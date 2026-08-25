@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.shared.Session
 import com.ares.analytics.shared.SessionAnnotation
+import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.ui.theme.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -34,6 +35,7 @@ import java.util.Locale
 @Composable
 fun RunsIndex(
     databaseService: DatabaseService,
+    workspace: WorkspaceConfig,
     primarySessionId: String?,
     compareSessionId: String?,
     onSelectPrimary: (String) -> Unit,
@@ -53,11 +55,15 @@ fun RunsIndex(
     // Helper function to reload sessions list
     fun reloadSessions() {
         scope.launch {
-            sessions = databaseService.getSessions()
+            sessions = databaseService.getSessionsForWorkspace(
+                workspace.teamId,
+                workspace.seasonId,
+                workspace.robotId,
+            )
         }
     }
 
-    LaunchedEffect(reloadTrigger) {
+    LaunchedEffect(reloadTrigger, workspace.teamId, workspace.seasonId, workspace.robotId) {
         reloadSessions()
     }
 

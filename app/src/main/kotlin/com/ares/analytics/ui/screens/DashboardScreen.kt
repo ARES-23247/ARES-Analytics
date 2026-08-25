@@ -240,6 +240,7 @@ fun DashboardScreen(
                 "runs_index" to { _, mod ->
                     RunsIndex(
                         databaseService = services.databaseService,
+                        workspace = currentConfig,
                         primarySessionId = state.primarySessionId,
                         compareSessionId = state.compareSessionId,
                         onSelectPrimary = { viewModel.onIntent(DashboardIntent.SelectPrimarySession(it)) },

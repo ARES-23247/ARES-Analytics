@@ -60,6 +60,22 @@ CI retains both formats for 90 days and publishes the Markdown report in the Git
 
 Compose rendering is intentionally not launched in headless CI. Declarative widget behavior is covered through the same database and telemetry services used by the UI. Actual GPU rendering and physical Wi-Fi behavior remain part of the optional pit/hardware check.
 
+For a real Compose import journey, launch with the existing loopback desktop-test control and an
+explicit, non-sensitive fixture selection:
+
+```powershell
+$env:ARES_ANALYTICS_TEST_CONTROL_PORT = "49321"
+$env:ARES_ANALYTICS_TEST_CAPTURE_DIR = "$PWD/build/diagnostics/import-e2e"
+$env:ARES_ANALYTICS_TEST_LOG_SELECTION = "$PWD/build/fixtures/golden-run.csv"
+.\gradlew.bat :app:run "-ParesIsolatedDesktopHome=build/import-e2e-home"
+```
+
+`ARES_ANALYTICS_TEST_LOG_SELECTION` is ignored unless the loopback control port is also enabled;
+normal developer and installed launches always open the native chooser. Drive the real window via
+`CLICK`, verify with `CAPTURE`, repeat the selection to prove idempotency, open Guided Run Review,
+play the exact timeline, restart, and capture the persisted run. Use a second isolated launch with
+a corrupt fixture to verify Quarantine and actionable recovery text.
+
 ## Performance budgets
 
 Defaults are deliberately stable across developer machines and GitHub runners:

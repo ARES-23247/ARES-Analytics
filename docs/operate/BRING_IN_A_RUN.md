@@ -15,7 +15,19 @@ Live telemetry and durable runs are different:
 
 ## Choose one source
 
-### Local file or simulator log
+### Local file or simulator log (recommended for students)
+
+1. Open **Data → Log Imports**.
+2. Select **Choose log files**.
+3. Choose one completed log, or the matching files that form one run.
+4. Leave the original in place. ARES copies and verifies it inside the selected robot workspace,
+   then shows either **Run ready to review** or an actionable Quarantine result.
+
+Selecting the same bytes again—before or after restarting ARES—reopens the existing run rather
+than adding duplicate samples. The run is labelled with the selected team, season, and robot; it
+will not appear in another workspace's Dashboard, Run History, Guided Review, or Cloud list.
+
+For unattended collection, you may instead copy a completed log into one of the watched folders:
 
 Copy the log into one of the watched folders under the selected robot project:
 
@@ -56,7 +68,7 @@ Robot files remain on the robot after a successful pull. Deletion is a separate 
 ## Confirm the import
 
 1. Open **Data → Log Imports**.
-2. Select **Refresh import reports** if the screen has not updated.
+2. Select the refresh icon if the screen has not updated.
 3. Find the file under **Successful imports**.
 4. Check that its decoder, record count, and topic count are plausible. A green row with zero or surprisingly few records still deserves investigation.
 5. If it is under **Quarantine**, read the error, preserve the source, correct the cause, and use **Retry** only after the decoder/tool problem is fixed. Retrying a Driver Station `.dslog` automatically requeues its matching `.dsevents` companion as the same import.
@@ -89,10 +101,19 @@ You are done when all of these are true:
 - A cloud warning does not mean local import failed. Confirm local success first; retry cloud sync later.
 - Never raise parser size limits just to accept a damaged file. Preserve it and diagnose the producing logger/format.
 - Do not edit manifests or move archived/quarantined files while Analytics is open.
+- If the computer loses power during an import, restart ARES. An unfinished staging session is
+  removed before any screen can list it; retrying the unchanged file begins a clean import.
+- **Cancel import** removes only the new archived copy and incomplete database rows. It never
+  changes the file you selected.
 
 ## Mentor / advanced detail
 
-The scanner requires two matching size/modified-time observations so it will not ingest a file still being written. It copies through a `.partial` staging file, fingerprints content, imports to DuckDB, writes a sidecar report, and only then removes a local watched-folder source. Treat the watched `logs/` folder as an inbox, not as the sole archive.
+The scanner requires two matching size/modified-time observations so it will not ingest a file still being written. It copies through a `.partial` staging file, fingerprints content, imports to DuckDB, writes a sidecar report, and only then removes a local watched-folder source. The explicit file picker follows the same verified archive and database path but leaves the selected source untouched. Treat the watched `logs/` folder as an inbox, not as the sole archive.
+
+Large decoders write bounded batches under a durable `IMPORTING` owner. The session and its source
+reports become visible together only when the final completion transaction succeeds. Startup
+deletes rows belonging to an interrupted owner. Core summary metrics are exact SQL aggregates;
+secondary high-rate diagnostics use a deterministic bounded sample that retains topic endpoints.
 
 Robot data remains offline-first. FTC automatic collection uses ADB and FRC automatic collection uses SSH/SCP. The robot never sends a run to cloud storage; optional synchronization is performed by the desktop after local persistence.
 

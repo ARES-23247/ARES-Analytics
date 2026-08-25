@@ -8,7 +8,9 @@ import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileReader
+import java.security.MessageDigest
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -136,8 +138,20 @@ class HootDecoderService(
         hootFile: File,
         teamId: String,
         seasonId: String,
-        robotId: String
-    ): String = withContext(Dispatchers.IO) {
+        robotId: String,
+        sourceName: String = hootFile.name,
+    ): LogImportResult = withContext(Dispatchers.IO) {
+        val sourceSha256 = sha256(hootFile)
+        databaseService.findCompletedSessionBySourceHashes(
+            teamId,
+            seasonId,
+            robotId,
+            setOf(sourceSha256),
+        )?.let { existing ->
+            val report = databaseService.getSessionImportReports(existing.sessionId).firstOrNull()
+                ?: buildHootReport(hootFile, sourceName, sourceSha256, existing.sessionId)
+            return@withContext LogImportResult(existing, report, wasAlreadyImported = true)
+        }
         val owletFile = findOwletPath() ?: throw IllegalStateException("owlet CLI tool not found. Please install CTRE tools or AdvantageScope.")
         val tempCsv = File.createTempFile("hoot_import_", ".csv")
         tempCsv.deleteOnExit()
@@ -152,13 +166,16 @@ class HootDecoderService(
         // verbose child cannot fill its OS pipe buffer and deadlock waitFor() (AUDIT H3).
         pb.redirectErrorStream(true)
         val process = pb.start()
-        val capturedOutput = StringBuilder()
+        val capturedOutput = StringBuffer()
+        val outputTruncated = AtomicBoolean(false)
         val drainThread = Thread {
             try {
                 process.inputStream.bufferedReader().use { reader ->
                     var line = reader.readLine()
                     while (line != null) {
-                        capturedOutput.appendLine(line)
+                        if (!appendBoundedProcessLine(capturedOutput, line, MAX_PROCESS_OUTPUT_CHARS)) {
+                            outputTruncated.set(true)
+                        }
                         line = reader.readLine()
                     }
                 }
@@ -173,45 +190,93 @@ class HootDecoderService(
             process.destroyForcibly()
             drainThread.join(2000)
             tempCsv.delete()
-            throw IllegalStateException("owlet CLI timed out converting hoot log. Output:\n$capturedOutput")
+            throw IllegalStateException("owlet CLI timed out converting hoot log. Output:\n${capturedOutput.withTruncation(outputTruncated.get())}")
         }
         drainThread.join(5000)
         val exitCode = process.exitValue()
         if (exitCode != 0) {
             tempCsv.delete()
-            throw IllegalStateException("owlet CLI failed to convert hoot log. Exit code: $exitCode. Output:\n$capturedOutput")
+            throw IllegalStateException("owlet CLI failed to convert hoot log. Exit code: $exitCode. Output:\n${capturedOutput.withTruncation(outputTruncated.get())}")
         }
         val sessionId = "hoot-${UUID.randomUUID()}"
         try {
+            val stagingSession = Session(
+                sessionId = sessionId,
+                teamId = teamId,
+                seasonId = seasonId,
+                robotId = robotId,
+                createdAt = hootFile.lastModified(),
+                tags = listOf("hoot-import"),
+            )
+            databaseService.insertImportSession(stagingSession)
             // Parse CSV and batch-insert into DB
             val (firstTime, lastTime, parsedKeys) = parseAndInsertTelemetry(tempCsv, sessionId)
             val durationMs = lastTime - firstTime
             require(durationMs > 0L) { "Hoot log file contains no valid timestamp ranges." }
 
-            val session = Session(
-                sessionId = sessionId,
-                teamId = teamId,
-                seasonId = seasonId,
-                robotId = robotId,
-                createdAt = firstTime,
+            val session = stagingSession.copy(
+                createdAt = firstTime.takeIf { it >= EARLIEST_PLAUSIBLE_EPOCH_MS }
+                    ?: hootFile.lastModified(),
                 durationMs = durationMs,
-                tags = listOf("hoot-import")
             )
-            databaseService.insertSession(session)
-            databaseService.insertSessionSummary(summaryEngineService.generateSummary(session))
+            val summary = summaryEngineService.generateSummary(session)
+            val completedSession = session.copy(tags = summary.tags)
             runDiagnostics(sessionId, parsedKeys, firstTime, lastTime, durationMs)
-            sessionId
+            val report = buildHootReport(
+                hootFile = hootFile,
+                sourceName = sourceName,
+                sourceSha256 = sourceSha256,
+                sessionId = sessionId,
+            )
+            databaseService.completeSessionImport(completedSession, listOf(report))
+            LogImportResult(completedSession, report)
         } catch (error: CancellationException) {
+            // Cancellation has the same ownership obligation as a decoder failure. Startup
+            // recovery is a last resort for power loss, not a substitute for prompt cleanup.
+            cleanupFailedHootImport(databaseService, sessionId, error)
             throw error
         } catch (error: Exception) {
             // Imports are all-or-nothing from the application's perspective. deleteSession also
             // removes telemetry when the parent session row was never reached.
-            runCatching { databaseService.deleteSession(sessionId) }
-                .onFailure(error::addSuppressed)
+            cleanupFailedHootImport(databaseService, sessionId, error)
             throw error
         } finally {
             tempCsv.delete()
         }
+    }
+
+    private suspend fun buildHootReport(
+        hootFile: File,
+        sourceName: String,
+        sourceSha256: String,
+        sessionId: String,
+    ): ImportReport {
+        val range = databaseService.getSessionTimestampRange(sessionId)
+        return ImportReport(
+            sourceName = sourceName,
+            sourceSha256 = sourceSha256,
+            sourceSizeBytes = hootFile.length(),
+            decoder = "hoot",
+            status = ImportStatus.SUCCESS,
+            sessionId = sessionId,
+            acceptedRecords = databaseService.countTelemetryFrames(sessionId),
+            detectedTopics = databaseService.getDistinctTelemetryKeys(sessionId),
+            minTimestampMs = range?.first,
+            maxTimestampMs = range?.second,
+        )
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val bytes = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val read = input.read(bytes)
+                if (read < 0) break
+                digest.update(bytes, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
 
     internal suspend fun parseAndInsertTelemetry(
@@ -326,6 +391,13 @@ class HootDecoderService(
         durationMs: Long
     ) {
         val motors = mutableMapOf<String, MotorKeys>()
+        suspend fun sampledTopic(key: String) = databaseService.getTelemetrySeries(
+            sessionId = sessionId,
+            key = key,
+            startMs = firstTime,
+            endMs = lastTime,
+            maxPoints = MAX_HOOT_TOPIC_FRAMES,
+        )
 
         // 1. Detect Motors from voltage and velocity patterns
         for (key in keys) {
@@ -359,7 +431,7 @@ class HootDecoderService(
         val sysIdResults = mutableMapOf<String, CalculatedSummary>()
         for (motor in motors.values) {
             if (!keys.contains(motor.accelKey)) {
-                val velocities = databaseService.getTelemetryForKey(sessionId, motor.velocityKey)
+                val velocities = sampledTopic(motor.velocityKey)
                 val accelFrames = mutableListOf<TelemetryFrame>()
                 for (i in 1 until velocities.size) {
                     val prev = velocities[i-1]
@@ -409,8 +481,8 @@ class HootDecoderService(
         }
 
         for (pair in setpointPairs) {
-            val actuals = databaseService.getTelemetryForKey(sessionId, pair.actualKey)
-            val setpoints = databaseService.getTelemetryForKey(sessionId, pair.setpointKey)
+            val actuals = sampledTopic(pair.actualKey)
+            val setpoints = sampledTopic(pair.setpointKey)
             if (actuals.size >= 32 && setpoints.isNotEmpty()) {
                 val actualsSorted = actuals.sortedBy { it.timestampMs }
                 val setpointsSorted = setpoints.sortedBy { it.timestampMs }
@@ -456,8 +528,8 @@ class HootDecoderService(
         // 4. Thermal & Stall diagnostics
         for (motor in motors.values) {
             val currentKey = motor.currentKey ?: continue
-            val currents = databaseService.getTelemetryForKey(sessionId, currentKey)
-            val velocities = databaseService.getTelemetryForKey(sessionId, motor.velocityKey)
+            val currents = sampledTopic(currentKey)
+            val velocities = sampledTopic(motor.velocityKey)
 
             if (currents.isEmpty() || velocities.isEmpty()) continue
             val currentsSorted = currents.sortedBy { it.timestampMs }
@@ -525,7 +597,7 @@ class HootDecoderService(
 
         // 5. CAN Jitter analysis on periodic update signals
         for (key in keys) {
-            val frames = databaseService.getTelemetryForKey(sessionId, key)
+            val frames = sampledTopic(key)
             if (frames.size < 50) continue
             val deltas = mutableListOf<Double>()
             var prevTime = 0L
@@ -557,4 +629,31 @@ class HootDecoderService(
             }
         }
     }
+
+    private fun StringBuffer.withTruncation(truncated: Boolean): String =
+        toString() + if (truncated) "\n[output truncated]" else ""
+
+    private companion object {
+        const val MAX_PROCESS_OUTPUT_CHARS = 64 * 1024
+        const val MAX_HOOT_TOPIC_FRAMES = 4_096
+        const val EARLIEST_PLAUSIBLE_EPOCH_MS = 946_684_800_000L
+    }
+}
+
+internal fun appendBoundedProcessLine(buffer: StringBuffer, line: String, maxChars: Int): Boolean {
+    require(maxChars > 0) { "Process output bound must be positive" }
+    val remaining = maxChars - buffer.length
+    if (remaining <= 0) return false
+    val withNewline = "$line\n"
+    buffer.append(withNewline, 0, minOf(remaining, withNewline.length))
+    return withNewline.length <= remaining
+}
+
+internal suspend fun cleanupFailedHootImport(
+    databaseService: DatabaseService,
+    sessionId: String,
+    failure: Throwable,
+) {
+    runCatching { databaseService.deleteSession(sessionId) }
+        .onFailure(failure::addSuppressed)
 }

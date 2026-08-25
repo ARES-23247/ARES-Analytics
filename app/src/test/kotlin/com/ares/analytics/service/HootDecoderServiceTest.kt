@@ -1,7 +1,11 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.service.log.HootDecoderService
+import com.ares.analytics.service.log.appendBoundedProcessLine
+import com.ares.analytics.service.log.cleanupFailedHootImport
+import com.ares.analytics.shared.Session
 import com.ares.analytics.shared.TelemetryFrame
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import java.io.File
 import kotlin.test.Test
@@ -12,6 +16,58 @@ import kotlin.test.assertTrue
  * HootDecoderServiceTest class.
  */
 class HootDecoderServiceTest {
+
+    @Test
+    fun `cancelled hoot import removes its staged owner and telemetry immediately`() = runTest {
+        val tempDb = File.createTempFile("hoot_cancel_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val decoder = HootDecoderService(
+            databaseService,
+            SummaryEngineService(
+                databaseService,
+                sysIdService,
+                DriverAnalysisService(databaseService, sysIdService),
+            ),
+            sysIdService,
+        )
+        val stagedSession = Session("cancelled-hoot", "23247", "2026", "test", 1L)
+        val convertedCsv = File.createTempFile("cancelled_hoot", ".csv").apply {
+            writeText("time,Signal\n0.0,1.0\n0.02,2.0")
+        }
+        try {
+            databaseService.insertImportSession(stagedSession)
+            decoder.parseAndInsertTelemetry(convertedCsv, stagedSession.sessionId)
+
+            cleanupFailedHootImport(
+                databaseService,
+                stagedSession.sessionId,
+                CancellationException("student cancelled"),
+            )
+
+            assertEquals(0L, databaseService.countTelemetryFrames(stagedSession.sessionId))
+            assertEquals(
+                "0",
+                databaseService.executeQueryRaw(
+                    "SELECT COUNT(*) AS total FROM sessions WHERE session_id = 'cancelled-hoot'",
+                ).rows.single().single(),
+            )
+        } finally {
+            databaseService.close()
+            convertedCsv.delete()
+            tempDb.delete()
+        }
+    }
+
+    @Test
+    fun `owlet diagnostic output is bounded while its pipe continues to drain`() {
+        val output = StringBuffer()
+
+        assertTrue(appendBoundedProcessLine(output, "abcd", 6))
+        assertTrue(!appendBoundedProcessLine(output, "overflow", 6))
+        assertEquals(6, output.length)
+        assertEquals("abcd\no", output.toString())
+    }
 
     @Test
     fun `1000 microsecond interval is one millisecond for explicit and inferred units`() = runTest {

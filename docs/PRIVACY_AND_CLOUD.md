@@ -3,6 +3,12 @@
 ARES Robotics Studio is local-first. Live robot telemetry, imported logs, authoring files, simulation,
 and analysis run on the laptop. Robots do not sign into Google and do not upload directly.
 
+Choosing a log file copies it into the currently selected robot project's local archive. The
+selected original is not edited or deleted. Parsed sessions are stored in the current Windows
+user's local DuckDB database with exact team, season, and robot identity. ARES filters Dashboard,
+Run History, Guided Review, and Cloud lists by that identity so one workspace cannot disclose
+another workspace's sessions through normal application state.
+
 Google Drive synchronization is opt-in. Before consent, the app explains that it requests basic
 Google identity and `drive.file`. This scope is limited to files ARES creates or the user explicitly
 selects for ARES. ARES stores the selected workspace folder/Shared Drive ID and does not scan

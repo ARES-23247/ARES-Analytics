@@ -133,6 +133,40 @@ class LogParserServiceTest {
     }
 
     @Test
+    fun `reimporting identical source reuses completed session and persisted evidence`() = runTest {
+        val tempDirectory = Files.createTempDirectory("log-dedup-evidence").toFile()
+        val databaseService = DatabaseService(tempDirectory.resolve("telemetry.duckdb").absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val parser = LogParserService(
+            databaseService,
+            SummaryEngineService(
+                databaseService,
+                sysIdService,
+                DriverAnalysisService(databaseService, sysIdService),
+            ),
+        )
+        val source = tempDirectory.resolve("known-run.csv").apply {
+            writeText("timestampMs,Robot/BatteryVoltage,Robot/LoopTimeMs\n1000,12.4,20\n1020,12.1,24\n")
+        }
+        try {
+            val first = parser.parseLogFileWithReport(source, "23247", "2026", "robot")
+            val second = parser.parseLogFileWithReport(source, "23247", "2026", "robot")
+
+            assertEquals(first.session.sessionId, second.session.sessionId)
+            assertTrue(second.wasAlreadyImported)
+            assertEquals(1, databaseService.getSessions().size)
+            assertEquals(listOf(first.report), databaseService.getSessionImportReports(first.session.sessionId))
+
+            val otherWorkspace = parser.parseLogFileWithReport(source, "99999", "2026", "robot")
+            assertTrue(otherWorkspace.session.sessionId != first.session.sessionId)
+            assertEquals(2, databaseService.getSessions().size)
+        } finally {
+            databaseService.close()
+            tempDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `compressed ARES csv imports through bounded streaming decoder`() = runTest {
         val tempDb = File.createTempFile("log_csv_gzip_db", ".db")
         val databaseService = DatabaseService(tempDb.absolutePath)

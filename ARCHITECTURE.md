@@ -161,6 +161,17 @@ Schema migrations run before repositories are used. Legacy SQLite attach/import 
 
 `LogParserService` selects a decoder by file type. Decoders emit frames incrementally through `FrameBatcher`; they must not accumulate an entire multi-gigabyte log in memory.
 
+Every ordinary import has a durable two-state owner. `IMPORTING` owns all rows written in bounded
+batches but is excluded from application queries. One final transaction upserts the session as
+`COMPLETE` and records every source report. Startup recovery deletes an interrupted owner and all
+of its dependent rows. This gives large imports crash consistency without holding one enormous
+DuckDB transaction open for the entire decode.
+
+Manual selection first copies through a same-directory `.partial` file, verifies byte count and
+SHA-256, and atomically renames the archive copy. Originals are never moved. Exact source-digest
+sets are idempotent within one team/season/robot identity and intentionally distinct across
+workspaces.
+
 Supported families include:
 
 - ARES JSONL and CSV;
@@ -223,6 +234,13 @@ Summary metrics use explicit topic families:
 - missing vision acceptance data reports no observations rather than a fabricated 100%.
 
 Analyzer-generated diagnostics are atomically replaced in `analysis_diagnostics`. They may be projected into the diagnostics UI, but they are not appended to `telemetry_frames`, do not alter the source timestamp range, and cannot feed back into the next summary calculation.
+
+Core summary values (minimums, averages, percentiles, counts, and grouped current values) are
+computed as exact scalar/grouped SQL aggregates. Secondary algorithms that require time-series
+objects receive a deterministic, ordered, per-topic sample with hard total and per-topic bounds;
+the first and last ordinary sample are retained. Timestamp-gap counts remain scalar SQL and never
+materialize an entire timestamp list in the JVM. DuckDB may spill working data to its configured
+temporary directory and does not preserve insertion order during bulk relational operations.
 
 ### Cloud session bundles
 

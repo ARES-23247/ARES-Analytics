@@ -31,5 +31,6 @@ enum class ImportStatus {
 
 data class LogImportResult(
     val session: Session,
-    val report: ImportReport
+    val report: ImportReport,
+    val wasAlreadyImported: Boolean = false,
 )

@@ -203,7 +203,9 @@ class SummaryEngineService(
                     addAll(TelemetryMetricCatalog.BATTERY_VOLTAGE.keys)
                     addAll(TelemetryMetricCatalog.LOOP_TIME.keys)
                 },
-                prefixes = listOf("Diagnostics/%", "Hardware/Motors/%", "Vision/%", "Path/%")
+                prefixes = listOf("Diagnostics/%", "Hardware/Motors/%", "Vision/%", "Path/%"),
+                maxFrames = MAX_DIAGNOSTIC_FRAMES,
+                maxFramesPerTopic = MAX_DIAGNOSTIC_FRAMES_PER_TOPIC,
             )
             if (allFrames.isEmpty()) {
                 databaseService.replaceAnalysisDiagnostics(session.sessionId, emptyList())
@@ -214,16 +216,7 @@ class SummaryEngineService(
             // Loop Overruns and Comms Losses calculation
             val loopTimes = allFrames.filter { it.key.lowercase().contains("loop") || it.key.lowercase().contains("period") }.map { it.value }
             val loopOverruns = loopTimes.count { it > 40.0 }
-            val sortedTimes = databaseService.getDistinctTimestamps(session.sessionId)
-            var commsLosses = 0
-            if (sortedTimes.size > 1) {
-                for (i in 0 until sortedTimes.size - 1) {
-                    val gap = sortedTimes[i + 1] - sortedTimes[i]
-                    if (gap > 1000) {
-                        commsLosses++
-                    }
-                }
-            }
+            val commsLosses = databaseService.countTimestampGaps(session.sessionId, 1_000L)
             val minVoltage = allFrames.filter { it.key in TelemetryMetricCatalog.BATTERY_VOLTAGE.keys }
                 .map { it.value }
                 .minOrNull() ?: 12.0
@@ -600,5 +593,16 @@ class SummaryEngineService(
             .replace("amps", "", ignoreCase = true)
             .replace("/", "")
             .ifEmpty { "Motor" }
+    }
+
+    private companion object {
+        /**
+         * Secondary diagnostic algorithms operate on a deterministic, per-topic sample. Core
+         * summary values above remain exact SQL aggregates. These bounds prevent a long WPILOG
+         * from materializing millions of JVM objects while retaining endpoints and uniform
+         * coverage for every ordinary topic.
+         */
+        const val MAX_DIAGNOSTIC_FRAMES = 100_000
+        const val MAX_DIAGNOSTIC_FRAMES_PER_TOPIC = 2_048
     }
 }

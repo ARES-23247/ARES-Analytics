@@ -43,6 +43,7 @@ import com.ares.analytics.service.SyncEngineService
 import com.ares.analytics.shared.Session
 import com.ares.analytics.shared.SessionSummary
 import com.ares.analytics.shared.TelemetryFrame
+import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.ui.components.history.RunFilterHeader
 import com.ares.analytics.ui.components.history.RunDataCard
 import com.ares.analytics.ui.theme.*
@@ -112,6 +113,8 @@ data class RowDefinition(
 fun RunHistoryScreen(
     databaseService: DatabaseService,
     syncEngineService: SyncEngineService,
+    workspace: WorkspaceConfig,
+    reloadTrigger: Int = 0,
     onOpenImports: () -> Unit = {},
     onOpenHelp: () -> Unit = {}
 ) {
@@ -130,10 +133,14 @@ fun RunHistoryScreen(
     }
 
     // Load data from DuckDB
-    LaunchedEffect(Unit) {
+    LaunchedEffect(workspace.teamId, workspace.seasonId, workspace.robotId, reloadTrigger) {
         isLoading = true
         withContext(Dispatchers.IO) {
-            val list = databaseService.getSessions().sortedBy { it.createdAt }
+            val list = databaseService.getSessionsForWorkspace(
+                workspace.teamId,
+                workspace.seasonId,
+                workspace.robotId,
+            ).sortedBy { it.createdAt }
             val sums = list.mapNotNull { session ->
                 databaseService.getSessionSummary(session.sessionId)
                     ?.let { summary -> session.sessionId to summary }
