@@ -66,6 +66,54 @@ class LocalSimulatorControlBarTest {
     }
 
     @Test
+    fun `FRC autonomous acknowledgement stays distinct from TeleOp`() {
+        assertTrue(frcSimulatorAutonomousEnabled("AUTONOMOUS_ENABLED"))
+        assertTrue(frcSimulatorAutonomousEnabled(" autonomous_enabled "))
+        assertFalse(frcSimulatorAutonomousEnabled("TELEOP_ENABLED"))
+        assertFalse(frcSimulatorAutonomousEnabled("WAITING_FOR_CONTROL"))
+        assertFalse(frcSimulatorAutonomousEnabled(null))
+    }
+
+    @Test
+    fun `FRC autonomous display distinguishes match mode from routine outcome`() {
+        assertEquals(
+            FrcAutonomousDisplayState.INACTIVE,
+            frcAutonomousDisplayState("DISABLED", "Complete"),
+        )
+        assertEquals(
+            FrcAutonomousDisplayState.RUNNING,
+            frcAutonomousDisplayState("AUTONOMOUS_ENABLED", "Running"),
+        )
+        assertEquals(
+            FrcAutonomousDisplayState.COMPLETE,
+            frcAutonomousDisplayState("AUTONOMOUS_ENABLED", "Complete"),
+        )
+        assertEquals(
+            FrcAutonomousDisplayState.BLOCKED,
+            frcAutonomousDisplayState("AUTONOMOUS_ENABLED", "Blocked"),
+        )
+    }
+
+    @Test
+    fun `FRC autonomous selection preserves an explicit valid choice and otherwise fails safe`() {
+        val available = listOf("do-nothing", "score-and-leave")
+
+        assertEquals(
+            "score-and-leave",
+            preferredSimulatorAutonomous(available, "score-and-leave", "do-nothing"),
+        )
+        assertEquals(
+            "score-and-leave",
+            preferredSimulatorAutonomous(available, "deleted", "score-and-leave"),
+        )
+        assertEquals(
+            "do-nothing",
+            preferredSimulatorAutonomous(available, "deleted", "also-deleted"),
+        )
+        assertNull(preferredSimulatorAutonomous(emptyList(), null, null))
+    }
+
+    @Test
     fun `malformed Driver Station inventory cannot crash the dashboard`() {
         assertEquals(emptyList(), decodeSimulatorTeleOps("not-json"))
         assertEquals(listOf("One", "Two"), decodeSimulatorTeleOps("[\"One\",\"Two\"]"))

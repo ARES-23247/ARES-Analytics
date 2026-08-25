@@ -15,6 +15,7 @@ import java.nio.file.Files
 import java.util.Base64
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -67,6 +68,54 @@ class FieldDocumentStoreTest {
         try {
             assertEquals(null, FieldImageLoader.load(project.path, League.FTC, "").getOrThrow())
             assertEquals(null, FieldImageLoader.load(project.path, League.FTC, null).getOrThrow())
+        } finally {
+            project.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `editing an image-free field does not invent a missing image`() {
+        val base = FieldDocumentMapper.newDocument(League.FTC)
+
+        val edited = FieldDocumentMapper.withEditorData(
+            base = base,
+            league = League.FTC,
+            image = FieldDocumentMapper.image(base),
+            obstacles = listOf(Obstacle.Rectangle("wall", "Wall", 0.4, 0.2, 0.5, 0.1)),
+            gamePieces = emptyList(),
+            gamePieceTypes = FieldDocumentMapper.gamePieceTypes(base),
+            aprilTags = emptyList(),
+            fieldWaypoints = emptyList(),
+        )
+
+        assertEquals("", edited.image?.imagePath)
+    }
+
+    @Test
+    fun `field saves checkpoint both prior and current revisions without overwriting malformed source`() {
+        val project = Files.createTempDirectory("ares-field-history").toFile()
+        try {
+            File(project, "TeamCode/src/main/java/Robot.kt").apply {
+                parentFile.mkdirs()
+                writeText("class Robot")
+            }
+            val first = FieldDocumentMapper.newDocument(League.FTC).copy(revision = 1)
+            val second = first.copy(revision = 2, name = "Edited field")
+
+            FieldDocumentStore.save(project.path, League.FTC, first)
+            FieldDocumentStore.save(project.path, League.FTC, second)
+
+            val history = File(project, ".ares/history/fields").listFiles().orEmpty()
+            assertEquals(2, history.size)
+            assertEquals(second, RobotFieldDocument.decode(ProjectLayout.fieldDefinitionFile(project.path, League.FTC).readText()))
+
+            val current = ProjectLayout.fieldDefinitionFile(project.path, League.FTC)
+            current.writeText("not-json")
+            assertFailsWith<Exception> {
+                FieldDocumentStore.save(project.path, League.FTC, second.copy(revision = 3))
+            }
+            assertEquals("not-json", current.readText())
+            assertFalse(File(project, ".ares/history/fields").listFiles().orEmpty().any { it.name.startsWith("00000003-") })
         } finally {
             project.deleteRecursively()
         }

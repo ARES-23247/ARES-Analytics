@@ -149,6 +149,10 @@ fun AutonomousSelectorCard(
                 if (selection.isNotBlank()) scope.launch {
                     nt4ClientService.publishString(RobotTopicContract.FTC_AUTONOMOUS_REQUEST, selection)
                     nt4ClientService.publishString(RobotTopicContract.FRC_AUTONOMOUS_REQUEST, selection)
+                    nt4ClientService.publishString(
+                        RobotTopicContract.FRC_SMART_DASHBOARD_AUTONOMOUS_REQUEST,
+                        selection,
+                    )
                 }
             },
             enabled = requested.isNotBlank(),

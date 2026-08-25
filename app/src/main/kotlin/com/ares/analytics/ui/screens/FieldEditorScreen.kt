@@ -50,6 +50,7 @@ import com.ares.analytics.viewmodel.FieldEditorIntent
 import com.ares.analytics.viewmodel.FieldEditorViewModel
 import com.ares.analytics.viewmodel.AprilTagExportFormat
 import com.ares.analytics.viewmodel.field.FieldEditorLayout
+import com.ares.analytics.viewmodel.field.AprilTagMapPresetCatalog
 
 /**
  * Visual field layout and obstacle configuration editor screen for FTC ($3.6576 \times 3.6576\text{ m}$) and FRC ($16.541 \times 8.211\text{ m}$) game fields.
@@ -82,6 +83,7 @@ fun FieldEditorScreen(
     var gamePiecesCollapsed by remember { mutableStateOf(false) }
     var showGamePieceCatalog by remember { mutableStateOf(false) }
     var aprilTagsCollapsed by remember { mutableStateOf(false) }
+    var seasonMapMenuExpanded by remember { mutableStateOf(false) }
     var waypointsCollapsed by remember { mutableStateOf(false) }
 
     if (showGamePieceCatalog) {
@@ -200,6 +202,21 @@ fun FieldEditorScreen(
                     Icon(Icons.Default.Upload, contentDescription = null, tint = AresBackground)
                     Spacer(Modifier.width(8.dp))
                     Text("Upload Field Image", color = AresBackground, fontWeight = FontWeight.Bold)
+                }
+                if (state.fieldImageConfig.imagePath.isNotBlank()) {
+                    OutlinedButton(
+                        onClick = { viewModel.onIntent(FieldEditorIntent.ClearFieldImage) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.HideImage, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Remove background reference")
+                    }
+                    Text(
+                        "Keeps the image file on disk so it can be restored later.",
+                        color = AresTextSecondary,
+                        fontSize = 10.sp,
+                    )
                 }
 
                 HorizontalDivider(color = AresBorder)
@@ -540,15 +557,14 @@ fun FieldEditorScreen(
 
                 // AprilTags Section
                 HorizontalDivider(color = AresBorder)
-                Row(
+                Column(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
                     Row(
                         modifier = Modifier
                             .clickable { aprilTagsCollapsed = !aprilTagsCollapsed }
-                            .weight(1f),
+                            .fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -567,50 +583,107 @@ fun FieldEditorScreen(
                     }
 
                     if (!projectPath.isNullOrEmpty()) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Button(
-                            onClick = {
-                                SwingUtilities.invokeLater {
-                                    val chooser = JFileChooser().apply {
-                                        dialogTitle = "Import an AprilTag map for review"
-                                        fileFilter = FileNameExtensionFilter(
-                                            "AprilTag maps (.fmap, WPILib .json, ARES field .json)",
-                                            "fmap",
-                                            "json",
-                                        )
-                                    }
-                                    val result = chooser.showOpenDialog(null)
-                                    if (result == JFileChooser.APPROVE_OPTION) {
-                                        val selectedFile = chooser.selectedFile
-                                        viewModel.onIntent(
-                                            FieldEditorIntent.PreviewAprilTagMap(
-                                                content = selectedFile.readText(),
-                                                fileName = selectedFile.name,
-                                                projectPath = projectPath,
-                                                league = league,
-                                            )
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Box {
+                                OutlinedButton(
+                                    onClick = { seasonMapMenuExpanded = true },
+                                    modifier = Modifier.height(30.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                ) {
+                                    Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(14.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Season maps", fontSize = 11.sp)
+                                }
+                                DropdownMenu(
+                                    expanded = seasonMapMenuExpanded,
+                                    onDismissRequest = { seasonMapMenuExpanded = false },
+                                ) {
+                                    AprilTagMapPresetCatalog.forLeague(league).forEach { preset ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Column {
+                                                    Text(preset.displayName, color = AresTextPrimary, fontSize = 12.sp)
+                                                    Text(preset.sourceLabel, color = AresTextSecondary, fontSize = 10.sp)
+                                                }
+                                            },
+                                            onClick = {
+                                                seasonMapMenuExpanded = false
+                                                viewModel.onIntent(
+                                                    FieldEditorIntent.PreviewAprilTagMap(
+                                                        content = preset.readContent(),
+                                                        fileName = preset.displayName,
+                                                        projectPath = projectPath,
+                                                        league = league,
+                                                    )
+                                                )
+                                            },
                                         )
                                     }
                                 }
-                            },
-                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                            modifier = Modifier.height(28.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated)
-                        ) {
-                            Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(14.dp), tint = AresTextPrimary)
-                            Spacer(Modifier.width(4.dp))
-                            Text("Import map", fontSize = 11.sp, color = AresTextPrimary)
+                            }
+                            Button(
+                                onClick = {
+                                    SwingUtilities.invokeLater {
+                                        val chooser = JFileChooser().apply {
+                                            dialogTitle = "Import an AprilTag map for review"
+                                            fileFilter = FileNameExtensionFilter(
+                                                "AprilTag maps (.fmap, WPILib .json, ARES field .json)",
+                                                "fmap",
+                                                "json",
+                                            )
+                                        }
+                                        val result = chooser.showOpenDialog(null)
+                                        if (result == JFileChooser.APPROVE_OPTION) {
+                                            val selectedFile = chooser.selectedFile
+                                            viewModel.onIntent(
+                                                FieldEditorIntent.PreviewAprilTagMap(
+                                                    content = selectedFile.readText(),
+                                                    fileName = selectedFile.name,
+                                                    projectPath = projectPath,
+                                                    league = league,
+                                                )
+                                            )
+                                        }
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.height(30.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = AresSurfaceElevated)
+                            ) {
+                                Icon(Icons.Default.UploadFile, contentDescription = null, modifier = Modifier.size(14.dp), tint = AresTextPrimary)
+                                Spacer(Modifier.width(4.dp))
+                                Text("Import map", fontSize = 11.sp, color = AresTextPrimary)
+                            }
+                            TextButton(
+                                onClick = {
+                                    chooseAprilTagExport("apriltags-wpilib.json", "json") { file ->
+                                        viewModel.onIntent(FieldEditorIntent.ExportAprilTagMap(AprilTagExportFormat.WPILIB_JSON, file))
+                                    }
+                                },
+                                modifier = Modifier.height(30.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            ) { Text("WPILib export", fontSize = 11.sp) }
+                            TextButton(
+                                onClick = {
+                                    chooseAprilTagExport("apriltags.fmap", "fmap") { file ->
+                                        viewModel.onIntent(FieldEditorIntent.ExportAprilTagMap(AprilTagExportFormat.LIMELIGHT_FMAP, file))
+                                    }
+                                },
+                                modifier = Modifier.height(30.dp),
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp),
+                            ) { Text("Limelight export", fontSize = 11.sp) }
                         }
-                        TextButton(onClick = {
-                            chooseAprilTagExport("apriltags-wpilib.json", "json") { file ->
-                                viewModel.onIntent(FieldEditorIntent.ExportAprilTagMap(AprilTagExportFormat.WPILIB_JSON, file))
-                            }
-                        }) { Text("WPILib export", fontSize = 11.sp) }
-                        TextButton(onClick = {
-                            chooseAprilTagExport("apriltags.fmap", "fmap") { file ->
-                                viewModel.onIntent(FieldEditorIntent.ExportAprilTagMap(AprilTagExportFormat.LIMELIGHT_FMAP, file))
-                            }
-                        }) { Text("Limelight export", fontSize = 11.sp) }
+                        if (league == League.FTC && state.aprilTags.isEmpty()) {
+                            Text(
+                                "Choose a reviewed Season map or import your own before pushing this field to the simulator or generating VisionPortal code.",
+                                color = AresGold,
+                                fontSize = 10.sp,
+                                lineHeight = 14.sp,
+                            )
                         }
                     }
                 }

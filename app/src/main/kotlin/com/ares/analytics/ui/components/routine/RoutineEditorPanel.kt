@@ -39,6 +39,33 @@ import com.areslib.catalog.ConditionDescriptor
 import com.areslib.routine.*
 import java.util.Locale
 
+/** The empty draft created by New is only a launch surface; replacing it loses no student work. */
+internal fun shouldConfirmRoutineReplacement(state: PathPlannerState): Boolean =
+    state.routineDirty && !(
+        state.routine.name == "New Routine" &&
+            state.routine.description.isNullOrBlank() &&
+            state.routine.steps.isEmpty() &&
+            state.autonomousEntry == null &&
+            !state.availableInAutonomousSelector &&
+            state.routineRevisions.isEmpty()
+        )
+
+internal fun routineReferenceIsMissing(selectedKey: String?, selectedDisplayName: String?): Boolean =
+    !selectedKey.isNullOrBlank() && selectedDisplayName == null
+
+internal fun routineReferenceLabel(
+    selectedKey: String?,
+    selectedDisplayName: String?,
+    itemsAvailable: Boolean,
+    emptyLabel: String,
+    placeholder: String,
+): String = when {
+    routineReferenceIsMissing(selectedKey, selectedDisplayName) -> "Missing: $selectedKey"
+    selectedDisplayName != null -> selectedDisplayName
+    !itemsAvailable -> emptyLabel
+    else -> placeholder
+}
+
 /** Primary trigger-neutral routine editor shared by autonomous, teleop macros, and tests. */
 @Composable
 fun RoutineEditorPanel(
@@ -75,7 +102,7 @@ fun RoutineEditorPanel(
     }
 
     fun requestReplacement(action: PendingRoutineReplacement) {
-        if (state.routineDirty) pendingReplacement = action else applyReplacement(action)
+        if (shouldConfirmRoutineReplacement(state)) pendingReplacement = action else applyReplacement(action)
     }
 
     pendingReplacement?.let { action ->
@@ -857,11 +884,8 @@ private fun RoutineStepCard(
                 RoutineStepKind.DRIVE_TO -> step.drive?.let { drive ->
                     RoutinePoseEditors(drive.target) { onUpdate(step.copy(drive = drive.copy(target = it))) }
                     MotionPresetPicker(drive.motionPresetKey) { onUpdate(step.copy(drive = drive.copy(motionPresetKey = it))) }
-                    DriveActionList("Run while driving", drive.duringActionKeys, actions) {
-                        onUpdate(step.copy(drive = drive.copy(duringActionKeys = it)))
-                    }
-                    DriveActionList("Run on arrival", drive.arrivalActionKeys, actions) {
-                        onUpdate(step.copy(drive = drive.copy(arrivalActionKeys = it)))
+                    DriveMechanismActionsEditor(drive, actions) { updatedDrive ->
+                        onUpdate(step.copy(drive = updatedDrive))
                     }
                 }
                 RoutineStepKind.WAIT -> RoutineDecimalEditor(step.durationSeconds ?: 0.0, "Duration", "s") {
@@ -1036,6 +1060,7 @@ private fun RoutinePoseEditors(pose: RoutinePose, onChanged: (RoutinePose) -> Un
 private fun ActionPicker(actions: List<ActionDescriptor>, selectedKey: String?, onSelected: (ActionDescriptor) -> Unit) =
     DescriptorPicker(
         selected = actions.firstOrNull { it.key == selectedKey }?.displayName,
+        missingSelectedKey = selectedKey,
         emptyLabel = "No project actions declared",
         placeholder = "Choose robot action",
         items = actions,
@@ -1049,6 +1074,7 @@ private fun ActionPicker(actions: List<ActionDescriptor>, selectedKey: String?, 
 private fun ConditionPicker(conditions: List<ConditionDescriptor>, selectedKey: String?, onSelected: (ConditionDescriptor) -> Unit) =
     DescriptorPicker(
         selected = conditions.firstOrNull { it.key == selectedKey }?.displayName,
+        missingSelectedKey = selectedKey,
         emptyLabel = "No project conditions declared",
         placeholder = "Choose robot state condition",
         items = conditions,
@@ -1061,6 +1087,7 @@ private fun ConditionPicker(conditions: List<ConditionDescriptor>, selectedKey: 
 @Composable
 private fun <T> DescriptorPicker(
     selected: String?,
+    missingSelectedKey: String? = null,
     emptyLabel: String,
     placeholder: String,
     items: List<T>,
@@ -1070,9 +1097,30 @@ private fun <T> DescriptorPicker(
     onSelected: (T) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
+    val missing = routineReferenceIsMissing(missingSelectedKey, selected)
+    val label = routineReferenceLabel(
+        selectedKey = missingSelectedKey,
+        selectedDisplayName = selected,
+        itemsAvailable = items.isNotEmpty(),
+        emptyLabel = emptyLabel,
+        placeholder = placeholder,
+    )
     Box {
-        OutlinedButton({ expanded = true }, enabled = items.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-            Text(selected ?: if (items.isEmpty()) emptyLabel else placeholder)
+        OutlinedButton(
+            onClick = { expanded = true },
+            enabled = items.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = if (missing) AresError else AresTextPrimary,
+                disabledContentColor = if (missing) AresError else AresTextSecondary,
+            ),
+            border = BorderStroke(1.dp, if (missing) AresError else AresBorder),
+        ) {
+            if (missing) {
+                Icon(Icons.Default.ErrorOutline, "Missing project reference", Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(label)
             Spacer(Modifier.weight(1f))
             Icon(Icons.Default.ArrowDropDown, null)
         }
@@ -1094,9 +1142,31 @@ private fun <T> DescriptorPicker(
 private fun RoutinePicker(routines: List<RoutineDocument>, selectedId: String?, onSelected: (RoutineDocument) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     val selected = routines.firstOrNull { it.documentId == selectedId }
+    val missing = routineReferenceIsMissing(selectedId, selected?.name)
     Box {
-        OutlinedButton({ expanded = true }, enabled = routines.isNotEmpty(), modifier = Modifier.fillMaxWidth()) {
-            Text(selected?.name ?: if (routines.isEmpty()) "No other routines saved" else "Choose routine")
+        OutlinedButton(
+            onClick = { expanded = true },
+            enabled = routines.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = if (missing) AresError else AresTextPrimary,
+                disabledContentColor = if (missing) AresError else AresTextSecondary,
+            ),
+            border = BorderStroke(1.dp, if (missing) AresError else AresBorder),
+        ) {
+            if (missing) {
+                Icon(Icons.Default.ErrorOutline, "Missing routine reference", Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(
+                routineReferenceLabel(
+                    selectedKey = selectedId,
+                    selectedDisplayName = selected?.name,
+                    itemsAvailable = routines.isNotEmpty(),
+                    emptyLabel = "No other routines saved",
+                    placeholder = "Choose routine",
+                ),
+            )
             Spacer(Modifier.weight(1f)); Icon(Icons.Default.ArrowDropDown, null)
         }
         DropdownMenu(expanded, { expanded = false }) {
@@ -1169,11 +1239,157 @@ private fun DriveActionList(label: String, keys: List<String>, actions: List<Act
         category = ActionDescriptor::category,
         title = ActionDescriptor::displayName,
         description = ActionDescriptor::description
-    ) { onChanged(keys + it.key) }
+    ) { selected -> if (selected.key !in keys) onChanged(keys + selected.key) }
     keys.forEach { key ->
+        val descriptor = actions.firstOrNull { it.key == key }
+        val missing = descriptor == null
         Row(Modifier.fillMaxWidth().background(AresBackground.copy(alpha = .4f), RoundedCornerShape(6.dp)).padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(actions.firstOrNull { it.key == key }?.displayName ?: key, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            if (missing) {
+                Icon(Icons.Default.ErrorOutline, "Missing project action", tint = AresError, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(6.dp))
+            }
+            Text(
+                descriptor?.displayName ?: "Missing action: $key",
+                Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (missing) AresError else AresTextPrimary,
+            )
             IconButton({ onChanged(keys - key) }, Modifier.size(30.dp)) { Icon(Icons.Default.Delete, "Remove", tint = AresError, modifier = Modifier.size(16.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun DriveMechanismActionsEditor(
+    drive: RoutineDriveStep,
+    actions: List<ActionDescriptor>,
+    onChanged: (RoutineDriveStep) -> Unit,
+) {
+    val configuredCount = drive.markers.size + drive.duringActionKeys.size + drive.arrivalActionKeys.size
+    var expanded by remember(configuredCount) { mutableStateOf(configuredCount > 0) }
+    Surface(
+        color = AresBackground.copy(alpha = .30f),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, AresBorder),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { expanded = !expanded }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(Icons.Default.PrecisionManufacturing, null, tint = AresCyan, modifier = Modifier.size(17.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("Mechanism actions", style = MaterialTheme.typography.labelLarge, color = AresTextPrimary)
+                    Text(
+                        when {
+                            configuredCount > 0 -> "$configuredCount configured for this drive"
+                            actions.isEmpty() -> "Add a subsystem in Robot Studio to unlock named actions"
+                            else -> "Optional progress, during-motion, and arrival actions"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (actions.isEmpty() && configuredCount == 0) AresTextSecondary else AresCyan,
+                    )
+                }
+                Icon(
+                    if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    if (expanded) "Collapse mechanism actions" else "Expand mechanism actions",
+                    tint = AresTextSecondary,
+                )
+            }
+            if (expanded) {
+                Column(
+                    Modifier.fillMaxWidth().padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (actions.isEmpty() && configuredCount == 0) {
+                        Text(
+                            "Create and save a mechanism in Robot Studio, then Save & Generate. Return here to select its typed actions—no action IDs need to be typed.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = AresTextSecondary,
+                        )
+                    } else {
+                        DriveMarkerEditor(drive.markers, actions) {
+                            onChanged(drive.copy(markers = it))
+                        }
+                        DriveActionList("Run while driving", drive.duringActionKeys, actions) {
+                            onChanged(drive.copy(duringActionKeys = it))
+                        }
+                        DriveActionList("Run on arrival", drive.arrivalActionKeys, actions) {
+                            onChanged(drive.copy(arrivalActionKeys = it))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DriveMarkerEditor(
+    markers: List<RoutineDriveMarker>,
+    actions: List<ActionDescriptor>,
+    onChanged: (List<RoutineDriveMarker>) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text("Progress actions", style = MaterialTheme.typography.labelMedium, color = AresTextPrimary)
+        Text(
+            "Trigger a named robot action once when this drive reaches a chosen percentage.",
+            style = MaterialTheme.typography.labelSmall,
+            color = AresTextSecondary,
+        )
+        DescriptorPicker(
+            selected = null,
+            emptyLabel = "No project actions declared",
+            placeholder = "Add progress action",
+            items = actions,
+            category = ActionDescriptor::category,
+            title = ActionDescriptor::displayName,
+            description = ActionDescriptor::description,
+        ) { action ->
+            onChanged(markers + RoutineDriveMarker(progress = 0.5, actionKey = action.key))
+        }
+        markers.forEachIndexed { index, marker ->
+            val descriptor = actions.firstOrNull { it.key == marker.actionKey }
+            Surface(
+                color = AresBackground.copy(alpha = .4f),
+                shape = RoundedCornerShape(6.dp),
+                border = BorderStroke(1.dp, if (descriptor == null) AresError else AresBorder),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ActionPicker(actions, marker.actionKey) { action ->
+                        onChanged(markers.mapIndexed { markerIndex, existing ->
+                            if (markerIndex == index) existing.copy(actionKey = action.key) else existing
+                        })
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        RoutineDecimalEditor(
+                            value = marker.progress * 100.0,
+                            label = "Trigger at",
+                            suffix = "%",
+                            modifier = Modifier.weight(1f),
+                        ) { percentage ->
+                            onChanged(markers.mapIndexed { markerIndex, existing ->
+                                if (markerIndex == index) {
+                                    existing.copy(progress = (percentage / 100.0).coerceIn(0.0, 1.0))
+                                } else {
+                                    existing
+                                }
+                            })
+                        }
+                        IconButton(
+                            onClick = { onChanged(markers.filterIndexed { markerIndex, _ -> markerIndex != index }) },
+                        ) {
+                            Icon(Icons.Default.Delete, "Remove progress action", tint = AresError)
+                        }
+                    }
+                }
+            }
         }
     }
 }

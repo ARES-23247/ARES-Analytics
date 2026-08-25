@@ -887,12 +887,24 @@ class ProcessManagerService internal constructor(
         add("--console=plain")
     }
 
-    private fun simulationGradleCommand(isWindows: Boolean, league: League): List<String> =
-        withAresRepository(buildList {
+    private fun simulationGradleCommand(isWindows: Boolean, league: League): List<String> {
+        val command = withAresRepository(buildList {
             addGradleWrapper(isWindows)
             add(if (league == League.FTC) ":TeamCode:runSim" else "simulateJava")
             addDesktopGradleProcessOptions()
         })
+        val studioOwnedSimulationCommand = if (league == League.FRC) {
+            command + "-ParesFrcHalGui=false"
+        } else {
+            command
+        }
+        if (!isWindows || league != League.FRC) return studioOwnedSimulationCommand
+        val javaExecutable = ManagedToolchainPaths.resolveFrcSimulationJavaHome()
+            ?.let { File(it, "bin/java.exe") }
+            ?.takeIf(File::isFile)
+            ?: return studioOwnedSimulationCommand
+        return studioOwnedSimulationCommand + "-ParesFrcJavaExecutable=${javaExecutable.path}"
+    }
 
     private fun authoringGradleCommand(
         task: String,
@@ -936,7 +948,15 @@ class ProcessManagerService internal constructor(
                 val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
                 val userCmd = simulatorCommand?.takeIf { it.isNotBlank() }
                 val fatJarFile = File(projectRoot, "simulator/build/libs/simulator-all.jar")
-                val javaExe = ManagedToolchainPaths.javaExecutable()?.path
+                val simulationJavaHome = if (league == League.FRC) {
+                    ManagedToolchainPaths.resolveFrcSimulationJavaHome()
+                } else {
+                    ManagedToolchainPaths.resolveJavaHome()
+                }
+                val javaExe = simulationJavaHome
+                    ?.let { File(it, "bin/${if (isWindows) "java.exe" else "java"}") }
+                    ?.takeIf(File::isFile)
+                    ?.path
                     ?: File(System.getProperty("java.home"), "bin/${if (isWindows) "java.exe" else "java"}").path
                 val cmd = when {
                     userCmd != null && isWindows -> listOf("cmd.exe", "/d", "/s", "/c", userCmd)
@@ -952,6 +972,10 @@ class ProcessManagerService internal constructor(
                 val pb = withAresRepositoryEnvironment(ProcessBuilder(cmd)
                     .directory(projectRoot)
                     .redirectErrorStream(true))
+                if (league == League.FRC && simulationJavaHome != null) {
+                    ManagedToolchainPaths.configureJavaEnvironment(pb, simulationJavaHome)
+                    _buildOutput.emit("[SYSTEM] FRC simulator Java: ${simulationJavaHome.path}")
+                }
                 val proc = pb.start()
                 ownedProcess = proc
                 simProcess = proc

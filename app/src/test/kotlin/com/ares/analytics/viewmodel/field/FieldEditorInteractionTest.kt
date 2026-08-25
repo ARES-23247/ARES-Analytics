@@ -78,12 +78,69 @@ class FieldEditorInteractionTest {
     }
 
     @Test
+    fun officialCrescendoWallMountedTagsAreAcceptedWithinPerimeterMargin() {
+        val issues = FieldEditorValidator.validate(
+            league = League.FRC,
+            widthMeters = 16.541,
+            heightMeters = 8.211,
+            obstacles = emptyList(),
+            gamePieces = emptyList(),
+            aprilTags = listOf(
+                AprilTagPlacement("red-speaker-3", 3, 16.579342, 4.982718),
+                AprilTagPlacement("red-speaker-4", 4, 16.579342, 5.547868),
+                AprilTagPlacement("blue-speaker-7", 7, -0.0381, 5.547868),
+                AprilTagPlacement("blue-speaker-8", 8, -0.0381, 4.982718),
+            ),
+            waypoints = emptyList(),
+        )
+
+        assertFalse(issues.any { it.message.contains("outside the field perimeter") })
+    }
+
+    @Test
+    fun aprilTagFarBeyondPerimeterStillWarns() {
+        val issues = FieldEditorValidator.validate(
+            league = League.FRC,
+            widthMeters = 16.541,
+            heightMeters = 8.211,
+            obstacles = emptyList(),
+            gamePieces = emptyList(),
+            aprilTags = listOf(AprilTagPlacement("lost-tag", 99, -1.0, 2.0)),
+            waypoints = emptyList(),
+        )
+
+        assertTrue(issues.any {
+            it.elementIds == setOf("lost-tag") &&
+                it.message.contains("more than 0.25 m outside the field perimeter")
+        })
+    }
+
+    @Test
     fun FTCEditorSurfacesRuntimeRequirementForAnAprilTagLayout() {
         val viewModel = FieldEditorViewModel(CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
 
         viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FTC))
 
         assertTrue(viewModel.state.value.validationIssues.any { it.message.contains("AprilTag layout") })
+    }
+
+    @Test
+    fun clearingAFieldImageRemovesOnlyTheCanonicalReference() {
+        val viewModel = FieldEditorViewModel(CoroutineScope(SupervisorJob() + Dispatchers.Unconfined))
+        viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FTC))
+        viewModel.onIntent(
+            FieldEditorIntent.UpdateFieldImageConfig(
+                viewModel.state.value.fieldImageConfig.copy(imagePath = "field_image.png"),
+                null,
+                League.FTC,
+            )
+        )
+
+        viewModel.onIntent(FieldEditorIntent.ClearFieldImage)
+
+        assertEquals("", viewModel.state.value.fieldImageConfig.imagePath)
+        assertEquals("", viewModel.state.value.document?.image?.imagePath)
+        assertEquals(null, viewModel.state.value.fieldImage)
     }
 
     @Test
@@ -175,6 +232,125 @@ class FieldEditorInteractionTest {
         assertEquals(1, payloads.size)
         assertEquals(FieldType.FRC, RobotFieldDocument.decode(payloads.single()).fieldType)
         assertTrue(viewModel.state.value.simulatorStatus.contains("not accepted"))
+    }
+
+    @Test
+    fun simulatorPublishReportsOnlyAnExactAppliedReceiptAsSuccess() {
+        var confirmedExpected: ExpectedSimulatorField? = null
+        val viewModel = FieldEditorViewModel(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            fieldConfigPublisher = { true },
+            fieldApplyConfirmer = { expected, previous ->
+                assertEquals(null, previous)
+                confirmedExpected = expected
+                SimulatorFieldApplyReceipt(
+                    session = "sim-a",
+                    sequence = 8,
+                    configId = expected.configId,
+                    revision = expected.revision,
+                    sha256 = expected.sha256,
+                    obstacleCount = 2,
+                    elementCount = 3,
+                    aprilTagCount = 16,
+                )
+            },
+        )
+        viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FRC))
+
+        viewModel.onIntent(FieldEditorIntent.PushToSimulator)
+
+        assertNotNull(confirmedExpected)
+        assertTrue(viewModel.state.value.simulatorStatus.startsWith("Simulator applied field revision"))
+        assertTrue(viewModel.state.value.simulatorStatus.contains("3 game piece(s)"))
+        assertTrue(viewModel.state.value.simulatorStatus.contains("16 AprilTag(s)"))
+    }
+
+    @Test
+    fun queuedFieldWithoutMatchingReceiptNeverClaimsItWasApplied() {
+        val viewModel = FieldEditorViewModel(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            fieldConfigPublisher = { true },
+            fieldApplyConfirmer = { expected, _ ->
+                SimulatorFieldApplyReceipt(
+                    session = "sim-a",
+                    sequence = 9,
+                    configId = expected.configId,
+                    revision = expected.revision - 1,
+                    sha256 = expected.sha256,
+                    obstacleCount = 99,
+                    elementCount = 99,
+                    aprilTagCount = 99,
+                )
+            },
+        )
+        viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FRC))
+
+        viewModel.onIntent(FieldEditorIntent.PushToSimulator)
+
+        assertTrue(viewModel.state.value.simulatorStatus.contains("did not confirm the exact revision"))
+        assertFalse(viewModel.state.value.simulatorStatus.contains("Simulator applied"))
+    }
+
+    @Test
+    fun freshSimulatorRejectionIsShownInsteadOfAConfirmationTimeout() {
+        var failure: SimulatorFieldApplyFailure? = null
+        val viewModel = FieldEditorViewModel(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            fieldConfigPublisher = { true },
+            fieldApplyFailureProvider = { failure },
+            fieldApplyConfirmer = { _, _ ->
+                failure = SimulatorFieldApplyFailure(
+                    eventId = "sim-a:42",
+                    message = "AprilTag layout could not be installed",
+                )
+                null
+            },
+        )
+        viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FRC))
+
+        viewModel.onIntent(FieldEditorIntent.PushToSimulator)
+
+        assertTrue(viewModel.state.value.simulatorStatus.startsWith("Simulator rejected this field"))
+        assertTrue(viewModel.state.value.simulatorStatus.contains("AprilTag layout could not be installed"))
+        assertFalse(viewModel.state.value.simulatorStatus.contains("did not confirm"))
+    }
+
+    @Test
+    fun suppressedDuplicateUpdateUsesTheCurrentConnectionsExactReceipt() {
+        var previouslyApplied: SimulatorFieldApplyReceipt? = null
+        val viewModel = FieldEditorViewModel(
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined),
+            fieldConfigPublisher = { true },
+            fieldApplyReceiptProvider = { previouslyApplied },
+            fieldApplyConfirmer = { _, _ -> null },
+        )
+        viewModel.onIntent(FieldEditorIntent.LoadConfig(null, League.FRC))
+        val payload = RobotFieldDocument.encode(requireNotNull(viewModel.state.value.document))
+        previouslyApplied = SimulatorFieldApplyReceipt(
+            session = "current-sim-session",
+            sequence = 12,
+            configId = requireNotNull(viewModel.state.value.document).id,
+            revision = requireNotNull(viewModel.state.value.document).revision,
+            sha256 = sha256Hex(payload),
+            obstacleCount = 1,
+            elementCount = 0,
+            aprilTagCount = 2,
+        )
+
+        viewModel.onIntent(FieldEditorIntent.PushToSimulator)
+
+        assertTrue(viewModel.state.value.simulatorStatus.startsWith("Simulator already has exact field revision"))
+        assertTrue(viewModel.state.value.simulatorStatus.contains("0 game piece(s)"))
+    }
+
+    @Test
+    fun simulatorReceiptParserRejectsMalformedPayloadAndPreservesEventIdentity() {
+        assertEquals(null, parseSimulatorFieldApplyReceipt("not-json"))
+        val receipt = parseSimulatorFieldApplyReceipt(
+            """{"session":"sim-b","sequence":4,"configId":"field","revision":2,"sha256":"abc","obstacleCount":1,"elementCount":0,"aprilTagCount":3}"""
+        )
+        assertNotNull(receipt)
+        assertEquals("sim-b:4", receipt.eventId)
     }
 
     @Test

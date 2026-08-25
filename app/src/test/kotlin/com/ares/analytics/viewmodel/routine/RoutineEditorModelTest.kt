@@ -9,6 +9,8 @@ import com.areslib.catalog.CapabilityParameterDescriptor
 import com.areslib.catalog.CapabilityParameterType
 import com.areslib.catalog.ConditionDescriptor
 import com.areslib.routine.RoutineDocument
+import com.areslib.routine.RoutineDriveMarker
+import com.areslib.routine.RoutineDriveStep
 import com.areslib.routine.RoutinePose
 import com.areslib.routine.RoutineStep
 import com.areslib.routine.RoutineStepKind
@@ -178,5 +180,46 @@ class RoutineEditorModelTest {
             null
         )
         assertTrue(validIssues.none { it.code == "invalid_argument" || it.code == "missing_argument" })
+    }
+
+    @Test
+    fun `drive action references fail closed against an empty or unavailable catalog`() {
+        val routine = RoutineDocument(
+            documentId = "drive-actions",
+            name = "Drive actions",
+            steps = listOf(
+                RoutineStep.driveTo(
+                    RoutineDriveStep(
+                        target = RoutinePose(1.0, 1.0, 0.0),
+                        markers = listOf(RoutineDriveMarker(0.5, "Intake.Start")),
+                        duringActionKeys = listOf("Intake.Hold"),
+                        arrivalActionKeys = listOf("Intake.Stop"),
+                    ),
+                ),
+            ),
+        )
+        val emptyCatalog = CapabilityCatalogDocument(projectId = "test-project")
+
+        val emptyCatalogCodes = routineEditorValidation(
+            routine,
+            emptyCatalog,
+            listOf(routine),
+            League.FTC,
+            RobotDimensions.defaultFor(League.FTC),
+            null,
+        ).map { it.code }.toSet()
+        assertTrue("unknown_marker_action" in emptyCatalogCodes)
+        assertTrue("unknown_during_action" in emptyCatalogCodes)
+        assertTrue("unknown_arrival_action" in emptyCatalogCodes)
+
+        val unavailableCodes = routineEditorValidation(
+            routine,
+            null,
+            listOf(routine),
+            League.FTC,
+            RobotDimensions.defaultFor(League.FTC),
+            null,
+        ).map { it.code }
+        assertTrue(unavailableCodes.count { it == "capability_catalog_unavailable" } >= 3)
     }
 }

@@ -14,7 +14,11 @@ class AutonomousSelectorCardTest {
 
     @Test
     fun `FRC selector request matches the robot SmartDashboard contract`() {
-        assertEquals("SmartDashboard/SelectedAuto", RobotTopicContract.FRC_AUTONOMOUS_REQUEST)
+        assertEquals("ARES/Auto/Requested", RobotTopicContract.FRC_AUTONOMOUS_REQUEST)
+        assertEquals(
+            "SmartDashboard/SelectedAuto",
+            RobotTopicContract.FRC_SMART_DASHBOARD_AUTONOMOUS_REQUEST,
+        )
         assertEquals("ARES/Input/selectedAuto", RobotTopicContract.FTC_AUTONOMOUS_REQUEST)
     }
 }

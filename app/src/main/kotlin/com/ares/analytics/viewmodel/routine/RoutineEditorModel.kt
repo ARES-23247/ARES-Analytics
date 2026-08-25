@@ -261,7 +261,17 @@ fun routineEditorValidation(
     )
     return buildList {
         addAll(validateRoutine(routine, context))
-        validateStepFields(routine, routine.steps, "steps", actions, conditions, league, dimensions, this)
+        validateStepFields(
+            routine = routine,
+            steps = routine.steps,
+            path = "steps",
+            actions = actions,
+            conditions = conditions,
+            catalogAvailable = catalog != null,
+            league = league,
+            dimensions = dimensions,
+            issues = this,
+        )
         autonomousEntry?.let { entry ->
             if (entry.routineId != routine.documentId) {
                 add(routineIssue(routine, "autonomousEntry.routineId", "wrong_routine", "Autonomous choice points to another routine"))
@@ -279,6 +289,7 @@ private fun validateStepFields(
     path: String,
     actions: Map<String, ActionDescriptor>,
     conditions: Map<String, ConditionDescriptor>,
+    catalogAvailable: Boolean,
     league: League,
     dimensions: RobotDimensions,
     issues: MutableList<RoutineValidationIssue>
@@ -293,16 +304,32 @@ private fun validateStepFields(
                 if (marker.progress !in 0.0..1.0) {
                     issues += routineIssue(routine, "$stepPath.drive.markers[$index]", "invalid_marker_progress", "Marker progress must be between 0% and 100% (0.0 to 1.0)")
                 }
-                if (actions.isNotEmpty() && marker.actionKey !in actions) {
+                if (catalogAvailable && marker.actionKey !in actions) {
                     issues += routineIssue(routine, "$stepPath.drive.markers[$index].actionKey", "unknown_marker_action", "Marker references unknown action '${marker.actionKey}'")
+                } else if (!catalogAvailable) {
+                    issues += routineIssue(
+                        routine,
+                        "$stepPath.drive.markers[$index].actionKey",
+                        "capability_catalog_unavailable",
+                        "Regenerate the project action catalog before using marker action '${marker.actionKey}'",
+                    )
                 }
             }
-            if (actions.isNotEmpty()) {
+            if (catalogAvailable) {
                 drive.duringActionKeys.filter { it !in actions }.forEach { missing ->
                     issues += routineIssue(routine, "$stepPath.drive.duringActionKeys", "unknown_during_action", "During-motion action '$missing' is not declared in action catalog")
                 }
                 drive.arrivalActionKeys.filter { it !in actions }.forEach { missing ->
                     issues += routineIssue(routine, "$stepPath.drive.arrivalActionKeys", "unknown_arrival_action", "Arrival action '$missing' is not declared in action catalog")
+                }
+            } else {
+                (drive.duringActionKeys + drive.arrivalActionKeys).distinct().forEach { unresolved ->
+                    issues += routineIssue(
+                        routine,
+                        "$stepPath.drive.actions",
+                        "capability_catalog_unavailable",
+                        "Regenerate the project action catalog before using drive action '$unresolved'",
+                    )
                 }
             }
         }
@@ -317,20 +344,70 @@ private fun validateStepFields(
             }
         }
         when (step.kind) {
-            RoutineStepKind.ACTION -> actions[step.actionKey]?.let { descriptor ->
-                validateArguments(routine, stepPath, step.arguments, descriptor.parameters, issues)
+            RoutineStepKind.ACTION -> {
+                if (!catalogAvailable) {
+                    issues += routineIssue(
+                        routine,
+                        "$stepPath.actionKey",
+                        "capability_catalog_unavailable",
+                        "Regenerate the project action catalog before using action '${step.actionKey}'",
+                    )
+                }
+                actions[step.actionKey]?.let { descriptor ->
+                    validateArguments(routine, stepPath, step.arguments, descriptor.parameters, issues)
+                }
             }
             RoutineStepKind.WAIT_UNTIL,
-            RoutineStepKind.BRANCH -> conditions[step.conditionKey]?.let { descriptor ->
-                validateArguments(routine, stepPath, step.arguments, descriptor.parameters, issues)
+            RoutineStepKind.BRANCH -> {
+                if (!catalogAvailable) {
+                    issues += routineIssue(
+                        routine,
+                        "$stepPath.conditionKey",
+                        "capability_catalog_unavailable",
+                        "Regenerate the project condition catalog before using condition '${step.conditionKey}'",
+                    )
+                }
+                conditions[step.conditionKey]?.let { descriptor ->
+                    validateArguments(routine, stepPath, step.arguments, descriptor.parameters, issues)
+                }
             }
             else -> Unit
         }
         step.deadline?.let {
-            validateStepFields(routine, listOf(it), "$stepPath.deadline", actions, conditions, league, dimensions, issues)
+            validateStepFields(
+                routine,
+                listOf(it),
+                "$stepPath.deadline",
+                actions,
+                conditions,
+                catalogAvailable,
+                league,
+                dimensions,
+                issues,
+            )
         }
-        validateStepFields(routine, step.children, "$stepPath.children", actions, conditions, league, dimensions, issues)
-        validateStepFields(routine, step.elseChildren, "$stepPath.elseChildren", actions, conditions, league, dimensions, issues)
+        validateStepFields(
+            routine,
+            step.children,
+            "$stepPath.children",
+            actions,
+            conditions,
+            catalogAvailable,
+            league,
+            dimensions,
+            issues,
+        )
+        validateStepFields(
+            routine,
+            step.elseChildren,
+            "$stepPath.elseChildren",
+            actions,
+            conditions,
+            catalogAvailable,
+            league,
+            dimensions,
+            issues,
+        )
     }
 }
 

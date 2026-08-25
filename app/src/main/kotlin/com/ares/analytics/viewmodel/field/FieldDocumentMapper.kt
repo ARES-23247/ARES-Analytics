@@ -248,7 +248,10 @@ internal object FieldDocumentMapper {
     private fun League.toFieldType(): FieldType = if (this == League.FTC) FieldType.FTC else FieldType.FRC
 
     private fun FieldImageConfig.toCanonical(): RobotFieldImageConfig = RobotFieldImageConfig(
-        imagePath = imagePath.ifBlank { "field_image.png" },
+        // A blank path is the explicit, portable representation of an image-free field. Only the
+        // image-import workflow creates field_image.png; inventing that name during an unrelated
+        // obstacle or game-piece edit makes every viewer report a file that never existed.
+        imagePath = imagePath.trim(),
         rotationDegrees = rotationDegrees,
         cropLeft = cropLeft,
         cropRight = cropRight,
