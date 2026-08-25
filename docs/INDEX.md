@@ -38,6 +38,7 @@ Start here if ARES Robotics Studio is new to you. You do not need to understand 
 | Configure how the robot moves | [Drivebase Builder](DRIVEBASE_BUILDER.md) | Drive type, hardware, geometry, localization, safety, and simulation labs |
 | Ask Gemini to help fill an authoring form | [AI design assistants](learn/AI_DESIGN_ASSISTANTS.md) | Review-only subsystem, drivebase, and binding proposals |
 | Tune from evidence without overwriting source | [Robot-owned tuning profiles](TUNING_PROFILES.md) | Source/live/proposed values, policies, provenance, diff review, and atomic promotion |
+| Run one controlled simulator tuning experiment | [Guided tuning experiments](GUIDED_TUNING_EXPERIMENTS.md) | Question, hypothesis, held constants, threshold, bounded typed change, paired-run evidence, rollback, and report |
 | Register existing subsystem Kotlin | [Hand-authored subsystem prototype](SUBSYSTEM_HAND_AUTHORED_PROTOTYPE.md) | USER-OWNED registration, lighting examples, and migration evidence |
 | Diagnose or administer the application | [Operations guide](OPERATIONS.md) | Ports, storage, recovery, and release checks |
 | Understand telemetry storage and cold-start recovery | [Telemetry storage architecture](DATABASE_STORAGE_ARCHITECTURE.md) | DuckDB, WAL hardening, and the partitioned Parquet migration |

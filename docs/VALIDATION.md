@@ -56,6 +56,7 @@ CI retains both formats for 90 days and publishes the Markdown report in the Git
 | Restore | Parquet import restores the exact frame count |
 | Replay | Atomic current-frame creation, stable source ordering, bounded baseline restoration, rapid-seek cancellation, and end-to-end scrub latency |
 | Run comparison | Workspace isolation, shared-anchor discovery, exact-timestamp/unit-safe overlays, bounded uniform sampling, deterministic findings/reports, and exact replay evidence targets |
+| Guided tuning | Snapshot/hash stability, one-factor bounds, typed units, new same-workspace simulation candidates, threshold-aware outcomes, acknowledgement/rejection, rollback, and deterministic reports |
 | Alerts | Threshold and composite alert regression suites in the smoke task |
 | Resources | Ingestion throughput, p95 query latency, replay timing, Parquet timing, and heap growth |
 
@@ -96,6 +97,14 @@ Focused deterministic and performance gates are:
   --tests "com.ares.analytics.viewmodel.runanalysis.GuidedRunAnalysisViewModelTest" `
   --tests "com.ares.analytics.ui.input.DesktopDriveInputPublisherTest"
 ```
+
+The visible guided-tuning journey continues from the paired Academy runs: open a finding, create a
+controlled question/prediction, verify held constants, threshold, safety notes, and mentor-review
+state, snapshot one typed proposal, apply it only to loopback Local Sim, record the repeated run,
+compare it, and record a decision plus next test. Reload the saved experiment after a graceful
+restart, export the mentor/student report, and verify the form at 1440×900 and 1100×700. A runtime
+acknowledgement proves only that the simulator consumer mapped the typed value; it is not physical
+hardware evidence.
 
 ## Performance budgets
 

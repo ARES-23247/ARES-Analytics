@@ -384,6 +384,13 @@ Normal shutdown should:
 
 Avoid terminating with `System.exit`, because it bypasses structured cleanup and can abandon file locks or pending work.
 
+Guided tuning records live under the active project at `.ares/local/tuning/experiments`. If a record
+is corrupt, Studio reports it rather than silently skipping or replacing it. Recover the exact file
+from project backup or move it aside only after preserving a copy. A stale staged candidate can be
+removed with **Reject candidate** or **Roll back proposal**; neither action rewrites canonical
+`.arestuning` files. Candidate runs are normal local database sessions and remain available for
+replay after the proposal is removed.
+
 If a previous Analytics JVM is still running, the root Gradle task checks Java process identity using `jps`. It does not kill arbitrary processes merely because they listen on a common robotics port.
 
 ## 12. Release checklist

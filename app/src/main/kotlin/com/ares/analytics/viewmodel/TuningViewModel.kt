@@ -67,6 +67,7 @@ sealed class TuningIntent {
     object PullAllFromRobot : TuningIntent()
     object ReviewPromotion : TuningIntent()
     data class ConfirmPromotion(val confirmationToken: String) : TuningIntent()
+    data class RemoveProposal(val key: String) : TuningIntent()
     object DiscardProposal : TuningIntent()
     object CreateBackup : TuningIntent()
     data class LoadBackup(val filename: String) : TuningIntent()
@@ -145,6 +146,15 @@ class TuningViewModel(
             TuningIntent.PullAllFromRobot -> pullAll()
             TuningIntent.ReviewPromotion -> reviewPromotion()
             is TuningIntent.ConfirmPromotion -> confirmPromotion(intent.confirmationToken)
+            is TuningIntent.RemoveProposal -> _state.update {
+                it.copy(
+                    proposals = it.proposals - intent.key,
+                    proposalProvenance = it.proposalProvenance - intent.key,
+                    review = null,
+                    saveStatus = "Removed the local experiment proposal. Canonical files were not changed.",
+                    errorMessage = null,
+                )
+            }
             TuningIntent.DiscardProposal -> _state.update { it.copy(proposals = emptyMap(), proposalProvenance = emptyMap(), review = null, saveStatus = "Discarded proposed values. The profile and robot were not changed.") }
             TuningIntent.CreateBackup -> _state.update { it.copy(saveStatus = "Canonical profiles are backed up automatically before promotion.") }
             is TuningIntent.LoadBackup -> _state.update { it.copy(errorMessage = "Use profile history to review old canonical content; backups never replace the active profile directly.") }
@@ -266,7 +276,12 @@ class TuningViewModel(
                     }
                 }
                     .onSuccess { _state.update { it.copy(saveStatus = "Robot acknowledged ${declaration.displayName} as applied experimentally. The profile was not changed.", errorMessage = null) } }
-                    .onFailure { failure -> _state.update { it.copy(errorMessage = failure.message ?: "Live push failed.") } }
+                    .onFailure { failure -> _state.update {
+                        it.copy(
+                            saveStatus = "No robot acknowledgement was received; the experimental result is unknown.",
+                            errorMessage = failure.message ?: "Live push failed.",
+                        )
+                    } }
             }
         }
     }

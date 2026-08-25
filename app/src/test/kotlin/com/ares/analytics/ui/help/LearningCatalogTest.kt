@@ -160,7 +160,7 @@ class LearningCatalogTest {
     fun `tuning mission is offline project backed and separates review from hardware validation`() {
         val lesson = LearningCatalog.lesson("tuning-evidence") ?: error("Missing tuning mission")
 
-        assertEquals("Live NT4 Tuning Proposals & Verification", lesson.title)
+        assertEquals("Run One Safe, Evidence-Guided Tuning Experiment", lesson.title)
         assertEquals(NavigationTarget.TUNING, lesson.destination)
         assertFalse(lesson.requiresRobot)
         assertTrue("control-challenges-lab" in lesson.prerequisiteLessonIds)

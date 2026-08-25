@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.DesktopWindows
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.PlayArrow
@@ -35,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -221,6 +223,9 @@ fun LocalSimulatorControlBar(
     nt4Client: Nt4ClientService,
     keyboardDriveState: KeyboardDriveState,
     league: League,
+    teamId: String,
+    seasonId: String,
+    robotId: String,
     isConnected: Boolean,
     isSimulatorProcessRunning: Boolean,
     isLaunchPreparationRunning: Boolean,
@@ -291,8 +296,26 @@ fun LocalSimulatorControlBar(
     var selectorExpanded by remember { mutableStateOf(false) }
     var autoSelectorExpanded by remember { mutableStateOf(false) }
     var startJob by remember { mutableStateOf<Job?>(null) }
+    var recordingBusy by remember { mutableStateOf(false) }
+    var recordingMessage by remember { mutableStateOf<String?>(null) }
+    var recordingFailure by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val connectedNow by rememberUpdatedState(isConnected)
+    val recordingSession by nt4Client.currentSession.collectAsState()
+
+    suspend fun stopAndSaveRecording() {
+        if (recordingSession == null) return
+        recordingBusy = true
+        recordingFailure = null
+        try {
+            nt4Client.stopRecordingSession()
+            recordingMessage = "Simulation run saved. Refresh the guided experiment to compare it."
+        } catch (failure: Exception) {
+            recordingFailure = failure.message ?: "The simulation run could not be saved."
+        } finally {
+            recordingBusy = false
+        }
+    }
 
     LaunchedEffect(nt4Client) {
         nt4Client.uiTelemetryFlow.collect { frame ->
@@ -695,12 +718,59 @@ fun LocalSimulatorControlBar(
 
                 OutlinedButton(
                     onClick = {
+                        scope.launch {
+                            recordingBusy = true
+                            recordingFailure = null
+                            try {
+                                if (recordingSession == null) {
+                                    val session = nt4Client.startRecordingSession(
+                                        teamId = teamId,
+                                        seasonId = seasonId,
+                                        robotId = robotId,
+                                        tags = listOf("simulation", "studio-experiment"),
+                                    )
+                                    recordingMessage = "Recording simulation run ${session.sessionId.take(8)}…"
+                                } else {
+                                    stopAndSaveRecording()
+                                }
+                            } catch (failure: Exception) {
+                                recordingFailure = failure.message ?: "Recording could not be changed."
+                            } finally {
+                                recordingBusy = false
+                            }
+                        }
+                    },
+                    enabled = isConnected && (isRunning || isAutonomousRunning) && !recordingBusy,
+                    modifier = Modifier.height(32.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = if (recordingSession != null) AresError else AresCyan,
+                    ),
+                    border = BorderStroke(1.dp, if (recordingSession != null) AresError else AresCyan),
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = PaddingValues(horizontal = 9.dp, vertical = 4.dp),
+                ) {
+                    if (recordingBusy) {
+                        CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(
+                            if (recordingSession == null) Icons.Default.FiberManualRecord else Icons.Default.Stop,
+                            contentDescription = if (recordingSession == null) "Record simulation run" else "Stop and save simulation run",
+                            modifier = Modifier.size(14.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (recordingSession == null) "Record run" else "Stop & save", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+
+                OutlinedButton(
+                    onClick = {
                         startJob?.cancel()
                         startJob = null
                         starting = false
                         command = "STOP"
                         keyboardDriveState.disarm()
                         scope.launch {
+                            stopAndSaveRecording()
                             nt4Client.publishString(
                                 if (isFtc) DRIVER_STATION_COMMAND_TOPIC else FRC_DRIVER_STATION_COMMAND_TOPIC,
                                 if (isFtc) "STOP" else FRC_DISABLE_COMMAND,
@@ -768,6 +838,9 @@ fun LocalSimulatorControlBar(
 
             Text(
                 when {
+                    recordingFailure != null -> recordingFailure!!
+                    recordingSession != null -> recordingMessage ?: "Recording this simulation run. Stop and save before comparing."
+                    recordingMessage != null -> recordingMessage!!
                     !isConnected && isLaunchPreparationRunning ->
                         "Building and verifying the current robot project. The first launch can take about a minute; the simulator starts automatically when this finishes."
                     !isConnected && isSimulatorProcessRunning -> "Simulator process started. Waiting for NT4 on 127.0.0.1:5810…"
@@ -799,7 +872,13 @@ fun LocalSimulatorControlBar(
                     keyboardDriveState.useGamepad -> "Move the sticks directly while armed. Dashboard drive frames are blocked for non-loopback targets."
                     else -> "${activeOpModeDisplayName ?: selectedOpMode?.substringAfterLast('.')}: W drives toward the opposing station, A/D strafe, and ←/→ rotate. Loopback only."
                 },
-                color = if (isRunning && keyboardDriveState.enabled) AresGreen else AresTextSecondary,
+                color = when {
+                    recordingFailure != null -> AresError
+                    recordingSession != null -> AresAmber
+                    recordingMessage != null -> AresGreen
+                    isRunning && keyboardDriveState.enabled -> AresGreen
+                    else -> AresTextSecondary
+                },
                 fontSize = 10.sp,
                 lineHeight = 13.sp,
                 maxLines = 1,

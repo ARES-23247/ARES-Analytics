@@ -148,7 +148,7 @@ object GlossaryCatalog {
         ),
         GlossaryTerm(
             term = "Recording",
-            definition = "Informal shorthand for a saved run. In the current workflow the robot or simulator logger creates a file; there is no required Dashboard start/stop recording button.",
+            definition = "A saved run of timestamped telemetry. In Local Sim, use Record run and Stop & save on the Dashboard; physical robot logs are still imported from the robot afterward.",
             relatedLessonIds = setOf("compare-run-evidence"),
         ),
         GlossaryTerm(
