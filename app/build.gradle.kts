@@ -64,7 +64,7 @@ dependencies {
     // Shared module
     implementation(project(":shared"))
     
-    // Versioned ARES libraries from Maven Central (or -ParesRepository for release validation).
+    // Versioned ARES libraries from the GitHub Maven release channel (or -ParesRepository for validation).
     implementation(platform("org.aresfirst.ares:ares-bom:$aresVersion"))
     implementation("org.aresfirst.ares:core")
     implementation("org.aresfirst.ares:codegen")

@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 env:
-  ARES_VERSION: 9.11.0
+  ARES_VERSION: 9.12.0
 
 jobs:
   release-preflight:
@@ -72,14 +72,14 @@ jobs:
           $archiveDirectory = Join-Path $env:RUNNER_TEMP 'ares-official-templates'
           New-Item -ItemType Directory -Force -Path $archiveDirectory | Out-Null
           Invoke-WebRequest -UseBasicParsing `
-            -Uri 'https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.11.0/ARES-FTC-Starter-9.11.0.zip' `
+            -Uri 'https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.12.0/ARES-FTC-Starter-9.12.0.zip' `
             -OutFile (Join-Path $archiveDirectory 'ftc.zip')
           Invoke-WebRequest -UseBasicParsing `
-            -Uri 'https://github.com/ARES-23247/ARES-FRC-Starter/releases/download/v9.11.0/ARES-FRC-Starter-9.11.0.zip' `
+            -Uri 'https://github.com/ARES-23247/ARES-FRC-Starter/releases/download/v9.12.0/ARES-FRC-Starter-9.12.0.zip' `
             -OutFile (Join-Path $archiveDirectory 'frc.zip')
           $expectedHashes = @{
-            'ftc.zip' = 'f3eeed0bce13f4140b389a2a6a9d9cce2f7e78526877fcb4c952942c34ce0d3a'
-            'frc.zip' = '76f33d9c99a1e6194269723ec214e27e4beaa3764a24385cbebe5aca0a161e3b'
+            'ftc.zip' = '971036aa0171604785788b5be90004cb0c1a1a1cc7175c1e8fa0f36fcf0a2df1'
+            'frc.zip' = '9045990463751f2e66cd1644d479fdcf453e68ef63031675fecb8eca918fdfef'
           }
           foreach ($entry in $expectedHashes.GetEnumerator()) {
             $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $archiveDirectory $entry.Key)).Hash.ToLowerInvariant()
