@@ -21,6 +21,14 @@ chooses; it does not upload the report. Reports include session identifiers, top
 recorded timestamps, so a student or mentor should review those details before sharing a report
 outside the team.
 
+Guided tuning experiment records are stored under the selected project at
+`.ares/local/tuning/experiments`. They snapshot hashes and resolved tuning values rather than robot
+credentials, and they are not uploaded automatically. A user-chosen mentor/student report may
+include team and robot identifiers, telemetry topic names, exact run timestamps, parameter values,
+and student-authored notes. Review that report before sharing it. Removing or rolling back a staged
+candidate does not delete the historical experiment evidence and never changes a canonical tuning
+profile without the separate structured-review workflow.
+
 Google Drive synchronization is opt-in. Before consent, the app explains that it requests basic
 Google identity and `drive.file`. This scope is limited to files ARES creates or the user explicitly
 selects for ARES. ARES stores the selected workspace folder/Shared Drive ID and does not scan

@@ -462,7 +462,11 @@ open class Nt4ClientService(
         connectionLifecycle.stop()
         var persisted = false
         for (attempt in 0 until SHUTDOWN_FLUSH_ATTEMPTS) {
-            if (flushPendingFrames()) {
+            val sessionFinalized = runCatching {
+                if (_currentSession.value != null) stopRecordingSession()
+                true
+            }.getOrDefault(false)
+            if (sessionFinalized && flushPendingFrames()) {
                 persisted = true
                 break
             }
@@ -507,6 +511,9 @@ open class Nt4ClientService(
             tags = tags
         )
         sessionMutex.withLock {
+            check(_currentSession.value == null) {
+                "A telemetry recording is already in progress. Stop and save it before starting another."
+            }
             databaseService.insertSession(session)
             _currentSession.value = session
         }
@@ -516,14 +523,13 @@ open class Nt4ClientService(
     suspend fun stopRecordingSession() {
         sessionMutex.withLock {
             val session = _currentSession.value ?: return
-            _currentSession.value = null
             if (!flushPendingFrames()) {
-                _currentSession.value = session
                 throw java.io.IOException("Failed to persist all pending telemetry frames")
             }
             val endTime = System.currentTimeMillis()
             val duration = endTime - session.createdAt
             databaseService.insertSession(session.copy(durationMs = duration))
+            _currentSession.value = null
         }
     }
 

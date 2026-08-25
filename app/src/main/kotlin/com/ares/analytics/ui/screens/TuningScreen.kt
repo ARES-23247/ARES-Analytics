@@ -1,6 +1,7 @@
 package com.ares.analytics.ui.screens
 
 import com.ares.analytics.ui.components.tuning.GainTuningPanel
+import com.ares.analytics.ui.components.tuning.GuidedTuningExperimentPanel
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -43,6 +44,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import kotlinx.coroutines.launch
 import androidx.compose.ui.text.TextStyle
 import com.ares.analytics.viewmodel.CalibrationArmPhase
+import com.ares.analytics.viewmodel.tuning.GuidedTuningExperimentViewModel
+import com.ares.analytics.viewmodel.tuning.GuidedTuningExperimentIntent
 
 /**
  * Real-time PID controller gain tuning and SysId system identification test screen.
@@ -64,15 +67,31 @@ import com.ares.analytics.viewmodel.CalibrationArmPhase
 fun TuningScreen(
     viewModel: TuningViewModel,
     sysIdViewModel: SysIdViewModel,
-    projectPath: String // Kept for compatibility but unused
+    experimentViewModel: GuidedTuningExperimentViewModel,
+    projectPath: String,
+    canLaunchSimulator: Boolean,
+    canApplyCandidateToSimulator: Boolean,
+    simulatorStatus: String,
+    onLaunchSimulator: () -> Unit,
+    onApplyCandidateToSimulator: () -> Unit,
+    onOpenDashboard: () -> Unit,
+    onStopSimulator: () -> Unit,
+    onOpenGuidedRunReview: () -> Unit,
+    onOpenReplay: (String, Long) -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
     val sysIdState by sysIdViewModel.state.collectAsState()
+    val experimentState by experimentViewModel.state.collectAsState()
+    var activeMode by remember { mutableStateOf(0) }
     var activeCalTab by remember { mutableStateOf(0) }
     var showArmConfirmation by remember { mutableStateOf(false) }
     val motionEnabled = sysIdState.isRobotConnected &&
         (!sysIdState.requiresNetworkArm ||
             (sysIdState.armPhase == CalibrationArmPhase.ARMED && sysIdState.robotCalibrationArmed))
+
+    LaunchedEffect(state.catalog, state.selectedProfileId, experimentState.seed) {
+        experimentViewModel.onIntent(GuidedTuningExperimentIntent.RefreshTuningContext)
+    }
 
     if (showArmConfirmation) {
         AlertDialog(
@@ -96,14 +115,44 @@ fun TuningScreen(
         )
     }
 
-    LaunchedEffect(projectPath) {
-        viewModel.onIntent(TuningIntent.LoadConstants(projectPath))
-    }
-
-    Row(
-        modifier = Modifier.fillMaxSize().padding(16.dp),
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            listOf("Guided experiment", "Advanced profiles & calibration").forEachIndexed { index, label ->
+                if (activeMode == index) {
+                    Button(
+                        onClick = {},
+                        colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                    ) { Text(label) }
+                } else {
+                    OutlinedButton(onClick = { activeMode = index }) { Text(label) }
+                }
+            }
+        }
+        if (activeMode == 0) {
+            GuidedTuningExperimentPanel(
+                viewModel = experimentViewModel,
+                state = experimentState,
+                tuningState = state,
+                canLaunchSimulator = canLaunchSimulator,
+                canApplyCandidateToSimulator = canApplyCandidateToSimulator,
+                simulatorStatus = simulatorStatus,
+                onLaunchSimulator = onLaunchSimulator,
+                onApplyCandidateToSimulator = onApplyCandidateToSimulator,
+                onOpenDashboard = onOpenDashboard,
+                onStopSimulator = onStopSimulator,
+                onOpenGuidedRunReview = onOpenGuidedRunReview,
+                onOpenReplay = onOpenReplay,
+                onOpenAdvancedProfiles = { activeMode = 1 },
+            )
+            return@Column
+        }
+        Row(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
         // Left Column: Constants Tuning Board
         GainTuningPanel(
             viewModel = viewModel,
@@ -482,6 +531,7 @@ fun TuningScreen(
                 Text("Live Telemetry Plot (Velocity vs. Time)", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AresTextSecondary)
                 LiveTelemetryPlot(samples = sysIdState.liveSamples)
             }
+        }
         }
     }
 }

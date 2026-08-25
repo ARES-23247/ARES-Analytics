@@ -63,6 +63,9 @@ import com.ares.analytics.viewmodel.project.ProjectIdentityViewModel
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioRuntimeEvidence
 import com.ares.analytics.viewmodel.robotstudio.RobotStudioViewModel
 import com.ares.analytics.viewmodel.runanalysis.GuidedRunAnalysisViewModel
+import com.ares.analytics.viewmodel.tuning.GuidedExperimentProposal
+import com.ares.analytics.viewmodel.tuning.GuidedTuningExperimentIntent
+import com.ares.analytics.viewmodel.tuning.GuidedTuningExperimentViewModel
 import com.ares.analytics.viewmodel.superstructure.SuperstructureStudioViewModel
 import kotlinx.coroutines.launch
 import java.io.File
@@ -357,6 +360,35 @@ fun MainScreen(services: ServiceRegistry) {
             service = services.guidedRunAnalysisService,
             comparisonService = services.runComparisonService,
             scope = scope,
+        )
+    }
+    LaunchedEffect(currentConfig.projectPath) {
+        tuningViewModel.onIntent(TuningIntent.LoadConstants(currentConfig.projectPath))
+    }
+    val guidedTuningExperimentViewModel = remember(currentConfig.id) {
+        GuidedTuningExperimentViewModel(
+            workspace = currentConfig,
+            scope = scope,
+            runRepository = services.guidedRunAnalysisService,
+            repository = services.guidedTuningExperimentRepository,
+            evaluator = services.guidedTuningExperimentEvaluator,
+            tuningState = { tuningViewModel.state.value },
+            stageProposal = { proposal: GuidedExperimentProposal ->
+                tuningViewModel.onIntent(TuningIntent.UpdateTypedConstant(proposal.key, proposal.value))
+                tuningViewModel.onIntent(
+                    TuningIntent.SetProposalProvenance(
+                        key = proposal.key,
+                        source = proposal.provenance.source,
+                        note = proposal.provenance.note,
+                        evidencePath = proposal.provenance.evidencePath,
+                        evidenceSha256 = proposal.provenance.evidenceSha256,
+                    )
+                )
+            },
+            removeProposal = { key ->
+                services.processManagerService.killActiveSim()
+                tuningViewModel.onIntent(TuningIntent.RemoveProposal(key))
+            },
         )
     }
     // This ViewModel owns no independent scope or hardware/service resource. Its jobs run in the
@@ -1021,6 +1053,10 @@ fun MainScreen(services: ServiceRegistry) {
                                 onOpenTuning = {
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.TUNING))
                                 },
+                                onCreateTuningExperiment = { seed ->
+                                    guidedTuningExperimentViewModel.onIntent(GuidedTuningExperimentIntent.Begin(seed))
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.TUNING))
+                                },
                                 onOpenAcademy = {
                                     requestedLessonId = "compare-run-evidence"
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
@@ -1048,7 +1084,45 @@ fun MainScreen(services: ServiceRegistry) {
                             NavigationTarget.TUNING -> TuningScreen(
                                 viewModel = tuningViewModel,
                                 sysIdViewModel = sysIdViewModel,
-                                projectPath = currentConfig.projectPath
+                                experimentViewModel = guidedTuningExperimentViewModel,
+                                projectPath = currentConfig.projectPath,
+                                canLaunchSimulator = simulatorLaunchRequestEnabled,
+                                canApplyCandidateToSimulator =
+                                    targetSelection == TargetSelection.LOCAL_SIM &&
+                                        isLocalSimOnline &&
+                                        isNt4Connected &&
+                                        isLoopbackDriveControlHost(services.nt4ClientService.serverIp),
+                                simulatorStatus = when {
+                                    isSimRunning -> "managed simulator running"
+                                    isLocalSimOnline -> "simulator online"
+                                    else -> simulatorLaunchDisabledReason
+                                },
+                                onLaunchSimulator = requestSimulatorLaunch,
+                                onApplyCandidateToSimulator = {
+                                    val experiment = guidedTuningExperimentViewModel.state.value.experiment
+                                    if (
+                                        experiment != null &&
+                                        targetSelection == TargetSelection.LOCAL_SIM &&
+                                        isLocalSimOnline &&
+                                        isNt4Connected &&
+                                        isLoopbackDriveControlHost(services.nt4ClientService.serverIp)
+                                    ) {
+                                        tuningViewModel.onIntent(TuningIntent.PushToRobot(experiment.change.key))
+                                    }
+                                },
+                                onOpenDashboard = {
+                                    targetSelection = TargetSelection.LOCAL_SIM
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DASHBOARD))
+                                },
+                                onStopSimulator = { services.processManagerService.killActiveSim() },
+                                onOpenGuidedRunReview = {
+                                    mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload)
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.GUIDED_RUN_ANALYSIS))
+                                },
+                                onOpenReplay = { sessionId, timestampMs ->
+                                    dashboardViewModel.onIntent(DashboardIntent.SelectPrimarySession(sessionId, timestampMs))
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DASHBOARD))
+                                },
                             )
                             NavigationTarget.ROBOT_STUDIO -> RobotStudioScreen(
                                 viewModel = robotStudioViewModel,

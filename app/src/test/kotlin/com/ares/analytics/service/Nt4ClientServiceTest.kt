@@ -521,6 +521,27 @@ class Nt4ClientServiceTest {
     }
 
     @Test
+    fun `recording is exclusive and stop finalizes its persisted duration`() = runBlocking {
+        val recording = nt4ClientService.startRecordingSession(
+            teamId = "23247",
+            seasonId = "2026",
+            robotId = "sim-robot",
+            tags = listOf("simulation", "studio-experiment"),
+        )
+
+        assertFailsWith<IllegalStateException> {
+            nt4ClientService.startRecordingSession("23247", "2026", "sim-robot")
+        }
+        delay(5)
+        assertTrue(nt4ClientService.stop())
+
+        assertNull(nt4ClientService.currentSession.value)
+        val persisted = databaseService.getSessions().single { it.sessionId == recording.sessionId }
+        assertTrue(persisted.durationMs > 0L)
+        assertTrue("simulation" in persisted.tags)
+    }
+
+    @Test
     fun `stop prevents a queued start from reconnecting afterward`() = runBlocking {
         nt4ClientService.start("127.0.0.1", "team", "season", "robot", port = 1)
 

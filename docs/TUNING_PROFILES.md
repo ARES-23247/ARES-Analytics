@@ -12,12 +12,15 @@ Profiles can inherit another profile. The UI shows whether a value comes directl
 
 ## Learn this workflow in Robot Academy
 
-Open **Help & Learn -> Robot builder -> Propose one reversible tuning change**. The lesson uses the
-current project's real declarations and `.arestuning` profile. It asks for one feedforward-aware
+Open **Help & Learn → Control Theory & Guided Tuning → Run One Safe, Evidence-Guided Tuning Experiment**. The lesson uses the
+current project's real declarations and `.arestuning` profile, starts from a paired-run finding, and asks for one feedforward-aware
 prediction, one typed proposal, provenance, an apply-policy explanation, and a structured review.
 Its observed checkpoints prove only what the editor can see: loaded declarations, a valid proposal,
 recorded provenance, and review readiness. Interpretation, simulator evidence, acknowledged live
 testing, and physical validation remain separate.
+
+For the complete evidence → snapshot → Local Sim → paired comparison → decision workflow, see
+[Guided tuning experiments](GUIDED_TUNING_EXPERIMENTS.md).
 
 ## Three columns
 

@@ -53,6 +53,7 @@ class ServiceRegistry {
     val tuningProposalInbox by lazy { com.ares.analytics.service.tuning.TuningProposalInbox() }
     val drivebaseProjectRepository by lazy { com.ares.analytics.service.drivebase.DrivebaseProjectRepository() }
     val tuningProfileRepository by lazy { com.ares.analytics.service.tuning.TuningProfileRepository() }
+    val guidedTuningExperimentRepository by lazy { com.ares.analytics.service.tuning.GuidedTuningExperimentRepository() }
 
     // ── Tier 1: Depend on Tier 0 ─────────────────────────────────────────────
     val nt4ClientService by lazy { Nt4ClientService(databaseService) }
@@ -78,6 +79,9 @@ class ServiceRegistry {
     val driverAnalysisService by lazy { DriverAnalysisService(databaseService, sysIdService) }
     val diagnosticCoachService by lazy { DiagnosticCoachService(databaseService) }
     val runComparisonService by lazy { RunComparisonService(databaseService) }
+    val guidedTuningExperimentEvaluator by lazy {
+        com.ares.analytics.service.tuning.GuidedTuningExperimentEvaluator(runComparisonService)
+    }
     val guidedRunAnalysisService by lazy {
         GuidedRunAnalysisService(
             databaseService = databaseService,

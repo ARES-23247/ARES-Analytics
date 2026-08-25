@@ -68,6 +68,8 @@ import com.ares.analytics.service.GuidedRunFinding
 import com.ares.analytics.service.GuidedRunMetric
 import com.ares.analytics.service.RunEvidenceSourceKind
 import com.ares.analytics.service.shortRunLabel
+import com.ares.analytics.service.tuning.GuidedTuningExperimentSeed
+import com.ares.analytics.service.tuning.toExperimentSeed
 import com.ares.analytics.shared.Session
 import com.ares.analytics.ui.theme.AresAmber
 import com.ares.analytics.ui.theme.AresBackground
@@ -97,6 +99,7 @@ fun GuidedRunAnalysisScreen(
     onOpenImports: () -> Unit,
     onOpenDashboardReplay: (String, Long?) -> Unit,
     onOpenTuning: () -> Unit,
+    onCreateTuningExperiment: (GuidedTuningExperimentSeed) -> Unit,
     onOpenAcademy: () -> Unit,
     onOpenRunHistory: () -> Unit,
 ) {
@@ -157,6 +160,11 @@ fun GuidedRunAnalysisScreen(
                         onToggleSession = viewModel::toggleComparisonSession,
                         onSelectAlignment = viewModel::selectAlignment,
                         onOpenEvidence = { sessionId, timestampMs -> onOpenDashboardReplay(sessionId, timestampMs) },
+                        onCreateExperiment = { finding ->
+                            state.comparisonReport?.let { comparison ->
+                                onCreateTuningExperiment(finding.toExperimentSeed(comparison))
+                            }
+                        },
                         onExport = viewModel::exportComparison,
                     )
                 }

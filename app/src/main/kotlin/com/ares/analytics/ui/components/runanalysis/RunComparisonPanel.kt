@@ -93,6 +93,7 @@ fun RunComparisonPanel(
     onToggleSession: (String) -> Unit,
     onSelectAlignment: (String) -> Unit,
     onOpenEvidence: (String, Long) -> Unit,
+    onCreateExperiment: (GuidedComparisonFinding) -> Unit,
     onExport: (File) -> Unit,
 ) {
     var runMenuExpanded by remember { mutableStateOf(false) }
@@ -184,7 +185,7 @@ fun RunComparisonPanel(
                 if (comparison.trajectories.size >= 2) TrajectoryComparison(comparison.trajectories)
                 comparison.metrics.forEach { metric -> MetricComparison(metric) }
                 FaultComparison(comparison)
-                GuidedFindings(comparison.findings, onOpenEvidence)
+                GuidedFindings(comparison.findings, onOpenEvidence, onCreateExperiment)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = {
@@ -376,7 +377,11 @@ private fun FaultComparison(report: RunComparisonReport) {
 }
 
 @Composable
-private fun GuidedFindings(findings: List<GuidedComparisonFinding>, onOpenEvidence: (String, Long) -> Unit) {
+private fun GuidedFindings(
+    findings: List<GuidedComparisonFinding>,
+    onOpenEvidence: (String, Long) -> Unit,
+    onCreateExperiment: (GuidedComparisonFinding) -> Unit,
+) {
     EvidenceCard("Guided diagnosis", "Every statement is labeled as an observation or correlation; neither is a proven root cause.") {
         if (findings.isEmpty()) {
             Text("No configured material difference was found. This does not prove the runs are equivalent.", color = AresTextSecondary)
@@ -403,10 +408,20 @@ private fun GuidedFindings(findings: List<GuidedComparisonFinding>, onOpenEviden
                         fontFamily = FontFamily.Monospace,
                         fontSize = 9.sp,
                     )
-                    OutlinedButton(onClick = { onOpenEvidence(finding.evidence.sessionId, finding.evidence.absoluteTimestampMs) }) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(5.dp))
-                        Text("Open replay at evidence")
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { onOpenEvidence(finding.evidence.sessionId, finding.evidence.absoluteTimestampMs) }) {
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("Open replay at evidence")
+                        }
+                        Button(
+                            onClick = { onCreateExperiment(finding) },
+                            colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("Create one-change experiment")
+                        }
                     }
                 }
             }

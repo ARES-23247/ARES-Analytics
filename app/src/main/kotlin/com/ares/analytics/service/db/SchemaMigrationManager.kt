@@ -48,46 +48,42 @@ class SchemaMigrationManager(
 
         if (oldDbPath != null && File(oldDbPath).isFile && !migrationCompleted(LEGACY_SQLITE_MIGRATION)) {
             val safeOldDbPath = oldDbPath.replace("'", "''")
+            var legacyDatabaseAttached = false
             try {
-                conn.createStatement().use { st ->
-                    try {
-                        st.execute("ATTACH '$safeOldDbPath' AS legacy_sqlite (TYPE SQLITE)")
-                        st.execute("BEGIN TRANSACTION")
-                        try {
-                            st.execute(
-                                """
-                                INSERT OR IGNORE INTO sessions
-                                    (session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color, import_state)
-                                SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color, 'COMPLETE'
-                                FROM legacy_sqlite.sessions
-                                """.trimIndent()
-                            )
-                            st.execute("INSERT OR IGNORE INTO session_summaries SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, min_battery_voltage, max_ekf_drift, avg_loop_time_ms, p95_loop_time_ms, motor_current_averages, vision_acceptance_rate, avg_cross_track_error, avg_battery_resistance, max_motor_temps, avg_vision_latency_ms, tags, match_number, alliance_color FROM legacy_sqlite.session_summaries")
-                            st.execute(
-                                """
-                                INSERT OR IGNORE INTO telemetry_frames
-                                    (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
-                                SELECT timestamp_ms, session_id, REGEXP_REPLACE(key, '^/+', ''), value, NULL,
-                                    timestamp_ms * 1000,
-                                    ROW_NUMBER() OVER (ORDER BY session_id, timestamp_ms, key)
-                                FROM legacy_sqlite.telemetry_frames
-                                """.trimIndent()
-                            )
-                            st.execute("INSERT OR IGNORE INTO session_annotations SELECT annotation_id, session_id, text, created_at, author_id FROM legacy_sqlite.session_annotations")
-                            st.execute("INSERT OR IGNORE INTO alerts SELECT alert_id, session_id, rule_key, trigger_timestamp_ms, resolve_timestamp_ms, duration_ms, peak_value, triaged FROM legacy_sqlite.alerts")
-                            st.execute("INSERT OR IGNORE INTO cached_topologies SELECT robot_id, topology_json FROM legacy_sqlite.cached_topologies")
-                            st.execute("INSERT OR IGNORE INTO console_messages SELECT timestamp_ms, session_id, text, severity FROM legacy_sqlite.console_messages")
-                            st.execute("INSERT INTO schema_migrations VALUES ('$LEGACY_SQLITE_MIGRATION', epoch_ms(current_timestamp))")
-                            st.execute("COMMIT")
-                        } catch (e: Exception) {
-                            st.execute("ROLLBACK")
-                            throw e
-                        }
-                    } catch (e: Exception) {
-                        throw e
-                    } finally {
-                        runCatching { st.execute("DETACH legacy_sqlite") }
-                    }
+                executeSql("ATTACH '$safeOldDbPath' AS legacy_sqlite (TYPE SQLITE)")
+                legacyDatabaseAttached = true
+                executeSql("BEGIN TRANSACTION")
+                try {
+                    executeSql(
+                        """
+                        INSERT OR IGNORE INTO sessions
+                            (session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color, import_state)
+                        SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color, 'COMPLETE'
+                        FROM legacy_sqlite.sessions
+                        """.trimIndent()
+                    )
+                    executeSql("INSERT OR IGNORE INTO session_summaries SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, min_battery_voltage, max_ekf_drift, avg_loop_time_ms, p95_loop_time_ms, motor_current_averages, vision_acceptance_rate, avg_cross_track_error, avg_battery_resistance, max_motor_temps, avg_vision_latency_ms, tags, match_number, alliance_color FROM legacy_sqlite.session_summaries")
+                    executeSql(
+                        """
+                        INSERT INTO telemetry_frames
+                            (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
+                        SELECT timestamp_ms, session_id, REGEXP_REPLACE(key, '^/+', ''), value, NULL,
+                            timestamp_ms * 1000,
+                            ROW_NUMBER() OVER (ORDER BY session_id, timestamp_ms, key)
+                        FROM legacy_sqlite.telemetry_frames
+                        """.trimIndent()
+                    )
+                    executeSql("INSERT OR IGNORE INTO session_annotations SELECT annotation_id, session_id, text, created_at, author_id FROM legacy_sqlite.session_annotations")
+                    executeSql("INSERT OR IGNORE INTO alerts SELECT alert_id, session_id, rule_key, trigger_timestamp_ms, resolve_timestamp_ms, duration_ms, peak_value, triaged FROM legacy_sqlite.alerts")
+                    executeSql("INSERT OR IGNORE INTO cached_topologies SELECT robot_id, topology_json FROM legacy_sqlite.cached_topologies")
+                    executeSql("INSERT OR IGNORE INTO console_messages SELECT timestamp_ms, session_id, text, severity FROM legacy_sqlite.console_messages")
+                    executeSql("INSERT INTO schema_migrations VALUES ('$LEGACY_SQLITE_MIGRATION', epoch_ms(current_timestamp))")
+                    executeSql("COMMIT")
+                } catch (migrationFailure: Exception) {
+                    runCatching { executeSql("ROLLBACK") }
+                        .exceptionOrNull()
+                        ?.let(migrationFailure::addSuppressed)
+                    throw migrationFailure
                 }
             } catch (e: Exception) {
                 // Safe to continue (the transactional completion marker means the migration
@@ -97,8 +93,22 @@ class SchemaMigrationManager(
                         "${e.message ?: e::class.java.simpleName}"
                 )
                 e.printStackTrace()
+            } finally {
+                if (legacyDatabaseAttached) {
+                    runCatching { executeSql("DETACH legacy_sqlite") }
+                        .onFailure { detachFailure ->
+                            System.err.println(
+                                "SchemaMigrationManager: legacy database detach failed: " +
+                                    "${detachFailure.message ?: detachFailure::class.java.simpleName}"
+                            )
+                        }
+                }
             }
         }
+    }
+
+    private fun executeSql(sql: String) {
+        conn.createStatement().use { statement -> statement.execute(sql) }
     }
 
     private fun migrationCompleted(name: String): Boolean = conn.prepareStatement(

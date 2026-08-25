@@ -276,6 +276,22 @@ Driver oscillation detection searches the configured 8–12 Hz band in both rele
 
 Camera extrinsics use the standard rigid transform and actual tag field coordinates. Internal translations are meters and rotations are radians. Trajectory duration integrates segment constraints; angular constraints must not be mixed with linear limits or degrees.
 
+### Guided tuning experiments
+
+Guided tuning composes existing services rather than creating a second tuning runtime. A selected
+run-comparison finding supplies the baseline session, evidence timestamp, topics, units, and claim
+class. `GuidedTuningExperimentRepository` persists a local experiment containing a typed one-factor
+proposal plus hashes of the resolved profile and canonical `.ares` configuration. The existing
+tuning transaction remains the only apply boundary: Local Sim selection, loopback NT4, declared
+apply policy, monotonic request nonce, and explicit consumer acknowledgement all remain required.
+
+Candidate evidence is a distinct, later session from the same team/season/robot and must carry the
+Studio-authored `simulation` tag. Evaluation reuses deterministic run comparison and classifies the
+declared metric as improved, regressed, or inconclusive against the threshold chosen before the
+run. Accepting records evidence only; canonical promotion remains the separate structured-diff
+workflow. Reject and rollback remove the staged proposal without rewriting source or canonical
+configuration.
+
 ## 10. Gateway
 
 `gateway/Application.kt` installs:

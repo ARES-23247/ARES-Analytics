@@ -194,24 +194,27 @@ Students should be able to:
 
 ## A 40-minute reversible tuning mission
 
-Use **Propose one reversible tuning change** after a control-response lab. Do not begin with live
-SysId or a connected mechanism.
+Use **Guided tuning experiment** after a control-response lab. Do not begin with live SysId or a
+connected mechanism.
 
-1. Ask the student to choose one response property and one term. They must predict direction, unit,
-   and limitation before touching the Tuning screen.
-2. In Tuning, identify the canonical Source value, parameter owner, stable key, type, unit, bounds,
+1. Start from one paired-run finding. Ask the student to restate the evidence and uncertainty before
+   naming a possible cause.
+2. Require a question, falsifiable prediction, one intended metric, held constants, a success
+   threshold, a stop condition, and a next test before the candidate run.
+3. In Tuning, identify the canonical Source value, parameter owner, stable key, type, unit, bounds,
    and apply policy.
-3. Compare feedback terms with feedforward terms: kS counters static friction, kV scales desired
+4. Compare feedback terms with feedforward terms: kS counters static friction, kV scales desired
    velocity, kA scales desired acceleration, and kG counters gravity in an appropriate model. The
    exact units and plant assumptions remain project-specific.
-4. Stage one Proposed value and name its source. A teaching lab is model evidence, not robot
+5. Snapshot and stage exactly one bounded Proposed value. A teaching lab is model evidence, not robot
    evidence; an imported run or SysId artifact must retain its project path and hash when required.
-5. Enter reviewer and summary, create the structured diff, and have a second student read the base
-   hash, before/after value, unit, policy, and rollback path.
-6. Choose Discard, defer, or Confirm. Confirming changes one canonical profile atomically and creates
-   history; it does not send NT4.
-7. Ask the student to design the later simulator or supervised hardware procedure, including limits,
-   expected signal, stop condition, and rollback.
+6. Repeat the same routine in Local Sim, record a new candidate session, and compare the exact metric.
+   Treat a missing signal or a below-threshold change as inconclusive.
+7. Record Accept, Revise, Reject candidate, or Roll back, with the reason and next safe test. Export
+   the mentor/student report before any canonical promotion discussion.
+8. If the simulation evidence warrants promotion, use the separate structured diff and have a second
+   student read the base hash, before/after value, unit, policy, and rollback path. Confirmation
+   changes one canonical profile atomically and creates history; it does not send NT4.
 
 Never award this mission for “finding gains that look good.” Require a typed hypothesis, one-change
 experiment, provenance, policy explanation, reversible review, and an honest validation boundary.
