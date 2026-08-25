@@ -111,6 +111,28 @@ class AdvancedAnalyticsServiceTest {
         }
     }
 
+    @Test
+    fun `explicit comparison IDs cannot cross workspace identity`() = runTest {
+        val directory = Files.createTempDirectory("ares-explicit-baseline-isolation").toFile()
+        val database = DatabaseService(directory.resolve("telemetry.duckdb").absolutePath)
+        try {
+            database.insertSessionSummary(summary("current", p95 = 15.0, voltage = 11.0, crossTrack = 0.30))
+            database.insertSessionSummary(
+                summary("other-team", p95 = 1.0, voltage = 13.0, crossTrack = 0.01)
+                    .copy(teamId = "99999"),
+            )
+            database.insertTelemetryFrames(listOf(frame(0L, "current", "Robot/BatteryVoltage", 11.0)))
+
+            val report = AdvancedAnalyticsService(database).analyze("current", listOf("other-team"))
+
+            assertEquals(null, report.comparison)
+            assertTrue(report.regressions.isEmpty())
+        } finally {
+            database.close()
+            directory.deleteRecursively()
+        }
+    }
+
     private fun summary(id: String, p95: Double, voltage: Double, crossTrack: Double) = SessionSummary(
         sessionId = id,
         teamId = "23247",

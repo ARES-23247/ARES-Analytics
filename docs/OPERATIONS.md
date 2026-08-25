@@ -267,6 +267,16 @@ Review the import report and source log. If a widget says its topics are missing
 recorded signal or correct the robot logger for the next run; missing is not zero. See
 [Deterministic replay and dashboard evidence](DETERMINISTIC_REPLAY.md).
 
+For run comparison problems:
+
+| Symptom | Meaning and recovery |
+| --- | --- |
+| A run is absent from the selector | It belongs to another team/season/robot workspace, has no durable telemetry, or has not finished importing. Select the correct workspace and inspect Log Imports; do not weaken identity filtering. |
+| Autonomous, event, or annotation alignment is absent | Every selected run must contain the same marker inside its recorded timeline. Use recording start or add a shared in-run marker to future logs. |
+| A metric or trajectory says evidence is missing | The selected runs lack a compatible unit/source pair or exact shared sample timestamps. Missing evidence is not zero; inspect the listed source topics and sampling limitation. |
+| **Open replay at evidence** opens the wrong place | Verify that the finding's session ID and original timestamp match the replay header. Aligned time is only a viewing coordinate and must never replace the persisted timestamp. |
+| Report export is not where expected | The chooser opens at the active robot project when available, but the selected path is authoritative. The report is local and is not uploaded automatically. |
+
 ## 9. DuckDB and export recovery
 
 The default persistent database is under:
@@ -276,6 +286,12 @@ The default persistent database is under:
 ```
 
 Before manual repair, close every Analytics process and copy the database file.
+
+If `telemetry.duckdb.wal` exists, copy it together with `telemetry.duckdb`. The WAL may contain the
+latest committed imports. Never delete or move it by itself as a startup workaround. New releases
+remove redundant telemetry indexes and checkpoint at completed-import and clean-shutdown boundaries;
+see [Telemetry storage architecture](DATABASE_STORAGE_ARCHITECTURE.md) for the measured cold-start
+cause and recovery-safe migration plan.
 
 The DuckDB file is one local application database containing identity-scoped sessions; raw source
 copies and sidecar reports live under each robot project's `logs/imported/` or `logs/quarantine/`.

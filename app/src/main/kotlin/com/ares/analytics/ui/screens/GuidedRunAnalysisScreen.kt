@@ -67,6 +67,7 @@ import com.ares.analytics.service.GuidedRunDestination
 import com.ares.analytics.service.GuidedRunFinding
 import com.ares.analytics.service.GuidedRunMetric
 import com.ares.analytics.service.RunEvidenceSourceKind
+import com.ares.analytics.service.shortRunLabel
 import com.ares.analytics.shared.Session
 import com.ares.analytics.ui.theme.AresAmber
 import com.ares.analytics.ui.theme.AresBackground
@@ -80,6 +81,7 @@ import com.ares.analytics.ui.theme.AresSurfaceElevated
 import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresTextTertiary
+import com.ares.analytics.ui.components.runanalysis.RunComparisonPanel
 import com.ares.analytics.viewmodel.runanalysis.GuidedRunAnalysisViewModel
 import java.io.File
 import java.time.Instant
@@ -93,7 +95,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 fun GuidedRunAnalysisScreen(
     viewModel: GuidedRunAnalysisViewModel,
     onOpenImports: () -> Unit,
-    onOpenDashboardReplay: (String) -> Unit,
+    onOpenDashboardReplay: (String, Long?) -> Unit,
     onOpenTuning: () -> Unit,
     onOpenAcademy: () -> Unit,
     onOpenRunHistory: () -> Unit,
@@ -141,14 +143,33 @@ fun GuidedRunAnalysisScreen(
             }
             state.report?.let { report ->
                 item { SourceEvidenceStep(report) }
-                item { TimelineStep(report) { onOpenDashboardReplay(report.session.sessionId) } }
-                item { ComparisonStep(report) }
-                item { FindingsStep(report.findings, report.missingSignals) }
+                item { TimelineStep(report) { onOpenDashboardReplay(report.session.sessionId, null) } }
+                item {
+                    RunComparisonPanel(
+                        sessions = state.sessions,
+                        primarySessionId = state.selectedSessionId,
+                        comparisonSessionIds = state.comparisonSessionIds,
+                        comparing = state.comparing,
+                        comparisonError = state.comparisonError,
+                        comparisonExportMessage = state.comparisonExportMessage,
+                        defaultExportDirectory = state.comparisonExportDirectory?.let(::File),
+                        report = state.comparisonReport,
+                        onToggleSession = viewModel::toggleComparisonSession,
+                        onSelectAlignment = viewModel::selectAlignment,
+                        onOpenEvidence = { sessionId, timestampMs -> onOpenDashboardReplay(sessionId, timestampMs) },
+                        onExport = viewModel::exportComparison,
+                    )
+                }
+                item {
+                    FindingsStep(report.findings, report.missingSignals) { timestampMs ->
+                        onOpenDashboardReplay(report.session.sessionId, timestampMs)
+                    }
+                }
                 item {
                     NextActionsStep(report) { destination ->
                         when (destination) {
                             GuidedRunDestination.IMPORTS -> onOpenImports()
-                            GuidedRunDestination.DASHBOARD_REPLAY -> onOpenDashboardReplay(report.session.sessionId)
+                            GuidedRunDestination.DASHBOARD_REPLAY -> onOpenDashboardReplay(report.session.sessionId, null)
                             GuidedRunDestination.TUNING -> onOpenTuning()
                             GuidedRunDestination.ACADEMY -> onOpenAcademy()
                             GuidedRunDestination.RUN_HISTORY -> onOpenRunHistory()
@@ -341,40 +362,17 @@ private fun MetricChip(metric: GuidedRunMetric) {
 }
 
 @Composable
-private fun ComparisonStep(report: GuidedRunAnalysisReport) {
-    GuideStep(4, "Compare expected and observed behavior", "Baselines are restricted to the same team, season, and robot identity.") {
-        val comparison = report.comparison
-        if (comparison == null) {
-            StatusLine("No compatible baseline available", false)
-            Text("Import another run from this robot before interpreting change over time.", color = AresTextSecondary)
-        } else {
-            StatusLine("${comparison.baselineSessionIds.size} compatible baseline run(s)", true)
-            comparison.metrics.forEach { metric ->
-                Surface(color = AresSurfaceElevated, shape = RoundedCornerShape(8.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(metric.metric, color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "Observed ${"%.3f".format(metric.current)} ${metric.unit} · baseline ${"%.3f".format(metric.baselineAverage)} ${metric.unit} · change ${"%+.1f".format(metric.percentChange)}%",
-                            color = AresTextSecondary,
-                        )
-                    }
-                }
-            }
-            if (report.regressions.isEmpty()) {
-                Text("No configured material regression was detected. This is not proof that the runs are equivalent.", color = AresTextSecondary)
-            }
-        }
-    }
-}
-
-@Composable
-private fun FindingsStep(findings: List<GuidedRunFinding>, missingSignals: List<String>) {
+private fun FindingsStep(
+    findings: List<GuidedRunFinding>,
+    missingSignals: List<String>,
+    onOpenEvidence: (Long) -> Unit,
+) {
     GuideStep(5, "Separate evidence from possible causes", "ARES reports thresholds and hypotheses separately; correlation is not a diagnosis.") {
         if (findings.isEmpty()) {
             StatusLine("No configured threshold was crossed", true)
             Text("This result is not a health or safety verdict.", color = AresTextSecondary)
         }
-        findings.forEach { finding -> FindingCard(finding) }
+        findings.forEach { finding -> FindingCard(finding, onOpenEvidence) }
         if (missingSignals.isNotEmpty()) {
             WarningLine("Missing from this review: ${missingSignals.joinToString()}. Missing data cannot be treated as a normal measurement.")
         }
@@ -382,7 +380,7 @@ private fun FindingsStep(findings: List<GuidedRunFinding>, missingSignals: List<
 }
 
 @Composable
-private fun FindingCard(finding: GuidedRunFinding) {
+private fun FindingCard(finding: GuidedRunFinding, onOpenEvidence: (Long) -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated), border = BorderStroke(1.dp, AresBorder)) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -393,6 +391,9 @@ private fun FindingCard(finding: GuidedRunFinding) {
             finding.timestampSeconds?.let {
                 Text("Recorded timestamp: ${"%.3f".format(it)} s", color = AresTextTertiary, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
             }
+            if (finding.sourceTopics.isNotEmpty()) {
+                Text("Topics: ${finding.sourceTopics.joinToString()}", color = AresTextTertiary, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+            }
             Text(finding.observedEvidence, color = AresTextPrimary)
             Text("Interpretation limit", color = AresAmber, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
             Text(finding.interpretationLimit, color = AresTextSecondary)
@@ -400,6 +401,13 @@ private fun FindingCard(finding: GuidedRunFinding) {
             finding.possibleCauses.forEach { Text("• $it", color = AresTextSecondary, fontSize = 12.sp) }
             Text("Safe verification", color = AresTextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
             finding.safeVerificationSteps.forEach { Text("• $it", color = AresTextSecondary, fontSize = 12.sp) }
+            finding.absoluteTimestampMs?.let { timestampMs ->
+                OutlinedButton(onClick = { onOpenEvidence(timestampMs) }) {
+                    Icon(Icons.Default.Timeline, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(5.dp))
+                    Text("Open replay at evidence")
+                }
+            }
         }
     }
 }
@@ -513,7 +521,7 @@ private fun AnalysisError(message: String, onRetry: () -> Unit) {
 }
 
 private fun Session.displayLabel(): String {
-    val match = matchNumber?.let { "Match $it" } ?: "Run ${sessionId.take(8)}"
+    val match = shortRunLabel()
     val time = if (createdAt >= 946_684_800_000L) {
         DateTimeFormatter.ofPattern("MMM d, HH:mm").withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(createdAt))
     } else {

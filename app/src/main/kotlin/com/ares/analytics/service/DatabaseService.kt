@@ -234,8 +234,13 @@ class DatabaseService(
         matchLogRepo.getAnalysisDiagnostics(sessionId)
     internal suspend fun replaceSessionImportReports(sessionId: String, reports: List<ImportReport>) =
         matchLogRepo.replaceSessionImportReports(sessionId, reports)
-    internal suspend fun completeSessionImport(session: Session, reports: List<ImportReport>) =
+    internal suspend fun completeSessionImport(session: Session, reports: List<ImportReport>) {
         matchLogRepo.completeSessionImport(session, reports)
+        // A completed import is a durable boundary. Checkpoint here instead of per batch so a
+        // power loss never leaves an arbitrarily large WAL, while normal ingestion still avoids
+        // an fsync on every frame batch.
+        checkpointAfterDurableBoundary("completed session import")
+    }
     internal suspend fun getSessionImportReports(sessionId: String): List<ImportReport> =
         matchLogRepo.getSessionImportReports(sessionId)
     suspend fun getTelemetryForFilters(
@@ -269,11 +274,29 @@ class DatabaseService(
     suspend fun getConsoleMessages(sessionId: String): List<ConsoleMessage> = matchLogRepo.getConsoleMessages(sessionId)
     suspend fun getTelemetryDensity(sessionId: String, buckets: Int = 100): List<Float> = matchLogRepo.getTelemetryDensity(sessionId, buckets)
 
-    suspend fun importParquet(file: File) = backupExporter.importParquet(file)
-    suspend fun importParquetAsSession(file: File, sessionId: String) =
-        backupExporter.importParquetAsSession(file, sessionId)
-    suspend fun importCloudSessionAtomically(file: File, summary: SessionSummary, session: Session) =
-        backupExporter.importCloudSessionAtomically(file, summary, session)
+    suspend fun importParquet(file: File) {
+        backupExporter.importParquet(file)
+        checkpointAfterDurableBoundary("Parquet import")
+    }
+
+    suspend fun importParquetAsSession(
+        file: File,
+        sessionId: String,
+    ): DatabaseBackupExporter.ParquetImportResult {
+        val result = backupExporter.importParquetAsSession(file, sessionId)
+        checkpointAfterDurableBoundary("session Parquet import")
+        return result
+    }
+
+    suspend fun importCloudSessionAtomically(
+        file: File,
+        summary: SessionSummary,
+        session: Session,
+    ): DatabaseBackupExporter.ParquetImportResult {
+        val result = backupExporter.importCloudSessionAtomically(file, summary, session)
+        checkpointAfterDurableBoundary("cloud session import")
+        return result
+    }
     internal suspend fun importCloudSessionBundleAtomically(
         file: File,
         summary: SessionSummary,
@@ -284,19 +307,36 @@ class DatabaseService(
         consoleMessages: List<ConsoleMessage>,
         analysisDiagnostics: List<AnalysisDiagnostic>,
         importReports: List<ImportReport>,
-    ) = backupExporter.importCloudSessionBundleAtomically(
-        file,
-        summary,
-        session,
-        CloudSessionAncillaryData(
-            actions,
-            annotations,
-            alerts,
-            consoleMessages,
-            analysisDiagnostics,
-            importReports,
-        ),
-    )
+    ): DatabaseBackupExporter.ParquetImportResult {
+        val result = backupExporter.importCloudSessionBundleAtomically(
+            file,
+            summary,
+            session,
+            CloudSessionAncillaryData(
+                actions,
+                annotations,
+                alerts,
+                consoleMessages,
+                analysisDiagnostics,
+                importReports,
+            ),
+        )
+        checkpointAfterDurableBoundary("cloud session bundle import")
+        return result
+    }
+
+    private suspend fun checkpointAfterDurableBoundary(operation: String) {
+        runCatching { matchLogRepo.checkpoint() }
+            .onFailure { failure ->
+                // The transaction is already committed to DuckDB's WAL. A checkpoint failure must
+                // not relabel a successful, recoverable import as failed or quarantine its source.
+                System.err.println(
+                    "[ARES-Analytics] DuckDB checkpoint after $operation was deferred; " +
+                        "the committed WAL was preserved for recovery: " +
+                        (failure.message ?: failure::class.java.simpleName)
+                )
+            }
+    }
     internal fun setCloudImportFailureInjector(injector: ((CloudImportStage) -> Unit)?) {
         backupExporter.cloudImportFailureInjector = injector
     }
@@ -320,8 +360,17 @@ class DatabaseService(
             dbMutex.withLock {
                 readMutex.withLock {
                     matchLogRepo.dispose()
-                    if (!conn.isClosed) { conn.close() }
                     if (!readConn.isClosed) { readConn.close() }
+                    if (!conn.isClosed) {
+                        runCatching { conn.createStatement().use { it.execute("CHECKPOINT") } }
+                            .onFailure { failure ->
+                                System.err.println(
+                                    "[ARES-Analytics] Final DuckDB checkpoint failed; the WAL was preserved for recovery: " +
+                                        (failure.message ?: failure::class.java.simpleName)
+                                )
+                            }
+                        conn.close()
+                    }
                     if (!ephemeralReadConn.isClosed) { ephemeralReadConn.close() }
                     if (!ephemeralConn.isClosed) { ephemeralConn.close() }
                 }

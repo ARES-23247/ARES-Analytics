@@ -6,6 +6,8 @@ import com.ares.analytics.ui.help.AcademyClassroomToolkit
 import com.ares.analytics.ui.help.FirstMissionCheckpointIds
 import com.ares.analytics.ui.help.LearningCatalog
 import com.ares.analytics.ui.help.LearningCheckpointEvidence
+import com.ares.analytics.shared.League
+import com.ares.analytics.shared.WorkspaceConfig
 import java.io.File
 import java.nio.file.Files
 import kotlinx.coroutines.test.runTest
@@ -31,6 +33,20 @@ class AcademyClassroomPilotTest {
         val practiceRetry = practiceWorkflow.installAndImport(
             root,
             AcademyPracticeIdentity("23247", "2026", "academy-bot"),
+        )
+        val comparison = RunComparisonService(database).compare(
+            WorkspaceConfig(
+                id = "academy-pilot",
+                teamId = "23247",
+                seasonId = "2026",
+                robotId = "academy-bot",
+                projectPath = root.path,
+                league = League.FTC,
+            ),
+            RunComparisonRequest(
+                primarySessionId = practiceImport.sessionIds.first(),
+                comparisonSessionIds = listOf(practiceImport.sessionIds.last()),
+            ),
         )
         val progressFile = File(root, "learning-progress.json")
         val progress = LearningProgressService(progressFile)
@@ -78,6 +94,8 @@ class AcademyClassroomPilotTest {
         assertEquals(2, practiceImport.importedCount)
         assertEquals(2, practiceRetry.reusedCount)
         assertEquals(2, database.getSessions().count { AcademyPracticeWorkflowService.ACADEMY_SYNTHETIC_TAG in it.tags })
+        assertTrue(comparison.availableAlignments.any { it.kind == RunAlignmentKind.AUTONOMOUS_START })
+        assertTrue(comparison.availableAlignments.any { it.kind == RunAlignmentKind.MATCH_EVENT && "Arm cycle begins" in it.label })
         assertTrue(FirstMissionCheckpointIds.LOCAL_SIM_CONNECTED in progress.progress.value.completedCheckpointIds)
         assertEquals("drivebase-blueprint", summary.recommendedLesson?.id)
         assertTrue(reportFile.readText().contains("synthetic").not())

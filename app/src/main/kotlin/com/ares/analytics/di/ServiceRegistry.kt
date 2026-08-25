@@ -77,6 +77,7 @@ class ServiceRegistry {
     val alertEngineService by lazy { AlertEngineService(databaseService, nt4ClientService) }
     val driverAnalysisService by lazy { DriverAnalysisService(databaseService, sysIdService) }
     val diagnosticCoachService by lazy { DiagnosticCoachService(databaseService) }
+    val runComparisonService by lazy { RunComparisonService(databaseService) }
     val guidedRunAnalysisService by lazy {
         GuidedRunAnalysisService(
             databaseService = databaseService,

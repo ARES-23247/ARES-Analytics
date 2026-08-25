@@ -6,6 +6,10 @@ import com.ares.analytics.service.GuidedRunEvidenceContext
 import com.ares.analytics.service.GuidedRunMetric
 import com.ares.analytics.service.RunEvidenceSourceKind
 import com.ares.analytics.service.RunSourceEvidence
+import com.ares.analytics.service.RunAlignmentAnchor
+import com.ares.analytics.service.RunAlignmentKind
+import com.ares.analytics.service.RunAlignmentOption
+import com.ares.analytics.service.RunComparisonReport
 import com.ares.analytics.service.SessionComparison
 import com.ares.analytics.shared.Session
 import com.ares.analytics.viewmodel.runanalysis.GuidedRunAnalysisState
@@ -100,5 +104,39 @@ class RunAnalysisLearningEvidenceTest {
         assertFalse(snapshot.hasGuidedReport)
         assertFalse(snapshot.hasQuantitativeEvidence)
         assertFalse(snapshot.hasExportedReport)
+    }
+
+    @Test
+    fun `current comparison export earns evidence without a single-run export`() {
+        val other = session.copy(sessionId = "run-2")
+        val alignment = RunAlignmentOption("run-start", RunAlignmentKind.RUN_START, "Run start", "First sample")
+        val comparison = RunComparisonReport(
+            sessions = listOf(session, other),
+            primarySessionId = session.sessionId,
+            selectedAlignment = alignment,
+            availableAlignments = listOf(alignment),
+            anchors = listOf(
+                RunAlignmentAnchor(session.sessionId, 1_000L, "Run start"),
+                RunAlignmentAnchor(other.sessionId, 1_000L, "Run start"),
+            ),
+            trajectories = emptyList(),
+            metrics = emptyList(),
+            faults = emptyList(),
+            findings = emptyList(),
+            limitations = listOf("Historical comparison"),
+        )
+
+        val snapshot = GuidedRunAnalysisState(
+            loadingSessions = false,
+            sessions = listOf(session, other),
+            selectedSessionId = session.sessionId,
+            comparisonSessionIds = listOf(other.sessionId),
+            comparisonReport = comparison,
+            comparisonExportMessage = "Saved comparison.md",
+        ).toAcademyRunAnalysisSnapshot()
+
+        assertTrue(snapshot.hasBaselineComparison)
+        assertTrue(snapshot.hasLimitations)
+        assertTrue(snapshot.hasExportedReport)
     }
 }

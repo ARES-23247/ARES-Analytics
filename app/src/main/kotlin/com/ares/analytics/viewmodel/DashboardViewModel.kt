@@ -21,6 +21,7 @@ data class DashboardState(
     val isPickerOpen: Boolean = false,
     val isLayoutEditing: Boolean = false,
     val primarySessionId: String? = null,
+    val replayEvidenceTarget: ReplayEvidenceTarget? = null,
     val sessionMode: SessionMode = SessionMode.LIVE_STREAMING,
     val compareSessionId: String? = null,
     val alerts: List<AlertRecord> = emptyList(),
@@ -37,6 +38,12 @@ data class DashboardState(
     val savedLiveProfile: String? = null
 )
 
+data class ReplayEvidenceTarget(
+    val sessionId: String,
+    val timestampMs: Long,
+    val requestId: Long,
+)
+
 sealed class DashboardIntent {
 
     data class ChangeProfile(val profile: String) : DashboardIntent()
@@ -45,7 +52,9 @@ sealed class DashboardIntent {
 
     data class SetLayoutEditing(val isEditing: Boolean) : DashboardIntent()
 
-    data class SelectPrimarySession(val sessionId: String?) : DashboardIntent()
+    data class SelectPrimarySession(val sessionId: String?, val evidenceTimestampMs: Long? = null) : DashboardIntent()
+
+    data class ConsumeReplayEvidenceTarget(val requestId: Long) : DashboardIntent()
 
     data class SetSessionMode(val mode: SessionMode) : DashboardIntent()
 
@@ -82,6 +91,7 @@ class DashboardViewModel(
     private val _state = MutableStateFlow(DashboardState())
     val state: StateFlow<DashboardState> = _state.asStateFlow()
     private val layoutTransactions = DashboardLayoutTransactionQueue()
+    private var replayEvidenceRequestId = 0L
 
     init {
         // Collect alerts
@@ -124,6 +134,15 @@ class DashboardViewModel(
                 }
                 is DashboardIntent.SelectPrimarySession -> {
                     val newMode = if (intent.sessionId == null) SessionMode.LIVE_STREAMING else SessionMode.HISTORICAL_REPLAY
+                    val evidenceTarget = intent.sessionId?.let { sessionId ->
+                        intent.evidenceTimestampMs?.let { timestamp ->
+                            ReplayEvidenceTarget(
+                                sessionId = sessionId,
+                                timestampMs = timestamp,
+                                requestId = ++replayEvidenceRequestId,
+                            )
+                        }
+                    }
 
                     if (intent.sessionId == null) {
                         _state.update { it.copy(alerts = alertEngineService.alerts.value) }
@@ -136,6 +155,7 @@ class DashboardViewModel(
                                 val currentLiveProfile = _state.value.currentRoleProfile
                                 _state.update { it.copy(
                                     primarySessionId = intent.sessionId,
+                                    replayEvidenceTarget = evidenceTarget,
                                     sessionMode = newMode,
                                     savedLiveProfile = currentLiveProfile,
                                     currentRoleProfile = "Replay"
@@ -147,6 +167,7 @@ class DashboardViewModel(
                                 val restoreProfile = _state.value.savedLiveProfile ?: "Standard"
                                 _state.update { it.copy(
                                     primarySessionId = intent.sessionId,
+                                    replayEvidenceTarget = evidenceTarget,
                                     sessionMode = newMode,
                                     savedLiveProfile = null,
                                     currentRoleProfile = restoreProfile
@@ -155,7 +176,13 @@ class DashboardViewModel(
                             }
                             else -> {
                                 // Standard update
-                                _state.update { it.copy(primarySessionId = intent.sessionId, sessionMode = newMode) }
+                                _state.update {
+                                    it.copy(
+                                        primarySessionId = intent.sessionId,
+                                        replayEvidenceTarget = evidenceTarget,
+                                        sessionMode = newMode,
+                                    )
+                                }
                             }
                         }
                     }
@@ -170,6 +197,13 @@ class DashboardViewModel(
                                 }
                             }
                         }
+                    }
+                }
+                is DashboardIntent.ConsumeReplayEvidenceTarget -> {
+                    _state.update { current ->
+                        if (current.replayEvidenceTarget?.requestId == intent.requestId) {
+                            current.copy(replayEvidenceTarget = null)
+                        } else current
                     }
                 }
                 is DashboardIntent.SetSessionMode -> {

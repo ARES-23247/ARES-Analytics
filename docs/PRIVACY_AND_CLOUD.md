@@ -14,6 +14,13 @@ the live NT4 connection, send robot controls, or merge current live topics into 
 fields. Navigating to replay does not upload the run; cloud synchronization remains a separate,
 explicit workspace action governed by the destination and account rules below.
 
+Run comparison is also local and read-only. It accepts only sessions whose team, season, and robot
+identity exactly match the active workspace, and it never fills missing historical evidence from a
+live connection or another workspace. Export creates a new Markdown file in a location the user
+chooses; it does not upload the report. Reports include session identifiers, topic names, and exact
+recorded timestamps, so a student or mentor should review those details before sharing a report
+outside the team.
+
 Google Drive synchronization is opt-in. Before consent, the app explains that it requests basic
 Google identity and `drive.file`. This scope is limited to files ARES creates or the user explicitly
 selects for ARES. ARES stores the selected workspace folder/Shared Drive ID and does not scan

@@ -55,6 +55,7 @@ CI retains both formats for 90 days and publishes the Markdown report in the Git
 | Export | CSV table generation and full-session Parquet generation |
 | Restore | Parquet import restores the exact frame count |
 | Replay | Atomic current-frame creation, stable source ordering, bounded baseline restoration, rapid-seek cancellation, and end-to-end scrub latency |
+| Run comparison | Workspace isolation, shared-anchor discovery, exact-timestamp/unit-safe overlays, bounded uniform sampling, deterministic findings/reports, and exact replay evidence targets |
 | Alerts | Threshold and composite alert regression suites in the smoke task |
 | Resources | Ingestion throughput, p95 query latency, replay timing, Parquet timing, and heap growth |
 
@@ -78,6 +79,23 @@ normal developer and installed launches always open the native chooser. Drive th
 `CLICK`, verify with `CAPTURE`, repeat the selection to prove idempotency, open Guided Run Review,
 play the exact timeline, restart, and capture the persisted run. Use a second isolated launch with
 a corrupt fixture to verify Quarantine and actionable recovery text.
+
+The visible run-comparison acceptance journey uses an isolated desktop home and a fresh robot
+workspace. Import the two Academy practice runs, select both, exercise recording-start,
+autonomous-start, and shared-event alignment, inspect trajectory/telemetry and missing-evidence
+labels, open a finding at its exact original replay timestamp, export a report into the project,
+navigate away/back, resize to 1440x900 and 1100x700, restart, and verify persistence. Capture the
+exact Compose window at each boundary and close it gracefully. This is desktop/synthetic-log
+evidence; it is not a physical-robot validation claim.
+
+Focused deterministic and performance gates are:
+
+```powershell
+.\gradlew.bat :app:test --tests "com.ares.analytics.service.RunComparisonServiceTest" `
+  --tests "com.ares.analytics.service.RunComparisonPerformanceTest" `
+  --tests "com.ares.analytics.viewmodel.runanalysis.GuidedRunAnalysisViewModelTest" `
+  --tests "com.ares.analytics.ui.input.DesktopDriveInputPublisherTest"
+```
 
 ## Performance budgets
 

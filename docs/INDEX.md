@@ -22,6 +22,7 @@ Start here if ARES Robotics Studio is new to you. You do not need to understand 
 | See a robot without risking hardware | [Connect the simulator](start/CONNECT_SIMULATOR.md) | Live simulator telemetry on this computer |
 | Review a practice or match log | [Bring in a run](operate/BRING_IN_A_RUN.md) | An imported, persistent run and replay controls |
 | Understand replay timing and missing data | [Deterministic replay](DETERMINISTIC_REPLAY.md) | Atomic snapshots, source labels, timeline markers, and recovery |
+| Compare runs and inspect evidence | [Run comparison and guided diagnosis](RUN_COMPARISON_AND_GUIDED_DIAGNOSIS.md) | Shared anchors, unit-safe overlays, exact replay links, and mentor/student reports |
 | Understand one run step by step | [Guided run review](operate/GUIDED_RUN_REVIEW.md) | Source identity, timestamps, units, confidence, same-robot comparison, and safe next actions |
 | Understand an unfamiliar word | [Glossary](learn/GLOSSARY.md) | Short definitions with mentor notes |
 | Follow a complete beginner-to-builder path | [Robot Academy](learn/ROBOT_ACADEMY.md) | Guided missions, checkpoints, interactive labs, and local progress |
@@ -39,6 +40,7 @@ Start here if ARES Robotics Studio is new to you. You do not need to understand 
 | Tune from evidence without overwriting source | [Robot-owned tuning profiles](TUNING_PROFILES.md) | Source/live/proposed values, policies, provenance, diff review, and atomic promotion |
 | Register existing subsystem Kotlin | [Hand-authored subsystem prototype](SUBSYSTEM_HAND_AUTHORED_PROTOTYPE.md) | USER-OWNED registration, lighting examples, and migration evidence |
 | Diagnose or administer the application | [Operations guide](OPERATIONS.md) | Ports, storage, recovery, and release checks |
+| Understand telemetry storage and cold-start recovery | [Telemetry storage architecture](DATABASE_STORAGE_ARCHITECTURE.md) | DuckDB, WAL hardening, and the partitioned Parquet migration |
 | Find the code behind an ARES concept | **Developer Mode → Developer Reference** in the app | Current source path, units, invariants, and nearby tests |
 | Improve the in-app help itself | [Documentation improvement goal](DOCUMENTATION_GOAL.md) | Verified baseline, prioritized workstreams, acceptance criteria |
 
