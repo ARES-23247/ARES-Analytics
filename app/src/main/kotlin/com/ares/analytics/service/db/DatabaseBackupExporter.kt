@@ -74,7 +74,9 @@ class DatabaseBackupExporter(
     /**
      * Bulk imports telemetry frames from an Apache Parquet binary file directly into DuckDB's `telemetry_frames` table.
      *
-     * Replaces existing conflicting records matching the primary key `(session_id, key, timestamp_ms)` using SQL `INSERT OR REPLACE`.
+     * Replaces matching imported records explicitly before appending. The telemetry fact table is
+     * intentionally index-free, so idempotence is enforced at this cold import boundary rather
+     * than by maintaining a global primary-key ART index on every live sample.
      *
      * @param file Target `.parquet` log file containing serialized telemetry records.
      * @throws java.sql.SQLException If DuckDB encounters a file read or table insertion error.
@@ -119,9 +121,6 @@ class DatabaseBackupExporter(
                         $numericValueExpression, $stringExpression,
                         $timestampUsExpression, $sampleOrderExpression
                     FROM read_parquet('$absolutePath')
-                    ON CONFLICT (session_id, key, timestamp_us, sample_order) DO UPDATE SET
-                        value = EXCLUDED.value,
-                        string_value = EXCLUDED.string_value
                 """.trimIndent())
             }
             conn.commit()
@@ -234,6 +233,25 @@ class DatabaseBackupExporter(
             conn.createStatement().use { statement ->
                 statement.execute(
                     """
+                    DELETE FROM telemetry_frames AS target
+                    USING (
+                        SELECT
+                            '$safeSessionId' AS session_id,
+                            $normalizedKeyExpression AS key,
+                            $timestampUsExpression AS timestamp_us,
+                            $sampleOrderExpression AS sample_order
+                        FROM read_parquet('$safePath')
+                    ) AS source
+                    WHERE target.session_id = source.session_id
+                        AND target.key = source.key
+                        AND target.timestamp_us = source.timestamp_us
+                        AND target.sample_order = source.sample_order
+                    """.trimIndent()
+                )
+            }
+            conn.createStatement().use { statement ->
+                statement.execute(
+                    """
                     INSERT INTO telemetry_frames
                         (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
                     SELECT
@@ -245,9 +263,6 @@ class DatabaseBackupExporter(
                         $timestampUsExpression,
                         $sampleOrderExpression
                     FROM read_parquet('$safePath')
-                    ON CONFLICT (session_id, key, timestamp_us, sample_order) DO UPDATE SET
-                        value = EXCLUDED.value,
-                        string_value = EXCLUDED.string_value
                     """.trimIndent()
                 )
             }

@@ -184,6 +184,7 @@ the secret to a desktop build.
 - [Connect the simulator](docs/start/CONNECT_SIMULATOR.md) - launch Local Sim, confirm live telemetry, and recover safely
 - [Bring in a run](docs/operate/BRING_IN_A_RUN.md) - collect, verify, quarantine, and replay completed logs
 - [Deterministic replay](docs/DETERMINISTIC_REPLAY.md) - clock, ordering, atomic dashboard snapshots, missing-data semantics, and recovery
+- [Run comparison and guided diagnosis](docs/RUN_COMPARISON_AND_GUIDED_DIAGNOSIS.md) - shared event alignment, unit-safe overlays, exact replay evidence, and mentor/student export
 - [Glossary](docs/learn/GLOSSARY.md) - student definitions with precise ARES meanings
 - [Accessibility and contrast](docs/learn/ACCESSIBILITY_AND_CONTRAST.md) - readable palettes, status cues, text scaling, and touch targets
 - [Teaching with ARES](docs/mentor/TEACHING_WITH_ARES.md) - mentor-led simulator-first lesson and physical robot safety gate

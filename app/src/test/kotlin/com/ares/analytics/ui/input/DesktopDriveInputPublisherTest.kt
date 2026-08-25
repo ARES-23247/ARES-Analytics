@@ -32,6 +32,22 @@ class DesktopDriveInputPublisherTest {
 
         assertFalse(session.needsReceiverRehandshake(acknowledgementContractAvailable = false))
     }
+
+    @Test
+    fun `inactive simulator waiting for teleop does not churn neutral sessions`() {
+        var nowMs = 1_000L
+        val session = DesktopDriveFrameSession(sessionNonce = 46.0) { nowMs }
+        session.markTransmitted()
+        nowMs += RECEIVER_ACK_STARTUP_TIMEOUT_MS * 4
+
+        assertFalse(
+            session.needsReceiverRehandshake(
+                acknowledgementContractAvailable = true,
+                receiverStatusCode = DRIVE_ACK_WAITING_FOR_FRAME,
+            )
+        )
+    }
+
     @Test
     fun `keyboard motion requires only an armed local simulator surface`() {
         val keyboard = KeyboardDriveState().apply {

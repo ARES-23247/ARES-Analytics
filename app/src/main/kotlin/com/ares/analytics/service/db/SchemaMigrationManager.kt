@@ -42,8 +42,9 @@ class SchemaMigrationManager(
      */
     fun runMigrations(oldDbPath: String?) {
         createSchemaSync(conn)
-        createSchemaSync(ephemeralConn)
         recoverInterruptedImports()
+        migrateTelemetryToAppendOnlyStorage()
+        createSchemaSync(ephemeralConn)
 
         if (oldDbPath != null && File(oldDbPath).isFile && !migrationCompleted(LEGACY_SQLITE_MIGRATION)) {
             val safeOldDbPath = oldDbPath.replace("'", "''")
@@ -157,8 +158,7 @@ class SchemaMigrationManager(
                     value DOUBLE NOT NULL,
                     string_value VARCHAR,
                     timestamp_us BIGINT NOT NULL,
-                    sample_order BIGINT NOT NULL,
-                    PRIMARY KEY (session_id, key, timestamp_us, sample_order)
+                    sample_order BIGINT NOT NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS analysis_diagnostics (
@@ -242,12 +242,12 @@ class SchemaMigrationManager(
             st.execute("UPDATE sessions SET import_state = 'COMPLETE' WHERE import_state IS NULL OR import_state = ''")
 
             migrateTelemetryPrecision(targetConn)
-            st.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_session_time ON telemetry_frames(session_id, timestamp_ms)")
-            // telemetry_frames already has a primary-key index beginning with (session_id, key)
-            // and the session/time index above begins with session_id. Building two more indexes
-            // over a multi-gigabyte telemetry store can consume the entire DuckDB memory budget
-            // during startup while duplicating those lookup prefixes. Existing copies are left in
-            // place, but new stores and recovered installs no longer attempt these redundant builds.
+            // Telemetry is an immutable, append-only analytical fact table. DuckDB creates an ART
+            // index for every primary/unique constraint and explicit CREATE INDEX. Those indexes
+            // add no useful ordering guarantee here (sample_order already preserves source order),
+            // and WAL replay against tens of millions of indexed rows can turn a small recovery
+            // log into a many-minute cold start. Session-grouped ingestion plus DuckDB's automatic
+            // zonemaps serve the bounded session/key/time scans without a second copy of every key.
             st.execute("CREATE INDEX IF NOT EXISTS idx_analysis_diagnostics_session ON analysis_diagnostics(session_id)")
             st.execute("CREATE INDEX IF NOT EXISTS idx_session_import_reports_session ON session_import_reports(session_id)")
             st.execute("CREATE INDEX IF NOT EXISTS idx_session_import_reports_sha ON session_import_reports(source_sha256)")
@@ -300,6 +300,37 @@ class SchemaMigrationManager(
     }
 
     /**
+     * Removes the three historical secondary ART indexes from the telemetry fact table.
+     *
+     * A realistic 32.6-million-row recovery probe showed that these redundant indexes—not DuckDB
+     * scans—turned a small WAL into a many-minute cold start. New databases have no telemetry ART
+     * indexes. Older databases retain their implicit primary-key index because removing it requires
+     * a full table rewrite (about 100 seconds and 1.5 GiB native memory in the same probe), which is
+     * not acceptable as an invisible startup migration. The future partitioned-Parquet migration
+     * can retire that final legacy index with explicit progress and rollback space.
+     */
+    private fun migrateTelemetryToAppendOnlyStorage() {
+        if (migrationCompleted(TELEMETRY_INDEX_HARDENING_MIGRATION)) return
+
+        conn.createStatement().use { statement ->
+            statement.execute("BEGIN TRANSACTION")
+            try {
+                statement.execute("DROP INDEX IF EXISTS idx_telemetry_session_id")
+                statement.execute("DROP INDEX IF EXISTS idx_telemetry_session_key_time")
+                statement.execute("DROP INDEX IF EXISTS idx_telemetry_session_time")
+                statement.execute(
+                    "INSERT INTO schema_migrations VALUES ('$TELEMETRY_INDEX_HARDENING_MIGRATION', epoch_ms(current_timestamp))"
+                )
+                statement.execute("COMMIT")
+            } catch (failure: Throwable) {
+                runCatching { statement.execute("ROLLBACK") }
+                throw failure
+            }
+        }
+        conn.createStatement().use { statement -> statement.execute("CHECKPOINT") }
+    }
+
+    /**
      * Rebuilds the legacy millisecond-keyed table once so multiple samples from the same
      * topic and millisecond can coexist. Existing rows retain their millisecond value and
      * receive a deterministic source timestamp/order.
@@ -329,8 +360,7 @@ class SchemaMigrationManager(
                         value DOUBLE NOT NULL,
                         string_value VARCHAR,
                         timestamp_us BIGINT NOT NULL,
-                        sample_order BIGINT NOT NULL,
-                        PRIMARY KEY (session_id, key, timestamp_us, sample_order)
+                        sample_order BIGINT NOT NULL
                     )
                     """.trimIndent()
                 )
@@ -361,5 +391,6 @@ class SchemaMigrationManager(
 
     private companion object {
         const val LEGACY_SQLITE_MIGRATION = "legacy-sqlite-v1"
+        const val TELEMETRY_INDEX_HARDENING_MIGRATION = "telemetry-index-hardening-v1"
     }
 }

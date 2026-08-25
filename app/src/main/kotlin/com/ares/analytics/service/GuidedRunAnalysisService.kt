@@ -56,6 +56,8 @@ data class GuidedRunFinding(
     val possibleCauses: List<String>,
     val safeVerificationSteps: List<String>,
     val timestampSeconds: Double? = null,
+    val absoluteTimestampMs: Long? = null,
+    val sourceTopics: List<String> = emptyList(),
 )
 
 enum class GuidedRunDestination {
@@ -150,6 +152,8 @@ class GuidedRunAnalysisService(
                     possibleCauses = finding.possibleCauses,
                     safeVerificationSteps = finding.verificationSteps,
                     timestampSeconds = finding.timestampSeconds,
+                    absoluteTimestampMs = (finding.timestampSeconds * 1_000.0).toLong(),
+                    sourceTopics = listOf(finding.topic),
                 )
             }
             val missingSignals = buildList {
@@ -255,6 +259,8 @@ class GuidedRunAnalysisService(
         report.findings.forEach { finding ->
             appendLine("### ${finding.title.safeMarkdown()}")
             finding.timestampSeconds?.let { appendLine("- Recorded timestamp: ${"%.3f".format(it)} s") }
+            finding.absoluteTimestampMs?.let { appendLine("- Replay evidence timestamp: $it ms") }
+            if (finding.sourceTopics.isNotEmpty()) appendLine("- Source topics: ${finding.sourceTopics.joinToString { it.safeMarkdown() }}")
             appendLine("- Observed: ${finding.observedEvidence.safeMarkdown()}")
             appendLine("- Interpretation limit: ${finding.interpretationLimit.safeMarkdown()}")
             appendLine("- Possible causes to verify: ${finding.possibleCauses.joinToString { it.safeMarkdown() }}")

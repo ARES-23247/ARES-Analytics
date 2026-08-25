@@ -289,6 +289,27 @@ is not required when the workspace already contains an imported or simulated run
 Historical telemetry can support reproducible analysis. It cannot prove the robot is currently
 configured the same way, connected, fresh, disabled, or physically safe.
 
+## A 40-minute compare-two-runs mission
+
+Use the two offline Academy practice runs before asking students to compare competition data.
+
+1. Ask students to name one observation, one possible explanation, and one controlled next test.
+2. Select both runs in Guided Run Review and read the exact team, season, and robot identity aloud.
+3. Align by recording start, then autonomous start, then the shared match event. Ask why aligned
+   time changes while every original replay timestamp remains fixed.
+4. Inspect loop time, battery, current, pose, driver input, and mechanism evidence only where the
+   same unit and source semantics are available. Read missing-data messages rather than treating
+   gaps as zero.
+5. Open one finding at its exact replay timestamp and verify the source topics in the replay.
+6. Label the claim as observation, correlation, hypothesis, or verified cause. A log comparison
+   normally supports the first three, not the last one.
+7. Export the mentor/student report and have another student find the session IDs, timestamp,
+   topics, sample/window limitation, and proposed next check without help.
+
+Assessment should reward evidence boundaries, not the number of detected differences. The report
+is local, contains recorded identifiers and topic names, and should be reviewed before external
+sharing. Synthetic and simulator runs do not prove physical-robot behavior.
+
 ## A 50-minute generated-runtime graduation
 
 Use **Graduate a GUI robot into a verified runtime** after students have completed one subsystem and

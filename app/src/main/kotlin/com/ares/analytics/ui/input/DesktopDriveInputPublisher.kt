@@ -142,8 +142,17 @@ internal class DesktopDriveFrameSession(
      * Once a simulator advertises the acknowledgement contract, silence means that the receiver
      * did not accept queued frames. Start a new neutral session instead of remaining falsely armed.
      */
-    fun needsReceiverRehandshake(acknowledgementContractAvailable: Boolean): Boolean {
+    fun needsReceiverRehandshake(
+        acknowledgementContractAvailable: Boolean,
+        receiverStatusCode: Int? = null,
+    ): Boolean {
         if (!acknowledgementContractAvailable) return false
+        // A launched simulator without an active TeleOp intentionally leaves the receiver in
+        // WAITING_FOR_FRAME. Replacing an already-neutral sender session cannot make that dormant
+        // receiver poll, and doing so every startup timeout only floods diagnostics. Once a TeleOp
+        // polls, the acknowledgement changes to an armed, active, or explicit rejection state and
+        // the normal fail-closed timeout remains authoritative.
+        if (receiverStatusCode == DRIVE_ACK_WAITING_FOR_FRAME) return false
         return receiverAcknowledgementAgeMs()?.let { it >= RECEIVER_ACK_TIMEOUT_MS }
             ?: (clockMs() - createdAtMs >= RECEIVER_ACK_STARTUP_TIMEOUT_MS)
     }
@@ -264,6 +273,7 @@ internal fun DesktopDriveInputPublisher(
         // simulator's 500 ms fail-closed lease must be renewed independently of that work, using
         // the latest immutable input snapshot produced by the UI thread.
         withContext(DRIVE_HEARTBEAT_DISPATCHER) {
+            var lastReportedReceiverStall: Triple<Int?, Long?, Long?>? = null
             while (currentCoroutineContext().isActive) {
                 val session = DesktopDriveFrameSession(nt4ClientService.nextDriveSessionNonce())
                 try {
@@ -284,16 +294,28 @@ internal fun DesktopDriveInputPublisher(
                             receiverSession = acknowledgement?.acceptedSession,
                             receiverSequence = acknowledgement?.acceptedSequence,
                         )
-                        if (session.needsReceiverRehandshake(acknowledgementAvailable)) {
-                            System.err.println(
-                                "[DesktopDriveInput] Simulator acknowledgement stalled for " +
-                                    "${session.receiverAcknowledgementAgeMs() ?: "startup"}; " +
-                                    "senderSession=${session.sessionNonce.toLong()}, " +
-                                    "receiverSession=${acknowledgement?.acceptedSession}, " +
-                                    "receiverSequence=${acknowledgement?.acceptedSequence}; " +
-                                    "starting a neutral session"
+                        if (session.needsReceiverRehandshake(acknowledgementAvailable, acknowledgement?.statusCode)) {
+                            val stallIdentity = Triple(
+                                acknowledgement?.statusCode,
+                                acknowledgement?.acceptedSession,
+                                acknowledgement?.acceptedSequence,
                             )
+                            if (stallIdentity != lastReportedReceiverStall) {
+                                System.err.println(
+                                    "[DesktopDriveInput] Simulator acknowledgement stalled for " +
+                                        "${session.receiverAcknowledgementAgeMs() ?: "startup"}; " +
+                                        "status=${acknowledgement?.statusCode}, " +
+                                        "senderSession=${session.sessionNonce.toLong()}, " +
+                                        "receiverSession=${acknowledgement?.acceptedSession}, " +
+                                        "receiverSequence=${acknowledgement?.acceptedSequence}; " +
+                                        "starting a neutral session"
+                                )
+                                lastReportedReceiverStall = stallIdentity
+                            }
                             break
+                        }
+                        if (acknowledgement?.acceptedSession?.toDouble() == session.sessionNonce) {
+                            lastReportedReceiverStall = null
                         }
                         val intent = desktopDriveIntent(
                             keyboard = keyboardSnapshot.value,
@@ -332,6 +354,7 @@ internal const val NEUTRAL_HANDSHAKE_FRAME_COUNT = 5
 internal const val RECEIVER_ACK_TIMEOUT_MS = 2_000L
 internal const val RECEIVER_ACK_STARTUP_TIMEOUT_MS = 2_500L
 internal const val DRIVE_ACK_VERSION = 1.0
+internal const val DRIVE_ACK_WAITING_FOR_FRAME = 0
 private const val FRAME_VALUE_COUNT = 8
 private const val FRAME_VERSION = 2.0
 private const val VERSION_INDEX = 0

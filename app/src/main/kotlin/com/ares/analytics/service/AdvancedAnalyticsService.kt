@@ -125,6 +125,12 @@ class AdvancedAnalyticsService(private val databaseService: TelemetryAnalyticsRe
         val baselines = baselineSessionIds.distinct()
             .filter { it != sessionId }
             .mapNotNull { databaseService.getSessionSummary(it) }
+            .filter { baseline ->
+                summary != null &&
+                    baseline.teamId == summary.teamId &&
+                    baseline.seasonId == summary.seasonId &&
+                    baseline.robotId == summary.robotId
+            }
 
         val comparison = summary?.let { compareSummaries(it, baselines) }
         val regressions = comparison?.metrics.orEmpty()

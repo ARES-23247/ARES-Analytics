@@ -355,6 +355,7 @@ fun MainScreen(services: ServiceRegistry) {
     val guidedRunAnalysisViewModel = remember(currentConfig.id) {
         GuidedRunAnalysisViewModel(
             service = services.guidedRunAnalysisService,
+            comparisonService = services.runComparisonService,
             scope = scope,
         )
     }
@@ -1013,8 +1014,8 @@ fun MainScreen(services: ServiceRegistry) {
                                 onOpenImports = {
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.IMPORT_CENTER))
                                 },
-                                onOpenDashboardReplay = { sessionId ->
-                                    dashboardViewModel.onIntent(DashboardIntent.SelectPrimarySession(sessionId))
+                                onOpenDashboardReplay = { sessionId, timestampMs ->
+                                    dashboardViewModel.onIntent(DashboardIntent.SelectPrimarySession(sessionId, timestampMs))
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DASHBOARD))
                                 },
                                 onOpenTuning = {

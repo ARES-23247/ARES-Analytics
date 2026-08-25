@@ -100,14 +100,20 @@ class DatabaseServiceIntegrationTest {
     }
 
     @Test
-    fun `telemetry schema avoids redundant startup indexes`() = runTest {
+    fun `telemetry schema is append only and has no ART indexes`() = runTest {
         withDatabase { database ->
             val indexes = database.executeQueryRaw(
                 "SELECT index_name FROM duckdb_indexes() " +
                     "WHERE table_name = 'telemetry_frames' ORDER BY index_name"
             ).rows.flatten()
+            val keyConstraints = database.executeQueryRaw(
+                "SELECT constraint_type FROM duckdb_constraints() " +
+                    "WHERE table_name = 'telemetry_frames' " +
+                    "AND constraint_type IN ('PRIMARY KEY', 'UNIQUE')"
+            ).rows.flatten()
 
-            assertEquals(listOf("idx_telemetry_session_time"), indexes)
+            assertTrue(indexes.isEmpty())
+            assertTrue(keyConstraints.isEmpty())
         }
     }
 
@@ -255,6 +261,65 @@ class DatabaseServiceIntegrationTest {
             val migrated = database.getTelemetryForKey("legacy", "Drive/Velocity").single()
             assertEquals(42_000L, migrated.timestampUs)
             assertEquals(3.5, migrated.value)
+        } finally {
+            database.close()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `legacy precision schema drops secondary indexes without rewriting its primary key`() = runTest {
+        val tempDir = Files.createTempDirectory("ares-append-only-migration").toFile()
+        val databaseFile = tempDir.resolve("telemetry.duckdb")
+        Class.forName("org.duckdb.DuckDBDriver")
+        DriverManager.getConnection("jdbc:duckdb:${databaseFile.absolutePath}").use { connection ->
+            connection.createStatement().use { statement ->
+                statement.execute(
+                    """
+                    CREATE TABLE telemetry_frames (
+                        timestamp_ms BIGINT NOT NULL,
+                        session_id VARCHAR NOT NULL,
+                        key VARCHAR NOT NULL,
+                        value DOUBLE NOT NULL,
+                        string_value VARCHAR,
+                        timestamp_us BIGINT NOT NULL,
+                        sample_order BIGINT NOT NULL,
+                        PRIMARY KEY (session_id, key, timestamp_us, sample_order)
+                    )
+                    """.trimIndent()
+                )
+                statement.execute("CREATE INDEX idx_telemetry_session_id ON telemetry_frames(session_id)")
+                statement.execute(
+                    "CREATE INDEX idx_telemetry_session_key_time " +
+                        "ON telemetry_frames(session_id, key, timestamp_us, sample_order)"
+                )
+                statement.execute("CREATE INDEX idx_telemetry_session_time ON telemetry_frames(session_id, timestamp_ms)")
+                statement.execute(
+                    "INSERT INTO telemetry_frames VALUES " +
+                        "(42, 'legacy', 'Drive/Velocity', 3.5, NULL, 42001, 0), " +
+                        "(42, 'legacy', 'Drive/Velocity', 4.5, NULL, 42002, 1)"
+                )
+            }
+        }
+
+        val database = DatabaseService(databaseFile.absolutePath)
+        try {
+            val migrated = database.getTelemetryForKey("legacy", "Drive/Velocity")
+            assertEquals(listOf(42_001L, 42_002L), migrated.map { it.timestampUs })
+            assertEquals(listOf(3.5, 4.5), migrated.map { it.value })
+            assertTrue(
+                database.executeQueryRaw(
+                    "SELECT index_name FROM duckdb_indexes() WHERE table_name = 'telemetry_frames'"
+                ).rows.isEmpty()
+            )
+            assertEquals(
+                listOf(listOf("PRIMARY KEY")),
+                database.executeQueryRaw(
+                    "SELECT constraint_type FROM duckdb_constraints() " +
+                        "WHERE table_name = 'telemetry_frames' " +
+                        "AND constraint_type IN ('PRIMARY KEY', 'UNIQUE')"
+                ).rows,
+            )
         } finally {
             database.close()
             tempDir.deleteRecursively()

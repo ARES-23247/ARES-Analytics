@@ -2,7 +2,7 @@
 
 Robot Academy uses this exact screen for **Bring in and identify one run** and **Explain one run
 with bounded evidence**. Observable checkpoints come from the workspace run list, the selected
-report's source/metrics/baseline/limitations, and successful Markdown export. Conclusions remain
+report's source/metrics/comparison/limitations, and successful Markdown export. Conclusions remain
 student reflections; ARES never converts a generated finding into a proven cause.
 
 Use **Analysis → Guided Run Review** when you have a completed simulator, practice, or match run and want to understand it without starting from a table or SQL query. The review is read-only: it does not change the run, publish tuning, edit robot source, or command hardware.
@@ -13,10 +13,13 @@ Use **Analysis → Guided Run Review** when you have a completed simulator, prac
 2. Choose a run. ARES lists only sessions with that exact identity.
 3. Read **Data source**, **Freshness**, and **Interpretation confidence** before interpreting a graph.
 4. Inspect timestamps, units, and persisted alerts.
-5. Compare only against compatible runs from the same team, season, and robot.
-6. Keep **Observed evidence** separate from **Possible causes to verify**.
-7. Open the exact timeline before changing a builder or tuning value.
-8. Export the Markdown evidence report alongside the original log.
+5. Choose one or more compatible comparison runs from the same team, season, and robot.
+6. Align by run start, autonomous start, a shared match event, or a shared timeline annotation. An option appears only when every selected run contains it.
+7. Keep **Observed difference** and **Correlation — cause not proven** separate from possible causes.
+8. Use **Open replay at evidence** to load the named session at the original persisted timestamp and verify the listed topics.
+9. Export the mentor/student Markdown report alongside the original logs.
+
+Trajectory and telemetry overlays share an X-axis only after their run timestamps are shifted by the selected anchor. Each graph retains one physical unit. Derived signals join exact source timestamps; a future value is never borrowed to fill a gap. See [Run comparison and guided diagnosis](../RUN_COMPARISON_AND_GUIDED_DIAGNOSIS.md) for the complete contract.
 
 ## Understand the confidence language
 

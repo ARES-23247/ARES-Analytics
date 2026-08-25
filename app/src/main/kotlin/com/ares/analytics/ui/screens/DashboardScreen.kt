@@ -177,13 +177,19 @@ fun DashboardScreen(
     }
 
     // Load replay session when primarySessionId changes
-    LaunchedEffect(state.primarySessionId) {
+    LaunchedEffect(state.primarySessionId, state.replayEvidenceTarget?.requestId) {
         val sessionId = state.primarySessionId
         if (sessionId != null) {
             services.nt4ClientService.isReplayActive.value = true
             if (replayEngine.sessionInfo.value?.sessionId != sessionId || replayEngine.currentFrame.value == null) {
                 replayEngine.loadSession(sessionId)
             }
+            state.replayEvidenceTarget
+                ?.takeIf { it.sessionId == sessionId }
+                ?.let { target ->
+                    replayEngine.seekToTimestamp(target.timestampMs)
+                    viewModel.onIntent(DashboardIntent.ConsumeReplayEvidenceTarget(target.requestId))
+                }
         } else {
             replayEngine.stop()
             if (state.sessionMode != SessionMode.LIVE_REWIND) {

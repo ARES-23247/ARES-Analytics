@@ -142,7 +142,8 @@ Access is serialized with coroutine mutexes at the repository boundary. Keep tra
 
 - `sessions`: identity, team/season/robot, duration, match metadata, tags
 - `session_summaries`: derived health/performance metrics
-- `telemetry_frames`: `(session_id, key, timestamp_ms)` primary key plus numeric and optional string values
+- `telemetry_frames`: append-only numeric and optional string samples ordered by `timestamp_us` and
+  `sample_order`; new stores intentionally have no ART indexes
 - `analysis_diagnostics`: replaceable analyzer-owned results keyed by session and metric; never raw timeline samples
 - `session_import_reports`: decoder provenance and accepted/rejected-record evidence retained with the session across cloud round trips
 - `robot_actions`: timestamped Redux/action records
@@ -156,6 +157,13 @@ Access is serialized with coroutine mutexes at the repository boundary. Keep tra
 `executeQueryRaw` is read-only. Do not weaken its restrictions to support a write workflow. Operations such as Parquet `COPY`, where DuckDB cannot parameterize the relevant file position, belong in a narrow internal method that canonicalizes and SQL-escapes the path.
 
 Schema migrations run before repositories are used. Legacy SQLite attach/import uses a separate schema name and explicit destination columns so adding a DuckDB column does not break positional migration.
+
+The measured cold-start failure mode and the staged move toward immutable per-session Parquet are
+documented in [Telemetry storage architecture](docs/DATABASE_STORAGE_ARCHITECTURE.md). Do not add a
+primary key or secondary index to the raw telemetry fact table without a production-sized WAL
+recovery benchmark. Existing installations drop the three historical secondary indexes but retain
+their legacy primary-key index until an explicit, progress-reporting Parquet migration; silently
+rewriting tens of millions of rows during startup is prohibited.
 
 ## 7. Log import
 

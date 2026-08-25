@@ -6,11 +6,18 @@ import com.ares.analytics.service.GuidedRunConfidence
 import com.ares.analytics.service.GuidedRunEvidenceContext
 import com.ares.analytics.service.RunEvidenceSourceKind
 import com.ares.analytics.service.RunSourceEvidence
+import com.ares.analytics.service.RunAlignmentKind
+import com.ares.analytics.service.RunAlignmentOption
+import com.ares.analytics.service.RunComparisonReport
+import com.ares.analytics.service.RunComparisonRepository
+import com.ares.analytics.service.RunComparisonRequest
+import com.ares.analytics.service.RunAlignmentAnchor
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.Session
 import com.ares.analytics.shared.WorkspaceConfig
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -40,6 +47,7 @@ class GuidedRunAnalysisViewModelTest {
 
         assertEquals(listOf("new-run"), viewModel.state.value.sessions.map(Session::sessionId))
         assertEquals("new-run", viewModel.state.value.report?.session?.sessionId)
+        assertEquals("C:/projects/new", viewModel.state.value.comparisonExportDirectory)
 
         oldSessions.complete(listOf(session("old-run", "old-robot")))
         advanceUntilIdle()
@@ -81,6 +89,58 @@ class GuidedRunAnalysisViewModelTest {
         assertNull(viewModel.state.value.error)
     }
 
+    @Test
+    fun `student can select several comparison runs and change a shared alignment`() = runTest {
+        val sessions = CompletableDeferred<List<Session>>().apply {
+            complete(listOf(session("primary", "practice"), session("second", "practice"), session("third", "practice")))
+        }
+        val repository = FakeRepository(mapOf("workspace" to sessions))
+        val comparisons = FakeComparisonRepository()
+        val viewModel = GuidedRunAnalysisViewModel(repository, this, comparisons)
+
+        viewModel.load(workspace("workspace", "practice"))
+        advanceUntilIdle()
+
+        assertEquals(listOf("second"), viewModel.state.value.comparisonSessionIds)
+        assertEquals(listOf("second"), comparisons.requests.last().comparisonSessionIds)
+
+        viewModel.toggleComparisonSession("third")
+        advanceUntilIdle()
+        assertEquals(listOf("second", "third"), viewModel.state.value.comparisonSessionIds)
+
+        viewModel.selectAlignment("autonomous-start")
+        advanceUntilIdle()
+        assertEquals("autonomous-start", comparisons.requests.last().alignmentId)
+        assertEquals("autonomous-start", viewModel.state.value.comparisonReport?.selectedAlignment?.id)
+    }
+
+    @Test
+    fun `removing the final comparison cancels work without surfacing a false error`() = runTest {
+        val sessions = CompletableDeferred<List<Session>>().apply {
+            complete(listOf(session("primary", "practice"), session("second", "practice")))
+        }
+        val repository = FakeRepository(mapOf("workspace" to sessions))
+        val comparisons = object : RunComparisonRepository {
+            override suspend fun compare(workspace: WorkspaceConfig, request: RunComparisonRequest): RunComparisonReport {
+                awaitCancellation()
+            }
+
+            override suspend fun exportMarkdown(report: RunComparisonReport, destination: File) = Unit
+        }
+        val viewModel = GuidedRunAnalysisViewModel(repository, this, comparisons)
+
+        viewModel.load(workspace("workspace", "practice"))
+        runCurrent()
+        assertTrue(viewModel.state.value.comparing)
+
+        viewModel.toggleComparisonSession("second")
+        runCurrent()
+
+        assertTrue(viewModel.state.value.comparisonSessionIds.isEmpty())
+        assertTrue(!viewModel.state.value.comparing)
+        assertNull(viewModel.state.value.comparisonError)
+    }
+
     private class FakeRepository(
         private val sessionLoads: Map<String, CompletableDeferred<List<Session>>>,
     ) : GuidedRunAnalysisRepository {
@@ -96,6 +156,35 @@ class GuidedRunAnalysisViewModelTest {
 
         override suspend fun exportMarkdown(report: GuidedRunAnalysisReport, destination: File) {
             destination.writeText(report.session.sessionId)
+        }
+    }
+
+    private class FakeComparisonRepository : RunComparisonRepository {
+        val requests = mutableListOf<RunComparisonRequest>()
+
+        override suspend fun compare(workspace: WorkspaceConfig, request: RunComparisonRequest): RunComparisonReport {
+            requests += request
+            val selected = listOf(request.primarySessionId) + request.comparisonSessionIds
+            val options = listOf(
+                RunAlignmentOption("run-start", RunAlignmentKind.RUN_START, "Run start", "First sample"),
+                RunAlignmentOption("autonomous-start", RunAlignmentKind.AUTONOMOUS_START, "Autonomous start", "Auto marker"),
+            )
+            return RunComparisonReport(
+                sessions = selected.map { session(it, workspace.robotId) },
+                primarySessionId = request.primarySessionId,
+                selectedAlignment = options.first { it.id == request.alignmentId },
+                availableAlignments = options,
+                anchors = selected.map { RunAlignmentAnchor(it, 1_000L, request.alignmentId) },
+                trajectories = emptyList(),
+                metrics = emptyList(),
+                faults = emptyList(),
+                findings = emptyList(),
+                limitations = emptyList(),
+            )
+        }
+
+        override suspend fun exportMarkdown(report: RunComparisonReport, destination: File) {
+            destination.writeText(report.primarySessionId)
         }
     }
 
