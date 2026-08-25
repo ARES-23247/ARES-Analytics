@@ -14,6 +14,21 @@ class AutoTuningDigitalTwinTest {
     private lateinit var nt4: Nt4ClientService
     private val digitalTwin = AutoTuningDigitalTwin()
 
+    @Test
+    fun `every novice teaching scenario is deterministic bounded and clearly simulated`() {
+        SysIdMechanism.entries.forEach { mechanism ->
+            val scenario = AutoTuningDigitalTwin.teachingScenario(mechanism)
+            val first = digitalTwin.generateSamples(scenario)
+            val second = digitalTwin.generateSamples(scenario)
+
+            assertEquals(first, second)
+            assertEquals(mechanism, scenario.plant.mechanism)
+            assertTrue(scenario.name.startsWith("teaching-"))
+            assertTrue(first.size >= 40)
+            assertTrue(first.all { it.voltage.isFinite() && it.velocity.isFinite() && it.accel.isFinite() })
+        }
+    }
+
     @Before
     fun setUp() {
         val database = DatabaseService(File.createTempFile("auto_tuning_twin", ".duckdb").apply { deleteOnExit() }.absolutePath)

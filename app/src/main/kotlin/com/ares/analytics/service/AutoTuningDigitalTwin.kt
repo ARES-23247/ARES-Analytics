@@ -219,6 +219,26 @@ class AutoTuningDigitalTwin {
 
     companion object {
         /**
+         * Stable, noise-free mechanism used by the novice SysId walkthrough before any robot can
+         * be armed. The constants are teaching fixtures, never estimates for the student's robot.
+         */
+        fun teachingScenario(mechanism: SysIdMechanism): DigitalTwinScenario {
+            val plant = when (mechanism) {
+                SysIdMechanism.LINEAR, SysIdMechanism.ELEVATOR ->
+                    DigitalTwinPlant(mechanism, kS = 0.35, kV = 1.8, kA = 0.45, stepVoltage = 6.0)
+                SysIdMechanism.ANGULAR, SysIdMechanism.ARM ->
+                    DigitalTwinPlant(mechanism, kS = 0.25, kV = 1.2, kA = 0.35, stepVoltage = 5.0)
+                SysIdMechanism.FLYWHEEL, SysIdMechanism.CUSTOM ->
+                    DigitalTwinPlant(mechanism, kS = 0.25, kV = 0.05, kA = 0.015, stepVoltage = 7.0)
+            }
+            return DigitalTwinScenario(
+                name = "teaching-${mechanism.name.lowercase()}",
+                plant = plant,
+                seed = 23_247,
+            )
+        }
+
+        /**
          * A one-direction constant step is rank deficient for V = kS + kV*v + kA*a.
          * Combine a quasistatic ramp, coast-down, and dynamic step so all three terms
          * are independently observable without commanding a flywheel in reverse.

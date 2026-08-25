@@ -9,6 +9,7 @@ object TuningTransport {
         "${TuningTopics.ROOT}/Parameters/${declaration.uid}"
 
     fun current(declaration: TuningParameterDeclaration): String = "${parameterRoot(declaration)}/Current"
+    fun consumerSupported(declaration: TuningParameterDeclaration): String = "${parameterRoot(declaration)}/ConsumerSupported"
     fun requested(declaration: TuningParameterDeclaration): String = "${parameterRoot(declaration)}/Requested"
     fun requestNonce(declaration: TuningParameterDeclaration): String = "${parameterRoot(declaration)}/RequestNonce"
     fun processedNonce(declaration: TuningParameterDeclaration): String = "${parameterRoot(declaration)}/ProcessedNonce"

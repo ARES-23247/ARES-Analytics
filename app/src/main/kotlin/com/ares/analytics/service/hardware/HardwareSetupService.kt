@@ -2,6 +2,8 @@ package com.ares.analytics.service.hardware
 
 import com.ares.analytics.service.drivebase.DriveHardwareRole
 import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
+import com.ares.analytics.service.commissioning.CommissioningSimulationSummary
+import com.ares.analytics.service.commissioning.CommissioningVerificationService
 import com.ares.analytics.service.writeFileAtomically
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.project.SubsystemProjectRepository
@@ -17,6 +19,7 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
+import java.time.Clock
 
 enum class HardwareInventoryOwner { DRIVEBASE, SUBSYSTEM }
 
@@ -90,6 +93,8 @@ data class HardwareSetupSnapshot(
     val issues: List<HardwareInventoryIssue>,
     val reviewStatus: HardwareReviewStatus,
     val reviewedBy: String? = null,
+    val simulationVerification: CommissioningSimulationSummary,
+    val physicalValidation: HardwarePhysicalValidationEvidence? = null,
 ) {
     val errorIssues: List<HardwareInventoryIssue>
         get() = issues.filter { it.severity == HardwareIssueSeverity.ERROR }
@@ -107,6 +112,23 @@ data class HardwareReviewRequest(
     val limitsChecked: Boolean,
 )
 
+data class HardwarePhysicalValidationEvidence(
+    val inventoryHash: String,
+    val validatedBy: String,
+    val evidenceSummary: String,
+    val recordedAtEpochMillis: Long,
+)
+
+data class HardwarePhysicalValidationRequest(
+    val validatedBy: String,
+    val evidenceSummary: String,
+    val directionsAndPolarityTested: Boolean,
+    val unitsAndSensorsTested: Boolean,
+    val disabledNeutralTested: Boolean,
+    val limitsAndCurrentTested: Boolean,
+    val faultRecoveryTested: Boolean,
+)
+
 @Serializable
 private data class HardwareSourceFingerprint(
     val path: String,
@@ -115,7 +137,7 @@ private data class HardwareSourceFingerprint(
 
 @Serializable
 private data class HardwareReviewDocument(
-    val schemaVersion: Int = 1,
+    val schemaVersion: Int = 2,
     val league: String,
     val inventoryHash: String,
     val reviewedBy: String,
@@ -125,6 +147,26 @@ private data class HardwareReviewDocument(
     val neutralOutputsChecked: Boolean,
     val limitsChecked: Boolean,
     val sources: List<HardwareSourceFingerprint>,
+    val physicalValidation: HardwarePhysicalValidationDocument? = null,
+)
+
+@Serializable
+private data class HardwarePhysicalValidationDocument(
+    val inventoryHash: String,
+    val validatedBy: String,
+    val evidenceSummary: String,
+    val recordedAtEpochMillis: Long,
+    val directionsAndPolarityTested: Boolean,
+    val unitsAndSensorsTested: Boolean,
+    val disabledNeutralTested: Boolean,
+    val limitsAndCurrentTested: Boolean,
+    val faultRecoveryTested: Boolean,
+)
+
+private data class HardwareReviewReadResult(
+    val status: HardwareReviewStatus,
+    val reviewedBy: String?,
+    val physicalValidation: HardwarePhysicalValidationEvidence?,
 )
 
 private val HARDWARE_REVIEW_JSON = Json {
@@ -143,6 +185,8 @@ private val HARDWARE_REVIEW_JSON = Json {
 class HardwareSetupService(
     private val drivebaseRepository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
     private val subsystemRepository: SubsystemProjectRepository = SubsystemProjectRepository(),
+    private val commissioningVerificationService: CommissioningVerificationService = CommissioningVerificationService(),
+    private val clock: Clock = Clock.systemUTC(),
 ) {
     fun inspect(projectPath: String, league: League): HardwareSetupSnapshot {
         val root = File(projectPath).canonicalFile
@@ -151,6 +195,7 @@ class HardwareSetupService(
         val issues = mutableListOf<HardwareInventoryIssue>()
         val items = mutableListOf<HardwareInventoryItem>()
         val sources = mutableListOf<HardwareSourceFingerprint>()
+        val subsystemDocuments = mutableListOf<com.areslib.subsystem.SubsystemDocument>()
 
         drivebaseRepository.load(root.path).fold(
             onSuccess = { drivebase ->
@@ -221,6 +266,7 @@ class HardwareSetupService(
             )
         }
         subsystemListing.documents.forEach { subsystem ->
+            subsystemDocuments += subsystem
             val sourcePath = ".ares/subsystems/${subsystem.documentId}.aressubsystem"
             sources += HardwareSourceFingerprint(sourcePath, SubsystemDocumentCodec.contentHash(subsystem))
             subsystem.hardware.forEach { device ->
@@ -321,7 +367,8 @@ class HardwareSetupService(
         )
         val normalizedSources = sources.distinctBy(HardwareSourceFingerprint::path).sortedBy(HardwareSourceFingerprint::path)
         val inventoryHash = inventoryHash(league, normalizedSources, normalizedItems)
-        val (reviewStatus, reviewedBy) = readReview(root, league, inventoryHash, normalizedSources, issues)
+        val review = readReview(root, league, inventoryHash, normalizedSources, issues)
+        val simulationVerification = commissioningVerificationService.verify(subsystemDocuments)
 
         return HardwareSetupSnapshot(
             projectPath = root.path,
@@ -331,8 +378,10 @@ class HardwareSetupService(
             issues = issues.distinct().sortedWith(
                 compareByDescending<HardwareInventoryIssue> { it.severity.ordinal }.thenBy { it.message },
             ),
-            reviewStatus = reviewStatus,
-            reviewedBy = reviewedBy,
+            reviewStatus = review.status,
+            reviewedBy = review.reviewedBy,
+            simulationVerification = simulationVerification,
+            physicalValidation = review.physicalValidation,
         )
     }
 
@@ -379,6 +428,57 @@ class HardwareSetupService(
         return inspect(projectPath, league)
     }
 
+    fun savePhysicalValidation(
+        projectPath: String,
+        league: League,
+        request: HardwarePhysicalValidationRequest,
+    ): HardwareSetupSnapshot {
+        val snapshot = inspect(projectPath, league)
+        require(snapshot.reviewStatus == HardwareReviewStatus.CURRENT) {
+            "Record a current configuration review before physical validation."
+        }
+        require(snapshot.simulationVerification.verified) {
+            "Resolve deterministic commissioning simulation failures before physical validation."
+        }
+        val validator = request.validatedBy.trim()
+        val evidence = request.evidenceSummary.trim()
+        require(validator.length in 2..80) { "Enter the student or mentor who performed the supervised physical checks." }
+        require(evidence.length in 20..1_000) {
+            "Describe the robot, procedure, observed result, and any remaining limitation (20–1,000 characters)."
+        }
+        require(
+            request.directionsAndPolarityTested && request.unitsAndSensorsTested && request.disabledNeutralTested &&
+                request.limitsAndCurrentTested && request.faultRecoveryTested,
+        ) { "Complete every supervised physical-validation check before recording evidence." }
+
+        val target = reviewFile(File(snapshot.projectPath))
+        val existing = HARDWARE_REVIEW_JSON.decodeFromString<HardwareReviewDocument>(target.readText())
+        require(existing.inventoryHash == snapshot.inventoryHash) { "The configuration changed; refresh and review it again." }
+        val updated = existing.copy(
+            schemaVersion = 2,
+            physicalValidation = HardwarePhysicalValidationDocument(
+                inventoryHash = snapshot.inventoryHash,
+                validatedBy = validator,
+                evidenceSummary = evidence,
+                recordedAtEpochMillis = clock.millis(),
+                directionsAndPolarityTested = true,
+                unitsAndSensorsTested = true,
+                disabledNeutralTested = true,
+                limitsAndCurrentTested = true,
+                faultRecoveryTested = true,
+            ),
+        )
+        writeFileAtomically(target) { temporary ->
+            Files.writeString(
+                temporary.toPath(),
+                HARDWARE_REVIEW_JSON.encodeToString(updated).trimEnd() + System.lineSeparator(),
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE,
+            )
+        }
+        return inspect(projectPath, league)
+    }
+
     /** Deployment requirement used only by templates that explicitly opt into reviewed hardware. */
     fun deploymentBlockReason(projectPath: String, league: League): String? {
         val snapshot = runCatching { inspect(projectPath, league) }.getOrElse { error ->
@@ -404,18 +504,18 @@ class HardwareSetupService(
         inventoryHash: String,
         currentSources: List<HardwareSourceFingerprint>,
         issues: MutableList<HardwareInventoryIssue>,
-    ): Pair<HardwareReviewStatus, String?> {
+    ): HardwareReviewReadResult {
         val file = reviewFile(root)
-        if (!file.isFile) return HardwareReviewStatus.NOT_REVIEWED to null
+        if (!file.isFile) return HardwareReviewReadResult(HardwareReviewStatus.NOT_REVIEWED, null, null)
         val review = runCatching { HARDWARE_REVIEW_JSON.decodeFromString<HardwareReviewDocument>(file.readText()) }
             .getOrElse { error ->
                 issues += HardwareInventoryIssue(
                     HardwareIssueSeverity.WARNING,
                     "hardware-review.json is invalid: ${error.message}",
                 )
-                return HardwareReviewStatus.INVALID to null
+                return HardwareReviewReadResult(HardwareReviewStatus.INVALID, null, null)
             }
-        if (review.schemaVersion != 1 || review.league != league.name || review.reviewedBy.isBlank() ||
+        if (review.schemaVersion !in 1..2 || review.league != league.name || review.reviewedBy.isBlank() ||
             !review.wiringMatched || !review.addressesChecked || !review.directionsChecked ||
             !review.neutralOutputsChecked || !review.limitsChecked
         ) {
@@ -423,13 +523,26 @@ class HardwareSetupService(
                 HardwareIssueSeverity.WARNING,
                 "hardware-review.json does not contain a complete review for ${league.name}.",
             )
-            return HardwareReviewStatus.INVALID to review.reviewedBy.takeIf(String::isNotBlank)
+            return HardwareReviewReadResult(HardwareReviewStatus.INVALID, review.reviewedBy.takeIf(String::isNotBlank), null)
         }
         val reviewedSources = review.sources.sortedBy(HardwareSourceFingerprint::path)
         return if (review.inventoryHash == inventoryHash && reviewedSources == currentSources) {
-            HardwareReviewStatus.CURRENT to review.reviewedBy
+            val physical = review.physicalValidation?.takeIf { validation ->
+                validation.inventoryHash == inventoryHash && validation.validatedBy.isNotBlank() &&
+                    validation.evidenceSummary.length >= 20 && validation.recordedAtEpochMillis > 0L &&
+                    validation.directionsAndPolarityTested && validation.unitsAndSensorsTested &&
+                    validation.disabledNeutralTested && validation.limitsAndCurrentTested && validation.faultRecoveryTested
+            }?.let { validation ->
+                HardwarePhysicalValidationEvidence(
+                    inventoryHash = validation.inventoryHash,
+                    validatedBy = validation.validatedBy,
+                    evidenceSummary = validation.evidenceSummary,
+                    recordedAtEpochMillis = validation.recordedAtEpochMillis,
+                )
+            }
+            HardwareReviewReadResult(HardwareReviewStatus.CURRENT, review.reviewedBy, physical)
         } else {
-            HardwareReviewStatus.STALE to review.reviewedBy
+            HardwareReviewReadResult(HardwareReviewStatus.STALE, review.reviewedBy, null)
         }
     }
 

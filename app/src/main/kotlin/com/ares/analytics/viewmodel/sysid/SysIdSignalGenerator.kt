@@ -153,7 +153,7 @@ class SysIdSignalGenerator(
     }
 
     suspend fun startRoutine(mechanism: SysIdMechanism, routine: SysIdRoutine) {
-        requireMotionAuthorization()
+        requireMotionAuthorization(mechanism)
         _state.update {
             it.copy(
                 liveSamples = emptyList(),
@@ -278,8 +278,16 @@ class SysIdSignalGenerator(
         _state.update { it.copy(exportStatus = if (accepted) "Sent calibration results to the Tuning proposal board." else "No complete calibration proposal was available; no robot or source value changed.") }
     }
 
-    private fun requireMotionAuthorization() {
+    private fun requireMotionAuthorization(mechanism: SysIdMechanism? = null) {
         val current = _state.value
+        check(current.capabilitiesKnown) {
+            "Connected runtime has not advertised live SysId capabilities"
+        }
+        if (mechanism != null) {
+            check(mechanism in current.supportedMechanisms) {
+                "Connected runtime does not support ${mechanism.name.lowercase()} SysId"
+            }
+        }
         check(current.isRobotConnected && (!current.requiresNetworkArm ||
             (current.armPhase == CalibrationArmPhase.ARMED && current.robotCalibrationArmed))) {
             "Calibration motion requires an acknowledged FTC arm lease"

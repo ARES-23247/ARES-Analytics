@@ -171,6 +171,13 @@ class AutoTunerService(
     }
 
     suspend fun approveAndApplyGains(rec: TuningRecommendation) {
+        if (rec.logSource.startsWith("digital-twin:")) {
+            _applyState.value = TuningApplyState(
+                TuningApplyPhase.FAILED,
+                "Simulation taught the workflow but did not measure this robot. Run a recorded, safely armed SysId experiment before creating a robot tuning proposal.",
+            )
+            return
+        }
         val envelopeViolations = rec.safetyEnvelope.violations(
             rec.recommendedkS, rec.recommendedkV, rec.recommendedkA, rec.recommendedGains
         )

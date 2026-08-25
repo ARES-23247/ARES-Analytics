@@ -17,6 +17,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.flow.first
+import org.junit.Assert.assertFalse
 
 class AutoTunerServiceTest {
     private lateinit var autoTunerService: AutoTunerService
@@ -69,6 +70,29 @@ class AutoTunerServiceTest {
         assertEquals(TuningApplyPhase.RECOMMENDED, autoTunerService.applyState.value.phase)
         assertEquals(recommendation.topicValues, proposal.await().values)
         assertEquals("AutoTuner approval must not publish any robot topic", latestBefore, mockNt4Service.latestValues.toMap())
+    }
+
+    @Test
+    fun `hardware free teaching recommendation cannot enter proposal path`() = runBlocking {
+        val inbox = TuningProposalInbox()
+        autoTunerService = AutoTunerService(
+            mockNt4Service,
+            SysIdService(DatabaseService(File.createTempFile("teaching_db", ".sqlite").absolutePath)),
+            inbox,
+        )
+        val teaching = AutoTuningDigitalTwin.teachingScenario(SysIdMechanism.LINEAR)
+        val recommendation = autoTunerService.analyzeSamples(
+            teaching.plant.mechanism,
+            AutoTuningDigitalTwin().generateSamples(teaching),
+            "digital-twin:${teaching.name}",
+        )!!
+
+        autoTunerService.approveAndApplyGains(recommendation)
+
+        assertEquals(TuningApplyPhase.FAILED, autoTunerService.applyState.value.phase)
+        assertTrue(autoTunerService.applyState.value.message.contains("did not measure", ignoreCase = true))
+        assertFalse(inbox.proposals.replayCache.isNotEmpty())
+        assertTrue(mockNt4Service.latestValues.isEmpty())
     }
 
     private fun syntheticBidirectionalRun(): List<AlignedDataRow> {

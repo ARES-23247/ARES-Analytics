@@ -1,8 +1,10 @@
-package com.ares.analytics.ui.screens
+package com.ares.analytics.service.commissioning
 
 import com.areslib.subsystem.SubsystemControlLoopDocument
 import com.areslib.subsystem.SubsystemControlStrategy
 import com.areslib.subsystem.SubsystemFeedforwardKind
+import com.areslib.subsystem.subsystemUnitCanRepresentVelocity
+import com.areslib.subsystem.subsystemUnitIsCanonicalAngle
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sign
@@ -21,7 +23,13 @@ internal enum class SubsystemCommissioningScenario(val displayName: String) {
     NOMINAL("Normal step"),
     LOAD_DISTURBANCE("Add a load"),
     STALE_FEEDBACK("Freeze feedback"),
+    FROZEN_HEARTBEAT("Frozen sensor heartbeat"),
     INVALID_FEEDBACK("Invalidate feedback"),
+    FAILED_WRITE_RECOVERY("Failed write + neutral recovery"),
+    BROWNOUT_RECOVERY("Brownout + voltage recovery"),
+    EXCESS_CURRENT_RECOVERY("Excess current + neutral recovery"),
+    UNCONFIGURED("Device not configured"),
+    UNHOMED("Mechanism not homed"),
     ANGLE_BOUNDARY("Cross ±π boundary"),
 }
 
@@ -31,6 +39,9 @@ internal data class SubsystemCommissioningSample(
     val measurement: Double,
     val command: Double,
     val feedbackUsable: Boolean,
+    val safetyPermit: Boolean,
+    val faultActive: Boolean,
+    val faultLatched: Boolean,
 )
 
 internal data class SubsystemCommissioningMetrics(
@@ -39,6 +50,8 @@ internal data class SubsystemCommissioningMetrics(
     val peakAbsoluteCommand: Double,
     val saturationPercent: Double,
     val neutralizedOnFault: Boolean?,
+    val faultLatched: Boolean?,
+    val neutralRecoverySucceeded: Boolean?,
     val enteredTolerance: Boolean,
     val statusMessage: String,
 )
@@ -49,6 +62,49 @@ internal data class SubsystemCommissioningResult(
     val referenceLabel: String,
     val measurementLabel: String,
 )
+
+internal fun defaultCommissioningPlant(
+    loop: SubsystemControlLoopDocument,
+    targetUnit: String?,
+): SubsystemCommissioningPlant = when {
+    loop.strategy == SubsystemControlStrategy.SERVO_POSITION -> SubsystemCommissioningPlant.POSITIONAL_SERVO
+    loop.strategy == SubsystemControlStrategy.VELOCITY_PID || subsystemUnitCanRepresentVelocity(targetUnit) ->
+        SubsystemCommissioningPlant.FLYWHEEL
+    loop.feedforward.kind == SubsystemFeedforwardKind.ELEVATOR -> SubsystemCommissioningPlant.ELEVATOR
+    loop.feedforward.kind in setOf(
+        SubsystemFeedforwardKind.ARM,
+        SubsystemFeedforwardKind.TWO_DOF_ARM,
+        SubsystemFeedforwardKind.FOUR_BAR_LINKAGE,
+    ) -> SubsystemCommissioningPlant.ROTARY_ARM
+    subsystemUnitIsCanonicalAngle(targetUnit) -> SubsystemCommissioningPlant.ROTARY_ARM
+    else -> SubsystemCommissioningPlant.ELEVATOR
+}
+
+internal fun commissioningScenariosFor(loop: SubsystemControlLoopDocument): List<SubsystemCommissioningScenario> = buildList {
+    add(SubsystemCommissioningScenario.NOMINAL)
+    if (loop.strategy != SubsystemControlStrategy.SERVO_POSITION) add(SubsystemCommissioningScenario.LOAD_DISTURBANCE)
+    if (loop.strategy in setOf(
+            SubsystemControlStrategy.POSITION_PID,
+            SubsystemControlStrategy.PROFILED_POSITION_PID,
+            SubsystemControlStrategy.VELOCITY_PID,
+            SubsystemControlStrategy.BANG_BANG,
+        )
+    ) {
+        add(SubsystemCommissioningScenario.STALE_FEEDBACK)
+        add(SubsystemCommissioningScenario.FROZEN_HEARTBEAT)
+        add(SubsystemCommissioningScenario.INVALID_FEEDBACK)
+    }
+    add(SubsystemCommissioningScenario.FAILED_WRITE_RECOVERY)
+    add(SubsystemCommissioningScenario.BROWNOUT_RECOVERY)
+    add(SubsystemCommissioningScenario.EXCESS_CURRENT_RECOVERY)
+    add(SubsystemCommissioningScenario.UNCONFIGURED)
+    add(SubsystemCommissioningScenario.UNHOMED)
+    if (loop.continuousInput.enabled && loop.strategy in setOf(
+            SubsystemControlStrategy.POSITION_PID,
+            SubsystemControlStrategy.PROFILED_POSITION_PID,
+        )
+    ) add(SubsystemCommissioningScenario.ANGLE_BOUNDARY)
+}
 
 /**
  * Executes the selected generated-controller semantics against a small deterministic teaching plant.
@@ -88,6 +144,7 @@ internal fun simulateSubsystemCommissioning(
             )) -> SubsystemCommissioningScenario.NOMINAL
         scenario in setOf(
             SubsystemCommissioningScenario.STALE_FEEDBACK,
+            SubsystemCommissioningScenario.FROZEN_HEARTBEAT,
             SubsystemCommissioningScenario.INVALID_FEEDBACK,
         ) && !feedbackRequired -> SubsystemCommissioningScenario.NOMINAL
         else -> scenario
@@ -120,8 +177,12 @@ internal fun simulateSubsystemCommissioning(
     var peakCommand = 0.0
     var bounded = true
     var neutralOnFault: Boolean? = null
+    var faultLatchObserved = false
+    var neutralRecoverySucceeded: Boolean? = null
+    var outputFaultLatched = false
     var enteredTolerance = false
     val faultAtSeconds = durationSeconds * 0.45
+    val recoveryAtSeconds = durationSeconds * 0.70
     val loadAtSeconds = durationSeconds * 0.45
     val period = loop.continuousInput.maximumInput - loop.continuousInput.minimumInput
 
@@ -129,6 +190,7 @@ internal fun simulateSubsystemCommissioning(
         val now = step * dtSeconds
         val feedbackUsable = when (effectiveScenario) {
             SubsystemCommissioningScenario.STALE_FEEDBACK,
+            SubsystemCommissioningScenario.FROZEN_HEARTBEAT,
             SubsystemCommissioningScenario.INVALID_FEEDBACK -> now < faultAtSeconds
             else -> true
         }
@@ -137,7 +199,7 @@ internal fun simulateSubsystemCommissioning(
             else -> observedMeasurement
         }
 
-        val command = when (loop.strategy) {
+        val controllerCommand = when (loop.strategy) {
             SubsystemControlStrategy.DIRECT -> requestedReference.coerceIn(loop.minimumOutput, loop.maximumOutput)
             SubsystemControlStrategy.SERVO_POSITION -> requestedReference.coerceIn(0.0, 1.0)
             SubsystemControlStrategy.BANG_BANG -> {
@@ -232,7 +294,34 @@ internal fun simulateSubsystemCommissioning(
             }
         }
 
-        if (feedbackRequired && !feedbackUsable) {
+        val timedFaultActive = now >= faultAtSeconds && now < recoveryAtSeconds
+        val faultActive = when (effectiveScenario) {
+            SubsystemCommissioningScenario.STALE_FEEDBACK,
+            SubsystemCommissioningScenario.FROZEN_HEARTBEAT,
+            SubsystemCommissioningScenario.INVALID_FEEDBACK -> now >= faultAtSeconds
+            SubsystemCommissioningScenario.FAILED_WRITE_RECOVERY,
+            SubsystemCommissioningScenario.BROWNOUT_RECOVERY,
+            SubsystemCommissioningScenario.EXCESS_CURRENT_RECOVERY -> timedFaultActive
+            SubsystemCommissioningScenario.UNCONFIGURED,
+            SubsystemCommissioningScenario.UNHOMED -> true
+            else -> false
+        }
+        if (effectiveScenario in setOf(
+                SubsystemCommissioningScenario.FAILED_WRITE_RECOVERY,
+                SubsystemCommissioningScenario.EXCESS_CURRENT_RECOVERY,
+            ) && timedFaultActive
+        ) {
+            outputFaultLatched = true
+            faultLatchObserved = true
+        }
+        if (outputFaultLatched && now >= recoveryAtSeconds) {
+            // This scenario explicitly models a successful neutral write after the fault clears.
+            outputFaultLatched = false
+            neutralRecoverySucceeded = true
+        }
+        val safetyPermit = !faultActive && !outputFaultLatched
+        val command = if (safetyPermit) controllerCommand else 0.0
+        if (faultActive || outputFaultLatched) {
             neutralOnFault = (neutralOnFault ?: true) && command == 0.0
         }
         if (command == loop.minimumOutput || command == loop.maximumOutput) saturatedSamples++
@@ -253,6 +342,9 @@ internal fun simulateSubsystemCommissioning(
             measurement = observedMeasurement,
             command = command,
             feedbackUsable = feedbackUsable,
+            safetyPermit = safetyPermit,
+            faultActive = faultActive,
+            faultLatched = outputFaultLatched,
         )
         if (step == totalSteps) break
 
@@ -261,7 +353,11 @@ internal fun simulateSubsystemCommissioning(
         position = next.first
         velocity = next.second
         val actualMeasurement = plantMeasurement(plant, position, velocity)
-        if (!(effectiveScenario == SubsystemCommissioningScenario.STALE_FEEDBACK && now >= faultAtSeconds)) {
+        if (!(effectiveScenario in setOf(
+                SubsystemCommissioningScenario.STALE_FEEDBACK,
+                SubsystemCommissioningScenario.FROZEN_HEARTBEAT,
+            ) && now >= faultAtSeconds)
+        ) {
             observedMeasurement = actualMeasurement
         }
         if (!position.isFinite() || !velocity.isFinite() || abs(position) > 100.0 || abs(velocity) > 250.0) {
@@ -281,7 +377,9 @@ internal fun simulateSubsystemCommissioning(
     val status = when {
         !bounded -> "Preview stopped because the teaching plant exceeded its safe display bounds."
         neutralOnFault == false -> "Unsafe preview: feedback failed without a neutral command."
-        neutralOnFault == true -> "Feedback failure was injected and the selected controller stayed neutral."
+        neutralRecoverySucceeded == true ->
+            "The fault latched, output stayed neutral, and motion resumed only after an explicit successful neutral recovery."
+        neutralOnFault == true -> "The injected safety condition blocked motion and the selected controller stayed neutral."
         loop.strategy == SubsystemControlStrategy.DIRECT ->
             "Open-loop output is bounded, but it cannot guarantee a measured mechanism target."
         loop.strategy == SubsystemControlStrategy.SERVO_POSITION ->
@@ -297,6 +395,11 @@ internal fun simulateSubsystemCommissioning(
             peakAbsoluteCommand = peakCommand,
             saturationPercent = saturationPercent,
             neutralizedOnFault = neutralOnFault,
+            faultLatched = faultLatchObserved.takeIf { effectiveScenario in setOf(
+                SubsystemCommissioningScenario.FAILED_WRITE_RECOVERY,
+                SubsystemCommissioningScenario.EXCESS_CURRENT_RECOVERY,
+            ) },
+            neutralRecoverySucceeded = neutralRecoverySucceeded,
             enteredTolerance = enteredTolerance,
             statusMessage = status,
         ),

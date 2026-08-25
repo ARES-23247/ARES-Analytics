@@ -215,6 +215,7 @@ The Analytics client publishes one atomic, leased control frame. Receivers depen
 | `SysId/Command` | `string` | characterization command |
 | `SysId/EnableToken` | `string` | fresh FTC operator-arm session token; cleared on disarm |
 | `SysId/EnableLease` | `double` | increasing FTC arm lease sequence, renewed every 200 ms; robot expires after 500 ms |
+| `SysId/SupportedMechanisms` | `string` | comma-separated live motion capabilities explicitly implemented by the connected runtime (`LINEAR`, `ANGULAR`, `FLYWHEEL`, etc.); missing, empty, or unknown values fail closed in Studio |
 
 `driveFrame` is exactly `[2, sessionNonce, sequence, clientMonotonicMs, vx, vy, omega, flags]`.
 The nonce is a positive integral double and sequence is a non-negative integral double; both must

@@ -476,7 +476,8 @@ class GuidedTuningExperimentViewModel(
     private fun editableRows(): List<ResolvedTuningValue> = tuningState().rows.filter { row ->
         row.sourceTypedValue != null &&
             row.declaration.type in setOf(TuningParameterType.DOUBLE, TuningParameterType.INT) &&
-            row.declaration.applyPolicy != com.areslib.tuning.TuningApplyPolicy.READ_ONLY_VENDOR
+            row.declaration.applyPolicy != com.areslib.tuning.TuningApplyPolicy.READ_ONLY_VENDOR &&
+            tuningState().consumerSupportByUid[row.declaration.uid] != false
     }
 
     private fun reloadExperiments() {
