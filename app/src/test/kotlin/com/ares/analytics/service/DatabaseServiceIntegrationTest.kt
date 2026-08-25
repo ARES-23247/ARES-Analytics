@@ -293,6 +293,48 @@ class DatabaseServiceIntegrationTest {
         }
     }
 
+    @Test
+    fun `startup removes interrupted imports but preserves completed sessions`() = runTest {
+        val tempDirectory = Files.createTempDirectory("ares-import-recovery").toFile()
+        val databaseFile = tempDirectory.resolve("telemetry.duckdb")
+        val interrupted = Session("interrupted", "23247", "2026", "robot", 1_000L)
+        val complete = Session("complete", "23247", "2026", "robot", 2_000L)
+
+        DatabaseService(databaseFile.absolutePath).also { database ->
+            database.insertImportSession(interrupted)
+            database.insertTelemetryFrames(listOf(TelemetryFrame(1_000L, interrupted.sessionId, "Drive/X", 1.0)))
+            database.insertSession(complete)
+            database.insertTelemetryFrames(listOf(TelemetryFrame(2_000L, complete.sessionId, "Drive/X", 2.0)))
+            database.close()
+        }
+
+        val reopened = DatabaseService(databaseFile.absolutePath)
+        try {
+            assertEquals(listOf(complete.sessionId), reopened.getSessions().map(Session::sessionId))
+            assertEquals(0L, reopened.countTelemetryFrames(interrupted.sessionId))
+            assertEquals(1L, reopened.countTelemetryFrames(complete.sessionId))
+        } finally {
+            reopened.close()
+            tempDirectory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `workspace session queries fail closed across team season and robot identity`() = runTest {
+        withDatabase { database ->
+            val expected = Session("expected", "23247", "2026", "alpha", 1_000L)
+            database.insertSession(expected)
+            database.insertSession(Session("other-team", "99999", "2026", "alpha", 2_000L))
+            database.insertSession(Session("other-season", "23247", "2025", "alpha", 3_000L))
+            database.insertSession(Session("other-robot", "23247", "2026", "beta", 4_000L))
+
+            assertEquals(
+                listOf(expected.sessionId),
+                database.getSessionsForWorkspace("23247", "2026", "alpha").map(Session::sessionId),
+            )
+        }
+    }
+
     private suspend fun withDatabase(block: suspend (DatabaseService) -> Unit) {
         val tempDir = Files.createTempDirectory("ares-database-integration").toFile()
         val database = DatabaseService(tempDir.resolve("telemetry.duckdb").absolutePath)

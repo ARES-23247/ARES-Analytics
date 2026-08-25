@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.DashboardHealthService
+import com.ares.analytics.service.ReplayFrame
 import com.ares.analytics.shared.models.TelemetryFrame
 import com.ares.analytics.ui.theme.*
 import com.areslib.telemetry.TelemetryTopicConstants
@@ -29,6 +30,7 @@ import com.ares.analytics.ui.components.core.*
 fun SystemHealthCard(
     nt4ClientService: Nt4ClientService,
     dashboardHealthService: DashboardHealthService? = null,
+    currentFrame: ReplayFrame? = null,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -66,6 +68,16 @@ fun SystemHealthCard(
         }
     }
 
+    LaunchedEffect(currentFrame?.sequence) {
+        currentFrame?.toReplayHealthSnapshot()?.let { replay ->
+            loopTimeMs = replay.loopTimeMs
+            batteryVoltage = replay.batteryVoltage
+            brownoutCount = replay.brownoutCount
+            loopOverruns = replay.loopOverruns
+            ftcRuntime = replay.ftcRuntime
+        }
+    }
+
     AnalyticsCard(
         modifier = modifier.fillMaxWidth(),
         backgroundColor = AresSurfaceElevated
@@ -73,9 +85,13 @@ fun SystemHealthCard(
         CardHeader(
             title = "RoboRIO / Control Hub Health",
             icon = Icons.Default.Memory,
-            iconTint = if (connected) AresGreen else AresTextTertiary,
-            statusText = if (connected) "LIVE" else "OFFLINE",
-            statusColor = if (connected) AresGreen else AresTextTertiary
+            iconTint = if (currentFrame != null || connected) AresGreen else AresTextTertiary,
+            statusText = when {
+                currentFrame != null -> "REPLAY"
+                connected -> "LIVE"
+                else -> "OFFLINE"
+            },
+            statusColor = if (currentFrame != null || connected) AresGreen else AresTextTertiary
         )
 
             Row(

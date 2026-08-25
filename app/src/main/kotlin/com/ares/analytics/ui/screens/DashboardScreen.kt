@@ -5,6 +5,7 @@ import javax.swing.filechooser.FileNameExtensionFilter
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -14,6 +15,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.di.ServiceRegistry
@@ -88,6 +94,13 @@ fun DashboardScreen(
     val healthSnapshot by services.dashboardHealthService.health.collectAsState()
     val frameRateHz = healthSnapshot.ingestFramesPerSecond
     val isReplayActive by services.nt4ClientService.isReplayActive.collectAsState()
+    val replayEngine = services.replayEngineService
+    val replayState by replayEngine.state.collectAsState()
+    val replayFrame by replayEngine.currentFrame.collectAsState()
+    val replaySessionStart by replayEngine.sessionStartTimestampMs.collectAsState()
+    val isReplayMode = state.primarySessionId != null || isReplayActive
+    val displayedReplayFrame = replayFrame.takeIf { isReplayMode }
+    val latestReplayMode by rememberUpdatedState(isReplayMode)
 
     val tuningDeclarations by produceState<List<TuningParameterDeclaration>>(emptyList(), currentConfig.projectPath) {
         value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -99,6 +112,7 @@ fun DashboardScreen(
     LaunchedEffect(Unit) {
         scope.launch {
             services.nt4ClientService.uiTelemetryFlow.collect { frame ->
+                if (latestReplayMode) return@collect
                 lastUpdateTimestampMs = System.currentTimeMillis()
                 val key = frame.key.lowercase()
                 val value = frame.value
@@ -122,19 +136,29 @@ fun DashboardScreen(
         scope.launch {
             while (true) {
                 kotlinx.coroutines.delay(500)
-                lastUpdateAgeMs = if (lastUpdateTimestampMs > 0) System.currentTimeMillis() - lastUpdateTimestampMs else -1L
+                lastUpdateAgeMs = if (latestReplayMode) {
+                    0L
+                } else if (lastUpdateTimestampMs > 0) {
+                    System.currentTimeMillis() - lastUpdateTimestampMs
+                } else {
+                    -1L
+                }
             }
         }
     }
 
     // Replay integration
-    val replayEngine = services.replayEngineService
-    val replayState by replayEngine.state.collectAsState()
-    val isReplayMode = state.primarySessionId != null && replayState != ReplayState.STOPPED
+    val selectedSessionForDisposal by rememberUpdatedState(state.primarySessionId)
     val undismissedAlerts = remember { mutableStateListOf<AlertRecord>() }
     val timeFormat = remember { SimpleDateFormat("HH:mm:ss", Locale.getDefault()) }
 
-    LaunchedEffect(state.alerts) {
+    LaunchedEffect(state.alerts, isReplayMode) {
+        if (isReplayMode) {
+            // Historical alerts remain available as replay markers and evidence. They must not
+            // appear as live, audible/urgent dashboard alarms.
+            undismissedAlerts.clear()
+            return@LaunchedEffect
+        }
         undismissedAlerts.removeAll { alert -> state.alerts.any { it.alertId == alert.alertId && it.resolveTimestampMs != null } }
         state.alerts.forEach { alert ->
             val isCritical = alert.ruleKey.contains("brownout", ignoreCase = true) ||
@@ -156,16 +180,36 @@ fun DashboardScreen(
     LaunchedEffect(state.primarySessionId) {
         val sessionId = state.primarySessionId
         if (sessionId != null) {
-            replayEngine.loadSession(sessionId)
+            services.nt4ClientService.isReplayActive.value = true
+            if (replayEngine.sessionInfo.value?.sessionId != sessionId || replayEngine.currentFrame.value == null) {
+                replayEngine.loadSession(sessionId)
+            }
         } else {
             replayEngine.stop()
+            if (state.sessionMode != SessionMode.LIVE_REWIND) {
+                services.nt4ClientService.isReplayActive.value = false
+            }
         }
     }
 
-    // Bridge replay telemetry into the raw service; UI fan-out is coalesced independently.
-    LaunchedEffect(Unit) {
-        replayEngine.replayTelemetryFlow.collect { frame ->
-            services.nt4ClientService.emitReplayFrame(frame)
+    DisposableEffect(Unit) {
+        onDispose {
+            // Replay state survives navigation, but non-dashboard screens return to live UI data.
+            // Coming back reselects the same immutable snapshot without reloading or losing place.
+            if (selectedSessionForDisposal != null) {
+                services.nt4ClientService.isReplayActive.value = false
+            }
+        }
+    }
+
+    LaunchedEffect(displayedReplayFrame?.sequence) {
+        displayedReplayFrame?.toReplayHealthSnapshot()?.let { replay ->
+            loopTimeMs = replay.loopTimeMs
+            batteryVoltage = replay.batteryVoltage
+            brownoutCount = replay.brownoutCount
+            loopOverruns = replay.loopOverruns
+            lastUpdateTimestampMs = replayFrame?.playheadMs ?: -1L
+            lastUpdateAgeMs = 0L
         }
     }
 
@@ -240,6 +284,7 @@ fun DashboardScreen(
                 "runs_index" to { _, mod ->
                     RunsIndex(
                         databaseService = services.databaseService,
+                        workspace = currentConfig,
                         primarySessionId = state.primarySessionId,
                         compareSessionId = state.compareSessionId,
                         onSelectPrimary = { viewModel.onIntent(DashboardIntent.SelectPrimarySession(it)) },
@@ -254,6 +299,8 @@ fun DashboardScreen(
                 "telemetry_chart" to { widget, mod ->
                     TelemetryChartPanel(
                         nt4ClientService = services.nt4ClientService,
+                        databaseService = services.databaseService,
+                        currentFrame = displayedReplayFrame,
                         properties = widget.properties,
                         onPropertiesChanged = { newProps ->
                             viewModel.onIntent(DashboardIntent.UpdateLayout(layout.widgets.map {
@@ -296,29 +343,44 @@ fun DashboardScreen(
                     ConsoleViewer(services, widget, mod)
                 },
                 "swerve_animator" to { _, mod ->
-                    SwerveModuleVisualizer(services.nt4ClientService, mod)
+                    SwerveModuleVisualizer(
+                        nt4ClientService = services.nt4ClientService,
+                        currentFrame = displayedReplayFrame,
+                        modifier = mod,
+                    )
                 },
                 "session_summary" to { _, mod ->
                     SessionSummaryCard(services.databaseService, state.primarySessionId, mod)
                 },
                 "joystick_visualizer" to { _, mod ->
                     JoystickVisualizer(
-                        currentFrame = null,
-                        nt4ClientService = services.nt4ClientService,
-                        services = services,
+                        currentFrame = displayedReplayFrame,
+                        nt4ClientService = services.nt4ClientService.takeIf { displayedReplayFrame == null },
+                        services = services.takeIf { displayedReplayFrame == null },
                         onOpenKeybindings = onOpenKeybindings,
                         modifier = mod
                     )
                 },
                 "mechanism_visualizer" to { _, mod ->
-                    MechanismVisualizer(currentFrame = null, nt4ClientService = services.nt4ClientService, modifier = mod)
+                    MechanismVisualizer(
+                        currentFrame = displayedReplayFrame,
+                        nt4ClientService = services.nt4ClientService.takeIf { displayedReplayFrame == null },
+                        modifier = mod,
+                    )
                 },
                 "mecanum_visualizer" to { _, mod ->
-                    MecanumVisualizer(nt4ClientService = services.nt4ClientService, modifier = mod)
+                    MecanumVisualizer(
+                        currentFrame = displayedReplayFrame,
+                        nt4ClientService = services.nt4ClientService.takeIf { displayedReplayFrame == null },
+                        modifier = mod,
+                    )
                 },
                 "field_viewer" to { widget, mod ->
                     FieldViewerCard(
                         nt4ClientService = services.nt4ClientService,
+                        currentFrame = displayedReplayFrame,
+                        databaseService = services.databaseService,
+                        replayStartTimestampMs = replaySessionStart,
                         league = currentConfig.league,
                         projectPath = currentConfig.projectPath,
                         properties = widget.properties,
@@ -331,7 +393,7 @@ fun DashboardScreen(
                     )
                 },
                 "pose_viewer" to { _, mod ->
-                    PoseViewerCard(services.nt4ClientService, mod)
+                    PoseViewerCard(services.nt4ClientService, displayedReplayFrame, mod)
                 },
                 "trends_card" to { _, mod ->
                     TrendsCard(services.databaseService, mod)
@@ -360,7 +422,12 @@ fun DashboardScreen(
                     SubsystemHealthCard(services.nt4ClientService, mod)
                 },
                 "system_health" to { _, mod ->
-                    SystemHealthCard(services.nt4ClientService, services.dashboardHealthService, mod)
+                    SystemHealthCard(
+                        nt4ClientService = services.nt4ClientService,
+                        dashboardHealthService = services.dashboardHealthService,
+                        currentFrame = displayedReplayFrame,
+                        modifier = mod,
+                    )
                 },
                 "imu_visualizer" to { _, mod ->
                     IMUVisualizerCard(services.nt4ClientService, mod)
@@ -387,7 +454,7 @@ fun DashboardScreen(
                     HardwareTopologyCard(services, state.primarySessionId, mod)
                 },
                 "indicator_lights" to { _, mod ->
-                    IndicatorLightsCard(services.nt4ClientService, mod)
+                    IndicatorLightsCard(services.nt4ClientService, displayedReplayFrame, mod)
                 }
             )
             val rendererCatalogIssue = remember(builders.keys) {
@@ -397,18 +464,20 @@ fun DashboardScreen(
                 rendererCatalogIssue?.let { System.err.println("[Dashboard] $it") }
             }
 
-            DashboardWidgetGrid(
-                widgets = layout.widgets,
-                isEditing = state.isLayoutEditing,
-                onLayoutChanged = { newWidgets ->
-                    viewModel.onIntent(DashboardIntent.UpdateLayout(newWidgets))
-                },
-                onRemoveWidget = { id ->
-                    viewModel.onIntent(DashboardIntent.RemoveWidget(id))
-                },
-                widgetBuilders = builders,
-                modifier = Modifier.weight(1f).fillMaxWidth()
-            )
+            key(displayedReplayFrame?.sessionId ?: "live") {
+                DashboardWidgetGrid(
+                    widgets = layout.widgets,
+                    isEditing = state.isLayoutEditing,
+                    onLayoutChanged = { newWidgets ->
+                        viewModel.onIntent(DashboardIntent.UpdateLayout(newWidgets))
+                    },
+                    onRemoveWidget = { id ->
+                        viewModel.onIntent(DashboardIntent.RemoveWidget(id))
+                    },
+                    widgetBuilders = builders,
+                    modifier = Modifier.weight(1f).fillMaxWidth()
+                )
+            }
         }
 
         // Timeline Scrubber Bar
@@ -596,7 +665,15 @@ private fun ReplayTimelineScrubber(
     val scope = rememberCoroutineScope()
     val rawProgress by replayEngine.progress.collectAsState()
     val speed by replayEngine.speed.collectAsState()
+    val looping by replayEngine.looping.collectAsState()
+    val loadState by replayEngine.loadState.collectAsState()
+    val loadError by replayEngine.loadError.collectAsState()
+    val sessionInfo by replayEngine.sessionInfo.collectAsState()
+    val playheadTimestamp by replayEngine.playheadTimestampMs.collectAsState()
+    val currentFrame by replayEngine.currentFrame.collectAsState()
+    val isSeeking by replayEngine.isSeeking.collectAsState()
     val progress = if (isLiveConnection && !isReplayActive) 1.0 else rawProgress
+    val replayReady = isLiveConnection && !isReplayActive || loadState == ReplayLoadState.READY
     // Keep these comparisons direct. A stale incremental desktop build once omitted
     // Kotlin's synthetic DashboardScreenKt$WhenMappings class and crashed as soon as
     // the replay bar rendered. Direct enum comparisons have no companion class to lose.
@@ -616,7 +693,22 @@ private fun ReplayTimelineScrubber(
     }
 
     Surface(
-        modifier = modifier,
+        modifier = modifier
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown || !replayReady) return@onPreviewKeyEvent false
+                when (event.key) {
+                    Key.Spacebar -> {
+                        if (replayState == ReplayState.PLAYING) replayEngine.pause() else replayEngine.play()
+                        true
+                    }
+                    Key.DirectionLeft -> true.also { replayEngine.stepBackward() }
+                    Key.DirectionRight -> true.also { replayEngine.stepForward() }
+                    Key.MoveHome -> true.also { replayEngine.scrubTo(0.0) }
+                    Key.MoveEnd -> true.also { replayEngine.scrubTo(1.0) }
+                    else -> false
+                }
+            },
         color = AresSurfaceElevated,
         shape = RoundedCornerShape(8.dp),
         border = androidx.compose.foundation.BorderStroke(1.dp, modeColor.copy(alpha = 0.5f))
@@ -644,7 +736,7 @@ private fun ReplayTimelineScrubber(
                         } else if (sessionMode == SessionMode.LIVE_REWIND) {
                             "LIVE REWIND"
                         } else {
-                            "REPLAY: ${sessionId?.take(8)}"
+                            "REPLAY · ${sessionInfo?.robotId ?: sessionId?.take(12)}"
                         },
                         color = modeColor,
                         fontSize = 11.sp,
@@ -664,6 +756,7 @@ private fun ReplayTimelineScrubber(
                         }
                     }
                 },
+                enabled = replayReady,
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(
@@ -691,6 +784,7 @@ private fun ReplayTimelineScrubber(
                         scope.launch { replayEngine.stop() }
                     }
                 },
+                enabled = replayReady,
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(
@@ -708,7 +802,7 @@ private fun ReplayTimelineScrubber(
                         scope.launch { replayEngine.stepBackward() }
                     }
                 },
-                enabled = !isLiveConnection || isReplayActive,
+                enabled = replayReady && (!isLiveConnection || isReplayActive),
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(
@@ -726,7 +820,7 @@ private fun ReplayTimelineScrubber(
                         scope.launch { replayEngine.stepForward() }
                     }
                 },
-                enabled = !isLiveConnection || isReplayActive,
+                enabled = replayReady && (!isLiveConnection || isReplayActive),
                 modifier = Modifier.size(32.dp)
             ) {
                 Icon(
@@ -740,12 +834,13 @@ private fun ReplayTimelineScrubber(
             var localSliderValue by remember { mutableStateOf(0f) }
             val density by replayEngine.telemetryDensity.collectAsState()
             val actions by replayEngine.sessionActions.collectAsState()
+            val annotations by replayEngine.sessionAnnotations.collectAsState()
             val sessionStart by replayEngine.sessionStartTimestampMs.collectAsState()
             val sessionDuration by replayEngine.sessionDurationMs.collectAsState()
 
             Box(modifier = Modifier.weight(1f).height(32.dp)) {
                 // Histogram Canvas
-                if (density.isNotEmpty() || actions.isNotEmpty() || alerts.isNotEmpty()) {
+                if (density.isNotEmpty() || actions.isNotEmpty() || annotations.isNotEmpty() || alerts.isNotEmpty()) {
                     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 4.dp)) {
                         if (density.isNotEmpty()) {
                             val barWidth = size.width / density.size
@@ -771,6 +866,24 @@ private fun ReplayTimelineScrubber(
                                     radius = 3f,
                                     center = androidx.compose.ui.geometry.Offset(x, size.height / 2f)
                                 )
+                            }
+                        }
+
+                        // Gold note markers are distinct in both color and shape from actions and alerts.
+                        if (annotations.isNotEmpty() && sessionDuration > 0) {
+                            annotations.forEach { annotation ->
+                                val proportion = (annotation.createdAt - sessionStart).toDouble() / sessionDuration.toDouble()
+                                if (proportion in 0.0..1.0) {
+                                    val x = (proportion * size.width).toFloat()
+                                    val diamond = androidx.compose.ui.graphics.Path().apply {
+                                        moveTo(x, size.height / 2f - 4f)
+                                        lineTo(x + 4f, size.height / 2f)
+                                        lineTo(x, size.height / 2f + 4f)
+                                        lineTo(x - 4f, size.height / 2f)
+                                        close()
+                                    }
+                                    drawPath(diamond, color = AresGold)
+                                }
                             }
                         }
 
@@ -831,12 +944,35 @@ private fun ReplayTimelineScrubber(
             }
 
             // Time / Live Status display
+            val timeText = when {
+                isLiveConnection && !isReplayActive -> "NOW"
+                loadState == ReplayLoadState.LOADING -> "Loading recording…"
+                loadState == ReplayLoadState.EMPTY -> "No telemetry samples"
+                loadState == ReplayLoadState.ERROR -> "Replay unavailable"
+                isSeeking -> "Seeking…"
+                sessionInfo != null -> {
+                    val elapsed = (playheadTimestamp - sessionInfo!!.startTimestampMs).coerceAtLeast(0L)
+                    "${formatReplayDuration(elapsed)} / ${formatReplayDuration(sessionInfo!!.endTimestampMs - sessionInfo!!.startTimestampMs)}"
+                }
+                else -> "0:00.000"
+            }
             Text(
-                text = "${formatTime((progress * 100).toLong())}%",
+                text = timeText,
                 color = AresTextSecondary,
                 fontSize = 11.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
             )
+
+            if (currentFrame != null && !isLiveConnection) {
+                val sampleAge = (currentFrame!!.playheadMs - currentFrame!!.timestampMs).coerceAtLeast(0L)
+                Text(
+                    text = if (sampleAge == 0L) "Exact sample" else "Held ${sampleAge} ms",
+                    color = if (sampleAge == 0L) AresGreen else AresTextTertiary,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                )
+            }
 
             // Snap to Realtime button (shown only in Live Rewind mode)
             if (isLiveConnection && isReplayActive) {
@@ -853,6 +989,19 @@ private fun ReplayTimelineScrubber(
                 }
             }
 
+            IconButton(
+                onClick = { replayEngine.setLooping(!looping) },
+                enabled = replayReady && (!isLiveConnection || isReplayActive),
+                modifier = Modifier.size(32.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Repeat,
+                    contentDescription = if (looping) "Disable replay loop" else "Loop replay",
+                    tint = if (looping) modeColor else AresTextTertiary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+
             // Speed selector
             var speedExpanded by remember { mutableStateOf(false) }
             Box {
@@ -865,7 +1014,7 @@ private fun ReplayTimelineScrubber(
                     expanded = speedExpanded,
                     onDismissRequest = { speedExpanded = false }
                 ) {
-                    listOf(0.5, 1.0, 2.0, 4.0).forEach { s ->
+                    listOf(0.25, 0.5, 1.0, 2.0, 4.0, 8.0).forEach { s ->
                         DropdownMenuItem(
                             text = { Text("${s}×", color = AresTextPrimary) },
                             onClick = {
@@ -878,8 +1027,18 @@ private fun ReplayTimelineScrubber(
             }
         }
     }
+
+    if (loadState == ReplayLoadState.ERROR && !loadError.isNullOrBlank()) {
+        LaunchedEffect(loadError) {
+            System.err.println("[Replay] ${loadError.orEmpty()}")
+        }
+    }
 }
 
-private fun formatTime(percentage: Long): String {
-    return "$percentage"
+internal fun formatReplayDuration(durationMs: Long): String {
+    val safe = durationMs.coerceAtLeast(0L)
+    val minutes = safe / 60_000L
+    val seconds = (safe % 60_000L) / 1_000L
+    val millis = safe % 1_000L
+    return "%d:%02d.%03d".format(minutes, seconds, millis)
 }

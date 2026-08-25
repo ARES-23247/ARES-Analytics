@@ -20,7 +20,10 @@ Use this task for the safest first live-data experience. The simulator produces 
    - the **Local Sim** dot in the toolbar turns green; and
    - the application's connection indicator reports connected.
 7. Watch a live widget. Good first choices are the field viewer, robot pose, system health, or a telemetry chart.
-8. If the simulation routine drives the model, confirm that pose or another value changes over time.
+8. For an FRC autonomous test, choose the compiled routine in the simulator strip and select
+   **Run auto**. Confirm that the robot reports the same locked routine ID before motion begins.
+9. If the simulation routine drives the model, confirm that pose or another value changes over time.
+   Studio reports **Autonomous complete** separately from merely remaining in Autonomous mode.
 
 Analytics switches its NT4 connection to `127.0.0.1` for **Local Sim**. You do not need to replace the saved live-robot address.
 
@@ -56,6 +59,7 @@ Work from the top of this table; do not repeatedly launch more simulator process
 | The process runs but the dot stays gray | Confirm **Local Sim** is selected and look for an NT4 server startup line. Check that firewall rules are not blocking loopback. |
 | Connected, but the field pose stays at zero | Check whether the chosen OpMode/routine is initialized or started. Try another known changing topic before assuming the connection failed. |
 | Alliance or starting side looks wrong | Stop the routine, set the intended alliance before INIT, then restart. Simulator teleport/alliance initialization occurs at INIT. |
+| Studio reports Autonomous blocked or locks do-nothing | The requested compiled routine was unavailable or invalid. Save and generate the routine, verify the project, then select that exact ID again. Do not assume another routine ran. |
 | Values look like an old match | Stop historical replay and select the live/simulator view. Replay and live values share dashboard widgets, so confirm the mode label. |
 
 ## Safety
@@ -70,6 +74,12 @@ Work from the top of this table; do not repeatedly launch more simulator process
 ## Mentor / advanced detail
 
 The toolbar launches the configured simulator command in the active robot project. With no override, Analytics uses the league default (FTC `:TeamCode:runSim`, FRC `simulateJava`) or a packaged simulator JAR when present. It then connects the same `Nt4ClientService` used for robots to loopback.
+
+FRC simulation still uses WPILib's HAL and Driver Station simulation backend. That is intentional:
+it preserves RoboRIO timing, mode transitions, and WPILib device behavior instead of replacing them
+with a Studio-only imitation. Students do not need a second HALSim control window; Studio is the
+normal control surface. The external WPILib HALSim GUI is an opt-in mentor diagnostic and should not
+open during the ordinary Studio workflow.
 
 Simulator ground truth arrives under `ARES/TruePose/*`. Its real Redux EKF arrives under
 `ARES/EstimatedPose/*` and the `Drive/Pose_*` aliases; raw odometry arrives under `Drive/Odom_*`.

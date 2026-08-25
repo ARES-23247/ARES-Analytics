@@ -293,8 +293,17 @@ class MatchLogRepository(
     }
 
     suspend fun insertSession(session: Session) = withDbLock {
+        upsertSession(session, IMPORT_STATE_COMPLETE)
+    }
+
+    /** Creates the durable owner for a bounded, streaming import before its first data row. */
+    suspend fun insertImportSession(session: Session) = withDbLock {
+        upsertSession(session, IMPORT_STATE_IMPORTING)
+    }
+
+    private fun upsertSession(session: Session, importState: String) {
         conn.prepareStatement(
-            "INSERT OR REPLACE INTO sessions (session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT OR REPLACE INTO sessions (session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color, import_state) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         ).use { ps ->
             ps.setString(1, session.sessionId)
             ps.setString(2, session.teamId)
@@ -305,6 +314,7 @@ class MatchLogRepository(
             ps.setString(7, Json.encodeToString(session.tags))
             session.matchNumber?.let { ps.setLong(8, it.toLong()) } ?: ps.setNull(8, java.sql.Types.BIGINT)
             ps.setString(9, session.allianceColor)
+            ps.setString(10, importState)
             ps.executeUpdate()
         }
     }
@@ -312,11 +322,73 @@ class MatchLogRepository(
     suspend fun getSessions(): List<Session> = withDbLock {
         val list = mutableListOf<Session>()
         conn.createStatement().use { st ->
-            st.executeQuery("SELECT * FROM sessions ORDER BY created_at DESC").use { rs ->
+            st.executeQuery("SELECT * FROM sessions WHERE import_state = '$IMPORT_STATE_COMPLETE' ORDER BY created_at DESC").use { rs ->
                 while (rs.next()) list.add(rs.toSession())
             }
         }
         list
+    }
+
+    suspend fun getSessionsForWorkspace(
+        teamId: String,
+        seasonId: String,
+        robotId: String,
+    ): List<Session> = withReadLock {
+        val sessions = mutableListOf<Session>()
+        readConn.prepareStatement(
+            """
+            SELECT * FROM sessions
+            WHERE import_state = ? AND team_id = ? AND season_id = ? AND robot_id = ?
+            ORDER BY created_at DESC
+            """.trimIndent()
+        ).use { statement ->
+            statement.setString(1, IMPORT_STATE_COMPLETE)
+            statement.setString(2, teamId)
+            statement.setString(3, seasonId)
+            statement.setString(4, robotId)
+            statement.executeQuery().use { rows ->
+                while (rows.next()) sessions += rows.toSession()
+            }
+        }
+        sessions
+    }
+
+    /**
+     * Finds an already-completed import only when the workspace identity and the complete set of
+     * source hashes match. A file imported by another team/season/robot is never reused.
+     */
+    suspend fun findCompletedSessionBySourceHashes(
+        teamId: String,
+        seasonId: String,
+        robotId: String,
+        sourceHashes: Set<String>,
+    ): Session? = withReadLock {
+        if (sourceHashes.isEmpty()) return@withReadLock null
+        val candidates = mutableListOf<Pair<Session, MutableSet<String>>>()
+        readConn.prepareStatement(
+            """
+            SELECT s.*, r.source_sha256
+            FROM sessions s
+            JOIN session_import_reports r ON r.session_id = s.session_id
+            WHERE s.import_state = ? AND s.team_id = ? AND s.season_id = ? AND s.robot_id = ?
+            ORDER BY s.created_at DESC, s.session_id
+            """.trimIndent()
+        ).use { statement ->
+            statement.setString(1, IMPORT_STATE_COMPLETE)
+            statement.setString(2, teamId)
+            statement.setString(3, seasonId)
+            statement.setString(4, robotId)
+            statement.executeQuery().use { rows ->
+                val bySession = linkedMapOf<String, Pair<Session, MutableSet<String>>>()
+                while (rows.next()) {
+                    val session = rows.toSession()
+                    val entry = bySession.getOrPut(session.sessionId) { session to linkedSetOf() }
+                    entry.second += rows.getString("source_sha256")
+                }
+                candidates += bySession.values
+            }
+        }
+        candidates.firstOrNull { (_, hashes) -> hashes == sourceHashes }?.first
     }
 
     suspend fun deleteSession(sessionId: String) = withDbLock {
@@ -388,7 +460,14 @@ class MatchLogRepository(
     suspend fun getAllSessionSummaries(): List<SessionSummary> = withDbLock {
         val list = mutableListOf<SessionSummary>()
         conn.createStatement().use { st ->
-            st.executeQuery("SELECT * FROM session_summaries ORDER BY created_at DESC").use { rs ->
+            st.executeQuery(
+                """
+                SELECT ss.* FROM session_summaries ss
+                JOIN sessions s ON s.session_id = ss.session_id
+                WHERE s.import_state = '$IMPORT_STATE_COMPLETE'
+                ORDER BY ss.created_at DESC
+                """.trimIndent()
+            ).use { rs ->
                 while (rs.next()) list.add(rs.toSessionSummary())
             }
         }
@@ -499,7 +578,7 @@ class MatchLogRepository(
     suspend fun getActionsForSession(sessionId: String): List<com.ares.analytics.shared.RobotActionRecord> = withDbLock {
         val list = mutableListOf<com.ares.analytics.shared.RobotActionRecord>()
         conn.prepareStatement(
-            "SELECT timestamp_ms, session_id, run_id, robot_id, match_number, alliance, action_type, payload_json FROM robot_actions WHERE session_id = ? ORDER BY timestamp_ms"
+            "SELECT timestamp_ms, session_id, run_id, robot_id, match_number, alliance, action_type, payload_json FROM robot_actions WHERE session_id = ? ORDER BY timestamp_ms, run_id, action_type, payload_json"
         ).use { ps ->
             ps.setString(1, sessionId)
             ps.executeQuery().use { rs ->
@@ -968,28 +1047,58 @@ class MatchLogRepository(
         val previousAutoCommit = conn.autoCommit
         try {
             conn.autoCommit = false
-            conn.prepareStatement("DELETE FROM session_import_reports WHERE session_id = ?").use { statement ->
-                statement.setString(1, sessionId)
-                statement.executeUpdate()
-            }
-            conn.prepareStatement(
-                "INSERT INTO session_import_reports (session_id, source_sha256, source_name, report_json) VALUES (?, ?, ?, ?)"
-            ).use { statement ->
-                reports.distinctBy { it.sourceSha256 to it.sourceName }.forEach { report ->
-                    statement.setString(1, sessionId)
-                    statement.setString(2, report.sourceSha256)
-                    statement.setString(3, report.sourceName)
-                    statement.setString(4, AppJson.encodeToString(report))
-                    statement.addBatch()
-                }
-                statement.executeBatch()
-            }
+            replaceImportReports(sessionId, reports)
             conn.commit()
         } catch (failure: Throwable) {
             conn.rollback()
             throw failure
         } finally {
             conn.autoCommit = previousAutoCommit
+        }
+    }
+
+    /** Atomically exposes a staged import together with its immutable source evidence. */
+    suspend fun completeSessionImport(
+        session: Session,
+        reports: List<com.ares.analytics.service.ImportReport>,
+    ) = withDbLock {
+        require(reports.isNotEmpty()) { "A completed import requires source evidence" }
+        require(reports.all { it.sessionId == session.sessionId }) {
+            "Every import report must belong to the completed session"
+        }
+        val previousAutoCommit = conn.autoCommit
+        try {
+            conn.autoCommit = false
+            upsertSession(session, IMPORT_STATE_COMPLETE)
+            replaceImportReports(session.sessionId, reports)
+            conn.commit()
+        } catch (failure: Throwable) {
+            conn.rollback()
+            throw failure
+        } finally {
+            conn.autoCommit = previousAutoCommit
+        }
+    }
+
+    private fun replaceImportReports(
+        sessionId: String,
+        reports: List<com.ares.analytics.service.ImportReport>,
+    ) {
+        conn.prepareStatement("DELETE FROM session_import_reports WHERE session_id = ?").use { statement ->
+            statement.setString(1, sessionId)
+            statement.executeUpdate()
+        }
+        conn.prepareStatement(
+            "INSERT INTO session_import_reports (session_id, source_sha256, source_name, report_json) VALUES (?, ?, ?, ?)"
+        ).use { statement ->
+            reports.distinctBy { it.sourceSha256 to it.sourceName }.forEach { report ->
+                statement.setString(1, sessionId)
+                statement.setString(2, report.sourceSha256)
+                statement.setString(3, report.sourceName)
+                statement.setString(4, AppJson.encodeToString(report))
+                statement.addBatch()
+            }
+            statement.executeBatch()
         }
     }
 
@@ -1009,9 +1118,17 @@ class MatchLogRepository(
         }
         reports
     }
-    suspend fun getTelemetryForFilters(sessionId: String, keys: List<String>, prefixes: List<String>): List<TelemetryFrame> = withReadLock {
+    suspend fun getTelemetryForFilters(
+        sessionId: String,
+        keys: List<String>,
+        prefixes: List<String>,
+        maxFrames: Int,
+        maxFramesPerTopic: Int,
+    ): List<TelemetryFrame> = withReadLock {
+        require(maxFrames > 0) { "Maximum diagnostic frame count must be positive" }
+        require(maxFramesPerTopic > 0) { "Maximum diagnostic frames per topic must be positive" }
         val list = mutableListOf<TelemetryFrame>()
-        val queryBuilder = StringBuilder("SELECT * FROM telemetry_frames WHERE session_id = ?")
+        val predicate = StringBuilder("session_id = ?")
         val conditions = mutableListOf<String>()
         if (keys.isNotEmpty()) {
             val placeholders = keys.joinToString(",") { "?" }
@@ -1022,9 +1139,34 @@ class MatchLogRepository(
             conditions.add("($likeConditions)")
         }
         if (conditions.isEmpty()) return@withReadLock list
-        queryBuilder.append(" AND (").append(conditions.joinToString(" OR ")).append(") ORDER BY timestamp_us ASC, sample_order ASC")
+        predicate.append(" AND (").append(conditions.joinToString(" OR ")).append(")")
+        val query = """
+            WITH matching AS (
+                SELECT *,
+                    ROW_NUMBER() OVER (PARTITION BY key ORDER BY timestamp_us, sample_order) AS topic_row,
+                    COUNT(*) OVER (PARTITION BY key) AS topic_count
+                FROM telemetry_frames
+                WHERE $predicate
+            ), sampled AS (
+                SELECT * FROM matching
+                WHERE topic_count <= ?
+                   OR topic_row = 1
+                   OR topic_row = topic_count
+                   OR MOD(
+                       topic_row - 1,
+                       GREATEST(
+                           1,
+                           CAST(CEIL((topic_count - 1)::DOUBLE / GREATEST(1, ? - 1)) AS BIGINT)
+                       )
+                   ) = 0
+            )
+            SELECT timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order
+            FROM sampled
+            ORDER BY timestamp_us ASC, sample_order ASC
+            LIMIT ?
+        """.trimIndent()
 
-        readConnectionFor(sessionId).prepareStatement(queryBuilder.toString()).use { ps ->
+        readConnectionFor(sessionId).prepareStatement(query).use { ps ->
             ps.setString(1, sessionId)
             var idx = 2
             for (k in keys) {
@@ -1033,6 +1175,9 @@ class MatchLogRepository(
             for (p in prefixes) {
                 ps.setString(idx++, TelemetryMetricCatalog.normalizeTopic(p))
             }
+            ps.setInt(idx++, maxFramesPerTopic)
+            ps.setInt(idx++, maxFramesPerTopic)
+            ps.setInt(idx, maxFrames)
             ps.executeQuery().use { rs ->
                 while (rs.next()) list.add(rs.toTelemetryFrame())
             }
@@ -1054,7 +1199,7 @@ class MatchLogRepository(
     }
 
     suspend fun getTelemetryForKeyPatterns(sessionId: String, patterns: List<String>): List<TelemetryFrame> =
-        getTelemetryForFilters(sessionId, emptyList(), patterns)
+        getTelemetryForFilters(sessionId, emptyList(), patterns, 100_000, 2_048)
 
     suspend fun getDistinctTimestamps(sessionId: String): List<Long> = withReadLock {
         val list = mutableListOf<Long>()
@@ -1065,6 +1210,30 @@ class MatchLogRepository(
             }
         }
         list
+    }
+
+    suspend fun countTimestampGaps(sessionId: String, minimumGapMs: Long): Long = withReadLock {
+        require(minimumGapMs >= 0L) { "Minimum timestamp gap must not be negative" }
+        readConnectionFor(sessionId).prepareStatement(
+            """
+            SELECT COUNT(*)
+            FROM (
+                SELECT timestamp_ms - LAG(timestamp_ms) OVER (ORDER BY timestamp_ms) AS gap_ms
+                FROM (
+                    SELECT DISTINCT timestamp_ms
+                    FROM telemetry_frames
+                    WHERE session_id = ?
+                ) ordered_timestamps
+            ) gaps
+            WHERE gap_ms > ?
+            """.trimIndent()
+        ).use { statement ->
+            statement.setString(1, sessionId)
+            statement.setLong(2, minimumGapMs)
+            statement.executeQuery().use { rows ->
+                if (rows.next()) rows.getLong(1) else 0L
+            }
+        }
     }
 
     suspend fun deleteTelemetryFrames(sessionId: String) = withDbLock {
@@ -1102,7 +1271,7 @@ class MatchLogRepository(
 
     suspend fun getAnnotations(sessionId: String): List<SessionAnnotation> = withDbLock {
         val list = mutableListOf<SessionAnnotation>()
-        conn.prepareStatement("SELECT * FROM session_annotations WHERE session_id = ? ORDER BY created_at ASC").use { ps ->
+        conn.prepareStatement("SELECT * FROM session_annotations WHERE session_id = ? ORDER BY created_at ASC, annotation_id ASC").use { ps ->
             ps.setString(1, sessionId)
             ps.executeQuery().use { rs ->
                 while (rs.next()) list.add(rs.toSessionAnnotation())
@@ -1373,6 +1542,8 @@ class MatchLogRepository(
     }
 
     private companion object {
+        private const val IMPORT_STATE_IMPORTING = "IMPORTING"
+        private const val IMPORT_STATE_COMPLETE = "COMPLETE"
         private const val RAW_QUERY_TIMEOUT_SECONDS = 5L
         private val queryTimeoutExecutor = Executors.newSingleThreadScheduledExecutor { task ->
             Thread(task, "ares-duckdb-query-timeout").apply { isDaemon = true }

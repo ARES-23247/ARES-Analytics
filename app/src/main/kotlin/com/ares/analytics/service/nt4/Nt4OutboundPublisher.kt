@@ -187,7 +187,12 @@ internal class Nt4OutboundPublisher(
         val valueBytes = ByteArray(headerBytes.size + stringBytes.size)
         System.arraycopy(headerBytes, 0, valueBytes, 0, headerBytes.size)
         System.arraycopy(stringBytes, 0, valueBytes, headerBytes.size, stringBytes.size)
-        return sendBinaryUpdate(pubUid, 4.toByte(), valueBytes)
+        // Commands and configuration documents are ordered by the WebSocket stream rather than
+        // by a dashboard wall-clock timestamp. The simulator's fixed-step RobotClock can pause,
+        // restart, or run slower than wall time, so a translated timestamp may be rejected as
+        // stale even though the message has just arrived. Timestamp zero asks the NT4 receiver to
+        // stamp arrival time and keeps one-shot strings reliable across simulator lifecycles.
+        return sendBinaryUpdate(pubUid, 4.toByte(), valueBytes, useServerReceiptTimestamp = true)
     }
 
     private suspend fun publishInputDoubleArray(pubUid: Int, values: DoubleArray): Boolean {

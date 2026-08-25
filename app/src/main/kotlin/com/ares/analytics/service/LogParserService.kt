@@ -69,6 +69,17 @@ class LogParserService(
         val primaryFile = canonicalLogImportFiles(listOf(file)).single()
         val sourceSize = primaryFile.length()
         val sourceSha256 = sha256(primaryFile)
+        databaseService.findCompletedSessionBySourceHashes(
+            teamId = teamId,
+            seasonId = seasonId,
+            robotId = robotId,
+            sourceHashes = setOf(sourceSha256),
+        )?.let { existing ->
+            val report = databaseService.getSessionImportReports(existing.sessionId)
+                .firstOrNull { it.sourceSha256 == sourceSha256 }
+                ?: buildImportReport(primaryFile, existing.sessionId, sourceSize, sourceSha256)
+            return@withContext LogImportResult(existing, report, wasAlreadyImported = true)
+        }
         val session = parseLogFileInternal(
             primaryFile, teamId, seasonId, robotId, matchNumber, allianceColor, tags
         )
@@ -78,7 +89,13 @@ class LogParserService(
             cleanupFailedImport(session.sessionId, failure)
             throw failure
         }
-        LogImportResult(session, report)
+        try {
+            databaseService.completeSessionImport(session, listOf(report))
+            LogImportResult(session, report)
+        } catch (failure: Throwable) {
+            cleanupFailedImport(session.sessionId, failure)
+            throw failure
+        }
     }
 
     private suspend fun parseLogFileInternal(
@@ -106,6 +123,7 @@ class LogParserService(
         val lowerName = file.name.lowercase()
 
         try {
+            databaseService.insertImportSession(session)
             when {
             lowerName.endsWith(".wpilog") -> {
                 wpiLogDecoder.parseWpiLog(file, sessionId, batcher)
@@ -131,10 +149,8 @@ class LogParserService(
                             allianceColor = allianceColor ?: actionMeta.alliance,
                             tags = tags + "action-log"
                         )
-                        databaseService.insertSession(enrichedSession)
                         val summary = summaryEngineService.generateSummary(enrichedSession)
-                        databaseService.insertSessionSummary(summary)
-                        return@withContext enrichedSession
+                        return@withContext enrichedSession.copy(tags = summary.tags)
                     }
                 } else {
                     jsonlDecoder.parseJsonlLog(file, sessionId, batcher)
@@ -144,23 +160,18 @@ class LogParserService(
                 csvLogDecoder.parseCsvLogStreaming(file, sessionId, batcher)
             }
             lowerName.endsWith(".csv") -> {
-                databaseService.insertSession(session)
                 csvLogDecoder.parseCsvLogNative(file, sessionId)
                 val range = databaseService.getSessionTimestampRange(sessionId)
                 if (range != null) {
                     val finalSession = session.copy(durationMs = range.second - range.first)
-                    databaseService.insertSession(finalSession)
                     val summary = summaryEngineService.generateSummary(finalSession)
-                    databaseService.insertSessionSummary(summary)
-                    return@withContext finalSession
+                    return@withContext finalSession.copy(tags = summary.tags)
                 } else {
                     val summary = summaryEngineService.generateSummary(session)
-                    databaseService.insertSessionSummary(summary)
-                    return@withContext session
+                    return@withContext session.copy(tags = summary.tags)
                 }
             }
             lowerName.endsWith(".parquet") -> {
-                databaseService.insertSession(session)
                 val imported = parquetLogDecoder.parseParquetLog(file, sessionId)
                 val duration = if (imported.minTimestampMs != null && imported.maxTimestampMs != null) {
                     imported.maxTimestampMs - imported.minTimestampMs
@@ -168,10 +179,8 @@ class LogParserService(
                     0L
                 }
                 val finalSession = session.copy(durationMs = duration)
-                databaseService.insertSession(finalSession)
                 val summary = summaryEngineService.generateSummary(finalSession)
-                databaseService.insertSessionSummary(summary)
-                return@withContext finalSession
+                return@withContext finalSession.copy(tags = summary.tags)
             }
             lowerName.endsWith(".dslog") || lowerName.endsWith(".dsevents") -> {
                 val targetFile = if (lowerName.endsWith(".dsevents")) {
@@ -196,18 +205,14 @@ class LogParserService(
         }
 
             batcher.flush()
-            databaseService.insertSession(session)
             val finalSession = if (batcher.frameCount > 0) {
                 val duration = batcher.maxTimestamp - batcher.minTimestamp
-                val s = session.copy(durationMs = duration)
-                databaseService.insertSession(s)
-                s
+                session.copy(durationMs = duration)
             } else {
                 session
             }
             val summary = summaryEngineService.generateSummary(finalSession)
-            databaseService.insertSessionSummary(summary)
-            return@withContext finalSession
+            return@withContext finalSession.copy(tags = summary.tags)
         } catch (failure: Throwable) {
             cleanupFailedImport(sessionId, failure)
             throw failure
@@ -230,7 +235,6 @@ class LogParserService(
         val maxTimestampMs = telemetryRange?.second ?: actions.maxOfOrNull { it.timestampMs }
         val warnings = buildList {
             if (telemetryRecords == 0L && actionRecords > 0L) add("Action log contains no telemetry frames")
-            add("Rejected-record count is unavailable for the ${decoderOverride ?: decoderName(file)} decoder")
         }
         return ImportReport(
             sourceName = file.name,
@@ -273,6 +277,15 @@ class LogParserService(
         if (primaryFiles.size == 1) {
             return@withContext parseLogFile(primaryFiles.first(), teamId, seasonId, robotId, matchNumber, allianceColor, tags)
         }
+        val sourceEvidence = primaryFiles.map { source ->
+            SourceEvidence(source, source.length(), sha256(source))
+        }
+        databaseService.findCompletedSessionBySourceHashes(
+            teamId = teamId,
+            seasonId = seasonId,
+            robotId = robotId,
+            sourceHashes = sourceEvidence.mapTo(linkedSetOf(), SourceEvidence::sha256),
+        )?.let { existing -> return@withContext existing }
         val sessionId = UUID.randomUUID().toString()
         val createdAt = primaryFiles.first().lastModified()
         var currentMatchNumber = matchNumber
@@ -281,7 +294,18 @@ class LogParserService(
         val batcher = FrameBatcher(databaseService, keyTransform = { key ->
             key.removePrefix("/")
         })
+        val stagingSession = Session(
+            sessionId = sessionId,
+            teamId = teamId,
+            seasonId = seasonId,
+            robotId = robotId,
+            createdAt = createdAt,
+            matchNumber = matchNumber,
+            allianceColor = allianceColor,
+            tags = tags,
+        )
         try {
+            databaseService.insertImportSession(stagingSession)
             primaryFiles.forEach { file ->
             val lowerName = file.name.lowercase()
             when {
@@ -347,20 +371,29 @@ class LogParserService(
                 tags = currentTags
             )
 
-            databaseService.insertSession(baseSession)
             val range = databaseService.getSessionTimestampRange(sessionId)
             val finalSession = if (range != null) {
                 val duration = range.second - range.first
-                val s = baseSession.copy(durationMs = duration)
-                databaseService.insertSession(s)
-                s
+                baseSession.copy(durationMs = duration)
             } else {
                 baseSession
             }
             val summary = summaryEngineService.generateSummary(finalSession)
-            databaseService.insertSessionSummary(summary)
+            val completedSession = finalSession.copy(tags = summary.tags)
+            val reports = sourceEvidence.map { evidence ->
+                val report = buildImportReport(
+                    file = evidence.file,
+                    sessionId = sessionId,
+                    sourceSizeBytes = evidence.sizeBytes,
+                    sourceSha256 = evidence.sha256,
+                )
+                report.copy(
+                    warnings = report.warnings + "Record and topic totals describe the combined multi-file session",
+                )
+            }
+            databaseService.completeSessionImport(completedSession, reports)
 
-            return@withContext finalSession
+            return@withContext completedSession
         } catch (failure: Throwable) {
             cleanupFailedImport(sessionId, failure)
             throw failure
@@ -431,6 +464,16 @@ class LogParserService(
         }
         return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
     }
+
+    internal suspend fun persistExternalImportReports(sessionId: String, reports: List<ImportReport>) {
+        databaseService.replaceSessionImportReports(sessionId, reports)
+    }
+
+    private data class SourceEvidence(
+        val file: File,
+        val sizeBytes: Long,
+        val sha256: String,
+    )
 
     private companion object {
         private const val XZ_COPY_BUFFER_BYTES = 64 * 1024

@@ -25,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
+import com.ares.analytics.service.ReplayFrame
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.util.IndicatorLightColorMapper
 
@@ -39,6 +40,7 @@ import com.ares.analytics.util.IndicatorLightColorMapper
 @Composable
 fun IndicatorLightsCard(
     nt4ClientService: Nt4ClientService,
+    currentFrame: ReplayFrame? = null,
     modifier: Modifier = Modifier
 ) {
     // Track discovered indicator lights — keyed by name, valued by last position
@@ -52,6 +54,12 @@ fun IndicatorLightsCard(
                 lights[lightName] = frame.value
             }
         }
+    }
+    val displayedLights = remember(currentFrame?.sequence, lights.toMap()) {
+        currentFrame?.values?.entries
+            ?.filter { it.key.startsWith("Superstructure/IndicatorLight/") }
+            ?.associate { it.key.substringAfterLast('/') to it.value }
+            ?: lights.toMap()
     }
 
     Column(
@@ -94,7 +102,7 @@ fun IndicatorLightsCard(
                     .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = "${lights.size} light${if (lights.size != 1) "s" else ""}",
+                    text = "${displayedLights.size} light${if (displayedLights.size != 1) "s" else ""}",
                     fontSize = 11.sp,
                     color = AresTextSecondary,
                     fontWeight = FontWeight.Bold
@@ -104,7 +112,7 @@ fun IndicatorLightsCard(
 
         HorizontalDivider(color = AresBorder, thickness = 1.dp)
 
-        if (lights.isEmpty()) {
+        if (displayedLights.isEmpty()) {
             // Empty state
             Box(
                 modifier = Modifier
@@ -117,13 +125,17 @@ fun IndicatorLightsCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = "No indicator lights detected",
+                        text = if (currentFrame == null) "No indicator lights detected" else "No light topics in this recording",
                         fontSize = 13.sp,
                         color = AresTextTertiary,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = "Waiting for Superstructure/IndicatorLight/* topics…",
+                        text = if (currentFrame == null) {
+                            "Waiting for Superstructure/IndicatorLight/* topics…"
+                        } else {
+                            "This is missing data, not an off-light reading."
+                        },
                         fontSize = 11.sp,
                         color = AresTextTertiary.copy(alpha = 0.6f)
                     )
@@ -134,7 +146,7 @@ fun IndicatorLightsCard(
             Column(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                for ((name, position) in lights.toSortedMap()) {
+                for ((name, position) in displayedLights.toSortedMap()) {
                     IndicatorLightRow(name = name, position = position)
                 }
             }

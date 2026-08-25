@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.di.KeyboardDriveState
 import com.ares.analytics.service.Nt4ClientService
+import com.ares.analytics.service.RobotTopicContract
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.theme.AresAmber
 import com.ares.analytics.ui.theme.AresBorder
@@ -75,8 +76,10 @@ private const val ACTIVE_OPMODE_STATE_TOPIC = "ARES/DriverStation/ActiveOpModeSt
 private const val FRC_DRIVER_STATION_COMMAND_TOPIC = "ARES/Simulation/FrcDriverStationCommand"
 private const val FRC_DRIVER_STATION_STATE_TOPIC = "ARES/Simulation/FrcDriverStationState"
 private const val FRC_ENABLE_TELEOP_COMMAND = "ENABLE_TELEOP"
+private const val FRC_ENABLE_AUTONOMOUS_COMMAND = "ENABLE_AUTONOMOUS"
 private const val FRC_DISABLE_COMMAND = "DISABLE"
 private const val FRC_TELEOP_ENABLED_STATE = "TELEOP_ENABLED"
+private const val FRC_AUTONOMOUS_ENABLED_STATE = "AUTONOMOUS_ENABLED"
 private const val FRC_WAITING_FOR_CONTROL_STATE = "WAITING_FOR_CONTROL"
 private const val TELEOP_INIT_STATE = "TELEOP_INIT"
 private const val TELEOP_RUNNING_STATE = "TELEOP_RUNNING"
@@ -121,6 +124,37 @@ internal fun simulatorDriveReceiverStatus(statusCode: Int?): String = when (stat
 
 internal fun frcSimulatorTeleOpEnabled(state: String?): Boolean =
     state?.trim()?.uppercase() == FRC_TELEOP_ENABLED_STATE
+
+internal fun frcSimulatorAutonomousEnabled(state: String?): Boolean =
+    state?.trim()?.uppercase() == FRC_AUTONOMOUS_ENABLED_STATE
+
+internal enum class FrcAutonomousDisplayState {
+    INACTIVE,
+    RUNNING,
+    COMPLETE,
+    BLOCKED,
+}
+
+internal fun frcAutonomousDisplayState(
+    driverStationState: String?,
+    autonomousStatus: String?,
+): FrcAutonomousDisplayState {
+    if (!frcSimulatorAutonomousEnabled(driverStationState)) return FrcAutonomousDisplayState.INACTIVE
+    return when (autonomousStatus?.trim()?.uppercase()) {
+        "COMPLETE" -> FrcAutonomousDisplayState.COMPLETE
+        "BLOCKED", "FAILED", "CANCELLED" -> FrcAutonomousDisplayState.BLOCKED
+        else -> FrcAutonomousDisplayState.RUNNING
+    }
+}
+
+internal fun preferredSimulatorAutonomous(
+    available: List<String>,
+    requested: String?,
+    robotSelected: String?,
+): String? = requested?.takeIf { it in available }
+    ?: robotSelected?.takeIf { it in available }
+    ?: available.firstOrNull { it == "do-nothing" }
+    ?: available.firstOrNull()
 
 internal fun decodeSimulatorTeleOps(value: String?): List<String> =
     value?.let { encoded ->
@@ -221,6 +255,31 @@ fun LocalSimulatorControlBar(
     var frcDriverStationState by remember(nt4Client) {
         mutableStateOf(nt4Client.latestValues[FRC_DRIVER_STATION_STATE_TOPIC]?.stringValue)
     }
+    var availableAutos by remember(nt4Client) {
+        mutableStateOf(
+            parseAvailableAutoDocuments(
+                nt4Client.latestValues[RobotTopicContract.AVAILABLE_AUTONOMOUS_ROUTINES]?.stringValue,
+            ),
+        )
+    }
+    var robotSelectedAuto by remember(nt4Client) {
+        mutableStateOf(
+            nt4Client.latestValues[RobotTopicContract.SELECTED_AUTONOMOUS_ROUTINE]
+                ?.stringValue
+                .orEmpty(),
+        )
+    }
+    var requestedAuto by remember(nt4Client) {
+        mutableStateOf(preferredSimulatorAutonomous(availableAutos, null, robotSelectedAuto))
+    }
+    var autonomousStatus by remember(nt4Client) {
+        mutableStateOf(
+            nt4Client.latestValues[RobotTopicContract.AUTONOMOUS_STATUS]
+                ?.stringValue
+                ?.ifBlank { "Idle" }
+                ?: "Waiting for robot",
+        )
+    }
     var driveReceiverStatusCode by remember(nt4Client) {
         mutableStateOf(nt4Client.driveInputAcknowledgement.value?.statusCode)
     }
@@ -230,6 +289,7 @@ fun LocalSimulatorControlBar(
     var starting by remember { mutableStateOf(false) }
     var startFailure by remember { mutableStateOf<String?>(null) }
     var selectorExpanded by remember { mutableStateOf(false) }
+    var autoSelectorExpanded by remember { mutableStateOf(false) }
     var startJob by remember { mutableStateOf<Job?>(null) }
     val scope = rememberCoroutineScope()
     val connectedNow by rememberUpdatedState(isConnected)
@@ -251,6 +311,25 @@ fun LocalSimulatorControlBar(
                 ACTIVE_OPMODE_DISPLAY_NAME_TOPIC -> activeOpModeDisplayName = frame.stringValue?.takeIf(String::isNotBlank)
                 ACTIVE_OPMODE_STATE_TOPIC -> activeOpModeState = frame.stringValue
                 FRC_DRIVER_STATION_STATE_TOPIC -> frcDriverStationState = frame.stringValue
+                RobotTopicContract.AVAILABLE_AUTONOMOUS_ROUTINES -> {
+                    availableAutos = parseAvailableAutoDocuments(frame.stringValue)
+                    requestedAuto = preferredSimulatorAutonomous(
+                        available = availableAutos,
+                        requested = requestedAuto,
+                        robotSelected = robotSelectedAuto,
+                    )
+                }
+                RobotTopicContract.SELECTED_AUTONOMOUS_ROUTINE -> {
+                    robotSelectedAuto = frame.stringValue.orEmpty()
+                    requestedAuto = preferredSimulatorAutonomous(
+                        available = availableAutos,
+                        requested = requestedAuto,
+                        robotSelected = robotSelectedAuto,
+                    )
+                }
+                RobotTopicContract.AUTONOMOUS_STATUS -> {
+                    autonomousStatus = frame.stringValue.orEmpty().ifBlank { "Idle" }
+                }
             }
         }
     }
@@ -285,6 +364,12 @@ fun LocalSimulatorControlBar(
             frcSimulatorTeleOpEnabled(frcDriverStationState)
         }
     ) && !starting
+    val isAutonomousRunning = isConnected && !isFtc && frcSimulatorAutonomousEnabled(frcDriverStationState) && !starting
+    val autonomousDisplayState = if (isConnected && !isFtc) {
+        frcAutonomousDisplayState(frcDriverStationState, autonomousStatus)
+    } else {
+        FrcAutonomousDisplayState.INACTIVE
+    }
     val receiverReady = simulatorDriveReceiverReady(
         statusCode = driveReceiverStatusCode,
         leaseAgeMs = driveReceiverLeaseAgeMs,
@@ -301,9 +386,12 @@ fun LocalSimulatorControlBar(
         !isConnected && isSimulatorProcessRunning -> "CONNECTING"
         !isConnected -> "OFFLINE"
         starting -> "STARTING"
-        startFailure != null -> "TELEOP FAILED"
+        startFailure != null -> "START FAILED"
         isRunning && keyboardDriveState.enabled && !receiverReady -> "CONTROL RECOVERING"
         isRunning && keyboardDriveState.enabled -> simulatorDriveReceiverStatus(driveReceiverStatusCode)
+        autonomousDisplayState == FrcAutonomousDisplayState.COMPLETE -> "AUTONOMOUS COMPLETE"
+        autonomousDisplayState == FrcAutonomousDisplayState.BLOCKED -> "AUTONOMOUS BLOCKED"
+        autonomousDisplayState == FrcAutonomousDisplayState.RUNNING -> "AUTONOMOUS RUNNING"
         isRunning -> "TELEOP RUNNING"
         !isFtc && frcDriverStationState == FRC_WAITING_FOR_CONTROL_STATE -> "WAITING FOR SAFE CONTROL"
         command == "INIT" -> "INITIALIZED"
@@ -311,9 +399,9 @@ fun LocalSimulatorControlBar(
     }
     val statusColor = when {
         !isConnected -> AresTextSecondary
-        startFailure != null -> AresError
+        startFailure != null || autonomousDisplayState == FrcAutonomousDisplayState.BLOCKED -> AresError
         starting || command == "INIT" || (isRunning && keyboardDriveState.enabled && !receiverReady) -> AresAmber
-        isRunning -> AresGreen
+        isRunning || isAutonomousRunning -> AresGreen
         else -> AresCyan
     }
 
@@ -321,7 +409,7 @@ fun LocalSimulatorControlBar(
         modifier = modifier.fillMaxWidth(),
         color = AresSurface,
         shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, if (isRunning) AresGreen else AresBorder),
+        border = BorderStroke(1.dp, if (isRunning || isAutonomousRunning) AresGreen else AresBorder),
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp),
@@ -344,8 +432,9 @@ fun LocalSimulatorControlBar(
                 Box(Modifier.weight(1f)) {
                     Surface(
                         onClick = {
-                            if (isFtc && isConnected && teleOps.isNotEmpty() && !starting) {
-                                selectorExpanded = true
+                            if (isConnected && !starting) {
+                                if (isFtc && teleOps.isNotEmpty()) selectorExpanded = true
+                                if (!isFtc && availableAutos.isNotEmpty()) autoSelectorExpanded = true
                             }
                         },
                         modifier = Modifier.fillMaxWidth().height(32.dp),
@@ -360,16 +449,24 @@ fun LocalSimulatorControlBar(
                         ) {
                             Text(
                                 if (!isFtc) {
-                                    if (isConnected) "ARES Studio Driver Station · TeleOp" else "FRC simulator is not running"
+                                    when {
+                                        !isConnected -> "FRC simulator is not running"
+                                        requestedAuto != null -> "Auto: $requestedAuto"
+                                        availableAutos.isEmpty() -> "Waiting for compiled autonomous catalog…"
+                                        else -> "Choose an autonomous routine"
+                                    }
                                 } else {
                                     selectedOpMode?.substringAfterLast('.')
                                         ?: if (isConnected) "Waiting for TeleOp list…" else "Simulator is not running"
                                 },
-                                color = if (isFtc && selectedOpMode == null) AresTextSecondary else AresTextPrimary,
+                                color = if (
+                                    (isFtc && selectedOpMode == null) ||
+                                    (!isFtc && requestedAuto == null)
+                                ) AresTextSecondary else AresTextPrimary,
                                 fontSize = 11.sp,
                                 maxLines = 1,
                             )
-                            if (isFtc) {
+                            if (isFtc || (!isFtc && availableAutos.isNotEmpty())) {
                                 Icon(Icons.Default.ArrowDropDown, null, tint = AresTextSecondary, modifier = Modifier.size(17.dp))
                             }
                         }
@@ -385,6 +482,21 @@ fun LocalSimulatorControlBar(
                                 onClick = {
                                     selectedOpMode = opMode
                                     selectorExpanded = false
+                                },
+                            )
+                        }
+                    }
+                    DropdownMenu(
+                        expanded = autoSelectorExpanded,
+                        onDismissRequest = { autoSelectorExpanded = false },
+                        modifier = Modifier.background(AresSurfaceElevated),
+                    ) {
+                        availableAutos.forEach { autoId ->
+                            DropdownMenuItem(
+                                text = { Text(autoId, color = AresTextPrimary) },
+                                onClick = {
+                                    requestedAuto = autoId
+                                    autoSelectorExpanded = false
                                 },
                             )
                         }
@@ -510,6 +622,77 @@ fun LocalSimulatorControlBar(
                     Text(primaryAction.label, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 }
 
+                if (!isFtc) {
+                    OutlinedButton(
+                        onClick = {
+                            if (starting || isAutonomousRunning) return@OutlinedButton
+                            val selection = requestedAuto ?: return@OutlinedButton
+                            startJob?.cancel()
+                            startJob = scope.launch {
+                                starting = true
+                                startFailure = null
+                                keyboardDriveState.disarm()
+                                try {
+                                    nt4Client.publishString(RobotTopicContract.FRC_AUTONOMOUS_REQUEST, selection)
+                                    nt4Client.publishString(
+                                        RobotTopicContract.FRC_SMART_DASHBOARD_AUTONOMOUS_REQUEST,
+                                        selection,
+                                    )
+                                    // Give the NT4 request one bounded transport interval before autonomousInit
+                                    // locks the generated selection.
+                                    delay(150)
+                                    nt4Client.publishString(
+                                        FRC_DRIVER_STATION_COMMAND_TOPIC,
+                                        FRC_ENABLE_AUTONOMOUS_COMMAND,
+                                    )
+                                    val running = withTimeoutOrNull(OPMODE_ACK_TIMEOUT_MS) {
+                                        while (
+                                            connectedNow &&
+                                            (!frcSimulatorAutonomousEnabled(frcDriverStationState) ||
+                                                robotSelectedAuto != selection)
+                                        ) {
+                                            delay(20)
+                                        }
+                                        connectedNow
+                                    } == true
+                                    if (!running) {
+                                        startFailure = if (frcSimulatorAutonomousEnabled(frcDriverStationState)) {
+                                            "The robot did not lock autonomous '$selection'"
+                                        } else {
+                                            "The FRC simulator did not start autonomous"
+                                        }
+                                    }
+                                } catch (cancelled: CancellationException) {
+                                    throw cancelled
+                                } catch (error: Exception) {
+                                    startFailure = error.message ?: "Simulator autonomous start failed"
+                                } finally {
+                                    starting = false
+                                }
+                            }
+                        },
+                        enabled = isConnected && requestedAuto != null && !starting && !isAutonomousRunning,
+                        modifier = Modifier.height(32.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AresCyan),
+                        border = BorderStroke(1.dp, AresCyan),
+                        shape = RoundedCornerShape(6.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    ) {
+                        Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            when (autonomousDisplayState) {
+                                FrcAutonomousDisplayState.COMPLETE -> "Auto complete"
+                                FrcAutonomousDisplayState.BLOCKED -> "Auto blocked"
+                                FrcAutonomousDisplayState.RUNNING -> "Auto running"
+                                FrcAutonomousDisplayState.INACTIVE -> "Run auto"
+                            },
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+
                 OutlinedButton(
                     onClick = {
                         startJob?.cancel()
@@ -593,12 +776,22 @@ fun LocalSimulatorControlBar(
                         ?: "Verify & build the current robot project before launching its simulator."
                     !isConnected && launchRequiresVerification -> "Verify the current project, then launch its simulator automatically. No code is deployed."
                     !isConnected -> "Launch the physics server here. When it connects, choose a TeleOp and Start driving."
+                    !isFtc && autonomousDisplayState == FrcAutonomousDisplayState.COMPLETE ->
+                        "${robotSelectedAuto.ifBlank { requestedAuto ?: "Generated autonomous" }} completed; outputs are neutral. Stop exits Autonomous mode."
+                    !isFtc && autonomousDisplayState == FrcAutonomousDisplayState.BLOCKED ->
+                        "${robotSelectedAuto.ifBlank { requestedAuto ?: "Generated autonomous" }} was blocked and outputs were neutralized. Stop, fix the reported cause, then retry."
+                    !isFtc && autonomousDisplayState == FrcAutonomousDisplayState.RUNNING ->
+                        "Running ${robotSelectedAuto.ifBlank { requestedAuto ?: "generated autonomous" }}. Stop returns every output to neutral."
                     !isFtc && frcDriverStationState == FRC_WAITING_FOR_CONTROL_STATE ->
                         "ARES is establishing a fresh neutral control lease before it enables the simulation-only Driver Station."
                     !isFtc && keyboardDriveState.enabled ->
                         "FRC TeleOp is enabled and field-centric control is armed: W drives toward the opposing station. Loopback only."
                     !isFtc ->
-                        "Start driving enables the simulation-only Driver Station here; no external WPILib window is required."
+                        if (availableAutos.isEmpty()) {
+                            "Waiting for the robot's compiled autonomous catalog. Start driving enables TeleOp; no external WPILib window is required."
+                        } else {
+                            "Choose an autonomous above, then Run auto—or Start driving for TeleOp. No external WPILib window is required."
+                        }
                     startFailure != null -> "$startFailure. Stop, confirm the selected TeleOp, and try again."
                     !isRunning -> "Choose a TeleOp, then Start driving. The simulator can be online while no OpMode is running."
                     keyboardDriveState.enabled && !receiverReady ->

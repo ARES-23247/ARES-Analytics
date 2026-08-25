@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.material.DropdownMenu
 import androidx.compose.material.DropdownMenuItem
 import com.ares.analytics.service.Nt4ClientService
+import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.components.pathplanner.FieldCanvas
 import com.ares.analytics.ui.components.pathplanner.Waypoint
@@ -27,6 +28,8 @@ import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.FieldViewerViewModel
 import com.ares.analytics.viewmodel.FieldViewerIntent
 import com.ares.analytics.viewmodel.LivePoseState
+import com.ares.analytics.viewmodel.field.toReplayPoseState
+import com.ares.analytics.viewmodel.field.loadReplayFieldTrace
 import androidx.compose.material.icons.filled.SwapHoriz
 
 private fun waypointOrNull(x: Double?, y: Double?, headingRad: Double?): Waypoint? {
@@ -52,6 +55,9 @@ internal fun fieldEstimatedPose(liveState: LivePoseState): Waypoint? =
 @Composable
 fun FieldViewerCard(
     nt4ClientService: Nt4ClientService,
+    currentFrame: com.ares.analytics.service.ReplayFrame? = null,
+    databaseService: DatabaseService? = null,
+    replayStartTimestampMs: Long = 0L,
     league: League,
     projectPath: String? = null,
     properties: Map<String, String> = emptyMap(),
@@ -61,7 +67,30 @@ fun FieldViewerCard(
     val scope = rememberCoroutineScope()
     val viewModel = remember(nt4ClientService) { FieldViewerViewModel(nt4ClientService, scope) }
     val state by viewModel.state.collectAsState()
-    val liveState by viewModel.livePose.collectAsState()
+    val observedLiveState by viewModel.livePose.collectAsState()
+    val liveState = remember(currentFrame?.sequence, observedLiveState) {
+        currentFrame?.toReplayPoseState() ?: observedLiveState
+    }
+    val replayTraceBucket = currentFrame?.playheadMs?.div(250L)
+    val replayTrace by produceState<List<Waypoint>>(
+        initialValue = emptyList(),
+        currentFrame?.sessionId,
+        replayTraceBucket,
+        replayStartTimestampMs,
+    ) {
+        val replay = currentFrame
+        val database = databaseService
+        value = if (replay == null || database == null) emptyList() else {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                loadReplayFieldTrace(
+                    database = database,
+                    sessionId = replay.sessionId,
+                    startMs = replayStartTimestampMs,
+                    endMs = replay.playheadMs,
+                )
+            }
+        }
+    }
     val liveTruePose = if (liveState.hasTruePoseData) {
         waypointOrNull(liveState.trueX, liveState.trueY, liveState.trueHeading)
     } else null
@@ -109,13 +138,18 @@ fun FieldViewerCard(
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
             ) {
                 Text(
-                    "Field 2D Live Tracker",
+                    if (currentFrame == null) "Field 2D Live Tracker" else "Field 2D Replay",
                     color = AresTextPrimary,
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp
                 )
                 Text(
-                    if (liveState.isConnected) "Connected" else "Offline",
+                    when {
+                        currentFrame != null && currentFrame.playheadMs == currentFrame.timestampMs -> "Replay · sample exact"
+                        currentFrame != null -> "Replay · sample ${currentFrame.playheadMs - currentFrame.timestampMs} ms old"
+                        liveState.isConnected -> "Connected"
+                        else -> "Offline"
+                    },
                     color = if (liveState.isConnected) AresGreen else AresTextTertiary,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold
@@ -289,7 +323,11 @@ fun FieldViewerCard(
                 FieldCanvas(
                     league = league,
                     waypoints = emptyList(),
-                    actualPath = fieldRobotPath(state.poseHistory, liveTruePose, tracerEnabled),
+                    actualPath = fieldRobotPath(
+                        poseHistory = if (currentFrame == null) state.poseHistory else replayTrace,
+                        liveTruePose = liveTruePose,
+                        tracerEnabled = tracerEnabled,
+                    ),
                     onWaypointsChanged = {},
                     projectPath = projectPath,
                     estimatedPose = estimatedPose,

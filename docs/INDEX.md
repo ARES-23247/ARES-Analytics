@@ -21,6 +21,7 @@ Start here if ARES Robotics Studio is new to you. You do not need to understand 
 | Learn where screens and controls are | [App tour](start/APP_TOUR.md) | A map of the window, status language, and common workflows |
 | See a robot without risking hardware | [Connect the simulator](start/CONNECT_SIMULATOR.md) | Live simulator telemetry on this computer |
 | Review a practice or match log | [Bring in a run](operate/BRING_IN_A_RUN.md) | An imported, persistent run and replay controls |
+| Understand replay timing and missing data | [Deterministic replay](DETERMINISTIC_REPLAY.md) | Atomic snapshots, source labels, timeline markers, and recovery |
 | Understand one run step by step | [Guided run review](operate/GUIDED_RUN_REVIEW.md) | Source identity, timestamps, units, confidence, same-robot comparison, and safe next actions |
 | Understand an unfamiliar word | [Glossary](learn/GLOSSARY.md) | Short definitions with mentor notes |
 | Follow a complete beginner-to-builder path | [Robot Academy](learn/ROBOT_ACADEMY.md) | Guided missions, checkpoints, interactive labs, and local progress |

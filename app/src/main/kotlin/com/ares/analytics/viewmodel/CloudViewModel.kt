@@ -174,9 +174,16 @@ class CloudViewModel(
                     checkAuth()
                     _state.update { it.copy(isSyncing = true, errorMessage = null) }
                     try {
-                        val localSessions = databaseService.getSessions()
-                        val localSummariesMap = databaseService.getAllSessionSummaries().associateBy { it.sessionId }
+                        val localSessions = databaseService.getSessionsForWorkspace(
+                            workspaceConfig.teamId,
+                            workspaceConfig.seasonId,
+                            workspaceConfig.robotId,
+                        )
+                        val localSummariesMap = databaseService.getAllSessionSummaries()
+                            .filter { it.matches(workspaceConfig) }
+                            .associateBy { it.sessionId }
                         val remoteSummaries = syncEngineService.getRemoteSummaries()
+                            .filter { it.matches(workspaceConfig) }
                         val allSessionIds = (localSessions.map { it.sessionId } + remoteSummaries.map { it.sessionId }).toSet()
                         val sessionsList = allSessionIds.map { id ->
                             val localSession = localSessions.find { it.sessionId == id }
@@ -507,3 +514,8 @@ class CloudViewModel(
         const val MIN_ROBOT_DELETE_TOKEN_LENGTH = 16
     }
 }
+
+private fun SessionSummary.matches(workspace: WorkspaceConfig): Boolean =
+    teamId == workspace.teamId &&
+        seasonId == workspace.seasonId &&
+        robotId == workspace.robotId

@@ -68,6 +68,29 @@ class ManagedToolchainServiceTest {
     }
 
     @Test
+    fun `explicit simulation JDK becomes first on path even when it was already later`() {
+        val root = Files.createTempDirectory("ares-java-environment-test").toFile()
+        val bin = File(root, "bin").apply { mkdirs() }
+        File(bin, "java.exe").writeText("java")
+        File(bin, "javac.exe").writeText("javac")
+        File(root, "release").writeText("JAVA_VERSION=\"17.0.16\"")
+        val other = Files.createTempDirectory("ares-other-java-bin").toFile()
+        try {
+            val builder = ProcessBuilder("fixture")
+            builder.environment()["PATH"] = listOf(other.path, bin.path).joinToString(File.pathSeparator)
+
+            ManagedToolchainPaths.configureJavaEnvironment(builder, root)
+
+            assertEquals(root.path, builder.environment()["JAVA_HOME"])
+            assertEquals(bin.canonicalPath, builder.environment()["PATH"]?.split(File.pathSeparator)?.first()?.let(::File)?.canonicalPath)
+            assertEquals(1, builder.environment()["PATH"]?.split(File.pathSeparator)?.count { File(it).canonicalFile == bin.canonicalFile })
+        } finally {
+            root.deleteRecursively()
+            other.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `checksum mismatch installs nothing and reports failure`() = runBlocking {
         val root = Files.createTempDirectory("ares-managed-jdk-hash-test").toFile()
         try {

@@ -121,8 +121,11 @@ object FieldEditorValidator {
         gamePieces.filterNot { bounds.contains(it.x, it.y) }.forEach {
             issues += warning("${it.name} is outside the field", it.id)
         }
-        aprilTags.filterNot { bounds.contains(it.x, it.y) }.forEach {
-            issues += warning("AprilTag ${it.tagId} is outside the field", it.id)
+        aprilTags.filterNot { bounds.containsWithMargin(it.x, it.y, APRILTAG_PERIMETER_MARGIN_METERS) }.forEach {
+            issues += warning(
+                "AprilTag ${it.tagId} is more than ${APRILTAG_PERIMETER_MARGIN_METERS} m outside the field perimeter",
+                it.id,
+            )
         }
         waypoints.filterNot { bounds.contains(it.x, it.y) }.forEach {
             issues += warning("${it.name} is outside the field", it.id)
@@ -159,10 +162,22 @@ object FieldEditorValidator {
 
     private fun warning(message: String, id: String) =
         FieldValidationIssue(FieldValidationSeverity.WARNING, message, setOf(id))
+
+    /**
+     * AprilTags are commonly mounted on the field wall with their pose origin at the tag face.
+     * Official layouts can therefore place the face a few centimetres beyond the playable-area
+     * dimensions. Keep ordinary objects inside the strict bounds, while allowing reviewed
+     * perimeter mounts without teaching students that the official map is invalid.
+     */
+    internal const val APRILTAG_PERIMETER_MARGIN_METERS = 0.25
 }
 
 private data class FieldBounds(val minX: Double, val maxX: Double, val minY: Double, val maxY: Double) {
     fun contains(x: Double, y: Double): Boolean = x.isFinite() && y.isFinite() && x in minX..maxX && y in minY..maxY
+    fun containsWithMargin(x: Double, y: Double, margin: Double): Boolean =
+        x.isFinite() && y.isFinite() &&
+            x in (minX - margin)..(maxX + margin) &&
+            y in (minY - margin)..(maxY + margin)
     fun contains(bounds: AxisAlignedBounds): Boolean =
         bounds.minX.isFinite() && bounds.maxX.isFinite() && bounds.minY.isFinite() && bounds.maxY.isFinite() &&
             bounds.minX >= minX && bounds.maxX <= maxX && bounds.minY >= minY && bounds.maxY <= maxY

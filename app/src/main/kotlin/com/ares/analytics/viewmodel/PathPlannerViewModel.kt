@@ -123,16 +123,16 @@ enum class AutonomousTourStep(
         target = AutonomousTourTarget.EDITOR,
     );
 
-    fun next(): AutonomousTourStep? {
-        val entries = entries
-        val idx = entries.indexOf(this)
-        return if (idx in 0 until entries.size - 1) entries[idx + 1] else null
+    fun next(hasProjectActions: Boolean = true): AutonomousTourStep? {
+        val visibleSteps = entries.filter { hasProjectActions || it != ACTION_MARKER }
+        val idx = visibleSteps.indexOf(this)
+        return if (idx in 0 until visibleSteps.size - 1) visibleSteps[idx + 1] else null
     }
 
-    fun previous(): AutonomousTourStep? {
-        val entries = entries
-        val idx = entries.indexOf(this)
-        return if (idx > 0) entries[idx - 1] else null
+    fun previous(hasProjectActions: Boolean = true): AutonomousTourStep? {
+        val visibleSteps = entries.filter { hasProjectActions || it != ACTION_MARKER }
+        val idx = visibleSteps.indexOf(this)
+        return if (idx > 0) visibleSteps[idx - 1] else null
     }
 }
 
@@ -501,11 +501,11 @@ class PathPlannerViewModel(
                 }
                 is PathPlannerIntent.StartGuidedTour -> _state.update { it.copy(tourStep = AutonomousTourStep.START_POSE) }
                 is PathPlannerIntent.NextTourStep -> _state.update {
-                    val next = it.tourStep?.next()
+                    val next = it.tourStep?.next(hasProjectActions = it.routineActions.isNotEmpty())
                     it.copy(tourStep = next)
                 }
                 is PathPlannerIntent.PreviousTourStep -> _state.update {
-                    val prev = it.tourStep?.previous()
+                    val prev = it.tourStep?.previous(hasProjectActions = it.routineActions.isNotEmpty())
                     it.copy(tourStep = prev ?: it.tourStep)
                 }
                 is PathPlannerIntent.DismissTour -> _state.update { it.copy(tourStep = null) }
@@ -684,8 +684,8 @@ class PathPlannerViewModel(
                     robotDimensions = effectiveDimensions,
                     capabilityStatus = when {
                         refresh.diagnostics.isNotEmpty() -> refresh.diagnostics.first()
-                        catalog == null -> "No generated action catalog yet; motion, waits, calls, and groups remain available offline"
-                        catalog.actions.isEmpty() -> "This project declares no robot actions"
+                        catalog == null -> "No generated action catalog yet. Save and generate Robot Studio changes before adding mechanism actions; drive, wait, call, and group steps remain available."
+                        catalog.actions.isEmpty() -> "No mechanism actions yet. Add a subsystem in Robot Studio, then Save & generate; drive-only routines work now."
                         else -> "${catalog.actions.size} actions and ${catalog.conditions.size} conditions loaded from the project"
                     },
                     routineValidation = routineEditorValidation(

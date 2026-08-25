@@ -140,10 +140,16 @@ class ProcessManagerServiceTest {
             assertTrue(":TeamCode:runSim" in ftc)
             assertEquals("./gradlew", frc.first())
             assertTrue("simulateJava" in frc)
+            assertTrue("-ParesFrcHalGui=false" in frc)
+            assertFalse(ftc.any { it.startsWith("-ParesFrcHalGui=") })
             listOf(ftc, frc).forEach { command ->
                 assertTrue("--no-parallel" in command)
                 assertTrue("--no-daemon" in command)
                 assertTrue("--console=plain" in command)
+            }
+            if (ManagedToolchainPaths.resolveFrcSimulationJavaHome() != null) {
+                val windowsFrc = service.simulationGradleCommandForTest(League.FRC, isWindows = true)
+                assertTrue(windowsFrc.any { it.startsWith("-ParesFrcJavaExecutable=") })
             }
         } finally {
             service.shutdown()

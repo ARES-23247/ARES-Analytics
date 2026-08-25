@@ -66,6 +66,53 @@ class DatabaseViewportQueryTest {
         }
     }
 
+    @Test
+    fun `diagnostic filter is deterministic and bounded while retaining endpoints`() = runTest {
+        withDatabase { database ->
+            database.insertTelemetryFrames(
+                (0 until 10_000).map { index ->
+                    frame("bounded", "Drive/Velocity", index.toLong(), index.toDouble())
+                }
+            )
+
+            val frames = database.getTelemetryForFilters(
+                sessionId = "bounded",
+                keys = listOf("Drive/Velocity"),
+                prefixes = emptyList(),
+                maxFrames = 100,
+                maxFramesPerTopic = 100,
+            )
+
+            assertTrue(frames.size <= 100)
+            assertEquals(0L, frames.first().timestampMs)
+            assertEquals(9_999L, frames.last().timestampMs)
+            assertEquals(frames, database.getTelemetryForFilters(
+                "bounded",
+                listOf("Drive/Velocity"),
+                emptyList(),
+                maxFrames = 100,
+                maxFramesPerTopic = 100,
+            ))
+        }
+    }
+
+    @Test
+    fun `timestamp gap count stays scalar for long sessions`() = runTest {
+        withDatabase { database ->
+            database.insertTelemetryFrames(
+                listOf(
+                    frame("gaps", "A", 0, 1.0),
+                    frame("gaps", "A", 20, 1.0),
+                    frame("gaps", "A", 1_500, 1.0),
+                    frame("gaps", "B", 1_500, 2.0),
+                    frame("gaps", "A", 3_000, 1.0),
+                )
+            )
+
+            assertEquals(2L, database.countTimestampGaps("gaps", 1_000))
+        }
+    }
+
     private suspend fun withDatabase(block: suspend (DatabaseService) -> Unit) {
         val directory = Files.createTempDirectory("ares-viewport-query").toFile()
         val database = DatabaseService(directory.resolve("telemetry.duckdb").absolutePath)

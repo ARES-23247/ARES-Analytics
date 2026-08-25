@@ -477,7 +477,7 @@ class RoutineBuilderViewModelTest {
 
         viewModel.onIntent(PathPlannerIntent.NextTourStep)
         advanceUntilIdle()
-        assertEquals(AutonomousTourStep.ACTION_MARKER, viewModel.state.value.tourStep)
+        assertEquals(AutonomousTourStep.PREVIEW_PLAYBACK, viewModel.state.value.tourStep)
 
         viewModel.onIntent(PathPlannerIntent.PreviousTourStep)
         advanceUntilIdle()
@@ -493,5 +493,13 @@ class RoutineBuilderViewModelTest {
         assertEquals(AutonomousTourTarget.CANVAS, AutonomousTourStep.PREVIEW_PLAYBACK.target)
         assertTrue(AutonomousTourStep.PREVIEW_PLAYBACK.description.contains("not a physics simulation"))
         assertTrue(AutonomousTourStep.ACTION_MARKER.description.contains("does not bypass subsystem safety"))
+        assertEquals(
+            AutonomousTourStep.ACTION_MARKER,
+            AutonomousTourStep.ADD_WAYPOINT.next(hasProjectActions = true),
+        )
+        assertEquals(
+            AutonomousTourStep.PREVIEW_PLAYBACK,
+            AutonomousTourStep.ADD_WAYPOINT.next(hasProjectActions = false),
+        )
     }
 }

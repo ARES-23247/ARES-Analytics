@@ -264,6 +264,17 @@ object ManagedToolchainPaths {
     }
 
     /**
+     * WPILib's Windows JNI runtime is tested with the JDK shipped by the matching WPILib season.
+     * An otherwise valid system JDK can carry an older `msvcp140.dll` beside `java.exe`; Windows
+     * loads that copy before the current system redistributable and WPILib then refuses to start.
+     */
+    internal fun resolveFrcSimulationJavaHome(): File? =
+        resolveWpilibHome()
+            ?.let { File(it, "jdk") }
+            ?.takeIf(::isCompleteJdk)
+            ?: resolveJavaHome()
+
+    /**
      * Returns every supported JDK that Gradle children should be allowed to use as a toolchain.
      *
      * Gradle's normal Windows discovery only sees JDKs registered by their installer. Oracle ZIP
@@ -322,15 +333,18 @@ object ManagedToolchainPaths {
 
     fun configureEnvironment(builder: ProcessBuilder): ProcessBuilder = builder.also {
         val env = it.environment()
-        resolveJavaHome()?.let { javaHome ->
-            env["JAVA_HOME"] = javaHome.path
-            prependPath(env, File(javaHome, "bin"))
-        }
+        resolveJavaHome()?.let { javaHome -> configureJavaEnvironment(it, javaHome) }
         resolveAndroidSdk()?.let { sdk ->
             env["ANDROID_HOME"] = sdk.path
             env["ANDROID_SDK_ROOT"] = sdk.path
             prependPath(env, File(sdk, "platform-tools"))
         }
+    }
+
+    internal fun configureJavaEnvironment(builder: ProcessBuilder, javaHome: File): ProcessBuilder = builder.also {
+        require(isCompleteJdk(javaHome)) { "Java home is not a complete supported JDK: ${javaHome.path}" }
+        it.environment()["JAVA_HOME"] = javaHome.path
+        prependPath(it.environment(), File(javaHome, "bin"), moveToFront = true)
     }
 
     private fun activeManagedJavaHome(): File? {
@@ -359,14 +373,22 @@ object ManagedToolchainPaths {
         return if (first == "1") value.substringAfter('.').substringBefore('.').toIntOrNull() else first.toIntOrNull()
     }
 
-    private fun prependPath(environment: MutableMap<String, String>, directory: File) {
+    private fun prependPath(
+        environment: MutableMap<String, String>,
+        directory: File,
+        moveToFront: Boolean = false,
+    ) {
         if (!directory.isDirectory) return
         val key = environment.keys.firstOrNull { it.equals("PATH", ignoreCase = true) } ?: "PATH"
         val current = environment[key].orEmpty()
         val entries = current.split(File.pathSeparatorChar).filter(String::isNotBlank)
-        if (entries.none { runCatching { File(it).canonicalFile == directory.canonicalFile }.getOrDefault(false) }) {
-            environment[key] = directory.path + if (current.isBlank()) "" else File.pathSeparator + current
+        val canonicalDirectory = runCatching { directory.canonicalFile }.getOrDefault(directory.absoluteFile)
+        val matching = { entry: String ->
+            runCatching { File(entry).canonicalFile == canonicalDirectory }.getOrDefault(false)
         }
+        if (!moveToFront && entries.any(matching)) return
+        val remainder = entries.filterNot(matching)
+        environment[key] = (listOf(directory.path) + remainder).joinToString(File.pathSeparator)
     }
 
     private fun isWindows(): Boolean = System.getProperty("os.name").contains("win", ignoreCase = true)

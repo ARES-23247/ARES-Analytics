@@ -38,7 +38,7 @@ The Compose Desktop process. It owns:
 - live dashboard input/output;
 - DuckDB connections and schema migrations;
 - log decoding and frame batching;
-- replay and UDP rebroadcast;
+- deterministic, read-only replay snapshots and dashboard timelines;
 - summaries, SysId, calibration, driver analysis, and alerts;
 - simulator and build-process management;
 - Google OAuth/Drive synchronization;
@@ -161,6 +161,17 @@ Schema migrations run before repositories are used. Legacy SQLite attach/import 
 
 `LogParserService` selects a decoder by file type. Decoders emit frames incrementally through `FrameBatcher`; they must not accumulate an entire multi-gigabyte log in memory.
 
+Every ordinary import has a durable two-state owner. `IMPORTING` owns all rows written in bounded
+batches but is excluded from application queries. One final transaction upserts the session as
+`COMPLETE` and records every source report. Startup recovery deletes an interrupted owner and all
+of its dependent rows. This gives large imports crash consistency without holding one enormous
+DuckDB transaction open for the entire decode.
+
+Manual selection first copies through a same-directory `.partial` file, verifies byte count and
+SHA-256, and atomically renames the archive copy. Originals are never moved. Exact source-digest
+sets are idempotent within one team/season/robot identity and intentionally distinct across
+workspaces.
+
 Supported families include:
 
 - ARES JSONL and CSV;
@@ -195,7 +206,9 @@ The Cloud screen's HTTP pull uses the same durability rules: remote basenames an
 
 ## 8. Replay model
 
-Replay reconstructs latched topic state, not just events in the visible query window.
+Replay reconstructs latched topic state, not just events in the visible query window. Persisted
+`timestamp_us` is the source instant and `sample_order` is the stable tie-breaker. Playback uses a
+monotonic elapsed clock; wall-clock time never reorders historical evidence.
 
 When loading or seeking:
 
@@ -204,11 +217,15 @@ When loading or seeking:
 3. query the latest frame for each key at or before the window start;
 4. seed the state map with that baseline;
 5. apply in-window updates in timestamp order;
-6. emit an immutable snapshot.
+6. atomically publish one immutable `ReplayFrame` for every dashboard consumer.
 
 Without step 3, a topic last updated at the start of a match disappears when seeking later.
 
-Replay supports numeric and string state. UDP rebroadcast is optional. `stop()` must not emit a synthetic frame or reopen a socket; `dispose()` cancels the service scope and closes the socket permanently.
+Replay supports numeric and string state. It does not write replay values into the live NT4 store
+or broadcast them as robot telemetry. Actions, annotations, and alerts are markers only: they do
+not stretch telemetry bounds or synthesize sensor/pose values. `stop()` returns to the first sample
+without leaving the selected historical source; `dispose()` cancels all playback, seek, and
+prefetch jobs. See [Deterministic replay and dashboard evidence](docs/DETERMINISTIC_REPLAY.md).
 
 ## 9. Analysis services
 
@@ -223,6 +240,13 @@ Summary metrics use explicit topic families:
 - missing vision acceptance data reports no observations rather than a fabricated 100%.
 
 Analyzer-generated diagnostics are atomically replaced in `analysis_diagnostics`. They may be projected into the diagnostics UI, but they are not appended to `telemetry_frames`, do not alter the source timestamp range, and cannot feed back into the next summary calculation.
+
+Core summary values (minimums, averages, percentiles, counts, and grouped current values) are
+computed as exact scalar/grouped SQL aggregates. Secondary algorithms that require time-series
+objects receive a deterministic, ordered, per-topic sample with hard total and per-topic bounds;
+the first and last ordinary sample are retained. Timestamp-gap counts remain scalar SQL and never
+materialize an entire timestamp list in the JVM. DuckDB may spill working data to its configured
+temporary directory and does not preserve insertion order during bulk relational operations.
 
 ### Cloud session bundles
 

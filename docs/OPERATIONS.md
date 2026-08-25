@@ -238,6 +238,9 @@ Imported local files are archived under the workspace's `logs/imported/` directo
 | `.revlog` conversion fails | converter missing or returned nonzero | inspect the reported converter failure; commands are launched as direct argv, not through a shell |
 | Same remote log appears repeatedly | import identity database/config was reset | preserve the application data directory; verify source identity metadata |
 | `.csv.gz` is rejected | old Analytics build or decompression exceeded the 512 MiB safety limit | update Analytics; validate the producer and do not raise the expansion limit for an untrusted file |
+| Large WPILOG reaches the local memory budget | an older build materialized high-rate diagnostic frames after decoding | update Analytics; core summary aggregates remain exact while secondary diagnostics now use a deterministic bounded sample; retry the preserved Quarantine copy |
+| The same file creates two runs | workspace identity or source digest evidence changed | compare team/season/robot and the SHA-256 in Log Imports; identical bytes in one workspace must reuse one session |
+| A run disappears after switching robots | expected workspace isolation | switch back to the run's team, season, and robot; ARES does not list another workspace's sessions |
 
 Untrusted log lengths are bounded before memory allocation. Do not raise limits merely to make a corrupt file import; first validate the format and expected maximum.
 
@@ -254,9 +257,15 @@ If a seek loses values:
 
 If replay contaminates live UI:
 
-1. Check `isReplayActive` ownership in `ReplayEngineService`/`Nt4ClientService`.
-2. Stop replay and confirm no extra first-frame emission occurs.
-3. Confirm the replay socket is not reopened by `stop()`.
+1. Confirm every replay-driven widget receives `ReplayEngineService.currentFrame` rather than the live telemetry store.
+2. Confirm selecting a historical run sets the visible source to **Replay**, even while paused or stopped.
+3. Stop replay and confirm the first historical sample remains selected without being inserted into live NT4 state.
+4. Leave the run and confirm live widgets resume only from newly observed live frames.
+
+If the timeline says **No telemetry samples**, do not treat actions or annotations as sensor data.
+Review the import report and source log. If a widget says its topics are missing, choose another
+recorded signal or correct the robot logger for the next run; missing is not zero. See
+[Deterministic replay and dashboard evidence](DETERMINISTIC_REPLAY.md).
 
 ## 9. DuckDB and export recovery
 
@@ -267,6 +276,16 @@ The default persistent database is under:
 ```
 
 Before manual repair, close every Analytics process and copy the database file.
+
+The DuckDB file is one local application database containing identity-scoped sessions; raw source
+copies and sidecar reports live under each robot project's `logs/imported/` or `logs/quarantine/`.
+Do not infer that a global database file makes sessions globally visible: student run lists and
+cloud views filter by exact team, season, and robot identity.
+
+On startup, ARES removes only sessions whose durable import state is still `IMPORTING`, together
+with their owned telemetry, summaries, reports, actions, alerts, annotations, diagnostics, and
+console rows. Completed sessions are not touched. A manual restore should copy the DuckDB file and
+the corresponding workspace log archive together so provenance remains inspectable.
 
 Do not run ad hoc write SQL through `executeQueryRaw`; it is intentionally read-only. Use repository methods or a dedicated migration/export API.
 

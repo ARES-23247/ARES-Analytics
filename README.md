@@ -128,6 +128,7 @@ Important invariants:
 - Internal angles are radians and counter-clockwise positive.
 - Live telemetry uses the reserved session ID `live-telemetry`; recordings use persistent session IDs.
 - A replay seek must restore the last value at or before the seek time, not only values inside the visible window.
+- Replay widgets consume one immutable historical snapshot and never mix it into the live NT4 store.
 - Numeric and string telemetry are both first-class data. Do not coerce strings to numeric zero.
 - Log import is streaming and bounded. A malformed or truncated input must fail visibly rather than silently produce a partial “successful” session.
 
@@ -182,6 +183,7 @@ the secret to a desktop build.
 - [App tour](docs/start/APP_TOUR.md) - find screens, targets, status language, and contextual help
 - [Connect the simulator](docs/start/CONNECT_SIMULATOR.md) - launch Local Sim, confirm live telemetry, and recover safely
 - [Bring in a run](docs/operate/BRING_IN_A_RUN.md) - collect, verify, quarantine, and replay completed logs
+- [Deterministic replay](docs/DETERMINISTIC_REPLAY.md) - clock, ordering, atomic dashboard snapshots, missing-data semantics, and recovery
 - [Glossary](docs/learn/GLOSSARY.md) - student definitions with precise ARES meanings
 - [Accessibility and contrast](docs/learn/ACCESSIBILITY_AND_CONTRAST.md) - readable palettes, status cues, text scaling, and touch targets
 - [Teaching with ARES](docs/mentor/TEACHING_WITH_ARES.md) - mentor-led simulator-first lesson and physical robot safety gate

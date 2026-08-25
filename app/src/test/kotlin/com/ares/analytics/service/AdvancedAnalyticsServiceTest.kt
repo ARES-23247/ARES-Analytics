@@ -1,6 +1,7 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.SessionSummary
+import com.ares.analytics.shared.Session
 import com.ares.analytics.shared.TelemetryFrame
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
@@ -87,6 +88,12 @@ class AdvancedAnalyticsServiceTest {
         val directory = Files.createTempDirectory("ares-baseline-isolation").toFile()
         val database = DatabaseService(directory.resolve("telemetry.duckdb").absolutePath)
         try {
+            listOf("current" to 500L, "same-robot" to 400L).forEach { (id, createdAt) ->
+                database.insertSession(Session(id, "23247", "2026", "bot", createdAt))
+            }
+            database.insertSession(Session("other-robot", "23247", "2026", "other", 490L))
+            database.insertSession(Session("other-team", "99999", "2026", "bot", 480L))
+            database.insertSession(Session("other-season", "23247", "2025", "bot", 470L))
             database.insertSessionSummary(summary("current", p95 = 15.0, voltage = 11.0, crossTrack = 0.30).copy(createdAt = 500L))
             database.insertSessionSummary(summary("same-robot", p95 = 10.0, voltage = 12.0, crossTrack = 0.10).copy(createdAt = 400L))
             database.insertSessionSummary(summary("other-robot", p95 = 1.0, voltage = 13.0, crossTrack = 0.01).copy(robotId = "other", createdAt = 490L))

@@ -231,8 +231,8 @@ class DashboardViewModel(
                                     hootFile = intent.files.first(),
                                     teamId = intent.teamId,
                                     seasonId = intent.seasonId,
-                                    robotId = intent.robotId
-                                )
+                                    robotId = intent.robotId,
+                                ).session.sessionId
                             } else {
                                 logParserService.parseLogFiles(
                                     files = intent.files,

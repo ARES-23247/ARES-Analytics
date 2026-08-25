@@ -255,12 +255,19 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope
         )
     }
-    val importCenterViewModel = remember(currentConfig.projectPath) {
+    val importCenterViewModel = remember(currentConfig.id, currentConfig.projectPath) {
         ImportCenterViewModel(
-            archiveService = com.ares.analytics.service.ImportArchiveService(),
-            projectPath = currentConfig.projectPath,
-            scope = scope
+            archiveService = services.importArchiveService,
+            manualLogImportService = services.manualLogImportService,
+            workspace = currentConfig,
+            scope = scope,
+            onImportCompleted = {
+                mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload)
+            },
         )
+    }
+    DisposableEffect(importCenterViewModel) {
+        onDispose { importCenterViewModel.dispose() }
     }
     val controlsEditorViewModel = remember(currentConfig.projectPath, currentConfig.league) {
         com.ares.analytics.viewmodel.controls.ControlsEditorViewModel(
@@ -931,6 +938,14 @@ fun MainScreen(services: ServiceRegistry) {
                             NavigationTarget.IMPORT_CENTER -> ImportCenterScreen(
                                 viewModel = importCenterViewModel,
                                 projectPath = currentConfig.projectPath.orEmpty(),
+                                onOpenRunHistory = {
+                                    mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload)
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.RUN_HISTORY))
+                                },
+                                onOpenGuidedAnalysis = {
+                                    mainViewModel.onIntent(MainIntent.TriggerRunsIndexReload)
+                                    mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.GUIDED_RUN_ANALYSIS))
+                                },
                                 onOpenHelp = {
                                     requestedLessonId = "compare-run-evidence"
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ACADEMY))
@@ -1016,6 +1031,8 @@ fun MainScreen(services: ServiceRegistry) {
                             NavigationTarget.RUN_HISTORY -> RunHistoryScreen(
                                 databaseService = services.databaseService,
                                 syncEngineService = services.syncEngineService,
+                                workspace = currentConfig,
+                                reloadTrigger = mainState.runsIndexReloadTrigger,
                                 onOpenImports = {
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.IMPORT_CENTER))
                                 },

@@ -10,7 +10,7 @@ import java.sql.Connection
  * connection instances, establishing primary keys, indexed metrics, and default values for robot performance metrics.
  *
  * ### Database Tables & Schemas:
- * - `sessions`: `(session_id VARCHAR PRIMARY KEY, team_id, season_id, robot_id, created_at BIGINT, duration_ms BIGINT, tags VARCHAR, match_number BIGINT, alliance_color VARCHAR)`
+ * - `sessions`: `(session_id VARCHAR PRIMARY KEY, team_id, season_id, robot_id, created_at BIGINT, duration_ms BIGINT, tags VARCHAR, match_number BIGINT, alliance_color VARCHAR, import_state VARCHAR)`
  * - `session_summaries`: Aggregate performance KPIs (`min_battery_voltage` V, `max_ekf_drift` m, `avg_loop_time_ms` ms, `p95_loop_time_ms` ms, `vision_acceptance_rate` %, `avg_cross_track_error` m)
  * - `telemetry_frames`: Time-series data points `(timestamp_ms BIGINT, session_id VARCHAR, key VARCHAR, value DOUBLE, string_value VARCHAR)`
  * - `analysis_diagnostics`: Replaceable derived metrics keyed by `(session_id, key)`
@@ -43,6 +43,7 @@ class SchemaMigrationManager(
     fun runMigrations(oldDbPath: String?) {
         createSchemaSync(conn)
         createSchemaSync(ephemeralConn)
+        recoverInterruptedImports()
 
         if (oldDbPath != null && File(oldDbPath).isFile && !migrationCompleted(LEGACY_SQLITE_MIGRATION)) {
             val safeOldDbPath = oldDbPath.replace("'", "''")
@@ -52,7 +53,14 @@ class SchemaMigrationManager(
                         st.execute("ATTACH '$safeOldDbPath' AS legacy_sqlite (TYPE SQLITE)")
                         st.execute("BEGIN TRANSACTION")
                         try {
-                            st.execute("INSERT OR IGNORE INTO sessions SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color FROM legacy_sqlite.sessions")
+                            st.execute(
+                                """
+                                INSERT OR IGNORE INTO sessions
+                                    (session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color, import_state)
+                                SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, tags, match_number, alliance_color, 'COMPLETE'
+                                FROM legacy_sqlite.sessions
+                                """.trimIndent()
+                            )
                             st.execute("INSERT OR IGNORE INTO session_summaries SELECT session_id, team_id, season_id, robot_id, created_at, duration_ms, min_battery_voltage, max_ekf_drift, avg_loop_time_ms, p95_loop_time_ms, motor_current_averages, vision_acceptance_rate, avg_cross_track_error, avg_battery_resistance, max_motor_temps, avg_vision_latency_ms, tags, match_number, alliance_color FROM legacy_sqlite.session_summaries")
                             st.execute(
                                 """
@@ -116,7 +124,8 @@ class SchemaMigrationManager(
                     duration_ms BIGINT NOT NULL DEFAULT 0,
                     tags VARCHAR NOT NULL DEFAULT '[]',
                     match_number BIGINT,
-                    alliance_color VARCHAR
+                    alliance_color VARCHAR,
+                    import_state VARCHAR NOT NULL DEFAULT 'COMPLETE'
                 );
 
                 CREATE TABLE IF NOT EXISTS session_summaries (
@@ -217,6 +226,21 @@ class SchemaMigrationManager(
                 );
             """.trimIndent())
 
+            val sessionColumns = targetConn.createStatement().use { statement ->
+                statement.executeQuery(
+                    "SELECT column_name FROM information_schema.columns " +
+                        "WHERE table_schema = current_schema() AND table_name = 'sessions'"
+                ).use { rows ->
+                    buildSet {
+                        while (rows.next()) add(rows.getString(1).lowercase())
+                    }
+                }
+            }
+            if ("import_state" !in sessionColumns) {
+                st.execute("ALTER TABLE sessions ADD COLUMN import_state VARCHAR DEFAULT 'COMPLETE'")
+            }
+            st.execute("UPDATE sessions SET import_state = 'COMPLETE' WHERE import_state IS NULL OR import_state = ''")
+
             migrateTelemetryPrecision(targetConn)
             st.execute("CREATE INDEX IF NOT EXISTS idx_telemetry_session_time ON telemetry_frames(session_id, timestamp_ms)")
             // telemetry_frames already has a primary-key index beginning with (session_id, key)
@@ -226,11 +250,51 @@ class SchemaMigrationManager(
             // place, but new stores and recovered installs no longer attempt these redundant builds.
             st.execute("CREATE INDEX IF NOT EXISTS idx_analysis_diagnostics_session ON analysis_diagnostics(session_id)")
             st.execute("CREATE INDEX IF NOT EXISTS idx_session_import_reports_session ON session_import_reports(session_id)")
+            st.execute("CREATE INDEX IF NOT EXISTS idx_session_import_reports_sha ON session_import_reports(source_sha256)")
 
             try {
                 st.execute("ALTER TABLE telemetry_frames ADD COLUMN string_value VARCHAR;")
             } catch (e: Exception) {
                 // Ignore if it already exists
+            }
+        }
+    }
+
+    /**
+     * Removes data owned by an import that did not reach its atomic completion marker.
+     *
+     * Decoders intentionally stream large inputs in bounded batches, so one giant DuckDB
+     * transaction would be both expensive and fragile. An IMPORTING session is the durable
+     * staging owner. Only the final metadata/report transaction changes it to COMPLETE. If the
+     * process loses power first, the next startup removes that staging owner and every row it
+     * owns before any screen can list it.
+     */
+    private fun recoverInterruptedImports() {
+        conn.createStatement().use { statement ->
+            statement.execute("BEGIN TRANSACTION")
+            try {
+                val ownedTables = listOf(
+                    "session_summaries",
+                    "telemetry_frames",
+                    "analysis_diagnostics",
+                    "session_import_reports",
+                    "session_annotations",
+                    "alerts",
+                    "console_messages",
+                    "robot_actions",
+                )
+                ownedTables.forEach { table ->
+                    statement.execute(
+                        "DELETE FROM $table WHERE session_id IN " +
+                            "(SELECT session_id FROM sessions WHERE import_state = 'IMPORTING')"
+                    )
+                }
+                statement.execute("DELETE FROM sessions WHERE import_state = 'IMPORTING'")
+
+                statement.execute("COMMIT")
+            } catch (failure: Throwable) {
+                runCatching { statement.execute("ROLLBACK") }
+                throw failure
             }
         }
     }

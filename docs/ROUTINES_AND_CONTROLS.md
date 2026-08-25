@@ -56,7 +56,9 @@ replaced by the late disk result.
 3. Add steps from the inspector. Field goals are clamped using the selected field and robot
    dimensions so the robot footprint stays inside the field.
 4. Choose actions and conditions from the project catalog. Parameter fields are generated from
-   their declared types.
+   their declared types. A drive-only project does not need mechanism actions: the guided tour
+   skips that lesson and the drive editor keeps the optional mechanism-action section collapsed.
+   Add and generate a subsystem in Robot Studio when you are ready to unlock named actions.
 5. Enable **Autonomous entry** only if this routine should appear in the match selector, then set its
    starting pose, alliance/mirroring policy, order, and enabled state.
 6. Choose **Save & Generate**. Analytics atomically saves every changed scheme/profile, creates
@@ -83,6 +85,18 @@ footprint, and field dimensions. This prevents two student laptops from validati
 goal with different machine-local settings.
 
 Routine documents use the single canonical `.aresroutine` format.
+
+### Actions during a drive
+
+Expand **Mechanism actions** on a drive step only when the robot should operate a mechanism while it
+moves. A progress action runs once at the chosen percentage of that drive. A during-motion action
+is active for the drive, and an arrival action runs after the drive reaches its goal. All three use
+the typed project action catalog; students never type an action ID.
+
+If an action, condition, or called routine is later renamed or removed, the old reference remains
+visible as **Missing: ...** so it can be replaced or deleted. ARES blocks saving and generation
+rather than silently dropping the behavior. A routine containing action or condition references is
+also blocked when the project action catalog is missing or unreadable.
 
 ## Action discovery
 
@@ -156,8 +170,17 @@ documents into deterministic, typed `GeneratedAresProject.kt`, which is compiled
 RoboRIO program. Robot builds run `verifyAresProject` and fail when that checked-in output is stale.
 
 FTC presents enabled autonomous entries during OpMode INIT: D-pad left/right changes the choice and
-X toggles alliance unless the OpMode locks either setting. FRC publishes its generated choices to
-SmartDashboard and reads `SelectedAuto`, falling back safely to the configured default.
+X toggles alliance unless the OpMode locks either setting. For FRC simulation, choose a compiled
+routine in Studio's always-visible simulator strip and select **Run auto**. Studio publishes the
+exact requested ID on `ARES/Auto/Requested`; the robot reports the routine it actually locked before
+motion starts. The SmartDashboard `SelectedAuto` key remains a compatibility path for Driver Station
+and mentor tools. If the exact requested routine is unavailable, the generated runtime fails closed
+to its do-nothing entry instead of running a different autonomous routine.
+
+Studio distinguishes **Autonomous running**, **Autonomous complete**, and **Autonomous blocked**.
+Complete means the generated routine ended and outputs were returned to neutral; choose **Stop** to
+leave Autonomous mode. These simulator results are useful evidence, but they are not physical-field
+or physical-hardware validation.
 
 ## Versioning and collaboration
 

@@ -54,11 +54,30 @@ CI retains both formats for 90 days and publishes the Markdown report in the Git
 | Analytics queries | Exact-key, key-pattern, distinct-key, and bounded-range DuckDB queries |
 | Export | CSV table generation and full-session Parquet generation |
 | Restore | Parquet import restores the exact frame count |
-| Replay | Session load, current-frame creation, and repeated scrub latency |
+| Replay | Atomic current-frame creation, stable source ordering, bounded baseline restoration, rapid-seek cancellation, and end-to-end scrub latency |
 | Alerts | Threshold and composite alert regression suites in the smoke task |
 | Resources | Ingestion throughput, p95 query latency, replay timing, Parquet timing, and heap growth |
 
-Compose rendering is intentionally not launched in headless CI. Declarative widget behavior is covered through the same database and telemetry services used by the UI. Actual GPU rendering and physical Wi-Fi behavior remain part of the optional pit/hardware check.
+Headless CI does not replace Compose verification. Declarative behavior is covered through the same
+database and telemetry services used by the UI; the release workflow also drives a real visible
+Compose window to select a recording, play, pause, step, seek, change speed/loop state, navigate
+away and back, and capture source/missing-data labels. Physical Wi-Fi remains an optional pit check.
+
+For a real Compose import journey, launch with the existing loopback desktop-test control and an
+explicit, non-sensitive fixture selection:
+
+```powershell
+$env:ARES_ANALYTICS_TEST_CONTROL_PORT = "49321"
+$env:ARES_ANALYTICS_TEST_CAPTURE_DIR = "$PWD/build/diagnostics/import-e2e"
+$env:ARES_ANALYTICS_TEST_LOG_SELECTION = "$PWD/build/fixtures/golden-run.csv"
+.\gradlew.bat :app:run "-ParesIsolatedDesktopHome=build/import-e2e-home"
+```
+
+`ARES_ANALYTICS_TEST_LOG_SELECTION` is ignored unless the loopback control port is also enabled;
+normal developer and installed launches always open the native chooser. Drive the real window via
+`CLICK`, verify with `CAPTURE`, repeat the selection to prove idempotency, open Guided Run Review,
+play the exact timeline, restart, and capture the persisted run. Use a second isolated launch with
+a corrupt fixture to verify Quarantine and actionable recovery text.
 
 ## Performance budgets
 

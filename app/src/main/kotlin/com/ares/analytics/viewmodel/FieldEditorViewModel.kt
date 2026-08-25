@@ -16,6 +16,13 @@ import com.ares.analytics.viewmodel.field.FieldPrefabCatalog
 import com.ares.analytics.viewmodel.field.FieldPrefabKind
 import com.ares.analytics.viewmodel.field.FieldValidationIssue
 import com.ares.analytics.viewmodel.field.FieldValidationSeverity
+import com.ares.analytics.viewmodel.field.ExpectedSimulatorField
+import com.ares.analytics.viewmodel.field.SIMULATOR_FIELD_APPLIED_RECEIPT_TOPIC
+import com.ares.analytics.viewmodel.field.SIMULATOR_FIELD_APPLY_ERROR_TOPIC
+import com.ares.analytics.viewmodel.field.SimulatorFieldApplyReceipt
+import com.ares.analytics.viewmodel.field.SimulatorFieldApplyFailure
+import com.ares.analytics.viewmodel.field.parseSimulatorFieldApplyReceipt
+import com.ares.analytics.viewmodel.field.sha256Hex
 import com.areslib.state.FieldType
 import com.areslib.state.AprilTagMapCodec
 import com.areslib.state.AprilTagMapFormat
@@ -29,11 +36,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -72,6 +81,7 @@ sealed class FieldEditorIntent {
     data class LoadConfig(val projectPath: String?, val league: League) : FieldEditorIntent()
     object SaveDocument : FieldEditorIntent()
     data class ImportFieldImage(val imageFile: File, val projectPath: String?, val league: League) : FieldEditorIntent()
+    data object ClearFieldImage : FieldEditorIntent()
     data class UpdateFieldImageConfig(val config: FieldImageConfig, val projectPath: String?, val league: League) : FieldEditorIntent()
     data class AddObstacle(val obstacle: Obstacle) : FieldEditorIntent()
     data class UpdateObstacle(val index: Int, val obstacle: Obstacle) : FieldEditorIntent()
@@ -141,6 +151,12 @@ class FieldEditorViewModel(
     private val scope: CoroutineScope,
     private val nt4ClientService: Nt4ClientService? = null,
     private val fieldConfigPublisher: (suspend (String) -> Boolean)? = null,
+    private val fieldApplyReceiptProvider: (() -> SimulatorFieldApplyReceipt?)? = null,
+    private val fieldApplyFailureProvider: (() -> SimulatorFieldApplyFailure?)? = null,
+    private val fieldApplyConfirmer: (suspend (
+        expected: ExpectedSimulatorField,
+        previousReceipt: SimulatorFieldApplyReceipt?,
+    ) -> SimulatorFieldApplyReceipt?)? = null,
 ) {
     private val _state = MutableStateFlow(FieldEditorState())
     val state: StateFlow<FieldEditorState> = _state.asStateFlow()
@@ -159,6 +175,12 @@ class FieldEditorViewModel(
         when (intent) {
             is FieldEditorIntent.LoadConfig -> load(intent.projectPath, intent.league)
             is FieldEditorIntent.ImportFieldImage -> importFieldImage(intent)
+            FieldEditorIntent.ClearFieldImage -> applyEdit {
+                it.copy(
+                    fieldImage = null,
+                    fieldImageConfig = it.fieldImageConfig.copy(imagePath = ""),
+                )
+            }
             is FieldEditorIntent.PreviewAprilTagMap -> previewAprilTagMap(intent)
             is FieldEditorIntent.ImportFmap -> previewAprilTagMap(
                 FieldEditorIntent.PreviewAprilTagMap(
@@ -578,9 +600,11 @@ class FieldEditorViewModel(
         }
         val validationErrors = current.validationIssues.count { it.severity == FieldValidationSeverity.ERROR }
         if (validationErrors > 0) {
+            val firstError = current.validationIssues.first { it.severity == FieldValidationSeverity.ERROR }.message
             _state.update {
                 it.copy(
-                    simulatorStatus = "Field not pushed: fix $validationErrors validation error${if (validationErrors == 1) "" else "s"}"
+                    simulatorStatus = "Field not pushed: $firstError" +
+                        if (validationErrors == 1) "" else " (+${validationErrors - 1} more)"
                 )
             }
             return
@@ -588,13 +612,49 @@ class FieldEditorViewModel(
         scope.launch {
             _state.update { it.copy(simulatorStatus = "Pushing field…") }
             try {
-                val published = publisher(RobotFieldDocument.encode(document))
+                val payload = RobotFieldDocument.encode(document)
+                val expected = ExpectedSimulatorField(
+                    configId = document.id,
+                    revision = document.revision,
+                    sha256 = sha256Hex(payload),
+                )
+                val previousReceipt = currentSimulatorReceipt()
+                val previousFailure = currentSimulatorFailure()
+                val published = publisher(payload)
+                if (!published) {
+                    _state.update {
+                        it.copy(simulatorStatus = "Simulator push failed: field configuration was not accepted")
+                    }
+                    return@launch
+                }
+                val confirmer = fieldApplyConfirmer ?: nt4ClientService?.let { client ->
+                    { wanted: ExpectedSimulatorField, previous: SimulatorFieldApplyReceipt? ->
+                        awaitSimulatorReceipt(client, wanted, previous)
+                    }
+                }
+                val receipt = confirmer?.invoke(expected, previousReceipt)
+                val failure = currentSimulatorFailure()
+                    ?.takeIf { it.eventId != previousFailure?.eventId && it.message.isNotBlank() }
                 _state.update {
                     it.copy(
-                        simulatorStatus = if (published) {
-                            "Field pushed to simulator"
-                        } else {
-                            "Simulator push failed: field configuration was not accepted"
+                        simulatorStatus = when {
+                            receipt?.matches(expected) == true ->
+                                "Simulator applied field revision ${receipt.revision}: " +
+                                    "${receipt.obstacleCount} obstacle(s), ${receipt.elementCount} game piece(s), " +
+                                    "${receipt.aprilTagCount} AprilTag(s)"
+                            previousReceipt?.matches(expected) == true ->
+                                "Simulator already has exact field revision ${previousReceipt.revision}: " +
+                                    "${previousReceipt.obstacleCount} obstacle(s), " +
+                                    "${previousReceipt.elementCount} game piece(s), " +
+                                    "${previousReceipt.aprilTagCount} AprilTag(s)"
+                            failure != null ->
+                                "Simulator rejected this field: ${failure.message} " +
+                                    "The previous field remains active."
+                            confirmer == null ->
+                                "Field sent; this connection cannot confirm simulator application"
+                            else ->
+                                "Field sent, but the simulator did not confirm the exact revision. " +
+                                    "Its previous field remains active; retry or relaunch the simulator."
                         }
                     )
                 }
@@ -602,6 +662,37 @@ class FieldEditorViewModel(
                 _state.update { it.copy(simulatorStatus = "Simulator push failed: ${error.message}") }
             }
         }
+    }
+
+    private fun currentSimulatorReceipt(): SimulatorFieldApplyReceipt? =
+        fieldApplyReceiptProvider?.invoke() ?: nt4ClientService
+            ?.latestValues
+            ?.get(SIMULATOR_FIELD_APPLIED_RECEIPT_TOPIC)
+            ?.stringValue
+            .let(::parseSimulatorFieldApplyReceipt)
+
+    private fun currentSimulatorFailure(): SimulatorFieldApplyFailure? =
+        fieldApplyFailureProvider?.invoke() ?: nt4ClientService
+            ?.latestValues
+            ?.get(SIMULATOR_FIELD_APPLY_ERROR_TOPIC)
+            ?.takeIf { !it.stringValue.isNullOrBlank() }
+            ?.let { frame ->
+                SimulatorFieldApplyFailure(
+                    eventId = "${frame.sessionId}:${frame.timestampUs}:${frame.sampleOrder}",
+                    message = frame.stringValue.orEmpty(),
+                )
+            }
+
+    private suspend fun awaitSimulatorReceipt(
+        client: Nt4ClientService,
+        expected: ExpectedSimulatorField,
+        previousReceipt: SimulatorFieldApplyReceipt?,
+    ): SimulatorFieldApplyReceipt? = withTimeoutOrNull(FIELD_APPLY_CONFIRMATION_TIMEOUT_MS) {
+        client.telemetryFlow.first { frame ->
+            if (frame.key.trimStart('/') != SIMULATOR_FIELD_APPLIED_RECEIPT_TOPIC) return@first false
+            val receipt = parseSimulatorFieldApplyReceipt(frame.stringValue) ?: return@first false
+            receipt.eventId != previousReceipt?.eventId && receipt.matches(expected)
+        }.stringValue.let(::parseSimulatorFieldApplyReceipt)
     }
 
     private fun withValidation(state: FieldEditorState): FieldEditorState {
@@ -857,6 +948,7 @@ class FieldEditorViewModel(
 
     private companion object {
         const val SAVE_DEBOUNCE_MS = 350L
+        const val FIELD_APPLY_CONFIRMATION_TIMEOUT_MS = 3_000L
         const val MAX_HISTORY_ENTRIES = 100
         val ID_SEQUENCE = AtomicLong(System.currentTimeMillis())
     }
