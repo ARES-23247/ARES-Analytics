@@ -86,6 +86,8 @@ fun TuningScreen(
     var activeCalTab by remember { mutableStateOf(0) }
     var showArmConfirmation by remember { mutableStateOf(false) }
     val motionEnabled = sysIdState.isRobotConnected &&
+        sysIdState.capabilitiesKnown &&
+        sysIdState.selectedMechanism in sysIdState.supportedMechanisms &&
         (!sysIdState.requiresNetworkArm ||
             (sysIdState.armPhase == CalibrationArmPhase.ARMED && sysIdState.robotCalibrationArmed))
 
@@ -284,6 +286,41 @@ fun TuningScreen(
             ) {
                 when (activeCalTab) {
                     0 -> { // SysId Drivetrain Tab
+                        val simulation = sysIdState.simulationEvaluation
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("1 · Learn with a simulated mechanism", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AresTextPrimary)
+                            Text(
+                                "ARES runs a known teaching plant locally so you can see what kS, kV, kA, fit quality, and a conservative PID starting point mean. These values are not measurements of your robot and cannot be promoted.",
+                                fontSize = 10.sp,
+                                color = AresTextSecondary,
+                            )
+                            OutlinedButton(
+                                onClick = { sysIdViewModel.onIntent(SysIdIntent.RunSimulationPreview) },
+                                enabled = !sysIdState.isRoutineRunning,
+                            ) { Text("Run hardware-free SysId lesson") }
+                            Text(
+                                sysIdState.simulationMessage,
+                                color = if (simulation?.recoveredWithinTolerance == true && simulation.closedLoop?.stable == true) AresGreen else AresAmber,
+                                fontSize = 10.sp,
+                            )
+                            simulation?.recommendation?.let { preview ->
+                                ParamRow("Teaching feedforward kS / kV / kA", String.format("%.3f / %.3f / %.3f", preview.recommendedkS, preview.recommendedkV, preview.recommendedkA))
+                                ParamRow("Teaching feedback kP / kI / kD", String.format("%.3f / %.3f / %.3f", preview.recommendedGains.kP, preview.recommendedGains.kI, preview.recommendedGains.kD))
+                                ParamRow("Known-plant fit", String.format("%.1f%% R²", preview.rSquared * 100.0))
+                            }
+                        }
+                        HorizontalDivider(color = AresBorder)
+                        Text("2 · Measure the real mechanism", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = AresTextPrimary)
+                        Text(
+                            when {
+                                !sysIdState.isRobotConnected -> "Connect a robot or simulator to discover its live SysId capabilities."
+                                !sysIdState.capabilitiesKnown -> "Waiting for the connected runtime to advertise supported live SysId mechanisms. Motion remains disabled."
+                                sysIdState.supportedMechanisms.isEmpty() -> "This runtime does not implement live SysId. Use the hardware-free lesson or install a supported runtime."
+                                else -> "Live runtime supports: ${sysIdState.supportedMechanisms.joinToString { it.name.lowercase() }}. Unsupported targets remain visible for learning but cannot move hardware."
+                            },
+                            fontSize = 10.sp,
+                            color = AresTextSecondary,
+                        )
                         if (sysIdState.isRoutineRunning) {
                             AbortCard(sysIdViewModel)
                         } else {
@@ -300,6 +337,7 @@ fun TuningScreen(
                                 ) {
                                     SysIdMechanism.values().forEach { mech ->
                                         val selected = sysIdState.selectedMechanism == mech
+                                        val liveSupported = sysIdState.capabilitiesKnown && mech in sysIdState.supportedMechanisms
                                         Box(
                                             modifier = Modifier
                                                 .background(if (selected) AresCyan else Color.Transparent, RoundedCornerShape(6.dp))
@@ -307,8 +345,8 @@ fun TuningScreen(
                                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                                         ) {
                                             Text(
-                                                text = mech.name,
-                                                color = if (selected) AresOnAccent else AresTextPrimary,
+                                                text = if (liveSupported) mech.name else "${mech.name} · LESSON ONLY",
+                                                color = if (selected) AresOnAccent else if (liveSupported) AresTextPrimary else AresTextSecondary,
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold
                                             )

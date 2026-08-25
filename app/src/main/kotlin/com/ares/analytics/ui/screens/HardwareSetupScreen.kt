@@ -52,6 +52,7 @@ import com.ares.analytics.service.hardware.HardwareIssueSeverity
 import com.ares.analytics.service.hardware.HardwareReviewStatus
 import com.ares.analytics.service.hardware.HardwareSetupSnapshot
 import com.ares.analytics.service.hardware.commissioningPlan
+import com.ares.analytics.service.commissioning.CommissioningSimulationStatus
 import com.ares.analytics.ui.theme.AresAmber
 import com.ares.analytics.ui.theme.AresBorder
 import com.ares.analytics.ui.theme.AresCyan
@@ -99,6 +100,7 @@ fun HardwareSetupScreen(
         } else {
             state.snapshot?.let { snapshot ->
                 item { ReviewStatusCard(snapshot) }
+                item { CommissioningEvidenceLadder(snapshot) }
                 snapshot.issues.forEach { issue ->
                     item { MessageCard(if (issue.itemUid == null) "Project check" else "Device check", issue.message, issue.severity) }
                 }
@@ -125,7 +127,143 @@ fun HardwareSetupScreen(
                 item {
                     ReviewChecklist(state, viewModel, onBackToStudio)
                 }
+                item {
+                    PhysicalValidationSection(state, viewModel)
+                }
             }
+        }
+    }
+}
+
+@Composable
+private fun CommissioningEvidenceLadder(snapshot: HardwareSetupSnapshot) {
+    val simulationVerified = snapshot.simulationVerification.status == CommissioningSimulationStatus.VERIFIED
+    val configurationReviewed = snapshot.reviewStatus == HardwareReviewStatus.CURRENT
+    val ready = simulationVerified && configurationReviewed && snapshot.errorIssues.isEmpty()
+    val physicallyValidated = snapshot.physicalValidation != null
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AresSurface),
+        border = BorderStroke(1.dp, AresBorder),
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Commissioning evidence", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+            Text(
+                "Each level has a different meaning. ARES never turns simulation or a document review into a claim that hardware was tested.",
+                color = AresTextSecondary,
+                fontSize = 11.sp,
+            )
+            EvidenceRow(
+                "Simulation verified",
+                simulationVerified,
+                when (snapshot.simulationVerification.status) {
+                    CommissioningSimulationStatus.VERIFIED ->
+                        "${snapshot.simulationVerification.controllerCount} controller(s), ${snapshot.simulationVerification.scenarioCount} deterministic nominal/fault scenarios passed for the current descriptors."
+                    CommissioningSimulationStatus.NOT_AVAILABLE -> "No generated subsystem controller exists to exercise; no simulation claim was made."
+                    CommissioningSimulationStatus.NEEDS_REVIEW ->
+                        "${snapshot.simulationVerification.failures.size} scenario(s) need review before this level can pass."
+                },
+            )
+            EvidenceRow(
+                "Configuration reviewed",
+                configurationReviewed,
+                if (configurationReviewed) "${snapshot.reviewedBy.orEmpty()} reviewed inventory ${snapshot.inventoryHash.take(12)}…." else "Complete the named-person mapping checklist for this exact inventory hash.",
+            )
+            EvidenceRow(
+                "Ready for physical validation",
+                ready,
+                if (ready) "Simulation safety checks and the configuration review are current. Use the supervised checklist below." else "Requires both current simulation evidence and a current configuration review.",
+            )
+            EvidenceRow(
+                "Physically validated",
+                physicallyValidated,
+                snapshot.physicalValidation?.let { evidence ->
+                    "${evidence.validatedBy} recorded supervised evidence for inventory ${evidence.inventoryHash.take(12)}…."
+                } ?: "Not recorded. This requires a supervised real-robot procedure and explicit human evidence; it is never inferred.",
+            )
+            snapshot.simulationVerification.performanceWarnings.take(3).forEach { warning ->
+                Text("Performance note: $warning", color = AresAmber, fontSize = 10.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhysicalValidationSection(state: HardwareSetupState, viewModel: HardwareSetupViewModel) {
+    val snapshot = state.snapshot ?: return
+    val ready = snapshot.reviewStatus == HardwareReviewStatus.CURRENT && snapshot.simulationVerification.verified
+    Card(
+        colors = CardDefaults.cardColors(containerColor = AresSurface),
+        border = BorderStroke(1.dp, if (snapshot.physicalValidation != null) AresGreen else AresBorder),
+        shape = RoundedCornerShape(12.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Optional supervised physical validation", color = AresTextPrimary, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Do this only with a real robot, an adult/mentor-approved procedure, a clear test area, and an operator ready to stop. Studio records your evidence; it does not perform or infer the test.",
+                color = AresTextSecondary,
+                fontSize = 12.sp,
+                lineHeight = 18.sp,
+            )
+            snapshot.physicalValidation?.let { evidence ->
+                Surface(color = AresGreen.copy(alpha = .08f), border = BorderStroke(1.dp, AresGreen), shape = RoundedCornerShape(8.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(10.dp)) {
+                        Text("PHYSICALLY VALIDATED · ${evidence.validatedBy}", color = AresGreen, fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        Text(evidence.evidenceSummary, color = AresTextPrimary, fontSize = 11.sp)
+                        Text("Bound to ${evidence.inventoryHash.take(16)}…", color = AresTextTertiary, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                    }
+                }
+            }
+            if (!ready) {
+                Text("Complete current simulation and configuration-review evidence before this form unlocks.", color = AresAmber, fontSize = 11.sp)
+            }
+            ReviewCheck("Motor direction, follower behavior, and encoder polarity were observed on the real robot.", state.directionsAndPolarityTested, viewModel::setDirectionsAndPolarityTested)
+            ReviewCheck("Sensor units, coordinate signs, freshness, and stationary-versus-frozen behavior were checked.", state.unitsAndSensorsTested, viewModel::setUnitsAndSensorsTested)
+            ReviewCheck("Disable/Stop produced safe neutral output and startup remained neutral.", state.disabledNeutralTested, viewModel::setDisabledNeutralTested)
+            ReviewCheck("Soft limits, current limits, homing/calibration, and mechanical clearance were tested.", state.limitsAndCurrentTested, viewModel::setLimitsAndCurrentTested)
+            ReviewCheck("A supervised fault and explicit neutral-recovery procedure completed successfully.", state.faultRecoveryTested, viewModel::setFaultRecoveryTested)
+            OutlinedTextField(
+                value = state.physicalValidatorName,
+                onValueChange = viewModel::setPhysicalValidatorName,
+                enabled = ready,
+                label = { Text("Validated by") },
+                supportingText = { Text("Named student or mentor who directly observed the physical checks.") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedTextField(
+                value = state.physicalEvidenceSummary,
+                onValueChange = viewModel::setPhysicalEvidenceSummary,
+                enabled = ready,
+                label = { Text("Observed evidence and remaining limitations") },
+                supportingText = { Text("Name the robot, procedure, result, and anything not tested. Minimum 20 characters.") },
+                minLines = 2,
+                maxLines = 5,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Button(
+                onClick = viewModel::savePhysicalValidation,
+                enabled = state.canSavePhysicalValidation,
+                colors = ButtonDefaults.buttonColors(containerColor = AresGreen, contentColor = AresOnAccent),
+            ) {
+                Text(if (snapshot.physicalValidation == null) "Record physical validation evidence" else "Replace with new physical evidence")
+            }
+        }
+    }
+}
+
+@Composable
+private fun EvidenceRow(label: String, passed: Boolean, detail: String) {
+    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Icon(
+            if (passed) Icons.Default.CheckCircle else Icons.Default.Warning,
+            contentDescription = if (passed) "$label passed" else "$label not established",
+            tint = if (passed) AresGreen else AresAmber,
+            modifier = Modifier.size(17.dp),
+        )
+        Column {
+            Text("$label · ${if (passed) "ESTABLISHED" else "NOT ESTABLISHED"}", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text(detail, color = AresTextSecondary, fontSize = 10.sp, lineHeight = 15.sp)
         }
     }
 }

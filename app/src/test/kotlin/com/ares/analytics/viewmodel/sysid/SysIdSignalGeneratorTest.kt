@@ -38,6 +38,8 @@ class SysIdSignalGeneratorTest {
             SysIdState(
                 isRobotConnected = true,
                 calibrationModeEnabled = true,
+                capabilitiesKnown = true,
+                supportedMechanisms = setOf(SysIdMechanism.LINEAR),
                 requiresNetworkArm = true
             )
         )
@@ -74,6 +76,8 @@ class SysIdSignalGeneratorTest {
             SysIdState(
                 isRobotConnected = true,
                 calibrationModeEnabled = true,
+                capabilitiesKnown = true,
+                supportedMechanisms = setOf(SysIdMechanism.LINEAR),
                 requiresNetworkArm = true
             )
         )
@@ -97,6 +101,31 @@ class SysIdSignalGeneratorTest {
         assertFailsWith<IllegalStateException> {
             generator.startCalibration("LINEAR_DRIVE")
         }
+    }
+
+    @Test
+    fun `live motion fails closed when runtime omits or rejects mechanism capability`() = runTest {
+        val state = MutableStateFlow(
+            SysIdState(
+                isRobotConnected = true,
+                requiresNetworkArm = false,
+                capabilitiesKnown = true,
+                supportedMechanisms = setOf(SysIdMechanism.ANGULAR),
+            )
+        )
+        val transport = RecordingCalibrationTransport()
+        val generator = SysIdSignalGenerator(nt4, state, this, transport)
+
+        assertFailsWith<IllegalStateException> {
+            generator.startRoutine(SysIdMechanism.LINEAR, SysIdRoutine.DYNAMIC)
+        }
+        assertTrue(transport.strings.isEmpty())
+
+        state.value = state.value.copy(capabilitiesKnown = false)
+        assertFailsWith<IllegalStateException> {
+            generator.startRoutine(SysIdMechanism.ANGULAR, SysIdRoutine.DYNAMIC)
+        }
+        assertTrue(transport.strings.isEmpty())
     }
 
     private class RecordingCalibrationTransport : CalibrationCommandTransport {

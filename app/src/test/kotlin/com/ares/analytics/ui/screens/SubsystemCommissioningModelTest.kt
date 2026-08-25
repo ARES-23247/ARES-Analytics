@@ -1,5 +1,8 @@
 package com.ares.analytics.ui.screens
 
+import com.ares.analytics.service.commissioning.SubsystemCommissioningPlant
+import com.ares.analytics.service.commissioning.SubsystemCommissioningScenario
+import com.ares.analytics.service.commissioning.simulateSubsystemCommissioning
 import com.areslib.subsystem.SubsystemContinuousInputDocument
 import com.areslib.subsystem.SubsystemControlStrategy
 import com.areslib.subsystem.SubsystemFeedforwardDocument
@@ -40,6 +43,7 @@ class SubsystemCommissioningModelTest {
             val (loop, plant) = loopAndPlant(strategy)
             listOf(
                 SubsystemCommissioningScenario.STALE_FEEDBACK,
+                SubsystemCommissioningScenario.FROZEN_HEARTBEAT,
                 SubsystemCommissioningScenario.INVALID_FEEDBACK,
             ).forEach { scenario ->
                 val result = simulateSubsystemCommissioning(loop, plant, scenario)
@@ -48,6 +52,39 @@ class SubsystemCommissioningModelTest {
                 assertTrue(faultSamples.all { it.command == 0.0 }, "$strategy $scenario must fail closed")
                 assertEquals(true, result.metrics.neutralizedOnFault)
             }
+        }
+    }
+
+    @Test
+    fun `write and overcurrent faults latch until explicit successful neutral recovery`() {
+        val (loop, plant) = loopAndPlant(SubsystemControlStrategy.VELOCITY_PID)
+        listOf(
+            SubsystemCommissioningScenario.FAILED_WRITE_RECOVERY,
+            SubsystemCommissioningScenario.EXCESS_CURRENT_RECOVERY,
+        ).forEach { scenario ->
+            val result = simulateSubsystemCommissioning(loop, plant, scenario)
+            val faultSamples = result.samples.filter { it.faultActive || it.faultLatched }
+
+            assertTrue(faultSamples.isNotEmpty(), "$scenario should expose a latched fault interval")
+            assertTrue(faultSamples.all { it.command == 0.0 }, "$scenario must remain neutral while faulted")
+            assertEquals(true, result.metrics.faultLatched)
+            assertEquals(true, result.metrics.neutralRecoverySucceeded)
+            assertTrue(result.samples.last().safetyPermit, "$scenario should recover only after neutral succeeds")
+        }
+    }
+
+    @Test
+    fun `brownout configuration and homing gates fail closed without inventing a latch`() {
+        val (loop, plant) = loopAndPlant(SubsystemControlStrategy.POSITION_PID)
+        listOf(
+            SubsystemCommissioningScenario.BROWNOUT_RECOVERY,
+            SubsystemCommissioningScenario.UNCONFIGURED,
+            SubsystemCommissioningScenario.UNHOMED,
+        ).forEach { scenario ->
+            val result = simulateSubsystemCommissioning(loop, plant, scenario)
+            assertTrue(result.samples.filter { it.faultActive }.all { it.command == 0.0 })
+            assertEquals(null, result.metrics.faultLatched)
+            assertEquals(true, result.metrics.neutralizedOnFault)
         }
     }
 

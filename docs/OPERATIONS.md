@@ -19,7 +19,7 @@ java -version
 .\gradlew.bat --version
 ```
 
-Normal builds consume the pinned ARESLib release from Maven Central. To validate an unpublished library change:
+Normal builds consume the pinned ARESLib release from the ARES GitHub Maven repository, with Maven Central as an optional secondary channel. To validate an unpublished library change:
 
 ```powershell
 $candidate = "8.0.0-rc.<areslib-commit>"

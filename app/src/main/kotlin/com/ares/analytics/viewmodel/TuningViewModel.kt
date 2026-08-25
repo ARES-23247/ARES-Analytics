@@ -24,6 +24,8 @@ data class TuningState(
     val variables: Map<String, Double> = emptyMap(),
     /** Full typed observations keyed by declaration key. */
     val liveTypedValues: Map<String, TuningValue> = emptyMap(),
+    /** Runtime support keyed by stable declaration UID. Missing means an older/unknown robot. */
+    val consumerSupportByUid: Map<String, Boolean> = emptyMap(),
     val projectPath: String = "",
     val catalog: TuningComponentCatalog = emptyList(),
     val profiles: List<RobotTuningProfile> = emptyList(),
@@ -112,8 +114,22 @@ class TuningViewModel(
                     frame.toTuningValue(declaration)?.let { declaration.key to it }
                 }.toMap()
                 val numeric = typed.mapNotNull { (key, value) -> value.numericValue()?.let { key to it } }.toMap()
-                if (_state.value.variables != numeric || _state.value.liveTypedValues != typed) {
-                    _state.update { it.copy(variables = numeric, liveTypedValues = typed) }
+                val consumerSupport = declarations.mapNotNull { declaration ->
+                    val frame = nt4ClientService.latestValues[TuningTransport.consumerSupported(declaration)]
+                        ?: return@mapNotNull null
+                    declaration.uid to (frame.stringValue?.toBooleanStrictOrNull() ?: (frame.value != 0.0))
+                }.toMap()
+                if (_state.value.variables != numeric ||
+                    _state.value.liveTypedValues != typed ||
+                    _state.value.consumerSupportByUid != consumerSupport
+                ) {
+                    _state.update {
+                        it.copy(
+                            variables = numeric,
+                            liveTypedValues = typed,
+                            consumerSupportByUid = consumerSupport,
+                        )
+                    }
                 }
                 delay(200)
             }
@@ -254,6 +270,9 @@ class TuningViewModel(
         val value = state.proposals[key]
         when {
             declaration == null -> _state.update { it.copy(errorMessage = "$key is undeclared and cannot be pushed.") }
+            state.consumerSupportByUid[declaration.uid] == false -> _state.update {
+                it.copy(errorMessage = "${declaration.displayName} has no compiled runtime consumer in the connected robot. Regenerate or update the robot project before live testing.")
+            }
             declaration.applyPolicy != TuningApplyPolicy.LIVE_SAFE -> _state.update { it.copy(errorMessage = "${declaration.displayName} is ${declaration.applyPolicy.name.lowercase().replace('_', ' ')} and cannot be live-pushed.") }
             value == null -> _state.update { it.copy(errorMessage = "Stage and review a proposed value before live testing.") }
             buildTuningReview(state.selectedProfile ?: return@launch, state.profiles, state.catalog, mapOf(key to value), state.proposalProvenance).second.isNotEmpty() -> _state.update { it.copy(errorMessage = "${declaration.displayName} is invalid for live testing.") }
@@ -300,7 +319,10 @@ class TuningViewModel(
 
     private fun pushAllExperimental() {
         val eligible = _state.value.proposals.keys.filter { key ->
-            _state.value.catalog.firstOrNull { it.key == key }?.applyPolicy == TuningApplyPolicy.LIVE_SAFE
+            _state.value.catalog.firstOrNull { it.key == key }?.let { declaration ->
+                declaration.applyPolicy == TuningApplyPolicy.LIVE_SAFE &&
+                    _state.value.consumerSupportByUid[declaration.uid] != false
+            } == true
         }
         if (eligible.isEmpty()) _state.update { it.copy(errorMessage = "No reviewed experimental-live proposals are available.") }
         else eligible.forEach(::pushOne)

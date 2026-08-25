@@ -72,6 +72,7 @@ class SubsystemTuningAuthoringTest {
     fun `PID and feedforward presets are truthful optional and idempotent`() {
         val base = subsystem()
         val loop = base.controlLoops.first().copy(
+            strategy = com.areslib.subsystem.SubsystemControlStrategy.PROFILED_POSITION_PID,
             kP = 2.0,
             kI = 0.1,
             kD = 0.03,
@@ -85,7 +86,11 @@ class SubsystemTuningAuthoringTest {
         )
         val configured = base.copy(controlLoops = listOf(loop))
         assertEquals(
-            setOf(SubsystemTuningPreset.PID_GAINS, SubsystemTuningPreset.FEEDFORWARD_GAINS),
+            setOf(
+                SubsystemTuningPreset.PID_GAINS,
+                SubsystemTuningPreset.FEEDFORWARD_GAINS,
+                SubsystemTuningPreset.MOTION_PROFILE_LIMITS,
+            ),
             SubsystemTuningAuthoring.availablePresets(loop).toSet(),
         )
 
@@ -99,6 +104,22 @@ class SubsystemTuningAuthoringTest {
         assertTrue(withBoth.tuningParameters.all { it.applyPolicy == TuningApplyPolicy.DISABLED_ONLY })
         assertEquals(loop.kP, withBoth.tuningParameters.single { it.key.endsWith(".kp") }.defaultValue.doubleValue)
         assertEquals("V", withBoth.tuningParameters.single { it.key.endsWith(".kg") }.unit)
+        assertTrue(withBoth.tuningParameters.all { it.minimum != null && it.maximum != null })
+
+        val withMotion = SubsystemTuningAuthoring.applyPreset(
+            withBoth,
+            loop.uid,
+            SubsystemTuningPreset.MOTION_PROFILE_LIMITS,
+        )
+        assertEquals(9, withMotion.tuningParameters.size)
+        assertEquals(
+            loop.motionProfile.maximumVelocity,
+            withMotion.tuningParameters.single { it.key.endsWith(".maxvelocity") }.defaultValue.doubleValue,
+        )
+        assertEquals(
+            loop.motionProfile.maximumAcceleration,
+            withMotion.tuningParameters.single { it.key.endsWith(".maxacceleration") }.defaultValue.doubleValue,
+        )
     }
 
     @Test

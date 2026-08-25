@@ -16,6 +16,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.tuning.*
@@ -34,8 +35,12 @@ fun GainTuningPanel(
         modifier.background(AresSurface, RoundedCornerShape(12.dp)).border(1.dp, AresBorder, RoundedCornerShape(12.dp)).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Row(Modifier.fillMaxWidth(), Arrangement.SpaceBetween, Alignment.CenterVertically) {
-            Column {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
                 Text("Robot tuning profiles", color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 17.sp)
                 Text("Source is canonical. Live is observation. Proposed is an unsaved experiment.", color = AresTextSecondary, fontSize = 10.sp)
             }
@@ -62,7 +67,9 @@ fun GainTuningPanel(
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             state.rows.groupBy { it.declaration.componentUid }.forEach { (component, rows) ->
                 Text(component, color = AresCyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                rows.forEach { row -> TuningValueRow(row, viewModel) }
+                rows.forEach { row ->
+                    TuningValueRow(row, state.consumerSupportByUid[row.declaration.uid], viewModel)
+                }
             }
             if (state.rows.isEmpty()) Text("No component declarations were found. Add a .arestuningcomponent file under .ares/tuning-components, or declare parameters in a drivetrain/subsystem document, then reload.", color = AresTextSecondary, fontSize = 11.sp)
         }
@@ -124,7 +131,16 @@ private fun EvidenceStage(title: String, body: String, modifier: Modifier) {
 private fun ProfileMenu(state: TuningState, viewModel: TuningViewModel) {
     var expanded by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { expanded = true }) { Text(state.selectedProfile?.displayName ?: "Choose profile") }
+        OutlinedButton(
+            onClick = { expanded = true },
+            modifier = Modifier.widthIn(min = 150.dp, max = 220.dp),
+        ) {
+            Text(
+                state.selectedProfile?.displayName ?: "Choose profile",
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         DropdownMenu(expanded, { expanded = false }) {
             state.profiles.forEach { profile ->
                 DropdownMenuItem(
@@ -137,7 +153,7 @@ private fun ProfileMenu(state: TuningState, viewModel: TuningViewModel) {
 }
 
 @Composable
-private fun TuningValueRow(row: ResolvedTuningValue, viewModel: TuningViewModel) {
+private fun TuningValueRow(row: ResolvedTuningValue, consumerSupported: Boolean?, viewModel: TuningViewModel) {
     val d = row.declaration
     var raw by remember(d.key, row.proposedTypedValue) { mutableStateOf(row.proposedTypedValue?.displayValue().orEmpty()) }
     var rawEdited by remember(d.key) { mutableStateOf(false) }
@@ -181,7 +197,16 @@ private fun TuningValueRow(row: ResolvedTuningValue, viewModel: TuningViewModel)
             TypedProposalEditor(row, raw, { raw = it; rawEdited = true }, rawError, viewModel, Modifier.width(106.dp))
             Column(Modifier.width(116.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(policyText, color = when (d.applyPolicy) { com.areslib.tuning.TuningApplyPolicy.LIVE_SAFE -> AresGreen; com.areslib.tuning.TuningApplyPolicy.READ_ONLY_VENDOR -> AresTextSecondary; else -> AresGold }, fontWeight = FontWeight.Bold, fontSize = 8.sp)
-                OutlinedButton(onClick = { viewModel.onIntent(TuningIntent.PushToRobot(d.key)) }, enabled = row.proposedTypedValue != null && row.validationMessage == null && d.applyPolicy == com.areslib.tuning.TuningApplyPolicy.LIVE_SAFE, contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp)) { Text("Live-test", fontSize = 8.sp) }
+                if (consumerSupported == false) {
+                    Text("NO RUNTIME\nCONSUMER", color = AresError, fontWeight = FontWeight.Bold, fontSize = 8.sp)
+                }
+                OutlinedButton(
+                    onClick = { viewModel.onIntent(TuningIntent.PushToRobot(d.key)) },
+                    enabled = consumerSupported != false && row.proposedTypedValue != null &&
+                        row.validationMessage == null &&
+                        d.applyPolicy == com.areslib.tuning.TuningApplyPolicy.LIVE_SAFE,
+                    contentPadding = PaddingValues(horizontal = 5.dp, vertical = 0.dp),
+                ) { Text("Live-test", fontSize = 8.sp) }
             }
         }
         row.validationMessage?.let { Text(it, color = AresError, fontSize = 9.sp) }

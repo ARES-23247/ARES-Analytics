@@ -53,6 +53,12 @@ import com.ares.analytics.ui.theme.AresSurface
 import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresTextTertiary
+import com.ares.analytics.service.commissioning.SubsystemCommissioningPlant
+import com.ares.analytics.service.commissioning.SubsystemCommissioningResult
+import com.ares.analytics.service.commissioning.SubsystemCommissioningScenario
+import com.ares.analytics.service.commissioning.commissioningScenariosFor
+import com.ares.analytics.service.commissioning.defaultCommissioningPlant
+import com.ares.analytics.service.commissioning.simulateSubsystemCommissioning
 import com.areslib.subsystem.SubsystemControlLoopDocument
 import com.areslib.subsystem.SubsystemControlStrategy
 import com.areslib.subsystem.SubsystemDocument
@@ -86,7 +92,7 @@ internal fun SubsystemCommissioningLab(
     )
     val targetField = document.stateFields.firstOrNull { it.fieldId == loop.targetFieldId }
     val measurementField = document.stateFields.firstOrNull { it.fieldId == loop.measurementFieldId }
-    val initialPlant = remember(loop.uid) { commissioningPlantFor(loop, targetField?.unit) }
+    val initialPlant = remember(loop.uid) { defaultCommissioningPlant(loop, targetField?.unit) }
     var plant by remember(loop.uid) { mutableStateOf(initialPlant) }
     var scenario by remember(loop.uid) { mutableStateOf(SubsystemCommissioningScenario.NOMINAL) }
     var reviewedLoop by remember(loop.uid) { mutableStateOf(loop) }
@@ -108,22 +114,7 @@ internal fun SubsystemCommissioningLab(
         else -> listOf(SubsystemCommissioningPlant.ELEVATOR)
     }
     val effectivePlant = plant.takeIf { it in availablePlants } ?: availablePlants.first()
-    val availableScenarios = buildList {
-        add(SubsystemCommissioningScenario.NOMINAL)
-        if (loop.strategy != SubsystemControlStrategy.SERVO_POSITION) add(SubsystemCommissioningScenario.LOAD_DISTURBANCE)
-        if (feedbackController) {
-            add(SubsystemCommissioningScenario.STALE_FEEDBACK)
-            add(SubsystemCommissioningScenario.INVALID_FEEDBACK)
-        }
-        if (reviewedLoop.continuousInput.enabled &&
-            loop.strategy in setOf(
-                SubsystemControlStrategy.POSITION_PID,
-                SubsystemControlStrategy.PROFILED_POSITION_PID,
-            )
-        ) {
-            add(SubsystemCommissioningScenario.ANGLE_BOUNDARY)
-        }
-    }
+    val availableScenarios = commissioningScenariosFor(reviewedLoop)
     val effectiveScenario = scenario.takeIf { it in availableScenarios } ?: SubsystemCommissioningScenario.NOMINAL
     val result = remember(reviewedLoop, effectivePlant, effectiveScenario) {
         simulateSubsystemCommissioning(reviewedLoop, effectivePlant, effectiveScenario)
@@ -203,7 +194,7 @@ internal fun SubsystemCommissioningLab(
                 modifier = Modifier.width(190.dp),
             )
             CommissioningMetric(
-                label = "Feedback fault",
+                label = "Safety fault",
                 value = when (result.metrics.neutralizedOnFault) {
                     true -> "Neutral"
                     false -> "Unsafe"
@@ -211,6 +202,21 @@ internal fun SubsystemCommissioningLab(
                 },
                 verdict = "Fail-closed check",
                 safe = result.metrics.neutralizedOnFault != false,
+                modifier = Modifier.width(190.dp),
+            )
+            CommissioningMetric(
+                label = "Fault recovery",
+                value = when (result.metrics.neutralRecoverySucceeded) {
+                    true -> "Neutral confirmed"
+                    false -> "Failed"
+                    null -> if (result.metrics.faultLatched == true) "Still latched" else "Not required"
+                },
+                verdict = when {
+                    result.metrics.faultLatched == true -> "Explicit recovery contract"
+                    result.metrics.neutralizedOnFault == true -> "Fail-closed condition"
+                    else -> "No recovery event"
+                },
+                safe = result.metrics.neutralRecoverySucceeded != false,
                 modifier = Modifier.width(190.dp),
             )
         }
@@ -348,7 +354,7 @@ private fun CommissioningPlot(result: SubsystemCommissioningResult) {
                     reference.lineTo(px, referenceY)
                     measurement.lineTo(px, measurementY)
                 }
-                if (!sample.feedbackUsable) {
+                if (sample.faultActive || sample.faultLatched) {
                     drawLine(AresError.copy(alpha = 0.45f), Offset(px, 0f), Offset(px, size.height), strokeWidth = 1f)
                 }
             }
@@ -361,7 +367,7 @@ private fun CommissioningPlot(result: SubsystemCommissioningResult) {
         ) {
             Text("— ${result.referenceLabel}", color = AresTextTertiary, fontSize = 10.sp)
             Text("— ${result.measurementLabel}", color = AresCyan, fontSize = 10.sp)
-            if (result.metrics.neutralizedOnFault != null) Text("│ feedback fault", color = AresError, fontSize = 10.sp)
+            if (result.metrics.neutralizedOnFault != null) Text("│ safety fault", color = AresError, fontSize = 10.sp)
         }
     }
 }
@@ -405,23 +411,6 @@ private fun CommissioningSlider(
             valueRange = range.start.toFloat()..range.endInclusive.toFloat(),
         )
     }
-}
-
-private fun commissioningPlantFor(
-    loop: SubsystemControlLoopDocument,
-    targetUnit: String?,
-): SubsystemCommissioningPlant = when {
-    loop.strategy == SubsystemControlStrategy.SERVO_POSITION -> SubsystemCommissioningPlant.POSITIONAL_SERVO
-    loop.strategy == SubsystemControlStrategy.VELOCITY_PID || subsystemUnitCanRepresentVelocity(targetUnit) ->
-        SubsystemCommissioningPlant.FLYWHEEL
-    loop.feedforward.kind == SubsystemFeedforwardKind.ELEVATOR -> SubsystemCommissioningPlant.ELEVATOR
-    loop.feedforward.kind in setOf(
-        SubsystemFeedforwardKind.ARM,
-        SubsystemFeedforwardKind.TWO_DOF_ARM,
-        SubsystemFeedforwardKind.FOUR_BAR_LINKAGE,
-    ) -> SubsystemCommissioningPlant.ROTARY_ARM
-    subsystemUnitIsCanonicalAngle(targetUnit) -> SubsystemCommissioningPlant.ROTARY_ARM
-    else -> SubsystemCommissioningPlant.ELEVATOR
 }
 
 private fun SubsystemControlStrategy.studentLabel(): String = when (this) {

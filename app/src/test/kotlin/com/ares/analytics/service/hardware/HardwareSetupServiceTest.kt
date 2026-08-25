@@ -13,11 +13,50 @@ import com.areslib.subsystem.SubsystemPlatform
 import com.areslib.subsystem.SubsystemTemplate
 import com.areslib.subsystem.SubsystemTemplates
 import java.nio.file.Files
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneOffset
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class HardwareSetupServiceTest {
+    @Test
+    fun `physical validation requires current simulation and review and is invalidated by descriptor edits`() {
+        val root = Files.createTempDirectory("ares-physical-evidence").toFile()
+        try {
+            seedDrivebase(root)
+            val subsystemRepository = SubsystemProjectRepository()
+            val lift = lift("arm")
+            subsystemRepository.save(root.path, lift)
+            val service = HardwareSetupService(
+                clock = Clock.fixed(Instant.ofEpochMilli(1_800_000_000_000L), ZoneOffset.UTC),
+            )
+
+            val beforeReview = service.inspect(root.path, League.FTC)
+            assertTrue(beforeReview.simulationVerification.verified)
+            kotlin.test.assertFailsWith<IllegalArgumentException> {
+                service.savePhysicalValidation(root.path, League.FTC, completePhysicalRequest())
+            }
+            service.saveReview(root.path, League.FTC, completeReviewRequest())
+
+            val validated = service.savePhysicalValidation(root.path, League.FTC, completePhysicalRequest())
+            assertEquals("Mentor One", validated.physicalValidation?.validatedBy)
+            assertEquals(validated.inventoryHash, validated.physicalValidation?.inventoryHash)
+            assertEquals(1_800_000_000_000L, validated.physicalValidation?.recordedAtEpochMillis)
+
+            subsystemRepository.save(
+                root.path,
+                lift.copy(hardware = lift.hardware.map { it.copy(inverted = !it.inverted) }),
+            )
+            val stale = service.inspect(root.path, League.FTC)
+            assertEquals(HardwareReviewStatus.STALE, stale.reviewStatus)
+            assertEquals(null, stale.physicalValidation)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test
     fun `review is bound to exact canonical hardware hashes and becomes stale after an edit`() {
         val root = Files.createTempDirectory("ares-hardware-review").toFile()
@@ -252,4 +291,23 @@ class HardwareSetupServiceTest {
             },
         )
     }
+
+    private fun completeReviewRequest() = HardwareReviewRequest(
+        reviewerName = "Student Driver",
+        wiringMatched = true,
+        addressesChecked = true,
+        directionsChecked = true,
+        neutralOutputsChecked = true,
+        limitsChecked = true,
+    )
+
+    private fun completePhysicalRequest() = HardwarePhysicalValidationRequest(
+        validatedBy = "Mentor One",
+        evidenceSummary = "Robot on blocks: direction, sensors, neutral, limits, current, and fault recovery all matched the written procedure.",
+        directionsAndPolarityTested = true,
+        unitsAndSensorsTested = true,
+        disabledNeutralTested = true,
+        limitsAndCurrentTested = true,
+        faultRecoveryTested = true,
+    )
 }

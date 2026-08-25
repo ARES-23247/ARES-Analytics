@@ -40,6 +40,7 @@ class TuningProfileAuthoringTest {
     @Test
     fun `transport separates current requested and nonce topics by stable declaration UID`() {
         assertEquals("Tuning/Parameters/${gain.uid}/Current", TuningTransport.current(gain))
+        assertEquals("Tuning/Parameters/${gain.uid}/ConsumerSupported", TuningTransport.consumerSupported(gain))
         assertEquals("Tuning/Parameters/${gain.uid}/Requested", TuningTransport.requested(gain))
         assertEquals("Tuning/Parameters/${gain.uid}/RequestNonce", TuningTransport.requestNonce(gain))
         assertEquals("Tuning/Parameters/${gain.uid}/ProcessedNonce", TuningTransport.processedNonce(gain))
