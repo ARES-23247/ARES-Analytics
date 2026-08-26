@@ -78,6 +78,9 @@ internal class DesktopTestControlServer(
     private var serverSocket: ServerSocket? = null
     private var serverThread: Thread? = null
 
+    internal val localPort: Int?
+        get() = serverSocket?.localPort
+
     fun start() {
         check(running.compareAndSet(false, true)) { "Desktop test control server is already running" }
         val socket = ServerSocket(port, 1, InetAddress.getLoopbackAddress())
@@ -89,16 +92,25 @@ internal class DesktopTestControlServer(
         ) {
             while (running.get()) {
                 val client = runCatching { socket.accept() }.getOrNull() ?: break
-                client.use { connection ->
-                    val request = connection.getInputStream().bufferedReader().readLine().orEmpty()
-                    val response = runCatching {
-                        execute(DesktopTestCommandParser.parse(request))
-                    }.fold(
-                        onSuccess = { "OK $it" },
-                        onFailure = { "ERROR ${it.message ?: it::class.simpleName}" },
-                    )
-                    connection.getOutputStream().bufferedWriter().use { writer ->
-                        writer.appendLine(response)
+                runCatching {
+                    client.use { connection ->
+                        val request = connection.getInputStream().bufferedReader().readLine().orEmpty()
+                        val response = runCatching {
+                            execute(DesktopTestCommandParser.parse(request))
+                        }.fold(
+                            onSuccess = { "OK $it" },
+                            onFailure = { "ERROR ${it.message ?: it::class.simpleName}" },
+                        )
+                        connection.getOutputStream().bufferedWriter().use { writer ->
+                            writer.appendLine(response)
+                        }
+                    }
+                }.onFailure { failure ->
+                    if (running.get()) {
+                        System.err.println(
+                            "[ARES-Analytics] Desktop test control client disconnected: " +
+                                (failure.message ?: failure::class.simpleName)
+                        )
                     }
                 }
             }

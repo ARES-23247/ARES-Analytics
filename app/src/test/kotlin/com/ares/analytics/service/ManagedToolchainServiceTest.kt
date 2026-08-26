@@ -16,6 +16,32 @@ import kotlin.test.assertTrue
 
 class ManagedToolchainServiceTest {
     @Test
+    fun `FTC build readiness does not require an unused local NDK`() {
+        val sdk = Files.createTempDirectory("ares-ftc-sdk-readiness").toFile()
+        try {
+            File(sdk, "platforms/android-30").mkdirs()
+            File(sdk, "platform-tools").mkdirs()
+
+            assertEquals(emptyList(), missingFtcAndroidComponents(sdk))
+        } finally {
+            sdk.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `FTC build readiness still requires the platform and deployment tools`() {
+        val sdk = Files.createTempDirectory("ares-ftc-sdk-incomplete").toFile()
+        try {
+            assertEquals(
+                listOf("Android platform 30", "platform tools"),
+                missingFtcAndroidComponents(sdk),
+            )
+        } finally {
+            sdk.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `managed JDK redirects remain on reviewed HTTPS hosts`() {
         assertTrue(ManagedToolchainService.isAllowedJdkDownloadUri(URI("https://release-assets.githubusercontent.com/file.zip")))
         assertTrue(!ManagedToolchainService.isAllowedJdkDownloadUri(URI("https://downloads.example.net/file.zip")))
