@@ -423,3 +423,27 @@ If a previous Analytics JVM is still running, the root Gradle task checks Java p
 The installer is not approved for publication until the production OAuth and Drive round trip above
 has actually passed. Successful automated tests, CodeQL, dashboard validation, and MSI packaging do
 not substitute for that external end-to-end verification.
+
+# Local workspace profiles and automated desktop tests
+
+ARES Robotics Studio stores normal user state under `~/.ares-analytics`. The robot selector is an
+index of local workspaces; removing an entry from Studio does not delete the referenced robot
+project, imported run database, Git history, or cloud files.
+
+Automated visible-app journeys must never use that normal directory. Launch them with an isolated
+data root:
+
+```powershell
+.\scripts\run-isolated-desktop.ps1 -Fresh
+```
+
+To capture the settled window and close it through the native window lifecycle:
+
+```powershell
+.\scripts\run-isolated-desktop.ps1 -Fresh `
+  -CaptureFile .\build\diagnostics\isolated-first-run.png
+```
+
+The script sets `ARES_ANALYTICS_DATA_DIR` only for the launched process. Source-based harnesses may
+instead set that environment variable or the `ares.analytics.dataDir` JVM property directly. Never
+point an automated acceptance journey at a student's real `~/.ares-analytics` directory.

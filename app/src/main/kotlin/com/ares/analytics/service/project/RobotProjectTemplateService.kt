@@ -1,6 +1,7 @@
 package com.ares.analytics.service.project
 
 import com.ares.analytics.service.writeFileAtomically
+import com.ares.analytics.service.AppDataPaths
 import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
 import com.ares.analytics.service.hardware.HardwareSetupService
 import com.ares.analytics.service.tuning.TuningProfileRepository
@@ -117,10 +118,7 @@ private data class RobotIdentity(
  * existing directory or user-owned source is ever merged, deleted, or overwritten.
  */
 class RobotProjectTemplateService(
-    private val cacheDirectory: File = File(
-        System.getProperty("user.home"),
-        ".ares-analytics/project-templates",
-    ),
+    private val cacheDirectory: File = AppDataPaths.file("project-templates"),
     templates: List<RobotProjectTemplate> = OFFICIAL_PROJECT_TEMPLATES,
     private val archiveDownloader: (RobotProjectTemplate, File) -> Unit = ::downloadArchive,
     private val bundledArchiveLoader: (String) -> InputStream? = { resourcePath ->

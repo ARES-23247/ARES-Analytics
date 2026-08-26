@@ -73,7 +73,7 @@ data class DashboardLayoutConfig(
 )
 
 class LayoutPreferenceService(
-    private val baseDir: String = System.getProperty("user.home") + "/.ares-analytics/layouts",
+    private val baseDir: String = AppDataPaths.file("layouts").path,
     private val beforeAtomicReplace: ((temporary: Path, destination: Path) -> Unit)? = null
 ) {
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }

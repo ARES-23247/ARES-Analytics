@@ -33,8 +33,8 @@ import java.nio.file.StandardOpenOption
  * @see com.ares.analytics.shared.WorkspaceConfig
  */
 class EnvironmentService(
-    private val configPath: String = System.getProperty("user.home") + "/.ares-analytics/config.json",
-    private val workspacesPath: String = System.getProperty("user.home") + "/.ares-analytics/workspaces.json",
+    private val configPath: String = AppDataPaths.file("config.json").path,
+    private val workspacesPath: String = AppDataPaths.file("workspaces.json").path,
     private val secretsWriter: (File, ByteArray) -> Unit = ::writeSecrets,
 ) {
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }

@@ -111,7 +111,7 @@ fun MainScreen(services: ServiceRegistry) {
     var requestedLessonId by remember { mutableStateOf<String?>(null) }
     var requestedGlossaryTerm by remember { mutableStateOf<String?>(null) }
     var coachDrawerOpen by remember { mutableStateOf(false) }
-    var academyCreateWorkspaceRequested by remember { mutableStateOf(false) }
+    var requestedProjectSetupMode by remember { mutableStateOf<ProjectSetupMode?>(null) }
     val learningProgress by services.learningProgressService.progress.collectAsState()
     val activeCoachLessonId = learningProgress.activeLessonId
 
@@ -167,10 +167,10 @@ fun MainScreen(services: ServiceRegistry) {
                 mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.ROBOT_STUDIO))
             }
         }
-        LaunchedEffect(onboardingViewModel, academyCreateWorkspaceRequested) {
-            if (academyCreateWorkspaceRequested) {
-                onboardingViewModel.handleIntent(OnboardingIntent.SetProjectSetupMode(ProjectSetupMode.CREATE_NEW))
-                academyCreateWorkspaceRequested = false
+        LaunchedEffect(onboardingViewModel, requestedProjectSetupMode) {
+            requestedProjectSetupMode?.let { mode ->
+                onboardingViewModel.handleIntent(OnboardingIntent.SetProjectSetupMode(mode))
+                requestedProjectSetupMode = null
             }
         }
         val showCancel = mainState.workspaces.isNotEmpty()
@@ -179,7 +179,7 @@ fun MainScreen(services: ServiceRegistry) {
             oauthService = services.oauthService,
             onCancel = if (showCancel) {
                 {
-                    academyCreateWorkspaceRequested = false
+                    requestedProjectSetupMode = null
                     mainViewModel.onIntent(MainIntent.CancelAddNewWorkspace)
                 }
             } else null
@@ -721,6 +721,13 @@ fun MainScreen(services: ServiceRegistry) {
                                 onDismissRequest = { dropdownExpanded = false },
                                 modifier = Modifier.background(AresSurfaceElevated).border(1.dp, AresBorder)
                             ) {
+                                Text(
+                                    "MY ROBOTS",
+                                    color = AresTextTertiary,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                )
                                 mainState.workspaces.forEach { workspace ->
                                     DropdownMenuItem(
                                         text = {
@@ -782,13 +789,39 @@ fun MainScreen(services: ServiceRegistry) {
                                                 tint = AresCyan,
                                                 modifier = Modifier.size(18.dp)
                                             )
-                                            Text("Add Robot Profile...", color = AresCyan, fontWeight = FontWeight.Bold)
+                                            Text("Create or open a robot...", color = AresCyan, fontWeight = FontWeight.Bold)
                                         }
                                     },
                                     onClick = {
+                                        requestedProjectSetupMode = ProjectSetupMode.CREATE_NEW
                                         mainViewModel.onIntent(MainIntent.AddNewWorkspace)
                                         dropdownExpanded = false
                                     }
+                                )
+                                HorizontalDivider(color = AresBorder, modifier = Modifier.padding(vertical = 4.dp))
+                                Text(
+                                    "EXAMPLES",
+                                    color = AresTextTertiary,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text("Explore the demo robot", color = AresTextPrimary, fontWeight = FontWeight.Bold)
+                                            Text(
+                                                "Create one editable, simulation-first FTC example",
+                                                color = AresTextSecondary,
+                                                fontSize = 11.sp,
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        requestedProjectSetupMode = ProjectSetupMode.EXPLORE_DEMO
+                                        mainViewModel.onIntent(MainIntent.AddNewWorkspace)
+                                        dropdownExpanded = false
+                                    },
                                 )
                             }
                         }
@@ -1008,7 +1041,7 @@ fun MainScreen(services: ServiceRegistry) {
                                     }
                                 },
                                 onCreatePracticeProject = {
-                                    academyCreateWorkspaceRequested = true
+                                    requestedProjectSetupMode = ProjectSetupMode.CREATE_NEW
                                     mainViewModel.onIntent(MainIntent.AddNewWorkspace)
                                 },
                                 onInstallAndImportPracticeRuns = {

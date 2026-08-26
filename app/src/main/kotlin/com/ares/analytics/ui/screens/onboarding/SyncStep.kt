@@ -191,22 +191,41 @@ private fun ProjectSelection(
                 modifier = Modifier.weight(1f),
             )
         }
+        ProjectModeCard(
+            title = "Explore the demo robot",
+            description = "Create your own editable copy of one simulation-first FTC mecanum example, then inspect every choice in Robot Studio.",
+            selected = mode == ProjectSetupMode.EXPLORE_DEMO,
+            onClick = { onModeChange(ProjectSetupMode.EXPLORE_DEMO) },
+            modifier = Modifier.fillMaxWidth(),
+        )
 
-        if (mode == ProjectSetupMode.CREATE_NEW) {
-            LeagueSelector(league, onLeagueChange)
+        if (mode.createsProject) {
+            if (mode == ProjectSetupMode.CREATE_NEW) LeagueSelector(league, onLeagueChange)
             Card(
                 colors = CardDefaults.cardColors(containerColor = AresSurfaceElevated),
                 border = androidx.compose.foundation.BorderStroke(1.dp, AresBorder),
             ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Verified starter: $templateName $templateVersion", color = AresTextPrimary, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "The official installer includes this exact, SHA-256-verified starter. ARES can create it offline; the network is only a recovery fallback for source builds.",
+                        if (mode == ProjectSetupMode.EXPLORE_DEMO) "ARES Demo Robot" else "Verified starter: $templateName $templateVersion",
+                        color = AresTextPrimary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        if (mode == ProjectSetupMode.EXPLORE_DEMO) {
+                            "The installer keeps the reviewed example unchanged and creates a separate editable copy for you. It uses the same declarative drivetrain, controls, safety, and simulation documents that Robot Studio edits."
+                        } else {
+                            "The official installer includes this exact, SHA-256-verified starter. ARES can create it offline; the network is only a recovery fallback for source builds."
+                        },
                         color = AresTextSecondary,
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Text(
-                        "SIMULATION FIRST — This generic starter contains no Team 23247 season mechanisms or calibration. Build and simulation are supported; physical deployment stays blocked until a mentor completes Hardware Setup and commissioning evidence.",
+                        if (mode == ProjectSetupMode.EXPLORE_DEMO) {
+                            "SIMULATION ONLY UNTIL REVIEWED — Explore, change, build, and simulate this copy. It is not evidence that any physical robot wiring, directions, limits, or calibration were validated."
+                        } else {
+                            "SIMULATION FIRST — This generic starter contains no Team 23247 season mechanisms or calibration. Build and simulation are supported; physical deployment stays blocked until a mentor completes Hardware Setup and commissioning evidence."
+                        },
                         color = AresError,
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.SemiBold,

@@ -62,7 +62,7 @@ import javax.sound.sampled.AudioSystem
 class AlertEngineService(
     private val databaseService: DatabaseService,
     private val nt4ClientService: Nt4ClientService,
-    private val thresholdsPath: String = System.getProperty("user.home") + "/.ares-analytics/thresholds.json"
+    private val thresholdsPath: String = AppDataPaths.file("thresholds.json").path
 ) {
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
     /** Rules are indexed by transport-normalized topic while preserving the configured key in alerts. */

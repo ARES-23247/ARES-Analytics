@@ -184,7 +184,7 @@ internal fun googleOAuthRecoveryMessage(
 class OAuthService(
     private val environmentService: EnvironmentService,
     private val googleClientResolver: GoogleOAuthClientResolver = GoogleOAuthClientResolver(),
-    private val authFilePath: String = System.getProperty("user.home") + "/.ares-analytics/auth.json",
+    private val authFilePath: String = AppDataPaths.file("auth.json").path,
     private val httpClient: HttpClient = HttpClient {
         install(ContentNegotiation) {
             json(Json { ignoreUnknownKeys = true })

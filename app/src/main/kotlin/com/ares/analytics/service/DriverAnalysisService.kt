@@ -31,7 +31,7 @@ import java.nio.file.StandardCopyOption
 class DriverAnalysisService(
     private val databaseService: DatabaseService,
     private val sysIdService: SysIdService,
-    private val profilesPath: String = System.getProperty("user.home") + "/.ares-analytics/driver_profiles.json"
+    private val profilesPath: String = AppDataPaths.file("driver_profiles.json").path
 ) {
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
     private val profiles = ConcurrentHashMap<String, DriverProfile>()

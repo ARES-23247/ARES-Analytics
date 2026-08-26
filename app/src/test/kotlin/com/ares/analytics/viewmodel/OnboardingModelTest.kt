@@ -76,10 +76,11 @@ class OnboardingModelTest {
     }
 
     @Test
-    fun `project step reports only its own field error`() {
+    fun `first run recommends creating a robot and reports only its project location error`() {
+        assertEquals(ProjectSetupMode.CREATE_NEW, OnboardingState().projectSetupMode)
         val errors = validateOnboardingFields(OnboardingState(), OnboardingStep.PROJECT)
 
-        assertEquals("Choose your robot project folder.", errors.projectPath)
+        assertEquals("Choose where ARES should create the robot project.", errors.projectPath)
         assertNull(errors.teamId)
         assertNull(errors.seasonId)
         assertNull(errors.robotId)
@@ -91,6 +92,7 @@ class OnboardingModelTest {
         try {
             val errors = validateOnboardingFields(
                 OnboardingState(
+                    projectSetupMode = ProjectSetupMode.OPEN_EXISTING,
                     projectPath = directory.absolutePath,
                     teamId = "23A47",
                     seasonId = "",
@@ -113,6 +115,7 @@ class OnboardingModelTest {
         val directory = Files.createTempDirectory("ares-onboarding-ready-test").toFile()
         try {
             val state = OnboardingState(
+                projectSetupMode = ProjectSetupMode.OPEN_EXISTING,
                 projectPath = directory.absolutePath,
                 teamId = "23247",
                 seasonId = "2026",
@@ -132,6 +135,7 @@ class OnboardingModelTest {
         val directory = Files.createTempDirectory("ares-onboarding-no-jdk-test").toFile()
         try {
             val state = OnboardingState(
+                projectSetupMode = ProjectSetupMode.OPEN_EXISTING,
                 projectPath = directory.absolutePath,
                 teamId = "23247",
                 seasonId = "2026",
@@ -177,6 +181,28 @@ class OnboardingModelTest {
             File(parent, "existing").mkdirs()
             val existing = traversal.copy(projectFolderName = "existing")
             assertTrue(validateOnboardingFields(existing, OnboardingStep.PROJECT).projectPath!!.contains("already exists"))
+        } finally {
+            parent.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `demo mode creates one simulation-first editable copy with novice defaults`() {
+        val parent = Files.createTempDirectory("ares-onboarding-demo-test").toFile()
+        try {
+            val state = OnboardingState(
+                projectSetupMode = ProjectSetupMode.EXPLORE_DEMO,
+                projectParentPath = parent.path,
+                projectFolderName = DEMO_PROJECT_FOLDER,
+                projectPath = File(parent, DEMO_PROJECT_FOLDER).path,
+                teamId = DEMO_TEAM_ID,
+                seasonId = DEMO_SEASON_ID,
+                robotId = DEMO_ROBOT_ID,
+                robotName = DEMO_ROBOT_NAME,
+            )
+
+            assertTrue(state.projectSetupMode.createsProject)
+            assertFalse(validateOnboardingCompletion(state).hasRequiredFieldErrors)
         } finally {
             parent.deleteRecursively()
         }

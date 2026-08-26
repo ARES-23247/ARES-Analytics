@@ -209,7 +209,7 @@ private fun MissingRobotSourceCard(error: String) {
                 )
                 Text(error, color = AresTextSecondary)
                 Text(
-                    "Use the robot selector at the top left to open an existing project. To start over, choose Add Robot Profile… and create an official starter. Removing a workspace profile never deletes its files.",
+                    "Use the robot selector at the top left to open an existing project. To start over, choose Create or open a robot… and create an official starter. Removing a workspace profile never deletes its files.",
                     color = AresTextPrimary,
                     fontSize = 12.sp,
                 )

@@ -1,5 +1,7 @@
 package com.ares.analytics.desktop
 
+import com.ares.analytics.service.AppDataPaths
+
 /**
  * Single-instance file lock over `~/.ares-analytics/app.lock`. The operating-system lock
  * state — not the file's existence — decides whether a second instance may start, and the
@@ -21,7 +23,7 @@ internal class DesktopInstanceLock private constructor(
     companion object {
         /** Returns null when another instance holds the lock; the caller must exit quietly. */
         fun tryAcquire(): DesktopInstanceLock? {
-            val lockDir = java.io.File(System.getProperty("user.home") + "/.ares-analytics")
+            val lockDir = AppDataPaths.rootDirectory()
             lockDir.mkdirs()
             val lockFile = java.io.File(lockDir, "app.lock")
             val randomAccessFile = java.io.RandomAccessFile(lockFile, "rw")
@@ -49,7 +51,7 @@ internal object DesktopCrashHandler {
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             val fatalDesktopUiFailure = thread.name.startsWith("AWT-EventQueue")
             try {
-                val logDir = java.io.File(System.getProperty("user.home") + "/.ares-analytics/logs")
+                val logDir = AppDataPaths.file("logs")
                 logDir.mkdirs()
                 val timestamp = java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(java.util.Date())
                 val crashFile = java.io.File(logDir, "crash-$timestamp.log")
