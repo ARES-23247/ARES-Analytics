@@ -20,22 +20,35 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.ReplayFrame
+import com.ares.analytics.service.RobotLightingKind
+import com.ares.analytics.service.RobotLightingReading
+import com.ares.analytics.service.robotLightingTelemetry
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.util.IndicatorLightColorMapper
+import com.ares.analytics.util.PrismColorMapper
+
+internal fun lightingDisplayName(stableName: String): String = when (stableName.substringAfterLast('/')) {
+    "primaryIndicator" -> "Left indicator"
+    "secondaryIndicator" -> "Right indicator"
+    "prismDriver" -> "Prism underbody"
+    else -> stableName.substringAfterLast('/')
+        .replace(Regex("([a-z0-9])([A-Z])"), "$1 $2")
+        .replaceFirstChar { it.titlecase() }
+}
 
 /**
- * Dashboard widget card that displays all registered RGB indicator lights
- * and their current colors in real-time. Each light is shown as a row
- * with a colored circle, the light name, color name, and raw servo position.
+ * Dashboard widget card that displays every descriptor-owned lighting output and its accepted
+ * hardware/simulator value in real time. Each output is shown with a representative color, its
+ * stable generated name, device kind, and raw accepted value.
  *
- * Subscribes to NT4 topics matching `Superstructure/IndicatorLight/{name}`.
- * Automatically discovers lights as they appear in the telemetry stream.
+ * Generated robots publish `Subsystems/<document>/AppliedOutputs/<hardware>/<kind>`. The legacy
+ * `Superstructure/IndicatorLight/{name}` topic remains readable for recorded and hand-authored
+ * robots, but new GUI-owned robots never need to duplicate their generated telemetry.
  */
 @Composable
 fun IndicatorLightsCard(
@@ -43,23 +56,9 @@ fun IndicatorLightsCard(
     currentFrame: ReplayFrame? = null,
     modifier: Modifier = Modifier
 ) {
-    // Track discovered indicator lights — keyed by name, valued by last position
-    val lights = remember { mutableStateMapOf<String, Double>() }
-
-    // Collect the telemetry flow to discover indicator light topics
-    LaunchedEffect(Unit) {
-        nt4ClientService.uiTelemetryFlow.collect { frame ->
-            if (frame.key.startsWith("Superstructure/IndicatorLight/")) {
-                val lightName = frame.key.substringAfterLast("/")
-                lights[lightName] = frame.value
-            }
-        }
-    }
-    val displayedLights = remember(currentFrame?.sequence, lights.toMap()) {
-        currentFrame?.values?.entries
-            ?.filter { it.key.startsWith("Superstructure/IndicatorLight/") }
-            ?.associate { it.key.substringAfterLast('/') to it.value }
-            ?: lights.toMap()
+    val liveLighting by nt4ClientService.robotLighting.collectAsState()
+    val displayedLights = remember(currentFrame?.sequence, liveLighting) {
+        currentFrame?.let { robotLightingTelemetry(it.values).outputs } ?: liveLighting.outputs
     }
 
     Column(
@@ -86,7 +85,7 @@ fun IndicatorLightsCard(
                     tint = AresAmber
                 )
                 Text(
-                    "Indicator Lights",
+                    "Robot Lighting",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = AresTextPrimary
@@ -102,7 +101,7 @@ fun IndicatorLightsCard(
                     .padding(horizontal = 8.dp, vertical = 2.dp)
             ) {
                 Text(
-                    text = "${displayedLights.size} light${if (displayedLights.size != 1) "s" else ""}",
+                    text = "${displayedLights.size} output${if (displayedLights.size != 1) "s" else ""}",
                     fontSize = 11.sp,
                     color = AresTextSecondary,
                     fontWeight = FontWeight.Bold
@@ -125,14 +124,14 @@ fun IndicatorLightsCard(
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Text(
-                        text = if (currentFrame == null) "No indicator lights detected" else "No light topics in this recording",
+                        text = if (currentFrame == null) "No lighting outputs detected" else "No lighting outputs in this recording",
                         fontSize = 13.sp,
                         color = AresTextTertiary,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
                         text = if (currentFrame == null) {
-                            "Waiting for Superstructure/IndicatorLight/* topics…"
+                            "Waiting for generated subsystem lighting telemetry…"
                         } else {
                             "This is missing data, not an off-light reading."
                         },
@@ -146,8 +145,8 @@ fun IndicatorLightsCard(
             Column(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                for ((name, position) in displayedLights.toSortedMap()) {
-                    IndicatorLightRow(name = name, position = position)
+                for ((name, reading) in displayedLights.toSortedMap()) {
+                    LightingOutputRow(name = name, reading = reading)
                 }
             }
         }
@@ -155,12 +154,18 @@ fun IndicatorLightsCard(
 }
 
 @Composable
-private fun IndicatorLightRow(
+private fun LightingOutputRow(
     name: String,
-    position: Double
+    reading: RobotLightingReading,
 ) {
-    val displayColor = IndicatorLightColorMapper.positionToColor(position)
-    val colorName = IndicatorLightColorMapper.positionToName(position)
+    val displayColor = when (reading.kind) {
+        RobotLightingKind.INDICATOR -> IndicatorLightColorMapper.positionToColor(reading.value)
+        RobotLightingKind.PRISM -> PrismColorMapper.pulseWidthToColor(reading.value)
+    }
+    val colorName = when (reading.kind) {
+        RobotLightingKind.INDICATOR -> IndicatorLightColorMapper.positionToName(reading.value)
+        RobotLightingKind.PRISM -> "Prism program"
+    }
 
     // Smooth color transition animation
     val animatedColor by animateColorAsState(
@@ -175,16 +180,16 @@ private fun IndicatorLightRow(
             .clip(RoundedCornerShape(8.dp))
             .background(AresSurfaceElevated)
             .border(0.5.dp, AresBorder, RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Glowing color indicator circle
         Box(
             modifier = Modifier
-                .size(28.dp)
+                .size(20.dp)
                 .shadow(
-                    elevation = if (position > 0.05) 6.dp else 0.dp,
+                    elevation = if (displayColor.alpha > 0f) 6.dp else 0.dp,
                     shape = CircleShape,
                     ambientColor = animatedColor.copy(alpha = 0.5f),
                     spotColor = animatedColor.copy(alpha = 0.8f)
@@ -207,34 +212,21 @@ private fun IndicatorLightRow(
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             Text(
-                text = name,
-                fontSize = 13.sp,
+                text = lightingDisplayName(name),
+                fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = AresTextPrimary
             )
             Text(
-                text = colorName,
-                fontSize = 11.sp,
+                text = when (reading.kind) {
+                    RobotLightingKind.INDICATOR -> "$colorName • ${String.format("%.3f", reading.value)}"
+                    RobotLightingKind.PRISM -> "$colorName • ${String.format("%.0f µs", reading.value)}"
+                },
+                fontSize = 10.sp,
                 fontWeight = FontWeight.Medium,
                 color = animatedColor
             )
         }
 
-        // Raw position value
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(4.dp))
-                .background(AresSurface)
-                .border(0.5.dp, AresBorder, RoundedCornerShape(4.dp))
-                .padding(horizontal = 6.dp, vertical = 3.dp)
-        ) {
-            Text(
-                text = String.format("%.3f", position),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = AresTextSecondary,
-                fontFamily = FontFamily.Monospace
-            )
-        }
     }
 }

@@ -60,7 +60,9 @@ dependencyResolutionManagement {
         if (!aresRepositoryUrl.isNullOrBlank()) {
             maven(aresRepositoryUrl)
         }
-        mavenLocal()
+        if (providers.gradleProperty("aresUseMavenLocal").map(String::toBoolean).getOrElse(false)) {
+            mavenLocal()
+        }
         google()
         mavenCentral()
         maven("https://raw.githubusercontent.com/ARES-23247/ARESLib-Kotlin/maven")

@@ -59,7 +59,7 @@ internal fun createOAuthTokenStore(
     secretsWriter: (File, ByteArray) -> Unit,
 ): OAuthTokenStore {
     val legacyFile = File(authFilePath)
-    val defaultPath = File(System.getProperty("user.home"), ".ares-analytics/auth.json")
+    val defaultPath = AppDataPaths.file("auth.json")
     val isDefaultStore = runCatching { legacyFile.canonicalFile == defaultPath.canonicalFile }.getOrDefault(false)
     val isWindows = System.getProperty("os.name").lowercase(Locale.ROOT).contains("win")
     return if (isWindows && isDefaultStore) {

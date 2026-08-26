@@ -3,6 +3,7 @@ package com.ares.analytics.ui.components.pathplanner
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Fill
@@ -12,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.util.IndicatorLightColorMapper
+import com.ares.analytics.util.PrismColorMapper
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -23,6 +25,12 @@ import kotlin.math.pow
  * Renders native auto destinations as physical robot footprints with one unambiguous heading.
  * Legacy tangent and holonomic-rotation handles intentionally do not appear in this mode.
  */
+data class IndicatorLightRenderState(
+    val position: Double,
+    val forwardFraction: Double,
+    val leftFraction: Double,
+)
+
 fun DrawScope.drawAutoGoals(
     pathCache: PathCacheHolder,
     waypoints: List<Waypoint>,
@@ -310,7 +318,8 @@ fun DrawScope.drawRobotRepresentations(
     fieldWidthM: Double,
     fieldHeightM: Double,
     league: League,
-    indicatorLightPosition: Double = -1.0
+    indicatorLights: List<IndicatorLightRenderState> = emptyList(),
+    prismPulseWidthUs: Double? = null,
 ) {
     val activeRobotWp = actualPath.lastOrNull()
     val leagueHeadingOffset = if (league == League.FTC) 90f else 0f
@@ -341,6 +350,24 @@ fun DrawScope.drawRobotRepresentations(
 
         drawContext.canvas.save()
         drawContext.transform.rotate(degrees = -Math.toDegrees(activeRobotWp.headingRad ?: 0.0).toFloat() - leagueHeadingOffset, pivot = robotOffset)
+
+        // Prism is mounted as underbody lighting on Lightbot. Draw the accepted output beneath the
+        // footprint so the chassis remains readable and a replay never hides pose evidence.
+        prismPulseWidthUs?.let { pulseWidthUs ->
+            val prismColor = PrismColorMapper.pulseWidthToColor(pulseWidthUs)
+            if (prismColor.alpha > 0f) {
+                val glowInset = robotSizePx * 0.13f
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(prismColor.copy(alpha = 0.38f), prismColor.copy(alpha = 0.08f)),
+                        center = robotOffset,
+                        radius = robotSizePx * 0.9f,
+                    ),
+                    topLeft = Offset(robotOffset.x - robotSizePx / 2 - glowInset, robotOffset.y - robotSizePx / 2 - glowInset),
+                    size = Size(robotSizePx + glowInset * 2, robotSizePx + glowInset * 2),
+                )
+            }
+        }
         drawRect(color = AresCyan.copy(alpha = 0.2f), topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx))
         drawRect(color = AresCyan, topLeft = Offset(robotOffset.x - robotSizePx / 2, robotOffset.y - robotSizePx / 2), size = Size(robotSizePx, robotSizePx), style = Stroke(width = 2.dp.toPx()))
         drawLine(color = AresAmber, start = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y - robotSizePx / 2), end = Offset(robotOffset.x + robotSizePx / 2, robotOffset.y + robotSizePx / 2), strokeWidth = 3.dp.toPx())
@@ -353,18 +380,17 @@ fun DrawScope.drawRobotRepresentations(
         }
         drawPath(path = arrowPath, color = AresAmber)
 
-        // ── Indicator Light Box ──
-        // Draw a colored square in the rear-left corner of the robot body.
-        // Inside the save/restore block so it rotates with the robot.
-        if (indicatorLightPosition >= 0.0) {
-            val lightColor = IndicatorLightColorMapper.positionToColor(indicatorLightPosition)
-            val lightSize = robotSizePx * 0.22f
-            val lightMargin = robotSizePx * 0.06f
-            val lightTopLeft = Offset(
-                robotOffset.x - robotSizePx / 2 + lightMargin,
-                robotOffset.y - robotSizePx / 2 + lightMargin
+        // Two independently controlled side-mounted indicator lamps. Array order is stable because
+        // the caller sorts semantic generated hardware IDs before rendering.
+        indicatorLights.forEach { indicator ->
+            if (indicator.position < 0.0) return@forEach
+            val lightColor = IndicatorLightColorMapper.positionToColor(indicator.position)
+            val lightSize = robotSizePx * 0.18f
+            val lightCenter = Offset(
+                robotOffset.x + (indicator.forwardFraction * robotSizePx).toFloat(),
+                robotOffset.y - (indicator.leftFraction * robotSizePx).toFloat(),
             )
-            // Glowing fill
+            val lightTopLeft = Offset(lightCenter.x - lightSize / 2, lightCenter.y - lightSize / 2)
             drawRect(
                 color = lightColor.copy(alpha = 0.85f),
                 topLeft = lightTopLeft,

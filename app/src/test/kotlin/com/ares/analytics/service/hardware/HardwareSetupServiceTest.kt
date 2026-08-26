@@ -98,7 +98,12 @@ class HardwareSetupServiceTest {
             assertEquals(HardwareReviewStatus.STALE, stale.reviewStatus)
             assertTrue(service.deploymentBlockReason(root.path, League.FTC)!!.contains("changed after"))
 
-            java.io.File(root, ".ares/hardware-review.json").writeText("not-json")
+            val evidenceDirectory = java.io.File(root, ".ares/evidence/hardware/configuration")
+            evidenceDirectory.deleteRecursively()
+            java.io.File(evidenceDirectory, "invalid.json").apply {
+                parentFile.mkdirs()
+                writeText("not-json")
+            }
             val invalid = service.inspect(root.path, League.FTC)
             assertEquals(HardwareReviewStatus.INVALID, invalid.reviewStatus)
             assertTrue(invalid.canReview, "A malformed review must be replaceable after the hardware itself validates")

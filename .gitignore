@@ -29,6 +29,7 @@ out/
 *.nar
 *.ear
 *.zip
+!app/src/main/resources/project-templates/*.zip
 *.tar.gz
 *.rar
 

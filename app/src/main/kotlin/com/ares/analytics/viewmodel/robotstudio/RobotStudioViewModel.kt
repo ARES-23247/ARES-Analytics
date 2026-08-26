@@ -71,6 +71,7 @@ class RobotStudioViewModel(
             projectPath = inspected.projectPath,
             stages = evaluateRobotStudioStages(inspected, runtime),
             hardwareReadiness = evaluateRobotStudioHardwareReadiness(inspected),
+            verificationReport = runtime.build.verificationReport,
             error = null,
         )
     }

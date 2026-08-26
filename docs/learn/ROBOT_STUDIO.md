@@ -36,6 +36,25 @@ Robot Studio never marks a build ready merely because an old generated file exis
 9. **1-Click Deploy to robot** — connect over Wi-Fi, compile, and flash APK/binary directly to the physical robot.
 10. **Import & analyze a run** — preserve a simulator or robot run before making claims about behavior.
 
+## Read one Verification report
+
+Select **Verification** in the Robot Studio structure tree after **Verify & build**. The report
+keeps the evidence layers visible instead of reducing them to one green button:
+
+- **Configuration checks** decode the current project, drivetrain, subsystem, superstructure, and
+  autonomous documents.
+- **Robot Builder behavior tests** are disposable tests generated from each subsystem's selected
+  controls and safety rules under Gradle `build/generated` directories.
+- **Simulator checks** exercise the project simulator and its telemetry boundary.
+- **ARES platform integration** retains hand-written lifecycle, Redux, autonomous, coordinate,
+  migration, and transport tests that no individual robot definition owns.
+- **Build result** proves current generated source compiled and packaged without deployment.
+- **Physical validation boundary** remains a supervised checklist; simulation does not prove
+  wiring, polarity, mechanical clearance, or actual LED output.
+
+Leave **Advanced details** off for a student-readable explanation. Turn it on to see exact test
+identities, result files, and process evidence while diagnosing a failure.
+
 ## Follow one capability all the way through
 
 A saved generated subsystem contributes typed named actions to the same project catalog used by

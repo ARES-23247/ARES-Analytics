@@ -244,7 +244,7 @@ object ManagedToolchainPaths {
     fun rootDirectory(): File = System.getProperty("ares.toolchains.root")
         ?.takeIf(String::isNotBlank)
         ?.let(::File)
-        ?: File(System.getProperty("user.home"), ".ares-analytics/toolchains")
+        ?: AppDataPaths.file("toolchains")
 
     fun managedJdkInstallationSupported(): Boolean =
         System.getProperty("os.name").contains("win", ignoreCase = true) &&

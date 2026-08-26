@@ -69,7 +69,7 @@ internal fun resolveDuckDbResourceSettings(
  * @see DatabaseBackupExporter
  */
 class DatabaseService(
-    val dbPath: String = System.getProperty("user.home") + "/.ares-analytics/telemetry.duckdb",
+    val dbPath: String = AppDataPaths.file("telemetry.duckdb").path,
     duckDbMemoryLimit: String? = null,
     duckDbWorkerThreads: Int? = null,
 ) : TelemetryAnalyticsRepository {
@@ -101,7 +101,7 @@ class DatabaseService(
     init {
         Class.forName("org.duckdb.DuckDBDriver")
         val dbFile = File(dbPath)
-        val defaultDbFile = File(System.getProperty("user.home"), ".ares-analytics/telemetry.duckdb")
+        val defaultDbFile = AppDataPaths.file("telemetry.duckdb")
             .canonicalFile
         // Legacy import belongs only to the process' real application database. Unit tests and
         // alternate workspaces must never ingest a user's home telemetry.db by coincidence.
@@ -116,7 +116,7 @@ class DatabaseService(
             dbFile.delete()
         }
 
-        val appDataDir = dbFile.parentFile?.absolutePath ?: (System.getProperty("user.home") + "/.ares-analytics")
+        val appDataDir = dbFile.parentFile?.absolutePath ?: AppDataPaths.rootDirectory().absolutePath
         conn = DriverManager.getConnection("jdbc:duckdb:${dbFile.absolutePath}")
         readConn = conn.unwrap(org.duckdb.DuckDBConnection::class.java).duplicate()
 

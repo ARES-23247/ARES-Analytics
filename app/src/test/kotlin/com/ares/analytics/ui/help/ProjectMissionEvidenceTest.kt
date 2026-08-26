@@ -167,6 +167,7 @@ class ProjectMissionEvidenceTest {
             trajectory = Trajectory(durationSeconds = 1.0, states = emptyList()),
             projectMetadata = AresProjectMetadataDocument(
                 projectId = "practice",
+                identity = com.areslib.project.AresProjectIdentityDocument("99999", "2026", "practice", "Practice Robot"),
                 league = AresLeague.FTC,
                 coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
                 robotLengthMeters = 0.45,
@@ -210,6 +211,7 @@ class ProjectMissionEvidenceTest {
         val snapshot = PathPlannerState(
             projectMetadata = AresProjectMetadataDocument(
                 projectId = "practice",
+                identity = com.areslib.project.AresProjectIdentityDocument("99999", "2026", "practice", "Practice Robot"),
                 league = AresLeague.FTC,
                 coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
                 robotLengthMeters = 0.45,

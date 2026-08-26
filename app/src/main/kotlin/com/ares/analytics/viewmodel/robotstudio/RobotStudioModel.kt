@@ -5,6 +5,7 @@ import com.ares.analytics.service.BuildExecutionState
 import com.ares.analytics.service.DeployExecutionPhase
 import com.ares.analytics.service.DeployExecutionState
 import com.ares.analytics.service.RobotProjectReadinessEvidence
+import com.ares.analytics.service.verification.RobotVerificationReport
 import com.ares.analytics.service.hardware.HardwareReviewStatus
 import java.io.File
 
@@ -87,6 +88,7 @@ data class RobotStudioState(
     val projectPath: String = "",
     val stages: List<RobotStudioStage> = emptyList(),
     val hardwareReadiness: RobotStudioHardwareReadiness? = null,
+    val verificationReport: RobotVerificationReport? = null,
     val error: String? = null,
 ) {
     val readyCount: Int get() = stages.count { it.status == RobotStudioStageStatus.READY || it.status == RobotStudioStageStatus.RUNNING }
@@ -341,7 +343,7 @@ internal fun evaluateRobotStudioStages(
             hardwareStatus,
             hardwareExplanation,
             hardwareIssues,
-            ".ares/drivetrains/*.aresdrivetrain, .ares/subsystems/*.aressubsystem, .ares/hardware-review.json",
+            ".ares/drivetrains/*.aresdrivetrain, .ares/subsystems/*.aressubsystem, .ares/evidence/hardware/",
             "Generated hardware registry, drivetrain & subsystem IO controllers, and simulator",
             hardwareAction,
             hardwareActionLabel,

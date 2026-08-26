@@ -75,10 +75,7 @@ data class AcademyProgressSnapshot(
  * Content-version changes retain known lesson IDs and allow the UI to identify updated material.
  */
 class LearningProgressService(
-    private val progressFile: File = File(
-        System.getProperty("user.home"),
-        ".ares-analytics/learning-progress.json",
-    ),
+    private val progressFile: File = AppDataPaths.file("learning-progress.json"),
     private val nowMillis: () -> Long = System::currentTimeMillis,
     private val learnerIdFactory: () -> String = { "learner-${UUID.randomUUID()}" },
 ) {

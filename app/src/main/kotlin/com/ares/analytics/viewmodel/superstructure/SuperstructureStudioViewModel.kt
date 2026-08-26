@@ -9,6 +9,7 @@ import com.areslib.subsystem.SubsystemDocument
 import com.areslib.subsystem.SubsystemFieldRole
 import com.areslib.subsystem.InterlockComparison
 import com.areslib.subsystem.SubsystemImplementationKind
+import com.areslib.subsystem.isAresGenerated
 import com.areslib.subsystem.SubsystemStateFieldDocument
 import com.areslib.subsystem.SubsystemValueType
 import com.areslib.superstructure.LutControlPoint
@@ -84,7 +85,7 @@ data class SuperstructureStudioState(
     val graphZoom: Float = 1f,
 ) {
     val generatedSubsystems: List<SubsystemDocument>
-        get() = subsystems.filter { it.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER }
+        get() = subsystems.filter { it.implementation.kind.isAresGenerated() }
     val targetFields: List<SuperstructureFieldOption>
         get() = generatedSubsystems.flatMap { subsystem ->
             subsystem.stateFields.filter { it.role == SubsystemFieldRole.TARGET }

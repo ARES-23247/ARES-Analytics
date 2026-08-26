@@ -218,6 +218,51 @@ fun HardwareInspectorBody(
             )
         }
 
+        if (device.kind == SubsystemHardwareKind.INDICATOR_LIGHT || device.kind == SubsystemHardwareKind.PRISM_DRIVER) {
+            val placement = device.visualPlacement ?: defaultVisualPlacement(device.kind)
+            val allowedAnchors = if (device.kind == SubsystemHardwareKind.PRISM_DRIVER) {
+                listOf(SubsystemVisualAnchor.UNDERBODY)
+            } else {
+                listOf(
+                    SubsystemVisualAnchor.LEFT_SIDE,
+                    SubsystemVisualAnchor.RIGHT_SIDE,
+                    SubsystemVisualAnchor.FRONT,
+                    SubsystemVisualAnchor.REAR,
+                    SubsystemVisualAnchor.CENTER,
+                )
+            }
+            EnumSelector("Where this light appears on the robot", placement.anchor, allowedAnchors) { anchor ->
+                viewModel.updateHardware(device.hardwareId) {
+                    it.copy(visualPlacement = placementForAnchor(anchor))
+                }
+            }
+            FieldGuidance(
+                if (device.kind == SubsystemHardwareKind.PRISM_DRIVER) {
+                    "Prism programs appear as an underbody glow in live simulation and replay."
+                } else {
+                    "This location travels with the robot footprint, so students can distinguish independently controlled lights in simulation and replay."
+                }
+            )
+            if (device.kind == SubsystemHardwareKind.INDICATOR_LIGHT) {
+                var showPrecisePlacement by remember(device.uid) { mutableStateOf(false) }
+                TextButton(onClick = { showPrecisePlacement = !showPrecisePlacement }) {
+                    Text(if (showPrecisePlacement) "Hide precise placement" else "Fine-tune placement (advanced)")
+                }
+                if (showPrecisePlacement) {
+                    DoubleInput("Forward position (-0.5 rear to +0.5 front)", placement.forwardFraction) { value ->
+                        viewModel.updateHardware(device.hardwareId) {
+                            it.copy(visualPlacement = placement.copy(forwardFraction = value.coerceIn(-0.5, 0.5)))
+                        }
+                    }
+                    DoubleInput("Side position (-0.5 right to +0.5 left)", placement.leftFraction) { value ->
+                        viewModel.updateHardware(device.hardwareId) {
+                            it.copy(visualPlacement = placement.copy(leftFraction = value.coerceIn(-0.5, 0.5)))
+                        }
+                    }
+                }
+            }
+        }
+
         val measurementSources = device.kind.compatibleMeasurementSources()
         if (measurementSources.isNotEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -293,6 +338,23 @@ fun HardwareInspectorBody(
             }
         }
     }
+}
+
+private fun defaultVisualPlacement(kind: SubsystemHardwareKind): SubsystemVisualPlacementDocument =
+    if (kind == SubsystemHardwareKind.PRISM_DRIVER) {
+        placementForAnchor(SubsystemVisualAnchor.UNDERBODY)
+    } else {
+        placementForAnchor(SubsystemVisualAnchor.LEFT_SIDE)
+    }
+
+private fun placementForAnchor(anchor: SubsystemVisualAnchor): SubsystemVisualPlacementDocument = when (anchor) {
+    SubsystemVisualAnchor.LEFT_SIDE -> SubsystemVisualPlacementDocument(anchor, leftFraction = 0.5)
+    SubsystemVisualAnchor.RIGHT_SIDE -> SubsystemVisualPlacementDocument(anchor, leftFraction = -0.5)
+    SubsystemVisualAnchor.FRONT -> SubsystemVisualPlacementDocument(anchor, forwardFraction = 0.5)
+    SubsystemVisualAnchor.REAR -> SubsystemVisualPlacementDocument(anchor, forwardFraction = -0.5)
+    SubsystemVisualAnchor.CENTER,
+    SubsystemVisualAnchor.UNDERBODY,
+    SubsystemVisualAnchor.UNSPECIFIED -> SubsystemVisualPlacementDocument(anchor)
 }
 
 @Composable

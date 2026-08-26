@@ -46,7 +46,7 @@ class RobotProjectTemplateServiceTest {
 
         League.entries.forEach { league ->
             val template = service.templateFor(league)
-            assertEquals("9.13.0", template.aresVersion)
+            assertEquals("10.0.0", template.aresVersion)
             assertTrue(template.displayName.endsWith("Starter"))
             assertEquals(
                 RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
@@ -68,11 +68,13 @@ class RobotProjectTemplateServiceTest {
             assertEquals(RobotProjectTemplateSource.VERIFIED_DOWNLOAD, result.source)
             assertTrue(result.destination.isDirectory)
             assertTrue(File(result.destination, "TeamCode/src/main/java/example/Robot.kt").isFile)
-            val identity = File(result.destination, ".ares-robot.json").readText()
-            assertTrue(identity.contains("\"teamId\": \"23247\""))
-            assertTrue(identity.contains("\"robotId\": \"StudentBot\""))
+            assertFalse(File(result.destination, ".ares-robot.json").exists())
             val metadata = AresProjectMetadataCodec.decode(File(result.destination, ".ares/project.json").readText())
             assertEquals("team23247-studentbot", metadata.projectId)
+            assertEquals("23247", metadata.identity.teamId)
+            assertEquals("2026", metadata.identity.seasonId)
+            assertEquals("StudentBot", metadata.identity.robotId)
+            assertEquals("Student Robot", metadata.identity.displayName)
             assertEquals(
                 metadata.projectId,
                 CapabilityCatalogCodec.decode(File(result.destination, ".ares/action-catalog.json").readText()).projectId,
@@ -100,6 +102,26 @@ class RobotProjectTemplateServiceTest {
             assertTrue(localProperties.contains("fixture-android-sdk"))
             assertNotNull(templateDeploymentBlockReason(result.destination))
             assertFalse(parent.listFiles().orEmpty().any { it.name.contains("ares-partial") })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `bundled legacy starter is migrated before personalization and never publishes duplicate identity`() = runBlocking {
+        val root = Files.createTempDirectory("ares-project-legacy-template-test").toFile()
+        try {
+            val archive = validLegacyFtcArchive()
+            val service = service(root, archive)
+            val parent = File(root, "robots").apply { mkdirs() }
+
+            val result = service.create(request(parent, "migrated-student-robot"))
+
+            assertFalse(File(result.destination, ".ares-robot.json").exists())
+            val metadata = AresProjectMetadataCodec.decode(File(result.destination, ".ares/project.json").readText())
+            assertEquals(3, metadata.schemaVersion)
+            assertEquals("23247", metadata.identity.teamId)
+            assertEquals("StudentBot", metadata.identity.robotId)
         } finally {
             root.deleteRecursively()
         }
@@ -360,7 +382,8 @@ class RobotProjectTemplateServiceTest {
             File(ares, "project.json").writeText(
                 AresProjectMetadataCodec.encode(
                     AresProjectMetadataDocument(
-                        projectId = "team1-robot",
+                projectId = "team1-robot",
+                identity = com.areslib.project.AresProjectIdentityDocument("1", "2026", "robot", "Robot"),
                         league = AresLeague.FTC,
                         coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
                         robotLengthMeters = 0.45,
@@ -429,7 +452,8 @@ class RobotProjectTemplateServiceTest {
     private fun validFtcArchive(aresVersion: String = "test"): ByteArray {
         val metadata = AresProjectMetadataCodec.encode(
             AresProjectMetadataDocument(
-                projectId = "template-project",
+        projectId = "template-project",
+        identity = com.areslib.project.AresProjectIdentityDocument("99999", "2026", "template-robot", "Template Robot"),
                 league = AresLeague.FTC,
                 coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
                 robotLengthMeters = 0.45,
@@ -464,6 +488,48 @@ class RobotProjectTemplateServiceTest {
             "fixture-root/.ares/tuning/competition.arestuning" to
                 TuningProfileDocumentCodec.encode(profile, drivebase.parameters),
             "fixture-root/.ares-robot.json" to "{}\n",
+        )
+    }
+
+    private fun validLegacyFtcArchive(): ByteArray {
+        val metadata = """{
+          "schemaVersion": 2,
+          "projectId": "template-project",
+          "league": "FTC",
+          "coordinateConvention": "CENTER_ORIGIN_CCW",
+          "robotLengthMeters": 0.45,
+          "robotWidthMeters": 0.45,
+          "fieldLengthMeters": 3.65,
+          "fieldWidthMeters": 3.65,
+          "runtimeOptions": {"ftc": {"hubCommandTransport": "STANDARD_SDK", "limelightProxyEnabled": false}}
+        }""".trimIndent()
+        val drivebase = defaultDrivebase("template-project", DrivebaseKind.FTC_MECANUM).toCanonicalDrivebase()
+        val profile = TuningProfileDocument(
+            uid = drivebase.canonicalProfileUid,
+            profileId = "competition",
+            displayName = "Competition",
+            description = "Reviewed fixture tuning",
+            projectUid = drivebase.canonicalProfileUid.substringBefore(".profile."),
+            drivebaseUid = drivebase.uid,
+            authority = TuningProfileAuthority.CANONICAL_CHECKED_IN,
+            values = emptyList(),
+        )
+        return zipOf(
+            "fixture-root/settings.gradle" to "include ':TeamCode'\n",
+            "fixture-root/gradle.properties" to "aresVersion=test\n",
+            "fixture-root/TeamCode/src/main/java/example/Robot.kt" to "package example\nclass Robot\n",
+            "fixture-root/.ares/project.json" to metadata,
+            "fixture-root/.ares/action-catalog.json" to CapabilityCatalogCodec.encode(
+                CapabilityCatalogDocument(projectId = "template-project"),
+            ),
+            "fixture-root/.ares/autonomous-catalog.json" to AutonomousCatalogCodec.encode(
+                AutonomousCatalogDocument(projectId = "template-project", entries = emptyList()),
+            ),
+            "fixture-root/.ares/drivetrains/template.aresdrivetrain" to DrivetrainDocumentCodec.encode(drivebase),
+            "fixture-root/.ares/tuning/competition.arestuning" to
+                TuningProfileDocumentCodec.encode(profile, drivebase.parameters),
+            "fixture-root/.ares-robot.json" to
+                """{"teamId":"99999","seasonId":"2026","robotId":"template-robot","name":"Template Robot","league":"FTC"}""",
         )
     }
 

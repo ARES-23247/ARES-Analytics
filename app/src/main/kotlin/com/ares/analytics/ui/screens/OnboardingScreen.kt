@@ -50,6 +50,7 @@ import com.ares.analytics.ui.theme.AresError
 import com.ares.analytics.ui.theme.AresSurface
 import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.viewmodel.OnboardingIntent
+import com.ares.analytics.viewmodel.ProjectSetupMode
 import com.ares.analytics.viewmodel.OnboardingStep
 import com.ares.analytics.viewmodel.OnboardingViewModel
 import javax.swing.JFileChooser
@@ -229,6 +230,11 @@ fun OnboardingScreen(
                 NavigationButtons(
                     step = state.currentStep,
                     isSaving = state.isSaving,
+                    finishLabel = if (state.projectSetupMode == ProjectSetupMode.EXPLORE_DEMO) {
+                        "Create demo copy"
+                    } else {
+                        "Create workspace"
+                    },
                     onCancel = onCancel,
                     onBack = { viewModel.handleIntent(OnboardingIntent.PreviousStep) },
                     onNext = { viewModel.handleIntent(OnboardingIntent.NextStep) },
@@ -243,6 +249,7 @@ fun OnboardingScreen(
 private fun NavigationButtons(
     step: OnboardingStep,
     isSaving: Boolean,
+    finishLabel: String,
     onCancel: (() -> Unit)?,
     onBack: () -> Unit,
     onNext: () -> Unit,
@@ -278,7 +285,7 @@ private fun NavigationButtons(
                     OnboardingStep.PROJECT -> "Continue"
                     OnboardingStep.ROBOT -> "Continue"
                     OnboardingStep.OPTIONAL -> "Review setup"
-                    OnboardingStep.REVIEW -> "Create workspace"
+                    OnboardingStep.REVIEW -> finishLabel
                 }
                 Text(label, color = AresOnAccent, fontWeight = FontWeight.Bold)
             }

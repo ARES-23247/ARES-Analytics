@@ -1,5 +1,6 @@
 package com.ares.analytics.service.versioncontrol
 
+import com.ares.analytics.service.AppDataPaths
 import com.ares.analytics.service.writeSecrets
 import com.sun.jna.platform.win32.Crypt32Util
 import java.io.File
@@ -46,7 +47,7 @@ private fun readBoundedCredential(file: File): ByteArray? = file.takeIf(File::is
 }
 
 internal fun createProjectBackupCredentialStore(): ProjectBackupCredentialStore {
-    val directory = File(System.getProperty("user.home"), ".ares-analytics")
+    val directory = AppDataPaths.rootDirectory()
     val isWindows = System.getProperty("os.name").lowercase(Locale.ROOT).contains("win")
     return if (isWindows) {
         WindowsDpapiProjectBackupCredentialStore(File(directory, "github.dpapi"))

@@ -110,9 +110,12 @@ class DrivebaseAuthoringTest {
     @Test
     fun `drivebase builder uses canonical project identity and repairs stale profile ownership`() = runBlocking {
         val root = Files.createTempDirectory("ares-drivebase-project-identity").toFile()
-        File(root, ".ares-robot.json").writeText(
-            """{"teamId":"99998","seasonId":"2026","robotId":"VisibleFrcRobot","name":"Visible FRC Robot","league":"FRC"}""",
-        )
+        File(root, ".ares/project.json").apply {
+            parentFile.mkdirs()
+            writeText(
+                """{"schemaVersion":3,"projectId":"visible-frc-project","identity":{"teamId":"99998","seasonId":"2026","robotId":"VisibleFrcRobot","displayName":"Visible FRC Robot"},"league":"FRC","coordinateConvention":"BLUE_CORNER_ORIGIN_CCW","robotLengthMeters":0.75,"robotWidthMeters":0.65,"fieldLengthMeters":16.54175,"fieldWidthMeters":8.21055,"runtimeOptions":{}}""",
+            )
+        }
         val stale = canonicalTemplate("VisibleFrcRobot", DrivebaseKind.FRC_CTRE_SWERVE).toUiDrivebase()
         val runtimeProjectUid = "team99998.frc.season2026.visiblefrcrobot"
         val repaired = stale.withCanonicalProjectIdentity(runtimeProjectUid)

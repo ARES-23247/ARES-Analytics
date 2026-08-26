@@ -23,6 +23,7 @@ import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.components.pathplanner.FieldCanvas
+import com.ares.analytics.ui.components.pathplanner.IndicatorLightRenderState
 import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.viewmodel.FieldViewerViewModel
@@ -30,6 +31,7 @@ import com.ares.analytics.viewmodel.FieldViewerIntent
 import com.ares.analytics.viewmodel.LivePoseState
 import com.ares.analytics.viewmodel.field.toReplayPoseState
 import com.ares.analytics.viewmodel.field.loadReplayFieldTrace
+import com.ares.analytics.viewmodel.field.loadRobotLightingPlacements
 import androidx.compose.material.icons.filled.SwapHoriz
 
 private fun waypointOrNull(x: Double?, y: Double?, headingRad: Double?): Waypoint? {
@@ -70,6 +72,11 @@ fun FieldViewerCard(
     val observedLiveState by viewModel.livePose.collectAsState()
     val liveState = remember(currentFrame?.sequence, observedLiveState) {
         currentFrame?.toReplayPoseState() ?: observedLiveState
+    }
+    val lightingPlacements by produceState(initialValue = emptyMap(), projectPath) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            loadRobotLightingPlacements(projectPath)
+        }
     }
     val replayTraceBucket = currentFrame?.playheadMs?.div(250L)
     val replayTrace by produceState<List<Waypoint>>(
@@ -343,7 +350,15 @@ fun FieldViewerCard(
                     showToolbar = false,
                     initialViewRotation = properties["rotation"]?.toFloatOrNull() ?: 0f,
                     onViewRotationChanged = { newRot -> onPropertiesChanged(properties + ("rotation" to newRot.toString())) },
-                    indicatorLightPosition = liveState.indicatorLights.values.firstOrNull() ?: -1.0,
+                    indicatorLights = liveState.indicatorLights.toSortedMap().map { (name, position) ->
+                        val placement = lightingPlacements[name]
+                        IndicatorLightRenderState(
+                            position = position,
+                            forwardFraction = placement?.forwardFraction ?: 0.0,
+                            leftFraction = placement?.leftFraction ?: 0.0,
+                        )
+                    },
+                    prismPulseWidthUs = liveState.prismLights.toSortedMap().values.firstOrNull(),
                     modifier = Modifier.fillMaxSize()
                 )
             }

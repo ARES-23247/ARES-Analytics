@@ -33,7 +33,8 @@ data class LivePoseState(
     val visionHasTarget: Boolean = false,
     val liveGamePieces: Map<Int, GamePiece> = emptyMap(),
     val isConnected: Boolean = false,
-    val indicatorLights: Map<String, Double> = emptyMap()
+    val indicatorLights: Map<String, Double> = emptyMap(),
+    val prismLights: Map<String, Double> = emptyMap(),
 )
 
 /** User-controlled field-view state; pose samples are kept separately in [LivePoseState]. */

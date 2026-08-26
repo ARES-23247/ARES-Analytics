@@ -19,6 +19,7 @@ import com.ares.analytics.viewmodel.SubsystemGeneratorState
 import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
 import com.ares.analytics.viewmodel.subsystemTemplateOptions
 import com.areslib.subsystem.SubsystemImplementationKind
+import com.areslib.subsystem.isAresGenerated
 import com.areslib.subsystem.SubsystemTemplate
 
 @Composable
@@ -92,7 +93,7 @@ fun SubsystemPurposeSection(
         }
 
         // Archetype / Template Picker
-        if (document.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER) {
+        if (document.implementation.kind.isAresGenerated()) {
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = AresSurface,

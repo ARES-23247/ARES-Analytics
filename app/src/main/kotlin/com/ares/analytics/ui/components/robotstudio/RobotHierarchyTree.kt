@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.FactCheck
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Badge
@@ -68,6 +69,7 @@ sealed class RobotStudioSelection {
     data object Autonomous : RobotStudioSelection()
     data object Controls : RobotStudioSelection()
     data object PortMap : RobotStudioSelection()
+    data object Verification : RobotStudioSelection()
 }
 
 data class SubsystemTreeItem(
@@ -323,6 +325,17 @@ private fun ExpandedTreePanel(
                 isSelected = selected is RobotStudioSelection.PortMap,
                 onClick = { onSelect(RobotStudioSelection.PortMap) },
             )
+
+            val verificationStage = state.stages.firstOrNull { it.id == RobotStudioStageId.GENERATE_VERIFY }
+            TreeNodeRow(
+                icon = Icons.AutoMirrored.Filled.FactCheck,
+                label = "Verification",
+                subtitle = "Evidence & Build Results",
+                status = verificationStage?.status,
+                state = state,
+                isSelected = selected is RobotStudioSelection.Verification,
+                onClick = { onSelect(RobotStudioSelection.Verification) },
+            )
         }
 
         // Read-only guidance. Project verification is the single action in the global toolbar.
@@ -411,6 +424,12 @@ private fun CollapsedTreeRail(
             contentDescription = "Port map and hardware review",
             isSelected = selected is RobotStudioSelection.PortMap,
             onClick = { onSelect(RobotStudioSelection.PortMap) },
+        )
+        CollapsedIconButton(
+            icon = Icons.AutoMirrored.Filled.FactCheck,
+            contentDescription = "Verification",
+            isSelected = selected is RobotStudioSelection.Verification,
+            onClick = { onSelect(RobotStudioSelection.Verification) },
         )
     }
 }

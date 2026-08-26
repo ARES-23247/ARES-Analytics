@@ -77,7 +77,8 @@ fun FieldCanvas(
     initialViewRotation: Float = 0f,
     onViewRotationChanged: ((Float) -> Unit)? = null,
     showToolbar: Boolean = true,
-    indicatorLightPosition: Double = -1.0,
+    indicatorLights: List<IndicatorLightRenderState> = emptyList(),
+    prismPulseWidthUs: Double? = null,
     autoGoalMode: Boolean = false,
     robotDimensions: RobotDimensions = RobotDimensions.defaultFor(league),
     modifier: Modifier = Modifier
@@ -743,7 +744,8 @@ fun FieldCanvas(
                         fieldWidthM = fieldWidthM,
                         fieldHeightM = fieldHeightM,
                         league = league,
-                        indicatorLightPosition = indicatorLightPosition
+                        indicatorLights = indicatorLights,
+                        prismPulseWidthUs = prismPulseWidthUs,
                     )
                     drawWaypoints(pathCache, waypoints, selectedWaypointIndex, isDraggingHeading, isDraggingPrevHeading, w, h, fieldWidthM, fieldHeightM, league)
                 }

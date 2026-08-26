@@ -747,6 +747,7 @@ class ControlsEditorViewModelTest {
             project.path,
             AresProjectMetadataDocument(
                 projectId = "student-robot",
+                identity = com.areslib.project.AresProjectIdentityDocument("99999", "2026", "student-robot", "Student Robot"),
                 league = AresLeague.FTC,
                 coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
                 robotLengthMeters = .45,

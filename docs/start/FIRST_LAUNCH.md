@@ -13,7 +13,9 @@ Have these ready:
 - Either a local robot project or a parent folder where ARES can create one.
 - Your team number, season, and robot name or ID.
 
-Choose the robot project itself, not the four-project `ares` workspace and not the `ARES-Analytics` folder. A project with `.ares-robot.json` is easiest because Analytics can fill in its identity.
+Choose the robot project itself, not the four-project `ares` workspace and not the `ARES-Analytics`
+folder. A current project contains canonical `.ares/project.json`. Studio can offer a reviewed,
+recoverable migration when an older project still has `.ares-robot.json`.
 
 If you are developing from source, launch from `ARES-Analytics`:
 
@@ -32,7 +34,11 @@ The first-run **ARES Robotics Studio setup** has four short stages.
 For a new student:
 
 1. Choose **Create a new robot**.
-2. Select **FTC** or **FRC** and read the exact verified starter version.
+2. Choose the path that matches what you are trying to do:
+   - **Create a new robot** starts a simulation-first FTC or FRC project from a verified starter.
+   - **Explore the demo robot** creates one editable FTC mecanum example and skips advanced identity questions.
+   - **Open an existing robot** adds a robot repository that is already on this computer.
+3. For a new robot, select **FTC** or **FRC** and read the exact verified starter version.
 3. Choose a parent folder, enter a new project folder name, then select **Continue**.
 
 For an existing project:
@@ -47,7 +53,7 @@ personalization, and publication occur only after the final review; a network do
 verified recovery fallback when a developer build does not contain the resource.
 See [Create a robot project](CREATE_ROBOT_PROJECT.md) for the safety and recovery contract.
 
-The starters are generic and simulation-first. They do not contain Team 23247 season mechanisms,
+The starter and demo copy are generic and simulation-first. They do not contain Team 23247 season mechanisms,
 field routines, or calibration values. Physical deployment remains blocked until the generated
 hardware map, safety settings, commissioning steps, and mentor review are complete.
 
@@ -96,7 +102,8 @@ structured `.ares/project.json` diff. See [Project Identity](../learn/PROJECT_ID
 Setup is complete when:
 
 - the main **Dashboard** opens;
-- the workspace selector shows the robot you chose;
+- the workspace selector shows the robot you chose under **My robots**;
+- **Explore the demo robot** remains available under **Examples** and always creates a new editable copy;
 - the execution toolbar offers **Live Robot** and **Local Sim** targets; and
 - no required project or robot-identity error remains.
 
@@ -111,10 +118,10 @@ The sidebar shows labeled **NT4 on/off** and, for FTC, **ADB on/off** status. Th
 | --- | --- |
 | **Robot build tools** needs attention | You may create the workspace and use local analysis now. Choose **Install JDK 21 for ARES**, or install the league vendor tools shown by the readiness card, then select **Recheck**. |
 | “Choose a folder that contains your robot project” | Browse to `ARES-FTC` or `ARES-FRC`, not their parent folder. |
-| The wrong competition was detected | Select the correct **Competition** (**FTC** or **FRC**) before creating the workspace, and tell a mentor if the project lacks or misstates `.ares-robot.json`. |
+| The wrong competition was detected | Select the correct **Competition** (**FTC** or **FRC**) before creating the workspace, and tell a mentor if canonical `.ares/project.json` is missing or incorrect. |
 | A team, season, or robot field is rejected | Use short, non-empty identifiers. Do not substitute a robot's IP address for its ID. |
 | Google sign-in fails | Collapse/skip **Cloud sync (optional)** and continue. Cloud access is not required for local setup. |
-| The wrong workspace opens later | Use the workspace selector at the top of the main screen. Choose the intended robot profile before launching or importing anything. |
+| The wrong workspace opens later | Use the workspace selector at the top of the main screen. Choose the intended robot profile before launching or importing anything. Removing a profile only removes it from this local list; it does not delete the robot project. |
 
 ## Safety and recovery
 

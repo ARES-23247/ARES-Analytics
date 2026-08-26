@@ -137,7 +137,7 @@ private data class HardwareSourceFingerprint(
 
 @Serializable
 private data class HardwareReviewDocument(
-    val schemaVersion: Int = 2,
+    val schemaVersion: Int = 3,
     val league: String,
     val inventoryHash: String,
     val reviewedBy: String,
@@ -147,7 +147,7 @@ private data class HardwareReviewDocument(
     val neutralOutputsChecked: Boolean,
     val limitsChecked: Boolean,
     val sources: List<HardwareSourceFingerprint>,
-    val physicalValidation: HardwarePhysicalValidationDocument? = null,
+    val recordedAtEpochMillis: Long,
 )
 
 @Serializable
@@ -415,16 +415,9 @@ class HardwareSetupService(
             neutralOutputsChecked = true,
             limitsChecked = true,
             sources = sources,
+            recordedAtEpochMillis = clock.millis(),
         )
-        val target = reviewFile(File(snapshot.projectPath))
-        writeFileAtomically(target) { temporary ->
-            Files.writeString(
-                temporary.toPath(),
-                HARDWARE_REVIEW_JSON.encodeToString(review).trimEnd() + System.lineSeparator(),
-                StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.WRITE,
-            )
-        }
+        appendEvidence(configurationReviewDirectory(File(snapshot.projectPath)), review.recordedAtEpochMillis, review)
         return inspect(projectPath, league)
     }
 
@@ -451,31 +444,18 @@ class HardwareSetupService(
                 request.limitsAndCurrentTested && request.faultRecoveryTested,
         ) { "Complete every supervised physical-validation check before recording evidence." }
 
-        val target = reviewFile(File(snapshot.projectPath))
-        val existing = HARDWARE_REVIEW_JSON.decodeFromString<HardwareReviewDocument>(target.readText())
-        require(existing.inventoryHash == snapshot.inventoryHash) { "The configuration changed; refresh and review it again." }
-        val updated = existing.copy(
-            schemaVersion = 2,
-            physicalValidation = HardwarePhysicalValidationDocument(
-                inventoryHash = snapshot.inventoryHash,
-                validatedBy = validator,
-                evidenceSummary = evidence,
-                recordedAtEpochMillis = clock.millis(),
-                directionsAndPolarityTested = true,
-                unitsAndSensorsTested = true,
-                disabledNeutralTested = true,
-                limitsAndCurrentTested = true,
-                faultRecoveryTested = true,
-            ),
+        val validation = HardwarePhysicalValidationDocument(
+            inventoryHash = snapshot.inventoryHash,
+            validatedBy = validator,
+            evidenceSummary = evidence,
+            recordedAtEpochMillis = clock.millis(),
+            directionsAndPolarityTested = true,
+            unitsAndSensorsTested = true,
+            disabledNeutralTested = true,
+            limitsAndCurrentTested = true,
+            faultRecoveryTested = true,
         )
-        writeFileAtomically(target) { temporary ->
-            Files.writeString(
-                temporary.toPath(),
-                HARDWARE_REVIEW_JSON.encodeToString(updated).trimEnd() + System.lineSeparator(),
-                StandardOpenOption.TRUNCATE_EXISTING,
-                StandardOpenOption.WRITE,
-            )
-        }
+        appendEvidence(physicalValidationDirectory(File(snapshot.projectPath)), validation.recordedAtEpochMillis, validation)
         return inspect(projectPath, league)
     }
 
@@ -505,34 +485,52 @@ class HardwareSetupService(
         currentSources: List<HardwareSourceFingerprint>,
         issues: MutableList<HardwareInventoryIssue>,
     ): HardwareReviewReadResult {
-        val file = reviewFile(root)
-        if (!file.isFile) return HardwareReviewReadResult(HardwareReviewStatus.NOT_REVIEWED, null, null)
-        val review = runCatching { HARDWARE_REVIEW_JSON.decodeFromString<HardwareReviewDocument>(file.readText()) }
-            .getOrElse { error ->
-                issues += HardwareInventoryIssue(
-                    HardwareIssueSeverity.WARNING,
-                    "hardware-review.json is invalid: ${error.message}",
-                )
-                return HardwareReviewReadResult(HardwareReviewStatus.INVALID, null, null)
-            }
-        if (review.schemaVersion !in 1..2 || review.league != league.name || review.reviewedBy.isBlank() ||
-            !review.wiringMatched || !review.addressesChecked || !review.directionsChecked ||
-            !review.neutralOutputsChecked || !review.limitsChecked
-        ) {
+        val reviewFiles = configurationReviewDirectory(root).listFiles { file -> file.isFile && file.extension == "json" }
+            ?.sortedByDescending(File::getName)
+            .orEmpty()
+        if (reviewFiles.isEmpty()) return HardwareReviewReadResult(HardwareReviewStatus.NOT_REVIEWED, null, null)
+        val decodedReviews = reviewFiles.mapNotNull { file ->
+            runCatching { HARDWARE_REVIEW_JSON.decodeFromString<HardwareReviewDocument>(file.readText()) }
+                .onFailure { error ->
+                    issues += HardwareInventoryIssue(
+                        HardwareIssueSeverity.WARNING,
+                        "${root.toPath().relativize(file.toPath())} is invalid: ${error.message}",
+                    )
+                }
+                .getOrNull()
+        }
+        val validReviews = decodedReviews.filter { review ->
+            review.schemaVersion == 3 && review.league == league.name && review.reviewedBy.isNotBlank() &&
+                review.wiringMatched && review.addressesChecked && review.directionsChecked &&
+                review.neutralOutputsChecked && review.limitsChecked && review.recordedAtEpochMillis > 0L
+        }
+        if (validReviews.isEmpty()) {
             issues += HardwareInventoryIssue(
                 HardwareIssueSeverity.WARNING,
-                "hardware-review.json does not contain a complete review for ${league.name}.",
+                "No append-only hardware configuration review contains complete evidence for ${league.name}.",
             )
-            return HardwareReviewReadResult(HardwareReviewStatus.INVALID, review.reviewedBy.takeIf(String::isNotBlank), null)
+            return HardwareReviewReadResult(HardwareReviewStatus.INVALID, null, null)
         }
-        val reviewedSources = review.sources.sortedBy(HardwareSourceFingerprint::path)
-        return if (review.inventoryHash == inventoryHash && reviewedSources == currentSources) {
-            val physical = review.physicalValidation?.takeIf { validation ->
+        val currentReview = validReviews.firstOrNull { review ->
+            review.inventoryHash == inventoryHash && review.sources.sortedBy(HardwareSourceFingerprint::path) == currentSources
+        }
+        return if (currentReview != null) {
+            val physical = physicalValidationDirectory(root)
+                .listFiles { file -> file.isFile && file.extension == "json" }
+                ?.sortedByDescending(File::getName)
+                .orEmpty()
+                .asSequence()
+                .mapNotNull { file ->
+                    runCatching { HARDWARE_REVIEW_JSON.decodeFromString<HardwarePhysicalValidationDocument>(file.readText()) }
+                        .getOrNull()
+                }
+                .firstOrNull { validation ->
                 validation.inventoryHash == inventoryHash && validation.validatedBy.isNotBlank() &&
                     validation.evidenceSummary.length >= 20 && validation.recordedAtEpochMillis > 0L &&
                     validation.directionsAndPolarityTested && validation.unitsAndSensorsTested &&
                     validation.disabledNeutralTested && validation.limitsAndCurrentTested && validation.faultRecoveryTested
-            }?.let { validation ->
+                }
+                ?.let { validation ->
                 HardwarePhysicalValidationEvidence(
                     inventoryHash = validation.inventoryHash,
                     validatedBy = validation.validatedBy,
@@ -540,9 +538,9 @@ class HardwareSetupService(
                     recordedAtEpochMillis = validation.recordedAtEpochMillis,
                 )
             }
-            HardwareReviewReadResult(HardwareReviewStatus.CURRENT, review.reviewedBy, physical)
+            HardwareReviewReadResult(HardwareReviewStatus.CURRENT, currentReview.reviewedBy, physical)
         } else {
-            HardwareReviewReadResult(HardwareReviewStatus.STALE, review.reviewedBy, null)
+            HardwareReviewReadResult(HardwareReviewStatus.STALE, validReviews.first().reviewedBy, null)
         }
     }
 
@@ -582,7 +580,24 @@ class HardwareSetupService(
         return sha256(canonical.toByteArray())
     }
 
-    private fun reviewFile(root: File): File = File(root, ".ares/hardware-review.json")
+    private fun configurationReviewDirectory(root: File): File = File(root, ".ares/evidence/hardware/configuration")
+
+    private fun physicalValidationDirectory(root: File): File = File(root, ".ares/evidence/hardware/physical")
+
+    private inline fun <reified T> appendEvidence(directory: File, recordedAtEpochMillis: Long, document: T) {
+        val encoded = HARDWARE_REVIEW_JSON.encodeToString(document).trimEnd() + System.lineSeparator()
+        val hash = sha256(encoded.toByteArray(Charsets.UTF_8)).take(12)
+        val target = File(directory, "$recordedAtEpochMillis-$hash.json")
+        require(!target.exists()) { "This exact evidence record already exists; append-only evidence is never replaced." }
+        writeFileAtomically(target) { temporary ->
+            Files.writeString(
+                temporary.toPath(),
+                encoded,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE,
+            )
+        }
+    }
 
     private fun sourceFingerprint(path: String, file: File): HardwareSourceFingerprint {
         val hash = when {

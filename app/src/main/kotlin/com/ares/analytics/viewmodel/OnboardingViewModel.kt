@@ -27,7 +27,11 @@ enum class OnboardingStep(val number: Int) {
     REVIEW(4),
 }
 
-enum class ProjectSetupMode { OPEN_EXISTING, CREATE_NEW }
+enum class ProjectSetupMode(val createsProject: Boolean) {
+    CREATE_NEW(true),
+    EXPLORE_DEMO(true),
+    OPEN_EXISTING(false),
+}
 
 data class OnboardingFieldErrors(
     val projectPath: String? = null,
@@ -41,7 +45,7 @@ data class OnboardingFieldErrors(
 
 data class OnboardingState(
     val currentStep: OnboardingStep = OnboardingStep.PROJECT,
-    val projectSetupMode: ProjectSetupMode = ProjectSetupMode.OPEN_EXISTING,
+    val projectSetupMode: ProjectSetupMode = ProjectSetupMode.CREATE_NEW,
     val projectPath: String = "",
     val projectParentPath: String = "",
     val projectFolderName: String = "",
@@ -155,17 +159,32 @@ class OnboardingViewModel(
             when (intent) {
                 is OnboardingIntent.SetProjectSetupMode -> {
                     _state.update { current ->
-                        val next = current.copy(
+                        val selected = current.copy(
                             projectSetupMode = intent.mode,
                             projectDetectionMessage = null,
                             projectCreationMessage = null,
                             errorMessage = null,
                             fieldErrors = current.fieldErrors.copy(projectPath = null),
                         )
-                        if (intent.mode == ProjectSetupMode.CREATE_NEW) {
-                            next.copy(projectPath = plannedProjectPath(next))
-                        } else {
-                            next.copy(projectPath = "")
+                        when (intent.mode) {
+                            ProjectSetupMode.CREATE_NEW -> selected.copy(projectPath = plannedProjectPath(selected))
+                            ProjectSetupMode.EXPLORE_DEMO -> {
+                                val template = projectTemplateService.templateFor(League.FTC)
+                                val demo = selected.copy(
+                                    projectFolderName = DEMO_PROJECT_FOLDER,
+                                    teamId = DEMO_TEAM_ID,
+                                    seasonId = DEMO_SEASON_ID,
+                                    robotId = DEMO_ROBOT_ID,
+                                    robotName = DEMO_ROBOT_NAME,
+                                    league = League.FTC,
+                                    nt4Host = "127.0.0.1",
+                                    simulatorCommand = "",
+                                    projectTemplateName = template.displayName,
+                                    projectTemplateVersion = template.aresVersion,
+                                )
+                                demo.copy(projectPath = plannedProjectPath(demo))
+                            }
+                            ProjectSetupMode.OPEN_EXISTING -> selected.copy(projectPath = "")
                         }
                     }
                 }
@@ -212,7 +231,7 @@ class OnboardingViewModel(
                         projectTemplateName = template.displayName,
                         projectTemplateVersion = template.aresVersion,
                     )
-                    if (next.projectSetupMode == ProjectSetupMode.CREATE_NEW) {
+                    if (next.projectSetupMode.createsProject) {
                         next.copy(projectPath = plannedProjectPath(next))
                     } else next
                 }
@@ -226,7 +245,15 @@ class OnboardingViewModel(
                 OnboardingIntent.DetectLeague -> detectProject()
                 OnboardingIntent.NextStep -> moveNext()
                 OnboardingIntent.PreviousStep -> _state.update {
-                    it.copy(currentStep = OnboardingStep.entries[(it.currentStep.ordinal - 1).coerceAtLeast(0)], errorMessage = null)
+                    val previous = if (
+                        it.projectSetupMode == ProjectSetupMode.EXPLORE_DEMO &&
+                        it.currentStep == OnboardingStep.REVIEW
+                    ) {
+                        OnboardingStep.PROJECT
+                    } else {
+                        OnboardingStep.entries[(it.currentStep.ordinal - 1).coerceAtLeast(0)]
+                    }
+                    it.copy(currentStep = previous, errorMessage = null)
                 }
                 OnboardingIntent.VerifyJava -> verifyJavaBuildTools()
                 OnboardingIntent.InstallManagedJdk -> installManagedJdk()
@@ -266,7 +293,7 @@ class OnboardingViewModel(
             return
         }
 
-        val robotConfig = environmentService.readAresRobotJson(path)
+        val robotConfig = environmentService.readProjectIdentity(path)
         if (robotConfig != null) {
             val detectedLeague = if (robotConfig.league.equals("FRC", ignoreCase = true)) League.FRC else League.FTC
             _state.update {
@@ -277,7 +304,11 @@ class OnboardingViewModel(
                     robotName = robotConfig.name,
                     league = detectedLeague,
                     nt4Host = environmentService.getDefaultNt4Host(detectedLeague, robotConfig.teamId),
-                    projectDetectionMessage = "Project found. We filled in the ${detectedLeague.name} robot details from .ares-robot.json.",
+                    projectDetectionMessage = if (robotConfig.canonical) {
+                        "Project found. We filled in the ${detectedLeague.name} robot details from canonical .ares/project.json."
+                    } else {
+                        "Legacy project found. Review the identity migration in Robot Studio before generating code."
+                    },
                     fieldErrors = OnboardingFieldErrors(),
                     currentStep = advanceAfterDetection(it.currentStep, recognizedProject = true),
                 )
@@ -306,7 +337,14 @@ class OnboardingViewModel(
             _state.update { it.copy(fieldErrors = errors, errorMessage = "Check the highlighted field before continuing.") }
             return
         }
-        val next = OnboardingStep.entries[(current.currentStep.ordinal + 1).coerceAtMost(OnboardingStep.entries.lastIndex)]
+        val next = if (
+            current.projectSetupMode == ProjectSetupMode.EXPLORE_DEMO &&
+            current.currentStep == OnboardingStep.PROJECT
+        ) {
+            OnboardingStep.REVIEW
+        } else {
+            OnboardingStep.entries[(current.currentStep.ordinal + 1).coerceAtMost(OnboardingStep.entries.lastIndex)]
+        }
         _state.update { it.copy(currentStep = next, fieldErrors = errors, errorMessage = null) }
     }
 
@@ -349,7 +387,7 @@ class OnboardingViewModel(
 
         _state.update { it.copy(isSaving = true, errorMessage = null) }
         try {
-            if (current.projectSetupMode == ProjectSetupMode.CREATE_NEW) {
+            if (current.projectSetupMode.createsProject) {
                 val result = projectTemplateService.create(
                     request = RobotProjectCreationRequest(
                         parentDirectory = File(current.projectParentPath.trim()),
@@ -517,11 +555,11 @@ internal fun validateOnboardingFields(
     return OnboardingFieldErrors(
         projectPath = when {
             !validateProject -> null
-            state.projectSetupMode == ProjectSetupMode.CREATE_NEW && state.projectParentPath.isBlank() ->
+            state.projectSetupMode.createsProject && state.projectParentPath.isBlank() ->
                 "Choose where ARES should create the robot project."
-            state.projectSetupMode == ProjectSetupMode.CREATE_NEW && !File(state.projectParentPath.trim()).isDirectory ->
+            state.projectSetupMode.createsProject && !File(state.projectParentPath.trim()).isDirectory ->
                 "The parent folder does not exist or cannot be opened."
-            state.projectSetupMode == ProjectSetupMode.CREATE_NEW -> {
+            state.projectSetupMode.createsProject -> {
                 RobotProjectTemplateService.projectFolderNameError(state.projectFolderName.trim())
                     ?: File(state.projectParentPath.trim(), state.projectFolderName.trim())
                         .takeIf(File::exists)
@@ -553,3 +591,9 @@ internal fun validateOnboardingFields(
 /** Build-tool readiness is advisory; local analysis and workspace authoring remain available without a supported JDK. */
 internal fun validateOnboardingCompletion(state: OnboardingState): OnboardingFieldErrors =
     validateOnboardingFields(state, OnboardingStep.REVIEW)
+
+internal const val DEMO_PROJECT_FOLDER = "ARES-Demo-FTC"
+internal const val DEMO_TEAM_ID = "99990"
+internal const val DEMO_SEASON_ID = "2026"
+internal const val DEMO_ROBOT_ID = "AresDemo"
+internal const val DEMO_ROBOT_NAME = "ARES Demo Robot"

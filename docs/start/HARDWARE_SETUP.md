@@ -23,9 +23,12 @@ diagram. Confirm all five checks:
 4. Every actuator has a reviewed safe neutral and disabled/stop behavior.
 5. Current, soft, motion, homing, and feedback limits are reviewed where applicable.
 
-ARES writes `.ares/hardware-review.json` with the exact descriptor inventory hash and the reviewer's
-name. Any drivetrain or subsystem edit changes that hash and marks the review **stale**. Re-review the
-new mapping; do not edit the review JSON by hand.
+ARES appends configuration-review evidence under `.ares/evidence/hardware/configuration/`. Each
+record contains the exact descriptor inventory hash, source hashes, reviewer, and timestamp. A
+drivetrain or subsystem edit changes those hashes and makes prior evidence **stale** without erasing
+it. Re-review the new mapping; do not edit evidence JSON by hand. Powered physical validation is a
+different record under `.ares/evidence/hardware/physical/` and can never be inferred from a form,
+build, or simulation.
 
 For FTC, the commissioning card gathers every exact name to enter in **Driver Station → Configure
 Robot → Hardware** and can copy the complete checklist. Copy spelling and case exactly; the default

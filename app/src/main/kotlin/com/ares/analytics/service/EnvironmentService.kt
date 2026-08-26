@@ -4,6 +4,7 @@ import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.shared.AppWorkspaces
 import com.ares.analytics.util.ProjectLayout
+import com.areslib.project.AresProjectMetadataCodec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -33,8 +34,8 @@ import java.nio.file.StandardOpenOption
  * @see com.ares.analytics.shared.WorkspaceConfig
  */
 class EnvironmentService(
-    private val configPath: String = System.getProperty("user.home") + "/.ares-analytics/config.json",
-    private val workspacesPath: String = System.getProperty("user.home") + "/.ares-analytics/workspaces.json",
+    private val configPath: String = AppDataPaths.file("config.json").path,
+    private val workspacesPath: String = AppDataPaths.file("workspaces.json").path,
     private val secretsWriter: (File, ByteArray) -> Unit = ::writeSecrets,
 ) {
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
@@ -52,7 +53,9 @@ class EnvironmentService(
             }
             if (saved != null) {
                 val resolved = saved.copy(
-                    workspaces = saved.workspaces.map(::resolveMovedRobotProject)
+                    workspaces = saved.workspaces
+                        .map(::resolveMovedRobotProject)
+                        .map(::synchronizeCanonicalIdentity),
                 )
                 if (resolved != saved) {
                     secretsWriter(file, json.encodeToString(resolved).toByteArray(Charsets.UTF_8))
@@ -70,7 +73,7 @@ class EnvironmentService(
             }
             if (legacyConfig != null) {
                 val migratedId = legacyConfig.id.ifEmpty { "${legacyConfig.league}-${legacyConfig.teamId}-${legacyConfig.robotId}-${legacyConfig.seasonId}" }
-                val migratedConfig = legacyConfig.copy(id = migratedId)
+                val migratedConfig = synchronizeCanonicalIdentity(legacyConfig.copy(id = migratedId))
                 val migratedWorkspaces = AppWorkspaces(
                     activeWorkspaceId = migratedId,
                     workspaces = listOf(migratedConfig)
@@ -103,12 +106,19 @@ class EnvironmentService(
                 // stale path under a broad directory (for example AppData) turn startup into an
                 // unbounded filesystem crawl.
                 .take(MAX_PROJECT_SEARCH_ENTRIES)
-                .filter { it.isFile && it.name == ARES_ROBOT_FILE }
+                .filter { file ->
+                    file.isFile && (
+                        (file.name == PROJECT_METADATA_FILE && file.parentFile?.name == ".ares") ||
+                            file.name == LEGACY_ARES_ROBOT_FILE
+                        )
+                }
                 .mapNotNull { identityFile ->
-                    val candidate = identityFile.parentFile?.canonicalFile ?: return@mapNotNull null
-                    val identity = runCatching {
-                        json.decodeFromString<AresRobotConfig>(identityFile.readText())
-                    }.getOrNull() ?: return@mapNotNull null
+                    val candidate = if (identityFile.name == PROJECT_METADATA_FILE) {
+                        identityFile.parentFile?.parentFile?.canonicalFile
+                    } else {
+                        identityFile.parentFile?.canonicalFile
+                    } ?: return@mapNotNull null
+                    val identity = readProjectIdentityBlocking(candidate.path) ?: return@mapNotNull null
                     candidate.takeIf {
                         identity.matches(config) && ProjectLayout.containsRobotSource(candidate, config.league)
                     }
@@ -126,10 +136,26 @@ class EnvironmentService(
         League.FRC -> File(root, "src/main/deploy").isDirectory
     }
 
-    private fun AresRobotConfig.matches(config: WorkspaceConfig): Boolean =
+    private fun DetectedProjectIdentity.matches(config: WorkspaceConfig): Boolean =
         teamId == config.teamId &&
             robotId.equals(config.robotId, ignoreCase = true) &&
             league.equals(config.league.name, ignoreCase = true)
+
+    /**
+     * Workspace identity fields are compatibility/display caches only. Whenever a canonical
+     * project exists, .ares/project.json wins and the cache is refreshed before use or save.
+     */
+    private fun synchronizeCanonicalIdentity(config: WorkspaceConfig): WorkspaceConfig {
+        val identity = readProjectIdentityBlocking(config.projectPath)?.takeIf { it.canonical }
+            ?: return config
+        return config.copy(
+            teamId = identity.teamId,
+            seasonId = identity.seasonId,
+            robotId = identity.robotId,
+            robotName = identity.name,
+            league = if (identity.league.equals("FRC", ignoreCase = true)) League.FRC else League.FTC,
+        )
+    }
 
     suspend fun saveWorkspaces(appWorkspaces: AppWorkspaces) = withContext(Dispatchers.IO) {
         val file = File(workspacesPath)
@@ -142,14 +168,14 @@ class EnvironmentService(
         val app = loadWorkspaces()
         val baseConfig = app.workspaces.find { it.id == app.activeWorkspaceId } ?: app.workspaces.firstOrNull()
         if (baseConfig != null) {
-            val aresRobotConfig = readAresRobotJson(baseConfig.projectPath)
-            if (aresRobotConfig != null) {
+            val projectIdentity = readProjectIdentity(baseConfig.projectPath)
+            if (projectIdentity != null) {
                 return baseConfig.copy(
-                    teamId = aresRobotConfig.teamId,
-                    seasonId = aresRobotConfig.seasonId,
-                    robotId = aresRobotConfig.robotId,
-                    robotName = aresRobotConfig.name,
-                    league = if (aresRobotConfig.league.equals("FRC", ignoreCase = true)) League.FRC else League.FTC
+                    teamId = projectIdentity.teamId,
+                    seasonId = projectIdentity.seasonId,
+                    robotId = projectIdentity.robotId,
+                    robotName = projectIdentity.name,
+                    league = if (projectIdentity.league.equals("FRC", ignoreCase = true)) League.FRC else League.FTC
                 )
             }
         }
@@ -158,10 +184,11 @@ class EnvironmentService(
 
     suspend fun saveConfig(config: WorkspaceConfig) {
         val app = loadWorkspaces()
-        val configWithId = if (config.id.isEmpty()) {
-            config.copy(id = "${config.league}-${config.teamId}-${config.robotId}-${config.seasonId}")
+        val canonicalConfig = synchronizeCanonicalIdentity(config)
+        val configWithId = if (canonicalConfig.id.isEmpty()) {
+            canonicalConfig.copy(id = "${canonicalConfig.league}-${canonicalConfig.teamId}-${canonicalConfig.robotId}-${canonicalConfig.seasonId}")
         } else {
-            config
+            canonicalConfig
         }
         val newList = app.workspaces.filter { it.id != configWithId.id } + configWithId
         saveWorkspaces(AppWorkspaces(activeWorkspaceId = configWithId.id, workspaces = newList))
@@ -233,16 +260,30 @@ class EnvironmentService(
         }
     }
 
-    suspend fun readAresRobotJson(projectPath: String): AresRobotConfig? = withContext(Dispatchers.IO) {
-        val file = File(projectPath, ".ares-robot.json")
-        if (file.exists()) {
-            try {
-                return@withContext json.decodeFromString<AresRobotConfig>(file.readText())
-            } catch (e: Exception) {
-                e.printStackTrace()
+    /** Reads the canonical identity first; the retired root file is migration-only fallback. */
+    suspend fun readProjectIdentity(projectPath: String): DetectedProjectIdentity? = withContext(Dispatchers.IO) {
+        readProjectIdentityBlocking(projectPath)
+    }
+
+    private fun readProjectIdentityBlocking(projectPath: String): DetectedProjectIdentity? {
+        val canonical = File(projectPath, ".ares/project.json")
+        if (canonical.isFile) {
+            runCatching { AresProjectMetadataCodec.decode(canonical.readText()) }.getOrNull()?.let { project ->
+                return DetectedProjectIdentity(
+                    teamId = project.identity.teamId,
+                    seasonId = project.identity.seasonId,
+                    robotId = project.identity.robotId,
+                    name = project.identity.displayName,
+                    league = project.league.name,
+                    canonical = true,
+                )
             }
         }
-        null
+        val legacy = File(projectPath, LEGACY_ARES_ROBOT_FILE)
+        if (!legacy.isFile) return null
+        return runCatching { json.decodeFromString<LegacyAresRobotConfig>(legacy.readText()) }
+            .getOrNull()
+            ?.let { DetectedProjectIdentity(it.teamId, it.seasonId, it.robotId, it.name, it.league, canonical = false) }
     }
 }
 
@@ -252,15 +293,26 @@ data class JavaEnvResult(
 )
 
 @kotlinx.serialization.Serializable
-data class AresRobotConfig(
+data class DetectedProjectIdentity(
     val teamId: String,
     val seasonId: String,
     val robotId: String,
     val name: String = "",
-    val league: String = "FTC"
+    val league: String = "FTC",
+    val canonical: Boolean,
 )
 
-private const val ARES_ROBOT_FILE = ".ares-robot.json"
+@kotlinx.serialization.Serializable
+private data class LegacyAresRobotConfig(
+    val teamId: String,
+    val seasonId: String,
+    val robotId: String,
+    val name: String = "",
+    val league: String = "FTC",
+)
+
+private const val LEGACY_ARES_ROBOT_FILE = ".ares-robot.json"
+private const val PROJECT_METADATA_FILE = "project.json"
 private const val PROJECT_SEARCH_DEPTH = 4
 private const val MAX_PROJECT_SEARCH_ENTRIES = 5_000
 
