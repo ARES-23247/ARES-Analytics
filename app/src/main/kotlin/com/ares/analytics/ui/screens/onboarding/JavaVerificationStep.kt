@@ -38,6 +38,7 @@ import com.ares.analytics.ui.theme.AresTextPrimary
 import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresTextTertiary
 import com.ares.analytics.service.ManagedToolchainInstallState
+import com.ares.analytics.service.ManagedToolchainPaths
 
 /** Advisory check for the external JDK used by robot builds and simulation. The packaged app has its own runtime. */
 @Composable
@@ -114,7 +115,10 @@ fun JavaVerificationStep(
                     colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
                 ) {
                     Icon(Icons.Default.Download, contentDescription = null, tint = AresBackground)
-                    Text("Install JDK 21", color = AresBackground)
+                    Text(
+                        if (ManagedToolchainPaths.managedJdkInstallationSupported()) "Install JDK 21" else "Download JDK 21",
+                        color = AresBackground,
+                    )
                 }
             }
             Button(

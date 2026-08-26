@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.BuildConfig
 import com.ares.analytics.service.AuthState
 import com.ares.analytics.service.ManagedToolchainInstallState
+import com.ares.analytics.service.ManagedToolchainPaths
 import com.ares.analytics.service.ManagedToolchainService
 import com.ares.analytics.service.ToolchainReadiness
 import com.ares.analytics.service.isValidGoogleDesktopClientId
@@ -373,11 +374,19 @@ fun ProfileScreen(
                     if (toolchains.components.any { it.name.startsWith("Java") && it.readiness != ToolchainReadiness.READY }) {
                         Button(
                             onClick = {
-                                scope.launch { runCatching { managedToolchainService.installManagedJdk21(config.league) } }
+                                if (ManagedToolchainPaths.managedJdkInstallationSupported()) {
+                                    scope.launch { runCatching { managedToolchainService.installManagedJdk21(config.league) } }
+                                } else {
+                                    runCatching {
+                                        Desktop.getDesktop().browse(URI(ManagedToolchainPaths.JDK_21_DOWNLOAD_URL))
+                                    }
+                                }
                             },
                             enabled = toolchainInstallState !is ManagedToolchainInstallState.Working,
                             colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-                        ) { Text("Install private JDK 21") }
+                        ) {
+                            Text(if (ManagedToolchainPaths.managedJdkInstallationSupported()) "Install private JDK 21" else "Download JDK 21")
+                        }
                     }
                     OutlinedButton(onClick = { scope.launch { managedToolchainService.refresh(config.league) } }) {
                         Text("Recheck tools")
