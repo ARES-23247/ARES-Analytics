@@ -10,6 +10,7 @@ import com.ares.analytics.util.ProjectLayout
 import com.areslib.catalog.CapabilityCatalogCodec
 import com.areslib.drivetrain.DrivetrainDocumentCodec
 import com.areslib.project.AresLeague
+import com.areslib.project.AresProjectIdentityDocument
 import com.areslib.project.AresProjectMetadataCodec
 import com.areslib.routine.AutonomousCatalogCodec
 import com.areslib.tuning.TuningComponentDocumentCodec
@@ -98,15 +99,6 @@ internal data class RobotProjectTemplateProvenance(
     val templateArchiveSha256: String,
     val aresVersion: String,
     val deploymentPolicy: RobotProjectDeploymentPolicy = RobotProjectDeploymentPolicy.SIMULATION_ONLY_REFERENCE,
-)
-
-@Serializable
-private data class RobotIdentity(
-    val teamId: String,
-    val seasonId: String,
-    val robotId: String,
-    val name: String,
-    val league: String,
 )
 
 /**
@@ -252,24 +244,42 @@ class RobotProjectTemplateService(
         request: RobotProjectCreationRequest,
         template: RobotProjectTemplate,
     ) {
-        val identity = RobotIdentity(
-            teamId = request.teamId.trim(),
-            seasonId = request.seasonId.trim(),
-            robotId = request.robotId.trim(),
-            name = request.robotName.trim(),
-            league = request.league.name,
-        )
-        writeTextAtomically(File(root, ".ares-robot.json"), PROJECT_TEMPLATE_JSON.encodeToString(identity))
         configureLocalBuildEnvironment(root, request.league)
 
         val metadataFile = File(root, ".ares/project.json")
         check(metadataFile.isFile) { "The reviewed starter is missing .ares/project.json." }
-        val oldMetadata = AresProjectMetadataCodec.decode(metadataFile.readText())
+        val retiredIdentity = File(root, ".ares-robot.json")
+        val metadataText = metadataFile.readText()
+        val oldMetadata = runCatching { AresProjectMetadataCodec.decode(metadataText) }.getOrElse { decodeError ->
+            check(retiredIdentity.isFile) {
+                "The starter's canonical project identity is invalid and no reviewed legacy identity is available: ${decodeError.message}"
+            }
+            runCatching {
+                AresProjectMetadataCodec.migrateLegacy(
+                    projectJson = metadataText,
+                    legacyIdentity = AresProjectMetadataCodec.decodeLegacyIdentity(retiredIdentity.readText()),
+                )
+            }.getOrElse { migrationError ->
+                migrationError.addSuppressed(decodeError)
+                throw migrationError
+            }
+        }
         val expectedLeague = if (request.league == League.FTC) AresLeague.FTC else AresLeague.FRC
         check(oldMetadata.league == expectedLeague) { "The starter's project metadata has the wrong league." }
         val personalizedProjectId = projectId(request.teamId, request.robotId)
-        val personalizedMetadata = oldMetadata.copy(projectId = personalizedProjectId)
+        val personalizedMetadata = oldMetadata.copy(
+            projectId = personalizedProjectId,
+            identity = AresProjectIdentityDocument(
+                teamId = request.teamId.trim(),
+                seasonId = request.seasonId.trim(),
+                robotId = request.robotId.trim(),
+                displayName = request.robotName.trim(),
+            ),
+        )
         writeTextAtomically(metadataFile, AresProjectMetadataCodec.encode(personalizedMetadata))
+        check(!retiredIdentity.exists() || retiredIdentity.delete()) {
+            "The starter's retired .ares-robot.json could not be removed from the staging project."
+        }
 
         val actionCatalogFile = File(root, ".ares/action-catalog.json")
         check(actionCatalogFile.isFile) { "The reviewed starter is missing .ares/action-catalog.json." }
@@ -463,25 +473,25 @@ class RobotProjectTemplateService(
 
         val OFFICIAL_PROJECT_TEMPLATES: List<RobotProjectTemplate> = listOf(
             RobotProjectTemplate(
-                id = "ares-ftc-starter-9.13.0",
+                id = "ares-ftc-starter-10.0.0",
                 displayName = "ARES FTC Starter",
                 league = League.FTC,
-                aresVersion = "9.13.0",
+                aresVersion = "10.0.0",
                 revision = "8d8cbf916c59fcdee792ad760ac49ed8f6a5c13d",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v9.13.0/ARES-FTC-Starter-9.13.0.zip",
-                archiveSha256 = "a19e5dd429414df40950267e54c747b3fcb49669eb38ba70fb6557a5388818c3",
-                bundledResourcePath = "/project-templates/ARES-FTC-Starter-9.13.0.zip",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v10.0.0/ARES-FTC-Starter-10.0.0.zip",
+                archiveSha256 = "d43479d5260d2b0ac8eabf872571fd9ba139ae4e91177118fe1b8fbd1d08a515",
+                bundledResourcePath = "/project-templates/ARES-FTC-Starter-10.0.0.zip",
                 deploymentPolicy = RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
             ),
             RobotProjectTemplate(
-                id = "ares-frc-starter-9.13.0",
+                id = "ares-frc-starter-10.0.0",
                 displayName = "ARES FRC Starter",
                 league = League.FRC,
-                aresVersion = "9.13.0",
+                aresVersion = "10.0.0",
                 revision = "c7b871811bd4ab58aff81f589d81e7a20438819a",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FRC-Starter/releases/download/v9.13.0/ARES-FRC-Starter-9.13.0.zip",
-                archiveSha256 = "0cba7c9299484077d3c4c2583413b617c13761a9fb9adb9e1fa04747d595861d",
-                bundledResourcePath = "/project-templates/ARES-FRC-Starter-9.13.0.zip",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FRC-Starter/releases/download/v10.0.0/ARES-FRC-Starter-10.0.0.zip",
+                archiveSha256 = "901ae919382d0f91bba832979612ad1a801c67f2e0f23a023ede49e42daef9db",
+                bundledResourcePath = "/project-templates/ARES-FRC-Starter-10.0.0.zip",
                 deploymentPolicy = RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
             ),
         )

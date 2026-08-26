@@ -2,6 +2,9 @@ package com.ares.analytics.service
 
 import com.ares.analytics.shared.League
 import com.ares.analytics.service.project.templateDeploymentBlockReason
+import com.ares.analytics.service.verification.RobotVerificationReport
+import com.ares.analytics.service.verification.RobotVerificationReportLoader
+import com.ares.analytics.service.verification.VerificationRunStore
 import com.areslib.codegen.GeneratedSubsystemFile
 import com.areslib.codegen.SubsystemKotlinCodegenTarget
 import com.areslib.codegen.SubsystemKotlinGenerator
@@ -9,6 +12,7 @@ import com.areslib.codegen.SubsystemStarterPlan
 import com.areslib.codegen.SubsystemStarterReconciler
 import com.areslib.subsystem.SubsystemDocumentCodec
 import com.areslib.subsystem.SubsystemPlatform
+import com.areslib.subsystem.isAresGenerated
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
@@ -45,6 +49,7 @@ data class BuildExecutionState(
     val message: String = "No project verification build has run in this app session.",
     val exitCode: Int? = null,
     val requestId: Long = 0L,
+    val verificationReport: RobotVerificationReport? = null,
 )
 
 enum class DeployExecutionPhase {
@@ -249,6 +254,11 @@ class ProcessManagerService internal constructor(
             val projectRoot = requireSafeProjectRoot(projectPath)
             val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
             val command = verificationBuildCommand(league, isWindows)
+            val pendingRun = VerificationRunStore.begin(
+                projectRoot = projectRoot,
+                command = command,
+                aresVersion = explicitAresVersion ?: projectPinnedAresVersion(projectRoot) ?: "unknown",
+            )
 
             _buildOutput.emit("[SYSTEM] Starting compile-only project verification: ${command.joinToString(" ")}")
             var transientGradleCacheMoveFailure = false
@@ -272,6 +282,11 @@ class ProcessManagerService internal constructor(
                 exitCode = runVerificationAttempt()
             }
             currentCoroutineContext().ensureActive()
+            val provenance = VerificationRunStore.complete(pendingRun, exitCode)
+            val verificationReport = VerificationRunStore.saveAndReload(
+                projectRoot,
+                RobotVerificationReportLoader.load(projectRoot, league, exitCode, provenance),
+            )
             val result = if (exitCode == 0) {
                 BuildExecutionState(
                     phase = BuildExecutionPhase.SUCCEEDED,
@@ -280,6 +295,7 @@ class ProcessManagerService internal constructor(
                     message = "Verification, tests, and package build passed. Nothing was deployed; rebuild after changing project files.",
                     exitCode = exitCode,
                     requestId = generation,
+                    verificationReport = verificationReport,
                 )
             } else {
                 BuildExecutionState(
@@ -289,6 +305,7 @@ class ProcessManagerService internal constructor(
                     message = "Project verification failed with exit code $exitCode. Review the Build terminal, fix the first reported error, then run verification again.",
                     exitCode = exitCode,
                     requestId = generation,
+                    verificationReport = verificationReport,
                 )
             }
             updateBuildExecutionStateIfOwner(generation, result)
@@ -341,7 +358,24 @@ class ProcessManagerService internal constructor(
                 League.FRC -> addAll(listOf("generateAresProject", "verifyAresProject", "test", "build"))
             }
             addDesktopGradleProcessOptions()
+            add("--rerun-tasks")
         })
+
+    private fun projectPinnedAresVersion(projectRoot: File): String? =
+        listOf("gradle.properties", "gradle/libs.versions.toml")
+            .map { File(projectRoot, it) }
+            .firstNotNullOfOrNull { file ->
+                file.takeIf(File::isFile)?.useLines { lines ->
+                    lines.map(String::trim)
+                        .firstOrNull { line ->
+                            line.startsWith("aresVersion=") || line.startsWith("ares = ")
+                        }
+                        ?.substringAfter('=')
+                        ?.trim()
+                        ?.trim('"')
+                        ?.takeIf(String::isNotBlank)
+                }
+            }
 
     /**
      * Regenerates the checked-in Kotlin bridge from canonical `.ares` documents.
@@ -440,6 +474,7 @@ class ProcessManagerService internal constructor(
             .sortedBy { it.name.lowercase() }
             .map { SubsystemDocumentCodec.decode(it.readText()) }
             .filter { it.platform == platform }
+            .filter { it.implementation.kind.isAresGenerated() }
         val target = SubsystemKotlinCodegenTarget(platform, basePackage)
         return SubsystemStarterInputs(starterRoot, documents.flatMap { SubsystemKotlinGenerator.generate(it, target) })
     }

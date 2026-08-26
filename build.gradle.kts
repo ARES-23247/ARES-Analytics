@@ -19,7 +19,7 @@ val siblingAresVersion = if (siblingAresProps.exists()) {
 
 val resolvedAresVersion = providers.gradleProperty("aresVersion")
     .orElse(providers.provider { siblingAresVersion })
-    .getOrElse("9.3.2")
+    .getOrElse("10.0.0")
 
 extra["aresVersion"] = resolvedAresVersion
 

@@ -41,6 +41,7 @@ import com.ares.analytics.viewmodel.SubsystemGeneratorState
 import com.ares.analytics.viewmodel.SubsystemGeneratorViewModel
 import com.areslib.subsystem.SubsystemDocument
 import com.areslib.subsystem.SubsystemImplementationKind
+import com.areslib.subsystem.isAresGenerated
 import com.areslib.subsystem.supportsPlatform
 
 /** Modular visual editor for project-backed subsystem DSL documents and generated Kotlin. */
@@ -192,14 +193,13 @@ fun SubsystemGeneratorScreen(
                             Spacer(Modifier.width(4.dp))
                             Text("Remove", color = AresError, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
-                        val generatedStarter = state.draft?.document?.implementation?.kind ==
-                            SubsystemImplementationKind.GENERATED_STARTER
+                        val generatedByAres = state.draft?.document?.implementation?.kind?.isAresGenerated() == true
                         val generationRunning = state.generationPhase == AresGenerationPhase.RUNNING
                         Button(
                             onClick = {
-                                if (generatedStarter) viewModel.generate() else viewModel.save()
+                                if (generatedByAres) viewModel.generate() else viewModel.save()
                             },
-                            enabled = if (generatedStarter) {
+                            enabled = if (generatedByAres) {
                                 (state.canSave || state.canGenerate) && !generationRunning
                             } else {
                                 state.canSave
@@ -209,7 +209,7 @@ fun SubsystemGeneratorScreen(
                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                         ) {
                             Icon(
-                                if (generatedStarter) Icons.Default.Build else Icons.Default.Save,
+                                if (generatedByAres) Icons.Default.Build else Icons.Default.Save,
                                 contentDescription = null,
                                 modifier = Modifier.size(16.dp),
                             )
@@ -217,7 +217,7 @@ fun SubsystemGeneratorScreen(
                             Text(
                                 when {
                                     generationRunning -> "Creating files…"
-                                    !generatedStarter -> "Save subsystem"
+                                    !generatedByAres -> "Save subsystem"
                                     state.dirty -> "Save & create files"
                                     else -> "Create/update Kotlin"
                                 },

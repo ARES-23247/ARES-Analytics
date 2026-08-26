@@ -2,12 +2,14 @@ package com.ares.analytics.viewmodel.field
 
 import com.ares.analytics.service.ReplayFrame
 import com.ares.analytics.service.DatabaseService
+import com.ares.analytics.service.robotLightingTelemetry
 import com.ares.analytics.shared.GamePiece
 import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.viewmodel.LivePoseState
 
 /** Reconstructs field layers from one atomic replay snapshot without inventing missing sources. */
 internal fun ReplayFrame.toReplayPoseState(): LivePoseState {
+    val frameValues = values
     val packed = (0..9).map { values["ARES/SimulatorPoseFrame/$it"] }
     val hasPackedPose = packed.all { it != null }
     val hasTrueScalars = (0..2).all { values["ARES/TruePose/$it"] != null }
@@ -19,9 +21,7 @@ internal fun ReplayFrame.toReplayPoseState(): LivePoseState {
             else -> null
         }
     }.toMap()
-    val indicatorLights = values.entries
-        .filter { it.key.startsWith("Superstructure/IndicatorLight/") }
-        .associate { it.key.substringAfterLast('/') to it.value }
+    val lighting = robotLightingTelemetry(frameValues)
     val pieceIndices = values.keys.asSequence()
         .filter { it.startsWith("ARES/GamePieces/") }
         .mapNotNull { it.substringAfterLast('/').toIntOrNull()?.div(7) }
@@ -69,7 +69,8 @@ internal fun ReplayFrame.toReplayPoseState(): LivePoseState {
         visionHasTarget = visionHasTarget,
         liveGamePieces = gamePieces,
         isConnected = true,
-        indicatorLights = indicatorLights,
+        indicatorLights = lighting.indicatorOutputs,
+        prismLights = lighting.prismOutputs,
     )
 }
 

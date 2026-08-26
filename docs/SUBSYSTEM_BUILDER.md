@@ -454,11 +454,24 @@ At minimum, cover:
 Prefer one contract-test suite that is run against both the FTC test adapter and mock adapter. Add
 mechanism-specific tests beside it instead of weakening or replacing the shared safety contract.
 
+### What students see
+
+Robot Studio combines these generated checks with independent ARES tests on the **Verification**
+page. The normal view explains what passed and why without showing test filenames. **Advanced
+details** reveals the generated JUnit identity, result XML, and build evidence when a mentor needs
+to diagnose a failure.
+
+The report keeps five evidence claims separate: **Configuration reviewed**, **Compiled
+successfully**, **Simulation verified**, **Ready for physical validation**, and **Physically
+validated**. A simulator or mock result never completes the supervised physical checklist.
+
 ## Build integration
 
-Canonical documents are the source of truth. Gradle owns generated-source directories and verifies
-that generated output is current before compilation. When ARESLib changes, publish it to local Maven
-first, then generate/build FTC and the simulator in dependency order.
+Canonical documents are the source of truth. Gradle owns generated-source and generated-test
+directories and verifies that generated output is current before compilation. During focused local
+development, use the explicit sibling composite build; release validation uses one isolated
+candidate repository and version across every consumer. Never shadow a published version through
+an ambient local Maven artifact.
 
 See `ARESLib-Kotlin/docs/subsystem-dsl.md` for the shared DSL and code examples. The generated source
 also contains ownership headers, KDoc on customization points, safety invariants, and links back to

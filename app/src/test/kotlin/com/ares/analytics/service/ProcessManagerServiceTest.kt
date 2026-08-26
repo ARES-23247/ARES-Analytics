@@ -296,11 +296,12 @@ class ProcessManagerServiceTest {
         val service = ProcessManagerService(monitorAdbConnection = false)
         val root = Files.createTempDirectory("process-manager-starter-plan").toFile()
         try {
-            val document = SubsystemTemplates.create(
+            val document = SubsystemTemplates.createWithOwnership(
                 SubsystemTemplate.POSITION_CONTROLLED_MECHANISM,
                 "elevator",
                 "Elevator",
                 SubsystemPlatform.FTC,
+                implementationKind = com.areslib.subsystem.SubsystemImplementationKind.GENERATED_STARTER,
             )
             root.resolve(".ares/subsystems").mkdirs()
             root.resolve(".ares/subsystems/elevator.aressubsystem").writeText(SubsystemDocumentCodec.encode(document))

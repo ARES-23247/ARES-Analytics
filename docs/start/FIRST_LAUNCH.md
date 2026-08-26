@@ -13,7 +13,9 @@ Have these ready:
 - Either a local robot project or a parent folder where ARES can create one.
 - Your team number, season, and robot name or ID.
 
-Choose the robot project itself, not the four-project `ares` workspace and not the `ARES-Analytics` folder. A project with `.ares-robot.json` is easiest because Analytics can fill in its identity.
+Choose the robot project itself, not the four-project `ares` workspace and not the `ARES-Analytics`
+folder. A current project contains canonical `.ares/project.json`. Studio can offer a reviewed,
+recoverable migration when an older project still has `.ares-robot.json`.
 
 If you are developing from source, launch from `ARES-Analytics`:
 
@@ -116,7 +118,7 @@ The sidebar shows labeled **NT4 on/off** and, for FTC, **ADB on/off** status. Th
 | --- | --- |
 | **Robot build tools** needs attention | You may create the workspace and use local analysis now. Choose **Install JDK 21 for ARES**, or install the league vendor tools shown by the readiness card, then select **Recheck**. |
 | “Choose a folder that contains your robot project” | Browse to `ARES-FTC` or `ARES-FRC`, not their parent folder. |
-| The wrong competition was detected | Select the correct **Competition** (**FTC** or **FRC**) before creating the workspace, and tell a mentor if the project lacks or misstates `.ares-robot.json`. |
+| The wrong competition was detected | Select the correct **Competition** (**FTC** or **FRC**) before creating the workspace, and tell a mentor if canonical `.ares/project.json` is missing or incorrect. |
 | A team, season, or robot field is rejected | Use short, non-empty identifiers. Do not substitute a robot's IP address for its ID. |
 | Google sign-in fails | Collapse/skip **Cloud sync (optional)** and continue. Cloud access is not required for local setup. |
 | The wrong workspace opens later | Use the workspace selector at the top of the main screen. Choose the intended robot profile before launching or importing anything. Removing a profile only removes it from this local list; it does not delete the robot project. |

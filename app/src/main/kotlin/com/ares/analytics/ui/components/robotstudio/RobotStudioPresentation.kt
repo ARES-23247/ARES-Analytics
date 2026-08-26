@@ -111,6 +111,7 @@ internal fun RobotStudioState.stageFor(selection: RobotStudioSelection): RobotSt
         RobotStudioSelection.Superstructure -> RobotStudioStageId.COORDINATION
         RobotStudioSelection.Autonomous -> RobotStudioStageId.AUTONOMOUS
         RobotStudioSelection.Controls -> RobotStudioStageId.CONTROLS
+        RobotStudioSelection.Verification -> RobotStudioStageId.GENERATE_VERIFY
     }
     return stages.firstOrNull { it.id == id }
 }

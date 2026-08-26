@@ -39,6 +39,7 @@ import com.areslib.subsystem.SubsystemHomingEvidenceDocument
 import com.areslib.subsystem.SubsystemHomingMethod
 import com.areslib.subsystem.SubsystemImplementationDocument
 import com.areslib.subsystem.SubsystemImplementationKind
+import com.areslib.subsystem.isAresGenerated
 import com.areslib.subsystem.SubsystemInterlockDocument
 import com.areslib.subsystem.SubsystemMeasurementSource
 import com.areslib.subsystem.SubsystemPlatform
@@ -1201,7 +1202,7 @@ class SubsystemGeneratorViewModel(
         val target = snapshot.documents
             .asSequence()
             .filter { it.uid != current.uid }
-            .filter { it.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER }
+            .filter { it.implementation.kind.isAresGenerated() }
             .filter { it.stateFields.isNotEmpty() }
             .sortedBy { it.displayName.lowercase() }
             .firstOrNull()
@@ -1525,7 +1526,7 @@ class SubsystemGeneratorViewModel(
         val validation = validateSubsystemDocument(document).map {
             SubsystemProblem(SubsystemProblemSeverity.ERROR, it.path, it.message)
         } + projectConnectionProblems(document, documents)
-        val generated = if (validation.isEmpty() && document.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER) {
+        val generated = if (validation.isEmpty() && document.implementation.kind.isAresGenerated()) {
             val sourceFiles = SubsystemKotlinGenerator.generate(document, SubsystemKotlinCodegenTarget(platform, basePackage))
             val starterPlan = SubsystemStarterReconciler.plan(starterRoot().toPath(), sourceFiles)
             val starterChanges = starterPlan.changes.associateBy { it.relativePath }

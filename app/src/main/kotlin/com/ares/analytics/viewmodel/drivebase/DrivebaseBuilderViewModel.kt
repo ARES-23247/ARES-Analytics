@@ -2,12 +2,11 @@ package com.ares.analytics.viewmodel.drivebase
 
 import com.ares.analytics.service.DrivebaseDesignAssistant
 import com.ares.analytics.service.DrivebaseDesignProposal
-import com.ares.analytics.service.AresRobotConfig
 import com.ares.analytics.service.drivebase.*
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
-import com.ares.analytics.shared.AppJson
 import com.ares.analytics.shared.League
 import com.areslib.drivetrain.DrivetrainDocumentCodec
+import com.areslib.project.AresProjectMetadataCodec
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,7 +15,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.decodeFromString
 import java.io.File
 import java.security.MessageDigest
 import kotlin.math.PI
@@ -556,9 +554,10 @@ class DrivebaseBuilderViewModel(
 }
 
 internal fun canonicalRuntimeProjectUid(projectPath: String, fallback: String, league: League): String {
-    val identity = File(projectPath, ".ares-robot.json")
-    return runCatching { AppJson.decodeFromString<AresRobotConfig>(identity.readText()) }
+    val identity = File(projectPath, ".ares/project.json")
+    return runCatching { AresProjectMetadataCodec.decode(identity.readText()) }
         .getOrNull()
+        ?.identity
         ?.let { config ->
             listOf(
                 "team${config.teamId.filter(Char::isDigit)}",

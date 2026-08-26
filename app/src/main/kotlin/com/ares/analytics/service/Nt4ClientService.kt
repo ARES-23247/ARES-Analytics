@@ -286,11 +286,20 @@ open class Nt4ClientService(
     private val _mecanumMotorFrame = MutableStateFlow<MecanumMotorFrameSnapshot?>(null)
     /** Latest complete motor observation, independent of scalar-topic suppression and UI loss. */
     val mecanumMotorFrame: StateFlow<MecanumMotorFrameSnapshot?> = _mecanumMotorFrame.asStateFlow()
+    private val _robotLighting = MutableStateFlow(RobotLightingTelemetryState())
+    /** One normalized lighting state shared by the dashboard card and field renderer. */
+    val robotLighting: StateFlow<RobotLightingTelemetryState> = _robotLighting.asStateFlow()
     private var lastSimulatorPoseDivergenceLogNs = Long.MIN_VALUE
 
     init {
         serviceScope.launch(start = CoroutineStart.UNDISPATCHED) {
             telemetryStore.updates.collect { frame ->
+                robotLightingReading(frame.key, frame.value)?.let { reading ->
+                    _robotLighting.update { current ->
+                        if (current.outputs[reading.stableName] == reading) current
+                        else current.copy(outputs = current.outputs + (reading.stableName to reading))
+                    }
+                }
                 val frameTargetEpoch = telemetryStore.currentTargetEpoch()
                 if (telemetryStore.isCurrentNotifiedFrame(frame)) {
                     uiTelemetryFanout.offer(frame, frameTargetEpoch)
@@ -435,6 +444,7 @@ open class Nt4ClientService(
         _simulatorPoseFrame.value = null
         _driveInputAcknowledgement.value = null
         _mecanumMotorFrame.value = null
+        _robotLighting.value = RobotLightingTelemetryState()
     }
 
     fun start(host: String, teamId: String, seasonId: String, robotId: String, port: Int = 5810) {

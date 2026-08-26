@@ -140,6 +140,7 @@ private fun ExpandedInspectorPanel(
                     is RobotStudioSelection.Autonomous -> "Routines & Autonomous"
                     is RobotStudioSelection.Controls -> "TeleOp Gamepad Controls"
                     is RobotStudioSelection.PortMap -> "Port Map & Review"
+                    is RobotStudioSelection.Verification -> "Verification Evidence"
                 }
                 val subtitle = when (selection) {
                     is RobotStudioSelection.Identity -> ".ares/project.json"
@@ -148,7 +149,8 @@ private fun ExpandedInspectorPanel(
                     is RobotStudioSelection.Superstructure -> ".ares/superstructures/*.aressuperstructure"
                     is RobotStudioSelection.Autonomous -> ".ares/routines/*.aresroutine"
                     is RobotStudioSelection.Controls -> ".ares/controls/*.arescontrols"
-                    is RobotStudioSelection.PortMap -> ".ares/hardware-review.json"
+                    is RobotStudioSelection.PortMap -> ".ares/evidence/hardware/"
+                    is RobotStudioSelection.Verification -> ".ares/local/verification/<run-id>/report.json"
                 }
 
                 Text(title, color = AresTextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)

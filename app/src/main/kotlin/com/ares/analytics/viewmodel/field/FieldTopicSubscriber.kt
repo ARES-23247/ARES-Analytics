@@ -22,7 +22,6 @@ internal fun isFieldViewerTopic(key: String): Boolean = when (key) {
     "ARES/GamePieces/Count" -> true
     else -> key.startsWith("ARES/SimulatorPoseFrame/") ||
         key.startsWith("ARES/GamePiecesFrame/") ||
-        key.startsWith("Superstructure/IndicatorLight/") ||
         key.startsWith("Vision/PoseArray/") ||
         key.startsWith("AdvantageScope/VisionPose/") ||
         key.startsWith("ARES/GamePieces/")
@@ -318,6 +317,19 @@ class FieldTopicSubscriber(
             }
         }
 
+        // Lighting is normalized once at the NT4 service boundary. Field rendering and the
+        // dashboard therefore consume the same typed snapshot for generated and legacy robots.
+        scope.launch(processingDispatcher) {
+            nt4ClientService.robotLighting.collect { lighting ->
+                livePoseFlow.update { current ->
+                    current.copy(
+                        indicatorLights = lighting.indicatorOutputs,
+                        prismLights = lighting.prismOutputs,
+                    )
+                }
+            }
+        }
+
         // The global bus can exceed tens of thousands of frames per second when tuning schemas are
         // announced. Reduce only field-owned topics, and never do that work on Compose's UI thread.
         scope.launch(processingDispatcher) {
@@ -359,15 +371,6 @@ class FieldTopicSubscriber(
                         "Vision/Pose_X" -> if (next.visionHasTarget) next = next.copy(visionX = value)
                         "Vision/Pose_Y" -> if (next.visionHasTarget) next = next.copy(visionY = value)
                         "Vision/Pose_Heading" -> if (next.visionHasTarget) next = next.copy(visionHeading = value)
-                    }
-
-                    if (key.startsWith("Superstructure/IndicatorLight/")) {
-                        val lightName = key.substringAfterLast("/")
-                        if (next.indicatorLights[lightName] != value) {
-                            val newLights = next.indicatorLights.toMutableMap()
-                            newLights[lightName] = value
-                            next = next.copy(indicatorLights = newLights)
-                        }
                     }
 
                     val isVisionPoseElement = key.startsWith("Vision/PoseArray/") ||

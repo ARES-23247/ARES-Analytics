@@ -101,6 +101,9 @@ fun ProfileScreen(
     var touchOptimizedMode by remember(config.touchOptimizedMode) { mutableStateOf(config.touchOptimizedMode) }
     var largeTextMode by remember(config.largeTextMode) { mutableStateOf(config.largeTextMode) }
     var developerMode by remember(config.developerMode) { mutableStateOf(config.developerMode) }
+    val hasCanonicalProjectIdentity = remember(projectPath) {
+        java.io.File(projectPath, ".ares/project.json").isFile
+    }
 
     // Optional credential overrides
     var googleClientId by remember(state.googleClientId) { mutableStateOf(state.googleClientId) }
@@ -164,7 +167,15 @@ fun ProfileScreen(
                     Icon(Icons.Default.Settings, contentDescription = null, tint = AresCyan, modifier = Modifier.size(20.dp))
                     Text("Workspace Active Robot Profile", fontWeight = FontWeight.Bold, color = AresTextPrimary, fontSize = 15.sp)
                 }
-                Text("Specify your active team identity or select from Google Drive synchronized robot profiles.", color = AresTextSecondary, fontSize = 11.sp)
+                Text(
+                    if (hasCanonicalProjectIdentity) {
+                        "Identity is owned by .ares/project.json. Change the team, robot, season, display name, or league in Robot Studio so every builder uses the same values."
+                    } else {
+                        "Select a project directory. Legacy workspaces may use these cached identity fields until Robot Studio creates the canonical project document."
+                    },
+                    color = AresTextSecondary,
+                    fontSize = 11.sp,
+                )
 
                 val projectPathError = remember(projectPath, league) {
                     ProjectLayout.validationError(projectPath, league)
@@ -199,7 +210,7 @@ fun ProfileScreen(
                 }
 
                 // Shared Roster Dropdown (if loaded)
-                if (state.robotProfiles.isNotEmpty()) {
+                if (state.robotProfiles.isNotEmpty() && !hasCanonicalProjectIdentity) {
                     Box(modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
                             value = if (robotName.isNotBlank()) "$robotName ($robotId)" else robotId,
@@ -239,6 +250,7 @@ fun ProfileScreen(
                         value = teamId,
                         onValueChange = { teamId = it.filter { c -> c.isDigit() } },
                         label = { Text("Team ID Number") },
+                        readOnly = hasCanonicalProjectIdentity,
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
@@ -247,6 +259,7 @@ fun ProfileScreen(
                         value = robotId,
                         onValueChange = { robotId = it.filter { c -> c.isLetterOrDigit() || c == '-' } },
                         label = { Text("Robot ID") },
+                        readOnly = hasCanonicalProjectIdentity,
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
@@ -258,6 +271,7 @@ fun ProfileScreen(
                         value = robotName,
                         onValueChange = { robotName = it },
                         label = { Text("Robot Friendly Name") },
+                        readOnly = hasCanonicalProjectIdentity,
                         modifier = Modifier.weight(1.5f),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
@@ -266,6 +280,7 @@ fun ProfileScreen(
                         value = seasonId,
                         onValueChange = { seasonId = it },
                         label = { Text("Season ID") },
+                        readOnly = hasCanonicalProjectIdentity,
                         modifier = Modifier.weight(1f),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = AresCyan, unfocusedBorderColor = AresBorder)
@@ -282,11 +297,16 @@ fun ProfileScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             modifier = Modifier
                                 .clip(RoundedCornerShape(6.dp))
-                                .clickable { league = l }
+                                .clickable(enabled = !hasCanonicalProjectIdentity) { league = l }
                                 .border(1.dp, if (league == l) AresCyan else AresBorder, RoundedCornerShape(6.dp))
                                 .padding(horizontal = 12.dp, vertical = 6.dp)
                         ) {
-                            RadioButton(selected = league == l, onClick = { league = l }, colors = RadioButtonDefaults.colors(selectedColor = AresCyan))
+                            RadioButton(
+                                selected = league == l,
+                                onClick = { league = l },
+                                enabled = !hasCanonicalProjectIdentity,
+                                colors = RadioButtonDefaults.colors(selectedColor = AresCyan),
+                            )
                             Text(l.name, color = if (league == l) AresCyan else AresTextSecondary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }

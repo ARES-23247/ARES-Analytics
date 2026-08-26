@@ -501,6 +501,14 @@ class SubsystemGeneratorViewModelTest {
         val generator = FakeGenerator()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC, projectGenerator = generator)
         viewModel.newSubsystem()
+        viewModel.edit { document ->
+            document.copy(
+                implementation = document.implementation.copy(
+                    kind = com.areslib.subsystem.SubsystemImplementationKind.GENERATED_STARTER,
+                    ownership = com.areslib.subsystem.SubsystemSourceOwnership.GENERATED_STARTER,
+                ),
+            )
+        }
         val starter = viewModel.state.value.previewFiles.first {
             it.ownership == com.areslib.codegen.SubsystemArtifactOwnership.GENERATED_STARTER
         }
@@ -539,6 +547,14 @@ class SubsystemGeneratorViewModelTest {
         val generator = FakeGenerator()
         val viewModel = SubsystemGeneratorViewModel(root.path, League.FTC, projectGenerator = generator)
         viewModel.newSubsystem()
+        viewModel.edit { document ->
+            document.copy(
+                implementation = document.implementation.copy(
+                    kind = com.areslib.subsystem.SubsystemImplementationKind.GENERATED_STARTER,
+                    ownership = com.areslib.subsystem.SubsystemSourceOwnership.GENERATED_STARTER,
+                ),
+            )
+        }
         val starter = viewModel.state.value.previewFiles.first {
             it.ownership == com.areslib.codegen.SubsystemArtifactOwnership.GENERATED_STARTER
         }

@@ -296,7 +296,7 @@ private fun ProjectIdentityForm(
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Canonical identity", color = AresTextPrimary, fontWeight = FontWeight.Bold)
             Text(
-                "The project ID is a stable reference, not a display name. After creation it is locked here so renaming cannot silently break other documents.",
+                "This file is the one shared identity source for Studio, generated code, simulation, and verification. Stable IDs lock after creation; the display name remains editable.",
                 color = AresTextSecondary,
                 fontSize = 12.sp,
             )
@@ -309,6 +309,38 @@ private fun ProjectIdentityForm(
                     sourceAvailable &&
                     (state.protectedError == null || state.protectedContentHash != null),
                 help = "Starts with a letter; letters, numbers, dot, underscore, and dash only.",
+            )
+            IdentityField(
+                label = "Team ID",
+                value = state.draft.teamId,
+                onValueChange = { onUpdate(ProjectIdentityField.TEAM_ID, it) },
+                error = state.fieldErrors[ProjectIdentityField.TEAM_ID],
+                enabled = state.currentDocument == null && runtimeOptionsEnabled,
+                help = "Usually your team number; stored with the project so another computer sees the same identity.",
+            )
+            IdentityField(
+                label = "Season ID",
+                value = state.draft.seasonId,
+                onValueChange = { onUpdate(ProjectIdentityField.SEASON_ID, it) },
+                error = state.fieldErrors[ProjectIdentityField.SEASON_ID],
+                enabled = state.currentDocument == null && runtimeOptionsEnabled,
+                help = "A stable season key such as 2026.",
+            )
+            IdentityField(
+                label = "Stable robot ID",
+                value = state.draft.robotId,
+                onValueChange = { onUpdate(ProjectIdentityField.ROBOT_ID, it) },
+                error = state.fieldErrors[ProjectIdentityField.ROBOT_ID],
+                enabled = state.currentDocument == null && runtimeOptionsEnabled,
+                help = "Used by generated files and evidence records; changing it later requires a migration.",
+            )
+            IdentityField(
+                label = "Robot display name",
+                value = state.draft.displayName,
+                onValueChange = { onUpdate(ProjectIdentityField.DISPLAY_NAME, it) },
+                error = state.fieldErrors[ProjectIdentityField.DISPLAY_NAME],
+                enabled = runtimeOptionsEnabled,
+                help = "The friendly name students see. This can be changed without breaking references.",
             )
             ReadOnlyIdentityRow("League", state.workspaceLeague.name)
             ReadOnlyIdentityRow(

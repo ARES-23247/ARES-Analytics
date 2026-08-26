@@ -37,6 +37,10 @@ class ProjectIdentityViewModelTest {
 
             val state = viewModel.state.value
             assertEquals("team23247-robot-one-decode", state.draft.projectId)
+            assertEquals("23247", state.draft.teamId)
+            assertEquals("decode", state.draft.seasonId)
+            assertEquals("robot-one", state.draft.robotId)
+            assertEquals("robot-one", state.draft.displayName)
             assertEquals("", state.draft.robotLengthMeters)
             assertEquals("", state.draft.robotWidthMeters)
             assertEquals("3.6576", state.draft.fieldLengthMeters)
@@ -265,11 +269,11 @@ class ProjectIdentityViewModelTest {
     fun `validation rejects nonpositive geometry and robots larger than the field`() {
         val invalidNumber = validateProjectIdentityDraft(
             League.FTC,
-            ProjectIdentityDraft("test-project", "0", "0.4", "3.6576", "3.6576"),
+            validDraft().copy(robotLengthMeters = "0"),
         )
         val outsideField = validateProjectIdentityDraft(
             League.FTC,
-            ProjectIdentityDraft("test-project", "4.0", "0.4", "3.6576", "3.6576"),
+            validDraft().copy(robotLengthMeters = "4.0"),
         )
 
         assertNotNull(invalidNumber.fieldErrors[ProjectIdentityField.ROBOT_LENGTH])
@@ -277,6 +281,18 @@ class ProjectIdentityViewModelTest {
         assertTrue(outsideField.generalErrors.isNotEmpty())
         assertNull(outsideField.document)
     }
+
+    private fun validDraft() = ProjectIdentityDraft(
+        projectId = "test-project",
+        teamId = "99999",
+        seasonId = "2026",
+        robotId = "test-robot",
+        displayName = "Test Robot",
+        robotLengthMeters = "0.4",
+        robotWidthMeters = "0.4",
+        fieldLengthMeters = "3.6576",
+        fieldWidthMeters = "3.6576",
+    )
 
     private fun workspace(project: File, league: League = League.FTC) = WorkspaceConfig(
         id = "workspace-one",
@@ -289,6 +305,7 @@ class ProjectIdentityViewModelTest {
 
     private fun metadata(league: AresLeague) = AresProjectMetadataDocument(
         projectId = "test-project",
+        identity = com.areslib.project.AresProjectIdentityDocument("99999", "2026", "test-robot", "Test Robot"),
         league = league,
         coordinateConvention = if (league == AresLeague.FTC) {
             AresCoordinateConvention.CENTER_ORIGIN_CCW

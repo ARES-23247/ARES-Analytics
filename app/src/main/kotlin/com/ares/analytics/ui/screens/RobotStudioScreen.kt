@@ -71,6 +71,7 @@ fun RobotStudioScreen(
     projectIdentityViewModel: ProjectIdentityViewModel,
     config: WorkspaceConfig,
     onOpenPitDiagnostics: () -> Unit,
+    onRunVerification: () -> Unit,
     initialSelection: RobotStudioSelection = RobotStudioSelection.Identity,
 ) {
     val state by viewModel.state.collectAsState()
@@ -240,6 +241,11 @@ fun RobotStudioScreen(
                 },
                 onOpenPitDiagnostics = onOpenPitDiagnostics,
                 onBackToStudio = null,
+            )
+            RobotStudioSelection.Verification -> RobotVerificationReportScreen(
+                report = state.verificationReport,
+                isRunning = state.buildStage?.status == RobotStudioStageStatus.RUNNING,
+                onRunVerification = onRunVerification,
             )
         }
     }

@@ -1173,6 +1173,10 @@ fun MainScreen(services: ServiceRegistry) {
                                 onOpenPitDiagnostics = {
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PIT_DIAGNOSTICS))
                                 },
+                                onRunVerification = {
+                                    services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
+                                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                },
                             )
                             NavigationTarget.CONTROLS -> com.ares.analytics.ui.components.controls.ControlsEditorPanel(
                                 state = controlsEditorState,

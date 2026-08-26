@@ -735,7 +735,7 @@ fun FaultRecoveryCard(document: SubsystemDocument, viewModel: SubsystemGenerator
 @Composable
 fun InterlockMatrixCard(document: SubsystemDocument, state: SubsystemGeneratorState, viewModel: SubsystemGeneratorViewModel) {
     val targets = state.documents.filter {
-        it.uid != document.uid && it.implementation.kind == SubsystemImplementationKind.GENERATED_STARTER && it.stateFields.isNotEmpty()
+        it.uid != document.uid && it.implementation.kind.isAresGenerated() && it.stateFields.isNotEmpty()
     }.sortedBy { it.displayName.lowercase() }
     EditorCard("Positional Interlocks (${document.interlocks.size})", Icons.Default.Lock) {
         Text("Interlocks read another generated subsystem's immutable state and force this mechanism to a declared safe fallback when a rule is not satisfied.", color = AresTextSecondary, fontSize = 11.sp)

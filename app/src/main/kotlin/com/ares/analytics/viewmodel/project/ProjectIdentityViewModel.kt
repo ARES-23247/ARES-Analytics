@@ -7,6 +7,7 @@ import com.areslib.project.AresCoordinateConvention
 import com.areslib.project.AresFtcHubCommandTransport
 import com.areslib.project.AresFtcRuntimeOptionsDocument
 import com.areslib.project.AresLeague
+import com.areslib.project.AresProjectIdentityDocument
 import com.areslib.project.AresProjectMetadataCodec
 import com.areslib.project.AresProjectMetadataDocument
 import com.areslib.project.AresRuntimeOptionsDocument
@@ -26,6 +27,10 @@ import java.util.Locale
 
 enum class ProjectIdentityField {
     PROJECT_ID,
+    TEAM_ID,
+    SEASON_ID,
+    ROBOT_ID,
+    DISPLAY_NAME,
     ROBOT_LENGTH,
     ROBOT_WIDTH,
     FIELD_LENGTH,
@@ -34,6 +39,10 @@ enum class ProjectIdentityField {
 
 data class ProjectIdentityDraft(
     val projectId: String = "",
+    val teamId: String = "",
+    val seasonId: String = "",
+    val robotId: String = "",
+    val displayName: String = "",
     val robotLengthMeters: String = "",
     val robotWidthMeters: String = "",
     val fieldLengthMeters: String = "",
@@ -122,7 +131,7 @@ class ProjectIdentityViewModel(
     fun update(field: ProjectIdentityField, value: String) {
         val config = workspace ?: return
         val current = _state.value
-        if (field == ProjectIdentityField.PROJECT_ID && current.currentDocument != null) {
+        if (field in STABLE_IDENTITY_FIELDS && current.currentDocument != null) {
             _state.value = current.copy(
                 message = "The saved project ID is stable. Create a reviewed migration instead of renaming it here.",
                 messageIsError = false,
@@ -131,6 +140,10 @@ class ProjectIdentityViewModel(
         }
         val nextDraft = when (field) {
             ProjectIdentityField.PROJECT_ID -> current.draft.copy(projectId = value)
+            ProjectIdentityField.TEAM_ID -> current.draft.copy(teamId = value)
+            ProjectIdentityField.SEASON_ID -> current.draft.copy(seasonId = value)
+            ProjectIdentityField.ROBOT_ID -> current.draft.copy(robotId = value)
+            ProjectIdentityField.DISPLAY_NAME -> current.draft.copy(displayName = value)
             ProjectIdentityField.ROBOT_LENGTH -> current.draft.copy(robotLengthMeters = value)
             ProjectIdentityField.ROBOT_WIDTH -> current.draft.copy(robotWidthMeters = value)
             ProjectIdentityField.FIELD_LENGTH -> current.draft.copy(fieldLengthMeters = value)
@@ -310,9 +323,12 @@ class ProjectIdentityViewModel(
         val current = currentResult.getOrNull()
         val corruptError = currentResult.exceptionOrNull()?.takeIf { file.isFile }
         val corruptHash = corruptError?.let { repository.rawContentHash(config.projectPath) }
+        val migrationCandidate = corruptError?.let {
+            repository.legacyMigrationCandidate(config.projectPath).getOrNull()
+        }
         val projectSourceError = ProjectLayout.validationError(config.projectPath, config.league)
         val mismatch = current?.takeIf { it.league != config.league.toAresLeague() }
-        val draft = projectIdentityDraft(config, current)
+        val draft = projectIdentityDraft(config, current ?: migrationCandidate)
         val validation = validateProjectIdentityDraft(config.league, draft)
         return ProjectIdentityEditorState(
             loading = false,
@@ -326,7 +342,11 @@ class ProjectIdentityViewModel(
             projectSourceError = projectSourceError,
             protectedError = when {
                 corruptError != null ->
-                    "The existing .ares/project.json cannot be used: ${corruptError.message}. Its exact bytes remain unchanged. Enter the measured robot dimensions, review the repair, and ARES will preserve the original under .ares/recovery/project before replacing it."
+                    if (migrationCandidate != null) {
+                        "This project uses the retired split identity format. Review the migration: ARES will preserve both legacy files under .ares/recovery, replace .ares/project.json, and remove the duplicate root identity."
+                    } else {
+                        "The existing .ares/project.json cannot be used: ${corruptError.message}. Its exact bytes remain unchanged. Enter the measured robot dimensions, review the repair, and ARES will preserve the original under .ares/recovery/project before replacing it."
+                    }
                 mismatch != null ->
                     "The canonical project is ${mismatch.league}, but this workspace is ${config.league}. Select the correct workspace league; ARES will not rewrite platform identity automatically."
                 else -> null
@@ -359,6 +379,22 @@ internal fun validateProjectIdentityDraft(
         errors[ProjectIdentityField.PROJECT_ID] =
             "Use a stable ID that starts with a letter and contains only letters, numbers, dot, underscore, or dash."
     }
+    val teamId = draft.teamId.trim()
+    if (!teamId.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,31}"))) {
+        errors[ProjectIdentityField.TEAM_ID] = "Use the team number or another stable team key."
+    }
+    val seasonId = draft.seasonId.trim()
+    if (!seasonId.matches(Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,31}"))) {
+        errors[ProjectIdentityField.SEASON_ID] = "Use a stable season key such as 2026."
+    }
+    val robotId = draft.robotId.trim()
+    if (!robotId.matches(Regex("[A-Za-z][A-Za-z0-9._-]{0,63}"))) {
+        errors[ProjectIdentityField.ROBOT_ID] = "Use a stable robot key that starts with a letter."
+    }
+    val displayName = draft.displayName.trim()
+    if (displayName.isEmpty() || displayName.length > 80) {
+        errors[ProjectIdentityField.DISPLAY_NAME] = "Enter a robot name using 1 to 80 characters."
+    }
     fun parse(field: ProjectIdentityField, raw: String, label: String): Double? {
         val value = raw.trim().toDoubleOrNull()
         if (value == null || !value.isFinite() || value <= 0.0) {
@@ -375,6 +411,12 @@ internal fun validateProjectIdentityDraft(
 
     val document = AresProjectMetadataDocument(
         projectId = projectId,
+        identity = AresProjectIdentityDocument(
+            teamId = teamId,
+            seasonId = seasonId,
+            robotId = robotId,
+            displayName = displayName,
+        ),
         league = league.toAresLeague(),
         coordinateConvention = league.coordinateConvention(),
         robotLengthMeters = requireNotNull(robotLength),
@@ -404,6 +446,10 @@ internal fun projectIdentityDraft(
     val ftcRuntime = current?.resolvedFtcRuntimeOptions() ?: AresFtcRuntimeOptionsDocument()
     return ProjectIdentityDraft(
         projectId = current?.projectId ?: suggestedProjectId(config),
+        teamId = current?.identity?.teamId ?: config.teamId,
+        seasonId = current?.identity?.seasonId ?: config.seasonId,
+        robotId = current?.identity?.robotId ?: config.robotId,
+        displayName = current?.identity?.displayName ?: config.robotName.ifBlank { config.robotId },
         robotLengthMeters = current?.robotLengthMeters?.asInput()
             ?: config.robotLengthMeters?.asInput().orEmpty(),
         robotWidthMeters = current?.robotWidthMeters?.asInput()
@@ -424,6 +470,10 @@ internal fun projectIdentityChanges(
         else ProjectIdentityChange(label, before?.toString() ?: "missing", after.toString())
     return listOfNotNull(
         changed("Stable project ID", current?.projectId, proposed.projectId),
+        changed("Team ID", current?.identity?.teamId, proposed.identity.teamId),
+        changed("Season ID", current?.identity?.seasonId, proposed.identity.seasonId),
+        changed("Robot ID", current?.identity?.robotId, proposed.identity.robotId),
+        changed("Robot display name", current?.identity?.displayName, proposed.identity.displayName),
         changed("League", current?.league, proposed.league),
         changed("Coordinate convention", current?.coordinateConvention, proposed.coordinateConvention),
         changed("Robot length (m)", current?.robotLengthMeters, proposed.robotLengthMeters),
@@ -448,6 +498,13 @@ private fun suggestedProjectId(config: WorkspaceConfig): String {
     val normalized = raw.replace(Regex("[^A-Za-z0-9._-]+"), "-").trim('-', '.', '_').take(64)
     return normalized.takeIf { it.firstOrNull()?.isLetter() == true } ?: "project-${normalized.take(56)}"
 }
+
+private val STABLE_IDENTITY_FIELDS = setOf(
+    ProjectIdentityField.PROJECT_ID,
+    ProjectIdentityField.TEAM_ID,
+    ProjectIdentityField.SEASON_ID,
+    ProjectIdentityField.ROBOT_ID,
+)
 
 private fun defaultFieldDimensions(league: League): Pair<Double, Double> = when (league) {
     League.FTC -> 3.6576 to 3.6576
