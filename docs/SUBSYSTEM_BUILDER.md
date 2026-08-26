@@ -170,27 +170,24 @@ contract exists.
 
 ## Builder workflow
 
-The builder uses eight guided stages. You can move backward at any time; advanced settings remain
-collapsed until you need them or a validation problem points to them.
+The current builder groups the full contract into four guided stages so a student can see the
+mechanism from intent through verification without losing half the screen to navigation. You can
+move backward at any time; advanced settings remain collapsed until you need them or a validation
+problem points to them.
 
-1. **Purpose** — choose a capability template, name the subsystem, and explain what it should do.
-2. **Hardware** — add motors, servos, and sensors using the exact Robot Controller configuration
+1. **Purpose & Template** — choose a capability template, name the subsystem, and explain what it
+   should do.
+2. **Hardware & IO** — add motors, servos, and sensors using the exact Robot Controller configuration
    names. Each declared measurement is cached once per robot loop. Adding hardware also adds its
    normal explicit state: motor position/velocity/current, servo command/position, or the sensor's
    typed reading. Add extra mechanism state only when it has meaning beyond those signals.
-3. **State & behavior** — distinguish observed status from requested targets, then connect bounded
-   controller rules to actuators.
-4. **Tuning** — optionally declare typed component-owned parameters, their units/bounds/defaults,
-   and when the runtime is allowed to apply a requested value. This works for generated and
-   hand-authored subsystems; declaring metadata never generates or replaces hand-authored Kotlin.
-5. **Safety** — complete feedback, homing, current, configuration-health, neutral-output, and fault
-   recovery requirements. The summary shows the protections currently enabled.
-6. **Capabilities** — review the typed driver/autonomous actions that the subsystem exposes.
-7. **Simulation & testing** — choose mock support and generated contract verification so the design
-   can be exercised without a physical robot. The interactive safety preview lets students inject
-   stale/invalid feedback, configuration/current faults, missing home/calibration, and failed writes
-   to see the expected neutral and recovery contract. It never commands hardware.
-8. **Review** — resolve warnings, inspect ownership and module destinations, then save or generate.
+3. **Stateflow & Control** — distinguish observed status from requested targets, connect bounded
+   controller rules to actuators, then review feedback, homing, current, configuration-health,
+   neutral-output, and fault-recovery requirements. The same stage exposes the typed driver and
+   autonomous actions derived from writable targets.
+4. **Tuning & Review** — inspect the template's recommended typed parameters, edit their
+   units/bounds/defaults and apply policy, choose mock/test generation, exercise the hardware-free
+   safety preview, resolve validation findings, and inspect file ownership and destinations.
 
 Save creates the canonical document revision. Review any starter replacement diff and confirm only
 when discarding the existing customization is intentional. Generate, then run the generated
@@ -200,6 +197,12 @@ Saving creates immutable history under `.ares/history/subsystems`. **Save & Gene
 selected repository's Gradle wrapper. Generated output is deterministic: unchanged input produces
 byte-for-byte identical output, user-owned files are protected, and starter replacement is never
 silent.
+
+Removing a subsystem moves only its canonical descriptor into `.ares/recovery/subsystems`, refreshes
+generated registry plumbing, and leaves Kotlin starters and `USER-OWNED` source untouched. The
+success banner provides **Restore subsystem** for the exact reviewed descriptor. Restoration checks
+the original content hash and refuses to overwrite a replacement descriptor, so recovery is both
+one-click and fail-closed.
 
 Every major editor card has a keyboard-focusable help button and hover explanation. Longer concepts
 link to this guide. The homing and feedforward sections include small interactive labs; the control
@@ -309,11 +312,19 @@ Apply policies are intentionally explicit:
 - **Calibration only** requires an authorized calibration session for that parameter.
 - **Read-only vendor** documents vendor-owned values but never lets ARES change them.
 
-Optional PID and feedforward presets are offered only when a compatible controller already exists.
-They copy the controller's current `kP`/`kI`/`kD` or applicable `kS`/`kV`/`kA`/`kG` values, use the
-controller's stable UID as owner, and default to **Disabled only**. They do not invent units, add a
-control mode, or force a subsystem to be tunable. Parameters can be reordered or deleted without
-changing the stable identity used by profiles and generated runtime metadata.
+Applicable capability templates begin with documented, bounded **Disabled only** declarations for
+the controller values their generated runtime actually consumes: PID gains, the selected
+feedforward terms, and profiled velocity/acceleration limits. Direct-output, sensor-only, and servo
+templates do not pretend to have controller gains. The starting values are educational defaults,
+not robot-validated tuning; test them in simulation and commission the physical mechanism before
+normal use.
+
+Optional PID, feedforward, and motion-profile presets remain available when a compatible controller
+exists and declarations are missing. They copy the controller's current values, use the controller's
+stable UID as owner, and default to **Disabled only**. Presets are idempotent and never replace an
+existing declaration because it may already contain a reviewed team value. Parameters can be
+reordered or deleted without changing the stable identity used by profiles and generated runtime
+metadata.
 
 Hand-authored subsystems use this same form. Their declarations become part of the project-wide
 generated tuning catalog while their `USER-OWNED` Kotlin files, classes, module, simulation source,

@@ -359,7 +359,11 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
         val importSql = """
             INSERT INTO telemetry_frames
                 (timestamp_ms, session_id, key, value, string_value, timestamp_us, sample_order)
-            WITH raw AS (
+            WITH existing_order AS (
+                SELECT COALESCE(MAX(sample_order), -1) + 1 AS first_sample_order
+                FROM telemetry_frames
+                WHERE session_id = '$escapedSessionId'
+            ), raw AS (
                 SELECT *
                 FROM read_csv_auto(
                     '$absolutePath',
@@ -378,8 +382,9 @@ class CsvLogDecoder(private val databaseService: DatabaseService) {
                 CAST(numeric_value AS DOUBLE),
                 CASE WHEN value_type = 'string' THEN COALESCE(string_value, '') ELSE NULL END,
                 CAST(timestamp_us AS BIGINT),
-                CAST(sample_order AS BIGINT)
+                existing_order.first_sample_order + CAST(sample_order AS BIGINT)
             FROM raw
+            CROSS JOIN existing_order
         """.trimIndent()
 
         databaseService.executeNativeCsvImport(importSql)

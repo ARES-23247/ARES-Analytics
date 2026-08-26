@@ -335,11 +335,14 @@ class LogParserService(
                         jsonlDecoder.parseJsonlLog(file, sessionId, batcher)
                     }
                 }
-                lowerName.endsWith(".csv.gz") || lowerName.endsWith(".csv") -> {
-                    // Native CSV import numbers duplicate samples from zero for each file.
-                    // Multi-file sessions instead share this streaming batcher so overlapping
-                    // timestamp/topic samples receive repository-wide stable storage order.
+                lowerName.endsWith(".csv.gz") -> {
                     csvLogDecoder.parseCsvLogStreaming(file, sessionId, batcher)
+                }
+                lowerName.endsWith(".csv") -> {
+                    // The native importer validates both wide robot logs and ARES' canonical
+                    // lossless schema. It offsets sample order against any earlier file in this
+                    // session, so overlapping timestamp/topic samples remain deterministic.
+                    csvLogDecoder.parseCsvLogNative(file, sessionId)
                 }
                 lowerName.endsWith(".parquet") -> {
                     parquetLogDecoder.parseParquetLog(file, sessionId)

@@ -3,10 +3,12 @@ package com.ares.analytics.service.log
 import com.ares.analytics.service.DatabaseService
 import com.ares.analytics.service.FrameBatcher
 import kotlinx.coroutines.test.runTest
+import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNotNull
 
 class CsvLogDecoderTest {
 
@@ -248,6 +250,27 @@ class CsvLogDecoderTest {
                 CsvLogDecoder(database).parseCsvLogNative(csv, "session")
             }
             assertEquals(0L, database.countTelemetryFrames("session"))
+        } finally {
+            database.close()
+            tempDir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `paired run fixtures remain importable through the production decoder`() = runTest {
+        val tempDir = Files.createTempDirectory("ares-csv-paired-fixtures").toFile()
+        val database = DatabaseService(tempDir.resolve("telemetry.duckdb").absolutePath)
+        try {
+            listOf("golden-run-a.csv", "golden-run-b.csv").forEachIndexed { index, fixtureName ->
+                val fixture = assertNotNull(
+                    CsvLogDecoderTest::class.java.getResource("/run-comparison/$fixtureName")
+                )
+                val sessionId = "paired-$index"
+
+                CsvLogDecoder(database).parseCsvLogNative(File(fixture.toURI()), sessionId)
+
+                assertEquals(24L, database.countTelemetryFrames(sessionId))
+            }
         } finally {
             database.close()
             tempDir.deleteRecursively()

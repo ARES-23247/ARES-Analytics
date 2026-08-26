@@ -38,6 +38,8 @@ For a local GUI refinement cycle that also creates or builds robot projects, use
 .\scripts\run-local-ares.ps1
 # Before a larger checkpoint:
 .\scripts\run-local-ares.ps1 -FullValidation
+# Keep exploratory UI state out of the normal user profile:
+.\scripts\run-local-ares.ps1 -IsolatedDesktopHome build/weekend-readiness-home
 ```
 
 It assigns a unique local candidate version, publishes ARESLib to the isolated validation repository,

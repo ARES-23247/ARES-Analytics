@@ -273,7 +273,42 @@ class SubsystemGeneratorViewModelTest {
         assertTrue(source.isFile, "Removing metadata must never remove user-owned or starter source")
         assertTrue(viewModel.state.value.documents.isEmpty())
         assertNull(viewModel.state.value.draft)
+        assertEquals(request.recoveryPath, viewModel.state.value.recentRecovery?.recoveryPath)
         assertEquals(root.canonicalPath, generator.projectPath)
+
+        viewModel.restoreRemovedSubsystem()
+
+        assertTrue(root.resolve(".ares/subsystems/indexer.aressubsystem").isFile)
+        assertFalse(root.resolve(request.recoveryPath!!).exists())
+        assertTrue(source.isFile, "Restoring metadata must never replace user-owned or starter source")
+        assertEquals("indexer", viewModel.state.value.draft?.document?.documentId)
+        assertNull(viewModel.state.value.recentRecovery)
+        assertTrue(viewModel.state.value.status.orEmpty().contains("Restored Indexer"))
+        viewModel.close()
+    }
+
+    @Test
+    fun `subsystem recovery refuses to overwrite a replacement descriptor`() {
+        val root = Files.createTempDirectory("ares-subsystem-recovery-conflict").toFile()
+        val repository = SubsystemProjectRepository()
+        repository.save(root.path, minimalSubsystem("Indexer"))
+        val viewModel = SubsystemGeneratorViewModel(
+            root.path,
+            League.FTC,
+            documents = AresProjectDocuments(subsystems = repository),
+        )
+
+        viewModel.requestRemoveSubsystem()
+        val recoveryPath = viewModel.state.value.pendingRemoval!!.recoveryPath!!
+        viewModel.confirmRemoveSubsystem()
+        repository.save(root.path, minimalSubsystem("Replacement"))
+
+        viewModel.restoreRemovedSubsystem()
+
+        assertEquals("Replacement", repository.load(root.path, "indexer").displayName)
+        assertTrue(root.resolve(recoveryPath).isFile)
+        assertTrue(viewModel.state.value.status.orEmpty().contains("already exists", ignoreCase = true))
+        assertTrue(viewModel.state.value.recentRecovery != null)
         viewModel.close()
     }
 
@@ -758,9 +793,10 @@ class SubsystemGeneratorViewModelTest {
         assertTrue(review!!.canApply)
         assertEquals(before.uid, review.proposal.candidate.uid)
         assertEquals(before.implementation, review.proposal.candidate.implementation)
-        assertEquals(before.tuningParameters.single().uid, review.proposal.candidate.tuningParameters.single().uid)
-        assertEquals(before.tuningParameters.single().key, review.proposal.candidate.tuningParameters.single().key)
-        assertEquals(before.tuningParameters.single().componentUid, review.proposal.candidate.tuningParameters.single().componentUid)
+        assertEquals(
+            before.tuningParameters.map { Triple(it.uid, it.key, it.componentUid) },
+            review.proposal.candidate.tuningParameters.map { Triple(it.uid, it.key, it.componentUid) },
+        )
         assertTrue(review.diff.any { it.kind == SubsystemDiffLineKind.ADDED })
         assertEquals(before, requestedBase)
         assertEquals(before, viewModel.state.value.draft!!.document, "Review must not mutate the form")

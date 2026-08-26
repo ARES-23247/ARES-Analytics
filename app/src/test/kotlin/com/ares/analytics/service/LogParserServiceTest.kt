@@ -305,6 +305,45 @@ class LogParserServiceTest {
     }
 
     @Test
+    fun `multi-file canonical CSV import preserves both files with stable sample order`() = runTest {
+        val tempDb = File.createTempFile("log_canonical_overlap_db", ".db").apply { deleteOnExit() }
+        val databaseService = DatabaseService(tempDb.absolutePath)
+        val sysIdService = SysIdService(databaseService)
+        val logParser = LogParserService(
+            databaseService,
+            SummaryEngineService(
+                databaseService,
+                sysIdService,
+                DriverAnalysisService(databaseService, sysIdService),
+            ),
+        )
+        val header = "key,timestamp_ms,timestamp_us,sample_order,value_type,numeric_value,string_value\n"
+        val first = File.createTempFile("canonical_overlap_first", ".csv").apply {
+            writeText(header + "Drive/Velocity,1000,1000000,0,double,1.0,\n")
+        }
+        val second = File.createTempFile("canonical_overlap_second", ".csv").apply {
+            writeText(header + "Drive/Velocity,1000,1000000,0,double,2.0,\n")
+        }
+        try {
+            val session = logParser.parseLogFiles(
+                listOf(first, second),
+                teamId = "23247",
+                seasonId = "2026",
+                robotId = "ares-bot",
+            )
+
+            val samples = databaseService.getTelemetryForKey(session.sessionId, "Drive/Velocity")
+            assertEquals(listOf(1.0, 2.0), samples.map { it.value })
+            assertEquals(listOf(0L, 1L), samples.map { it.sampleOrder })
+        } finally {
+            databaseService.close()
+            first.delete()
+            second.delete()
+            tempDb.delete()
+        }
+    }
+
+    @Test
     fun `compressed WPILOG expansion is bounded before decoder import`() = runTest {
         val tempDb = File.createTempFile("log_xz_bomb_db", ".db").apply { deleteOnExit() }
         val compressed = File.createTempFile("oversized", ".wpilogxz").apply { deleteOnExit() }

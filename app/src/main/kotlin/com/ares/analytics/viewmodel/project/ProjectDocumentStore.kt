@@ -270,6 +270,47 @@ abstract class VersionedProjectDocumentStore<T>(
         }
     }
 
+    /**
+     * Restores the exact descriptor moved by [remove] without overwriting a replacement document.
+     *
+     * The recovery path and full content hash are both checked so a stale UI action cannot restore
+     * different bytes or escape the project-local recovery directory.
+     */
+    fun restoreRemoved(
+        projectPath: String,
+        rawDocumentId: String,
+        expectedContentHash: String,
+        rawRecoveryPath: String,
+    ): T {
+        require(expectedContentHash.matches(Regex("[a-f0-9]{64}"))) { "Invalid recovery confirmation hash" }
+        val id = ProjectDocumentId(rawDocumentId)
+        val currentFile = currentFile(projectPath, id)
+        val recoveryRoot = recoveryDirectory(projectPath, id).canonicalFile
+        val recoveryFile = resolveProjectPath(projectPath, rawRecoveryPath).canonicalFile
+        require(
+            recoveryFile.parentFile == recoveryRoot &&
+                recoveryFile.name.endsWith(".$extension", ignoreCase = true)
+        ) { "Recovery file is outside the reviewed ${kind.displayName.lowercase()} recovery directory" }
+
+        return ProjectDocumentWriteLocks.withLock(currentFile) {
+            require(!currentFile.exists()) {
+                "${kind.displayName.capitalizeForMessage()} '${id.value}' already exists. A recovery restore will never overwrite it."
+            }
+            require(recoveryFile.isFile) { "The reviewed recovery copy no longer exists" }
+            val document = decode(recoveryFile.readText()).also { loaded ->
+                require(documentId(loaded) == id.value) {
+                    "Recovery file '${recoveryFile.name}' declares documentId '${documentId(loaded)}'"
+                }
+            }
+            require(contentHash(document) == expectedContentHash) {
+                "The recovery copy changed after removal. Review it before restoring."
+            }
+            currentFile.parentFile.mkdirs()
+            moveWithoutReplacement(recoveryFile, currentFile)
+            document
+        }
+    }
+
     fun listRevisions(projectPath: String, rawDocumentId: String): List<ProjectRevisionSummary> {
         val id = ProjectDocumentId(rawDocumentId)
         val diagnostics = mutableListOf<ProjectDocumentDiagnostic>()

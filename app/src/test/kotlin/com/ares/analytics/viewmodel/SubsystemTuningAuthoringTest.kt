@@ -84,7 +84,10 @@ class SubsystemTuningAuthoringTest {
                 kG = 0.4,
             ),
         )
-        val configured = base.copy(controlLoops = listOf(loop))
+        // Exercise the optional preset path independently from the recommended parameters that
+        // capability templates now declare by default. Existing declarations are intentionally
+        // never replaced: they may already contain reviewed team values.
+        val configured = base.copy(controlLoops = listOf(loop), tuningParameters = emptyList())
         assertEquals(
             setOf(
                 SubsystemTuningPreset.PID_GAINS,
@@ -120,6 +123,10 @@ class SubsystemTuningAuthoringTest {
             loop.motionProfile.maximumAcceleration,
             withMotion.tuningParameters.single { it.key.endsWith(".maxacceleration") }.defaultValue.doubleValue,
         )
+
+        val templateDefaults = base.tuningParameters
+        val preserved = SubsystemTuningAuthoring.applyPreset(base, base.controlLoops.single().uid, SubsystemTuningPreset.PID_GAINS)
+        assertEquals(templateDefaults, preserved.tuningParameters)
     }
 
     @Test

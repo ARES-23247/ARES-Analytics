@@ -264,14 +264,15 @@ class RunComparisonServiceTest {
         val resource = assertNotNull(javaClass.getResourceAsStream("/run-comparison/$name"))
         return resource.bufferedReader().useLines { lines ->
             lines.drop(1).filter(String::isNotBlank).mapIndexed { index, row ->
-                val columns = row.split(',', limit = 4)
+                val columns = row.split(',', limit = 7)
                 TelemetryFrame(
-                    timestampMs = columns[0].toLong(),
+                    timestampMs = columns[1].toLong(),
                     sessionId = sessionId,
-                    key = columns[1],
-                    value = columns[2].toDouble(),
-                    stringValue = columns.getOrNull(3)?.takeIf(String::isNotBlank),
-                    sampleOrder = index.toLong(),
+                    key = columns[0],
+                    value = columns[5].toDouble(),
+                    stringValue = columns.getOrNull(6)?.takeIf(String::isNotBlank),
+                    timestampUs = columns[2].toLong(),
+                    sampleOrder = columns[3].toLong(),
                 )
             }.toList()
         }

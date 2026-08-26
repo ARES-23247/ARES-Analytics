@@ -109,7 +109,7 @@ class ManagedToolchainService internal constructor(
                     RobotToolchainComponent(
                         name = "FTC Android build tools",
                         readiness = ToolchainReadiness.READY,
-                        detail = "Android platform 30, platform tools, and FTC NDK 21.3 are available.",
+                        detail = "Android platform 30 and platform tools are available. FTC projects package reviewed native libraries and do not require a local NDK to build.",
                         location = sdk.path,
                     )
                 } else {
@@ -394,10 +394,9 @@ object ManagedToolchainPaths {
     private fun isWindows(): Boolean = System.getProperty("os.name").contains("win", ignoreCase = true)
 }
 
-private fun missingFtcAndroidComponents(sdk: File): List<String> = buildList {
+internal fun missingFtcAndroidComponents(sdk: File): List<String> = buildList {
     if (!File(sdk, "platforms/android-30").isDirectory) add("Android platform 30")
     if (!File(sdk, "platform-tools").isDirectory) add("platform tools")
-    if (!File(sdk, "ndk/21.3.6528147").isDirectory) add("NDK 21.3.6528147")
 }
 
 private fun resolveLatestTemurin21(): JdkPackage {

@@ -1,6 +1,7 @@
 param(
     [string]$CandidateVersion = "",
-    [switch]$FullValidation
+    [switch]$FullValidation,
+    [string]$IsolatedDesktopHome = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,7 +42,16 @@ try {
 Write-Host "[ARES] Launching Robotics Studio and forwarding the same candidate to nested robot builds"
 Push-Location $analyticsRoot
 try {
-    & $analyticsGradle :app:run --no-parallel "-ParesVersion=$CandidateVersion" "-ParesRepository=$repositoryUri"
+    $launchArgs = @(
+        ":app:run",
+        "--no-parallel",
+        "-ParesVersion=$CandidateVersion",
+        "-ParesRepository=$repositoryUri"
+    )
+    if (-not [string]::IsNullOrWhiteSpace($IsolatedDesktopHome)) {
+        $launchArgs += "-ParesIsolatedDesktopHome=$IsolatedDesktopHome"
+    }
+    & $analyticsGradle @launchArgs
     if ($LASTEXITCODE -ne 0) {
         throw "ARES Robotics Studio exited with code $LASTEXITCODE."
     }
