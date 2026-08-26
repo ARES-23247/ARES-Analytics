@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.TableChart
@@ -229,6 +230,46 @@ fun SubsystemGeneratorScreen(
             )
 
             state.status?.let { StatusBanner(it, AresGreen) }
+            state.recentRecovery?.let { recovery ->
+                Surface(
+                    color = AresGreen.copy(alpha = 0.08f),
+                    border = BorderStroke(1.dp, AresGreen.copy(alpha = 0.7f)),
+                    shape = RoundedCornerShape(8.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 9.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                "Recovery copy ready for ${recovery.displayName}",
+                                color = AresTextPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                "Restore the exact reviewed descriptor from ${recovery.recoveryPath}. Existing Kotlin remains untouched.",
+                                color = AresTextSecondary,
+                                fontSize = 10.sp,
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = viewModel::restoreRemovedSubsystem,
+                            border = BorderStroke(1.dp, AresGreen),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(headerControlHeight),
+                        ) {
+                            Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Spacer(Modifier.width(5.dp))
+                            Text("Restore subsystem", color = AresTextPrimary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                        TextButton(onClick = viewModel::dismissRecoveryNotice) {
+                            Text("Dismiss", color = AresTextSecondary, fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
             state.generationMessage?.let { message ->
                 val color = when (state.generationPhase) {
                     AresGenerationPhase.FAILED -> AresError

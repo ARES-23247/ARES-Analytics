@@ -104,6 +104,14 @@ data class SubsystemRemovalRequest(
     val discardsUnsavedChanges: Boolean = false,
 )
 
+/** Session-local recovery action for the exact descriptor most recently removed. */
+data class SubsystemRecoveryNotice(
+    val documentId: String,
+    val displayName: String,
+    val contentHash: String,
+    val recoveryPath: String,
+)
+
 data class SubsystemPreviewFile(
     val path: String,
     val sourceSet: GeneratedSubsystemSourceSet,
@@ -332,6 +340,7 @@ data class SubsystemGeneratorState(
     val aiProposalError: String? = null,
     val showTemplatePicker: Boolean = false,
     val pendingRemoval: SubsystemRemovalRequest? = null,
+    val recentRecovery: SubsystemRecoveryNotice? = null,
 ) {
     val canSave: Boolean
         get() = dirty && loadError == null && problems.none { it.severity == SubsystemProblemSeverity.ERROR }
@@ -1347,9 +1356,16 @@ class SubsystemGeneratorViewModel(
             documents.subsystems.remove(current.projectPath, request.documentId, expectedHash)
         }.onSuccess { removed ->
             val root = File(current.projectPath).canonicalFile
+            val recoveryPath = removed.recoveryFile.relativeTo(root).invariantSeparatorsPath
             removeDocumentFromSession(
                 request.documentId,
-                "Removed ${removed.displayName}. Its descriptor is recoverable at ${removed.recoveryFile.relativeTo(root).invariantSeparatorsPath}; Kotlin source was preserved.",
+                "Removed ${removed.displayName}. Kotlin source was preserved.",
+                SubsystemRecoveryNotice(
+                    documentId = removed.documentId,
+                    displayName = removed.displayName,
+                    contentHash = removed.contentHash,
+                    recoveryPath = recoveryPath,
+                ),
             )
             projectGenerator?.generateAresProject(current.projectPath, current.league)
             scope.launch {
@@ -1378,7 +1394,68 @@ class SubsystemGeneratorViewModel(
         }
     }
 
-    private fun removeDocumentFromSession(documentId: String, message: String) {
+    fun restoreRemovedSubsystem() {
+        val current = _state.value
+        val recovery = current.recentRecovery ?: return
+        runCatching {
+            documents.subsystems.restoreRemoved(
+                current.projectPath,
+                recovery.documentId,
+                recovery.contentHash,
+                recovery.recoveryPath,
+            )
+        }.onSuccess { restored ->
+            aiProposalGeneration++
+            val restoredDocuments = (current.documents + restored)
+                .distinctBy(SubsystemDocument::documentId)
+                .sortedWith(compareBy<SubsystemDocument> { it.displayName.lowercase() }.thenBy { it.documentId })
+            _state.update {
+                it.copy(
+                    documents = restoredDocuments,
+                    selectedDocumentId = restored.documentId,
+                    draft = SubsystemEditorDraft(restored),
+                    selectedHardwareUid = restored.hardware.firstOrNull()?.uid,
+                    selectedFieldUid = restored.stateFields.firstOrNull()?.uid,
+                    selectedLoopUid = restored.controlLoops.firstOrNull()?.uid,
+                    selectedInterlockId = restored.interlocks.firstOrNull()?.interlockId,
+                    selectedTuningParameterUid = restored.tuningParameters.firstOrNull()?.uid,
+                    activeStage = SubsystemBuilderStage.PURPOSE,
+                    visitedStages = setOf(SubsystemBuilderStage.PURPOSE),
+                    selectedTemplate = restored.template,
+                    dirty = false,
+                    recentRecovery = null,
+                    status = "Restored ${restored.displayName} from the reviewed recovery copy. Kotlin source was unchanged.",
+                ).revalidated()
+            }
+            projectGenerator?.generateAresProject(current.projectPath, current.league)
+            scope.launch {
+                runCatching {
+                    val root = File(current.projectPath).canonicalFile
+                    checkpointRecorder.checkpoint(
+                        current.projectPath,
+                        "Restored ${restored.displayName} subsystem",
+                        setOf(documents.subsystems.file(current.projectPath, restored.documentId).relativeTo(root).invariantSeparatorsPath),
+                    )
+                }.onFailure { failure ->
+                    _state.update {
+                        it.copy(status = "Subsystem restored, but automatic Project History checkpoint failed: ${failure.message}")
+                    }
+                }
+            }
+        }.onFailure { error ->
+            _state.update {
+                it.copy(status = error.message ?: "The subsystem recovery copy could not be restored.")
+            }
+        }
+    }
+
+    fun dismissRecoveryNotice() = _state.update { it.copy(recentRecovery = null) }
+
+    private fun removeDocumentFromSession(
+        documentId: String,
+        message: String,
+        recovery: SubsystemRecoveryNotice? = null,
+    ) {
         aiProposalGeneration++
         _state.update { current ->
             val remaining = current.documents.filterNot { it.documentId == documentId }
@@ -1397,6 +1474,7 @@ class SubsystemGeneratorViewModel(
                 selectedTemplate = next?.template ?: current.selectedTemplate,
                 dirty = false,
                 pendingRemoval = null,
+                recentRecovery = recovery,
                 status = message,
                 aiProposalInProgress = false,
                 aiProposal = null,

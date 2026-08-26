@@ -47,6 +47,7 @@ fun SubsystemTuningReviewSection(
             SubsystemBuilderStage.CAPABILITIES -> CapabilityInspectorCard(document)
             SubsystemBuilderStage.SIMULATION_AND_TESTING -> VerificationInspectorCard(document, viewModel)
             SubsystemBuilderStage.REVIEW -> {
+                TuningParametersCard(document, state.selectedTuningParameterUid, viewModel)
                 ProblemsCard(state, viewModel)
                 ReviewSummaryCard(document, state)
                 ArtifactPlanCard(state, viewModel)
