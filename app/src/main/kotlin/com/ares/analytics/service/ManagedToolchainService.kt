@@ -398,6 +398,8 @@ object ManagedToolchainPaths {
         val macBundleRoots = listOf(
             File("/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"),
             File("/usr/local/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"),
+            File("/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"),
+            File("/usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"),
             File("/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home"),
             File("/usr/local/opt/openjdk/libexec/openjdk.jdk/Contents/Home"),
         )
