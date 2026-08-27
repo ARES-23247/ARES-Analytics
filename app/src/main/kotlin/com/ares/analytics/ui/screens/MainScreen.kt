@@ -327,6 +327,7 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope,
             repository = services.drivebaseProjectRepository,
             checkpointRecorder = services.projectVersionControlService,
+            projectSession = services.projectSession,
             designAssistant = com.ares.analytics.service.DrivebaseDesignAssistant { current, request ->
                 services.syncEngineService.requestDrivebaseDesignProposal(current, request)
             },
@@ -362,7 +363,7 @@ fun MainScreen(services: ServiceRegistry) {
         )
     }
     val projectIdentityViewModel = remember(currentConfig.id) {
-        ProjectIdentityViewModel(scope = scope)
+        ProjectIdentityViewModel(scope = scope, projectSession = services.projectSession)
     }
     val guidedRunAnalysisViewModel = remember(currentConfig.id) {
         GuidedRunAnalysisViewModel(

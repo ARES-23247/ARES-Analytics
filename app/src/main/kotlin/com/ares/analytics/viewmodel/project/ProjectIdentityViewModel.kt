@@ -4,6 +4,10 @@ import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.service.project.persistence.ProjectMetadataRepository
+import com.ares.analytics.service.project.ProjectSession
+import com.ares.analytics.service.project.ProjectSessionMutationResult
+import com.ares.analytics.service.project.ProjectSessionRevision
+import com.areslib.controls.ControllerInputPlatform
 import com.areslib.project.AresCoordinateConvention
 import com.areslib.project.AresFtcHubCommandTransport
 import com.areslib.project.AresFtcRuntimeOptionsDocument
@@ -73,6 +77,7 @@ data class ProjectIdentityEditorState(
     val workspaceLeague: League = League.FTC,
     val currentDocument: AresProjectMetadataDocument? = null,
     val currentContentHash: String? = null,
+    val projectRevision: ProjectSessionRevision? = null,
     val draft: ProjectIdentityDraft = ProjectIdentityDraft(),
     val fieldErrors: Map<ProjectIdentityField, String> = emptyMap(),
     val generalErrors: List<String> = emptyList(),
@@ -97,6 +102,7 @@ class ProjectIdentityViewModel(
     private val scope: CoroutineScope,
     private val repository: ProjectMetadataRepository = ProjectMetadataRepository(),
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val projectSession: ProjectSession? = null,
 ) {
     private val _state = MutableStateFlow(ProjectIdentityEditorState())
     val state: StateFlow<ProjectIdentityEditorState> = _state.asStateFlow()
@@ -283,7 +289,28 @@ class ProjectIdentityViewModel(
                         error("The selected folder stopped being a valid robot project: $sourceError")
                     }
                     proposal.expectedInvalidRawContentHash?.let { invalidHash ->
-                        repository.repairReviewed(config.projectPath, invalidHash, proposal.document)
+                        when (
+                            val result = projectSession?.repairProjectIdentity(
+                                config.projectPath,
+                                config.league.targetPlatform(),
+                                invalidHash,
+                                proposal.document,
+                            )
+                        ) {
+                            is ProjectSessionMutationResult.Applied -> result.value
+                            is ProjectSessionMutationResult.Stale -> error("The invalid project file changed after review. Review the repair again.")
+                            is ProjectSessionMutationResult.Conflict -> error(result.message)
+                            is ProjectSessionMutationResult.Failed -> error(result.message)
+                            null -> repository.repairReviewed(config.projectPath, invalidHash, proposal.document)
+                        }
+                    } ?: current.projectRevision?.let { revision ->
+                        when (val result = projectSession?.saveProjectIdentity(revision, proposal.document)) {
+                            is ProjectSessionMutationResult.Applied -> result.value
+                            is ProjectSessionMutationResult.Stale -> error("The project changed after this identity loaded. Reload before saving.")
+                            is ProjectSessionMutationResult.Conflict -> error(result.message)
+                            is ProjectSessionMutationResult.Failed -> error(result.message)
+                            null -> repository.saveReviewed(config.projectPath, proposal.expectedContentHash, proposal.document)
+                        }
                     } ?: repository.saveReviewed(config.projectPath, proposal.expectedContentHash, proposal.document)
                 }
             }.onSuccess { saved ->
@@ -295,6 +322,7 @@ class ProjectIdentityViewModel(
                     workspaceLeague = config.league,
                     currentDocument = saved.document,
                     currentContentHash = saved.contentHash,
+                    projectRevision = projectSession?.state?.value?.revision,
                     draft = projectIdentityDraft(config, saved.document),
                     fieldErrors = validation.fieldErrors,
                     generalErrors = validation.generalErrors,
@@ -322,6 +350,9 @@ class ProjectIdentityViewModel(
         val file = repository.file(config.projectPath)
         val currentResult = repository.load(config.projectPath)
         val current = currentResult.getOrNull()
+        val sessionRevision = current?.let {
+            projectSession?.snapshot(config.projectPath, config.league.targetPlatform(), forceReload = true)?.revision
+        }
         val corruptError = currentResult.exceptionOrNull()?.takeIf { file.isFile }
         val corruptHash = corruptError?.let { repository.rawContentHash(config.projectPath) }
         val migrationCandidate = corruptError?.let {
@@ -337,6 +368,7 @@ class ProjectIdentityViewModel(
             workspaceLeague = config.league,
             currentDocument = current,
             currentContentHash = current?.let(AresProjectMetadataCodec::contentHash),
+            projectRevision = sessionRevision,
             draft = draft,
             fieldErrors = validation.fieldErrors,
             generalErrors = validation.generalErrors,
@@ -361,6 +393,11 @@ class ProjectIdentityViewModel(
                 else -> "Loaded the canonical project identity. Stable project ID and platform are protected."
             },
         )
+    }
+
+    private fun League.targetPlatform(): ControllerInputPlatform = when (this) {
+        League.FTC -> ControllerInputPlatform.FTC
+        League.FRC -> ControllerInputPlatform.FRC
     }
 }
 

@@ -1,23 +1,29 @@
 package com.ares.analytics.service.project
 
 import com.ares.analytics.service.ProcessManagerService
+import com.ares.analytics.service.drivebase.DrivebaseDocument
+import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.service.project.persistence.ProjectDocumentRemovalPlan
 import com.ares.analytics.service.project.persistence.RemovedProjectDocument
 import com.ares.analytics.service.project.persistence.SavedProjectRevision
+import com.ares.analytics.service.project.persistence.SavedProjectMetadata
+import com.ares.analytics.service.project.persistence.SavedSuperstructureDocument
 import com.ares.analytics.service.project.persistence.VersionedProjectDocumentStore
 import com.areslib.controls.ControlSchemeDocument
 import com.areslib.controls.ControllerInputPlatform
 import com.areslib.controls.ControllerProfileDocument
 import com.areslib.project.AresLeague
+import com.areslib.project.AresProjectMetadataDocument
 import com.areslib.project.model.ProjectModelSeverity
 import com.areslib.routine.AutonomousCatalogDocument
 import com.areslib.routine.AutonomousCatalogEntry
 import com.areslib.routine.RoutineDocument
 import com.areslib.simulation.SimulationProductId
 import com.areslib.subsystem.SubsystemDocument
+import com.areslib.superstructure.SuperstructureDocument
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.locks.ReentrantLock
@@ -92,6 +98,7 @@ enum class RemovableProjectDocumentKind {
  */
 class ProjectSession(
     private val projectDocuments: AresProjectDocuments = AresProjectDocuments(),
+    private val drivebaseRepository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
 ) {
     private val lock = ReentrantLock()
     private var nextRevisionSequence = 0L
@@ -217,6 +224,85 @@ class ProjectSession(
             expectedContentHash,
             recoveryRelativePath,
         )
+    }
+
+    fun saveProjectIdentity(
+        expectedRevision: ProjectSessionRevision,
+        document: AresProjectMetadataDocument,
+    ): ProjectSessionMutationResult<SavedProjectMetadata> = mutate(expectedRevision, "Saving project identity") { current ->
+        projectDocuments.metadata.saveReviewed(
+            current.selection.projectRoot,
+            current.documents.query.metadata?.let(com.areslib.project.AresProjectMetadataCodec::contentHash),
+            document,
+        )
+    }
+
+    /**
+     * Repairs an unreadable identity document through the session boundary. An invalid project has
+     * no assembled [ProjectSessionRevision], so the exact raw-byte hash is its fail-closed revision
+     * token. The repository preserves the invalid bytes before replacement and the session only
+     * becomes READY after the repaired project can be loaded as one stable snapshot.
+     */
+    fun repairProjectIdentity(
+        projectPath: String,
+        targetPlatform: ControllerInputPlatform,
+        expectedRawContentHash: String,
+        document: AresProjectMetadataDocument,
+    ): ProjectSessionMutationResult<SavedProjectMetadata> = lock.withLock {
+        val selected = selection(projectPath, targetPlatform)
+        val currentSelection = _state.value.selection
+        if (currentSelection != null && currentSelection != selected) {
+            return ProjectSessionMutationResult.Conflict(
+                "A different robot project is open. Reload this workspace before repairing its identity.",
+            )
+        }
+        _state.value = _state.value.copy(
+            selection = selected,
+            operation = "Repairing project identity",
+            error = null,
+        )
+        runCatching {
+            val saved = projectDocuments.metadata.repairReviewed(
+                selected.projectRoot,
+                expectedRawContentHash,
+                document,
+            )
+            saved to loadLocked(selected, "Refreshing project after identity repair")
+        }.fold(
+            onSuccess = { (saved, refreshed) -> ProjectSessionMutationResult.Applied(saved, refreshed) },
+            onFailure = { error ->
+                _state.value = ProjectSessionState(
+                    phase = ProjectSessionPhase.ERROR,
+                    selection = selected,
+                    error = error.message ?: "Project identity repair failed.",
+                )
+                ProjectSessionMutationResult.Failed(error.message ?: "Project identity repair failed.")
+            },
+        )
+    }
+
+    fun saveSuperstructure(
+        expectedRevision: ProjectSessionRevision,
+        document: SuperstructureDocument,
+        expectedContentHash: String?,
+    ): ProjectSessionMutationResult<SavedSuperstructureDocument> = mutate(expectedRevision, "Saving superstructure") { current ->
+        val project = current.documents.query
+        projectDocuments.superstructures.save(
+            current.selection.projectRoot,
+            document,
+            expectedContentHash,
+            project.subsystems,
+            project.actions.mapTo(linkedSetOf()) { it.key },
+            project.actions.asSequence().filter { it.parameters.isEmpty() }.mapTo(linkedSetOf()) { it.key },
+        )
+    }
+
+    fun saveDrivebase(
+        expectedRevision: ProjectSessionRevision,
+        expectedContentHash: String?,
+        document: DrivebaseDocument,
+    ): ProjectSessionMutationResult<DrivebaseDocument> = mutate(expectedRevision, "Saving drivebase") { current ->
+        drivebaseRepository.saveReviewed(current.selection.projectRoot, expectedContentHash, document)
     }
 
     fun removalPlan(

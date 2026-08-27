@@ -6,6 +6,8 @@ import com.ares.analytics.service.project.persistence.CapabilityCatalogProjectRe
 import com.ares.analytics.service.project.persistence.ProjectDocumentRemovalPlan
 import com.ares.analytics.service.project.persistence.ProjectMetadataRepository
 import com.ares.analytics.service.project.persistence.RemovedProjectDocument
+import com.ares.analytics.service.drivebase.DrivebaseKind
+import com.ares.analytics.service.drivebase.defaultDrivebase
 import com.areslib.catalog.CapabilityCatalogDocument
 import com.areslib.controls.ControlSchemeDocument
 import com.areslib.controls.ControllerAnchorDocument
@@ -153,6 +155,47 @@ class ProjectSessionTest {
     }
 
     @Test
+    fun `invalid identity repair is hash bound and becomes one ready session snapshot`() = withProject { root ->
+        val metadata = ProjectMetadataRepository()
+        metadata.file(root.path).apply {
+            parentFile.mkdirs()
+            writeText("{\"projectId\":null}")
+        }
+        val rawHash = metadata.rawContentHash(root.path)
+        val session = ProjectSession()
+
+        val result = session.repairProjectIdentity(
+            root.path,
+            ControllerInputPlatform.FTC,
+            rawHash,
+            metadataDocument("repaired"),
+        )
+
+        val applied = assertIs<ProjectSessionMutationResult.Applied<*>>(result)
+        assertEquals("repaired", applied.snapshot.documents.query.metadata?.projectId)
+        assertEquals(ProjectSessionPhase.READY, session.state.value.phase)
+        assertTrue(File(root, ".ares/recovery/project/$rawHash.raw").isFile)
+    }
+
+    @Test
+    fun `drivebase save is revision bound and refreshes tuning plus drivetrain as one project view`() = withProject { root ->
+        seedProject(root, "drive-project")
+        val session = ProjectSession()
+        val opened = session.snapshot(root.path, ControllerInputPlatform.FTC)
+
+        val result = session.saveDrivebase(
+            opened.revision,
+            expectedContentHash = null,
+            defaultDrivebase("drive-project", DrivebaseKind.FTC_MECANUM),
+        )
+
+        val applied = assertIs<ProjectSessionMutationResult.Applied<*>>(result)
+        assertEquals(1, applied.snapshot.documents.effectiveProject.raw.drivetrains.size)
+        assertTrue(File(root, ".ares/drivetrains").listFiles().orEmpty().single().isFile)
+        assertTrue(File(root, ".ares/tuning").listFiles().orEmpty().isNotEmpty())
+    }
+
+    @Test
     fun `execution coordinator derives the simulator product from the effective project`() = withProject { root ->
         seedProject(root, "robot")
         val gateway = RecordingProjectProcessGateway()
@@ -183,22 +226,24 @@ class ProjectSessionTest {
     private fun seedProject(root: File, projectId: String) {
         ProjectMetadataRepository().save(
             root.path,
-            AresProjectMetadataDocument(
-                projectId = projectId,
-                identity = AresProjectIdentityDocument("23247", "2026", projectId, projectId),
-                league = AresLeague.FTC,
-                coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
-                robotLengthMeters = 0.46,
-                robotWidthMeters = 0.46,
-                fieldLengthMeters = 3.6576,
-                fieldWidthMeters = 3.6576,
-            ),
+            metadataDocument(projectId),
         )
         CapabilityCatalogProjectRepository().save(
             root.path,
             CapabilityCatalogDocument(projectId = projectId, actions = emptyList()),
         )
     }
+
+    private fun metadataDocument(projectId: String) = AresProjectMetadataDocument(
+        projectId = projectId,
+        identity = AresProjectIdentityDocument("23247", "2026", projectId, projectId),
+        league = AresLeague.FTC,
+        coordinateConvention = AresCoordinateConvention.CENTER_ORIGIN_CCW,
+        robotLengthMeters = 0.46,
+        robotWidthMeters = 0.46,
+        fieldLengthMeters = 3.6576,
+        fieldWidthMeters = 3.6576,
+    )
 
     private fun controllerProfile() = ControllerProfileDocument(
         documentId = "gamepad",

@@ -54,7 +54,11 @@ class ServiceRegistry {
     val drivebaseProjectRepository by lazy { com.ares.analytics.service.drivebase.DrivebaseProjectRepository() }
     val tuningProfileRepository by lazy { com.ares.analytics.service.tuning.TuningProfileRepository() }
     val guidedTuningExperimentRepository by lazy { com.ares.analytics.service.tuning.GuidedTuningExperimentRepository() }
-    val projectSession by lazy { com.ares.analytics.service.project.ProjectSession() }
+    val projectSession by lazy {
+        com.ares.analytics.service.project.ProjectSession(
+            drivebaseRepository = drivebaseProjectRepository,
+        )
+    }
     val projectExecutionCoordinator by lazy {
         com.ares.analytics.service.project.ProjectExecutionCoordinator(
             projectSession,

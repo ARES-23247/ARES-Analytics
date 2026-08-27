@@ -3,6 +3,9 @@ package com.ares.analytics.viewmodel.drivebase
 import com.ares.analytics.service.DrivebaseDesignAssistant
 import com.ares.analytics.service.DrivebaseDesignProposal
 import com.ares.analytics.service.drivebase.*
+import com.ares.analytics.service.project.ProjectSession
+import com.ares.analytics.service.project.ProjectSessionMutationResult
+import com.ares.analytics.service.project.ProjectSessionRevision
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.shared.League
 import com.areslib.drivetrain.DrivetrainDocumentCodec
@@ -62,6 +65,7 @@ data class DrivebaseBuilderState(
     val projectPath: String,
     val projectId: String,
     val league: League,
+    val projectRevision: ProjectSessionRevision? = null,
     val saved: DrivebaseDocument? = null,
     val draft: DrivebaseDocument = defaultDrivebase(projectId, defaultNoCodeDrivebaseKind(league)),
     val step: DrivebaseBuilderStep = DrivebaseBuilderStep.DRIVE_TYPE,
@@ -119,6 +123,7 @@ class DrivebaseBuilderViewModel(
     private val repository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
     private val designAssistant: DrivebaseDesignAssistant? = null,
     private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
+    private val projectSession: ProjectSession? = null,
 ) {
     private val canonicalProjectId = canonicalRuntimeProjectUid(projectPath, projectId, league)
     private val _state = MutableStateFlow(DrivebaseBuilderState(projectPath, canonicalProjectId, league))
@@ -208,7 +213,24 @@ class DrivebaseBuilderViewModel(
 
     private fun load() = scope.launch {
         _state.update { it.copy(loading = true, error = null) }
-        val result = withContext(Dispatchers.IO) { repository.load(_state.value.projectPath) }
+        val loaded = withContext(Dispatchers.IO) {
+            runCatching {
+                val state = _state.value
+                val sessionSnapshot = projectSession?.snapshot(
+                    state.projectPath,
+                    state.league.targetPlatform(),
+                    forceReload = true,
+                )
+                val saved = sessionSnapshot?.documents?.effectiveProject?.raw?.drivetrains
+                    ?.also { require(it.size <= 1) { "This project has multiple drivetrain documents. Choose one explicitly before editing." } }
+                    ?.singleOrNull()
+                    ?.toUiDrivebase()
+                    ?: repository.load(state.projectPath).getOrThrow()
+                saved to sessionSnapshot?.revision
+            }
+        }
+        val result = loaded.map { it.first }
+        val sessionRevision = loaded.getOrNull()?.second
         result.fold(
             onSuccess = { saved ->
                 val draftResult = runCatching {
@@ -233,6 +255,7 @@ class DrivebaseBuilderViewModel(
                 _state.update {
                     it.copy(
                         saved = saved,
+                        projectRevision = sessionRevision,
                         draft = draft,
                         issues = validateDrivebaseForLeague(draft, it.league),
                         loading = false,
@@ -531,10 +554,23 @@ class DrivebaseBuilderViewModel(
             return@launch
         }
         runCatching {
-            withContext(Dispatchers.IO) { repository.saveReviewed(state.projectPath, currentHash, state.draft) }
+            withContext(Dispatchers.IO) {
+                val session = projectSession
+                val revision = state.projectRevision
+                if (session != null && revision != null) {
+                    when (val result = session.saveDrivebase(revision, currentHash, state.draft)) {
+                        is ProjectSessionMutationResult.Applied -> result.value to result.snapshot.revision
+                        is ProjectSessionMutationResult.Stale -> error("The project changed after this drivebase loaded. Reload before saving.")
+                        is ProjectSessionMutationResult.Conflict -> error(result.message)
+                        is ProjectSessionMutationResult.Failed -> error(result.message)
+                    }
+                } else {
+                    repository.saveReviewed(state.projectPath, currentHash, state.draft) to null
+                }
+            }
         }.fold(
-            onSuccess = { saved ->
-                _state.update { it.copy(saved = saved, draft = saved, saveReview = null, tuningProfileRepairIssues = emptyList(), status = "Saved reviewed drivebase ${saved.canonical?.let(com.areslib.drivetrain.DrivetrainDocumentCodec::contentHash)?.take(12)}. No robot or vendor source was written.", error = null, dirty = false) }
+            onSuccess = { (saved, revision) ->
+                _state.update { it.copy(saved = saved, draft = saved, projectRevision = revision ?: it.projectRevision, saveReview = null, tuningProfileRepairIssues = emptyList(), status = "Saved reviewed drivebase ${saved.canonical?.let(com.areslib.drivetrain.DrivetrainDocumentCodec::contentHash)?.take(12)}. No robot or vendor source was written.", error = null, dirty = false) }
                 scope.launch {
                     runCatching {
                         checkpointRecorder.checkpoint(
@@ -551,6 +587,11 @@ class DrivebaseBuilderViewModel(
         )
     }
 
+}
+
+private fun League.targetPlatform() = when (this) {
+    League.FTC -> com.areslib.controls.ControllerInputPlatform.FTC
+    League.FRC -> com.areslib.controls.ControllerInputPlatform.FRC
 }
 
 internal fun canonicalRuntimeProjectUid(projectPath: String, fallback: String, league: League): String {

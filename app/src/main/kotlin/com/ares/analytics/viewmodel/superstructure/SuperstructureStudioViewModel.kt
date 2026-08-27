@@ -6,6 +6,8 @@ import com.ares.analytics.service.project.persistence.ProjectDocumentDiagnostic
 import com.ares.analytics.service.project.persistence.SuperstructureProjectRepository
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.service.project.ProjectSession
+import com.ares.analytics.service.project.ProjectSessionMutationResult
+import com.ares.analytics.service.project.ProjectSessionRevision
 import com.areslib.catalog.ActionDescriptor
 import com.areslib.subsystem.SubsystemDocument
 import com.areslib.subsystem.SubsystemFieldRole
@@ -65,6 +67,7 @@ data class SuperstructureStudioState(
     val selectedId: String? = null,
     val saved: SuperstructureDocument? = null,
     val savedContentHash: String? = null,
+    val projectRevision: ProjectSessionRevision? = null,
     val draft: SuperstructureDocument? = null,
     val subsystems: List<SubsystemDocument> = emptyList(),
     val actions: List<ActionDescriptor> = emptyList(),
@@ -139,6 +142,7 @@ class SuperstructureStudioViewModel(
                         selectedId = selected?.superstructureId,
                         saved = selected,
                         savedContentHash = selected?.let(SuperstructureDocumentCodec::contentHash),
+                        projectRevision = projectSession?.state?.value?.revision,
                         draft = selected,
                         subsystems = project.subsystems,
                         actions = project.actions,
@@ -582,24 +586,29 @@ class SuperstructureStudioViewModel(
             _state.update { it.copy(loading = true, error = null) }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val currentProject = loadProjectDocuments(forceReload = true)
-                    val project = currentProject.query
-                    repository.save(
-                        state.projectPath,
-                        draft,
-                        review.expectedContentHash,
-                        project.subsystems,
-                        project.actions.mapTo(linkedSetOf()) { it.key },
-                        project.actions.asSequence()
-                            .filter { it.parameters.isEmpty() }
-                            .mapTo(linkedSetOf()) { it.key },
-                    )
+                    val session = projectSession
+                    val revision = state.projectRevision
+                    if (session != null && revision != null) {
+                        when (val result = session.saveSuperstructure(revision, draft, review.expectedContentHash)) {
+                            is ProjectSessionMutationResult.Applied -> result.value
+                            is ProjectSessionMutationResult.Stale -> error("The project changed after this coordinator loaded. Reload before saving.")
+                            is ProjectSessionMutationResult.Conflict -> error(result.message)
+                            is ProjectSessionMutationResult.Failed -> error(result.message)
+                        }
+                    } else {
+                        val project = loadProjectDocuments(forceReload = true).query
+                        repository.save(
+                            state.projectPath,
+                            draft,
+                            review.expectedContentHash,
+                            project.subsystems,
+                            project.actions.mapTo(linkedSetOf()) { it.key },
+                            project.actions.asSequence().filter { it.parameters.isEmpty() }.mapTo(linkedSetOf()) { it.key },
+                        )
+                    }
                 }
             }
             result.onSuccess { saved ->
-                targetPlatform?.let { target ->
-                    projectSession?.snapshot(state.projectPath, target, forceReload = true)
-                }
                 val documents = (state.documents.filterNot { it.superstructureId == saved.document.superstructureId } + saved.document)
                     .sortedBy { it.displayName.lowercase() }
                 _state.value = validate(
@@ -608,6 +617,7 @@ class SuperstructureStudioViewModel(
                         selectedId = saved.document.superstructureId,
                         saved = saved.document,
                         savedContentHash = saved.contentHash,
+                        projectRevision = projectSession?.state?.value?.revision ?: state.projectRevision,
                         draft = saved.document,
                         loading = false,
                         dirty = false,
