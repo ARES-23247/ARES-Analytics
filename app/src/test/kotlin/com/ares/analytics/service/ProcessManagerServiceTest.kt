@@ -19,6 +19,22 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class ProcessManagerServiceTest {
+    @Test
+    fun `unix Gradle wrapper normalization removes CRLF from Windows-authored starters`() {
+        val root = Files.createTempDirectory("ares-gradlew-crlf-test").toFile()
+        try {
+            val wrapper = File(root, "gradlew").apply {
+                writeBytes("#!/usr/bin/env bash\r\necho ready\r\n".toByteArray())
+            }
+
+            normalizeUnixGradleWrapper(wrapper)
+
+            assertEquals("#!/usr/bin/env bash\necho ready\n", wrapper.readText())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
 
     @Test
     fun `only the known transient Gradle cache handoff is eligible for one automatic retry`() {

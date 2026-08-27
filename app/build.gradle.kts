@@ -115,7 +115,16 @@ dependencies {
 
     // Gamepad Support (LWJGL / GLFW — no external SDL dependency)
     val lwjglVersion = "3.4.2"
-    val lwjglNatives = "natives-windows"
+    val lwjglOs = System.getProperty("os.name").lowercase()
+    val lwjglArch = System.getProperty("os.arch").lowercase()
+    val lwjglNatives = when {
+        lwjglOs.contains("win") -> "natives-windows"
+        lwjglOs.contains("mac") && (lwjglArch.contains("aarch64") || lwjglArch.contains("arm64")) -> "natives-macos-arm64"
+        lwjglOs.contains("mac") -> "natives-macos"
+        lwjglOs.contains("linux") && (lwjglArch.contains("aarch64") || lwjglArch.contains("arm64")) -> "natives-linux-arm64"
+        lwjglOs.contains("linux") -> "natives-linux"
+        else -> error("Unsupported LWJGL platform: ${System.getProperty("os.name")} ${System.getProperty("os.arch")}")
+    }
     implementation("org.lwjgl:lwjgl:$lwjglVersion")
     implementation("org.lwjgl:lwjgl-glfw:$lwjglVersion")
     runtimeOnly("org.lwjgl:lwjgl:$lwjglVersion:$lwjglNatives")
@@ -679,4 +688,3 @@ tasks.register<Test>("dashboardHardware") {
         includeTestsMatching("com.ares.analytics.validation.HardwareDashboardValidationTest")
     }
 }
-

@@ -885,6 +885,7 @@ fun MainScreen(services: ServiceRegistry) {
                         }
 
                         ExecutionToolbar(
+                            projectPath = currentConfig.projectPath,
                             targetSelection = targetSelection,
                             targetIp = if (targetSelection == TargetSelection.LOCAL_SIM || isSimRunning) "127.0.0.1" else liveRobotIp,
                             isLiveRobotOnline = isLiveRobotOnline,

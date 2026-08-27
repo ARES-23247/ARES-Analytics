@@ -264,6 +264,7 @@ class ProcessManagerService internal constructor(
         try {
             val projectRoot = requireSafeProjectRoot(projectPath)
             val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
+            requireProjectGradleWrapper(projectRoot, isWindows)
             val command = verificationBuildCommand(league, isWindows)
             val pendingRun = VerificationRunStore.begin(
                 projectRoot = projectRoot,
@@ -918,6 +919,11 @@ class ProcessManagerService internal constructor(
         require(wrapperJar.isFile && wrapperJar.toPath().startsWith(root.toPath())) {
             "This directory does not contain gradle/wrapper/gradle-wrapper.jar"
         }
+        if (isWindows) return
+        normalizeUnixGradleWrapper(wrapperScript)
+        check(wrapperScript.setExecutable(true, false) || wrapperScript.canExecute()) {
+            "Could not make ${wrapperScript.path} executable"
+        }
     }
 
     /**
@@ -1423,4 +1429,9 @@ internal fun isTransientGradleCacheMoveFailure(line: String): Boolean {
     return normalized.contains("could not move temporary workspace") ||
         (normalized.contains("temporary workspace") && normalized.contains("immutable location"))
 }
-
+internal fun normalizeUnixGradleWrapper(wrapper: File) {
+    val bytes = wrapper.readBytes()
+    if (bytes.contains('\r'.code.toByte())) {
+        wrapper.writeBytes(bytes.filterNot { it == '\r'.code.toByte() }.toByteArray())
+    }
+}

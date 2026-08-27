@@ -52,11 +52,11 @@ import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.ui.theme.AresTextTertiary
 import com.ares.analytics.viewmodel.ImportCenterIntent
 import com.ares.analytics.viewmodel.ImportCenterViewModel
+import java.io.File
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
-import java.io.File
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
 
@@ -215,13 +215,13 @@ fun ImportCenterScreen(
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("Bring in your first run", color = AresTextPrimary, fontWeight = FontWeight.Bold)
                         Text(
-                            "Use Choose log files above for a guided import. You can also place a completed log in $projectPath\\logs; " +
+                            "Use Choose log files above for a guided import. You can also place a completed log in ${File(projectPath, "logs").path}; " +
                                 "ARES waits until it stops changing and then imports it automatically. Connected robots are checked when available.",
                             color = AresTextSecondary,
                             fontSize = 12.sp
                         )
                         Text(
-                            "Successful files move to logs\\imported; failures stay recoverable in logs\\quarantine.",
+                            "Successful files move to ${File("logs", "imported").path}; failures stay recoverable in ${File("logs", "quarantine").path}.",
                             color = AresTextTertiary,
                             fontSize = 11.sp
                         )

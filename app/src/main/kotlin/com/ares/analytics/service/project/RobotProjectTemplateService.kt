@@ -609,7 +609,15 @@ class RobotProjectTemplateService(
                 }
             }
             check(entryCount > 0 && archiveRoot != null) { "The starter archive was empty." }
-            File(destination, "gradlew").takeIf(File::isFile)?.setExecutable(true, false)
+            File(destination, "gradlew").takeIf(File::isFile)?.let { wrapper ->
+                // Official starter ZIPs are also consumed on Windows and may carry CRLF. A CR in
+                // the shebang makes macOS look for an executable literally named `bash\r`.
+                val bytes = wrapper.readBytes()
+                if (bytes.contains('\r'.code.toByte())) {
+                    wrapper.writeBytes(bytes.filterNot { it == '\r'.code.toByte() }.toByteArray())
+                }
+                wrapper.setExecutable(true, false)
+            }
         }
 
         private val WINDOWS_RESERVED_NAMES = buildSet {

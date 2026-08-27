@@ -96,7 +96,7 @@ class ManagedToolchainService internal constructor(
                 detail = if (ManagedToolchainPaths.managedJdkInstallationSupported()) {
                     "Install a private, verified Eclipse Temurin JDK for this Windows account."
                 } else {
-                    "Install JDK 21 and set JAVA_HOME. Managed installation is currently available on Windows x64."
+                    "Install JDK 21. ARES automatically discovers macOS Java bundles and Homebrew installations; JAVA_HOME is optional."
                 },
             )
         }
@@ -241,6 +241,8 @@ class ManagedToolchainService internal constructor(
 
 /** Shared child-process environment used by builds, generation, simulation, and deployment. */
 object ManagedToolchainPaths {
+    const val JDK_21_DOWNLOAD_URL = "https://adoptium.net/temurin/releases/?version=21&package=jdk"
+
     fun rootDirectory(): File = System.getProperty("ares.toolchains.root")
         ?.takeIf(String::isNotBlank)
         ?.let(::File)
@@ -253,10 +255,19 @@ object ManagedToolchainPaths {
     fun resolveJavaHome(): File? {
         val managed = activeManagedJavaHome()
         if (managed != null) return managed
-        return System.getenv("JAVA_HOME")
+        val configured = System.getenv("JAVA_HOME")
             ?.takeIf(String::isNotBlank)
             ?.let(::File)
             ?.takeIf(::isCompleteJdk)
+        if (configured != null) return configured
+
+        // Apps started by Finder/Launch Services do not inherit variables exported by a login
+        // shell. Check the standard macOS bundles and Homebrew's stable opt symlinks so users do
+        // not have to launch the app from Terminal just to make a supported JDK visible.
+        return systemJavaHomes()
+            .filter(::isCompleteJdk)
+            .sortedByDescending { jdkMajorVersion(it) }
+            .firstOrNull()
     }
 
     fun javaExecutable(): File? = resolveJavaHome()?.let { home ->
@@ -297,9 +308,10 @@ object ManagedToolchainPaths {
             } else {
                 add(File("/usr/lib/jvm"))
                 add(File("/Library/Java/JavaVirtualMachines"))
+                add(File(System.getProperty("user.home"), "Library/Java/JavaVirtualMachines"))
             }
         }
-        return (directCandidates + installationRoots.flatMap { root -> root.listFiles().orEmpty().toList() })
+        return (directCandidates + systemJavaHomes() + installationRoots.flatMap { root -> root.listFiles().orEmpty().toList() })
             .mapNotNull { candidate -> runCatching { candidate.canonicalFile }.getOrNull() }
             .filter(::isCompleteJdk)
             .distinctBy { it.path.lowercase(Locale.ROOT) }
@@ -364,6 +376,38 @@ object ManagedToolchainPaths {
         return File(home, "bin/$javaName").isFile &&
             File(home, "bin/$javacName").isFile &&
             jdkMajorVersion(home) in setOf(17, 21)
+    }
+
+    private fun systemJavaHomes(): List<File> {
+        if (isWindows()) return emptyList()
+        val registeredMacHomes = if (System.getProperty("os.name").contains("mac", ignoreCase = true)) {
+            listOf(21, 17).mapNotNull { version ->
+                runCatching {
+                    ProcessBuilder("/usr/libexec/java_home", "-v", version.toString())
+                        .redirectErrorStream(true)
+                        .start()
+                        .let { process ->
+                            val output = process.inputStream.bufferedReader().readText().trim()
+                            if (process.waitFor() == 0 && output.isNotBlank()) File(output.lineSequence().last()) else null
+                        }
+                }.getOrNull()
+            }
+        } else {
+            emptyList()
+        }
+        val macBundleRoots = listOf(
+            File("/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"),
+            File("/usr/local/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"),
+            File("/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"),
+            File("/usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"),
+            File("/opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home"),
+            File("/usr/local/opt/openjdk/libexec/openjdk.jdk/Contents/Home"),
+        )
+        val installedBundles = listOf(
+            File("/Library/Java/JavaVirtualMachines"),
+            File(System.getProperty("user.home"), "Library/Java/JavaVirtualMachines"),
+        ).flatMap { root -> root.listFiles().orEmpty().map { File(it, "Contents/Home") } }
+        return (registeredMacHomes + macBundleRoots + installedBundles).distinctBy { it.absolutePath }
     }
 
     private fun jdkMajorVersion(home: File): Int? {
