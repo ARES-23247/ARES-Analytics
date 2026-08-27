@@ -7,6 +7,9 @@ import com.ares.analytics.viewmodel.AutonomousTourStep
 import com.ares.analytics.viewmodel.AutonomousTourTarget
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
 import com.ares.analytics.viewmodel.project.RoutineProjectRepository
+import com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository
+import com.ares.analytics.viewmodel.project.SubsystemProjectRepository
+import com.areslib.catalog.CapabilityCatalogDocument
 import com.ares.analytics.viewmodel.routine.GuidedFirstRoutinePlan
 import com.ares.analytics.viewmodel.routine.defaultGuidedFirstRoutinePlan
 import com.ares.analytics.viewmodel.routine.validateGuidedFirstRoutinePlan
@@ -15,6 +18,9 @@ import com.areslib.routine.RoutineDocument
 import com.areslib.routine.RoutinePose
 import com.areslib.routine.RoutineStep
 import com.areslib.routine.RoutineStepKind
+import com.areslib.subsystem.SubsystemPlatform
+import com.areslib.subsystem.SubsystemTemplate
+import com.areslib.subsystem.SubsystemTemplates
 import java.nio.file.Files
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -30,6 +36,44 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RoutineBuilderViewModelTest {
+    @Test
+    fun `autonomous builder loads the same derived subsystem actions as controller bindings`() = runTest {
+        val project = Files.createTempDirectory("ares-routine-derived-actions-").toFile()
+        try {
+            CapabilityCatalogProjectRepository().save(
+                project.path,
+                CapabilityCatalogDocument(projectId = "lightbot"),
+            )
+            SubsystemProjectRepository().save(
+                project.path,
+                SubsystemTemplates.create(
+                    SubsystemTemplate.INDICATOR_LIGHT_PWM,
+                    documentId = "left-light",
+                    kotlinTypeName = "LeftLight",
+                    platform = SubsystemPlatform.FTC,
+                ),
+            )
+            val viewModel = PathPlannerViewModel(this)
+
+            viewModel.onIntent(PathPlannerIntent.RefreshProject(project.path, League.FTC))
+            withContext(Dispatchers.Default.limitedParallelism(1)) {
+                withTimeout(5_000) { viewModel.state.first { !it.projectLoading && it.capabilityCatalog != null } }
+            }
+
+            val catalogKeys = viewModel.state.value.capabilityCatalog?.actions.orEmpty().map { it.key }
+            val autonomousKeys = viewModel.state.value.routineActions.map { it.key }
+            assertTrue("subsystem.left-light.set.targetColor" in catalogKeys)
+            assertTrue("subsystem.left-light.cycleForward.targetColor" in catalogKeys)
+            assertTrue("subsystem.left-light.cycleBackward.targetColor" in catalogKeys)
+            assertTrue("subsystem.left-light.set.targetColor" in autonomousKeys)
+            assertTrue("subsystem.left-light.cycleForward.targetColor" in autonomousKeys)
+            assertTrue("subsystem.left-light.cycleBackward.targetColor" in autonomousKeys)
+            assertTrue("subsystem.left-light.recover.neutral" !in autonomousKeys)
+        } finally {
+            project.deleteRecursively()
+        }
+    }
+
     @Test
     fun `guided first routine creates only an unsaved safe canonical draft`() = runTest {
         val viewModel = PathPlannerViewModel(this)

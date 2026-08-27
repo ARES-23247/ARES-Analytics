@@ -8,6 +8,7 @@ import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
 import com.ares.analytics.viewmodel.project.ProjectMetadataRepository
+import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataDocument
 import com.ares.analytics.viewmodel.project.AutonomousCatalogProjectRepository
@@ -233,6 +234,12 @@ class PathPlannerViewModel(
     private val autonomousRepository = AutonomousCatalogProjectRepository(routineRepository)
     private val capabilityRepository = com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository()
     private val metadataRepository = ProjectMetadataRepository()
+    private val projectDocuments = AresProjectDocuments(
+        routines = routineRepository,
+        capabilities = capabilityRepository,
+        metadata = metadataRepository,
+        autonomous = autonomousRepository,
+    )
     private val trajectoryPlanner = TrajectoryPlanner(listOf(JerkLimitedTrajectoryProvider))
     init {
         projectGenerator?.let { generator ->
@@ -631,11 +638,14 @@ class PathPlannerViewModel(
     private suspend fun refreshRoutineProject(projectPath: String, league: League, generation: Long) {
         runCatching {
             withContext(Dispatchers.IO) {
-                val routines = routineRepository.list(projectPath)
-                val catalog = capabilityRepository.load(projectPath).getOrNull()
-                val autonomous = autonomousRepository.load(projectPath).getOrNull()
-                val metadata = metadataRepository.load(projectPath).getOrNull()
-                RoutineRefresh(routines.documents, routines.diagnostics.map { it.message }, catalog, autonomous, metadata)
+                val snapshot = projectDocuments.load(projectPath)
+                RoutineRefresh(
+                    snapshot.routines,
+                    snapshot.diagnostics.map { it.message },
+                    snapshot.capabilityCatalog,
+                    snapshot.autonomousCatalog,
+                    snapshot.projectMetadata,
+                )
             }
         }.onSuccess { refresh ->
             if (!isCurrentProjectRequest(projectPath, generation)) return@onSuccess
@@ -673,7 +683,7 @@ class PathPlannerViewModel(
                     availableRoutines = refresh.routines,
                     capabilityCatalog = catalog,
                     routineActions = catalog?.actions
-                        ?.filter { CapabilityContext.AUTONOMOUS in it.allowedContexts || CapabilityContext.TELEOP in it.allowedContexts }
+                        ?.filter { CapabilityContext.AUTONOMOUS in it.allowedContexts }
                         .orEmpty(),
                     routineConditions = catalog?.conditions.orEmpty(),
                     autonomousEntry = currentEntry,
