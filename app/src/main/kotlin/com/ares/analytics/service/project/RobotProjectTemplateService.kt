@@ -360,10 +360,10 @@ class RobotProjectTemplateService(
         val drivetrains = drivetrainFiles.associateWith { file -> DrivetrainDocumentCodec.decode(file.readText()) }
         val projectUid = runtimeProjectUid(request)
         val drivebaseUidMap = drivetrains.values.associate { drivetrain ->
-            drivetrain.uid to "$projectUid.drivebase.${uidSegment(drivetrain.drivebaseId, "primary")}"
+            drivetrain.uid to "$projectUid.drivebase.${uidSegment(drivetrain.drivebaseId, "primary", maxLength = 13)}"
         }
         val profileUidMap = originalTuning.profiles.associate { profile ->
-            profile.uid to "$projectUid.profile.${uidSegment(profile.profileId, "competition")}"
+            profile.uid to "$projectUid.profile.${uidSegment(profile.profileId, "competition", maxLength = 15)}"
         }
 
         drivetrains.forEach { (file, drivetrain) ->
@@ -421,20 +421,39 @@ class RobotProjectTemplateService(
         DrivebaseProjectRepository().load(root.path).getOrThrow()
     }
 
-    private fun runtimeProjectUid(request: RobotProjectCreationRequest): String = listOf(
-        "team${request.teamId.filter(Char::isDigit)}",
-        request.league.name.lowercase(),
-        uidSegment("season${request.seasonId}", "seasonunknown"),
-        uidSegment(request.robotId, "robot"),
-    ).joinToString(".")
+    private fun runtimeProjectUid(request: RobotProjectCreationRequest): String = boundedStableId(
+        value = listOf(
+            "team${request.teamId.filter(Char::isDigit)}",
+            request.league.name.lowercase(),
+            uidSegment("season${request.seasonId}", "seasonunknown"),
+            uidSegment(request.robotId, "robot"),
+        ).joinToString("."),
+        maxLength = 40,
+    )
 
-    private fun uidSegment(value: String, fallback: String): String {
+    private fun uidSegment(value: String, fallback: String, maxLength: Int = 64): String {
         val normalized = value.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
-        return when {
+        val stable = when {
             normalized.isBlank() -> fallback
             normalized.first().isLetter() -> normalized
             else -> "id$normalized"
         }
+        return boundedStableId(stable, maxLength)
+    }
+
+    /**
+     * Keeps composed canonical IDs inside the 64-character project-schema boundary without
+     * making long team/robot names collide merely because their visible prefixes are equal.
+     */
+    private fun boundedStableId(value: String, maxLength: Int): String {
+        require(maxLength >= 10) { "Stable ID limits must leave room for a fingerprint." }
+        if (value.length <= maxLength) return value
+        val fingerprint = MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .take(4)
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        val prefix = value.take(maxLength - fingerprint.length - 1).trimEnd('.', '-', '_')
+        return "$prefix-$fingerprint"
     }
 
     private fun writeTextAtomically(file: File, content: String) {
