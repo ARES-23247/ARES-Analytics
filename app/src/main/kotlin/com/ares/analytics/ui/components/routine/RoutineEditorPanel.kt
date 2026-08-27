@@ -32,6 +32,7 @@ import com.ares.analytics.viewmodel.routine.GuidedFirstRoutinePlan
 import com.ares.analytics.viewmodel.routine.defaultGuidedFirstRoutinePlan
 import com.ares.analytics.viewmodel.routine.validateGuidedFirstRoutinePlan
 import com.ares.analytics.service.AresGenerationPhase
+import com.ares.analytics.service.project.persistence.ProjectRevisionSummary
 import com.areslib.catalog.ActionDescriptor
 import com.areslib.catalog.CapabilityParameterDescriptor
 import com.areslib.catalog.CapabilityParameterType

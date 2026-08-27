@@ -9,13 +9,13 @@ import com.ares.analytics.service.project.AresProjectDocuments
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
-import com.ares.analytics.viewmodel.project.ProjectMetadataRepository
+import com.ares.analytics.service.project.persistence.ProjectMetadataRepository
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataDocument
 import com.areslib.controls.ControllerInputPlatform
-import com.ares.analytics.viewmodel.project.AutonomousCatalogProjectRepository
-import com.ares.analytics.viewmodel.project.ProjectRevisionSummary
-import com.ares.analytics.viewmodel.project.RoutineProjectRepository
+import com.ares.analytics.service.project.persistence.AutonomousCatalogProjectRepository
+import com.ares.analytics.service.project.persistence.ProjectRevisionSummary
+import com.ares.analytics.service.project.persistence.RoutineProjectRepository
 import com.ares.analytics.viewmodel.routine.clampRoutinePose
 import com.ares.analytics.viewmodel.routine.clampDriveTargets
 import com.ares.analytics.viewmodel.routine.defaultRoutineStep

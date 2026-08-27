@@ -3,6 +3,7 @@ package com.ares.analytics.viewmodel.project
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.util.ProjectLayout
+import com.ares.analytics.service.project.persistence.ProjectMetadataRepository
 import com.areslib.project.AresCoordinateConvention
 import com.areslib.project.AresFtcHubCommandTransport
 import com.areslib.project.AresFtcRuntimeOptionsDocument

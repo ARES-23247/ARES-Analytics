@@ -2,8 +2,10 @@ package com.ares.analytics.service.project
 
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
-import com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository
-import com.ares.analytics.viewmodel.project.ProjectMetadataRepository
+import com.ares.analytics.service.project.persistence.CapabilityCatalogProjectRepository
+import com.ares.analytics.service.project.persistence.ProjectDocumentRemovalPlan
+import com.ares.analytics.service.project.persistence.ProjectMetadataRepository
+import com.ares.analytics.service.project.persistence.RemovedProjectDocument
 import com.areslib.catalog.CapabilityCatalogDocument
 import com.areslib.controls.ControlSchemeDocument
 import com.areslib.controls.ControllerAnchorDocument
@@ -116,7 +118,7 @@ class ProjectSessionTest {
                 RemovableProjectDocumentKind.CONTROL_SCHEME,
                 "teleop",
             ),
-        ).value as com.ares.analytics.viewmodel.project.ProjectDocumentRemovalPlan
+        ).value as ProjectDocumentRemovalPlan
         val removed = assertIs<ProjectSessionMutationResult.Applied<*>>(
             session.remove(
                 saved.snapshot.revision,
@@ -124,7 +126,7 @@ class ProjectSessionTest {
                 "teleop",
                 plan.contentHash,
             ),
-        ).value as com.ares.analytics.viewmodel.project.RemovedProjectDocument
+        ).value as RemovedProjectDocument
 
         assertFalse(removed.removedFile.exists())
         assertTrue(removed.recoveryFile.isFile)

@@ -4,7 +4,7 @@ import com.ares.analytics.service.drivebase.DrivebaseKind
 import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
 import com.ares.analytics.service.drivebase.defaultDrivebase
 import com.ares.analytics.shared.League
-import com.ares.analytics.viewmodel.project.SubsystemProjectRepository
+import com.ares.analytics.service.project.persistence.SubsystemProjectRepository
 import com.areslib.drivetrain.DrivetrainComponentDocument
 import com.areslib.drivetrain.DrivetrainComponentRole
 import com.areslib.drivetrain.DrivetrainDocumentCodec

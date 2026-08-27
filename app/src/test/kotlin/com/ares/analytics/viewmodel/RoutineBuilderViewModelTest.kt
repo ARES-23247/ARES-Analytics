@@ -7,9 +7,9 @@ import com.ares.analytics.viewmodel.AutonomousTourStep
 import com.ares.analytics.viewmodel.AutonomousTourTarget
 import com.ares.analytics.viewmodel.controls.ControlsEditorViewModel
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
-import com.ares.analytics.viewmodel.project.RoutineProjectRepository
-import com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository
-import com.ares.analytics.viewmodel.project.SubsystemProjectRepository
+import com.ares.analytics.service.project.persistence.RoutineProjectRepository
+import com.ares.analytics.service.project.persistence.CapabilityCatalogProjectRepository
+import com.ares.analytics.service.project.persistence.SubsystemProjectRepository
 import com.areslib.catalog.CapabilityCatalogDocument
 import com.ares.analytics.viewmodel.routine.GuidedFirstRoutinePlan
 import com.ares.analytics.viewmodel.routine.defaultGuidedFirstRoutinePlan

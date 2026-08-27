@@ -2,8 +2,8 @@ package com.ares.analytics.viewmodel.superstructure
 
 import com.ares.analytics.service.project.AresProjectDocumentSnapshot
 import com.ares.analytics.service.project.AresProjectDocuments
-import com.ares.analytics.viewmodel.project.ProjectDocumentDiagnostic
-import com.ares.analytics.viewmodel.project.SuperstructureProjectRepository
+import com.ares.analytics.service.project.persistence.ProjectDocumentDiagnostic
+import com.ares.analytics.service.project.persistence.SuperstructureProjectRepository
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.service.project.ProjectSession
 import com.areslib.catalog.ActionDescriptor

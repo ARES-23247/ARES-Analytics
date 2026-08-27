@@ -9,8 +9,8 @@ import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.service.project.ProjectSession
 import com.ares.analytics.service.project.AresProjectDocuments
 import com.ares.analytics.shared.League
-import com.ares.analytics.viewmodel.project.ProjectDocumentKind
-import com.ares.analytics.viewmodel.project.ProjectDocumentRemovalPlan
+import com.ares.analytics.service.project.persistence.ProjectDocumentKind
+import com.ares.analytics.service.project.persistence.ProjectDocumentRemovalPlan
 import com.areslib.codegen.GeneratedSubsystemSourceSet
 import com.areslib.codegen.SubsystemArtifact
 import com.areslib.codegen.SubsystemArtifactGroup

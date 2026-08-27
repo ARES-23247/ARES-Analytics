@@ -8,9 +8,9 @@ import com.ares.analytics.shared.GamePieceType
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.Obstacle
 import com.ares.analytics.util.ProjectLayout
-import com.ares.analytics.viewmodel.project.AtomicProjectFileWriter
-import com.ares.analytics.viewmodel.project.ProjectDocumentWriteLocks
-import com.ares.analytics.viewmodel.project.resolveProjectPath
+import com.ares.analytics.service.project.persistence.AtomicProjectFileWriter
+import com.ares.analytics.service.project.persistence.ProjectDocumentWriteLocks
+import com.ares.analytics.service.project.persistence.resolveProjectPath
 import com.areslib.state.RobotFieldConfig
 import com.areslib.state.RobotFieldDocument
 import java.io.File
