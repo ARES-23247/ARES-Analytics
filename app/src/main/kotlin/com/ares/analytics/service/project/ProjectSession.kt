@@ -217,6 +217,20 @@ class ProjectSession(
         }
     }
 
+    /** Restores one reviewed routine revision as a new canonical revision. */
+    fun restoreRoutineRevision(
+        expectedRevision: ProjectSessionRevision,
+        documentId: String,
+        contentHash: String,
+    ): ProjectSessionMutationResult<SavedProjectRevision<RoutineDocument>> =
+        mutate(expectedRevision, "Restoring autonomous routine") { current ->
+            projectDocuments.routines.restore(
+                current.selection.projectRoot,
+                documentId,
+                contentHash,
+            )
+        }
+
     fun saveSubsystem(
         expectedRevision: ProjectSessionRevision,
         document: SubsystemDocument,

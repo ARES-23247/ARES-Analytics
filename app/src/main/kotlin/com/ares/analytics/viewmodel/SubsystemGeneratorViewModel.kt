@@ -1345,7 +1345,26 @@ class SubsystemGeneratorViewModel(
                 return
             }
         val plan: ProjectDocumentRemovalPlan? = if (canonicalFile.isFile) {
-            runCatching { documents.subsystems.removalPlan(current.projectPath, draft.documentId) }
+            runCatching {
+                val session = projectSession
+                val revision = current.projectRevision
+                if (session != null && revision != null) {
+                    when (val result = session.removalPlan(
+                        revision,
+                        com.ares.analytics.service.project.RemovableProjectDocumentKind.SUBSYSTEM,
+                        draft.documentId,
+                    )) {
+                        is ProjectSessionMutationResult.Applied -> result.value
+                        is ProjectSessionMutationResult.Stale -> error(
+                            "The project changed after this subsystem loaded. Reload before reviewing removal.",
+                        )
+                        is ProjectSessionMutationResult.Conflict -> error(result.message)
+                        is ProjectSessionMutationResult.Failed -> error(result.message)
+                    }
+                } else {
+                    documents.subsystems.removalPlan(current.projectPath, draft.documentId)
+                }
+            }
                 .getOrElse { error ->
                     _state.update {
                         it.copy(status = error.message ?: "The saved subsystem could not be reviewed for removal.")

@@ -8,6 +8,7 @@ import com.ares.analytics.service.project.persistence.CapabilityCatalogProjectRe
 import com.ares.analytics.service.project.persistence.ProjectDocumentRemovalPlan
 import com.ares.analytics.service.project.persistence.ProjectMetadataRepository
 import com.ares.analytics.service.project.persistence.RemovedProjectDocument
+import com.ares.analytics.service.project.persistence.SavedProjectRevision
 import com.ares.analytics.service.drivebase.DrivebaseKind
 import com.ares.analytics.service.drivebase.defaultDrivebase
 import com.areslib.catalog.CapabilityCatalogDocument
@@ -23,6 +24,8 @@ import com.areslib.project.AresCoordinateConvention
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectIdentityDocument
 import com.areslib.project.AresProjectMetadataDocument
+import com.areslib.routine.RoutineDocument
+import com.areslib.routine.RoutineStep
 import com.areslib.simulation.SimulationProductId
 import java.io.File
 import java.nio.file.Files
@@ -198,6 +201,33 @@ class ProjectSessionTest {
     }
 
     @Test
+    fun `routine restore is revision bound and restores history as a new canonical revision`() = withProject { root ->
+        seedProject(root, "routine-project")
+        val session = ProjectSession()
+        val opened = session.snapshot(root.path, ControllerInputPlatform.FTC)
+        val first = assertIs<ProjectSessionMutationResult.Applied<SavedRoutineDocuments>>(
+            session.saveRoutine(opened.revision, routine("First", 0.5), null),
+        )
+        val second = assertIs<ProjectSessionMutationResult.Applied<SavedRoutineDocuments>>(
+            session.saveRoutine(first.snapshot.revision, routine("Second", 1.0), null),
+        )
+
+        val restored = assertIs<ProjectSessionMutationResult.Applied<SavedProjectRevision<RoutineDocument>>>(
+            session.restoreRoutineRevision(
+                second.snapshot.revision,
+                "practice",
+                first.value.routine.contentHash,
+            ),
+        )
+
+        assertEquals("First", restored.value.document.name)
+        assertEquals(3, restored.value.document.revision)
+        assertIs<ProjectSessionMutationResult.Stale>(
+            session.restoreRoutineRevision(second.snapshot.revision, "practice", first.value.routine.contentHash),
+        )
+    }
+
+    @Test
     fun `execution coordinator derives the simulator product from the effective project`() = withProject { root ->
         seedProject(root, "robot")
         val gateway = RecordingProjectProcessGateway()
@@ -284,6 +314,12 @@ class ProjectSessionTest {
         name = "TeleOp",
         controllers = listOf(ControllerAssignment("driver", "Driver", profileId, 0)),
         bindings = emptyList(),
+    )
+
+    private fun routine(name: String, waitSeconds: Double) = RoutineDocument(
+        documentId = "practice",
+        name = name,
+        steps = listOf(RoutineStep.wait(waitSeconds, stepId = "wait")),
     )
 
     private fun workspace(root: File, league: League) = WorkspaceConfig(

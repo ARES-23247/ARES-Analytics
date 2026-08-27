@@ -326,26 +326,37 @@ class PathPlannerViewModel(
                     recalculateRoutinePreview()
                 }
                 is PathPlannerIntent.UpdateCanonicalRobotDimensions -> {
-                    val metadata = _state.value.projectMetadata
+                    val current = _state.value
+                    val metadata = current.projectMetadata
                     val projectPath = loadedPathFor(intent.projectPath, "updating robot dimensions")
                     if (metadata != null && projectPath != null) {
                         val dimensions = intent.robotDimensions.normalized()
-                        withContext(Dispatchers.IO) {
-                            metadataRepository.save(
-                                projectPath,
-                                metadata.copy(
-                                    robotLengthMeters = dimensions.lengthMeters,
-                                    robotWidthMeters = dimensions.widthMeters
-                                )
-                            )
+                        val updatedMetadata = metadata.copy(
+                            robotLengthMeters = dimensions.lengthMeters,
+                            robotWidthMeters = dimensions.widthMeters,
+                        )
+                        val savedRevision = withContext(Dispatchers.IO) {
+                            val session = projectSession
+                            val revision = current.projectRevision
+                            if (session != null && revision != null) {
+                                when (val result = session.saveProjectIdentity(revision, updatedMetadata)) {
+                                    is ProjectSessionMutationResult.Applied -> result.snapshot.revision
+                                    is ProjectSessionMutationResult.Stale -> error(
+                                        "The project changed after the autonomous editor loaded. Reload before changing the robot footprint.",
+                                    )
+                                    is ProjectSessionMutationResult.Conflict -> error(result.message)
+                                    is ProjectSessionMutationResult.Failed -> error(result.message)
+                                }
+                            } else {
+                                metadataRepository.save(projectPath, updatedMetadata)
+                                null
+                            }
                         }
                         _state.update { current ->
                             current.copy(
-                                projectMetadata = metadata.copy(
-                                    robotLengthMeters = dimensions.lengthMeters,
-                                    robotWidthMeters = dimensions.widthMeters
-                                ),
+                                projectMetadata = updatedMetadata,
                                 robotDimensions = dimensions,
+                                projectRevision = savedRevision ?: current.projectRevision,
                                 saveStatus = "Saved canonical robot footprint to .ares/project.json"
                             )
                         }
@@ -881,19 +892,38 @@ class PathPlannerViewModel(
 
     private suspend fun restoreRoutine(projectPath: String?, contentHash: String) {
         val activeProjectPath = loadedPathFor(projectPath, "restoring a routine") ?: return
-        val documentId = _state.value.routine.documentId
+        val current = _state.value
+        val documentId = current.routine.documentId
         runCatching {
             withContext(Dispatchers.IO) {
-                val restored = routineRepository.restore(activeProjectPath, documentId, contentHash)
-                restored to routineRepository.listRevisions(activeProjectPath, documentId)
+                val session = projectSession
+                val revision = current.projectRevision
+                val restored = if (session != null && revision != null) {
+                    when (val result = session.restoreRoutineRevision(revision, documentId, contentHash)) {
+                        is ProjectSessionMutationResult.Applied -> result.value to result.snapshot.revision
+                        is ProjectSessionMutationResult.Stale -> error(
+                            "The project changed after this routine loaded. Reload before restoring.",
+                        )
+                        is ProjectSessionMutationResult.Conflict -> error(result.message)
+                        is ProjectSessionMutationResult.Failed -> error(result.message)
+                    }
+                } else {
+                    routineRepository.restore(activeProjectPath, documentId, contentHash) to null
+                }
+                Triple(
+                    restored.first,
+                    routineRepository.listRevisions(activeProjectPath, documentId),
+                    restored.second,
+                )
             }
-        }.onSuccess { (restored, revisions) ->
+        }.onSuccess { (restored, revisions, projectRevision) ->
             if (!isLoadedProject(activeProjectPath)) return@onSuccess
             _state.update { current ->
                 current.copy(
                     routine = restored.document,
                     routineDirty = false,
                     routineRevisions = revisions,
+                    projectRevision = projectRevision ?: current.projectRevision,
                     routineValidation = routineEditorValidation(
                         restored.document,
                         current.capabilityCatalog,
