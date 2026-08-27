@@ -1,5 +1,7 @@
 package com.ares.analytics.viewmodel.field
 
+import com.ares.analytics.service.project.persistence.FieldDocumentStore
+
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.FTCCoordinateSystem
 import com.ares.analytics.shared.GamePiece

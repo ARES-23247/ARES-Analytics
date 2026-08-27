@@ -3,6 +3,9 @@ package com.ares.analytics.service.project
 import com.ares.analytics.service.ProcessManagerService
 import com.ares.analytics.service.drivebase.DrivebaseDocument
 import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
+import com.ares.analytics.service.tuning.RobotTuningProfile
+import com.ares.analytics.service.tuning.TuningProfileChange
+import com.ares.analytics.service.tuning.TuningProfileRepository
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.util.ProjectLayout
@@ -11,6 +14,7 @@ import com.ares.analytics.service.project.persistence.RemovedProjectDocument
 import com.ares.analytics.service.project.persistence.SavedProjectRevision
 import com.ares.analytics.service.project.persistence.SavedProjectMetadata
 import com.ares.analytics.service.project.persistence.SavedSuperstructureDocument
+import com.ares.analytics.service.project.persistence.FieldDocumentStore
 import com.ares.analytics.service.project.persistence.VersionedProjectDocumentStore
 import com.areslib.controls.ControlSchemeDocument
 import com.areslib.controls.ControllerInputPlatform
@@ -24,6 +28,8 @@ import com.areslib.routine.RoutineDocument
 import com.areslib.simulation.SimulationProductId
 import com.areslib.subsystem.SubsystemDocument
 import com.areslib.superstructure.SuperstructureDocument
+import com.areslib.state.RobotFieldConfig
+import com.areslib.tuning.TuningParameterDeclaration
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.locks.ReentrantLock
@@ -99,6 +105,7 @@ enum class RemovableProjectDocumentKind {
 class ProjectSession(
     private val projectDocuments: AresProjectDocuments = AresProjectDocuments(),
     private val drivebaseRepository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
+    private val tuningRepository: TuningProfileRepository = TuningProfileRepository(),
 ) {
     private val lock = ReentrantLock()
     private var nextRevisionSequence = 0L
@@ -303,6 +310,41 @@ class ProjectSession(
         document: DrivebaseDocument,
     ): ProjectSessionMutationResult<DrivebaseDocument> = mutate(expectedRevision, "Saving drivebase") { current ->
         drivebaseRepository.saveReviewed(current.selection.projectRoot, expectedContentHash, document)
+    }
+
+    fun saveField(
+        expectedRevision: ProjectSessionRevision,
+        league: League,
+        document: RobotFieldConfig,
+    ): ProjectSessionMutationResult<Unit> = mutate(expectedRevision, "Saving field") { current ->
+        val expectedTarget = when (league) {
+            League.FTC -> ControllerInputPlatform.FTC
+            League.FRC -> ControllerInputPlatform.FRC
+        }
+        require(current.selection.targetPlatform == expectedTarget) {
+            "The field league does not match the selected robot project."
+        }
+        FieldDocumentStore.save(current.selection.projectRoot, league, document)
+    }
+
+    fun promoteTuningProfile(
+        expectedRevision: ProjectSessionRevision,
+        current: RobotTuningProfile,
+        expectedContentHash: String,
+        declarations: List<TuningParameterDeclaration>,
+        changes: List<TuningProfileChange>,
+        reviewedBy: String,
+        reviewSummary: String,
+    ): ProjectSessionMutationResult<RobotTuningProfile> = mutate(expectedRevision, "Promoting tuning profile") { snapshot ->
+        tuningRepository.promote(
+            snapshot.selection.projectRoot,
+            current,
+            expectedContentHash,
+            declarations,
+            changes,
+            reviewedBy,
+            reviewSummary,
+        )
     }
 
     fun removalPlan(

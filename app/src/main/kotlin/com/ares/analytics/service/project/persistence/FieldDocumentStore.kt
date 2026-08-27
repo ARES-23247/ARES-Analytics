@@ -1,4 +1,4 @@
-package com.ares.analytics.viewmodel.field
+package com.ares.analytics.service.project.persistence
 
 import com.ares.analytics.shared.AprilTagPlacement
 import com.ares.analytics.shared.FieldImageConfig
@@ -8,9 +8,7 @@ import com.ares.analytics.shared.GamePieceType
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.Obstacle
 import com.ares.analytics.util.ProjectLayout
-import com.ares.analytics.service.project.persistence.AtomicProjectFileWriter
-import com.ares.analytics.service.project.persistence.ProjectDocumentWriteLocks
-import com.ares.analytics.service.project.persistence.resolveProjectPath
+import com.ares.analytics.viewmodel.field.FieldDocumentMapper
 import com.areslib.state.RobotFieldConfig
 import com.areslib.state.RobotFieldDocument
 import java.io.File
@@ -23,37 +21,41 @@ internal data class LoadedFieldDocument(
     val gamePieces: List<GamePiece>,
     val gamePieceTypes: List<GamePieceType>,
     val aprilTags: List<AprilTagPlacement>,
-    val fieldWaypoints: List<FieldWaypoint>
+    val fieldWaypoints: List<FieldWaypoint>,
 )
 
-/**
- * Owns canonical `field.json` persistence. Older split editor files are intentionally ignored.
- *
- * Student-authored field revisions are checkpointed under `.ares/history/fields`. A malformed
- * current document is never silently replaced: callers must repair or restore it first, preserving
- * the exact bytes that explain the failure.
- */
+/** Canonical, history-preserving owner of the single project field document. */
 internal object FieldDocumentStore {
     fun load(projectPath: String, league: League): LoadedFieldDocument {
         val canonicalFile = ProjectLayout.fieldDefinitionFile(projectPath, league)
-        if (canonicalFile.isFile) {
-            return RobotFieldDocument.decode(canonicalFile.readText()).toLoaded()
+        return if (canonicalFile.isFile) {
+            fromDocument(RobotFieldDocument.decode(canonicalFile.readText()))
+        } else {
+            fromDocument(
+                FieldDocumentMapper.newDocument(
+                    league,
+                    FieldDocumentMapper.defaultImageConfig(league),
+                ),
+            )
         }
-
-        return FieldDocumentMapper.newDocument(
-            league,
-            FieldDocumentMapper.defaultImageConfig(league)
-        ).toLoaded()
     }
+
+    fun fromDocument(document: RobotFieldConfig): LoadedFieldDocument = LoadedFieldDocument(
+        document = document,
+        imageConfig = FieldDocumentMapper.image(document),
+        obstacles = FieldDocumentMapper.obstacles(document),
+        gamePieces = FieldDocumentMapper.gamePieces(document),
+        gamePieceTypes = FieldDocumentMapper.gamePieceTypes(document),
+        aprilTags = FieldDocumentMapper.aprilTags(document),
+        fieldWaypoints = FieldDocumentMapper.fieldWaypoints(document),
+    )
 
     fun save(projectPath: String, league: League, document: RobotFieldConfig) {
         val encoded = RobotFieldDocument.encode(document)
         val validated = RobotFieldDocument.decode(encoded)
         val canonicalFile = ProjectLayout.fieldDefinitionFile(projectPath, league)
         ProjectDocumentWriteLocks.withLock(canonicalFile) {
-            val previous = canonicalFile.takeIf(File::isFile)?.let { file ->
-                RobotFieldDocument.decode(file.readText())
-            }
+            val previous = canonicalFile.takeIf(File::isFile)?.let { RobotFieldDocument.decode(it.readText()) }
             if (previous != null) checkpoint(projectPath, previous)
             checkpoint(projectPath, validated)
             if (previous != validated || !canonicalFile.isFile) {
@@ -61,16 +63,6 @@ internal object FieldDocumentStore {
             }
         }
     }
-
-    private fun RobotFieldConfig.toLoaded(): LoadedFieldDocument = LoadedFieldDocument(
-        document = this,
-        imageConfig = FieldDocumentMapper.image(this),
-        obstacles = FieldDocumentMapper.obstacles(this),
-        gamePieces = FieldDocumentMapper.gamePieces(this),
-        gamePieceTypes = FieldDocumentMapper.gamePieceTypes(this),
-        aprilTags = FieldDocumentMapper.aprilTags(this),
-        fieldWaypoints = FieldDocumentMapper.fieldWaypoints(this)
-    )
 
     private fun checkpoint(projectPath: String, document: RobotFieldConfig) {
         val encoded = RobotFieldDocument.encode(document)

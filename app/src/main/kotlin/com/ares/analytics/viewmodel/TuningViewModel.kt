@@ -3,6 +3,10 @@ package com.ares.analytics.viewmodel
 import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.tuning.*
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
+import com.ares.analytics.service.project.ProjectSession
+import com.ares.analytics.service.project.ProjectSessionMutationResult
+import com.ares.analytics.service.project.ProjectSessionRevision
+import com.areslib.controls.ControllerInputPlatform
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -27,6 +31,7 @@ data class TuningState(
     /** Runtime support keyed by stable declaration UID. Missing means an older/unknown robot. */
     val consumerSupportByUid: Map<String, Boolean> = emptyMap(),
     val projectPath: String = "",
+    val projectRevision: ProjectSessionRevision? = null,
     val catalog: TuningComponentCatalog = emptyList(),
     val profiles: List<RobotTuningProfile> = emptyList(),
     val selectedProfileId: String = "competition",
@@ -83,6 +88,8 @@ class TuningViewModel(
     private val repository: TuningProfileRepository = TuningProfileRepository(),
     proposalInbox: TuningProposalInbox? = null,
     private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
+    private val projectSession: ProjectSession? = null,
+    private val targetPlatform: ControllerInputPlatform? = null,
 ) {
     private var requestNonce = 0L
     /** Serializes multi-parameter live tests so every Requested value receives a unique nonce. */
@@ -185,11 +192,19 @@ class TuningViewModel(
             return@launch
         }
         _state.update { it.copy(isLoading = true, projectPath = projectPath, errorMessage = null) }
-        val result = withContext(Dispatchers.IO) { repository.load(projectPath) }
+        val loaded = withContext(Dispatchers.IO) {
+            runCatching {
+                val snapshot = targetPlatform?.let { projectSession?.snapshot(projectPath, it, forceReload = true) }
+                repository.load(projectPath).getOrThrow() to snapshot?.revision
+            }
+        }
+        val result = loaded.map { it.first }
+        val projectRevision = loaded.getOrNull()?.second
         result.fold(onSuccess = { docs ->
             val selected = docs.profiles.firstOrNull { it.profileId == _state.value.selectedProfileId } ?: docs.profiles.firstOrNull()
             _state.update { it.copy(
                 catalog = docs.catalog,
+                projectRevision = projectRevision,
                 profiles = docs.profiles,
                 selectedProfileId = selected?.profileId.orEmpty(),
                 proposals = emptyMap(), proposalProvenance = emptyMap(), review = null,
@@ -351,10 +366,35 @@ class TuningViewModel(
             _state.update { it.copy(errorMessage = "The confirmation is missing or stale. Review a fresh structured diff.") }
             return@launch
         }
-        runCatching { withContext(Dispatchers.IO) { repository.promote(state.projectPath, profile, review.baseContentHash, state.catalog, review.changes, review.reviewedBy, review.reviewSummary) } }
-            .fold(onSuccess = { promoted ->
+        runCatching {
+            withContext(Dispatchers.IO) {
+                val session = projectSession
+                val revision = state.projectRevision
+                if (session != null && revision != null) {
+                    when (
+                        val result = session.promoteTuningProfile(
+                            revision,
+                            profile,
+                            review.baseContentHash,
+                            state.catalog,
+                            review.changes,
+                            review.reviewedBy,
+                            review.reviewSummary,
+                        )
+                    ) {
+                        is ProjectSessionMutationResult.Applied -> result.value to result.snapshot.revision
+                        is ProjectSessionMutationResult.Stale -> error("The project changed after this tuning profile loaded. Reload before promotion.")
+                        is ProjectSessionMutationResult.Conflict -> error(result.message)
+                        is ProjectSessionMutationResult.Failed -> error(result.message)
+                    }
+                } else {
+                    repository.promote(state.projectPath, profile, review.baseContentHash, state.catalog, review.changes, review.reviewedBy, review.reviewSummary) to null
+                }
+            }
+        }
+            .fold(onSuccess = { (promoted, revision) ->
                 val profiles = state.profiles.map { if (it.profileId == promoted.profileId) promoted else it }
-                _state.update { it.copy(profiles = profiles, proposals = emptyMap(), proposalProvenance = emptyMap(), review = null, reviewerName = "", reviewSummary = "", saveStatus = "Promoted canonical profile atomically. Robot values were not pushed.", errorMessage = null) }
+                _state.update { it.copy(profiles = profiles, projectRevision = revision ?: it.projectRevision, proposals = emptyMap(), proposalProvenance = emptyMap(), review = null, reviewerName = "", reviewSummary = "", saveStatus = "Promoted canonical profile atomically. Robot values were not pushed.", errorMessage = null) }
                 scope.launch {
                     runCatching {
                         recordTuningPromotionCheckpoint(

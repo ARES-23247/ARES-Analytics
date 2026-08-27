@@ -211,7 +211,11 @@ fun MainScreen(services: ServiceRegistry) {
         )
     }
     val fieldEditorViewModel = remember(currentConfig.id) {
-        FieldEditorViewModel(scope = scope, nt4ClientService = services.nt4ClientService)
+        FieldEditorViewModel(
+            scope = scope,
+            nt4ClientService = services.nt4ClientService,
+            projectSession = services.projectSession,
+        )
     }
     val sysIdViewModel = remember(currentConfig.id) {
         SysIdViewModel(
@@ -231,6 +235,11 @@ fun MainScreen(services: ServiceRegistry) {
             repository = services.tuningProfileRepository,
             proposalInbox = services.tuningProposalInbox,
             checkpointRecorder = services.projectVersionControlService,
+            projectSession = services.projectSession,
+            targetPlatform = when (currentConfig.league) {
+                League.FTC -> com.areslib.controls.ControllerInputPlatform.FTC
+                League.FRC -> com.areslib.controls.ControllerInputPlatform.FRC
+            },
         )
     }
     LaunchedEffect(currentConfig.league) {
