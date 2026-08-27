@@ -55,9 +55,14 @@ object CliDriverLauncher {
 
     internal fun unixScript(root: File, initScript: File): String = buildString {
         appendLine("#!/bin/bash")
-        ManagedToolchainPaths.resolveJavaHome()?.let { appendLine("export JAVA_HOME=${shellQuote(it.path)}") }
-        appendLine("cd ${shellQuote(root.path)} || exit 1")
-        appendLine("exec ./gradlew -I ${shellQuote(initScript.path)} :simulator:runAresCliDriver --console=plain")
+        ManagedToolchainPaths.resolveJavaHome()?.let {
+            appendLine("export JAVA_HOME=${shellQuote(it.invariantSeparatorsPath)}")
+        }
+        appendLine("cd ${shellQuote(root.invariantSeparatorsPath)} || exit 1")
+        appendLine(
+            "exec ./gradlew -I ${shellQuote(initScript.invariantSeparatorsPath)} " +
+                ":simulator:runAresCliDriver --console=plain",
+        )
     }
 
     internal fun gradleInitScript(target: String): String = """
