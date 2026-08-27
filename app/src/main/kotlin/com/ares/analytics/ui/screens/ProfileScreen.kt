@@ -38,12 +38,11 @@ import com.ares.analytics.shared.DriveDestinationType
 import com.ares.analytics.shared.WorkspaceCollaborationMode
 import com.ares.analytics.shared.AppJson
 import com.ares.analytics.ui.components.core.chooseProjectDirectory
+import com.ares.analytics.ui.components.core.openExternalLink
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.viewmodel.ProfileIntent
 import com.ares.analytics.viewmodel.ProfileViewModel
-import java.awt.Desktop
-import java.net.URI
 import javax.swing.JFileChooser
 import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.launch
@@ -377,9 +376,7 @@ fun ProfileScreen(
                                 if (ManagedToolchainPaths.managedJdkInstallationSupported()) {
                                     scope.launch { runCatching { managedToolchainService.installManagedJdk21(config.league) } }
                                 } else {
-                                    runCatching {
-                                        browseProfileLink(ManagedToolchainPaths.JDK_21_DOWNLOAD_URL)
-                                    }
+                                    openExternalLink(ManagedToolchainPaths.JDK_21_DOWNLOAD_URL)
                                 }
                             },
                             enabled = toolchainInstallState !is ManagedToolchainInstallState.Working,
@@ -392,7 +389,7 @@ fun ProfileScreen(
                         Text("Recheck tools")
                     }
                     OutlinedButton(onClick = {
-                        browseProfileLink("https://github.com/ARES-23247/ARES-Analytics/blob/master/docs/start/ROBOT_BUILD_TOOLS.md")
+                        openExternalLink("https://github.com/ARES-23247/ARES-Analytics/blob/master/docs/start/ROBOT_BUILD_TOOLS.md")
                     }) { Text("Setup guide") }
                 }
             }
@@ -551,7 +548,7 @@ fun ProfileScreen(
                                 Text("Check access")
                             }
                             status?.webViewLink?.let { link ->
-                                OutlinedButton(onClick = { browseProfileLink(link) }) {
+                                OutlinedButton(onClick = { openExternalLink(link) }) {
                                     Text("Open in Drive")
                                 }
                             }
@@ -1038,14 +1035,14 @@ fun ProfileScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         runCatching {
-                            browseProfileLink("https://github.com/ARES-23247/ARES-Analytics")
+                            openExternalLink("https://github.com/ARES-23247/ARES-Analytics")
                         }
                     }) {
                         Text("View source")
                     }
                     OutlinedButton(onClick = {
                         runCatching {
-                            browseProfileLink("https://github.com/ARES-23247/ARES-Analytics/blob/master/LICENSE")
+                            openExternalLink("https://github.com/ARES-23247/ARES-Analytics/blob/master/LICENSE")
                         }
                     }) {
                         Text("Read license")
@@ -1114,11 +1111,4 @@ private fun exportDriveDestinationRecord(destination: com.ares.analytics.shared.
     }.getOrElse { failure ->
         "Destination record could not be exported: ${failure.message ?: failure.javaClass.simpleName}"
     }
-}
-
-private fun browseProfileLink(url: String) {
-    if (!Desktop.isDesktopSupported()) return
-    val desktop = Desktop.getDesktop()
-    if (!desktop.isSupported(Desktop.Action.BROWSE)) return
-    runCatching { desktop.browse(URI(url)) }
 }

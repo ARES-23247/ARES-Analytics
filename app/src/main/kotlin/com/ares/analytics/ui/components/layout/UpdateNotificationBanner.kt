@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ares.analytics.service.UpdateCheckerService
+import com.ares.analytics.ui.components.core.openExternalLink
 import com.ares.analytics.ui.theme.*
 
 @Composable
@@ -85,22 +86,7 @@ fun UpdateNotificationBanner(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     Button(
-                        onClick = {
-                            try {
-                                if (java.awt.Desktop.isDesktopSupported()) {
-                                    runCatching {
-                                        if (java.awt.Desktop.isDesktopSupported()) {
-                                            val desktop = java.awt.Desktop.getDesktop()
-                                            if (desktop.isSupported(java.awt.Desktop.Action.BROWSE)) {
-                                                desktop.browse(java.net.URI(updateState.downloadUrl))
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
-                        },
+                        onClick = { openExternalLink(updateState.downloadUrl) },
                         colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent)
                     ) {
                         Text("Update", color = AresBackground)
