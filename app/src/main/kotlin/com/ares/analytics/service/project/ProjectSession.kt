@@ -4,8 +4,6 @@ import com.ares.analytics.service.ProcessManagerService
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.util.ProjectLayout
-import com.ares.analytics.viewmodel.project.AresProjectDocumentSnapshot
-import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentRemovalPlan
 import com.ares.analytics.viewmodel.project.RemovedProjectDocument
 import com.ares.analytics.viewmodel.project.VersionedProjectDocumentStore

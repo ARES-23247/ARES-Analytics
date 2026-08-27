@@ -1,6 +1,6 @@
 package com.ares.analytics
 
-import com.ares.analytics.viewmodel.project.AresProjectDocuments
+import com.ares.analytics.service.project.AresProjectDocuments
 import org.eclipse.jgit.api.Git
 import org.eclipse.jgit.transport.RefSpec
 import java.io.File

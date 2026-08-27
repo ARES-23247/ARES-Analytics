@@ -7,8 +7,8 @@ import com.ares.analytics.service.SubsystemDesignProposal
 import com.ares.analytics.service.sanitizeSubsystemDesignCandidate
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.service.project.ProjectSession
+import com.ares.analytics.service.project.AresProjectDocuments
 import com.ares.analytics.shared.League
-import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentKind
 import com.ares.analytics.viewmodel.project.ProjectDocumentRemovalPlan
 import com.areslib.codegen.GeneratedSubsystemSourceSet

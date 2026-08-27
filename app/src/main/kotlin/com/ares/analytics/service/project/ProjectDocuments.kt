@@ -1,7 +1,20 @@
-package com.ares.analytics.viewmodel.project
+package com.ares.analytics.service.project
 
 import com.ares.analytics.shared.League
 import com.ares.analytics.util.ProjectLayout
+import com.ares.analytics.viewmodel.project.AutonomousCatalogProjectRepository
+import com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository
+import com.ares.analytics.viewmodel.project.ControlSchemeProjectRepository
+import com.ares.analytics.viewmodel.project.ControllerProfileProjectRepository
+import com.ares.analytics.viewmodel.project.ProjectDocumentDiagnostic
+import com.ares.analytics.viewmodel.project.ProjectDocumentKind
+import com.ares.analytics.viewmodel.project.ProjectDocumentListing
+import com.ares.analytics.viewmodel.project.ProjectMetadataRepository
+import com.ares.analytics.viewmodel.project.RoutineProjectRepository
+import com.ares.analytics.viewmodel.project.SubsystemProjectRepository
+import com.ares.analytics.viewmodel.project.SuperstructureProjectRepository
+import com.ares.analytics.viewmodel.project.requireProjectRoot
+import com.ares.analytics.viewmodel.project.resolveProjectPath
 import com.areslib.controls.ControllerInputPlatform
 import com.areslib.drivetrain.DrivetrainDocumentCodec
 import com.areslib.project.AresLeague

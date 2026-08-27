@@ -1,6 +1,7 @@
 package com.ares.analytics.viewmodel.superstructure
 
-import com.ares.analytics.viewmodel.project.AresProjectDocuments
+import com.ares.analytics.service.project.AresProjectDocumentSnapshot
+import com.ares.analytics.service.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentDiagnostic
 import com.ares.analytics.viewmodel.project.SuperstructureProjectRepository
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
@@ -636,7 +637,7 @@ class SuperstructureStudioViewModel(
         }
     }
 
-    private fun loadProjectDocuments(forceReload: Boolean): com.ares.analytics.viewmodel.project.AresProjectDocumentSnapshot {
+    private fun loadProjectDocuments(forceReload: Boolean): AresProjectDocumentSnapshot {
         val target = targetPlatform
         return if (projectSession != null && target != null) {
             projectSession.snapshot(_state.value.projectPath, target, forceReload).documents

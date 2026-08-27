@@ -1,6 +1,6 @@
 package com.ares.analytics
 
-import com.ares.analytics.viewmodel.project.AresProjectDocuments
+import com.ares.analytics.service.project.AresProjectDocuments
 import com.areslib.project.schema.AresControllerTarget
 import com.areslib.project.schema.AresSimulatorTarget
 import com.areslib.project.schema.ProjectActionKey

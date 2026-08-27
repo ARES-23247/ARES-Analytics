@@ -1,5 +1,7 @@
 package com.ares.analytics.viewmodel.project
 
+import com.ares.analytics.service.project.AresProjectDocuments
+
 import com.ares.analytics.viewmodel.superstructure.SuperstructureStudioViewModel
 import com.areslib.catalog.ActionDescriptor
 import com.areslib.catalog.CapabilityCatalogDocument

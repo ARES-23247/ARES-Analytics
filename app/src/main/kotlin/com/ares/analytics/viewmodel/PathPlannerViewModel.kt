@@ -5,11 +5,11 @@ import com.ares.analytics.service.AresGenerationPhase
 import com.ares.analytics.service.AresProjectGenerator
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.service.project.ProjectSession
+import com.ares.analytics.service.project.AresProjectDocuments
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
 import com.ares.analytics.viewmodel.project.ProjectMetadataRepository
-import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataDocument
 import com.areslib.controls.ControllerInputPlatform
