@@ -20,7 +20,7 @@ permissions:
   contents: read
 
 env:
-  ARES_VERSION: 10.0.0
+  ARES_VERSION: 10.1.0
 
 jobs:
   release-preflight:
