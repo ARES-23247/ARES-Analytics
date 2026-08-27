@@ -79,8 +79,10 @@ repository and Maven Central. Local development must be explicit:
 - `-ParesUseSiblingLib=true` selects the sibling source composite.
 - `-ParesRepository=file:///.../build/release-repository` plus the matching candidate version
   selects an isolated validation repository.
-- `-ParesUseMavenLocal=true` is an administrator-only escape hatch, never a default or release
-  validation path.
+
+Ambient `mavenLocal()` resolution is intentionally unsupported. It can return different bytes for
+the same version depending on workstation state; use the sibling composite or isolated candidate
+repository so dependency provenance remains explicit.
 
 ## What to commit
 
