@@ -10,6 +10,7 @@ import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.service.project.persistence.ProjectDocumentRemovalPlan
+import com.ares.analytics.service.project.persistence.ProjectMutationTransaction
 import com.ares.analytics.service.project.persistence.RemovedProjectDocument
 import com.ares.analytics.service.project.persistence.SavedProjectRevision
 import com.ares.analytics.service.project.persistence.SavedProjectMetadata
@@ -152,18 +153,24 @@ class ProjectSession(
         schemes: Collection<ControlSchemeDocument>,
     ): ProjectSessionMutationResult<SavedControlDocuments> = mutate(expectedRevision, "Saving controller bindings") {
         val root = File(it.selection.projectRoot).canonicalFile
-        val paths = linkedSetOf<String>()
-        profiles.sortedBy(ControllerProfileDocument::documentId).forEach { profile ->
-            val saved = projectDocuments.controllers.save(root.path, profile)
-            paths += saved.currentFile.relativeTo(root).invariantSeparatorsPath
-            paths += saved.historyFile.relativeTo(root).invariantSeparatorsPath
+        ProjectMutationTransaction.run(
+            root,
+            "controller-bindings",
+            listOf(".ares/controllers", ".ares/controls", ".ares/history/controllers", ".ares/history/controls"),
+        ) {
+            val paths = linkedSetOf<String>()
+            profiles.sortedBy(ControllerProfileDocument::documentId).forEach { profile ->
+                val saved = projectDocuments.controllers.save(root.path, profile)
+                paths += saved.currentFile.relativeTo(root).invariantSeparatorsPath
+                paths += saved.historyFile.relativeTo(root).invariantSeparatorsPath
+            }
+            schemes.sortedBy(ControlSchemeDocument::documentId).forEach { scheme ->
+                val saved = projectDocuments.controls.save(root.path, scheme)
+                paths += saved.currentFile.relativeTo(root).invariantSeparatorsPath
+                paths += saved.historyFile.relativeTo(root).invariantSeparatorsPath
+            }
+            SavedControlDocuments(paths)
         }
-        schemes.sortedBy(ControlSchemeDocument::documentId).forEach { scheme ->
-            val saved = projectDocuments.controls.save(root.path, scheme)
-            paths += saved.currentFile.relativeTo(root).invariantSeparatorsPath
-            paths += saved.historyFile.relativeTo(root).invariantSeparatorsPath
-        }
-        SavedControlDocuments(paths)
     }
 
     /** Saves a routine and its chooser entry as one revision-bound project command. */
@@ -173,35 +180,41 @@ class ProjectSession(
         autonomousEntry: AutonomousCatalogEntry?,
     ): ProjectSessionMutationResult<SavedRoutineDocuments> = mutate(expectedRevision, "Saving autonomous routine") { current ->
         val root = File(current.selection.projectRoot).canonicalFile
-        val savedRoutine = projectDocuments.routines.save(root.path, routine)
-        val previousCatalog = current.documents.query.autonomousCatalog
-        val entry = autonomousEntry?.copy(routineId = savedRoutine.document.documentId)
-        val entries = previousCatalog?.entries.orEmpty()
-            .filterNot { it.routineId == savedRoutine.document.documentId || it.entryId == entry?.entryId }
-            .let { remaining -> if (entry == null) remaining else remaining + entry }
-        val defaultEntryId = previousCatalog?.defaultEntryId
-            ?.takeIf { id -> entries.any { it.entryId == id && it.enabled } }
-            ?: entries.firstOrNull { it.enabled }?.entryId
-        val savedCatalog = projectDocuments.autonomous.save(
-            root.path,
-            AutonomousCatalogDocument(
-                projectId = previousCatalog?.projectId
-                    ?: requireNotNull(current.documents.query.metadata).projectId,
-                revision = previousCatalog?.revision ?: 1,
-                defaultEntryId = defaultEntryId,
-                entries = entries,
-            ),
-        )
-        SavedRoutineDocuments(
-            routine = savedRoutine,
-            autonomousCatalog = savedCatalog,
-            changedRelativePaths = setOf(
-                savedRoutine.currentFile.relativeTo(root).invariantSeparatorsPath,
-                savedRoutine.historyFile.relativeTo(root).invariantSeparatorsPath,
-                savedCatalog.currentFile.relativeTo(root).invariantSeparatorsPath,
-                savedCatalog.historyFile.relativeTo(root).invariantSeparatorsPath,
-            ),
-        )
+        ProjectMutationTransaction.run(
+            root,
+            "routine-${routine.documentId}",
+            listOf(".ares/routines", ".ares/autonomous-catalog.json", ".ares/history/routines", ".ares/history/autonomous-catalog"),
+        ) {
+            val savedRoutine = projectDocuments.routines.save(root.path, routine)
+            val previousCatalog = current.documents.query.autonomousCatalog
+            val entry = autonomousEntry?.copy(routineId = savedRoutine.document.documentId)
+            val entries = previousCatalog?.entries.orEmpty()
+                .filterNot { it.routineId == savedRoutine.document.documentId || it.entryId == entry?.entryId }
+                .let { remaining -> if (entry == null) remaining else remaining + entry }
+            val defaultEntryId = previousCatalog?.defaultEntryId
+                ?.takeIf { id -> entries.any { it.entryId == id && it.enabled } }
+                ?: entries.firstOrNull { it.enabled }?.entryId
+            val savedCatalog = projectDocuments.autonomous.save(
+                root.path,
+                AutonomousCatalogDocument(
+                    projectId = previousCatalog?.projectId
+                        ?: requireNotNull(current.documents.query.metadata).projectId,
+                    revision = previousCatalog?.revision ?: 1,
+                    defaultEntryId = defaultEntryId,
+                    entries = entries,
+                ),
+            )
+            SavedRoutineDocuments(
+                routine = savedRoutine,
+                autonomousCatalog = savedCatalog,
+                changedRelativePaths = setOf(
+                    savedRoutine.currentFile.relativeTo(root).invariantSeparatorsPath,
+                    savedRoutine.historyFile.relativeTo(root).invariantSeparatorsPath,
+                    savedCatalog.currentFile.relativeTo(root).invariantSeparatorsPath,
+                    savedCatalog.historyFile.relativeTo(root).invariantSeparatorsPath,
+                ),
+            )
+        }
     }
 
     fun saveSubsystem(
@@ -441,6 +454,7 @@ class ProjectSession(
     }
 
     private fun loadStable(selection: ProjectSessionSelection): Pair<AresProjectDocumentSnapshot, String> {
+        ProjectMutationTransaction.recover(File(selection.projectRoot))
         repeat(2) { attempt ->
             val before = fingerprint(selection)
             val loaded = projectDocuments.load(selection.projectRoot, selection.targetPlatform)
