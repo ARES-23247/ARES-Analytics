@@ -232,11 +232,9 @@ class PathPlannerViewModel(
 
     private val routineRepository = RoutineProjectRepository()
     private val autonomousRepository = AutonomousCatalogProjectRepository(routineRepository)
-    private val capabilityRepository = com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository()
     private val metadataRepository = ProjectMetadataRepository()
     private val projectDocuments = AresProjectDocuments(
         routines = routineRepository,
-        capabilities = capabilityRepository,
         metadata = metadataRepository,
         autonomous = autonomousRepository,
     )

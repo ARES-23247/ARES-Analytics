@@ -68,6 +68,7 @@ dependencies {
     implementation(platform("org.aresfirst.ares:ares-bom:$aresVersion"))
     implementation("org.aresfirst.ares:core")
     implementation("org.aresfirst.ares:codegen")
+    implementation("org.aresfirst.ares:project-model")
 
     // Database — DuckDB via JDBC
     implementation("org.duckdb:duckdb_jdbc:1.1.3")
