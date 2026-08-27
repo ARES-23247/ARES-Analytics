@@ -1,10 +1,12 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.TelemetryFrame
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.nio.file.Files
 import kotlin.test.Test
@@ -50,8 +52,10 @@ class ReplayCacheAndClockTest {
             val replay = ReplayEngineService(database)
             try {
                 replay.loadSession("prefetch")
-                withTimeout(5_000) {
-                    while (!replay.cacheMetrics.value.hasPrefetchedWindow) delay(10)
+                withContext(Dispatchers.Default) {
+                    withTimeout(5_000) {
+                        replay.cacheMetrics.first { it.hasPrefetchedWindow }
+                    }
                 }
 
                 replay.scrubTo(0.3)

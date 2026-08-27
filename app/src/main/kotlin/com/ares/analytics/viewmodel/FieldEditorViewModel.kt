@@ -7,7 +7,10 @@ import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.writeFileAtomically
 import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.viewmodel.field.FieldDocumentMapper
-import com.ares.analytics.viewmodel.field.FieldDocumentStore
+import com.ares.analytics.service.project.persistence.FieldDocumentStore
+import com.ares.analytics.service.project.ProjectSession
+import com.ares.analytics.service.project.ProjectSessionMutationResult
+import com.ares.analytics.service.project.ProjectSessionRevision
 import com.ares.analytics.viewmodel.field.FieldImageLoader
 import com.ares.analytics.viewmodel.field.FieldEditorValidator
 import com.ares.analytics.viewmodel.field.FieldEditorLayout
@@ -52,6 +55,7 @@ import java.util.concurrent.atomic.AtomicLong
 /** Immutable editor state backed by one canonical, revisioned field document. */
 data class FieldEditorState(
     val document: RobotFieldConfig? = null,
+    val projectRevision: ProjectSessionRevision? = null,
     val fieldImage: ImageBitmap? = null,
     val fieldImageConfig: FieldImageConfig = FieldImageConfig(),
     val obstacles: List<Obstacle> = emptyList(),
@@ -157,6 +161,7 @@ class FieldEditorViewModel(
         expected: ExpectedSimulatorField,
         previousReceipt: SimulatorFieldApplyReceipt?,
     ) -> SimulatorFieldApplyReceipt?)? = null,
+    private val projectSession: ProjectSession? = null,
 ) {
     private val _state = MutableStateFlow(FieldEditorState())
     val state: StateFlow<FieldEditorState> = _state.asStateFlow()
@@ -282,13 +287,19 @@ class FieldEditorViewModel(
                     return@launch
                 }
 
-                val loaded = withContext(Dispatchers.IO) { FieldDocumentStore.load(projectPath, league) }
+                val (loaded, projectRevision) = withContext(Dispatchers.IO) {
+                    val snapshot = projectSession?.snapshot(projectPath, league.targetPlatform(), forceReload = true)
+                    val field = snapshot?.documents?.effectiveProject?.raw?.field
+                    (field?.let(FieldDocumentStore::fromDocument) ?: FieldDocumentStore.load(projectPath, league)) to
+                        snapshot?.revision
+                }
                 val bitmapResult = withContext(Dispatchers.IO) {
                     FieldImageLoader.load(projectPath, league, loaded.imageConfig.imagePath)
                 }
                 if (generation == loadGeneration) {
                     installLoadedState(FieldEditorState(
                         document = loaded.document,
+                        projectRevision = projectRevision,
                         fieldImage = bitmapResult.getOrNull(),
                         fieldImageConfig = loaded.imageConfig,
                         obstacles = loaded.obstacles,
@@ -783,7 +794,24 @@ class FieldEditorViewModel(
             if (_state.value.document?.revision != document.revision) return@withLock
             _state.update { it.copy(saveStatus = "Saving…") }
             try {
-                withContext(Dispatchers.IO) { FieldDocumentStore.save(projectPath, league, document) }
+                val updatedRevision = withContext(Dispatchers.IO) {
+                    val session = projectSession
+                    val revision = _state.value.projectRevision
+                    if (session != null && revision != null) {
+                        when (val result = session.saveField(revision, league, document)) {
+                            is ProjectSessionMutationResult.Applied -> result.snapshot.revision
+                            is ProjectSessionMutationResult.Stale -> error("The project changed after this field loaded. Reload before saving.")
+                            is ProjectSessionMutationResult.Conflict -> error(result.message)
+                            is ProjectSessionMutationResult.Failed -> error(result.message)
+                        }
+                    } else {
+                        FieldDocumentStore.save(projectPath, league, document)
+                        null
+                    }
+                }
+                if (updatedRevision != null) {
+                    _state.update { it.copy(projectRevision = updatedRevision) }
+                }
                 if (_state.value.document?.revision == document.revision) {
                     _state.update { it.copy(isDirty = false, saveStatus = "Saved field revision ${document.revision}") }
                 }
@@ -952,6 +980,11 @@ class FieldEditorViewModel(
         const val MAX_HISTORY_ENTRIES = 100
         val ID_SEQUENCE = AtomicLong(System.currentTimeMillis())
     }
+}
+
+private fun League.targetPlatform() = when (this) {
+    League.FTC -> com.areslib.controls.ControllerInputPlatform.FTC
+    League.FRC -> com.areslib.controls.ControllerInputPlatform.FRC
 }
 
 private data class FieldEditorSnapshot(

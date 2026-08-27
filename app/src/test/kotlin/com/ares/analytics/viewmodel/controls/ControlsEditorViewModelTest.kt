@@ -6,7 +6,7 @@ import com.ares.analytics.service.AresGenerationState
 import com.ares.analytics.service.AresProjectGenerator
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.help.toAcademyControlsSnapshot
-import com.ares.analytics.viewmodel.project.AresProjectDocuments
+import com.ares.analytics.service.project.AresProjectDocuments
 import com.areslib.catalog.ActionDescriptor
 import com.areslib.catalog.CapabilityCatalogDocument
 import com.areslib.catalog.CapabilityParameterDescriptor

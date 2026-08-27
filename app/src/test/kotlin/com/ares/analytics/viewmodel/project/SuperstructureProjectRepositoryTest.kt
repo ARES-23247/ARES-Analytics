@@ -1,5 +1,9 @@
 package com.ares.analytics.viewmodel.project
 
+import com.ares.analytics.service.project.AresProjectDocuments
+import com.ares.analytics.service.project.persistence.ProjectDocumentKind
+import com.ares.analytics.service.project.persistence.SuperstructureProjectRepository
+
 import com.ares.analytics.viewmodel.superstructure.SuperstructureStudioViewModel
 import com.areslib.catalog.ActionDescriptor
 import com.areslib.catalog.CapabilityCatalogDocument
@@ -69,7 +73,7 @@ class SuperstructureProjectRepositoryTest {
 
         val snapshot = documents.load(project.path)
 
-        assertEquals(2, snapshot.superstructures.size)
+        assertEquals(2, snapshot.query.superstructures.size)
         val ownershipErrors = snapshot.diagnostics.filter {
             it.kind == ProjectDocumentKind.SUPERSTRUCTURE && it.message.contains("more than one superstructure")
         }

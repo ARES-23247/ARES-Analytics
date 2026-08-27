@@ -4,15 +4,20 @@ import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.AresGenerationPhase
 import com.ares.analytics.service.AresProjectGenerator
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
+import com.ares.analytics.service.project.ProjectSession
+import com.ares.analytics.service.project.AresProjectDocuments
+import com.ares.analytics.service.project.ProjectSessionMutationResult
+import com.ares.analytics.service.project.ProjectSessionRevision
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
-import com.ares.analytics.viewmodel.project.ProjectMetadataRepository
+import com.ares.analytics.service.project.persistence.ProjectMetadataRepository
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataDocument
-import com.ares.analytics.viewmodel.project.AutonomousCatalogProjectRepository
-import com.ares.analytics.viewmodel.project.ProjectRevisionSummary
-import com.ares.analytics.viewmodel.project.RoutineProjectRepository
+import com.areslib.controls.ControllerInputPlatform
+import com.ares.analytics.service.project.persistence.AutonomousCatalogProjectRepository
+import com.ares.analytics.service.project.persistence.ProjectRevisionSummary
+import com.ares.analytics.service.project.persistence.RoutineProjectRepository
 import com.ares.analytics.viewmodel.routine.clampRoutinePose
 import com.ares.analytics.viewmodel.routine.clampDriveTargets
 import com.ares.analytics.viewmodel.routine.defaultRoutineStep
@@ -149,6 +154,7 @@ data class PathPlannerState(
     val activeLeague: League = League.FTC,
     val robotDimensions: RobotDimensions = RobotDimensions.defaultFor(League.FTC),
     val projectMetadata: AresProjectMetadataDocument? = null,
+    val projectRevision: ProjectSessionRevision? = null,
     val generationPhase: AresGenerationPhase = AresGenerationPhase.IDLE,
     val generationMessage: String? = null,
     val projectLoading: Boolean = false,
@@ -218,6 +224,7 @@ class PathPlannerViewModel(
     @Suppress("UNUSED_PARAMETER") nt4ClientService: Nt4ClientService? = null,
     private val projectGenerator: AresProjectGenerator? = null,
     private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
+    private val projectSession: ProjectSession? = null,
 ) {
     private val _state = MutableStateFlow(PathPlannerState())
     val state: StateFlow<PathPlannerState> = _state.asStateFlow()
@@ -231,8 +238,12 @@ class PathPlannerViewModel(
 
     private val routineRepository = RoutineProjectRepository()
     private val autonomousRepository = AutonomousCatalogProjectRepository(routineRepository)
-    private val capabilityRepository = com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository()
     private val metadataRepository = ProjectMetadataRepository()
+    private val projectDocuments = AresProjectDocuments(
+        routines = routineRepository,
+        metadata = metadataRepository,
+        autonomous = autonomousRepository,
+    )
     private val trajectoryPlanner = TrajectoryPlanner(listOf(JerkLimitedTrajectoryProvider))
     init {
         projectGenerator?.let { generator ->
@@ -315,26 +326,37 @@ class PathPlannerViewModel(
                     recalculateRoutinePreview()
                 }
                 is PathPlannerIntent.UpdateCanonicalRobotDimensions -> {
-                    val metadata = _state.value.projectMetadata
+                    val current = _state.value
+                    val metadata = current.projectMetadata
                     val projectPath = loadedPathFor(intent.projectPath, "updating robot dimensions")
                     if (metadata != null && projectPath != null) {
                         val dimensions = intent.robotDimensions.normalized()
-                        withContext(Dispatchers.IO) {
-                            metadataRepository.save(
-                                projectPath,
-                                metadata.copy(
-                                    robotLengthMeters = dimensions.lengthMeters,
-                                    robotWidthMeters = dimensions.widthMeters
-                                )
-                            )
+                        val updatedMetadata = metadata.copy(
+                            robotLengthMeters = dimensions.lengthMeters,
+                            robotWidthMeters = dimensions.widthMeters,
+                        )
+                        val savedRevision = withContext(Dispatchers.IO) {
+                            val session = projectSession
+                            val revision = current.projectRevision
+                            if (session != null && revision != null) {
+                                when (val result = session.saveProjectIdentity(revision, updatedMetadata)) {
+                                    is ProjectSessionMutationResult.Applied -> result.snapshot.revision
+                                    is ProjectSessionMutationResult.Stale -> error(
+                                        "The project changed after the autonomous editor loaded. Reload before changing the robot footprint.",
+                                    )
+                                    is ProjectSessionMutationResult.Conflict -> error(result.message)
+                                    is ProjectSessionMutationResult.Failed -> error(result.message)
+                                }
+                            } else {
+                                metadataRepository.save(projectPath, updatedMetadata)
+                                null
+                            }
                         }
                         _state.update { current ->
                             current.copy(
-                                projectMetadata = metadata.copy(
-                                    robotLengthMeters = dimensions.lengthMeters,
-                                    robotWidthMeters = dimensions.widthMeters
-                                ),
+                                projectMetadata = updatedMetadata,
                                 robotDimensions = dimensions,
+                                projectRevision = savedRevision ?: current.projectRevision,
                                 saveStatus = "Saved canonical robot footprint to .ares/project.json"
                             )
                         }
@@ -631,11 +653,21 @@ class PathPlannerViewModel(
     private suspend fun refreshRoutineProject(projectPath: String, league: League, generation: Long) {
         runCatching {
             withContext(Dispatchers.IO) {
-                val routines = routineRepository.list(projectPath)
-                val catalog = capabilityRepository.load(projectPath).getOrNull()
-                val autonomous = autonomousRepository.load(projectPath).getOrNull()
-                val metadata = metadataRepository.load(projectPath).getOrNull()
-                RoutineRefresh(routines.documents, routines.diagnostics.map { it.message }, catalog, autonomous, metadata)
+                val target = when (league) {
+                    League.FTC -> ControllerInputPlatform.FTC
+                    League.FRC -> ControllerInputPlatform.FRC
+                }
+                val sessionSnapshot = projectSession?.snapshot(projectPath, target, forceReload = true)
+                val snapshot = sessionSnapshot?.documents ?: projectDocuments.load(projectPath, target)
+                val project = snapshot.query
+                RoutineRefresh(
+                    project.routines,
+                    snapshot.diagnostics.map { it.message },
+                    project.capabilityCatalog,
+                    project.autonomousCatalog,
+                    project.metadata,
+                    sessionSnapshot?.revision,
+                )
             }
         }.onSuccess { refresh ->
             if (!isCurrentProjectRequest(projectPath, generation)) return@onSuccess
@@ -673,12 +705,13 @@ class PathPlannerViewModel(
                     availableRoutines = refresh.routines,
                     capabilityCatalog = catalog,
                     routineActions = catalog?.actions
-                        ?.filter { CapabilityContext.AUTONOMOUS in it.allowedContexts || CapabilityContext.TELEOP in it.allowedContexts }
+                        ?.filter { CapabilityContext.AUTONOMOUS in it.allowedContexts }
                         .orEmpty(),
                     routineConditions = catalog?.conditions.orEmpty(),
                     autonomousEntry = currentEntry,
                     availableInAutonomousSelector = currentEntry != null,
                     projectMetadata = refresh.metadata,
+                    projectRevision = refresh.projectRevision,
                     projectLoading = false,
                     activeLeague = effectiveLeague,
                     robotDimensions = effectiveDimensions,
@@ -785,23 +818,38 @@ class PathPlannerViewModel(
         var savedSuccessfully = false
         runCatching {
             withContext(Dispatchers.IO) {
-                val saved = routineRepository.save(activeProjectPath, current.routine)
-                val oldCatalog = autonomousRepository.load(activeProjectPath).getOrNull()
-                val entry = current.autonomousEntry?.copy(routineId = saved.document.documentId)
-                val entries = oldCatalog?.entries.orEmpty()
-                    .filterNot { it.routineId == saved.document.documentId || it.entryId == entry?.entryId }
-                    .let { remaining -> if (entry == null) remaining else remaining + entry }
-                val projectId = oldCatalog?.projectId ?: safeProjectDocumentId(File(activeProjectPath).name)
-                val defaultEntryId = oldCatalog?.defaultEntryId?.takeIf { id -> entries.any { it.entryId == id && it.enabled } }
-                    ?: entries.firstOrNull { it.enabled }?.entryId
-                val catalogDraft = AutonomousCatalogDocument(
-                    projectId = projectId,
-                    revision = oldCatalog?.revision ?: 1,
-                    defaultEntryId = defaultEntryId,
-                    entries = entries
-                )
-                val savedCatalog = autonomousRepository.save(activeProjectPath, catalogDraft)
-                RoutineSave(saved.document, saved.createdRevision, savedCatalog.document)
+                val session = projectSession
+                val revision = current.projectRevision
+                if (session != null && revision != null) {
+                    when (val result = session.saveRoutine(revision, current.routine, current.autonomousEntry)) {
+                        is ProjectSessionMutationResult.Applied -> RoutineSave(
+                            result.value.routine.document,
+                            result.value.routine.createdRevision,
+                            result.value.autonomousCatalog.document,
+                        )
+                        is ProjectSessionMutationResult.Stale -> error("The project changed after this routine loaded. Reload before saving.")
+                        is ProjectSessionMutationResult.Conflict -> error(result.message)
+                        is ProjectSessionMutationResult.Failed -> error(result.message)
+                    }
+                } else {
+                    val saved = routineRepository.save(activeProjectPath, current.routine)
+                    val oldCatalog = autonomousRepository.load(activeProjectPath).getOrNull()
+                    val entry = current.autonomousEntry?.copy(routineId = saved.document.documentId)
+                    val entries = oldCatalog?.entries.orEmpty()
+                        .filterNot { it.routineId == saved.document.documentId || it.entryId == entry?.entryId }
+                        .let { remaining -> if (entry == null) remaining else remaining + entry }
+                    val projectId = oldCatalog?.projectId ?: safeProjectDocumentId(File(activeProjectPath).name)
+                    val defaultEntryId = oldCatalog?.defaultEntryId?.takeIf { id -> entries.any { it.entryId == id && it.enabled } }
+                        ?: entries.firstOrNull { it.enabled }?.entryId
+                    val catalogDraft = AutonomousCatalogDocument(
+                        projectId = projectId,
+                        revision = oldCatalog?.revision ?: 1,
+                        defaultEntryId = defaultEntryId,
+                        entries = entries
+                    )
+                    val savedCatalog = autonomousRepository.save(activeProjectPath, catalogDraft)
+                    RoutineSave(saved.document, saved.createdRevision, savedCatalog.document)
+                }
             }
         }.onSuccess { saved ->
             savedSuccessfully = true
@@ -844,19 +892,38 @@ class PathPlannerViewModel(
 
     private suspend fun restoreRoutine(projectPath: String?, contentHash: String) {
         val activeProjectPath = loadedPathFor(projectPath, "restoring a routine") ?: return
-        val documentId = _state.value.routine.documentId
+        val current = _state.value
+        val documentId = current.routine.documentId
         runCatching {
             withContext(Dispatchers.IO) {
-                val restored = routineRepository.restore(activeProjectPath, documentId, contentHash)
-                restored to routineRepository.listRevisions(activeProjectPath, documentId)
+                val session = projectSession
+                val revision = current.projectRevision
+                val restored = if (session != null && revision != null) {
+                    when (val result = session.restoreRoutineRevision(revision, documentId, contentHash)) {
+                        is ProjectSessionMutationResult.Applied -> result.value to result.snapshot.revision
+                        is ProjectSessionMutationResult.Stale -> error(
+                            "The project changed after this routine loaded. Reload before restoring.",
+                        )
+                        is ProjectSessionMutationResult.Conflict -> error(result.message)
+                        is ProjectSessionMutationResult.Failed -> error(result.message)
+                    }
+                } else {
+                    routineRepository.restore(activeProjectPath, documentId, contentHash) to null
+                }
+                Triple(
+                    restored.first,
+                    routineRepository.listRevisions(activeProjectPath, documentId),
+                    restored.second,
+                )
             }
-        }.onSuccess { (restored, revisions) ->
+        }.onSuccess { (restored, revisions, projectRevision) ->
             if (!isLoadedProject(activeProjectPath)) return@onSuccess
             _state.update { current ->
                 current.copy(
                     routine = restored.document,
                     routineDirty = false,
                     routineRevisions = revisions,
+                    projectRevision = projectRevision ?: current.projectRevision,
                     routineValidation = routineEditorValidation(
                         restored.document,
                         current.capabilityCatalog,
@@ -1074,7 +1141,8 @@ class PathPlannerViewModel(
         val diagnostics: List<String>,
         val catalog: CapabilityCatalogDocument?,
         val autonomous: AutonomousCatalogDocument?,
-        val metadata: AresProjectMetadataDocument?
+        val metadata: AresProjectMetadataDocument?,
+        val projectRevision: ProjectSessionRevision?,
     )
 
     private fun AresLeague.toAnalyticsLeague(): League = when (this) {

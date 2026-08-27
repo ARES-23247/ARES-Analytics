@@ -24,6 +24,13 @@ import kotlin.test.assertTrue
 class AutoImportServiceTest {
 
     @Test
+    fun `ping timeout arguments use each operating system's units`() {
+        assertEquals(listOf("ping", "-n", "1", "-w", "1000", "robot.local"), pingCommand("robot.local", "Windows 11"))
+        assertEquals(listOf("ping", "-c", "1", "-W", "1000", "robot.local"), pingCommand("robot.local", "Mac OS X"))
+        assertEquals(listOf("ping", "-c", "1", "-W", "1", "robot.local"), pingCommand("robot.local", "Linux"))
+    }
+
+    @Test
     fun testLocalLogsAutoImport() = runBlocking {
         val tempDb = File.createTempFile("auto_import_db", ".db").apply { deleteOnExit() }
         val databaseService = DatabaseService(tempDb.absolutePath)

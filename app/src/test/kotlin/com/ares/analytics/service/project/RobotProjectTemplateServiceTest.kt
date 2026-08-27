@@ -7,6 +7,7 @@ import com.ares.analytics.service.drivebase.defaultDrivebase
 import com.ares.analytics.service.drivebase.toCanonicalDrivebase
 import com.ares.analytics.service.hardware.HardwareReviewRequest
 import com.ares.analytics.service.hardware.HardwareSetupService
+import com.ares.analytics.service.tuning.TuningProfileRepository
 import com.areslib.catalog.CapabilityCatalogCodec
 import com.areslib.catalog.CapabilityCatalogDocument
 import com.areslib.drivetrain.DrivetrainDocumentCodec
@@ -14,6 +15,7 @@ import com.areslib.project.AresCoordinateConvention
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataCodec
 import com.areslib.project.AresProjectMetadataDocument
+import com.areslib.project.schema.ProjectDocumentId
 import com.areslib.routine.AutonomousCatalogCodec
 import com.areslib.routine.AutonomousCatalogDocument
 import com.areslib.tuning.TuningProfileAuthority
@@ -46,12 +48,41 @@ class RobotProjectTemplateServiceTest {
 
         League.entries.forEach { league ->
             val template = service.templateFor(league)
-            assertEquals("10.0.0", template.aresVersion)
+            assertEquals("10.1.0", template.aresVersion)
             assertTrue(template.displayName.endsWith("Starter"))
             assertEquals(
                 RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
                 template.deploymentPolicy,
             )
+        }
+    }
+
+    @Test
+    fun `long robot identities produce bounded collision-resistant runtime document ids`() = runBlocking {
+        val root = Files.createTempDirectory("ares-project-template-bounded-ids").toFile()
+        try {
+            val service = service(root, validFtcArchive())
+            val parent = File(root, "robots").apply { mkdirs() }
+            val result = service.create(
+                request(parent, "long-identity").copy(
+                    robotId = "TemplateCheckFtcWithAnIntentionallyLongStudentFacingRobotName",
+                    robotName = "Template Check FTC With A Long Name",
+                ),
+            )
+
+            val drivebase = DrivetrainDocumentCodec.decode(
+                File(result.destination, ".ares/drivetrains/template.aresdrivetrain").readText(),
+            )
+            val tuning = TuningProfileRepository().load(result.destination.path).getOrThrow().profiles.single()
+
+            ProjectDocumentId(drivebase.uid)
+            ProjectDocumentId(tuning.uid)
+            assertEquals(drivebase.uid, tuning.drivebaseUid)
+            assertEquals(tuning.uid, drivebase.canonicalProfileUid)
+            assertTrue(drivebase.uid.length <= 64)
+            assertTrue(tuning.uid.length <= 64)
+        } finally {
+            root.deleteRecursively()
         }
     }
 

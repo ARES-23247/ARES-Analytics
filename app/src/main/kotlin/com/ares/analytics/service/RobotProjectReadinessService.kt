@@ -1,7 +1,6 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.service.drivebase.DrivebaseKind
-import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
 import com.ares.analytics.service.drivebase.DrivebaseIssueSeverity
 import com.ares.analytics.service.drivebase.FtcMecanumRuntimeParameters
 import com.ares.analytics.service.drivebase.LocalizationKind
@@ -9,13 +8,16 @@ import com.ares.analytics.service.drivebase.validateDrivebase
 import com.ares.analytics.service.hardware.HardwareReviewStatus
 import com.ares.analytics.service.hardware.HardwareSetupService
 import com.ares.analytics.service.project.templateDeploymentBlockReason
-import com.ares.analytics.service.tuning.TuningProfileRepository
+import com.ares.analytics.service.project.ProjectSession
+import com.ares.analytics.service.drivebase.toUiDrivebase
+import com.ares.analytics.service.tuning.TuningWorkspaceDocuments
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.models.WorkspaceConfig
 import com.ares.analytics.util.ProjectLayout
-import com.ares.analytics.viewmodel.project.AresProjectDocuments
-import com.ares.analytics.viewmodel.project.ProjectDocumentKind
+import com.ares.analytics.service.project.persistence.ProjectDocumentKind
+import com.areslib.controls.ControllerInputPlatform
 import com.areslib.project.AresLeague
+import com.areslib.simulation.SimulationProductId
 import com.ares.analytics.viewmodel.controls.controlsCoverage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -41,6 +43,8 @@ data class RobotProjectReadinessEvidence(
     val localizationConfigured: Boolean = false,
     val subsystemCount: Int = 0,
     val subsystemErrors: List<String> = emptyList(),
+    val simulationProduct: SimulationProductId? = null,
+    val simulationErrors: List<String> = emptyList(),
     val superstructureCount: Int = 0,
     val superstructureErrors: List<String> = emptyList(),
     val capabilityActionCount: Int = 0,
@@ -68,9 +72,7 @@ data class RobotProjectReadinessEvidence(
  */
 class RobotProjectReadinessService(
     private val databaseService: DatabaseService,
-    private val projectDocuments: AresProjectDocuments = AresProjectDocuments(),
-    private val drivebaseRepository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
-    private val tuningRepository: TuningProfileRepository = TuningProfileRepository(),
+    private val projectSession: ProjectSession = ProjectSession(),
     private val hardwareSetupService: HardwareSetupService = HardwareSetupService(),
 ) {
     suspend fun inspect(config: WorkspaceConfig): RobotProjectReadinessEvidence = withContext(Dispatchers.IO) {
@@ -83,12 +85,27 @@ class RobotProjectReadinessService(
             )
         }
 
-        val projectSnapshot = runCatching { projectDocuments.load(config.projectPath) }
-        val snapshot = projectSnapshot.getOrNull()
+        val targetPlatform = when (config.league) {
+            League.FTC -> ControllerInputPlatform.FTC
+            League.FRC -> ControllerInputPlatform.FRC
+        }
+        val projectSnapshot = runCatching {
+            projectSession.snapshot(config.projectPath, targetPlatform, forceReload = true)
+        }
+        val snapshot = projectSnapshot.getOrNull()?.documents
         val snapshotFailure = projectSnapshot.exceptionOrNull()?.message
         val diagnostics = snapshot?.diagnostics.orEmpty()
 
-        val drivebaseResult = drivebaseRepository.load(config.projectPath)
+        val rawProject = snapshot?.effectiveProject?.raw
+        val drivebaseDiagnostics = diagnostics.filter { it.kind == ProjectDocumentKind.DRIVETRAIN }
+        val drivebaseResult = runCatching {
+            require(drivebaseDiagnostics.isEmpty()) {
+                drivebaseDiagnostics.joinToString("; ") { "${it.file.name}: ${it.message}" }
+            }
+            val drivetrains = requireNotNull(rawProject) { snapshotFailure ?: "The canonical project did not load." }.drivetrains
+            require(drivetrains.size <= 1) { "This project has multiple drivetrain documents." }
+            drivetrains.singleOrNull()?.toUiDrivebase()
+        }
         val drivebase = drivebaseResult.getOrNull()
         val drivebaseIssues = drivebase?.let(::validateDrivebase).orEmpty()
         val drivebaseErrors = buildList {
@@ -97,7 +114,21 @@ class RobotProjectReadinessService(
             drivebase?.canonical?.let(FtcMecanumRuntimeParameters::repairMessage)?.let(::add)
         }.distinct()
 
-        val tuningResult = tuningRepository.load(config.projectPath)
+        val tuningDiagnostics = diagnostics.filter {
+            it.kind == ProjectDocumentKind.TUNING_COMPONENT || it.kind == ProjectDocumentKind.TUNING_PROFILE
+        }
+        val tuningResult = runCatching {
+            require(tuningDiagnostics.isEmpty()) {
+                tuningDiagnostics.joinToString("; ") { "${it.file.name}: ${it.message}" }
+            }
+            val raw = requireNotNull(rawProject) { snapshotFailure ?: "The canonical project did not load." }
+            TuningWorkspaceDocuments(
+                catalog = raw.drivetrains.flatMap { it.parameters } +
+                    raw.subsystems.flatMap { it.tuningParameters } +
+                    raw.tuningComponents.flatMap { it.parameters },
+                profiles = raw.tuningProfiles,
+            )
+        }
         val tuning = tuningResult.getOrNull()
         val hardwareResult = runCatching { hardwareSetupService.inspect(config.projectPath, config.league) }
         val hardware = hardwareResult.getOrNull()
@@ -118,7 +149,7 @@ class RobotProjectReadinessService(
             .map { "${it.file.name}: ${it.message}" }
         val superstructureErrors = diagnostics.filter { it.kind == ProjectDocumentKind.SUPERSTRUCTURE }
             .map { "${it.file.name}: ${it.message}" }
-        val metadataFilePresent = projectDocuments.metadata.file(config.projectPath).isFile
+        val metadataFilePresent = projectSession.metadataFile(config.projectPath).isFile
         val metadataErrors = diagnostics.filter {
             it.kind == ProjectDocumentKind.PROJECT_METADATA && metadataFilePresent
         }.map { "${it.file.name}: ${it.message}" }
@@ -130,8 +161,9 @@ class RobotProjectReadinessService(
         val autonomousErrors = diagnostics.filter {
             it.kind == ProjectDocumentKind.ROUTINE || it.kind == ProjectDocumentKind.AUTONOMOUS_CATALOG
         }.map { "${it.file.name}: ${it.message}" }
-        val catalogActions = snapshot?.capabilityCatalog?.actions.orEmpty()
-        val controlCoverages = snapshot?.controlSchemes.orEmpty().map { scheme ->
+        val project = snapshot?.query
+        val catalogActions = project?.actions.orEmpty()
+        val controlCoverages = project?.controlSchemes.orEmpty().map { scheme ->
             controlsCoverage(catalogActions, scheme)
         }
 
@@ -139,8 +171,8 @@ class RobotProjectReadinessService(
             projectPath = config.projectPath,
             league = config.league,
             projectError = snapshotFailure,
-            metadataPresent = snapshot?.projectMetadata != null,
-            metadataLeagueMatches = snapshot?.projectMetadata?.league == expectedLeague,
+            metadataPresent = project?.metadata != null,
+            metadataLeagueMatches = project?.metadata?.league == expectedLeague,
             metadataErrors = metadataErrors,
             documentErrors = diagnostics.map { "${it.file.name}: ${it.message}" },
             hardwareItemCount = hardware?.items?.size ?: 0,
@@ -156,14 +188,16 @@ class RobotProjectReadinessService(
             },
             localizationConfigured = drivebase != null && drivebaseErrors.isEmpty() &&
                 drivebase.localization.count { it != LocalizationKind.VISION_FUSION } == 1,
-            subsystemCount = snapshot?.subsystems?.size ?: 0,
+            subsystemCount = project?.subsystems?.size ?: 0,
             subsystemErrors = subsystemErrors,
-            superstructureCount = snapshot?.superstructures?.size ?: 0,
+            simulationProduct = project?.simulationPlan?.product?.id,
+            simulationErrors = project?.simulationPlan?.issues.orEmpty().map { it.message },
+            superstructureCount = project?.superstructures?.size ?: 0,
             superstructureErrors = superstructureErrors,
-            capabilityActionCount = snapshot?.capabilityCatalog?.actions?.size ?: 0,
+            capabilityActionCount = project?.actions?.size ?: 0,
             capabilityErrors = capabilityErrors,
-            controlSchemeCount = snapshot?.controlSchemes?.size ?: 0,
-            controllerProfileCount = snapshot?.controllerProfiles?.size ?: 0,
+            controlSchemeCount = project?.controlSchemes?.size ?: 0,
+            controllerProfileCount = project?.controllerProfiles?.size ?: 0,
             controlErrors = controlErrors,
             controlTeleopActionCount = controlCoverages.sumOf { it.totalCount },
             controlBoundActionCount = controlCoverages.sumOf { it.boundCount },
@@ -173,8 +207,8 @@ class RobotProjectReadinessService(
             controlBoundSafetyActionCount = controlCoverages.sumOf {
                 it.safetyActions.size - it.missingSafetyActions.size
             },
-            routineCount = snapshot?.routines?.size ?: 0,
-            autonomousCatalogPresent = snapshot?.autonomousCatalog != null,
+            routineCount = project?.routines?.size ?: 0,
+            autonomousCatalogPresent = project?.autonomousCatalog != null,
             autonomousErrors = autonomousErrors,
             tuningDeclarationCount = tuning?.catalog?.size ?: 0,
             tuningProfileCount = tuning?.profiles?.size ?: 0,

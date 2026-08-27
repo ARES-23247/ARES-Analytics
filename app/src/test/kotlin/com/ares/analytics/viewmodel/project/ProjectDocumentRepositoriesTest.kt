@@ -1,5 +1,8 @@
 package com.ares.analytics.viewmodel.project
 
+import com.ares.analytics.service.project.AresProjectDocuments
+import com.ares.analytics.service.project.persistence.*
+
 import com.areslib.catalog.ActionDescriptor
 import com.areslib.catalog.CapabilityCatalogDocument
 import com.areslib.controls.ControlBindingDocument
@@ -326,12 +329,12 @@ class ProjectDocumentRepositoriesTest {
             val snapshot = documents.load(project.path)
 
             assertEquals(project.canonicalPath, snapshot.projectRoot)
-            assertEquals(listOf("score"), snapshot.routines.map { it.documentId })
-            assertEquals(listOf("competition"), snapshot.controlSchemes.map { it.documentId })
-            assertEquals(listOf("vader5-pro"), snapshot.controllerProfiles.map { it.documentId })
-            assertNotNull(snapshot.capabilityCatalog)
-            assertNotNull(snapshot.autonomousCatalog)
-            assertEquals("test-project", snapshot.projectMetadata?.projectId)
+            assertEquals(listOf("score"), snapshot.query.routines.map { it.documentId })
+            assertEquals(listOf("competition"), snapshot.query.controlSchemes.map { it.documentId })
+            assertEquals(listOf("vader5-pro"), snapshot.query.controllerProfiles.map { it.documentId })
+            assertNotNull(snapshot.query.capabilityCatalog)
+            assertNotNull(snapshot.query.autonomousCatalog)
+            assertEquals("test-project", snapshot.query.metadata?.projectId)
             assertTrue(snapshot.diagnostics.isEmpty(), snapshot.diagnostics.joinToString { it.message })
             assertTrue(File(project, ".ares/action-catalog.json").isFile)
             assertTrue(File(project, ".ares/autonomous-catalog.json").isFile)

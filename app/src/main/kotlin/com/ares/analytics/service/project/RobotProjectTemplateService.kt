@@ -360,10 +360,10 @@ class RobotProjectTemplateService(
         val drivetrains = drivetrainFiles.associateWith { file -> DrivetrainDocumentCodec.decode(file.readText()) }
         val projectUid = runtimeProjectUid(request)
         val drivebaseUidMap = drivetrains.values.associate { drivetrain ->
-            drivetrain.uid to "$projectUid.drivebase.${uidSegment(drivetrain.drivebaseId, "primary")}"
+            drivetrain.uid to "$projectUid.drivebase.${uidSegment(drivetrain.drivebaseId, "primary", maxLength = 13)}"
         }
         val profileUidMap = originalTuning.profiles.associate { profile ->
-            profile.uid to "$projectUid.profile.${uidSegment(profile.profileId, "competition")}"
+            profile.uid to "$projectUid.profile.${uidSegment(profile.profileId, "competition", maxLength = 15)}"
         }
 
         drivetrains.forEach { (file, drivetrain) ->
@@ -421,20 +421,39 @@ class RobotProjectTemplateService(
         DrivebaseProjectRepository().load(root.path).getOrThrow()
     }
 
-    private fun runtimeProjectUid(request: RobotProjectCreationRequest): String = listOf(
-        "team${request.teamId.filter(Char::isDigit)}",
-        request.league.name.lowercase(),
-        uidSegment("season${request.seasonId}", "seasonunknown"),
-        uidSegment(request.robotId, "robot"),
-    ).joinToString(".")
+    private fun runtimeProjectUid(request: RobotProjectCreationRequest): String = boundedStableId(
+        value = listOf(
+            "team${request.teamId.filter(Char::isDigit)}",
+            request.league.name.lowercase(),
+            uidSegment("season${request.seasonId}", "seasonunknown"),
+            uidSegment(request.robotId, "robot"),
+        ).joinToString("."),
+        maxLength = 40,
+    )
 
-    private fun uidSegment(value: String, fallback: String): String {
+    private fun uidSegment(value: String, fallback: String, maxLength: Int = 64): String {
         val normalized = value.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
-        return when {
+        val stable = when {
             normalized.isBlank() -> fallback
             normalized.first().isLetter() -> normalized
             else -> "id$normalized"
         }
+        return boundedStableId(stable, maxLength)
+    }
+
+    /**
+     * Keeps composed canonical IDs inside the 64-character project-schema boundary without
+     * making long team/robot names collide merely because their visible prefixes are equal.
+     */
+    private fun boundedStableId(value: String, maxLength: Int): String {
+        require(maxLength >= 10) { "Stable ID limits must leave room for a fingerprint." }
+        if (value.length <= maxLength) return value
+        val fingerprint = MessageDigest.getInstance("SHA-256")
+            .digest(value.toByteArray(Charsets.UTF_8))
+            .take(4)
+            .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
+        val prefix = value.take(maxLength - fingerprint.length - 1).trimEnd('.', '-', '_')
+        return "$prefix-$fingerprint"
     }
 
     private fun writeTextAtomically(file: File, content: String) {
@@ -473,25 +492,25 @@ class RobotProjectTemplateService(
 
         val OFFICIAL_PROJECT_TEMPLATES: List<RobotProjectTemplate> = listOf(
             RobotProjectTemplate(
-                id = "ares-ftc-starter-10.0.0",
+                id = "ares-ftc-starter-10.1.0",
                 displayName = "ARES FTC Starter",
                 league = League.FTC,
-                aresVersion = "10.0.0",
-                revision = "8d8cbf916c59fcdee792ad760ac49ed8f6a5c13d",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v10.0.0/ARES-FTC-Starter-10.0.0.zip",
-                archiveSha256 = "d43479d5260d2b0ac8eabf872571fd9ba139ae4e91177118fe1b8fbd1d08a515",
-                bundledResourcePath = "/project-templates/ARES-FTC-Starter-10.0.0.zip",
+                aresVersion = "10.1.0",
+                revision = "8db9f3651cea58cc0af038919f9b2b1f48fb67e3",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FTC-Starter/releases/download/v10.1.0/ARES-FTC-Starter-10.1.0.zip",
+                archiveSha256 = "9c12080062ff128cef9b81abdb724119868fa070c7543132a8daba72bdef64e3",
+                bundledResourcePath = "/project-templates/ARES-FTC-Starter-10.1.0.zip",
                 deploymentPolicy = RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
             ),
             RobotProjectTemplate(
-                id = "ares-frc-starter-10.0.0",
+                id = "ares-frc-starter-10.1.0",
                 displayName = "ARES FRC Starter",
                 league = League.FRC,
-                aresVersion = "10.0.0",
-                revision = "c7b871811bd4ab58aff81f589d81e7a20438819a",
-                archiveUrl = "https://github.com/ARES-23247/ARES-FRC-Starter/releases/download/v10.0.0/ARES-FRC-Starter-10.0.0.zip",
-                archiveSha256 = "901ae919382d0f91bba832979612ad1a801c67f2e0f23a023ede49e42daef9db",
-                bundledResourcePath = "/project-templates/ARES-FRC-Starter-10.0.0.zip",
+                aresVersion = "10.1.0",
+                revision = "eab3a8db8a19f7f9153a6eaa12192f78da673c8a",
+                archiveUrl = "https://github.com/ARES-23247/ARES-FRC-Starter/releases/download/v10.1.0/ARES-FRC-Starter-10.1.0.zip",
+                archiveSha256 = "6aa7b3e2fb5cd26b277a5085b4c342cba33065f12797259a28cf913e217085a9",
+                bundledResourcePath = "/project-templates/ARES-FRC-Starter-10.1.0.zip",
                 deploymentPolicy = RobotProjectDeploymentPolicy.HARDWARE_REVIEW_REQUIRED,
             ),
         )
@@ -609,7 +628,15 @@ class RobotProjectTemplateService(
                 }
             }
             check(entryCount > 0 && archiveRoot != null) { "The starter archive was empty." }
-            File(destination, "gradlew").takeIf(File::isFile)?.setExecutable(true, false)
+            File(destination, "gradlew").takeIf(File::isFile)?.let { wrapper ->
+                // Official starter ZIPs are also consumed on Windows and may carry CRLF. A CR in
+                // the shebang makes macOS look for an executable literally named `bash\r`.
+                val bytes = wrapper.readBytes()
+                if (bytes.contains('\r'.code.toByte())) {
+                    wrapper.writeBytes(bytes.filterNot { it == '\r'.code.toByte() }.toByteArray())
+                }
+                wrapper.setExecutable(true, false)
+            }
         }
 
         private val WINDOWS_RESERVED_NAMES = buildSet {

@@ -62,7 +62,7 @@ class OnboardingModelTest {
         assertFalse(result.isValid)
         assertNull(result.majorVersion)
         assertTrue(result.message.startsWith("ARES Robotics Studio is ready"))
-        assertTrue(result.message.contains("Set JAVA_HOME"))
+        assertTrue(result.message.contains("supported JDK"))
     }
 
     @Test

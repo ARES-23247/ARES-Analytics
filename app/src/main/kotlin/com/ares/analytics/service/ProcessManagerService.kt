@@ -13,6 +13,7 @@ import com.areslib.codegen.SubsystemStarterReconciler
 import com.areslib.subsystem.SubsystemDocumentCodec
 import com.areslib.subsystem.SubsystemPlatform
 import com.areslib.subsystem.isAresGenerated
+import com.areslib.simulation.SimulationProductId
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.*
@@ -78,6 +79,12 @@ interface AresProjectGenerator {
     fun previewSubsystemStarters(projectPath: String, league: League): SubsystemStarterPlan
     fun applySubsystemStarters(projectPath: String, league: League, confirmationToken: String? = null)
 }
+
+private val SimulationProductId.league: League
+    get() = when (this) {
+        SimulationProductId.FTC_DESKTOP_OPMODE -> League.FTC
+        SimulationProductId.FRC_WPILIB_DESKTOP -> League.FRC
+    }
 
 private enum class BuildOperationKind { BUILD, GENERATION, TEST }
 
@@ -178,6 +185,10 @@ class ProcessManagerService internal constructor(
     private val _aresGenerationState = MutableStateFlow(AresGenerationState())
     override val aresGenerationState: StateFlow<AresGenerationState> = _aresGenerationState.asStateFlow()
 
+    internal fun rejectAresGeneration(message: String) {
+        _aresGenerationState.value = AresGenerationState(AresGenerationPhase.FAILED, message)
+    }
+
     private val _adbConnected = MutableStateFlow(false)
     val adbConnected: StateFlow<Boolean> = _adbConnected.asStateFlow()
 
@@ -253,6 +264,7 @@ class ProcessManagerService internal constructor(
         try {
             val projectRoot = requireSafeProjectRoot(projectPath)
             val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
+            requireProjectGradleWrapper(projectRoot, isWindows)
             val command = verificationBuildCommand(league, isWindows)
             val pendingRun = VerificationRunStore.begin(
                 projectRoot = projectRoot,
@@ -907,6 +919,11 @@ class ProcessManagerService internal constructor(
         require(wrapperJar.isFile && wrapperJar.toPath().startsWith(root.toPath())) {
             "This directory does not contain gradle/wrapper/gradle-wrapper.jar"
         }
+        if (isWindows) return
+        normalizeUnixGradleWrapper(wrapperScript)
+        check(wrapperScript.setExecutable(true, false) || wrapperScript.canExecute()) {
+            "Could not make ${wrapperScript.path} executable"
+        }
     }
 
     /**
@@ -922,10 +939,16 @@ class ProcessManagerService internal constructor(
         add("--console=plain")
     }
 
-    private fun simulationGradleCommand(isWindows: Boolean, league: League): List<String> {
+    private fun simulationGradleCommand(isWindows: Boolean, product: SimulationProductId): List<String> {
+        val league = product.league
         val command = withAresRepository(buildList {
             addGradleWrapper(isWindows)
-            add(if (league == League.FTC) ":TeamCode:runSim" else "simulateJava")
+            add(
+                when (product) {
+                    SimulationProductId.FTC_DESKTOP_OPMODE -> ":TeamCode:runSim"
+                    SimulationProductId.FRC_WPILIB_DESKTOP -> "simulateJava"
+                },
+            )
             addDesktopGradleProcessOptions()
         })
         val studioOwnedSimulationCommand = if (league == League.FRC) {
@@ -964,8 +987,9 @@ class ProcessManagerService internal constructor(
     private fun adbPackageCheckCommandForDeploy(adb: String): List<String> =
         listOf(adb, "-s", FTC_ADB_TARGET, "shell", "pm", "path", FTC_ROBOT_CONTROLLER_PACKAGE)
 
-    fun runSimulation(projectPath: String, league: League, simulatorCommand: String? = null) {
+    fun runSimulation(projectPath: String, product: SimulationProductId, simulatorCommand: String? = null) {
         if (shuttingDown.get()) return
+        val league = product.league
         val projectRoot = runCatching { requireSafeProjectRoot(projectPath) }.getOrElse { error ->
             serviceScope.launch {
                 _buildOutput.emit("[SYSTEM] Simulation could not start: ${error.message ?: "choose a valid robot project"}")
@@ -996,11 +1020,9 @@ class ProcessManagerService internal constructor(
                 val cmd = when {
                     userCmd != null && isWindows -> listOf("cmd.exe", "/d", "/s", "/c", userCmd)
                     userCmd != null -> listOf("sh", "-c", userCmd)
-                    fatJarFile.exists() -> listOf(javaExe, "-jar", fatJarFile.absolutePath)
-                    isWindows && league == League.FTC -> simulationGradleCommand(true, League.FTC)
-                    isWindows -> simulationGradleCommand(true, League.FRC)
-                    league == League.FTC -> simulationGradleCommand(false, League.FTC)
-                    else -> simulationGradleCommand(false, League.FRC)
+                    product == SimulationProductId.FTC_DESKTOP_OPMODE && fatJarFile.exists() ->
+                        listOf(javaExe, "-jar", fatJarFile.absolutePath)
+                    else -> simulationGradleCommand(isWindows, product)
                 }
 
                 _buildOutput.emit("[SYSTEM] Starting Simulation: ${cmd.joinToString(" ")}")
@@ -1291,8 +1313,8 @@ class ProcessManagerService internal constructor(
         verificationBuildCommand(league, isWindows)
 
     /** Exact simulator wrapper command; proves app-owned Gradle children stay isolated. */
-    internal fun simulationGradleCommandForTest(league: League, isWindows: Boolean): List<String> =
-        simulationGradleCommand(isWindows, league)
+    internal fun simulationGradleCommandForTest(product: SimulationProductId, isWindows: Boolean): List<String> =
+        simulationGradleCommand(isWindows, product)
 
     /** Exact fixed-argument command used for descriptor and starter generation. */
     internal fun authoringGradleCommandForTest(
@@ -1407,4 +1429,9 @@ internal fun isTransientGradleCacheMoveFailure(line: String): Boolean {
     return normalized.contains("could not move temporary workspace") ||
         (normalized.contains("temporary workspace") && normalized.contains("immutable location"))
 }
-
+internal fun normalizeUnixGradleWrapper(wrapper: File) {
+    val bytes = wrapper.readBytes()
+    if (bytes.contains('\r'.code.toByte())) {
+        wrapper.writeBytes(bytes.filterNot { it == '\r'.code.toByte() }.toByteArray())
+    }
+}

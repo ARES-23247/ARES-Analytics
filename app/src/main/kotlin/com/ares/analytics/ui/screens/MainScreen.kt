@@ -28,6 +28,7 @@ import com.ares.analytics.service.BuildExecutionPhase
 import com.ares.analytics.service.MatchInfo
 import com.ares.analytics.service.UpdateCheckerService
 import com.ares.analytics.service.isLoopbackDriveControlHost
+import com.ares.analytics.service.project.ProjectExecutionCommand
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.CommandPalette
 import com.ares.analytics.ui.components.LearningCoachDrawer
@@ -204,12 +205,17 @@ fun MainScreen(services: ServiceRegistry) {
         PathPlannerViewModel(
             scope = scope,
             nt4ClientService = services.nt4ClientService,
-            projectGenerator = services.processManagerService,
+            projectGenerator = services.projectGenerator,
             checkpointRecorder = services.projectVersionControlService,
+            projectSession = services.projectSession,
         )
     }
     val fieldEditorViewModel = remember(currentConfig.id) {
-        FieldEditorViewModel(scope = scope, nt4ClientService = services.nt4ClientService)
+        FieldEditorViewModel(
+            scope = scope,
+            nt4ClientService = services.nt4ClientService,
+            projectSession = services.projectSession,
+        )
     }
     val sysIdViewModel = remember(currentConfig.id) {
         SysIdViewModel(
@@ -229,6 +235,11 @@ fun MainScreen(services: ServiceRegistry) {
             repository = services.tuningProfileRepository,
             proposalInbox = services.tuningProposalInbox,
             checkpointRecorder = services.projectVersionControlService,
+            projectSession = services.projectSession,
+            targetPlatform = when (currentConfig.league) {
+                League.FTC -> com.areslib.controls.ControllerInputPlatform.FTC
+                League.FRC -> com.areslib.controls.ControllerInputPlatform.FRC
+            },
         )
     }
     LaunchedEffect(currentConfig.league) {
@@ -276,11 +287,12 @@ fun MainScreen(services: ServiceRegistry) {
         com.ares.analytics.viewmodel.controls.ControlsEditorViewModel(
             projectPath = currentConfig.projectPath,
             league = currentConfig.league,
-            projectGenerator = services.processManagerService,
+            projectGenerator = services.projectGenerator,
             checkpointRecorder = services.projectVersionControlService,
             designAssistant = com.ares.analytics.service.ControlsDesignAssistant { current, context, request ->
                 services.syncEngineService.requestControlsDesignProposal(current, context, request)
             },
+            projectSession = services.projectSession,
         )
     }
     val controlsEditorState by controlsEditorViewModel.state.collectAsState()
@@ -303,11 +315,12 @@ fun MainScreen(services: ServiceRegistry) {
         SubsystemGeneratorViewModel(
             projectPath = currentConfig.projectPath,
             league = currentConfig.league,
-            projectGenerator = services.processManagerService,
+            projectGenerator = services.projectGenerator,
             checkpointRecorder = services.projectVersionControlService,
             designAssistant = com.ares.analytics.service.SubsystemDesignAssistant { current, request ->
                 services.syncEngineService.requestSubsystemDesignProposal(current, request)
             },
+            projectSession = services.projectSession,
         )
     }
     DisposableEffect(subsystemGeneratorViewModel) {
@@ -323,6 +336,7 @@ fun MainScreen(services: ServiceRegistry) {
             scope = scope,
             repository = services.drivebaseProjectRepository,
             checkpointRecorder = services.projectVersionControlService,
+            projectSession = services.projectSession,
             designAssistant = com.ares.analytics.service.DrivebaseDesignAssistant { current, request ->
                 services.syncEngineService.requestDrivebaseDesignProposal(current, request)
             },
@@ -333,6 +347,11 @@ fun MainScreen(services: ServiceRegistry) {
             projectPath = currentConfig.projectPath,
             scope = scope,
             checkpointRecorder = services.projectVersionControlService,
+            targetPlatform = when (currentConfig.league) {
+                League.FTC -> com.areslib.controls.ControllerInputPlatform.FTC
+                League.FRC -> com.areslib.controls.ControllerInputPlatform.FRC
+            },
+            projectSession = services.projectSession,
         )
     }
     val projectBackupViewModel = remember(currentConfig.projectPath) {
@@ -353,7 +372,7 @@ fun MainScreen(services: ServiceRegistry) {
         )
     }
     val projectIdentityViewModel = remember(currentConfig.id) {
-        ProjectIdentityViewModel(scope = scope)
+        ProjectIdentityViewModel(scope = scope, projectSession = services.projectSession)
     }
     val guidedRunAnalysisViewModel = remember(currentConfig.id) {
         GuidedRunAnalysisViewModel(
@@ -441,7 +460,8 @@ fun MainScreen(services: ServiceRegistry) {
         league = currentConfig.league,
     )
     val unmanagedSimulatorOnline = isLocalSimOnline && !isSimRunning
-    val simulatorLaunchEnabled = robotStudioState.canRunSimulation && !unmanagedSimulatorOnline
+    val simulationProduct = robotStudioState.simulationProduct
+    val simulatorLaunchEnabled = robotStudioState.canRunSimulation && simulationProduct != null && !unmanagedSimulatorOnline
     var pendingSimulatorLaunch by remember(currentConfig.id) { mutableStateOf(false) }
     val simulatorLaunchRequest = localSimulatorLaunchRequest(
         canRunSimulation = simulatorLaunchEnabled,
@@ -458,25 +478,29 @@ fun MainScreen(services: ServiceRegistry) {
     } else {
         robotStudioState.simulationDisabledReason
     }
-    val startSimulatorProcess = {
-        if (simulatorLaunchEnabled && !isSimRunning && !isLocalSimOnline) {
-            targetSelection = TargetSelection.LOCAL_SIM
-            services.processManagerService.runSimulation(
-                currentConfig.projectPath,
-                currentConfig.league,
-                currentConfig.simulatorCommand,
-            )
+    val executeProjectCommand: (ProjectExecutionCommand) -> Boolean = { command ->
+        val decision = services.projectExecutionCoordinator.execute(currentConfig, command)
+        if (decision.accepted) {
             mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+        } else {
+            println("[ProjectSession] Rejected $command: ${decision.message}")
+        }
+        decision.accepted
+    }
+    val startSimulatorProcess: () -> Unit = {
+        if (simulatorLaunchEnabled && !isSimRunning && !isLocalSimOnline) {
+            if (executeProjectCommand(ProjectExecutionCommand.SIMULATE)) {
+                targetSelection = TargetSelection.LOCAL_SIM
+            }
         }
     }
-    val requestSimulatorLaunch = {
+    val requestSimulatorLaunch: () -> Unit = {
         when (simulatorLaunchRequest) {
             LocalSimulatorLaunchRequest.START_SIMULATOR -> startSimulatorProcess()
             LocalSimulatorLaunchRequest.VERIFY_THEN_START -> {
                 pendingSimulatorLaunch = true
                 targetSelection = TargetSelection.LOCAL_SIM
-                services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
-                mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                executeProjectCommand(ProjectExecutionCommand.VERIFY_AND_BUILD)
             }
             LocalSimulatorLaunchRequest.NONE -> Unit
         }
@@ -610,8 +634,7 @@ fun MainScreen(services: ServiceRegistry) {
                     when (keyEvent.key) {
                         Key.B -> {
                             if (robotStudioState.canRunBuild && !isBuildRunning) {
-                                services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
-                                mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                executeProjectCommand(ProjectExecutionCommand.VERIFY_AND_BUILD)
                             }
                             true
                         }
@@ -862,6 +885,7 @@ fun MainScreen(services: ServiceRegistry) {
                         }
 
                         ExecutionToolbar(
+                            projectPath = currentConfig.projectPath,
                             targetSelection = targetSelection,
                             targetIp = if (targetSelection == TargetSelection.LOCAL_SIM || isSimRunning) "127.0.0.1" else liveRobotIp,
                             isLiveRobotOnline = isLiveRobotOnline,
@@ -880,8 +904,7 @@ fun MainScreen(services: ServiceRegistry) {
                             },
                             onRunBuild = {
                                 if (robotStudioState.canRunBuild) {
-                                    services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
-                                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                    executeProjectCommand(ProjectExecutionCommand.VERIFY_AND_BUILD)
                                 }
                             },
                             onRunSim = requestSimulatorLaunch,
@@ -1030,15 +1053,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 },
                                 onStartSimulator = {
                                     coachDrawerOpen = true
-                                    targetSelection = TargetSelection.LOCAL_SIM
-                                    if (!isLocalSimOnline && !isSimRunning) {
-                                        services.processManagerService.runSimulation(
-                                            currentConfig.projectPath,
-                                            currentConfig.league,
-                                            currentConfig.simulatorCommand
-                                        )
-                                        mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
-                                    }
+                                    startSimulatorProcess()
                                 },
                                 onCreatePracticeProject = {
                                     requestedProjectSetupMode = ProjectSetupMode.CREATE_NEW
@@ -1174,8 +1189,7 @@ fun MainScreen(services: ServiceRegistry) {
                                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.PIT_DIAGNOSTICS))
                                 },
                                 onRunVerification = {
-                                    services.processManagerService.runBuild(currentConfig.projectPath, currentConfig.league)
-                                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                                    executeProjectCommand(ProjectExecutionCommand.VERIFY_AND_BUILD)
                                 },
                             )
                             NavigationTarget.CONTROLS -> com.ares.analytics.ui.components.controls.ControlsEditorPanel(
@@ -1266,15 +1280,7 @@ fun MainScreen(services: ServiceRegistry) {
                 },
                 onSelectLocalSimulator = { targetSelection = TargetSelection.LOCAL_SIM },
                 onStartSimulator = {
-                    targetSelection = TargetSelection.LOCAL_SIM
-                    if (!isLocalSimOnline && !isSimRunning) {
-                        services.processManagerService.runSimulation(
-                            currentConfig.projectPath,
-                            currentConfig.league,
-                            currentConfig.simulatorCommand,
-                        )
-                        mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
-                    }
+                    startSimulatorProcess()
                 },
                 onOpenDashboard = {
                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DASHBOARD))
@@ -1350,11 +1356,7 @@ fun MainScreen(services: ServiceRegistry) {
                 league = currentConfig.league,
                 onConfirm = {
                     deployAwaitingConfirmation = false
-                    services.processManagerService.deployToRobot(
-                        currentConfig.projectPath,
-                        currentConfig.league,
-                    )
-                    mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
+                    executeProjectCommand(ProjectExecutionCommand.DEPLOY)
                 },
                 onDismiss = {
                     deployDialogOpen = false
