@@ -114,8 +114,6 @@ class ServiceRegistry {
         RobotProjectReadinessService(
             databaseService = databaseService,
             projectSession = projectSession,
-            drivebaseRepository = drivebaseProjectRepository,
-            tuningRepository = tuningProfileRepository,
             hardwareSetupService = hardwareSetupService,
         )
     }

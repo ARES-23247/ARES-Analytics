@@ -1,7 +1,6 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.service.drivebase.DrivebaseKind
-import com.ares.analytics.service.drivebase.DrivebaseProjectRepository
 import com.ares.analytics.service.drivebase.DrivebaseIssueSeverity
 import com.ares.analytics.service.drivebase.FtcMecanumRuntimeParameters
 import com.ares.analytics.service.drivebase.LocalizationKind
@@ -10,7 +9,8 @@ import com.ares.analytics.service.hardware.HardwareReviewStatus
 import com.ares.analytics.service.hardware.HardwareSetupService
 import com.ares.analytics.service.project.templateDeploymentBlockReason
 import com.ares.analytics.service.project.ProjectSession
-import com.ares.analytics.service.tuning.TuningProfileRepository
+import com.ares.analytics.service.drivebase.toUiDrivebase
+import com.ares.analytics.service.tuning.TuningWorkspaceDocuments
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.models.WorkspaceConfig
 import com.ares.analytics.util.ProjectLayout
@@ -73,8 +73,6 @@ data class RobotProjectReadinessEvidence(
 class RobotProjectReadinessService(
     private val databaseService: DatabaseService,
     private val projectSession: ProjectSession = ProjectSession(),
-    private val drivebaseRepository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
-    private val tuningRepository: TuningProfileRepository = TuningProfileRepository(),
     private val hardwareSetupService: HardwareSetupService = HardwareSetupService(),
 ) {
     suspend fun inspect(config: WorkspaceConfig): RobotProjectReadinessEvidence = withContext(Dispatchers.IO) {
@@ -98,7 +96,16 @@ class RobotProjectReadinessService(
         val snapshotFailure = projectSnapshot.exceptionOrNull()?.message
         val diagnostics = snapshot?.diagnostics.orEmpty()
 
-        val drivebaseResult = drivebaseRepository.load(config.projectPath)
+        val rawProject = snapshot?.effectiveProject?.raw
+        val drivebaseDiagnostics = diagnostics.filter { it.kind == ProjectDocumentKind.DRIVETRAIN }
+        val drivebaseResult = runCatching {
+            require(drivebaseDiagnostics.isEmpty()) {
+                drivebaseDiagnostics.joinToString("; ") { "${it.file.name}: ${it.message}" }
+            }
+            val drivetrains = requireNotNull(rawProject) { snapshotFailure ?: "The canonical project did not load." }.drivetrains
+            require(drivetrains.size <= 1) { "This project has multiple drivetrain documents." }
+            drivetrains.singleOrNull()?.toUiDrivebase()
+        }
         val drivebase = drivebaseResult.getOrNull()
         val drivebaseIssues = drivebase?.let(::validateDrivebase).orEmpty()
         val drivebaseErrors = buildList {
@@ -107,7 +114,21 @@ class RobotProjectReadinessService(
             drivebase?.canonical?.let(FtcMecanumRuntimeParameters::repairMessage)?.let(::add)
         }.distinct()
 
-        val tuningResult = tuningRepository.load(config.projectPath)
+        val tuningDiagnostics = diagnostics.filter {
+            it.kind == ProjectDocumentKind.TUNING_COMPONENT || it.kind == ProjectDocumentKind.TUNING_PROFILE
+        }
+        val tuningResult = runCatching {
+            require(tuningDiagnostics.isEmpty()) {
+                tuningDiagnostics.joinToString("; ") { "${it.file.name}: ${it.message}" }
+            }
+            val raw = requireNotNull(rawProject) { snapshotFailure ?: "The canonical project did not load." }
+            TuningWorkspaceDocuments(
+                catalog = raw.drivetrains.flatMap { it.parameters } +
+                    raw.subsystems.flatMap { it.tuningParameters } +
+                    raw.tuningComponents.flatMap { it.parameters },
+                profiles = raw.tuningProfiles,
+            )
+        }
         val tuning = tuningResult.getOrNull()
         val hardwareResult = runCatching { hardwareSetupService.inspect(config.projectPath, config.league) }
         val hardware = hardwareResult.getOrNull()

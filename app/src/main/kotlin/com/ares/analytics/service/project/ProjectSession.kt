@@ -104,7 +104,7 @@ enum class RemovableProjectDocumentKind {
  * revision-bound mutation boundary. It deliberately performs no robot or cloud IO.
  */
 class ProjectSession(
-    private val projectDocuments: AresProjectDocuments = AresProjectDocuments(),
+    private val projectDocuments: ProjectDocumentGateway = AresProjectDocuments(),
     private val drivebaseRepository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
     private val tuningRepository: TuningProfileRepository = TuningProfileRepository(),
 ) {

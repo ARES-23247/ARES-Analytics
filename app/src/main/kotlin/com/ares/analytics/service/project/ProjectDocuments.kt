@@ -45,19 +45,32 @@ data class AresProjectDocumentSnapshot(
  * shared ARES project assembler. Repositories retain write/history ownership; this class is the
  * single read boundary used by Studio features.
  */
+interface ProjectDocumentGateway {
+    val routines: RoutineProjectRepository
+    val controls: ControlSchemeProjectRepository
+    val controllers: ControllerProfileProjectRepository
+    val subsystems: SubsystemProjectRepository
+    val superstructures: SuperstructureProjectRepository
+    val capabilities: CapabilityCatalogProjectRepository
+    val metadata: ProjectMetadataRepository
+    val autonomous: AutonomousCatalogProjectRepository
+
+    fun load(projectPath: String, targetPlatform: ControllerInputPlatform? = null): AresProjectDocumentSnapshot
+}
+
 class AresProjectDocuments(
-    val routines: RoutineProjectRepository = RoutineProjectRepository(),
-    val controls: ControlSchemeProjectRepository = ControlSchemeProjectRepository(),
-    val controllers: ControllerProfileProjectRepository = ControllerProfileProjectRepository(),
-    val subsystems: SubsystemProjectRepository = SubsystemProjectRepository(),
-    val superstructures: SuperstructureProjectRepository = SuperstructureProjectRepository(),
-    val capabilities: CapabilityCatalogProjectRepository = CapabilityCatalogProjectRepository(),
-    val metadata: ProjectMetadataRepository = ProjectMetadataRepository(),
-    val autonomous: AutonomousCatalogProjectRepository = AutonomousCatalogProjectRepository(routines),
-) {
-    fun load(
+    override val routines: RoutineProjectRepository = RoutineProjectRepository(),
+    override val controls: ControlSchemeProjectRepository = ControlSchemeProjectRepository(),
+    override val controllers: ControllerProfileProjectRepository = ControllerProfileProjectRepository(),
+    override val subsystems: SubsystemProjectRepository = SubsystemProjectRepository(),
+    override val superstructures: SuperstructureProjectRepository = SuperstructureProjectRepository(),
+    override val capabilities: CapabilityCatalogProjectRepository = CapabilityCatalogProjectRepository(),
+    override val metadata: ProjectMetadataRepository = ProjectMetadataRepository(),
+    override val autonomous: AutonomousCatalogProjectRepository = AutonomousCatalogProjectRepository(routines),
+) : ProjectDocumentGateway {
+    override fun load(
         projectPath: String,
-        targetPlatform: ControllerInputPlatform? = null,
+        targetPlatform: ControllerInputPlatform?,
     ): AresProjectDocumentSnapshot {
         val root = requireProjectRoot(projectPath)
         val routineListing = routines.list(root.path)
