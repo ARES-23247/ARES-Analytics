@@ -8,6 +8,8 @@ import com.ares.analytics.service.sanitizeSubsystemDesignCandidate
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.service.project.ProjectSession
 import com.ares.analytics.service.project.AresProjectDocuments
+import com.ares.analytics.service.project.ProjectSessionMutationResult
+import com.ares.analytics.service.project.ProjectSessionRevision
 import com.ares.analytics.shared.League
 import com.ares.analytics.service.project.persistence.ProjectDocumentKind
 import com.ares.analytics.service.project.persistence.ProjectDocumentRemovalPlan
@@ -337,6 +339,7 @@ data class SubsystemGeneratorState(
     val generatedContentHash: String? = null,
     val status: String? = null,
     val loadError: String? = null,
+    val projectRevision: ProjectSessionRevision? = null,
     val aiProposalInProgress: Boolean = false,
     val aiProposal: SubsystemAiProposalReview? = null,
     val aiProposalError: String? = null,
@@ -415,10 +418,10 @@ class SubsystemGeneratorViewModel(
             League.FRC -> com.areslib.controls.ControllerInputPlatform.FRC
         }
         runCatching {
-            projectSession?.snapshot(current.projectPath, target, forceReload = true)?.documents
-                ?: documents.load(current.projectPath, target)
+            val sessionSnapshot = projectSession?.snapshot(current.projectPath, target, forceReload = true)
+            (sessionSnapshot?.documents ?: documents.load(current.projectPath, target)) to sessionSnapshot?.revision
         }
-            .onSuccess { snapshot ->
+            .onSuccess { (snapshot, revision) ->
                 val matching = snapshot.query.subsystems.filter { it.platform == platform }
                 val first = matching.firstOrNull()
                 val projectProblems = snapshot.diagnostics.filter {
@@ -436,6 +439,7 @@ class SubsystemGeneratorViewModel(
                     dirty = false,
                     status = null,
                     loadError = null,
+                    projectRevision = revision,
                     aiProposalInProgress = false,
                     aiProposal = null,
                     aiProposalError = null,
@@ -1285,9 +1289,21 @@ class SubsystemGeneratorViewModel(
             _state.update { it.copy(status = "Fix validation errors before saving.") }
             return
         }
-        runCatching { documents.subsystems.save(current.projectPath, draft) }
+        runCatching {
+            val session = projectSession
+            val revision = current.projectRevision
+            if (session != null && revision != null) {
+                when (val result = session.saveSubsystem(revision, draft)) {
+                    is ProjectSessionMutationResult.Applied -> result.value.revision
+                    is ProjectSessionMutationResult.Stale -> error("The project changed after this subsystem loaded. Reload before saving.")
+                    is ProjectSessionMutationResult.Conflict -> error(result.message)
+                    is ProjectSessionMutationResult.Failed -> error(result.message)
+                }
+            } else {
+                documents.subsystems.save(current.projectPath, draft)
+            }
+        }
             .onSuccess { saved ->
-                refreshProjectSession(current.projectPath, current.league)
                 _state.update { state ->
                     val persisted = saved.document
                     state.copy(
@@ -1295,6 +1311,7 @@ class SubsystemGeneratorViewModel(
                         selectedDocumentId = persisted.documentId,
                         draft = SubsystemEditorDraft(persisted),
                         dirty = false,
+                        projectRevision = projectSession?.state?.value?.revision ?: state.projectRevision,
                         status = "Saved revision ${persisted.revision} (${saved.contentHash.take(12)}…).",
                     ).revalidated()
                 }
@@ -1364,9 +1381,24 @@ class SubsystemGeneratorViewModel(
         }
         val expectedHash = request.contentHash ?: return
         runCatching {
-            documents.subsystems.remove(current.projectPath, request.documentId, expectedHash)
+            val session = projectSession
+            val revision = current.projectRevision
+            if (session != null && revision != null) {
+                when (val result = session.remove(
+                    revision,
+                    com.ares.analytics.service.project.RemovableProjectDocumentKind.SUBSYSTEM,
+                    request.documentId,
+                    expectedHash,
+                )) {
+                    is ProjectSessionMutationResult.Applied -> result.value
+                    is ProjectSessionMutationResult.Stale -> error("The project changed after removal review. Reload before removing this subsystem.")
+                    is ProjectSessionMutationResult.Conflict -> error(result.message)
+                    is ProjectSessionMutationResult.Failed -> error(result.message)
+                }
+            } else {
+                documents.subsystems.remove(current.projectPath, request.documentId, expectedHash)
+            }
         }.onSuccess { removed ->
-            refreshProjectSession(current.projectPath, current.league)
             val root = File(current.projectPath).canonicalFile
             val recoveryPath = removed.recoveryFile.relativeTo(root).invariantSeparatorsPath
             removeDocumentFromSession(
@@ -1410,14 +1442,29 @@ class SubsystemGeneratorViewModel(
         val current = _state.value
         val recovery = current.recentRecovery ?: return
         runCatching {
-            documents.subsystems.restoreRemoved(
-                current.projectPath,
-                recovery.documentId,
-                recovery.contentHash,
-                recovery.recoveryPath,
-            )
+            val session = projectSession
+            val revision = current.projectRevision
+            if (session != null && revision != null) {
+                when (val result = session.restoreRemovedSubsystem(
+                    revision,
+                    recovery.documentId,
+                    recovery.contentHash,
+                    recovery.recoveryPath,
+                )) {
+                    is ProjectSessionMutationResult.Applied -> result.value
+                    is ProjectSessionMutationResult.Stale -> error("The project changed after this recovery was offered. Reload before restoring.")
+                    is ProjectSessionMutationResult.Conflict -> error(result.message)
+                    is ProjectSessionMutationResult.Failed -> error(result.message)
+                }
+            } else {
+                documents.subsystems.restoreRemoved(
+                    current.projectPath,
+                    recovery.documentId,
+                    recovery.contentHash,
+                    recovery.recoveryPath,
+                )
+            }
         }.onSuccess { restored ->
-            refreshProjectSession(current.projectPath, current.league)
             aiProposalGeneration++
             val restoredDocuments = (current.documents + restored)
                 .distinctBy(SubsystemDocument::documentId)
@@ -1436,6 +1483,7 @@ class SubsystemGeneratorViewModel(
                     visitedStages = setOf(SubsystemBuilderStage.PURPOSE),
                     selectedTemplate = restored.template,
                     dirty = false,
+                    projectRevision = projectSession?.state?.value?.revision ?: it.projectRevision,
                     recentRecovery = null,
                     status = "Restored ${restored.displayName} from the reviewed recovery copy. Kotlin source was unchanged.",
                 ).revalidated()
@@ -1494,6 +1542,7 @@ class SubsystemGeneratorViewModel(
                 visitedStages = setOf(SubsystemBuilderStage.PURPOSE),
                 selectedTemplate = next?.template ?: current.selectedTemplate,
                 dirty = false,
+                projectRevision = projectSession?.state?.value?.revision ?: current.projectRevision,
                 pendingRemoval = null,
                 recentRecovery = recovery,
                 status = message,

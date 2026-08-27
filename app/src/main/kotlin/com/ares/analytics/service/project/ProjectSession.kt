@@ -6,13 +6,18 @@ import com.ares.analytics.shared.WorkspaceConfig
 import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.service.project.persistence.ProjectDocumentRemovalPlan
 import com.ares.analytics.service.project.persistence.RemovedProjectDocument
+import com.ares.analytics.service.project.persistence.SavedProjectRevision
 import com.ares.analytics.service.project.persistence.VersionedProjectDocumentStore
 import com.areslib.controls.ControlSchemeDocument
 import com.areslib.controls.ControllerInputPlatform
 import com.areslib.controls.ControllerProfileDocument
 import com.areslib.project.AresLeague
 import com.areslib.project.model.ProjectModelSeverity
+import com.areslib.routine.AutonomousCatalogDocument
+import com.areslib.routine.AutonomousCatalogEntry
+import com.areslib.routine.RoutineDocument
 import com.areslib.simulation.SimulationProductId
+import com.areslib.subsystem.SubsystemDocument
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.locks.ReentrantLock
@@ -57,6 +62,17 @@ sealed interface ProjectSessionMutationResult<out T> {
 }
 
 data class SavedControlDocuments(
+    val changedRelativePaths: Set<String>,
+)
+
+data class SavedRoutineDocuments(
+    val routine: SavedProjectRevision<RoutineDocument>,
+    val autonomousCatalog: SavedProjectRevision<AutonomousCatalogDocument>,
+    val changedRelativePaths: Set<String>,
+)
+
+data class SavedSubsystemDocument(
+    val revision: SavedProjectRevision<SubsystemDocument>,
     val changedRelativePaths: Set<String>,
 )
 
@@ -134,6 +150,73 @@ class ProjectSession(
             paths += saved.historyFile.relativeTo(root).invariantSeparatorsPath
         }
         SavedControlDocuments(paths)
+    }
+
+    /** Saves a routine and its chooser entry as one revision-bound project command. */
+    fun saveRoutine(
+        expectedRevision: ProjectSessionRevision,
+        routine: RoutineDocument,
+        autonomousEntry: AutonomousCatalogEntry?,
+    ): ProjectSessionMutationResult<SavedRoutineDocuments> = mutate(expectedRevision, "Saving autonomous routine") { current ->
+        val root = File(current.selection.projectRoot).canonicalFile
+        val savedRoutine = projectDocuments.routines.save(root.path, routine)
+        val previousCatalog = current.documents.query.autonomousCatalog
+        val entry = autonomousEntry?.copy(routineId = savedRoutine.document.documentId)
+        val entries = previousCatalog?.entries.orEmpty()
+            .filterNot { it.routineId == savedRoutine.document.documentId || it.entryId == entry?.entryId }
+            .let { remaining -> if (entry == null) remaining else remaining + entry }
+        val defaultEntryId = previousCatalog?.defaultEntryId
+            ?.takeIf { id -> entries.any { it.entryId == id && it.enabled } }
+            ?: entries.firstOrNull { it.enabled }?.entryId
+        val savedCatalog = projectDocuments.autonomous.save(
+            root.path,
+            AutonomousCatalogDocument(
+                projectId = previousCatalog?.projectId
+                    ?: requireNotNull(current.documents.query.metadata).projectId,
+                revision = previousCatalog?.revision ?: 1,
+                defaultEntryId = defaultEntryId,
+                entries = entries,
+            ),
+        )
+        SavedRoutineDocuments(
+            routine = savedRoutine,
+            autonomousCatalog = savedCatalog,
+            changedRelativePaths = setOf(
+                savedRoutine.currentFile.relativeTo(root).invariantSeparatorsPath,
+                savedRoutine.historyFile.relativeTo(root).invariantSeparatorsPath,
+                savedCatalog.currentFile.relativeTo(root).invariantSeparatorsPath,
+                savedCatalog.historyFile.relativeTo(root).invariantSeparatorsPath,
+            ),
+        )
+    }
+
+    fun saveSubsystem(
+        expectedRevision: ProjectSessionRevision,
+        document: SubsystemDocument,
+    ): ProjectSessionMutationResult<SavedSubsystemDocument> = mutate(expectedRevision, "Saving subsystem") { current ->
+        val root = File(current.selection.projectRoot).canonicalFile
+        val saved = projectDocuments.subsystems.save(root.path, document)
+        SavedSubsystemDocument(
+            revision = saved,
+            changedRelativePaths = setOf(
+                saved.currentFile.relativeTo(root).invariantSeparatorsPath,
+                saved.historyFile.relativeTo(root).invariantSeparatorsPath,
+            ),
+        )
+    }
+
+    fun restoreRemovedSubsystem(
+        expectedRevision: ProjectSessionRevision,
+        documentId: String,
+        expectedContentHash: String,
+        recoveryRelativePath: String,
+    ): ProjectSessionMutationResult<SubsystemDocument> = mutate(expectedRevision, "Restoring subsystem") { current ->
+        projectDocuments.subsystems.restoreRemoved(
+            current.selection.projectRoot,
+            documentId,
+            expectedContentHash,
+            recoveryRelativePath,
+        )
     }
 
     fun removalPlan(
