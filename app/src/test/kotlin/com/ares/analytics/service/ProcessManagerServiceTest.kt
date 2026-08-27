@@ -11,6 +11,7 @@ import com.areslib.subsystem.SubsystemDocumentCodec
 import com.areslib.subsystem.SubsystemPlatform
 import com.areslib.subsystem.SubsystemTemplate
 import com.areslib.subsystem.SubsystemTemplates
+import com.areslib.simulation.SimulationProductId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -133,8 +134,8 @@ class ProcessManagerServiceTest {
     fun `desktop simulator wrapper is isolated from ambient Gradle daemons`() {
         val service = ProcessManagerService(monitorAdbConnection = false)
         try {
-            val ftc = service.simulationGradleCommandForTest(League.FTC, isWindows = true)
-            val frc = service.simulationGradleCommandForTest(League.FRC, isWindows = false)
+            val ftc = service.simulationGradleCommandForTest(SimulationProductId.FTC_DESKTOP_OPMODE, isWindows = true)
+            val frc = service.simulationGradleCommandForTest(SimulationProductId.FRC_WPILIB_DESKTOP, isWindows = false)
 
             assertEquals(listOf("cmd.exe", "/c", "gradlew.bat"), ftc.take(3))
             assertTrue(":TeamCode:runSim" in ftc)
@@ -148,7 +149,7 @@ class ProcessManagerServiceTest {
                 assertTrue("--console=plain" in command)
             }
             if (ManagedToolchainPaths.resolveFrcSimulationJavaHome() != null) {
-                val windowsFrc = service.simulationGradleCommandForTest(League.FRC, isWindows = true)
+                val windowsFrc = service.simulationGradleCommandForTest(SimulationProductId.FRC_WPILIB_DESKTOP, isWindows = true)
                 assertTrue(windowsFrc.any { it.startsWith("-ParesFrcJavaExecutable=") })
             }
         } finally {

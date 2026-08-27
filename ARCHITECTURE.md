@@ -44,6 +44,14 @@ The Compose Desktop process. It owns:
 - Google OAuth/Drive synchronization;
 - all screen/view-model state.
 
+Simulator launch is target-derived rather than a UI league guess. The validated effective project
+selects either `ftc.desktop-opmode` or `frc.wpilib-desktop` and reports the drivetrain and subsystem
+capabilities it requires. `ProcessManagerService` receives that concrete product and maps it to the
+FTC `:TeamCode:runSim` or FRC `simulateJava` task. Unsupported, unavailable, or cross-league device
+models remain visible in Robot Studio and fail before a process starts; Studio never substitutes a
+generic drivetrain. The two products retain independent OpMode/TimedRobot lifecycles, fields,
+power behavior, vendor APIs, and physics implementations.
+
 ### `gateway`
 
 A small Ktor/Netty service for authenticated pit-forensics requests and the ARES-managed Google

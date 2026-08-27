@@ -16,6 +16,7 @@ import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentKind
 import com.areslib.project.AresLeague
+import com.areslib.simulation.SimulationProductId
 import com.ares.analytics.viewmodel.controls.controlsCoverage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -41,6 +42,8 @@ data class RobotProjectReadinessEvidence(
     val localizationConfigured: Boolean = false,
     val subsystemCount: Int = 0,
     val subsystemErrors: List<String> = emptyList(),
+    val simulationProduct: SimulationProductId? = null,
+    val simulationErrors: List<String> = emptyList(),
     val superstructureCount: Int = 0,
     val superstructureErrors: List<String> = emptyList(),
     val capabilityActionCount: Int = 0,
@@ -159,6 +162,8 @@ class RobotProjectReadinessService(
                 drivebase.localization.count { it != LocalizationKind.VISION_FUSION } == 1,
             subsystemCount = project?.subsystems?.size ?: 0,
             subsystemErrors = subsystemErrors,
+            simulationProduct = project?.simulationPlan?.product?.id,
+            simulationErrors = project?.simulationPlan?.issues.orEmpty().map { it.message },
             superstructureCount = project?.superstructures?.size ?: 0,
             superstructureErrors = superstructureErrors,
             capabilityActionCount = project?.actions?.size ?: 0,

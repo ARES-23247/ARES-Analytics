@@ -441,7 +441,8 @@ fun MainScreen(services: ServiceRegistry) {
         league = currentConfig.league,
     )
     val unmanagedSimulatorOnline = isLocalSimOnline && !isSimRunning
-    val simulatorLaunchEnabled = robotStudioState.canRunSimulation && !unmanagedSimulatorOnline
+    val simulationProduct = robotStudioState.simulationProduct
+    val simulatorLaunchEnabled = robotStudioState.canRunSimulation && simulationProduct != null && !unmanagedSimulatorOnline
     var pendingSimulatorLaunch by remember(currentConfig.id) { mutableStateOf(false) }
     val simulatorLaunchRequest = localSimulatorLaunchRequest(
         canRunSimulation = simulatorLaunchEnabled,
@@ -463,7 +464,7 @@ fun MainScreen(services: ServiceRegistry) {
             targetSelection = TargetSelection.LOCAL_SIM
             services.processManagerService.runSimulation(
                 currentConfig.projectPath,
-                currentConfig.league,
+                requireNotNull(simulationProduct),
                 currentConfig.simulatorCommand,
             )
             mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
@@ -1030,15 +1031,7 @@ fun MainScreen(services: ServiceRegistry) {
                                 },
                                 onStartSimulator = {
                                     coachDrawerOpen = true
-                                    targetSelection = TargetSelection.LOCAL_SIM
-                                    if (!isLocalSimOnline && !isSimRunning) {
-                                        services.processManagerService.runSimulation(
-                                            currentConfig.projectPath,
-                                            currentConfig.league,
-                                            currentConfig.simulatorCommand
-                                        )
-                                        mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
-                                    }
+                                    startSimulatorProcess()
                                 },
                                 onCreatePracticeProject = {
                                     requestedProjectSetupMode = ProjectSetupMode.CREATE_NEW
@@ -1266,15 +1259,7 @@ fun MainScreen(services: ServiceRegistry) {
                 },
                 onSelectLocalSimulator = { targetSelection = TargetSelection.LOCAL_SIM },
                 onStartSimulator = {
-                    targetSelection = TargetSelection.LOCAL_SIM
-                    if (!isLocalSimOnline && !isSimRunning) {
-                        services.processManagerService.runSimulation(
-                            currentConfig.projectPath,
-                            currentConfig.league,
-                            currentConfig.simulatorCommand,
-                        )
-                        mainViewModel.onIntent(MainIntent.SetTerminalOpen(true))
-                    }
+                    startSimulatorProcess()
                 },
                 onOpenDashboard = {
                     mainViewModel.onIntent(MainIntent.SetActiveNav(NavigationTarget.DASHBOARD))
