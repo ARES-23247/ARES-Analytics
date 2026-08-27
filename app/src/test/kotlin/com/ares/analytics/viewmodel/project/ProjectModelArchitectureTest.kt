@@ -55,6 +55,10 @@ class ProjectModelArchitectureTest {
             forbidden.isEmpty(),
             "MainScreen must authorize project execution through ProjectExecutionCoordinator: ${forbidden.joinToString()}",
         )
+        assertTrue(
+            "projectGenerator = services.processManagerService" !in mainScreen,
+            "Authoring ViewModels must receive SessionProjectGenerator, never ProcessManagerService.",
+        )
     }
 
     @Test
@@ -71,6 +75,10 @@ class ProjectModelArchitectureTest {
             "ControlsEditorViewModel(",
             "SubsystemGeneratorViewModel(",
             "SuperstructureStudioViewModel(",
+            "ProjectIdentityViewModel(",
+            "DrivebaseBuilderViewModel(",
+            "FieldEditorViewModel(",
+            "TuningViewModel(",
         )
         constructors.forEach { constructor ->
             val start = mainScreen.indexOf(constructor)
@@ -82,5 +90,30 @@ class ProjectModelArchitectureTest {
                 "$constructor must receive the application ProjectSession instead of reconstructing project meaning.",
             )
         }
+    }
+
+    @Test
+    fun `canonical persistence has no production owner in the viewmodel namespace`() {
+        val sourceRoot = sequenceOf(
+            File("app/src/main/kotlin/com/ares/analytics"),
+            File("src/main/kotlin/com/ares/analytics"),
+        ).firstOrNull(File::isDirectory)
+        checkNotNull(sourceRoot) { "Could not locate Analytics application sources" }
+
+        val violations = File(sourceRoot, "viewmodel").walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .filter { file ->
+                val source = file.readText()
+                "AtomicProjectFileWriter" in source ||
+                    "ProjectDocumentWriteLocks" in source ||
+                    Regex("(object|class)\\s+\\w*(ProjectDocumentStore|ProjectRepository)").containsMatchIn(source)
+            }
+            .map { it.relativeTo(sourceRoot).invariantSeparatorsPath }
+            .toList()
+
+        assertTrue(
+            violations.isEmpty(),
+            "Canonical persistence belongs under service/project or a feature service: ${violations.joinToString()}",
+        )
     }
 }

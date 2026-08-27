@@ -185,6 +185,10 @@ class ProcessManagerService internal constructor(
     private val _aresGenerationState = MutableStateFlow(AresGenerationState())
     override val aresGenerationState: StateFlow<AresGenerationState> = _aresGenerationState.asStateFlow()
 
+    internal fun rejectAresGeneration(message: String) {
+        _aresGenerationState.value = AresGenerationState(AresGenerationPhase.FAILED, message)
+    }
+
     private val _adbConnected = MutableStateFlow(false)
     val adbConnected: StateFlow<Boolean> = _adbConnected.asStateFlow()
 

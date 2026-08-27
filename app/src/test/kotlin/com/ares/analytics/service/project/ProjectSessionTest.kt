@@ -2,6 +2,8 @@ package com.ares.analytics.service.project
 
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.WorkspaceConfig
+import com.ares.analytics.service.AresGenerationPhase
+import com.ares.analytics.service.ProcessManagerService
 import com.ares.analytics.service.project.persistence.CapabilityCatalogProjectRepository
 import com.ares.analytics.service.project.persistence.ProjectDocumentRemovalPlan
 import com.ares.analytics.service.project.persistence.ProjectMetadataRepository
@@ -212,6 +214,24 @@ class ProjectSessionTest {
         val mismatched = coordinator.execute(workspace.copy(league = League.FRC), ProjectExecutionCommand.DEPLOY)
         assertFalse(mismatched.accepted)
         assertEquals(2, gateway.calls.size)
+    }
+
+    @Test
+    fun `authoring generation is rejected before a process starts when the project is invalid`() = withProject { root ->
+        val session = ProjectSession()
+        val gateway = RecordingProjectProcessGateway()
+        val processManager = ProcessManagerService(monitorAdbConnection = false)
+        val generator = SessionProjectGenerator(
+            session,
+            ProjectExecutionCoordinator(session, gateway),
+            processManager,
+        )
+
+        generator.generateAresProject(root.path, League.FTC)
+
+        assertTrue(gateway.calls.isEmpty())
+        assertEquals(AresGenerationPhase.FAILED, processManager.aresGenerationState.value.phase)
+        assertTrue(processManager.aresGenerationState.value.message.isNotBlank())
     }
 
     private fun withProject(block: (File) -> Unit) {

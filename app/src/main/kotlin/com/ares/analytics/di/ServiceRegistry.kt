@@ -66,6 +66,13 @@ class ServiceRegistry {
             com.ares.analytics.service.project.ProcessManagerProjectGateway(processManagerService),
         )
     }
+    val projectGenerator by lazy {
+        com.ares.analytics.service.project.SessionProjectGenerator(
+            projectSession,
+            projectExecutionCoordinator,
+            processManagerService,
+        )
+    }
 
     // ── Tier 1: Depend on Tier 0 ─────────────────────────────────────────────
     val nt4ClientService by lazy { Nt4ClientService(databaseService) }

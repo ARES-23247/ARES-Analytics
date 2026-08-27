@@ -205,7 +205,7 @@ fun MainScreen(services: ServiceRegistry) {
         PathPlannerViewModel(
             scope = scope,
             nt4ClientService = services.nt4ClientService,
-            projectGenerator = services.processManagerService,
+            projectGenerator = services.projectGenerator,
             checkpointRecorder = services.projectVersionControlService,
             projectSession = services.projectSession,
         )
@@ -287,7 +287,7 @@ fun MainScreen(services: ServiceRegistry) {
         com.ares.analytics.viewmodel.controls.ControlsEditorViewModel(
             projectPath = currentConfig.projectPath,
             league = currentConfig.league,
-            projectGenerator = services.processManagerService,
+            projectGenerator = services.projectGenerator,
             checkpointRecorder = services.projectVersionControlService,
             designAssistant = com.ares.analytics.service.ControlsDesignAssistant { current, context, request ->
                 services.syncEngineService.requestControlsDesignProposal(current, context, request)
@@ -315,7 +315,7 @@ fun MainScreen(services: ServiceRegistry) {
         SubsystemGeneratorViewModel(
             projectPath = currentConfig.projectPath,
             league = currentConfig.league,
-            projectGenerator = services.processManagerService,
+            projectGenerator = services.projectGenerator,
             checkpointRecorder = services.projectVersionControlService,
             designAssistant = com.ares.analytics.service.SubsystemDesignAssistant { current, request ->
                 services.syncEngineService.requestSubsystemDesignProposal(current, request)
