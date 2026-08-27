@@ -637,12 +637,13 @@ class PathPlannerViewModel(
         runCatching {
             withContext(Dispatchers.IO) {
                 val snapshot = projectDocuments.load(projectPath)
+                val project = snapshot.query
                 RoutineRefresh(
-                    snapshot.routines,
+                    project.routines,
                     snapshot.diagnostics.map { it.message },
-                    snapshot.capabilityCatalog,
-                    snapshot.autonomousCatalog,
-                    snapshot.projectMetadata,
+                    project.capabilityCatalog,
+                    project.autonomousCatalog,
+                    project.metadata,
                 )
             }
         }.onSuccess { refresh ->

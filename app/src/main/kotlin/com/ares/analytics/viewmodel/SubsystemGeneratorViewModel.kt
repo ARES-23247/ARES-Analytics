@@ -410,7 +410,7 @@ class SubsystemGeneratorViewModel(
         }
         runCatching { documents.load(current.projectPath) }
             .onSuccess { snapshot ->
-                val matching = snapshot.subsystems.filter { it.platform == platform }
+                val matching = snapshot.query.subsystems.filter { it.platform == platform }
                 val first = matching.firstOrNull()
                 val projectProblems = snapshot.diagnostics.filter {
                     it.kind == ProjectDocumentKind.SUBSYSTEM || it.kind == ProjectDocumentKind.PROJECT_METADATA

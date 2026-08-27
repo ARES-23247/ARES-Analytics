@@ -69,7 +69,7 @@ class SuperstructureProjectRepositoryTest {
 
         val snapshot = documents.load(project.path)
 
-        assertEquals(2, snapshot.superstructures.size)
+        assertEquals(2, snapshot.query.superstructures.size)
         val ownershipErrors = snapshot.diagnostics.filter {
             it.kind == ProjectDocumentKind.SUPERSTRUCTURE && it.message.contains("more than one superstructure")
         }

@@ -24,19 +24,20 @@ internal data class PackagedProjectValidationResult(
  */
 internal fun validatePackagedProject(projectPath: String): PackagedProjectValidationResult {
     val snapshot = AresProjectDocuments().load(projectPath)
+    val project = snapshot.query
     val errors = buildList {
         addAll(snapshot.diagnostics.map { diagnostic ->
             "${diagnostic.kind}: ${diagnostic.file.name}: ${diagnostic.message}"
         })
-        if (snapshot.projectMetadata == null) add("Project metadata did not load")
-        if (snapshot.capabilityCatalog == null) add("Capability catalog did not load")
-        if (snapshot.autonomousCatalog == null) add("Autonomous catalog did not load")
-        if (snapshot.routines.isEmpty()) add("No routine document loaded")
-        if (snapshot.subsystems.isEmpty()) add("No subsystem document loaded")
+        if (project.metadata == null) add("Project metadata did not load")
+        if (project.capabilityCatalog == null) add("Capability catalog did not load")
+        if (project.autonomousCatalog == null) add("Autonomous catalog did not load")
+        if (project.routines.isEmpty()) add("No routine document loaded")
+        if (project.subsystems.isEmpty()) add("No subsystem document loaded")
     }
     return PackagedProjectValidationResult(
-        routineCount = snapshot.routines.size,
-        subsystemCount = snapshot.subsystems.size,
+        routineCount = project.routines.size,
+        subsystemCount = project.subsystems.size,
         errors = errors,
     )
 }

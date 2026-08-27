@@ -224,7 +224,7 @@ class SubsystemGeneratorViewModelTest {
             root.path,
             CapabilityCatalogDocument(projectId = "test-project"),
         )
-        val mergedActions = AresProjectDocuments().load(root.path).capabilityCatalog?.actions.orEmpty()
+        val mergedActions = AresProjectDocuments().load(root.path).query.actions
         assertTrue(mergedActions.any { it.key == "subsystem.new-subsystem.set.target" })
         viewModel.close()
     }

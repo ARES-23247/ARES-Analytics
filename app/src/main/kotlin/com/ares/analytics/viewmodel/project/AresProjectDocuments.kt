@@ -2,49 +2,29 @@ package com.ares.analytics.viewmodel.project
 
 import com.ares.analytics.shared.League
 import com.ares.analytics.util.ProjectLayout
-import com.areslib.catalog.CapabilityCatalogDocument
-import com.areslib.controls.ControlSchemeDocument
 import com.areslib.controls.ControllerInputPlatform
-import com.areslib.controls.ControllerProfileDocument
-import com.areslib.drivetrain.DrivetrainDocument
 import com.areslib.drivetrain.DrivetrainDocumentCodec
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataDocument
 import com.areslib.project.model.EffectiveRobotProject
+import com.areslib.project.model.EffectiveRobotProjectQueries
 import com.areslib.project.model.ProjectModelIssue
 import com.areslib.project.model.ProjectModelSeverity
 import com.areslib.project.model.RobotProjectAssembler
 import com.areslib.project.model.RobotProjectSnapshot
-import com.areslib.routine.AutonomousCatalogDocument
-import com.areslib.routine.RoutineDocument
-import com.areslib.state.RobotFieldConfig
+import com.areslib.project.model.queries
 import com.areslib.state.RobotFieldDocument
-import com.areslib.subsystem.SubsystemDocument
-import com.areslib.superstructure.SuperstructureDocument
-import com.areslib.tuning.TuningComponentDocument
 import com.areslib.tuning.TuningComponentDocumentCodec
-import com.areslib.tuning.TuningProfileDocument
 import com.areslib.tuning.TuningProfileDocumentCodec
 import java.io.File
 
-/** Studio-facing compatibility view backed by the shared effective project model. */
+/** Studio read boundary backed by the shared effective project model. */
 data class AresProjectDocumentSnapshot(
     val effectiveProject: EffectiveRobotProject,
     val diagnostics: List<ProjectDocumentDiagnostic>,
 ) {
     val projectRoot: String get() = effectiveProject.raw.projectRoot
-    val routines: List<RoutineDocument> get() = effectiveProject.raw.routines
-    val controlSchemes: List<ControlSchemeDocument> get() = effectiveProject.raw.controlSchemes
-    val controllerProfiles: List<ControllerProfileDocument> get() = effectiveProject.raw.controllerProfiles
-    val subsystems: List<SubsystemDocument> get() = effectiveProject.raw.subsystems
-    val superstructures: List<SuperstructureDocument> get() = effectiveProject.raw.superstructures
-    val drivetrains: List<DrivetrainDocument> get() = effectiveProject.raw.drivetrains
-    val field: RobotFieldConfig? get() = effectiveProject.raw.field
-    val tuningComponents: List<TuningComponentDocument> get() = effectiveProject.raw.tuningComponents
-    val tuningProfiles: List<TuningProfileDocument> get() = effectiveProject.raw.tuningProfiles
-    val capabilityCatalog: CapabilityCatalogDocument? get() = effectiveProject.capabilityCatalog
-    val autonomousCatalog: AutonomousCatalogDocument? get() = effectiveProject.raw.autonomousCatalog
-    val projectMetadata: AresProjectMetadataDocument? get() = effectiveProject.raw.metadata
+    val query: EffectiveRobotProjectQueries get() = effectiveProject.queries()
 }
 
 /**

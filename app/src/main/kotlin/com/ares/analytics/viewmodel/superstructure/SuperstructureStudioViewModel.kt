@@ -126,17 +126,18 @@ class SuperstructureStudioViewModel(
             _state.update { it.copy(loading = true, error = null, status = "") }
             val result = withContext(Dispatchers.IO) { runCatching { projectDocuments.load(_state.value.projectPath) } }
             result.onSuccess { snapshot ->
-                val selected = snapshot.superstructures.firstOrNull { it.superstructureId == _state.value.selectedId }
-                    ?: snapshot.superstructures.firstOrNull()
+                val project = snapshot.query
+                val selected = project.superstructures.firstOrNull { it.superstructureId == _state.value.selectedId }
+                    ?: project.superstructures.firstOrNull()
                 _state.value = validate(
                     _state.value.copy(
-                        documents = snapshot.superstructures,
+                        documents = project.superstructures,
                         selectedId = selected?.superstructureId,
                         saved = selected,
                         savedContentHash = selected?.let(SuperstructureDocumentCodec::contentHash),
                         draft = selected,
-                        subsystems = snapshot.subsystems,
-                        actions = snapshot.capabilityCatalog?.actions.orEmpty(),
+                        subsystems = project.subsystems,
+                        actions = project.actions,
                         diagnostics = snapshot.diagnostics,
                         selectedStateId = selected?.initialStateId,
                         loading = false,
@@ -578,13 +579,14 @@ class SuperstructureStudioViewModel(
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val currentProject = projectDocuments.load(state.projectPath)
+                    val project = currentProject.query
                     repository.save(
                         state.projectPath,
                         draft,
                         review.expectedContentHash,
-                        currentProject.subsystems,
-                        currentProject.capabilityCatalog?.actions.orEmpty().mapTo(linkedSetOf()) { it.key },
-                        currentProject.capabilityCatalog?.actions.orEmpty().asSequence()
+                        project.subsystems,
+                        project.actions.mapTo(linkedSetOf()) { it.key },
+                        project.actions.asSequence()
                             .filter { it.parameters.isEmpty() }
                             .mapTo(linkedSetOf()) { it.key },
                     )

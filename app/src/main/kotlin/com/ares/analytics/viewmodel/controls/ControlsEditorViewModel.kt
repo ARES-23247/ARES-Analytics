@@ -180,17 +180,18 @@ class ControlsEditorViewModel(
         }
         runCatching { documents.load(current.projectPath, targetPlatform) }
             .onSuccess { snapshot ->
-                val profiles = mergeProfiles(snapshot.controllerProfiles)
-                val migratedProfileIds = snapshot.controllerProfiles.mapNotNull { stored ->
+                val project = snapshot.query
+                val profiles = mergeProfiles(project.controllerProfiles)
+                val migratedProfileIds = project.controllerProfiles.mapNotNull { stored ->
                     profiles.firstOrNull { it.documentId == stored.documentId }
                         ?.takeIf { it != stored }
                         ?.documentId
                 }.toSet()
-                val schemes = snapshot.controlSchemes.ifEmpty {
+                val schemes = project.controlSchemes.ifEmpty {
                     listOf(newScheme(profiles.first().documentId))
                 }
                 val selectedScheme = schemes.first()
-                val isNewScheme = snapshot.controlSchemes.isEmpty()
+                val isNewScheme = project.controlSchemes.isEmpty()
                 val projectProblems = snapshot.diagnostics.map { diagnostic ->
                     ControlsProblem(
                         if (diagnostic.kind == com.ares.analytics.viewmodel.project.ProjectDocumentKind.PROJECT_METADATA) {
@@ -202,9 +203,9 @@ class ControlsEditorViewModel(
                 _state.value = current.copy(
                     profiles = profiles,
                     schemes = schemes,
-                    routineIds = snapshot.routines.map { it.documentId }.sorted(),
-                    actions = snapshot.capabilityCatalog?.actions.orEmpty().sortedBy { it.displayName.lowercase() },
-                    projectMetadata = snapshot.projectMetadata,
+                    routineIds = project.routines.map { it.documentId },
+                    actions = project.actions.sortedBy { it.displayName.lowercase() },
+                    projectMetadata = project.metadata,
                     projectProblems = projectProblems,
                     selectedSchemeId = selectedScheme.documentId,
                     selectedControllerSlot = selectedScheme.controllers.firstOrNull()?.slot,
@@ -220,7 +221,7 @@ class ControlsEditorViewModel(
                     draftHasUnappliedChanges = false,
                     status = if (migratedProfileIds.isNotEmpty()) {
                         "Standard controller mappings were upgraded. Save to keep the update."
-                    } else if (snapshot.capabilityCatalog == null) {
+                    } else if (project.capabilityCatalog == null) {
                         "No action catalog found. Rebuild the robot project to discover typed actions."
                     } else null,
                     loadError = null

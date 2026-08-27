@@ -130,8 +130,9 @@ class RobotProjectReadinessService(
         val autonomousErrors = diagnostics.filter {
             it.kind == ProjectDocumentKind.ROUTINE || it.kind == ProjectDocumentKind.AUTONOMOUS_CATALOG
         }.map { "${it.file.name}: ${it.message}" }
-        val catalogActions = snapshot?.capabilityCatalog?.actions.orEmpty()
-        val controlCoverages = snapshot?.controlSchemes.orEmpty().map { scheme ->
+        val project = snapshot?.query
+        val catalogActions = project?.actions.orEmpty()
+        val controlCoverages = project?.controlSchemes.orEmpty().map { scheme ->
             controlsCoverage(catalogActions, scheme)
         }
 
@@ -139,8 +140,8 @@ class RobotProjectReadinessService(
             projectPath = config.projectPath,
             league = config.league,
             projectError = snapshotFailure,
-            metadataPresent = snapshot?.projectMetadata != null,
-            metadataLeagueMatches = snapshot?.projectMetadata?.league == expectedLeague,
+            metadataPresent = project?.metadata != null,
+            metadataLeagueMatches = project?.metadata?.league == expectedLeague,
             metadataErrors = metadataErrors,
             documentErrors = diagnostics.map { "${it.file.name}: ${it.message}" },
             hardwareItemCount = hardware?.items?.size ?: 0,
@@ -156,14 +157,14 @@ class RobotProjectReadinessService(
             },
             localizationConfigured = drivebase != null && drivebaseErrors.isEmpty() &&
                 drivebase.localization.count { it != LocalizationKind.VISION_FUSION } == 1,
-            subsystemCount = snapshot?.subsystems?.size ?: 0,
+            subsystemCount = project?.subsystems?.size ?: 0,
             subsystemErrors = subsystemErrors,
-            superstructureCount = snapshot?.superstructures?.size ?: 0,
+            superstructureCount = project?.superstructures?.size ?: 0,
             superstructureErrors = superstructureErrors,
-            capabilityActionCount = snapshot?.capabilityCatalog?.actions?.size ?: 0,
+            capabilityActionCount = project?.actions?.size ?: 0,
             capabilityErrors = capabilityErrors,
-            controlSchemeCount = snapshot?.controlSchemes?.size ?: 0,
-            controllerProfileCount = snapshot?.controllerProfiles?.size ?: 0,
+            controlSchemeCount = project?.controlSchemes?.size ?: 0,
+            controllerProfileCount = project?.controllerProfiles?.size ?: 0,
             controlErrors = controlErrors,
             controlTeleopActionCount = controlCoverages.sumOf { it.totalCount },
             controlBoundActionCount = controlCoverages.sumOf { it.boundCount },
@@ -173,8 +174,8 @@ class RobotProjectReadinessService(
             controlBoundSafetyActionCount = controlCoverages.sumOf {
                 it.safetyActions.size - it.missingSafetyActions.size
             },
-            routineCount = snapshot?.routines?.size ?: 0,
-            autonomousCatalogPresent = snapshot?.autonomousCatalog != null,
+            routineCount = project?.routines?.size ?: 0,
+            autonomousCatalogPresent = project?.autonomousCatalog != null,
             autonomousErrors = autonomousErrors,
             tuningDeclarationCount = tuning?.catalog?.size ?: 0,
             tuningProfileCount = tuning?.profiles?.size ?: 0,
