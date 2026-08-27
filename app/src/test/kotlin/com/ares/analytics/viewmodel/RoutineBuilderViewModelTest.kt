@@ -5,6 +5,7 @@ package com.ares.analytics.viewmodel
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.AutonomousTourStep
 import com.ares.analytics.viewmodel.AutonomousTourTarget
+import com.ares.analytics.viewmodel.controls.ControlsEditorViewModel
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
 import com.ares.analytics.viewmodel.project.RoutineProjectRepository
 import com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository
@@ -54,21 +55,28 @@ class RoutineBuilderViewModelTest {
                 ),
             )
             val viewModel = PathPlannerViewModel(this)
+            val controlsViewModel = ControlsEditorViewModel(project.path, League.FTC)
 
-            viewModel.onIntent(PathPlannerIntent.RefreshProject(project.path, League.FTC))
-            withContext(Dispatchers.Default.limitedParallelism(1)) {
-                withTimeout(5_000) { viewModel.state.first { !it.projectLoading && it.capabilityCatalog != null } }
+            try {
+                viewModel.onIntent(PathPlannerIntent.RefreshProject(project.path, League.FTC))
+                withContext(Dispatchers.Default.limitedParallelism(1)) {
+                    withTimeout(5_000) { viewModel.state.first { !it.projectLoading && it.capabilityCatalog != null } }
+                }
+
+                val catalogKeys = viewModel.state.value.capabilityCatalog?.actions.orEmpty().map { it.key }.toSet()
+                val controllerBindingKeys = controlsViewModel.state.value.actions.map { it.key }.toSet()
+                val autonomousKeys = viewModel.state.value.routineActions.map { it.key }.toSet()
+                assertEquals(catalogKeys, controllerBindingKeys)
+                assertTrue("subsystem.left-light.set.targetColor" in catalogKeys)
+                assertTrue("subsystem.left-light.cycleForward.targetColor" in catalogKeys)
+                assertTrue("subsystem.left-light.cycleBackward.targetColor" in catalogKeys)
+                assertTrue("subsystem.left-light.set.targetColor" in autonomousKeys)
+                assertTrue("subsystem.left-light.cycleForward.targetColor" in autonomousKeys)
+                assertTrue("subsystem.left-light.cycleBackward.targetColor" in autonomousKeys)
+                assertTrue("subsystem.left-light.recover.neutral" !in autonomousKeys)
+            } finally {
+                controlsViewModel.close()
             }
-
-            val catalogKeys = viewModel.state.value.capabilityCatalog?.actions.orEmpty().map { it.key }
-            val autonomousKeys = viewModel.state.value.routineActions.map { it.key }
-            assertTrue("subsystem.left-light.set.targetColor" in catalogKeys)
-            assertTrue("subsystem.left-light.cycleForward.targetColor" in catalogKeys)
-            assertTrue("subsystem.left-light.cycleBackward.targetColor" in catalogKeys)
-            assertTrue("subsystem.left-light.set.targetColor" in autonomousKeys)
-            assertTrue("subsystem.left-light.cycleForward.targetColor" in autonomousKeys)
-            assertTrue("subsystem.left-light.cycleBackward.targetColor" in autonomousKeys)
-            assertTrue("subsystem.left-light.recover.neutral" !in autonomousKeys)
         } finally {
             project.deleteRecursively()
         }
