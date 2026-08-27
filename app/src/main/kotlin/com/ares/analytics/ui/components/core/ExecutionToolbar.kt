@@ -18,6 +18,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.ui.theme.*
+import com.ares.analytics.service.CliDriverLauncher
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.ui.graphics.SolidColor
 
@@ -33,6 +34,7 @@ enum class TargetSelection(val label: String) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ExecutionToolbar(
+    projectPath: String,
     targetSelection: TargetSelection,
     targetIp: String,
     isLiveRobotOnline: Boolean,
@@ -55,15 +57,8 @@ fun ExecutionToolbar(
     var targetAddressDialogOpen by remember { mutableStateOf(false) }
     var editedTargetIp by remember(targetIp) { mutableStateOf(targetIp) }
     val launchCli: () -> Unit = {
-        val ip = targetIp.trim()
-        val argsStr = if (ip == "127.0.0.1") "" else " --args=\"$ip\""
-        val aresLibDir = listOf(
-            java.io.File("../ARESLib-Kotlin"),
-            java.io.File(System.getProperty("user.home"), "dev/robotics/ares/ARESLib-Kotlin")
-        ).firstOrNull { it.exists() }?.canonicalPath ?: "../ARESLib-Kotlin"
-        val command = """cd /d "$aresLibDir" && .\gradlew.bat :simulator:runFakeController --console=plain""" + argsStr
         try {
-            ProcessBuilder("cmd.exe", "/c", "start", "cmd.exe", "/k", command).start()
+            CliDriverLauncher.launch(projectPath, targetIp)
         } catch (e: Exception) {
             System.err.println("Failed to launch CLI: ${e.message}")
         }
