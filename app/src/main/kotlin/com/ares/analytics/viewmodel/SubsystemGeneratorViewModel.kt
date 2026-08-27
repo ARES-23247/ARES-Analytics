@@ -6,6 +6,7 @@ import com.ares.analytics.service.SubsystemDesignAssistant
 import com.ares.analytics.service.SubsystemDesignProposal
 import com.ares.analytics.service.sanitizeSubsystemDesignCandidate
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
+import com.ares.analytics.service.project.ProjectSession
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentKind
@@ -369,6 +370,7 @@ class SubsystemGeneratorViewModel(
     private val projectGenerator: AresProjectGenerator? = null,
     private val designAssistant: SubsystemDesignAssistant? = null,
     private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
+    private val projectSession: ProjectSession? = null,
 ) : AutoCloseable {
     private val reviewGson = GsonBuilder().setPrettyPrinting().create()
     private val platform = when (league) {
@@ -408,7 +410,14 @@ class SubsystemGeneratorViewModel(
             _state.value = current.copy(loadError = "Choose a robot project directory to edit subsystems.")
             return
         }
-        runCatching { documents.load(current.projectPath) }
+        val target = when (league) {
+            League.FTC -> com.areslib.controls.ControllerInputPlatform.FTC
+            League.FRC -> com.areslib.controls.ControllerInputPlatform.FRC
+        }
+        runCatching {
+            projectSession?.snapshot(current.projectPath, target, forceReload = true)?.documents
+                ?: documents.load(current.projectPath, target)
+        }
             .onSuccess { snapshot ->
                 val matching = snapshot.query.subsystems.filter { it.platform == platform }
                 val first = matching.firstOrNull()
@@ -1278,6 +1287,7 @@ class SubsystemGeneratorViewModel(
         }
         runCatching { documents.subsystems.save(current.projectPath, draft) }
             .onSuccess { saved ->
+                refreshProjectSession(current.projectPath, current.league)
                 _state.update { state ->
                     val persisted = saved.document
                     state.copy(
@@ -1356,6 +1366,7 @@ class SubsystemGeneratorViewModel(
         runCatching {
             documents.subsystems.remove(current.projectPath, request.documentId, expectedHash)
         }.onSuccess { removed ->
+            refreshProjectSession(current.projectPath, current.league)
             val root = File(current.projectPath).canonicalFile
             val recoveryPath = removed.recoveryFile.relativeTo(root).invariantSeparatorsPath
             removeDocumentFromSession(
@@ -1406,6 +1417,7 @@ class SubsystemGeneratorViewModel(
                 recovery.recoveryPath,
             )
         }.onSuccess { restored ->
+            refreshProjectSession(current.projectPath, current.league)
             aiProposalGeneration++
             val restoredDocuments = (current.documents + restored)
                 .distinctBy(SubsystemDocument::documentId)
@@ -1451,6 +1463,14 @@ class SubsystemGeneratorViewModel(
     }
 
     fun dismissRecoveryNotice() = _state.update { it.copy(recentRecovery = null) }
+
+    private fun refreshProjectSession(projectPath: String, league: League) {
+        val target = when (league) {
+            League.FTC -> com.areslib.controls.ControllerInputPlatform.FTC
+            League.FRC -> com.areslib.controls.ControllerInputPlatform.FRC
+        }
+        projectSession?.snapshot(projectPath, target, forceReload = true)
+    }
 
     private fun removeDocumentFromSession(
         documentId: String,

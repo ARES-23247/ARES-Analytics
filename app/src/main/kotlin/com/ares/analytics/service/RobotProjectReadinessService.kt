@@ -9,12 +9,13 @@ import com.ares.analytics.service.drivebase.validateDrivebase
 import com.ares.analytics.service.hardware.HardwareReviewStatus
 import com.ares.analytics.service.hardware.HardwareSetupService
 import com.ares.analytics.service.project.templateDeploymentBlockReason
+import com.ares.analytics.service.project.ProjectSession
 import com.ares.analytics.service.tuning.TuningProfileRepository
 import com.ares.analytics.shared.League
 import com.ares.analytics.shared.models.WorkspaceConfig
 import com.ares.analytics.util.ProjectLayout
-import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentKind
+import com.areslib.controls.ControllerInputPlatform
 import com.areslib.project.AresLeague
 import com.areslib.simulation.SimulationProductId
 import com.ares.analytics.viewmodel.controls.controlsCoverage
@@ -71,7 +72,7 @@ data class RobotProjectReadinessEvidence(
  */
 class RobotProjectReadinessService(
     private val databaseService: DatabaseService,
-    private val projectDocuments: AresProjectDocuments = AresProjectDocuments(),
+    private val projectSession: ProjectSession = ProjectSession(),
     private val drivebaseRepository: DrivebaseProjectRepository = DrivebaseProjectRepository(),
     private val tuningRepository: TuningProfileRepository = TuningProfileRepository(),
     private val hardwareSetupService: HardwareSetupService = HardwareSetupService(),
@@ -86,8 +87,14 @@ class RobotProjectReadinessService(
             )
         }
 
-        val projectSnapshot = runCatching { projectDocuments.load(config.projectPath) }
-        val snapshot = projectSnapshot.getOrNull()
+        val targetPlatform = when (config.league) {
+            League.FTC -> ControllerInputPlatform.FTC
+            League.FRC -> ControllerInputPlatform.FRC
+        }
+        val projectSnapshot = runCatching {
+            projectSession.snapshot(config.projectPath, targetPlatform, forceReload = true)
+        }
+        val snapshot = projectSnapshot.getOrNull()?.documents
         val snapshotFailure = projectSnapshot.exceptionOrNull()?.message
         val diagnostics = snapshot?.diagnostics.orEmpty()
 
@@ -121,7 +128,7 @@ class RobotProjectReadinessService(
             .map { "${it.file.name}: ${it.message}" }
         val superstructureErrors = diagnostics.filter { it.kind == ProjectDocumentKind.SUPERSTRUCTURE }
             .map { "${it.file.name}: ${it.message}" }
-        val metadataFilePresent = projectDocuments.metadata.file(config.projectPath).isFile
+        val metadataFilePresent = projectSession.metadataFile(config.projectPath).isFile
         val metadataErrors = diagnostics.filter {
             it.kind == ProjectDocumentKind.PROJECT_METADATA && metadataFilePresent
         }.map { "${it.file.name}: ${it.message}" }

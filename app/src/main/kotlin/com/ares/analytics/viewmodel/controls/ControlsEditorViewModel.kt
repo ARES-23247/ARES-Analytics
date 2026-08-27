@@ -6,6 +6,9 @@ import com.ares.analytics.service.AresProjectGenerator
 import com.ares.analytics.service.ControlsDesignAssistant
 import com.ares.analytics.service.ControlsDesignContext
 import com.ares.analytics.service.ControlsDesignProposal
+import com.ares.analytics.service.project.ProjectSession
+import com.ares.analytics.service.project.ProjectSessionMutationResult
+import com.ares.analytics.service.project.ProjectSessionRevision
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
 import com.ares.analytics.shared.League
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
@@ -48,7 +51,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
-import java.io.File
 import kotlin.math.abs
 
 enum class ControlsProblemSeverity { INFO, WARNING, ERROR }
@@ -100,6 +102,7 @@ data class ControlsEditorState(
     val generationMessage: String? = null,
     val generatedContentHash: String? = null,
     val projectMetadata: AresProjectMetadataDocument? = null,
+    val projectRevision: ProjectSessionRevision? = null,
     val status: String? = null,
     val loadError: String? = null,
     val aiProposalInProgress: Boolean = false,
@@ -144,6 +147,7 @@ class ControlsEditorViewModel(
     private val projectGenerator: AresProjectGenerator? = null,
     private val designAssistant: ControlsDesignAssistant? = null,
     private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
+    private val projectSession: ProjectSession = ProjectSession(documents),
 ) : AutoCloseable {
     private val targetPlatform = when (league) {
         League.FTC -> ControllerInputPlatform.FTC
@@ -178,8 +182,9 @@ class ControlsEditorViewModel(
             _state.value = current.copy(loadError = "Choose a robot project directory to edit controls.")
             return
         }
-        runCatching { documents.load(current.projectPath, targetPlatform) }
-            .onSuccess { snapshot ->
+        runCatching { projectSession.snapshot(current.projectPath, targetPlatform, forceReload = true) }
+            .onSuccess { sessionSnapshot ->
+                val snapshot = sessionSnapshot.documents
                 val project = snapshot.query
                 val profiles = mergeProfiles(project.controllerProfiles)
                 val migratedProfileIds = project.controllerProfiles.mapNotNull { stored ->
@@ -206,6 +211,7 @@ class ControlsEditorViewModel(
                     routineIds = project.routines.map { it.documentId },
                     actions = project.actions.sortedBy { it.displayName.lowercase() },
                     projectMetadata = project.metadata,
+                    projectRevision = sessionSnapshot.revision,
                     projectProblems = projectProblems,
                     selectedSchemeId = selectedScheme.documentId,
                     selectedControllerSlot = selectedScheme.controllers.firstOrNull()?.slot,
@@ -702,21 +708,18 @@ class ControlsEditorViewModel(
             _state.value = current.copy(status = "Fix editor errors before saving.")
             return
         }
-        runCatching {
-            val root = File(current.projectPath).canonicalFile
-            val checkpointPaths = linkedSetOf<String>()
-            current.profiles.filter { it.documentId in current.dirtyProfileIds }.forEach { profile ->
-                val saved = documents.controllers.save(current.projectPath, profile)
-                checkpointPaths += saved.currentFile.relativeTo(root).invariantSeparatorsPath
-                checkpointPaths += saved.historyFile.relativeTo(root).invariantSeparatorsPath
-            }
-            current.schemes.filter { it.documentId in current.dirtySchemeIds }.forEach { scheme ->
-                val saved = documents.controls.save(current.projectPath, scheme)
-                checkpointPaths += saved.currentFile.relativeTo(root).invariantSeparatorsPath
-                checkpointPaths += saved.historyFile.relativeTo(root).invariantSeparatorsPath
-            }
-            checkpointPaths
-        }.onSuccess { checkpointPaths ->
+        val revision = current.projectRevision
+        if (revision == null) {
+            _state.value = current.copy(status = "Reload the project before saving controls.")
+            return
+        }
+        when (val result = projectSession.saveControls(
+            expectedRevision = revision,
+            profiles = current.profiles.filter { it.documentId in current.dirtyProfileIds },
+            schemes = current.schemes.filter { it.documentId in current.dirtySchemeIds },
+        )) {
+        is ProjectSessionMutationResult.Applied -> {
+            val checkpointPaths = result.value.changedRelativePaths
             reload()
             _state.update {
                 it.copy(
@@ -753,8 +756,16 @@ class ControlsEditorViewModel(
                     _state.update { it.copy(status = "Controls saved, but automatic Project History checkpoint failed: ${failure.message}") }
                 }
             }
-        }.onFailure { error ->
-            _state.update { it.copy(status = error.message ?: "Controls could not be saved.") }
+        }
+        is ProjectSessionMutationResult.Stale -> {
+            _state.update { it.copy(status = "The project changed after this form loaded. Reload before saving.") }
+        }
+        is ProjectSessionMutationResult.Conflict -> {
+            _state.update { it.copy(status = result.message) }
+        }
+        is ProjectSessionMutationResult.Failed -> {
+            _state.update { it.copy(status = result.message) }
+        }
         }
     }
 

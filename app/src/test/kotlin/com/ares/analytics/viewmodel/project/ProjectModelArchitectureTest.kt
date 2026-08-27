@@ -35,4 +35,52 @@ class ProjectModelArchitectureTest {
                 violations.joinToString { (file, patterns) -> "$file uses ${patterns.joinToString()}" },
         )
     }
+
+    @Test
+    fun `main screen routes project execution through the session coordinator`() {
+        val sourceRoot = sequenceOf(
+            File("app/src/main/kotlin/com/ares/analytics"),
+            File("src/main/kotlin/com/ares/analytics"),
+        ).firstOrNull(File::isDirectory)
+        checkNotNull(sourceRoot) { "Could not locate Analytics application sources" }
+        val mainScreen = File(sourceRoot, "ui/screens/MainScreen.kt").readText()
+
+        val forbidden = listOf(
+            ".runBuild(",
+            ".runSimulation(",
+            ".deployToRobot(",
+            ".generateAresProject(",
+        ).filter(mainScreen::contains)
+        assertTrue(
+            forbidden.isEmpty(),
+            "MainScreen must authorize project execution through ProjectExecutionCoordinator: ${forbidden.joinToString()}",
+        )
+    }
+
+    @Test
+    fun `production authoring view models share the long lived project session`() {
+        val sourceRoot = sequenceOf(
+            File("app/src/main/kotlin/com/ares/analytics"),
+            File("src/main/kotlin/com/ares/analytics"),
+        ).firstOrNull(File::isDirectory)
+        checkNotNull(sourceRoot) { "Could not locate Analytics application sources" }
+        val mainScreen = File(sourceRoot, "ui/screens/MainScreen.kt").readText()
+
+        val constructors = listOf(
+            "PathPlannerViewModel(",
+            "ControlsEditorViewModel(",
+            "SubsystemGeneratorViewModel(",
+            "SuperstructureStudioViewModel(",
+        )
+        constructors.forEach { constructor ->
+            val start = mainScreen.indexOf(constructor)
+            assertTrue(start >= 0, "MainScreen no longer constructs $constructor; update this boundary test intentionally.")
+            val end = mainScreen.indexOf("\n        )", start).takeIf { it >= 0 } ?: (start + 800).coerceAtMost(mainScreen.length)
+            val construction = mainScreen.substring(start, end)
+            assertTrue(
+                "projectSession = services.projectSession" in construction,
+                "$constructor must receive the application ProjectSession instead of reconstructing project meaning.",
+            )
+        }
+    }
 }

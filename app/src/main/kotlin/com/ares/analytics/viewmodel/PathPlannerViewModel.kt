@@ -4,6 +4,7 @@ import com.ares.analytics.service.Nt4ClientService
 import com.ares.analytics.service.AresGenerationPhase
 import com.ares.analytics.service.AresProjectGenerator
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
+import com.ares.analytics.service.project.ProjectSession
 import com.ares.analytics.shared.*
 import com.ares.analytics.ui.components.pathplanner.Waypoint
 import com.ares.analytics.viewmodel.pathing.RobotDimensions
@@ -11,6 +12,7 @@ import com.ares.analytics.viewmodel.project.ProjectMetadataRepository
 import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.areslib.project.AresLeague
 import com.areslib.project.AresProjectMetadataDocument
+import com.areslib.controls.ControllerInputPlatform
 import com.ares.analytics.viewmodel.project.AutonomousCatalogProjectRepository
 import com.ares.analytics.viewmodel.project.ProjectRevisionSummary
 import com.ares.analytics.viewmodel.project.RoutineProjectRepository
@@ -219,6 +221,7 @@ class PathPlannerViewModel(
     @Suppress("UNUSED_PARAMETER") nt4ClientService: Nt4ClientService? = null,
     private val projectGenerator: AresProjectGenerator? = null,
     private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
+    private val projectSession: ProjectSession? = null,
 ) {
     private val _state = MutableStateFlow(PathPlannerState())
     val state: StateFlow<PathPlannerState> = _state.asStateFlow()
@@ -636,7 +639,14 @@ class PathPlannerViewModel(
     private suspend fun refreshRoutineProject(projectPath: String, league: League, generation: Long) {
         runCatching {
             withContext(Dispatchers.IO) {
-                val snapshot = projectDocuments.load(projectPath)
+                val target = when (league) {
+                    League.FTC -> ControllerInputPlatform.FTC
+                    League.FRC -> ControllerInputPlatform.FRC
+                }
+                val snapshot = projectSession
+                    ?.snapshot(projectPath, target, forceReload = true)
+                    ?.documents
+                    ?: projectDocuments.load(projectPath, target)
                 val project = snapshot.query
                 RoutineRefresh(
                     project.routines,

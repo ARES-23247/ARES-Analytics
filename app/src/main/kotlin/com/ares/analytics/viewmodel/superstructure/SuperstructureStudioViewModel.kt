@@ -4,6 +4,7 @@ import com.ares.analytics.viewmodel.project.AresProjectDocuments
 import com.ares.analytics.viewmodel.project.ProjectDocumentDiagnostic
 import com.ares.analytics.viewmodel.project.SuperstructureProjectRepository
 import com.ares.analytics.service.versioncontrol.ProjectCheckpointRecorder
+import com.ares.analytics.service.project.ProjectSession
 import com.areslib.catalog.ActionDescriptor
 import com.areslib.subsystem.SubsystemDocument
 import com.areslib.subsystem.SubsystemFieldRole
@@ -107,6 +108,8 @@ class SuperstructureStudioViewModel(
     private val projectDocuments: AresProjectDocuments = AresProjectDocuments(),
     private val repository: SuperstructureProjectRepository = projectDocuments.superstructures,
     private val checkpointRecorder: ProjectCheckpointRecorder = ProjectCheckpointRecorder.NONE,
+    private val targetPlatform: com.areslib.controls.ControllerInputPlatform? = null,
+    private val projectSession: ProjectSession? = null,
 ) {
     private val _state = MutableStateFlow(SuperstructureStudioState(projectPath = projectPath))
     val state: StateFlow<SuperstructureStudioState> = _state.asStateFlow()
@@ -124,7 +127,7 @@ class SuperstructureStudioViewModel(
         scope.launch {
             previewSession = null
             _state.update { it.copy(loading = true, error = null, status = "") }
-            val result = withContext(Dispatchers.IO) { runCatching { projectDocuments.load(_state.value.projectPath) } }
+            val result = withContext(Dispatchers.IO) { runCatching { loadProjectDocuments(forceReload = true) } }
             result.onSuccess { snapshot ->
                 val project = snapshot.query
                 val selected = project.superstructures.firstOrNull { it.superstructureId == _state.value.selectedId }
@@ -578,7 +581,7 @@ class SuperstructureStudioViewModel(
             _state.update { it.copy(loading = true, error = null) }
             val result = withContext(Dispatchers.IO) {
                 runCatching {
-                    val currentProject = projectDocuments.load(state.projectPath)
+                    val currentProject = loadProjectDocuments(forceReload = true)
                     val project = currentProject.query
                     repository.save(
                         state.projectPath,
@@ -593,6 +596,9 @@ class SuperstructureStudioViewModel(
                 }
             }
             result.onSuccess { saved ->
+                targetPlatform?.let { target ->
+                    projectSession?.snapshot(state.projectPath, target, forceReload = true)
+                }
                 val documents = (state.documents.filterNot { it.superstructureId == saved.document.superstructureId } + saved.document)
                     .sortedBy { it.displayName.lowercase() }
                 _state.value = validate(
@@ -627,6 +633,15 @@ class SuperstructureStudioViewModel(
             }.onFailure { error ->
                 _state.update { it.copy(loading = false, review = null, error = error.message ?: "Superstructure could not be saved") }
             }
+        }
+    }
+
+    private fun loadProjectDocuments(forceReload: Boolean): com.ares.analytics.viewmodel.project.AresProjectDocumentSnapshot {
+        val target = targetPlatform
+        return if (projectSession != null && target != null) {
+            projectSession.snapshot(_state.value.projectPath, target, forceReload).documents
+        } else {
+            projectDocuments.load(_state.value.projectPath, target)
         }
     }
 
