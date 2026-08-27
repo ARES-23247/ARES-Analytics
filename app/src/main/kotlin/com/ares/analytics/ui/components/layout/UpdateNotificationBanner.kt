@@ -88,7 +88,14 @@ fun UpdateNotificationBanner(
                         onClick = {
                             try {
                                 if (java.awt.Desktop.isDesktopSupported()) {
-                                    java.awt.Desktop.getDesktop().browse(java.net.URI(updateState.downloadUrl))
+                                    runCatching {
+                                        if (java.awt.Desktop.isDesktopSupported()) {
+                                            val desktop = java.awt.Desktop.getDesktop()
+                                            if (desktop.isSupported(java.awt.Desktop.Action.BROWSE)) {
+                                                desktop.browse(java.net.URI(updateState.downloadUrl))
+                                            }
+                                        }
+                                    }
                                 }
                             } catch (e: Exception) {
                                 e.printStackTrace()

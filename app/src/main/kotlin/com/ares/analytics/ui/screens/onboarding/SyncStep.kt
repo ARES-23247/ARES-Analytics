@@ -237,7 +237,7 @@ private fun ProjectSelection(
                 value = projectParentPath,
                 onValueChange = onProjectParentPathChange,
                 label = "Create inside this folder",
-                placeholder = "C:\\Users\\...\\Robots",
+                placeholder = "/path/to/Robots",
                 buttonLabel = "Choose parent folder",
                 onBrowse = onBrowseProjectParent,
             )
@@ -263,7 +263,7 @@ private fun ProjectSelection(
                 value = projectPath,
                 onValueChange = onProjectPathChange,
                 label = "Robot project folder",
-                placeholder = "C:\\Users\\...\\my-robot-project",
+                placeholder = "/path/to/my-robot-project",
                 buttonLabel = "Choose project",
                 onBrowse = onBrowseProject,
             ) {

@@ -378,7 +378,7 @@ fun ProfileScreen(
                                     scope.launch { runCatching { managedToolchainService.installManagedJdk21(config.league) } }
                                 } else {
                                     runCatching {
-                                        Desktop.getDesktop().browse(URI(ManagedToolchainPaths.JDK_21_DOWNLOAD_URL))
+                                        browseProfileLink(ManagedToolchainPaths.JDK_21_DOWNLOAD_URL)
                                     }
                                 }
                             },
@@ -392,7 +392,7 @@ fun ProfileScreen(
                         Text("Recheck tools")
                     }
                     OutlinedButton(onClick = {
-                        Desktop.getDesktop().browse(URI("https://github.com/ARES-23247/ARES-Analytics/blob/master/docs/start/ROBOT_BUILD_TOOLS.md"))
+                        browseProfileLink("https://github.com/ARES-23247/ARES-Analytics/blob/master/docs/start/ROBOT_BUILD_TOOLS.md")
                     }) { Text("Setup guide") }
                 }
             }
@@ -551,7 +551,7 @@ fun ProfileScreen(
                                 Text("Check access")
                             }
                             status?.webViewLink?.let { link ->
-                                OutlinedButton(onClick = { runCatching { Desktop.getDesktop().browse(URI(link)) } }) {
+                                OutlinedButton(onClick = { browseProfileLink(link) }) {
                                     Text("Open in Drive")
                                 }
                             }
@@ -1038,14 +1038,14 @@ fun ProfileScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         runCatching {
-                            Desktop.getDesktop().browse(URI("https://github.com/ARES-23247/ARES-Analytics"))
+                            browseProfileLink("https://github.com/ARES-23247/ARES-Analytics")
                         }
                     }) {
                         Text("View source")
                     }
                     OutlinedButton(onClick = {
                         runCatching {
-                            Desktop.getDesktop().browse(URI("https://github.com/ARES-23247/ARES-Analytics/blob/master/LICENSE"))
+                            browseProfileLink("https://github.com/ARES-23247/ARES-Analytics/blob/master/LICENSE")
                         }
                     }) {
                         Text("Read license")
@@ -1114,4 +1114,11 @@ private fun exportDriveDestinationRecord(destination: com.ares.analytics.shared.
     }.getOrElse { failure ->
         "Destination record could not be exported: ${failure.message ?: failure.javaClass.simpleName}"
     }
+}
+
+private fun browseProfileLink(url: String) {
+    if (!Desktop.isDesktopSupported()) return
+    val desktop = Desktop.getDesktop()
+    if (!desktop.isSupported(Desktop.Action.BROWSE)) return
+    runCatching { desktop.browse(URI(url)) }
 }

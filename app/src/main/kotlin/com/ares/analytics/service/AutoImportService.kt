@@ -568,12 +568,7 @@ class AutoImportService(
     }
 
     private suspend fun isHostReachable(host: String): Boolean {
-        val isWindows = System.getProperty("os.name").contains("win", ignoreCase = true)
-        val processBuilder = if (isWindows) {
-            ProcessBuilder("ping", "-n", "1", "-w", "1000", host)
-        } else {
-            ProcessBuilder("ping", "-c", "1", "-W", "1", host)
-        }
+        val processBuilder = ProcessBuilder(pingCommand(host, System.getProperty("os.name")))
         return runProcessOrNull(processBuilder, PING_PROCESS_TIMEOUT_MS)?.succeeded == true
     }
 
@@ -944,4 +939,10 @@ class AutoImportService(
             ".dslog", ".rlog", ".revlog", ".log"
         )
     }
+}
+
+internal fun pingCommand(host: String, osName: String): List<String> = when {
+    osName.contains("win", ignoreCase = true) -> listOf("ping", "-n", "1", "-w", "1000", host)
+    osName.contains("mac", ignoreCase = true) -> listOf("ping", "-c", "1", "-W", "1000", host)
+    else -> listOf("ping", "-c", "1", "-W", "1", host)
 }
