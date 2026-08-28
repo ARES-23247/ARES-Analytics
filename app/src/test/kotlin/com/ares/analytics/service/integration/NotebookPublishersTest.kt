@@ -1,6 +1,7 @@
 package com.ares.analytics.service.integration
 
 import com.ares.analytics.service.DatabaseService
+import com.ares.analytics.shared.AppJson
 import com.ares.analytics.shared.models.EngineeringNotebookEntry
 import com.ares.analytics.shared.models.EngineeringNotebookHasher
 import com.ares.analytics.shared.models.IntegrationEvent
@@ -18,6 +19,8 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -85,8 +88,13 @@ class NotebookPublishersTest {
         val result = assertIs<NotebookPublishResult.Published>(publisher.publish(entry))
 
         assertEquals("draft-42", result.receipt.remoteId)
+        val bodyObject = AppJson.parseToJsonElement(requestBody).jsonObject
+        assertEquals(entry.entryId, bodyObject["entryId"]?.jsonPrimitive?.content)
+        assertEquals(entry.contentHash, bodyObject["contentHash"]?.jsonPrimitive?.content)
+        assertEquals("1", bodyObject["schemaVersion"]?.jsonPrimitive?.content)
+        assertTrue("entry" !in bodyObject)
+        assertTrue("aiProvenance" !in bodyObject)
         assertTrue(requestBody.contains("Brownout investigation"))
-        assertTrue(requestBody.contains(entry.contentHash))
         assertTrue(!requestBody.contains("cms-installation-token"))
     }
 
@@ -184,4 +192,3 @@ class NotebookPublishersTest {
         }
     }
 }
-

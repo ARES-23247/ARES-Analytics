@@ -18,8 +18,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
@@ -199,12 +199,6 @@ class GoogleDriveNotebookPublisher(
     }
 }
 
-@Serializable
-private data class CmsNotebookDraftRequest(
-    val schemaVersion: Int = 1,
-    val entry: EngineeringNotebookEntry,
-)
-
 class CmsNotebookPublisher(
     override val publisherId: String,
     endpoint: String,
@@ -218,6 +212,7 @@ class CmsNotebookPublisher(
         supportsAttachments = false,
     )
     private val endpoint = validateCmsEndpoint(endpoint)
+    private val transportJson = Json(AppJson) { encodeDefaults = true }
 
     override suspend fun publish(entry: EngineeringNotebookEntry): NotebookPublishResult {
         val response = try {
@@ -226,7 +221,9 @@ class CmsNotebookPublisher(
                 header(HttpHeaders.Authorization, "Bearer ${credential.secret}")
                 header("Idempotency-Key", "${entry.entryId}:${entry.contentHash}")
                 header(HttpHeaders.UserAgent, "ares-robotics-studio-integrations/1")
-                setBody(AppJson.encodeToString(CmsNotebookDraftRequest(entry = entry)))
+                // The CMS contract requires schemaVersion even when it equals the model default.
+                // Keep nulls omitted so the strict endpoint receives only fields it understands.
+                setBody(transportJson.encodeToString(entry))
             }
         } catch (failure: Exception) {
             return NotebookPublishResult.Retry(

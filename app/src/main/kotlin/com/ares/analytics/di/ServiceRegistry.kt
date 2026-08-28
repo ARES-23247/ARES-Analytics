@@ -158,7 +158,19 @@ class ServiceRegistry {
             hardwareSetupService = hardwareSetupService,
         )
     }
-    val summaryEngineService by lazy { SummaryEngineService(databaseService, sysIdService, driverAnalysisService) }
+    private val automaticNotebookDraftService by lazy {
+        com.ares.analytics.service.integration.EngineeringNotebookDraftService(databaseService)
+    }
+    val summaryEngineService by lazy {
+        SummaryEngineService(databaseService, sysIdService, driverAnalysisService) { summary, alerts ->
+            automaticNotebookDraftService.createSessionDraft(
+                summary = summary,
+                alerts = alerts,
+                authorId = null,
+                useAi = false,
+            )
+        }
+    }
     val hootDecoderService by lazy { HootDecoderService(databaseService, summaryEngineService, sysIdService) }
     val autoImportService by lazy {
         AutoImportService(
