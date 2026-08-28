@@ -438,7 +438,7 @@ class SyncEngineService(
             // 3. Always create immutable bundle bytes. The currently indexed object is never
             // passed to the writer and therefore can never be overwritten before the manifest
             // transaction commits.
-            installImmutableCloudObject(
+            val installedObjectId = installImmutableCloudObject(
                 uploadNewObject = {
                     createImmutableSessionObject(
                         name = descriptiveName,
@@ -465,6 +465,17 @@ class SyncEngineService(
                     currentSessionObjectId(rootFolderId, sessionId)
                 },
                 deleteObject = googleDriveService::deleteFile
+            )
+            databaseService.integrationEvents.cloudUploadCommitted(
+                workspace = com.ares.analytics.shared.models.IntegrationWorkspaceIdentity(
+                    teamId = workspace.teamId,
+                    seasonId = workspace.seasonId,
+                    robotId = workspace.robotId,
+                ),
+                sessionId = sessionId,
+                remoteObjectId = installedObjectId,
+                manifestRevision = requireNotNull(uploadSummary.cloudSha256),
+                occurredAtMs = System.currentTimeMillis(),
             )
         } finally {
             tempFile.delete()
@@ -932,6 +943,9 @@ class SyncEngineService(
             ?.get("text")?.jsonPrimitive?.content
             ?: throw IllegalStateException("Gemini returned no subsystem proposal text.")
     }
+
+    /** Provider-neutral notebook drafting adapter; callers validate the returned schema and evidence. */
+    internal suspend fun requestNotebookDraftJson(prompt: String): String = requestGeminiStructuredJson(prompt)
 
     suspend fun requestForensics(request: ForensicsRequest, authToken: String? = null): ForensicsResponse = withContext(Dispatchers.IO) {
         val config = environmentService.loadConfig()
