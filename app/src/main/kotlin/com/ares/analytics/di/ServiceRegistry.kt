@@ -107,6 +107,15 @@ class ServiceRegistry {
             googleDriveService,
         )
     }
+    val integrationCenterService by lazy {
+        com.ares.analytics.service.integration.IntegrationCenterService(
+            settingsService = integrationSettingsService,
+            store = databaseService.integrations,
+            eventRecorder = databaseService.integrationEvents,
+            reloadIntegrations = notificationIntegrationService::reload,
+            configurationErrors = notificationIntegrationService::configurationErrors,
+        )
+    }
     val engineeringNotebookDraftService by lazy {
         com.ares.analytics.service.integration.EngineeringNotebookDraftService(
             databaseService = databaseService,
@@ -205,6 +214,9 @@ class ServiceRegistry {
         }
         if (lazyFieldInitialized(::windowsUpdateService)) {
             windowsUpdateService.close()
+        }
+        if (lazyFieldInitialized(::integrationCenterService)) {
+            integrationCenterService.close()
         }
         if (lazyFieldInitialized(::targetScannerService)) {
             targetScannerService.stopScanning()
