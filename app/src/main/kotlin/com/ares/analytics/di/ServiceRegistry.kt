@@ -7,6 +7,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -43,6 +44,19 @@ class ServiceRegistry {
     val eventApiService by lazy { EventApiService() }
     val layoutPreferenceService by lazy { LayoutPreferenceService() }
     val updateCheckerService by lazy { UpdateCheckerService() }
+    val windowsUpdateService by lazy {
+        val client = io.ktor.client.HttpClient(io.ktor.client.engine.cio.CIO) {
+            followRedirects = true
+            engine { requestTimeout = 60_000 }
+        }
+        WindowsUpdateService(
+            downloadClient = KtorWindowsUpdateDownloadClient(client),
+            trustedSignerThumbprints = com.ares.analytics.BuildConfig.WINDOWS_UPDATE_SIGNER_THUMBPRINTS
+                .split(',')
+                .filter(String::isNotBlank)
+                .toSet(),
+        )
+    }
     val learningProgressService by lazy { LearningProgressService() }
     val academyPracticePackService by lazy { com.ares.analytics.service.AcademyPracticePackService() }
     val importArchiveService by lazy { ImportArchiveService() }
@@ -50,6 +64,7 @@ class ServiceRegistry {
     val managedToolchainService by lazy { ManagedToolchainService() }
     val projectVersionControlService by lazy { com.ares.analytics.service.versioncontrol.ProjectVersionControlService() }
     val hardwareSetupService by lazy { com.ares.analytics.service.hardware.HardwareSetupService() }
+    val integrationSettingsService by lazy { com.ares.analytics.service.integration.IntegrationSettingsService() }
     val tuningProposalInbox by lazy { com.ares.analytics.service.tuning.TuningProposalInbox() }
     val drivebaseProjectRepository by lazy { com.ares.analytics.service.drivebase.DrivebaseProjectRepository() }
     val tuningProfileRepository by lazy { com.ares.analytics.service.tuning.TuningProfileRepository() }
@@ -85,6 +100,23 @@ class ServiceRegistry {
     val oauthService by lazy { OAuthService(environmentService) }
     val exportService by lazy { ExportService(databaseService) }
     val advancedAnalyticsService by lazy { AdvancedAnalyticsService(databaseService) }
+    val notificationIntegrationService by lazy {
+        com.ares.analytics.service.integration.NotificationIntegrationService(
+            databaseService,
+            integrationSettingsService,
+            googleDriveService,
+        )
+    }
+    val engineeringNotebookDraftService by lazy {
+        com.ares.analytics.service.integration.EngineeringNotebookDraftService(
+            databaseService = databaseService,
+            aiProvider = com.ares.analytics.service.integration.JsonStructuredDraftProvider(
+                providerId = "gemini.configured",
+                model = com.ares.analytics.shared.DEFAULT_GEMINI_MODEL,
+                requestJson = syncEngineService::requestNotebookDraftJson,
+            ),
+        )
+    }
 
     // ── Tier 2: Depend on Tier 0 + Tier 1 ────────────────────────────────────
     val academyPracticeWorkflowService by lazy {
@@ -149,6 +181,7 @@ class ServiceRegistry {
      */
     internal fun prepareForMainScreen() {
         databaseService
+        runBlocking { notificationIntegrationService.start() }
     }
 
     /** Applies a workspace transition only after the prior scanner generation has joined. */
@@ -169,6 +202,9 @@ class ServiceRegistry {
         var telemetryPersisted = true
         if (lazyFieldInitialized(::updateCheckerService)) {
             updateCheckerService.dispose()
+        }
+        if (lazyFieldInitialized(::windowsUpdateService)) {
+            windowsUpdateService.close()
         }
         if (lazyFieldInitialized(::targetScannerService)) {
             targetScannerService.stopScanning()
@@ -212,6 +248,9 @@ class ServiceRegistry {
                 }
                 if (lazyFieldInitialized(::syncEngineService)) {
                     syncEngineService.close()
+                }
+                if (lazyFieldInitialized(::notificationIntegrationService)) {
+                    notificationIntegrationService.closeAndJoin()
                 }
                 if (lazyFieldInitialized(::robotLogIngestionService)) {
                     robotLogIngestionService.close()
