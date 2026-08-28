@@ -88,6 +88,14 @@ data class SoftwareDigestReady(
 ) : IntegrationEventPayload
 
 @Serializable
+@SerialName("integration_test_requested")
+data class IntegrationTestRequested(
+    override val workspace: IntegrationWorkspaceIdentity,
+    val testId: String,
+    val targetProviderId: String,
+) : IntegrationEventPayload
+
+@Serializable
 enum class IntegrationIssueSeverity {
     INFO,
     WARNING,
@@ -104,6 +112,7 @@ enum class IntegrationEventType {
     CLOUD_UPLOAD_COMMITTED,
     NOTEBOOK_DRAFT_READY,
     SOFTWARE_DIGEST_READY,
+    INTEGRATION_TEST_REQUESTED,
 }
 
 fun IntegrationEventPayload.eventType(): IntegrationEventType = when (this) {
@@ -114,6 +123,7 @@ fun IntegrationEventPayload.eventType(): IntegrationEventType = when (this) {
     is CloudUploadCommitted -> IntegrationEventType.CLOUD_UPLOAD_COMMITTED
     is NotebookDraftReady -> IntegrationEventType.NOTEBOOK_DRAFT_READY
     is SoftwareDigestReady -> IntegrationEventType.SOFTWARE_DIGEST_READY
+    is IntegrationTestRequested -> IntegrationEventType.INTEGRATION_TEST_REQUESTED
 }
 
 fun IntegrationEventPayload.aggregateId(): String = when (this) {
@@ -124,6 +134,7 @@ fun IntegrationEventPayload.aggregateId(): String = when (this) {
     is CloudUploadCommitted -> sessionId
     is NotebookDraftReady -> entryId
     is SoftwareDigestReady -> entryId
+    is IntegrationTestRequested -> testId
 }
 
 @Serializable
@@ -272,4 +283,3 @@ data class PublicationReceipt(
 private fun sha256Hex(value: String): String = MessageDigest.getInstance("SHA-256")
     .digest(value.toByteArray(Charsets.UTF_8))
     .joinToString(separator = "") { byte -> "%02x".format(byte) }
-

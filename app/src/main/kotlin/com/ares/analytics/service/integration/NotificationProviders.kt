@@ -6,6 +6,7 @@ import com.ares.analytics.shared.models.CloudUploadCommitted
 import com.ares.analytics.shared.models.IntegrationEvent
 import com.ares.analytics.shared.models.IntegrationEventHasher
 import com.ares.analytics.shared.models.IntegrationIssueSeverity
+import com.ares.analytics.shared.models.IntegrationTestRequested
 import com.ares.analytics.shared.models.NotebookDraftReady
 import com.ares.analytics.shared.models.NotificationProviderConfig
 import com.ares.analytics.shared.models.RobotIssueOpened
@@ -94,6 +95,10 @@ internal object NotificationMessageFormatter {
             is SoftwareDigestReady -> "Software change summary ready" to listOf(
                 "Entry: `${safeInline(payload.entryId)}`",
                 "Commits: `${safeInline(payload.commitRange)}`",
+            )
+            is IntegrationTestRequested -> "Integration test message" to listOf(
+                "Provider: `${safeInline(payload.targetProviderId)}`",
+                "This durable message confirms that Studio's notification outbox can reach the configured destination.",
             )
         }
         val markdown = buildString {

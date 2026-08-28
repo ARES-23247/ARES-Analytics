@@ -40,6 +40,11 @@ data class ClaimedIntegrationDelivery(
     val delivery: IntegrationDelivery,
 )
 
+data class IntegrationDeliverySummary(
+    val event: IntegrationEvent,
+    val delivery: IntegrationDelivery,
+)
+
 interface IntegrationStore {
     suspend fun enqueue(event: IntegrationEvent, providerIds: Set<String>)
 
@@ -70,12 +75,14 @@ interface IntegrationStore {
 
     suspend fun getEvent(eventId: String): IntegrationEvent?
     suspend fun getDelivery(eventId: String, providerId: String): IntegrationDelivery?
+    suspend fun listRecentDeliveries(limit: Int = 200): List<IntegrationDeliverySummary>
+    suspend fun retryDelivery(eventId: String, providerId: String, requestedAtMs: Long): Boolean
 
     suspend fun saveNotebookRevision(entry: EngineeringNotebookEntry)
     suspend fun getNotebookRevision(entryId: String, revision: Int): EngineeringNotebookEntry?
     suspend fun getLatestNotebookRevision(entryId: String): EngineeringNotebookEntry?
     suspend fun listNotebookRevisions(entryId: String): List<EngineeringNotebookEntry>
+    suspend fun listLatestNotebookEntries(limit: Int = 200): List<EngineeringNotebookEntry>
     suspend fun recordPublicationReceipt(entryId: String, receipt: PublicationReceipt)
     suspend fun listPublicationReceipts(entryId: String): List<PublicationReceipt>
 }
-

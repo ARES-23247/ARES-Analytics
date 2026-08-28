@@ -234,6 +234,60 @@ class IntegrationOutboxIntegrationTest {
         }
     }
 
+    @Test
+    fun `delivery history can retry failures but never redeliver completed work`() = runTest {
+        withDatabase { database ->
+            val event = importedEvent("event-history", 1_000L)
+            database.integrations.enqueue(event, setOf("webhook.primary"))
+            database.integrations.claimDeliveries("worker", 1_000L, 500L, 1)
+            database.integrations.markFailed(
+                event.eventId,
+                "webhook.primary",
+                "worker",
+                DeliveryErrorKind.AUTHENTICATION,
+                "credential rejected",
+                retryAtMs = null,
+                completedAtMs = 1_100L,
+            )
+
+            val history = database.integrations.listRecentDeliveries()
+            assertEquals(event, history.single().event)
+            assertEquals(DeliveryState.DEAD, history.single().delivery.state)
+            assertTrue(database.integrations.retryDelivery(event.eventId, "webhook.primary", 1_200L))
+            assertEquals(1, database.integrations.getDelivery(event.eventId, "webhook.primary")?.attemptCount)
+
+            database.integrations.claimDeliveries("worker-2", 1_200L, 500L, 1)
+            database.integrations.markDelivered(event.eventId, "webhook.primary", "worker-2", null, 1_300L)
+            assertEquals(false, database.integrations.retryDelivery(event.eventId, "webhook.primary", 1_400L))
+        }
+    }
+
+    @Test
+    fun `notebook publishers receive only explicitly submitted approved revisions`() = runTest {
+        withDatabase { database ->
+            database.integrationRouting.replace(
+                mapOf(IntegrationEventType.NOTEBOOK_DRAFT_READY to setOf("zulip.primary", "cms.primary")),
+                notebookPublisherIds = setOf("cms.primary"),
+            )
+            val draft = notebookEntry(1, "# Review me", 1_000L)
+            database.saveEngineeringNotebookRevision(draft)
+
+            val eventId = "notebook-draft-ready:${draft.entryId}:${draft.contentHash}"
+            assertEquals(DeliveryState.PENDING, database.integrations.getDelivery(eventId, "zulip.primary")?.state)
+            assertNull(database.integrations.getDelivery(eventId, "cms.primary"))
+
+            val approved = draft.copy(
+                reviewState = NotebookReviewState.APPROVED,
+                humanReviewerId = "mentor-1",
+                updatedAtMs = 1_100L,
+            )
+            database.integrations.saveNotebookRevision(approved)
+            assertTrue(database.integrationEvents.submitNotebookRevision(approved, setOf("cms.primary")))
+            assertEquals(DeliveryState.PENDING, database.integrations.getDelivery(eventId, "cms.primary")?.state)
+            assertEquals(listOf(approved), database.integrations.listLatestNotebookEntries())
+        }
+    }
+
     private fun importedEvent(eventId: String, occurredAtMs: Long): IntegrationEvent = IntegrationEvent(
         eventId = eventId,
         occurredAtMs = occurredAtMs,

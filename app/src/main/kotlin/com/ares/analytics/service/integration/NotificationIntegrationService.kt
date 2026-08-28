@@ -226,7 +226,13 @@ class NotificationIntegrationService(
             }
             notificationRoutes + publisherRoutes
         }
-        databaseService.integrationRouting.replace(routes)
+        databaseService.integrationRouting.replace(
+            routes,
+            configured.settings.notebookPublishers.asSequence()
+                .filter { it.enabled && it.publisherId in activeProviderIds }
+                .map { it.publisherId }
+                .toSet(),
+        )
         coordinator = IntegrationOutboxCoordinator(databaseService.integrations, configured.providers).also { it.start() }
     }
 

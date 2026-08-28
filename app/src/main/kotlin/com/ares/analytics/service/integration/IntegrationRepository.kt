@@ -207,6 +207,57 @@ internal class IntegrationRepository(
         getDeliverySync(eventId, providerId)
     }
 
+    override suspend fun listRecentDeliveries(limit: Int): List<IntegrationDeliverySummary> = mutex.withLock {
+        require(limit in 1..1_000) { "Integration delivery history limit must be between 1 and 1000" }
+        connection.prepareStatement(
+            """
+            SELECT event_id, provider_id
+            FROM integration_deliveries
+            ORDER BY updated_at_ms DESC, event_id, provider_id
+            LIMIT ?
+            """.trimIndent()
+        ).use { statement ->
+            statement.setInt(1, limit)
+            statement.executeQuery().use { rows ->
+                buildList {
+                    while (rows.next()) {
+                        val eventId = rows.getString(1)
+                        val providerId = rows.getString(2)
+                        add(
+                            IntegrationDeliverySummary(
+                                event = requireNotNull(getEventSync(eventId)),
+                                delivery = requireNotNull(getDeliverySync(eventId, providerId)),
+                            )
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    override suspend fun retryDelivery(eventId: String, providerId: String, requestedAtMs: Long): Boolean =
+        mutex.withLock {
+            require(requestedAtMs >= 0L) { "Integration retry time cannot be negative" }
+            val existing = getDeliverySync(eventId, providerId) ?: return@withLock false
+            if (existing.state == DeliveryState.DELIVERED || existing.state == DeliveryState.IN_FLIGHT) {
+                return@withLock false
+            }
+            connection.prepareStatement(
+                """
+                UPDATE integration_deliveries
+                SET state = 'PENDING', next_attempt_at_ms = ?, lease_owner = NULL,
+                    lease_expires_at_ms = NULL, updated_at_ms = ?
+                WHERE event_id = ? AND provider_id = ? AND state IN ('PENDING', 'RETRY', 'DEAD')
+                """.trimIndent()
+            ).use { statement ->
+                statement.setLong(1, requestedAtMs)
+                statement.setLong(2, requestedAtMs)
+                statement.setString(3, eventId)
+                statement.setString(4, providerId)
+                statement.executeUpdate() == 1
+            }
+        }
+
     override suspend fun saveNotebookRevision(entry: EngineeringNotebookEntry) {
         mutex.withLock {
             validateNotebookEntry(entry)
@@ -304,6 +355,28 @@ internal class IntegrationRepository(
             "SELECT * FROM engineering_notebook_entries WHERE entry_id = ? ORDER BY revision"
         ).use { statement ->
             statement.setString(1, entryId)
+            statement.executeQuery().use { rows ->
+                buildList { while (rows.next()) add(rows.toNotebookEntry()) }
+            }
+        }
+    }
+
+    override suspend fun listLatestNotebookEntries(limit: Int): List<EngineeringNotebookEntry> = mutex.withLock {
+        require(limit in 1..1_000) { "Notebook history limit must be between 1 and 1000" }
+        connection.prepareStatement(
+            """
+            SELECT entries.*
+            FROM engineering_notebook_entries entries
+            INNER JOIN (
+                SELECT entry_id, MAX(revision) AS revision
+                FROM engineering_notebook_entries
+                GROUP BY entry_id
+            ) latest ON entries.entry_id = latest.entry_id AND entries.revision = latest.revision
+            ORDER BY entries.updated_at_ms DESC, entries.entry_id
+            LIMIT ?
+            """.trimIndent()
+        ).use { statement ->
+            statement.setInt(1, limit)
             statement.executeQuery().use { rows ->
                 buildList { while (rows.next()) add(rows.toNotebookEntry()) }
             }
