@@ -91,5 +91,22 @@ class IntegrationModelsTest {
             EngineeringNotebookHasher.sha256(draft.copy(markdownBody = "# Revised investigation")),
         )
     }
-}
 
+    @Test
+    fun `notebook hash remains compatible with the ARES website ingest contract`() {
+        assertEquals(
+            "93074f84203145939f8ba2c5f7d40b5699482e52385c763cd3e9b115686fc61e",
+            EngineeringNotebookHasher.sha256(
+                entryId = "entry-2026-001",
+                revision = 1,
+                entryType = NotebookEntryType.ROBOT_ISSUE,
+                workspace = IntegrationWorkspaceIdentity("23247", "2026", "Lightbot"),
+                markdownBody = "# Brownout investigation",
+                evidence = listOf(
+                    NotebookEvidenceReference("session", "session-1", sha256 = "a".repeat(64))
+                ),
+                visibility = NotebookVisibility.TEAM,
+            ),
+        )
+    }
+}
