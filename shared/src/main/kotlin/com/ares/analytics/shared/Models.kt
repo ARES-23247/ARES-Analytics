@@ -29,9 +29,9 @@ typealias ControllerBinding = com.ares.analytics.shared.models.ControllerBinding
 typealias TrajectoryState = com.ares.analytics.shared.models.TrajectoryState
 typealias Trajectory = com.ares.analytics.shared.models.Trajectory
 
-typealias TopologyNodeType = com.ares.analytics.shared.models.TopologyNodeType
-typealias TopologyNode = com.ares.analytics.shared.models.TopologyNode
-typealias HardwareTopology = com.ares.analytics.shared.models.HardwareTopology
+typealias TopologyNodeType = com.areslib.telemetry.schema.TopologyNodeType
+typealias TopologyNode = com.areslib.telemetry.schema.TopologyNode
+typealias HardwareTopology = com.areslib.telemetry.schema.HardwareTopology
 typealias ForensicsRequest = com.ares.analytics.shared.models.ForensicsRequest
 typealias HardwareFaultLocus = com.ares.analytics.shared.models.HardwareFaultLocus
 typealias ForensicsResponse = com.ares.analytics.shared.models.ForensicsResponse

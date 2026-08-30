@@ -1,6 +1,8 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.*
+import com.areslib.telemetry.schema.HARDWARE_TOPOLOGY_TOPIC
+import com.areslib.telemetry.schema.HardwareTopologyCodec
 import com.ares.analytics.service.nt4.Nt4ConnectionLifecycle
 import com.ares.analytics.service.nt4.Nt4InboundRouter
 import com.ares.analytics.service.nt4.Nt4OutboundPublisher
@@ -606,10 +608,10 @@ open class Nt4ClientService(
         // log_file_path column), so the topic is now intentionally ignored.
 
         // Handle topology mapping directly
-        if (normalizedName == "Topology/HardwareMap") {
+        if (normalizedName == HARDWARE_TOPOLOGY_TOPIC) {
             try {
                 val topologyJson = if (valueElement is JsonPrimitive) valueElement.content else valueElement.toString()
-                val topology = Json.decodeFromString<HardwareTopology>(topologyJson)
+                val topology = HardwareTopologyCodec.decode(topologyJson)
                 _latestTopology.value = topology
                 databaseService.insertTopology(topology)
             } catch (e: Exception) {

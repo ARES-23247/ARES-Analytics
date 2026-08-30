@@ -25,9 +25,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ares.analytics.di.ServiceRegistry
-import com.ares.analytics.shared.models.HardwareTopology
-import com.ares.analytics.shared.models.TopologyNode
-import com.ares.analytics.shared.models.TopologyNodeType
+import com.areslib.telemetry.schema.HardwareTopology
+import com.areslib.telemetry.schema.TopologyNode
+import com.areslib.telemetry.schema.TopologyNodeType
 import com.ares.analytics.ui.components.core.AnalyticsCard
 import com.ares.analytics.ui.components.core.CardHeader
 import com.ares.analytics.ui.theme.*
