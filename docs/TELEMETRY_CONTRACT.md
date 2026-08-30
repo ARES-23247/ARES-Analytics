@@ -139,7 +139,12 @@ Hardware/Motors/{device}/Temperature
 
 FTC drivetrain devices are normally `fl`, `fr`, `rl`, and `rr`. Dashboard widgets also accept `bl`/`br` compatibility aliases for rear motors.
 
-`Topology/HardwareMap` is a string containing serialized `HardwareTopology`. It is generally published once at initialization and cached by robot identity.
+`Topology/HardwareMap` is a string containing serialized `HardwareTopology`. The DTO, topic name,
+schema version, and JSON codec are owned by the published
+`org.aresfirst.ares:telemetry-schema` module and shared by robot publishers and Studio consumers.
+It is generally published once at initialization and cached by robot identity. Unknown JSON fields
+are accepted for additive evolution, while unsupported schema versions fail explicitly. Producer
+and consumer golden-payload tests must pass before changing this contract.
 
 ## Vision and calibration
 

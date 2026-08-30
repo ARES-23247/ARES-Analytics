@@ -115,6 +115,10 @@ Topic names are normalized by removing every leading `/`. `Drive/Pose_X` is the 
 
 Wire type is part of the topic contract. Boolean values remain boolean at the wire boundary; persistence converts them to `1.0` or `0.0` only where a numeric frame is required. String values use `TelemetryFrame.stringValue` and are not represented as numeric zero.
 
+Cross-product serializable wire DTOs are not redefined in Studio. `Topology/HardwareMap` uses the
+versioned `HardwareTopology` contract from `org.aresfirst.ares:telemetry-schema`; producer and
+consumer golden-payload tests protect that boundary before either side evolves it.
+
 ### Backpressure and persistence
 
 Live events feed two concerns:

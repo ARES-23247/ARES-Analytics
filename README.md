@@ -30,7 +30,7 @@ safety expectations, and the equivalent hand-authored IO/Redux workflow.
 | `shared` | Serializable models and unit-conversion helpers shared by the desktop app and gateway |
 | `gateway` | Small Ktor service exposing authenticated Vertex AI pit forensics and the narrowly scoped Google OAuth token broker |
 
-The application consumes the versioned `org.aresfirst.ares:ares-bom` plus `core` and `codegen` artifacts. Normal builds resolve the pinned release from the ARES GitHub Maven repository, with Maven Central retained as an optional secondary channel; library developers can opt into the sibling checkout with `-ParesUseSiblingLib=true`.
+The application consumes the versioned `org.aresfirst.ares:ares-bom` plus `core`, `codegen`, and the canonical `telemetry-schema` wire contract. Normal builds resolve the pinned release from the ARES GitHub Maven repository, with Maven Central retained as an optional secondary channel; library developers can opt into the sibling checkout with `-ParesUseSiblingLib=true`.
 
 ## Requirements
 

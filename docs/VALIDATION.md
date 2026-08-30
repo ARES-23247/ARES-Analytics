@@ -161,8 +161,14 @@ Supported properties are:
 
 The workflow checks out `ARESLib-Kotlin` beside `ARES-Analytics`, matching the composite-build layout used by local development.
 
-`.github/workflows/build-distributions.yml` gates every installer build on the official-template
-acceptance test. It creates fresh FTC and FRC projects from the same hash-pinned archives used by
+`.github/workflows/build-distributions.yml` gates every installer build on
+`studioReleaseVerification` before packaging begins. That gate runs the complete `:app:test`,
+`:shared:test`, and `:gateway:test` suites, verifies the measured Kover floors (app 38%, shared 52%,
+gateway 52%), runs the dashboard performance baseline, and rejects new or growing production Kotlin
+files beyond the checked-in maintainability baseline. It also runs with a temporary user home and
+fails if the build writes global Gradle properties.
+
+The release workflow then runs the official-template acceptance test. It creates fresh FTC and FRC projects from the same hash-pinned archives used by
 onboarding, personalizes their canonical ARES identities, and then generates, verifies, tests, and
 packages both projects through their normal immutable dependency repositories. The FTC project also
 runs the headless drivetrain verifier, which must demonstrate translation, field-centric control,
@@ -176,7 +182,8 @@ version that already has a GitHub Release so different package bytes cannot reus
 
 Fresh-project acceptance and native Windows/macOS packaging run concurrently to shorten release
 latency. The publication job still depends on both lanes, so no package can be released unless the
-zero-code consumer matrix and every native package check have completed successfully.
+full Studio verification gate, zero-code consumer matrix, and every native package check have
+completed successfully.
 
 ## Optional physical hardware check
 
