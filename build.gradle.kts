@@ -1,3 +1,5 @@
+import kotlinx.kover.gradle.plugin.dsl.KoverProjectExtension
+
 plugins {
     kotlin("jvm") version "2.4.10" apply false
     kotlin("plugin.serialization") version "2.4.10" apply false
@@ -198,11 +200,57 @@ subprojects {
 
     apply(plugin = "org.jetbrains.kotlinx.kover")
 
+    val lineCoverageFloor = when (name) {
+        "app" -> 38
+        "gateway", "shared" -> 52
+        else -> null
+    }
+    if (lineCoverageFloor != null) {
+        extensions.configure<KoverProjectExtension> {
+            // External hardware/simulator and long-running dashboard profiles are separate evidence
+            // domains. The coverage ratchet measures the deterministic unit/integration `test` suite.
+            if (name == "app") {
+                currentProject {
+                    instrumentation {
+                        disabledForTestTasks.addAll(
+                            "dashboardHardware",
+                            "dashboardSmoke",
+                            "dashboardSoak",
+                            "simulatorControlSoak",
+                        )
+                    }
+                }
+            }
+            reports {
+                verify {
+                    rule("released baseline line coverage") {
+                        minBound(lineCoverageFloor)
+                    }
+                }
+            }
+        }
+    }
+
     tasks.matching { task ->
         task.name == "test" || task.name.startsWith("packageRelease")
     }.configureEach {
         dependsOn(verifyReleaseVersionAlignment)
     }
+}
+
+tasks.register("studioReleaseVerification") {
+    group = "verification"
+    description = "Runs all deterministic Studio suites, coverage ratchets, and dashboard smoke budgets."
+    dependsOn(
+        verifyReleaseVersionAlignment,
+        ":shared:test",
+        ":gateway:test",
+        ":app:test",
+        ":shared:koverVerify",
+        ":gateway:koverVerify",
+        ":app:koverVerify",
+        ":app:dashboardPerformanceBaseline",
+    )
 }
 
 tasks.register("killExisting") {
