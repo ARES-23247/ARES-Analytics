@@ -3,6 +3,7 @@ package com.ares.analytics.viewmodel
 import com.ares.analytics.service.EnvironmentService
 import com.ares.analytics.service.GoogleDriveService
 import com.ares.analytics.service.ManagedToolchainInstallState
+import com.ares.analytics.service.ManagedToolchainPaths
 import com.ares.analytics.service.ManagedToolchainService
 import com.ares.analytics.service.SyncEngineService
 import com.ares.analytics.service.project.RobotProjectCreationRequest
@@ -19,6 +20,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
+import java.awt.Desktop
+import java.net.URI
 
 enum class OnboardingStep(val number: Int) {
     PROJECT(1),
@@ -363,8 +366,17 @@ class OnboardingViewModel(
     }
 
     private suspend fun installManagedJdk() {
-        runCatching { managedToolchainService.installManagedJdk21(_state.value.league) }
-        verifyJavaBuildTools()
+        if (ManagedToolchainPaths.managedJdkInstallationSupported()) {
+            runCatching { managedToolchainService.installManagedJdk21(_state.value.league) }
+            verifyJavaBuildTools()
+        } else {
+            runCatching { Desktop.getDesktop().browse(URI(ManagedToolchainPaths.JDK_21_DOWNLOAD_URL)) }
+                .onFailure { failure ->
+                    _state.update {
+                        it.copy(errorMessage = "Could not open the JDK download page: ${failure.message ?: "unknown desktop error"}")
+                    }
+                }
+        }
     }
 
     private suspend fun submitConfig() {
@@ -508,7 +520,7 @@ internal fun evaluateJavaBuildTools(commandSucceeded: Boolean, rawMessage: Strin
         return JavaBuildToolsReadiness(
             isValid = false,
             majorVersion = null,
-            message = "ARES Robotics Studio is ready. Robot builds and simulation need JDK 17 or 21, but Java could not be started. Set JAVA_HOME when you are ready to build.",
+            message = "ARES Robotics Studio is ready. Robot builds and simulation need JDK 17 or 21, but a supported JDK was not found.",
         )
     }
     val major = parseJavaMajorVersion(rawMessage)
@@ -521,12 +533,12 @@ internal fun evaluateJavaBuildTools(commandSucceeded: Boolean, rawMessage: Strin
         null -> JavaBuildToolsReadiness(
             false,
             null,
-            "ARES Robotics Studio is ready, but the Java version could not be identified. Install JDK 17 or 21 and set JAVA_HOME before building or simulating a robot.",
+            "ARES Robotics Studio is ready, but the Java version could not be identified. Install JDK 17 or 21 before building or simulating a robot.",
         )
         else -> JavaBuildToolsReadiness(
             false,
             major,
-            "ARES Robotics Studio is ready, but robot builds and simulation need JDK 17 or 21. We found Java $major. Set JAVA_HOME to a supported JDK.",
+            "ARES Robotics Studio is ready, but robot builds and simulation need JDK 17 or 21. We found Java $major; install a supported JDK and ARES will discover it automatically.",
         )
     }
 }

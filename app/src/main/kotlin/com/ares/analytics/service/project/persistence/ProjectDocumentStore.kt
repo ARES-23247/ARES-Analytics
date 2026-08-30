@@ -1,32 +1,15 @@
-package com.ares.analytics.viewmodel.project
+package com.ares.analytics.service.project.persistence
 
 import java.io.File
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-/** Stable project-local document ID. It is safe to use as exactly one file-name component. */
-@JvmInline
-value class ProjectDocumentId(val value: String) {
-    init {
-        require(value.matches(PATTERN)) { "Invalid project document ID '$value'" }
-    }
+/** Studio and codegen share exactly one stable document identity contract. */
+typealias ProjectDocumentId = com.areslib.project.schema.ProjectDocumentId
 
-    companion object {
-        private val PATTERN = Regex("[a-z0-9][a-z0-9._-]{0,63}")
-    }
-}
-
-enum class ProjectDocumentKind {
-    ROUTINE,
-    CONTROL_SCHEME,
-    CONTROLLER_PROFILE,
-    SUBSYSTEM,
-    SUPERSTRUCTURE,
-    CAPABILITY_CATALOG,
-    AUTONOMOUS_CATALOG,
-    PROJECT_METADATA
-}
+/** Studio and codegen share exactly one canonical document-category vocabulary. */
+typealias ProjectDocumentKind = com.areslib.project.schema.ProjectDocumentKind
 
 /** A bad file is reported without preventing the rest of an offline project from opening. */
 data class ProjectDocumentDiagnostic(

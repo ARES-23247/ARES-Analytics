@@ -176,7 +176,7 @@ object DeveloperReferenceCatalog {
             title = "Generated code ownership",
             category = "Code generation",
             responsibility = "Turn project documents into reviewed Kotlin with explicit ownership headers and staleness gates.",
-            sourcePath = "ARESLib-Kotlin/core/src/main/kotlin/com/areslib/codegen/SubsystemKotlinGenerator.kt",
+            sourcePath = "ARESLib-Kotlin/codegen/src/main/kotlin/com/areslib/codegen/SubsystemKotlinGenerator.kt",
             units = "Content hashes tie each generated artifact to its source document.",
             invariants = listOf(
                 "GENERATED - DO NOT EDIT files change only through regeneration.",

@@ -1,4 +1,4 @@
-package com.ares.analytics.viewmodel.project
+package com.ares.analytics.service.project.persistence
 
 import com.areslib.catalog.CapabilityCatalogCodec
 import com.areslib.catalog.CapabilityCatalogDocument

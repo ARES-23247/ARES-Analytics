@@ -7,6 +7,7 @@ import com.ares.analytics.service.DeployExecutionState
 import com.ares.analytics.service.RobotProjectReadinessEvidence
 import com.ares.analytics.service.verification.RobotVerificationReport
 import com.ares.analytics.service.hardware.HardwareReviewStatus
+import com.areslib.simulation.SimulationProductId
 import java.io.File
 
 enum class RobotStudioStageId {
@@ -89,6 +90,7 @@ data class RobotStudioState(
     val stages: List<RobotStudioStage> = emptyList(),
     val hardwareReadiness: RobotStudioHardwareReadiness? = null,
     val verificationReport: RobotVerificationReport? = null,
+    val simulationProduct: SimulationProductId? = null,
     val error: String? = null,
 ) {
     val readyCount: Int get() = stages.count { it.status == RobotStudioStageStatus.READY || it.status == RobotStudioStageStatus.RUNNING }
@@ -271,6 +273,7 @@ internal fun evaluateRobotStudioStages(
     }
     val simulationStatus = when {
         !authoredStagesReady -> RobotStudioStageStatus.BLOCKED
+        evidence.simulationProduct == null || evidence.simulationErrors.isNotEmpty() -> RobotStudioStageStatus.INVALID
         selectedSimulatorRunning -> RobotStudioStageStatus.RUNNING
         selectedBuild?.phase != BuildExecutionPhase.SUCCEEDED -> RobotStudioStageStatus.BLOCKED
         else -> RobotStudioStageStatus.NEEDS_ACTION
@@ -439,16 +442,19 @@ internal fun evaluateRobotStudioStages(
             when {
                 simulationStatus == RobotStudioStageStatus.RUNNING -> "The local simulator is running${if (runtime.nt4Connected) " and telemetry is connected" else ""}."
                 !authoredStagesReady -> "Resolve the blocked authoring stages before simulation."
+                evidence.simulationProduct == null -> "ARES could not select a simulator product from the canonical project target."
+                evidence.simulationErrors.isNotEmpty() -> evidence.simulationErrors.joinToString(" ")
                 selectedBuild?.phase != BuildExecutionPhase.SUCCEEDED -> "Run Verify & build successfully first so simulation uses current generated code and tested project artifacts."
-                else -> "Start the verified local simulator, identify the data source, and stop it cleanly when finished."
+                else -> "Start ${evidence.simulationProduct.displayName}, identify the data source, and stop it cleanly when finished."
             },
-            emptyList(),
+            evidence.simulationErrors,
             "No canonical source is changed by simulation",
             "FTC/FRC simulator, NT4 telemetry, Dashboard, and Academy",
             RobotStudioAction.RUN_SIMULATOR,
             when {
                 simulationStatus == RobotStudioStageStatus.RUNNING -> "Simulator running"
                 simulationStatus == RobotStudioStageStatus.BLOCKED -> "Verify & build first"
+                simulationStatus == RobotStudioStageStatus.INVALID -> "Fix simulator compatibility"
                 else -> "Start simulator"
             },
         ),

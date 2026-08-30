@@ -1,4 +1,4 @@
-package com.ares.analytics.viewmodel.project
+package com.ares.analytics.service.project.persistence
 
 import com.ares.analytics.shared.AppJson
 import com.areslib.project.AresProjectMetadataCodec

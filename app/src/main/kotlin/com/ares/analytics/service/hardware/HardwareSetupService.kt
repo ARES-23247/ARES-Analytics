@@ -6,7 +6,7 @@ import com.ares.analytics.service.commissioning.CommissioningSimulationSummary
 import com.ares.analytics.service.commissioning.CommissioningVerificationService
 import com.ares.analytics.service.writeFileAtomically
 import com.ares.analytics.shared.League
-import com.ares.analytics.viewmodel.project.SubsystemProjectRepository
+import com.ares.analytics.service.project.persistence.SubsystemProjectRepository
 import com.areslib.drivetrain.DrivetrainComponentRole
 import com.areslib.drivetrain.DrivetrainDocumentCodec
 import com.areslib.subsystem.SubsystemDocumentCodec

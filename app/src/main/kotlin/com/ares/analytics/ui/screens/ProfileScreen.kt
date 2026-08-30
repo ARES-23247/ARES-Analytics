@@ -26,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import com.ares.analytics.BuildConfig
 import com.ares.analytics.service.AuthState
 import com.ares.analytics.service.ManagedToolchainInstallState
+import com.ares.analytics.service.ManagedToolchainPaths
 import com.ares.analytics.service.ManagedToolchainService
 import com.ares.analytics.service.ToolchainReadiness
 import com.ares.analytics.service.isValidGoogleDesktopClientId
@@ -37,12 +38,11 @@ import com.ares.analytics.shared.DriveDestinationType
 import com.ares.analytics.shared.WorkspaceCollaborationMode
 import com.ares.analytics.shared.AppJson
 import com.ares.analytics.ui.components.core.chooseProjectDirectory
+import com.ares.analytics.ui.components.core.openExternalLink
 import com.ares.analytics.ui.theme.*
 import com.ares.analytics.util.ProjectLayout
 import com.ares.analytics.viewmodel.ProfileIntent
 import com.ares.analytics.viewmodel.ProfileViewModel
-import java.awt.Desktop
-import java.net.URI
 import javax.swing.JFileChooser
 import kotlinx.serialization.encodeToString
 import kotlinx.coroutines.launch
@@ -373,17 +373,23 @@ fun ProfileScreen(
                     if (toolchains.components.any { it.name.startsWith("Java") && it.readiness != ToolchainReadiness.READY }) {
                         Button(
                             onClick = {
-                                scope.launch { runCatching { managedToolchainService.installManagedJdk21(config.league) } }
+                                if (ManagedToolchainPaths.managedJdkInstallationSupported()) {
+                                    scope.launch { runCatching { managedToolchainService.installManagedJdk21(config.league) } }
+                                } else {
+                                    openExternalLink(ManagedToolchainPaths.JDK_21_DOWNLOAD_URL)
+                                }
                             },
                             enabled = toolchainInstallState !is ManagedToolchainInstallState.Working,
                             colors = ButtonDefaults.buttonColors(containerColor = AresCyan, contentColor = AresOnAccent),
-                        ) { Text("Install private JDK 21") }
+                        ) {
+                            Text(if (ManagedToolchainPaths.managedJdkInstallationSupported()) "Install private JDK 21" else "Download JDK 21")
+                        }
                     }
                     OutlinedButton(onClick = { scope.launch { managedToolchainService.refresh(config.league) } }) {
                         Text("Recheck tools")
                     }
                     OutlinedButton(onClick = {
-                        Desktop.getDesktop().browse(URI("https://github.com/ARES-23247/ARES-Analytics/blob/master/docs/start/ROBOT_BUILD_TOOLS.md"))
+                        openExternalLink("https://github.com/ARES-23247/ARES-Analytics/blob/master/docs/start/ROBOT_BUILD_TOOLS.md")
                     }) { Text("Setup guide") }
                 }
             }
@@ -542,7 +548,7 @@ fun ProfileScreen(
                                 Text("Check access")
                             }
                             status?.webViewLink?.let { link ->
-                                OutlinedButton(onClick = { runCatching { Desktop.getDesktop().browse(URI(link)) } }) {
+                                OutlinedButton(onClick = { openExternalLink(link) }) {
                                     Text("Open in Drive")
                                 }
                             }
@@ -1029,14 +1035,14 @@ fun ProfileScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
                         runCatching {
-                            Desktop.getDesktop().browse(URI("https://github.com/ARES-23247/ARES-Analytics"))
+                            openExternalLink("https://github.com/ARES-23247/ARES-Analytics")
                         }
                     }) {
                         Text("View source")
                     }
                     OutlinedButton(onClick = {
                         runCatching {
-                            Desktop.getDesktop().browse(URI("https://github.com/ARES-23247/ARES-Analytics/blob/master/LICENSE"))
+                            openExternalLink("https://github.com/ARES-23247/ARES-Analytics/blob/master/LICENSE")
                         }
                     }) {
                         Text("Read license")

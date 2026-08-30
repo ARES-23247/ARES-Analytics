@@ -6,6 +6,7 @@ import com.ares.analytics.service.RobotProjectReadinessEvidence
 import com.ares.analytics.service.drivebase.DrivebaseKind
 import com.ares.analytics.service.hardware.HardwareReviewStatus
 import com.ares.analytics.shared.League
+import com.areslib.simulation.SimulationProductId
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -385,7 +386,7 @@ class RobotStudioModelTest {
         )
 
         assertEquals(RobotStudioStageStatus.NEEDS_ACTION, stages.status(RobotStudioStageId.SIMULATE))
-        assertTrue(stages.first { it.id == RobotStudioStageId.SIMULATE }.explanation.contains("Start the verified local simulator"))
+        assertTrue(stages.first { it.id == RobotStudioStageId.SIMULATE }.explanation.contains("FTC desktop OpMode simulator"))
     }
 
     @Test
@@ -457,6 +458,26 @@ class RobotStudioModelTest {
         assertTrue(RobotStudioState(loading = false, stages = stages).canRunBuild)
     }
 
+    @Test
+    fun `unsupported simulator capability is visible and blocks only simulation`() {
+        val stages = evaluateRobotStudioStages(
+            completeEvidence().copy(
+                simulationErrors = listOf("Custom drivetrain has no implemented desktop physics adapter."),
+            ),
+            RobotStudioRuntimeEvidence(build = buildState(BuildExecutionPhase.SUCCEEDED)),
+        )
+        val state = RobotStudioState(
+            loading = false,
+            stages = stages,
+            simulationProduct = SimulationProductId.FTC_DESKTOP_OPMODE,
+        )
+
+        assertEquals(RobotStudioStageStatus.INVALID, stages.status(RobotStudioStageId.SIMULATE))
+        assertFalse(state.canRunSimulation)
+        assertTrue(state.canRunBuild)
+        assertTrue(state.simulationDisabledReason.contains("Custom drivetrain"))
+    }
+
     private fun completeEvidence() = RobotProjectReadinessEvidence(
         projectPath = "C:/fixture/robot",
         league = League.FTC,
@@ -466,6 +487,7 @@ class RobotStudioModelTest {
         drivebaseNoCodeSupported = true,
         localizationConfigured = true,
         subsystemCount = 0,
+        simulationProduct = SimulationProductId.FTC_DESKTOP_OPMODE,
         capabilityActionCount = 0,
         controlSchemeCount = 1,
         controllerProfileCount = 1,

@@ -54,6 +54,7 @@ import com.ares.analytics.ui.theme.AresTextSecondary
 import com.ares.analytics.viewmodel.OnboardingFieldErrors
 import com.ares.analytics.viewmodel.OnboardingStep
 import com.ares.analytics.viewmodel.ProjectSetupMode
+import java.io.File
 
 /** Project, robot, advanced, and review content shared by the staged onboarding wizard. */
 @Composable
@@ -237,7 +238,7 @@ private fun ProjectSelection(
                 value = projectParentPath,
                 onValueChange = onProjectParentPathChange,
                 label = "Create inside this folder",
-                placeholder = "C:\\Users\\...\\Robots",
+                placeholder = platformPathPlaceholder("Robots"),
                 buttonLabel = "Choose parent folder",
                 onBrowse = onBrowseProjectParent,
             )
@@ -263,7 +264,7 @@ private fun ProjectSelection(
                 value = projectPath,
                 onValueChange = onProjectPathChange,
                 label = "Robot project folder",
-                placeholder = "C:\\Users\\...\\my-robot-project",
+                placeholder = platformPathPlaceholder("my-robot-project"),
                 buttonLabel = "Choose project",
                 onBrowse = onBrowseProject,
             ) {
@@ -278,6 +279,9 @@ private fun ProjectSelection(
         }
     }
 }
+
+internal fun platformPathPlaceholder(folderName: String, separator: Char = File.separatorChar): String =
+    if (separator == '\\') "C:\\Users\\...\\$folderName" else "/path/to/$folderName"
 
 @Composable
 private fun ProjectModeCard(

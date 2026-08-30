@@ -54,6 +54,25 @@ class ServiceRegistry {
     val drivebaseProjectRepository by lazy { com.ares.analytics.service.drivebase.DrivebaseProjectRepository() }
     val tuningProfileRepository by lazy { com.ares.analytics.service.tuning.TuningProfileRepository() }
     val guidedTuningExperimentRepository by lazy { com.ares.analytics.service.tuning.GuidedTuningExperimentRepository() }
+    val projectSession by lazy {
+        com.ares.analytics.service.project.ProjectSession(
+            drivebaseRepository = drivebaseProjectRepository,
+            tuningRepository = tuningProfileRepository,
+        )
+    }
+    val projectExecutionCoordinator by lazy {
+        com.ares.analytics.service.project.ProjectExecutionCoordinator(
+            projectSession,
+            com.ares.analytics.service.project.ProcessManagerProjectGateway(processManagerService),
+        )
+    }
+    val projectGenerator by lazy {
+        com.ares.analytics.service.project.SessionProjectGenerator(
+            projectSession,
+            projectExecutionCoordinator,
+            processManagerService,
+        )
+    }
 
     // ── Tier 1: Depend on Tier 0 ─────────────────────────────────────────────
     val nt4ClientService by lazy { Nt4ClientService(databaseService) }
@@ -94,8 +113,7 @@ class ServiceRegistry {
     val robotProjectReadinessService by lazy {
         RobotProjectReadinessService(
             databaseService = databaseService,
-            drivebaseRepository = drivebaseProjectRepository,
-            tuningRepository = tuningProfileRepository,
+            projectSession = projectSession,
             hardwareSetupService = hardwareSetupService,
         )
     }

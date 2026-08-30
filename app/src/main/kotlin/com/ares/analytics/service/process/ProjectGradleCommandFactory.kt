@@ -1,6 +1,7 @@
 package com.ares.analytics.service.process
 
 import com.ares.analytics.shared.League
+import com.areslib.simulation.SimulationProductId
 import java.io.File
 
 /**
@@ -54,15 +55,21 @@ internal class ProjectGradleCommandFactory(
 
     fun simulation(
         isWindows: Boolean,
-        league: League,
+        product: SimulationProductId,
         frcJavaExecutable: File? = null,
     ): List<String> {
+        val isFrc = product == SimulationProductId.FRC_WPILIB_DESKTOP
         val base = decorate(buildList {
             addGradleWrapper(isWindows)
-            add(if (league == League.FTC) ":TeamCode:runSim" else "simulateJava")
+            add(
+                when (product) {
+                    SimulationProductId.FTC_DESKTOP_OPMODE -> ":TeamCode:runSim"
+                    SimulationProductId.FRC_WPILIB_DESKTOP -> "simulateJava"
+                },
+            )
             addDesktopProcessOptions()
         })
-        if (league != League.FRC) return base
+        if (!isFrc) return base
         return buildList {
             addAll(base)
             add("-ParesFrcHalGui=false")

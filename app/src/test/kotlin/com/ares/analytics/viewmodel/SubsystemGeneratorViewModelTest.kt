@@ -6,9 +6,9 @@ import com.ares.analytics.service.SubsystemDesignAssistant
 import com.ares.analytics.service.SubsystemDesignProposal
 import com.ares.analytics.shared.League
 import com.ares.analytics.ui.help.toAcademySubsystemSnapshot
-import com.ares.analytics.viewmodel.project.AresProjectDocuments
-import com.ares.analytics.viewmodel.project.CapabilityCatalogProjectRepository
-import com.ares.analytics.viewmodel.project.SubsystemProjectRepository
+import com.ares.analytics.service.project.AresProjectDocuments
+import com.ares.analytics.service.project.persistence.CapabilityCatalogProjectRepository
+import com.ares.analytics.service.project.persistence.SubsystemProjectRepository
 import com.areslib.catalog.CapabilityCatalogDocument
 import com.areslib.subsystem.SubsystemFieldRole
 import com.areslib.subsystem.SubsystemControlStrategy
@@ -224,7 +224,7 @@ class SubsystemGeneratorViewModelTest {
             root.path,
             CapabilityCatalogDocument(projectId = "test-project"),
         )
-        val mergedActions = AresProjectDocuments().load(root.path).capabilityCatalog?.actions.orEmpty()
+        val mergedActions = AresProjectDocuments().load(root.path).query.actions
         assertTrue(mergedActions.any { it.key == "subsystem.new-subsystem.set.target" })
         viewModel.close()
     }
