@@ -1,6 +1,7 @@
 package com.ares.analytics.service
 
 import com.ares.analytics.shared.League
+import com.ares.analytics.service.process.ProjectGradleCommandFactory
 import com.ares.analytics.service.project.templateDeploymentBlockReason
 import com.ares.analytics.service.verification.RobotVerificationReport
 import com.ares.analytics.service.verification.RobotVerificationReportLoader
@@ -145,6 +146,11 @@ class ProcessManagerService internal constructor(
         .takeIf(List<File>::isNotEmpty)
         ?.joinToString(",") { it.path }
         ?.let { "-Porg.gradle.java.installations.paths=$it" }
+    private val gradleCommands = ProjectGradleCommandFactory(
+        gradleJavaInstallationsArgument = gradleJavaInstallationsArgument,
+        aresRepositoryArgument = aresRepositoryArgument,
+        aresVersionArgument = aresVersionArgument,
+    )
 
     // Build tools can emit thousands of lines in a burst. Terminal rendering must never apply
     // back-pressure to the child process or its stdout pipe can fill and deadlock Gradle.
@@ -337,29 +343,7 @@ class ProcessManagerService internal constructor(
     }
 
     private fun verificationBuildCommand(league: League, isWindows: Boolean): List<String> =
-        withAresRepository(buildList {
-            if (isWindows) {
-                add("cmd.exe")
-                add("/c")
-                add("gradlew.bat")
-            } else {
-                add("./gradlew")
-            }
-            when (league) {
-                League.FTC -> addAll(
-                    listOf(
-                        "generateAresProject",
-                        ":TeamCode:verifyAresProject",
-                        ":TeamCode:testDebugUnitTest",
-                        ":simulator:test",
-                        ":TeamCode:assembleDebug",
-                    )
-                )
-                League.FRC -> addAll(listOf("generateAresProject", "verifyAresProject", "test", "build"))
-            }
-            addDesktopGradleProcessOptions()
-            add("--rerun-tasks")
-        })
+        gradleCommands.verification(league, isWindows)
 
     private fun projectPinnedAresVersion(projectRoot: File): String? =
         listOf("gradle.properties", "gradle/libs.versions.toml")
@@ -868,35 +852,11 @@ class ProcessManagerService internal constructor(
     internal fun adbInstallCommandForTest(adb: String, apkPath: String): List<String> =
         adbInstallCommandForDeploy(adb, apkPath)
 
-    private fun ftcDeployBuildCommand(isWindows: Boolean): List<String> = buildList {
-        addGradleWrapper(isWindows)
-        add("generateAresProject")
-        add("verifyAresProject")
-        add(":TeamCode:testDebugUnitTest")
-        add(":simulator:test")
-        add(":TeamCode:assembleDebug")
-        addDesktopGradleProcessOptions()
-    }
+    private fun ftcDeployBuildCommand(isWindows: Boolean): List<String> =
+        gradleCommands.ftcDeploy(isWindows)
 
-    private fun frcDeployBuildCommand(isWindows: Boolean): List<String> = buildList {
-        addGradleWrapper(isWindows)
-        add("generateAresProject")
-        add("verifyAresProject")
-        add("test")
-        add("build")
-        add("deploy")
-        addDesktopGradleProcessOptions()
-    }
-
-    private fun MutableList<String>.addGradleWrapper(isWindows: Boolean) {
-        if (isWindows) {
-            add("cmd.exe")
-            add("/c")
-            add("gradlew.bat")
-        } else {
-            add("./gradlew")
-        }
-    }
+    private fun frcDeployBuildCommand(isWindows: Boolean): List<String> =
+        gradleCommands.frcDeploy(isWindows)
 
     private fun requireProjectGradleWrapper(root: File, isWindows: Boolean) {
         val wrapperScript = File(root, if (isWindows) "gradlew.bat" else "gradlew").canonicalFile
@@ -909,48 +869,22 @@ class ProcessManagerService internal constructor(
         }
     }
 
-    /**
-     * Desktop-owned Gradle children must not attach to an arbitrary long-lived daemon. The app can
-     * itself be running from Gradle while a different FTC/FRC wrapper version is active, and sharing
-     * daemon state between those processes has caused authoring tasks to wait indefinitely. A
-     * single-use daemon is a little slower to start, but gives save, build, and simulator operations
-     * deterministic ownership and lets cancellation terminate the complete process tree.
-     */
-    private fun MutableList<String>.addDesktopGradleProcessOptions() {
-        add("--no-parallel")
-        add("--no-daemon")
-        add("--console=plain")
-    }
-
     private fun simulationGradleCommand(isWindows: Boolean, league: League): List<String> {
-        val command = withAresRepository(buildList {
-            addGradleWrapper(isWindows)
-            add(if (league == League.FTC) ":TeamCode:runSim" else "simulateJava")
-            addDesktopGradleProcessOptions()
-        })
-        val studioOwnedSimulationCommand = if (league == League.FRC) {
-            command + "-ParesFrcHalGui=false"
+        val frcJavaExecutable = if (isWindows && league == League.FRC) {
+            ManagedToolchainPaths.resolveFrcSimulationJavaHome()
+                ?.let { File(it, "bin/java.exe") }
+                ?.takeIf(File::isFile)
         } else {
-            command
+            null
         }
-        if (!isWindows || league != League.FRC) return studioOwnedSimulationCommand
-        val javaExecutable = ManagedToolchainPaths.resolveFrcSimulationJavaHome()
-            ?.let { File(it, "bin/java.exe") }
-            ?.takeIf(File::isFile)
-            ?: return studioOwnedSimulationCommand
-        return studioOwnedSimulationCommand + "-ParesFrcJavaExecutable=${javaExecutable.path}"
+        return gradleCommands.simulation(isWindows, league, frcJavaExecutable)
     }
 
     private fun authoringGradleCommand(
         task: String,
         isWindows: Boolean,
         confirmationToken: String? = null,
-    ): List<String> = withAresRepository(buildList {
-        addGradleWrapper(isWindows)
-        add(task)
-        addDesktopGradleProcessOptions()
-        confirmationToken?.let { add("-Pares.subsystemReplacementToken=$it") }
-    })
+    ): List<String> = gradleCommands.authoring(task, isWindows, confirmationToken)
 
     private fun adbConnectCommandForDeploy(adb: String): List<String> =
         listOf(adb, "connect", FTC_ADB_TARGET)
@@ -1256,12 +1190,8 @@ class ProcessManagerService internal constructor(
         return root
     }
 
-    private fun withAresRepository(command: List<String>): List<String> = buildList {
-        addAll(command)
-        gradleJavaInstallationsArgument?.let(::add)
-        aresRepositoryArgument?.let(::add)
-        aresVersionArgument?.let(::add)
-    }
+    private fun withAresRepository(command: List<String>): List<String> =
+        gradleCommands.decorate(command)
 
     private fun withAresRepositoryEnvironment(processBuilder: ProcessBuilder): ProcessBuilder =
         processBuilder.also { builder ->
