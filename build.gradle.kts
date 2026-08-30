@@ -238,11 +238,57 @@ subprojects {
     }
 }
 
+val largeProductionKotlinBaseline = file("config/maintainability/large-production-kotlin-baseline.txt")
+val productionKotlinRoots = listOf(file("app/src/main"), file("shared/src/main"), file("gateway/src/main"))
+
+val verifyProductionKotlinFileSizes = tasks.register("verifyProductionKotlinFileSizes") {
+    group = "verification"
+    description = "Prevents existing Kotlin monoliths from growing and new production files from exceeding 500 lines."
+    inputs.file(largeProductionKotlinBaseline)
+    inputs.files(productionKotlinRoots.map { root -> fileTree(root) { include("**/*.kt") } })
+
+    doLast {
+        val allowed = largeProductionKotlinBaseline.readLines()
+            .map(String::trim)
+            .filter { it.isNotEmpty() && !it.startsWith('#') }
+            .associate { line ->
+                val separator = line.lastIndexOf('=')
+                require(separator > 0) { "Invalid maintainability baseline entry: $line" }
+                line.substring(0, separator) to line.substring(separator + 1).toInt()
+            }
+        val violations = buildList {
+            productionKotlinRoots.forEach { sourceRoot ->
+                sourceRoot.walkTopDown()
+                    .filter { it.isFile && it.extension == "kt" }
+                    .forEach { source ->
+                        val relative = source.relativeTo(rootDir).invariantSeparatorsPath
+                        val lineCount = source.useLines { lines -> lines.count() }
+                        val baseline = allowed[relative]
+                        if (lineCount > 500 && (baseline == null || lineCount > baseline)) {
+                            add(
+                                if (baseline == null) "$relative is a new $lineCount-line production file (limit 500)."
+                                else "$relative grew from the $baseline-line baseline to $lineCount lines.",
+                            )
+                        }
+                    }
+            }
+        }
+        if (violations.isNotEmpty()) {
+            throw GradleException(
+                "Production Kotlin size ratchet failed:\n" + violations.joinToString("\n") { " - $it" } +
+                    "\nExtract a cohesive component instead of increasing the baseline.",
+            )
+        }
+        logger.lifecycle("Production Kotlin size ratchet passed (${allowed.size} grandfathered files, 500-line new-file limit).")
+    }
+}
+
 tasks.register("studioReleaseVerification") {
     group = "verification"
     description = "Runs all deterministic Studio suites, coverage ratchets, and dashboard smoke budgets."
     dependsOn(
         verifyReleaseVersionAlignment,
+        verifyProductionKotlinFileSizes,
         ":shared:test",
         ":gateway:test",
         ":app:test",
